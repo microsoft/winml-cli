@@ -117,12 +117,12 @@ def print_io_specs_detail(
 
     for i, t in enumerate(inputs):
         name = t.name or "(unnamed)"
-        shape_str = str(list(t.shape)) if getattr(t, "shape", None) else "dynamic"
+        shape_str = str(list(t.shape)) if t.shape else "dynamic"
         dtype_str = getattr(t, "dtype", None) or "?"
         label = "Input:        " if i == 0 else "              "
         console.print(f"   {label}[cyan]{name:<18}[/cyan] {shape_str:<14} [dim]{dtype_str}[/dim]")
-    for i, t in enumerate(outputs):
-        name = t.name or "(unnamed)"
+    for i, out_t in enumerate(outputs):
+        name = out_t.name or "(unnamed)"
         # Fix #3: OutputTensorSpec only has name — show name only
         label = "Output:       " if i == 0 else "              "
         console.print(f"   {label}[cyan]{name}[/cyan]")
@@ -307,7 +307,7 @@ class _SafeLive(Live):
         super().__init__(*args, **kwargs)
         self._refresh_disabled: bool = False
 
-    def refresh(self) -> None:  # type: ignore[override]
+    def refresh(self) -> None:
         if self._refresh_disabled:
             return
         try:
@@ -320,15 +320,15 @@ class _SafeLive(Live):
             logger.debug("Disabling Live refresh after OSError", exc_info=True)
 
     @_swallow_oserror
-    def start(self, refresh: bool = False) -> None:  # type: ignore[override]
+    def start(self, refresh: bool = False) -> None:
         super().start(refresh=refresh)
 
     @_swallow_oserror
-    def stop(self) -> None:  # type: ignore[override]
+    def stop(self) -> None:
         super().stop()
 
     @_swallow_oserror
-    def update(self, renderable: RenderableType, *, refresh: bool = False) -> None:  # type: ignore[override]
+    def update(self, renderable: RenderableType, *, refresh: bool = False) -> None:
         super().update(renderable, refresh=refresh)
 
 

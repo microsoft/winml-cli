@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 
 if TYPE_CHECKING:
@@ -220,9 +220,33 @@ def resolve_loader_config(
             f"attribute. Cannot proceed with config generation."
         )
 
+    # Explicit model_type override alongside a model_id: thread the requested
+    # variant through downstream resolution (task / class / composite tag and
+    # the loader config's model_type) WITHOUT mutating the loaded HF config. The
+    # exported graph, the htp Optimum patcher and every other consumer must keep
+    # seeing the architecture's native type; only the resolved build-variant tag
+    # changes. The model_type-only path above (AutoConfig.for_model) is
+    # unaffected because it only runs when model_id is None.
+    model_type_override = (
+        model_type
+        if (model_id is not None and model_type is not None and hf_config.model_type != model_type)
+        else None
+    )
+    if model_type_override is not None:
+        logger.info(
+            "Applying model_type override '%s' -> '%s' (explicit request)",
+            hf_config.model_type,
+            model_type_override,
+        )
+
     # 2-3. Unified resolution. Task detection — including the no-architectures
     # --model-type fallback (first supported task) — now lives in resolve_task.
-    resolution = resolve_task(hf_config, task=task, model_class=model_class)
+    resolution = resolve_task(
+        hf_config,
+        task=task,
+        model_class=model_class,
+        model_type_override=model_type_override,
+    )
     resolved_task, resolved_class = resolution.task, resolution.model_class
     logger.info("Resolved: task=%s, model_class=%s", resolved_task, resolved_class.__name__)
 
@@ -231,6 +255,12 @@ def resolve_loader_config(
         hf_config,
         resolved_class,
     )
+
+    # The explicit variant tag wins over the architecture's native type for the
+    # loader config (drives downstream build-variant dispatch), while
+    # resolved_hf_config keeps its native model_type.
+    if model_type_override is not None:
+        resolved_model_type = model_type_override
 
     # 5. Build loader config
     loader_config = WinMLLoaderConfig(
@@ -266,7 +296,7 @@ def _create_hf_config_from_model_class(model_class: type) -> PretrainedConfig:
         )
     hf_config = config_cls()
     hf_config.architectures = [model_class.__name__]
-    return hf_config
+    return cast("PretrainedConfig", hf_config)
 
 
 def _resolve_hf_config_for_class(

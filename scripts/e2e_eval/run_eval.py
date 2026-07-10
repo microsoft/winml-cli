@@ -3,34 +3,41 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""E2E evaluation runner — unified perf + accuracy.
+"""E2E evaluation runner — unified, recipe-driven perf + accuracy.
 
-Batch-runs winml perf (and optionally winml eval + pytorch baseline) for models
-in a JSON registry, writes unified eval_result.json per model, and generates
-combined reports.
+Batch-builds models and runs winml perf, then (when perf passes) winml eval,
+writing one unified eval_result.json per (model, task, precision). Builds prefer
+an authored recipe under ``examples/recipes/`` (``winml build -c`` for each
+precision variant), falling back to ``winml config`` for models without one.
 
-Strategy B cache sharing: winml perf runs first (build + benchmark, populates
-model cache). winml eval then reuses the cache — no redundant build step.
+The runner records facts only (perf output + the winml-eval metrics/dataset).
+The per-model report HTML — perf latency and the "Model Accuracy Report" delta
+vs the PyTorch baseline — is rendered separately by the ModelKitArtifacts-site
+scripts from these eval_result.json files. Use ``--update-baseline`` to refresh
+the offline baseline cache the site grades against.
 
 Usage:
-    # Perf only (default)
+    # Perf only (default), recipe-driven across precision variants
     python scripts/e2e_eval/run_eval.py --priority P0
 
-    # Both perf and accuracy in one batch
+    # Perf, then accuracy when perf passes
     python scripts/e2e_eval/run_eval.py --eval-type both --priority P0
 
-    # Accuracy only (winml perf is skipped; winml eval will build the model if cache is missing)
+    # Accuracy only (winml perf skipped)
     python scripts/e2e_eval/run_eval.py --eval-type accuracy --hf-model microsoft/resnet-50
 
     # Single model
     python scripts/e2e_eval/run_eval.py --hf-model microsoft/resnet-50 --device cpu
+
+    # Refresh the offline PyTorch baseline cache (no build/perf/eval)
+    python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accuracy --priority P0
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
-import dataclasses
+import hashlib
 import json
 import logging
 import os
@@ -42,6 +49,7 @@ import sys
 import tempfile
 import threading
 import time
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -49,26 +57,22 @@ from pathlib import Path
 # Ensure utils is importable when invoked directly
 sys.path.insert(0, str(Path(__file__).parent))
 
-from utils.accuracy import (
-    AccuracyVerdict,
-    compute_delta,
-    derive_verdict,
-    derive_verdicts,
-    format_delta,
-)
 from utils.dataset_config import get_dataset_config, register_from_registry
-from utils.registry import ModelEntry, filter_registry, load_registry, make_adhoc_entry
+from utils.recipes import RecipeVariant, discover_recipe_variants
+from utils.registry import (
+    ModelEntry,
+    filter_registry,
+    load_registry,
+    make_adhoc_entry,
+    op_tracing_target_key,
+)
 from utils.reporter import (
+    accuracy_status,
     build_eval_result,
     classify_result,
     classify_results,
-    format_text_summary,
-    generate_html_report,
-    generate_summary,
     load_result_json,
     write_result_json,
-    write_summary_json,
-    write_summary_md,
 )
 
 
@@ -224,6 +228,56 @@ def _clear_disk_caches() -> None:
                     pass  # Best-effort cleanup; ignore if file is locked or already removed
         if cleaned:
             safe_print(f"  [cleanup] Removed {cleaned} leaked temp entries from {_TEMP_DIR}")
+
+
+# Stray scratch files that onnxruntime/QNN/EP libraries write into the *process
+# working directory* (the repo root when the harness is launched from there),
+# outside any path the harness controls via ``-o``/``--output``:
+#   * ``<uuid>.onnx`` / ``<uuid>.data`` / ``<uuid>.onnx.data`` — external-data
+#     serializations from shape inference / quant preprocessing.
+#   * ``<uuid>.onnx_<EP>.bin`` / ``<uuid>_ctx.onnx`` — QNN/VitisAI EP context
+#     dumps (can be very large, which is what fills a QNN box's disk).
+#   * ``sym_shape_infer_temp.onnx`` — onnxruntime symbolic shape inference temp.
+#   * ``timing_log.csv`` — engine-compile timing dump written by some EP
+#     runtimes (TensorRT-RTX / MIGraphX / VitisAI) on session creation.
+# Matched conservatively (UUID-prefixed names, the sym-shape prefix, or an exact
+# fixed filename) so real, non-temporary files in the cwd are never touched.
+_UUID_PREFIX_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+_STRAY_CWD_PREFIXES = ("sym_shape_infer_temp",)
+_STRAY_CWD_EXACT = frozenset({"timing_log.csv"})
+
+
+def _clean_stray_cwd_artifacts(directory: Path) -> int:
+    """Remove ORT/QNN/EP scratch files libraries leak into ``directory``.
+
+    These land in the subprocess working directory (inherited from the harness,
+    i.e. the repo root) and are not covered by the per-job or cache cleanups, so
+    across many jobs they fill the disk even with ``--clean-cache``. Only clearly
+    temporary names are removed (see ``_UUID_PREFIX_RE`` / ``_STRAY_CWD_PREFIXES``
+    / ``_STRAY_CWD_EXACT``). Returns the number of files removed.
+    """
+    if not directory.is_dir():
+        return 0
+    removed = 0
+    for entry in directory.iterdir():
+        if not entry.is_file():
+            continue
+        name = entry.name
+        if (
+            _UUID_PREFIX_RE.match(name)
+            or name.startswith(_STRAY_CWD_PREFIXES)
+            or name in _STRAY_CWD_EXACT
+        ):
+            try:
+                entry.unlink()
+                removed += 1
+            except OSError:
+                pass  # Best-effort; ignore locked/already-removed files
+    if removed:
+        safe_print(f"  [cleanup] Removed {removed} stray scratch file(s) from {directory}")
+    return removed
 
 
 def safe_print(text: str) -> None:
@@ -478,71 +532,6 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
 # ---------------------------------------------------------------------------
 
 
-# winml's optimize stage requires opset >= 12 (see
-# winml.modelkit.analyze.models.onnx_model.validate_opset_version). Pre-exported
-# ONNX below this is upgraded to a modern opset before config/build. 17 matches
-# winml's own default export opset.
-_WINML_MIN_OPSET = 12
-_OPSET_UPGRADE_TARGET = 17
-
-
-def _ensure_min_opset(onnx_path: str, model_dir: Path) -> str:
-    """Upgrade an ONNX file to winml's minimum opset if it ships below it.
-
-    Some pre-exported ONNX models (e.g. PaddleOCR's ``inference.onnx``) ship at
-    opset 11. onnxruntime can run them, but winml's optimize stage rejects
-    opset < 12. Convert to :data:`_OPSET_UPGRADE_TARGET` and write the result
-    into ``model_dir`` so config/build consume the upgraded graph. Models already
-    at/above the minimum are returned unchanged (no needless rewrite).
-    """
-    import onnx
-
-    model = onnx.load(onnx_path)
-    current = max(
-        (imp.version for imp in model.opset_import if imp.domain in ("", "ai.onnx")),
-        default=0,
-    )
-    if current >= _WINML_MIN_OPSET:
-        return onnx_path
-
-    safe_print(
-        f"    [onnx] opset {current} < {_WINML_MIN_OPSET} (winml minimum); "
-        f"upgrading to opset {_OPSET_UPGRADE_TARGET} ..."
-    )
-    upgraded = onnx.version_converter.convert_version(model, _OPSET_UPGRADE_TARGET)
-    model_dir.mkdir(parents=True, exist_ok=True)
-    out_path = model_dir / f"{Path(onnx_path).stem}_op{_OPSET_UPGRADE_TARGET}.onnx"
-    onnx.save(upgraded, str(out_path))
-    safe_print(f"    [onnx] upgraded ONNX: {out_path}")
-    return str(out_path)
-
-
-def _resolve_model_input(entry: ModelEntry, model_dir: Path) -> str:
-    """Return the value to pass to winml's ``-m`` argument for this model.
-
-    For models that ship a pre-exported ONNX (``entry.onnx_file`` set, e.g. the
-    PaddleOCR ``*_onnx`` repos), download that file from the HF repo and return
-    its local path. winml config/build/perf accept a local ``.onnx`` path
-    directly (``is_onnx_file_path`` routes to the skip-export pipeline), so the
-    harness hands them the downloaded file instead of the HF id — avoiding the
-    HF->ONNX export that these architectures don't support. The file is upgraded
-    to winml's minimum opset first when necessary (see :func:`_ensure_min_opset`).
-
-    Otherwise return ``entry.hf_id`` unchanged.
-    """
-    if not entry.onnx_file:
-        return entry.hf_id
-
-    # Lazy import: keeps script load cheap and matches the in-function import
-    # pattern used elsewhere in this module.
-    from huggingface_hub import hf_hub_download
-
-    safe_print(f"    [onnx] downloading {entry.onnx_file} from {entry.hf_id} ...")
-    local_path = hf_hub_download(repo_id=entry.hf_id, filename=entry.onnx_file)
-    safe_print(f"    [onnx] using pre-exported ONNX: {local_path}")
-    return _ensure_min_opset(local_path, model_dir)
-
-
 def _run_build(
     entry: ModelEntry,
     device: str,
@@ -550,6 +539,7 @@ def _run_build(
     timeout: int,
     model_dir: Path,
     ep: str | None = None,
+    build_only: bool = False,
 ) -> dict:
     """Run winml config + winml build for one model. Returns build result dict.
 
@@ -558,7 +548,28 @@ def _run_build(
     Single models produce one config; composite models (e.g., T5 translation)
     produce one per sub-component (suffixed names). Both go through the same
     build loop — single model is just the list-of-1 case.
+
+    When ``build_only`` is set, each build writes its artifacts to ``model_dir``
+    via ``-o`` (preserving the intermediate export/optimized/quantized ONNX) and
+    skips compile (``--no-compile``) — no execution provider is required.
+    Otherwise the build populates the global cache (``--use-cache``).
     """
+    composite_onnx = getattr(entry, "composite_onnx", None)
+    if isinstance(composite_onnx, dict) and composite_onnx:
+        return {
+            "success": True,
+            "onnx_paths": dict(composite_onnx),
+            "stage": "prebuilt",
+            "proc": {
+                "exit_code": 0,
+                "stdout": "Using pre-built composite ONNX paths from registry.",
+                "stderr": "",
+                "elapsed": 0.0,
+                "timeout": False,
+                "command": "registry composite_onnx",
+            },
+        }
+
     config_path = model_dir / "build_config.json"
     model_dir.mkdir(parents=True, exist_ok=True)
 
@@ -572,33 +583,12 @@ def _run_build(
         safe_print(f"    [config] Removing stale sub-config from prior run: {_stale.name}")
         _stale.unlink(missing_ok=True)
 
-    # Resolve the -m argument shared by config + build. For onnx_file models this
-    # downloads the pre-exported ONNX (upgrading opset if needed) and returns its
-    # local path; otherwise it is the HF id. Failures surface as a synthetic build
-    # failure so the run continues to the next model instead of crashing.
-    try:
-        model_input = _resolve_model_input(entry, model_dir)
-    except Exception as exc:
-        return {
-            "success": False,
-            "onnx_paths": {},
-            "stage": "onnx_prepare",
-            "proc": {
-                "stdout": "",
-                "stderr": f"ONNX prepare failed for {entry.hf_id}/{entry.onnx_file}: {exc}",
-                "exit_code": -1,
-                "elapsed": 0,
-                "timeout": False,
-                "command": f"hf_hub_download({entry.hf_id}, {entry.onnx_file})",
-            },
-        }
-
     # Step 1: winml config
     config_args = [
         *WINML_CLI,
         "config",
         "-m",
-        model_input,
+        entry.hf_id,
         "--device",
         device,
         "-o",
@@ -650,18 +640,17 @@ def _run_build(
             "-c",
             str(sub_cfg),
             "-m",
-            model_input,
-            "--device",
-            device,
+            entry.hf_id,
         ]
-        # Direct-ONNX configs (export=None) carry no loader.task, so --use-cache
-        # cannot form its task-prefixed cache key; write the artifact to the
-        # model dir instead. HF-id builds keep using the shared model cache.
-        build_out_dir = model_dir / "build"
-        if entry.onnx_file:
-            build_args += ["--output-dir", str(build_out_dir)]
+        if build_only:
+            # Write artifacts to disk and skip compile (no EP required).
+            # Composite components get a subdir to avoid name collisions.
+            build_out = model_dir / label if label else model_dir
+            build_out.mkdir(parents=True, exist_ok=True)
+            build_args += ["-o", str(build_out), "--no-compile"]
         else:
             build_args += ["--use-cache"]
+        build_args += ["--device", device]
         if ep:
             build_args += ["--ep", ep]
         # Mirror the --no-quant passed to winml config above so the build
@@ -681,16 +670,17 @@ def _run_build(
                 "proc": build_proc,
             }
 
-        if entry.onnx_file:
-            # --output-dir builds write a deterministic <output-dir>/model.onnx.
-            # Use it directly rather than parsing stdout markers, which Rich wraps
-            # for long paths (an unfound path silently drops perf to a build-only
-            # false PASS).
-            built = build_out_dir / "model.onnx"
-            path = str(built) if built.exists() else None
-        else:
-            task_hint = _extract_task_from_config(sub_cfg) or entry.task
-            path = _extract_onnx_path(build_proc, entry.hf_id, task_hint)
+        if build_only:
+            # In build-only mode the artifacts go to ``-o <build_out>`` (no
+            # cache, no compile). There is no "Final artifact:" marker to
+            # parse and no downstream consumer of the path -- exit-code 0 is
+            # the success signal. Record build_out so the per-component
+            # bookkeeping (len(onnx_paths) == len(sub_configs)) stays valid.
+            onnx_paths[label] = str(build_out)
+            continue
+
+        task_hint = _extract_task_from_config(sub_cfg) or entry.task
+        path = _extract_onnx_path(build_proc, entry.hf_id, task_hint)
         if path:
             onnx_paths[label] = path
 
@@ -699,6 +689,142 @@ def _run_build(
         "onnx_paths": onnx_paths,
         "stage": "complete",
         "proc": last_proc,
+    }
+
+
+def _is_vitisai_ep(ep: str | None) -> bool:
+    """True when ``ep`` resolves to the VitisAI execution provider."""
+    from winml.modelkit.utils.constants import normalize_ep_name
+
+    return normalize_ep_name(ep) == "VitisAIExecutionProvider"
+
+
+def _config_has_eval_section(config_path: Path) -> bool:
+    """True when a recipe config carries an ``eval`` object."""
+    try:
+        cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return isinstance(cfg.get("eval"), dict)
+
+
+def _recipe_meta_config(variant: RecipeVariant) -> Path | None:
+    """Return the variant's config that carries the ``eval`` section.
+
+    For composite recipes the eval/dataset config is the one (of the component
+    files) with an ``eval`` object; ``winml eval -c`` reads the dataset from it.
+    Single-model recipes return their sole config when it has an eval section.
+    """
+    for component in variant.components:
+        if _config_has_eval_section(component.path):
+            return component.path
+    return None
+
+
+def _needs_trust_remote_code(config_path: Path | None) -> bool:
+    """True when the recipe's eval dataset declares a ``build_script``.
+
+    Such datasets run bundled loading code, so ``winml eval`` needs
+    ``--trust-remote-code``.
+    """
+    if config_path is None:
+        return False
+    try:
+        cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    dataset = (cfg.get("eval") or {}).get("dataset") or {}
+    return bool(dataset.get("build_script"))
+
+
+def _run_recipe_build(
+    entry: ModelEntry,
+    variant: RecipeVariant,
+    timeout: int,
+    model_dir: Path,
+    ep: str | None = None,
+    rebuild: bool = False,
+) -> dict:
+    """Build an authored recipe variant with ``winml build -c --use-cache``.
+
+    The recipe config is the source of truth for export/optimize/quantize
+    (every recipe sets ``compile: null``, so the build is EP-agnostic and the
+    execution provider is applied later by perf/eval).  Each component is built
+    into the global WinML cache (``--use-cache``) — the same destination as the
+    ``winml config`` fallback path — so every job's build artifacts live under
+    ``~/.cache/winml`` regardless of recipe-vs-fallback, and the shared cache
+    cleanup (:func:`_clear_disk_caches`) bounds disk for both.  Returns the same
+    shape as :func:`_run_build` plus the ``meta_config`` (the eval/dataset config
+    for ``winml eval -c``).
+
+    For VitisAI ``--no-compile`` is passed for parity with the example harness;
+    it is a no-op while recipes keep ``compile: null`` but guards against a
+    future recipe that pins a compile EP.
+    """
+    model_dir.mkdir(parents=True, exist_ok=True)
+    meta_config = _recipe_meta_config(variant)
+    no_compile = _is_vitisai_ep(ep)
+
+    onnx_paths: dict[str, str] = {}
+    last_proc: dict | None = None
+    for component in variant.components:
+        role = component.role
+        if role:
+            safe_print(f"    building component: {role}")
+
+        build_args = [
+            *WINML_CLI,
+            "build",
+            "-c",
+            str(component.path),
+            "-m",
+            entry.hf_id,
+            "--use-cache",
+        ]
+        if no_compile:
+            build_args += ["--no-compile"]
+        if rebuild:
+            build_args += ["--rebuild"]
+
+        proc = _run_subprocess(build_args, timeout)
+        last_proc = proc
+        if proc["exit_code"] != 0:
+            stage = f"build_{role}" if role else "build"
+            return {
+                "success": False,
+                "onnx_paths": onnx_paths,
+                "stage": stage,
+                "proc": proc,
+                "meta_config": meta_config,
+            }
+
+        # Locate the cached artifact from the build output (same mechanism as
+        # the winml-config fallback). The component's own config carries the
+        # task, needed to disambiguate a model's multiple cached tasks.
+        task_hint = _extract_task_from_config(component.path) or entry.task
+        onnx = _extract_onnx_path(proc, entry.hf_id, task_hint)
+        if onnx is None:
+            proc = dict(proc)
+            proc["exit_code"] = proc.get("exit_code") or 1
+            proc["stderr"] = (
+                proc.get("stderr", "") + "\nBuilt ONNX artifact not found in WinML cache"
+            )
+            stage = f"build_{role}" if role else "build"
+            return {
+                "success": False,
+                "onnx_paths": onnx_paths,
+                "stage": stage,
+                "proc": proc,
+                "meta_config": meta_config,
+            }
+        onnx_paths[role or ""] = str(onnx)
+
+    return {
+        "success": len(onnx_paths) == len(variant.components),
+        "onnx_paths": onnx_paths,
+        "stage": "complete",
+        "proc": last_proc,
+        "meta_config": meta_config,
     }
 
 
@@ -761,8 +887,766 @@ def _find_cached_model(hf_id: str, build_proc: dict, task: str | None = None) ->
 
 
 # ---------------------------------------------------------------------------
+# Build-only phase (export + optimize + quantize, no compile / no EP hardware)
+# ---------------------------------------------------------------------------
+
+# EP matrix generated by --build-only when neither --ep nor --device is pinned.
+# This is the eval test matrix (deliberately broader than the canonical
+# get_ep_device_map): qnn on npu+gpu, OpenVINO on cpu+npu+gpu, MLAS (native CPU
+# EP), DirectML on gpu, and VitisAI on npu. Each combo is built into its own
+# <model_dir>/<label>/ subdir.
+_BUILD_ONLY_EP_MATRIX: tuple[tuple[str, str, str], ...] = (
+    ("qnn_npu", "qnn", "npu"),
+    ("qnn_gpu", "qnn", "gpu"),
+    ("ov_cpu", "openvino", "cpu"),
+    ("ov_npu", "openvino", "npu"),
+    ("ov_gpu", "openvino", "gpu"),
+    ("mlas_cpu", "cpu", "cpu"),
+    ("dml_gpu", "dml", "gpu"),
+    ("vitisai_npu", "vitisai", "npu"),
+)
+
+
+# ---------------------------------------------------------------------------
+# Build-only: export dedup
+# ---------------------------------------------------------------------------
+
+
+def _hash_files(paths: list[Path]) -> str:
+    """SHA-256 over a set of files (name + streamed content), order-independent.
+
+    Raises:
+        OSError: if any file cannot be read. The caller must decide how to
+            handle this (e.g. skip dedup) instead of hashing two unreadable
+            files to the same value and deleting an artifact that was never
+            verified to be identical.
+    """
+    h = hashlib.sha256()
+    for p in sorted(paths, key=lambda x: x.name):
+        h.update(p.name.encode("utf-8"))
+        with p.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+    return h.hexdigest()
+
+
+def _dedup_export(
+    build_dir: Path, shared_dir: Path, canonical_hash: str | None, label: str
+) -> str | None:
+    """Deduplicate this combo's export.onnx(+sidecar) against a per-model canonical.
+
+    The export stage is EP/device-independent, so every combo produces an
+    identical ``export.onnx``. The first one is moved into ``shared_dir``
+    (``_shared/``); later identical ones are deleted to keep one copy on disk.
+
+    Returns the (possibly newly-set) canonical hash.
+    """
+    export_files = sorted(build_dir.glob("export.onnx*"))
+    if not export_files:
+        return canonical_hash  # composite/no top-level export — leave untouched
+    try:
+        h = _hash_files(export_files)
+    except OSError as exc:
+        # Never dedup on an unverified hash: an export we cannot read is kept in
+        # place rather than risk deleting it as a false duplicate.
+        safe_print(f"  [dedup] WARNING {label}: cannot hash export ({exc}) — keeping in place")
+        return canonical_hash
+    if canonical_hash is None:
+        shared_dir.mkdir(parents=True, exist_ok=True)
+        for f in export_files:
+            shutil.move(str(f), str(shared_dir / f.name))
+        safe_print(
+            f"  [dedup] export -> {shared_dir.name}/ (canonical, {len(export_files)} file(s))"
+        )
+        return h
+    if h == canonical_hash:
+        for f in export_files:
+            f.unlink(missing_ok=True)
+        safe_print(f"  [dedup] {label}: export identical -> removed (using {shared_dir.name}/)")
+        return canonical_hash
+    safe_print(f"  [dedup] WARNING {label}: export differs from canonical — keeping in place")
+    return canonical_hash
+
+
+# ---------------------------------------------------------------------------
+# Build-only: Azure Artifacts feed upload (Universal Packages, az CLI, no PAT)
+# ---------------------------------------------------------------------------
+
+# Azure DevOps AAD application ID. Used as the token audience (``--resource``)
+# when querying the feed REST API with ``az rest``. Constant across all orgs and
+# not a secret (it is the public first-party app id for Azure DevOps).
+_AZURE_DEVOPS_RESOURCE = "499b84ac-1321-427f-aa17-267ca6975798"
+_FEED_API_VERSION = "7.1-preview.1"
+
+
+def _run_az(args: list[str], timeout: int = 600) -> dict:
+    """Run an `az ...` command, returning the same dict shape as _run_subprocess."""
+    az = shutil.which("az")
+    if az is None:
+        return {
+            "stdout": "",
+            "stderr": "az CLI not found on PATH",
+            "exit_code": 127,
+            "elapsed": 0.0,
+            "timeout": False,
+            "command": "az " + " ".join(args),
+        }
+    # Pass the az path (incl. az.cmd on Windows) directly in list form.
+    # subprocess handles .cmd resolution and arg quoting correctly; wrapping in
+    # `cmd /c` breaks when the az path has spaces (C:\Program Files\...) and an
+    # arg also contains spaces (e.g. --description), because cmd.exe then mangles
+    # the quotes and tries to run 'C:\Program'.
+    return _run_subprocess([az, *args], timeout)
+
+
+def _ensure_feed_ready(timeout: int = 180) -> str | None:
+    """Verify az + azure-devops extension + login. Returns an error string or None."""
+    if shutil.which("az") is None:
+        return "az CLI not found. Install Azure CLI (https://aka.ms/azcli)."
+    ext = _run_az(["extension", "show", "--name", "azure-devops"], timeout)
+    if ext["exit_code"] != 0:
+        safe_print("  [upload] Installing 'azure-devops' az extension...")
+        add = _run_az(["extension", "add", "--name", "azure-devops"], timeout)
+        if add["exit_code"] != 0:
+            return f"Failed to install 'azure-devops' az extension: {add['stderr'][:300]}"
+    acct = _run_az(["account", "show"], timeout)
+    if acct["exit_code"] != 0:
+        return "Not logged in to Azure. Run 'az login' (PAT not required), then retry."
+    return None
+
+
+def _slugify_version(text: str) -> str:
+    """Lowercase + collapse non-[0-9a-z] runs to single dashes (semver prerelease-safe)."""
+    s = re.sub(r"[^0-9a-z]+", "-", text.lower())
+    return re.sub(r"-{2,}", "-", s).strip("-")
+
+
+def _feed_version_for(entry: ModelEntry, run_stamp: str, combo_label: str) -> str:
+    """Per-combo Universal Package version (one per EP/device pair).
+
+    The version is ``0.0.0-<run-stamp>-<ep>-<device>-<model-slug>``. Universal
+    Packages require a valid lowercase SemVer 2.0 version, so the
+    ``major.minor.patch`` core is fixed at ``0.0.0`` and the batch stamp, the
+    EP/device combo, and the model identity live in the pre-release segment. The
+    run stamp (a date like ``20260609``) groups a batch under a common prefix;
+    ``combo_label`` (e.g. ``qnn_npu``) scopes the version to a single EP/device
+    pair so each model uploads one (smaller) package per combo instead of one
+    large package for the whole matrix -- which both lowers the per-upload
+    timeout risk and lets an interrupted combo be retried on its own. An
+    interrupted batch resumes by re-using the same stamp (see ``--run-stamp`` /
+    ``--continue``).
+    """
+    parts = [run_stamp, combo_label, entry.hf_id]
+    if entry.task:
+        parts.append(entry.task)
+    return "0.0.0-" + _slugify_version("-".join(parts))
+
+
+def _is_publish_conflict(proc: dict) -> bool:
+    """True if a publish failed because the version already exists in the feed.
+
+    Only specific version-exists / HTTP 409 markers are matched. A broad
+    substring like ``"conflict"`` or a bare ``"409"`` is avoided on purpose: a
+    false positive is treated as ``exists-skipped`` and deletes the local model
+    dir, so an unrelated message mentioning those words would be a data-loss
+    path.
+    """
+    blob = (proc.get("stdout", "") + proc.get("stderr", "")).lower()
+    return any(
+        marker in blob
+        for marker in (
+            "already exist",
+            "packageversionexists",
+            "status code: 409",
+            "statuscode=409",
+            "httpstatuscode: 409",
+        )
+    )
+
+
+def _is_az_unavailable(proc: dict) -> bool:
+    """True if an ``az`` invocation failed because the CLI/login is unavailable.
+
+    Distinguishes a host-level Azure CLI problem (not installed, not logged in,
+    token expired) from a per-package publish error (a one-off network blip, a
+    slow/timed-out transfer, or a version conflict). A host-level problem recurs
+    for every remaining combo, so the caller aborts the whole run; a per-combo
+    error is recorded and the run continues.
+
+    A bare timeout is deliberately *not* treated as "unavailable": with per-combo
+    uploads a timeout is almost always a slow/large transfer, which the caller
+    handles as a per-combo ``timeout`` (clean up + continue). Only an explicit
+    auth marker (below) or ``az`` missing from PATH triggers an abort -- so a
+    hung re-auth that still emits an auth marker is caught, while a plain slow
+    upload is not.
+    """
+    if proc.get("exit_code") == 127:  # az not found on PATH (see _run_az)
+        return True
+    blob = (proc.get("stdout", "") + proc.get("stderr", "")).lower()
+    return any(
+        marker in blob
+        for marker in (
+            "az login",
+            "not logged in",
+            "no subscription found",
+            "interactive authentication is needed",
+            "authenticationfailed",
+            "authentication failed",
+            "aadsts",
+            "token has expired",
+            "expired token",
+            "invalid_grant",
+            "re-authenticate",
+            "az account set",
+        )
+    )
+
+
+def _upload_model_dir(
+    args: argparse.Namespace, model_dir: Path, version: str, timeout: int
+) -> dict:
+    """Publish a model dir to the feed as a Universal Package version."""
+    return _run_az(
+        [
+            "artifacts",
+            "universal",
+            "publish",
+            "--organization",
+            args.feed_org,
+            "--project",
+            args.feed_project,
+            "--scope",
+            "project",
+            "--feed",
+            args.feed,
+            "--name",
+            args.package_name,
+            "--version",
+            version,
+            "--path",
+            str(model_dir),
+            "--description",
+            f"build-only artifacts: {version}",
+        ],
+        timeout,
+    )
+
+
+def _classify_upload(up: dict, args: argparse.Namespace) -> str:
+    """Classify an ``az universal publish`` result into an upload status.
+
+    Pure (no side effects) so the caller owns printing, recording, counters, and
+    cleanup. Returns one of:
+
+    - ``uploaded``: published successfully.
+    - ``exists-skipped``: version already on the feed and --upload-skip-existing.
+    - ``auth-abort``: host-level az failure (not installed / not logged in /
+      token expired) -> the caller cleans up and aborts the whole run.
+    - ``timeout``: the publish was killed by the timeout (slow/large transfer)
+      -> the caller cleans up and continues with the next combo. The upload may
+      still have committed server-side before the client was killed, so the retry
+      on ``--continue`` can hit a 409 -- pair it with ``--upload-skip-existing``
+      to count that as done rather than a failure.
+    - ``failed``: any other per-combo publish error -> clean up and continue.
+    """
+    if up.get("exit_code") == 0:
+        return "uploaded"
+    conflict = _is_publish_conflict(up)
+    if conflict and args.upload_skip_existing:
+        return "exists-skipped"
+    if not conflict and _is_az_unavailable(up):
+        return "auth-abort"
+    if up.get("timeout"):
+        return "timeout"
+    return "failed"
+
+
+def _load_results(path: Path) -> dict:
+    """Load the build_only_results.json log, or {} on any error."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _write_results(path: Path, results: dict) -> None:
+    """Persist the build-only results log (combo version -> outcome)."""
+    path.write_text(json.dumps(results, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def _safe_rmtree(path: Path) -> None:
+    """Remove a directory tree to bound disk usage; warn (never raise) on error."""
+    if not path.exists():
+        return
+    try:
+        shutil.rmtree(path)
+        safe_print(f"  [cleanup] Removed local: {path}")
+    except OSError as exc:
+        safe_print(f"  [cleanup] Warning: could not remove {path}: {exc}")
+
+
+def _feed_org_name(feed_org: str) -> str:
+    """Extract the Azure DevOps org name from a feed-org URL.
+
+    ``https://dev.azure.com/microsoft`` -> ``microsoft``
+    ``https://microsoft.visualstudio.com`` -> ``microsoft``
+    """
+    host_and_path = feed_org.rstrip("/").split("://", 1)[-1]
+    host, _, path = host_and_path.partition("/")
+    if path:
+        return path.split("/")[0]
+    if host.endswith(".visualstudio.com"):
+        return host.split(".", 1)[0]
+    return host
+
+
+def _fetch_feed_versions(
+    args: argparse.Namespace, run_stamp: str, timeout: int = 180
+) -> set[str] | None:
+    """Return package versions already published to the feed for ``run_stamp``.
+
+    The local manifest is only written after a successful upload, so a fresh
+    ``--output-dir`` starts empty even when the feed already holds versions from
+    a previous run. Querying the feed makes ``--continue`` authoritative: a model
+    is skipped if its version exists on the feed, regardless of local state.
+
+    Two ``&``-free REST GETs are used because ``az`` resolves to ``az.cmd``, which
+    runs through cmd.exe and would split a query string on ``&`` (dropping every
+    parameter after the first):
+        1. list packages, find the UPack package by name -> package GUID,
+        2. list that package's versions.
+
+    Returns the set of lowercased versions matching the ``0.0.0-<run_stamp>-``
+    prefix; an empty set if the package exists but has no matching versions yet;
+    or ``None`` if the feed could not be queried *or the package was not found in
+    the (possibly paginated) listing*, in which case the caller falls back to the
+    local results only. Returning ``None`` (not an empty set) on a not-found
+    package avoids silently mistaking a truncated listing for "nothing uploaded",
+    which would rebuild the whole batch on ``--continue``.
+    """
+    org = _feed_org_name(args.feed_org)
+    base = (
+        f"https://feeds.dev.azure.com/{org}/{args.feed_project}/_apis/packaging/feeds/{args.feed}"
+    )
+
+    def _get_json(url: str) -> dict | None:
+        res = _run_az(
+            ["rest", "--method", "get", "--resource", _AZURE_DEVOPS_RESOURCE, "--url", url],
+            timeout,
+        )
+        if res["exit_code"] != 0:
+            return None
+        try:
+            return json.loads(res["stdout"])
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+    listing = _get_json(f"{base}/packages?api-version={_FEED_API_VERSION}")
+    if listing is None:
+        return None
+    pkg_id: str | None = None
+    for pkg in listing.get("value", []):
+        name_matches = (pkg.get("name") or "").lower() == args.package_name.lower()
+        is_upack = (pkg.get("protocolType") or "").lower() == "upack"
+        if name_matches and is_upack:
+            pkg_id = pkg.get("id")
+            break
+    if pkg_id is None:
+        # Not in the listing: either a genuinely unpublished package (first run)
+        # or a pagination miss. The /packages REST API defaults to ~25 items per
+        # page and we cannot append ``$top`` here -- a second query param needs
+        # ``&``, which az.cmd/cmd.exe splits (see the &-free note above). Return
+        # ``None`` (not an empty set) so the caller takes its explicit
+        # "could not query feed" fallback instead of treating a truncated listing
+        # as "nothing uploaded" and rebuilding the whole batch on --continue.
+        return None
+
+    versions_doc = _get_json(f"{base}/packages/{pkg_id}/versions?api-version={_FEED_API_VERSION}")
+    if versions_doc is None:
+        return None
+    prefix = f"0.0.0-{run_stamp}-"
+    published: set[str] = set()
+    for entry in versions_doc.get("value", []):
+        version = (entry.get("version") or "").lower()
+        if version.startswith(prefix):
+            published.add(version)
+    return published
+
+
+def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None:
+    """Build each model to disk with --no-compile (no execution provider needed).
+
+    ``winml build -o <dir> --no-compile`` writes the per-stage artifacts
+    (export.onnx, optimized.onnx, quantized.onnx). Perf and accuracy are skipped.
+
+    When neither --ep nor --device is pinned, every model is built once per EP in
+    :data:`_BUILD_ONLY_EP_MATRIX`, each into a ``<model_dir>/<ep>_<device>/``
+    subdir. When --ep or --device is pinned, a single build is written directly
+    into ``<model_dir>``. Precision per combo follows the same policy as the eval
+    path (NPU defaults to w8a16; CPU/GPU omit the flag; native-quant EPs skip).
+
+    Every (model, combo) outcome -- build status and (when uploading) upload
+    status -- is recorded to ``build_only_results.json`` so a partially-failing or
+    interrupted run can be audited afterwards.
+
+    With ``--upload``, each combo's dir is published to the Azure Artifacts feed as
+    its own Universal Package version
+    (``<package-name>@0.0.0-<run-stamp>-<ep>-<device>-<model-slug>``) as soon as it
+    is built, then deleted locally -- so peak disk stays at ~one combo and a
+    failed/timed-out upload of one combo cannot fill the disk. The identical
+    ``export.onnx`` dedup applies only to the non-upload matrix path (uploaded
+    combos are self-contained and deleted, so there is nothing to share).
+    """
+    output_dir = args.output_dir or Path(f"eval_results/{date.today().isoformat()}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    save_environment_info(output_dir / "environment.json")
+
+    # Results are recorded for EVERY run (upload or not) so failures/timeouts are
+    # auditable. --continue resume, however, is upload-driven: without --upload
+    # there is no feed to resume from, so all models are rebuilt.
+    if args.continue_run and not args.upload:
+        safe_print(
+            "[warn] --continue has no effect in --build-only without --upload: "
+            "no feed resume exists, so all models will be rebuilt."
+        )
+
+    use_matrix = args.ep is None and args.device == "auto"
+    # Single combo uses an empty label (no subdir); matrix uses (label, ep, device).
+    # In the pinned single-combo path the device may be "auto": precision is then
+    # delegated to winml config's own auto-detection (the same omit-the-flag policy
+    # _resolve_precision applies to CPU/GPU), instead of forcing w8a16 the way the
+    # matrix does for its explicit *_npu combos.
+    combos = list(_BUILD_ONLY_EP_MATRIX) if use_matrix else [("", args.ep, args.device)]
+
+    results_path = output_dir / "build_only_results.json"
+    results: dict = _load_results(results_path)
+    run_stamp = _slugify_version(args.run_stamp or date.today().strftime("%Y%m%d"))
+
+    # Verify feed prerequisites once, up front. --upload exists to keep disk
+    # bounded, so a broken az setup must abort (not silently fall back to
+    # keeping everything local, which would fill the disk it was meant to save).
+    if args.upload:
+        err = _ensure_feed_ready()
+        if err is not None:
+            safe_print(f"[upload] Cannot upload: {err}")
+            sys.exit(2)
+        safe_print(
+            f"[upload] Feed ready: {args.feed_org} / {args.feed_project} / "
+            f"feed={args.feed} / package={args.package_name} | run-stamp={run_stamp}"
+        )
+        if args.continue_run:
+            safe_print("[upload] Continue: skipping combos already uploaded for this run-stamp")
+            # Seed results from the feed: a fresh --output-dir has no local
+            # results, so the feed is the source of truth for what's published.
+            # Best-effort — a query failure falls back to local-results-only.
+            feed_versions = _fetch_feed_versions(args, run_stamp)
+            if feed_versions is None:
+                safe_print("[upload] Continue: could not query feed; relying on local results only")
+            else:
+                seeded = 0
+                for feed_version in feed_versions:
+                    prev = results.get(feed_version)
+                    if not prev or prev.get("upload_status") not in ("uploaded", "exists-skipped"):
+                        results[feed_version] = {"upload_status": "uploaded", "source": "feed"}
+                        seeded += 1
+                safe_print(
+                    f"[upload] Continue: feed has {len(feed_versions)} version(s) for "
+                    f"run-stamp {run_stamp}; {seeded} not in local results -> will skip"
+                )
+
+    safe_print(f"Build-only: {len(entries)} models -> {output_dir}")
+    if use_matrix:
+        safe_print(
+            f"EP matrix ({len(combos)}): {', '.join(c[0] for c in combos)} | "
+            f"Timeout: {args.timeout}s | Compile skipped (no EP required)"
+        )
+    else:
+        safe_print(
+            f"Device: {args.device} | EP: {args.ep or 'auto'} | "
+            f"Timeout: {args.timeout}s | Compile skipped (no EP required)"
+        )
+
+    total_builds = len(entries) * len(combos)
+    built_ok = 0
+    build_fail = 0
+    uploaded = 0
+    upload_fail = 0
+    upload_timeout = 0
+    interrupted = False
+
+    def _record(
+        combo_version: str,
+        entry: ModelEntry,
+        ep: str | None,
+        device: str,
+        combo_label: str,
+        build_status: str,
+        build_stage: str,
+        upload_status: str,
+        error: str = "",
+    ) -> None:
+        """Record one (model, combo) outcome and flush the results log to disk."""
+        rec: dict = {
+            "hf_id": entry.hf_id,
+            "task": entry.task,
+            "ep": ep,
+            "device": device,
+            "combo": combo_label or "(pinned)",
+            "package": args.package_name,
+            "run_stamp": run_stamp,
+            "build_status": build_status,
+            "build_stage": build_stage,
+            "upload_status": upload_status,
+            "recorded_at": _utc_now(),
+        }
+        if error:
+            rec["error"] = error
+        results[combo_version] = rec
+        _write_results(results_path, results)
+
+    for i, entry in enumerate(entries, 1):
+        label = f"{entry.hf_id} / {entry.task}" if entry.task else entry.hf_id
+        model_dir = model_result_dir(output_dir, entry.hf_id, entry.task)
+        shared_dir = model_dir / "_shared"
+        canonical_hash: str | None = None
+
+        safe_print(f"\n[{i}/{len(entries)}] {label}  ({entry.priority}, {entry.group})")
+
+        for combo_label, ep, device in combos:
+            build_dir = model_dir / combo_label if combo_label else model_dir
+            tag = f"  [{combo_label}]" if combo_label else ""
+            effective_label = combo_label or f"{ep or 'auto'}_{device}"
+            combo_version = _feed_version_for(entry, run_stamp, effective_label)
+
+            # Per-combo resume (upload mode): skip combos already in the feed so a
+            # rerun only (re)builds the missing/failed ones, not the whole matrix.
+            if args.upload and args.continue_run:
+                prev = results.get(combo_version)
+                if prev and prev.get("upload_status") in ("uploaded", "exists-skipped"):
+                    origin = " via feed" if prev.get("source") == "feed" else ""
+                    safe_print(f"  [skip]{tag} {prev['upload_status']}{origin}: {combo_version}")
+                    continue
+
+            precision = _resolve_precision(device, entry.precision, ep=ep)
+            try:
+                build = _run_build(
+                    entry, device, precision, args.timeout, build_dir, ep=ep, build_only=True
+                )
+            except KeyboardInterrupt:
+                safe_print("\n\n[Ctrl+C] Interrupted.")
+                interrupted = True
+                break
+
+            # ---- Build failed (non-zero exit) or was killed by the timeout ----
+            if not build["success"]:
+                proc = build.get("proc") or {}
+                is_timeout = bool(proc.get("timeout"))
+                build_status = "timeout" if is_timeout else "failed"
+                stage = build.get("stage", "build")
+                build_fail += 1
+                safe_print(f"  [BUILD {build_status.upper()} @ {stage}]{tag}")
+                combined = (proc.get("stdout", "") + proc.get("stderr", "")).strip()
+                err_tail = "\n".join(combined.splitlines()[-12:]) if combined else ""
+                if args.verbose and combined:
+                    for line in combined.splitlines()[-12:]:
+                        safe_print(f"    {line}")
+                # Upload mode bounds disk: drop the failed combo's partial
+                # artifacts. Non-upload mode keeps them for inspection.
+                if args.upload and not args.keep_local:
+                    _safe_rmtree(build_dir)
+                _record(
+                    combo_version,
+                    entry,
+                    ep,
+                    device,
+                    combo_label,
+                    build_status=build_status,
+                    build_stage=stage,
+                    upload_status="skipped" if args.upload else "n/a",
+                    error=err_tail,
+                )
+                continue
+
+            # ---- Build succeeded ----
+            built_ok += 1
+            safe_print(f"  [OK]{tag} artifacts -> {build_dir}")
+
+            if not args.upload:
+                # Dedup the EP-independent export into _shared/ (matrix only).
+                if use_matrix:
+                    canonical_hash = _dedup_export(
+                        build_dir, shared_dir, canonical_hash, combo_label
+                    )
+                _record(
+                    combo_version,
+                    entry,
+                    ep,
+                    device,
+                    combo_label,
+                    build_status="ok",
+                    build_stage="complete",
+                    upload_status="n/a",
+                )
+                continue
+
+            # ---- Upload this combo, then drop it locally to bound disk usage ----
+            safe_print(f"  [upload]{tag} {args.package_name}@{combo_version} ...")
+            up = _upload_model_dir(args, build_dir, combo_version, args.timeout)
+            upload_status = _classify_upload(up, args)
+            err_tail = ""
+            if upload_status in ("timeout", "failed", "auth-abort"):
+                blob = (up.get("stderr", "") or up.get("stdout", "")).strip()
+                err_tail = "\n".join(blob.splitlines()[-12:])
+
+            if upload_status == "uploaded":
+                uploaded += 1
+                safe_print(f"  [upload OK]{tag} {combo_version}")
+            elif upload_status == "exists-skipped":
+                uploaded += 1
+                safe_print(f"  [upload SKIP]{tag} version exists: {combo_version}")
+            elif upload_status == "timeout":
+                # A timed-out upload is almost always a slow/large transfer, not a
+                # host-level az problem. Drop the local copy to bound disk and
+                # continue; retry later with --continue + the same --run-stamp.
+                upload_timeout += 1
+                safe_print(f"  [upload TIMEOUT]{tag} {combo_version} (cleaned, continuing)")
+            else:  # "failed" or "auth-abort"
+                upload_fail += 1
+                safe_print(f"  [upload FAIL]{tag} {args.package_name}@{combo_version}")
+                if args.verbose or upload_status == "auth-abort":
+                    for line in err_tail.splitlines():
+                        safe_print(f"    {line}")
+
+            # An auth failure is recorded as a plain "failed" outcome (the combo is
+            # not in the feed); the distinction only drives the abort below.
+            _record(
+                combo_version,
+                entry,
+                ep,
+                device,
+                combo_label,
+                build_status="ok",
+                build_stage="complete",
+                upload_status="failed" if upload_status == "auth-abort" else upload_status,
+                error=err_tail,
+            )
+
+            # Bound disk: drop the local copy after every outcome -- the artifacts
+            # are either safely in the feed or intentionally discarded.
+            # --keep-local opts out for debugging.
+            if not args.keep_local:
+                _safe_rmtree(build_dir)
+
+            # A host-level az failure (not logged in, token expired) recurs for
+            # every remaining combo, so abort now -- already-uploaded combos are
+            # skipped on resume via --continue + the same --run-stamp.
+            if upload_status == "auth-abort":
+                safe_print(
+                    "\n[upload] ABORT: Azure CLI is unavailable "
+                    "(not logged in / token expired). Re-run 'az login', then "
+                    f"resume with --continue and the same --run-stamp {run_stamp}."
+                )
+                sys.exit(3)
+
+        if interrupted:
+            break
+
+        # Drop a now-empty model dir (all combos uploaded + deleted in upload mode).
+        if args.upload and not args.keep_local and model_dir.exists():
+            try:
+                if not any(model_dir.iterdir()):
+                    model_dir.rmdir()
+            except OSError:
+                # Best-effort tidy-up only: a non-empty dir (e.g. a combo kept by
+                # --keep-local or left behind by an earlier error) or a transient
+                # lock is harmless to leave on disk, so ignore it and move on.
+                pass
+
+        # Clean caches once per model (after all EP combos finish), not per
+        # combo: combos share the same HF download, so clearing between
+        # combos forces redundant re-downloads of the same weights.
+        if args.clean_cache:
+            _clear_disk_caches()
+
+    tail = (
+        f" | uploaded {uploaded}, upload-failed {upload_fail}, upload-timeout {upload_timeout}"
+        if args.upload
+        else ""
+    )
+    safe_print(
+        f"\nBuild-only complete: built {built_ok}/{total_builds} "
+        f"(build-failed {build_fail}){tail} -> {output_dir}\n"
+        f"Results log: {results_path}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Perf phase
 # ---------------------------------------------------------------------------
+
+
+def _resolve_op_tracing(
+    cli_op_tracing: str | None, entry: ModelEntry, ep: str | None, device: str
+) -> str | None:
+    """Resolve the effective op-tracing level for one model run.
+
+    - ``disabled`` (explicit): never trace, even if the model opts in.
+    - ``basic``/``detail`` (explicit): use as-is.
+    - unset (None): default to ``basic`` when the model's ``op_tracing_targets``
+      includes the current ``<EP>_<device>`` target, otherwise no tracing.
+
+    Auto-enable requires both a concrete ``--ep`` and ``--device`` to be set: the
+    default ``--device auto`` is not resolved here and will not match a
+    device-specific target such as ``QNNExecutionProvider_npu``.
+    """
+    if cli_op_tracing == "disabled":
+        return None
+    if cli_op_tracing in ("basic", "detail"):
+        return cli_op_tracing
+    key = op_tracing_target_key(ep, device)
+    if key and key in entry.op_tracing_targets:
+        return "basic"
+    return None
+
+
+def _extract_op_trace_path(text: str) -> Path | None:
+    """Parse the ``Op-trace saved to: <path>`` line from winml perf output.
+
+    winml perf prints this via a Rich console, which hard-wraps the long path
+    across lines (inserting line breaks but no extra spaces) when stdout isn't a
+    TTY. Rejoin the wrapped fragments by dropping line breaks, then cut at the
+    ``.json`` terminator. Returns None when the line is absent.
+    """
+    marker = "Op-trace saved to:"
+    idx = text.find(marker)
+    if idx == -1:
+        return None
+    tail = text[idx + len(marker) :].lstrip()
+    joined = tail.replace("\r", "").replace("\n", "")
+    end = joined.find(".json")
+    if end == -1:
+        return None
+    return Path(joined[: end + len(".json")])
+
+
+def _copy_op_trace(proc: dict, model_dir: Path, label: str = "") -> None:
+    """Copy the op-trace JSON produced by winml perf into ``model_dir``.
+
+    The source path is parsed from the perf stdout/stderr. The destination is
+    ``op_trace.json`` (suffixed with the sub-model label for composite models).
+    A missing line is ignored — op-tracing may be unsupported for a given
+    EP/device/level and winml perf then emits nothing.
+    """
+    src = _extract_op_trace_path(proc.get("stdout", "") + "\n" + proc.get("stderr", ""))
+    if src is None or not src.exists():
+        return
+    dest_name = f"op_trace_{label}.json" if label else "op_trace.json"
+    dest = model_dir / dest_name
+    try:
+        shutil.copyfile(src, dest)
+        safe_print(f"    op-tracing: {dest}")
+    except OSError as e:
+        safe_print(f"    op-tracing: failed to copy {src} -> {dest}: {e}")
 
 
 def run_model(
@@ -771,13 +1655,22 @@ def run_model(
     timeout: int,
     onnx_paths: dict[str, str] | None = None,
     ep: str | None = None,
+    op_tracing: str | None = None,
+    model_dir: Path | None = None,
 ) -> dict:
     """Execute winml perf for one or more ONNX models. Returns merged result dict.
 
     When onnx_paths is provided, benchmarks each pre-built ONNX directly.
     Single model is the {"": path} case. Results are merged (worst exit
     code, concatenated stdout/stderr, summed elapsed).
+
+    When op_tracing is set, ``--op-tracing <level>`` is passed to winml perf. The
+    op-trace path is parsed from perf's output and the file is copied into
+    ``model_dir`` as ``op_trace.json`` (suffixed with the sub-model label for
+    composite models).
     """
+    trace = bool(op_tracing) and model_dir is not None
+
     if not onnx_paths:
         # No pre-built paths: fall back to HF model ID (single model only).
         # winml perf builds internally; the same --no-quant gating used by
@@ -800,9 +1693,13 @@ def run_model(
         if _should_skip_winml_quant(ep):
             args += ["--no-quant"]
         args += ["--iterations", "10", "--warmup", "2"]
+        if trace:
+            args += ["--op-tracing", op_tracing]
         args += entry.perf_args
 
         proc = _run_subprocess(args, timeout)
+        if trace:
+            _copy_op_trace(proc, model_dir)
         proc["device"] = device
         proc["timestamp"] = _utc_now()
         proc["error_summary"] = (
@@ -830,9 +1727,13 @@ def run_model(
         if ep:
             args += ["--ep", ep]
         args += ["--iterations", "10", "--warmup", "2"]
+        if trace:
+            args += ["--op-tracing", op_tracing]
         args += entry.perf_args
 
         proc = _run_subprocess(args, timeout)
+        if trace:
+            _copy_op_trace(proc, model_dir, label)
         if label:
             all_stdout.append(f"=== {label} ===\n{proc['stdout']}")
             all_stderr.append(f"=== {label} ===\n{proc['stderr']}")
@@ -885,19 +1786,23 @@ def _parse_metric_from_stdout(stdout: str) -> dict | None:
     return None
 
 
-def _parse_metric_from_winml_output(
-    output_path: Path, metric_name: str, num_samples: int
-) -> dict | None:
-    """Parse winml eval --output JSON file into the canonical metric dict."""
+def _read_eval_output(output_path: Path) -> tuple[dict | None, dict | None]:
+    """Return ``(metrics, dataset)`` dicts from a winml eval --output JSON file.
+
+    ``winml eval`` writes the dataset config (with ``samples``) and the measured
+    ``metrics`` map at the top level; the site grades accuracy from these, so the
+    runner records both verbatim rather than collapsing to a single value.
+    """
     try:
         data = json.loads(output_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return None
-    metrics = data.get("metrics", {})
-    value = metrics.get(metric_name)
-    if value is None:
-        return None
-    return {"metric": metric_name, "value": float(value), "num_samples": num_samples}
+        return None, None
+    metrics = data.get("metrics")
+    dataset = data.get("dataset")
+    return (
+        metrics if isinstance(metrics, dict) else None,
+        dataset if isinstance(dataset, dict) else None,
+    )
 
 
 def _build_dataset(ds_config: dict, timeout: int) -> None:
@@ -935,8 +1840,22 @@ def _run_winml_eval(
     model_dir: Path,
     onnx_paths: dict[str, str] | None = None,
     ep: str | None = None,
+    recipe_config: Path | None = None,
+    trust_remote_code: bool = False,
 ) -> dict:
-    """Invoke winml eval for one model. Returns process result + parsed metric."""
+    """Invoke winml eval for one model. Returns process result + parsed metrics.
+
+    Two dataset sources:
+
+    * ``recipe_config`` set — pass ``-c <config>`` so winml eval reads the
+      dataset straight from the recipe's ``eval`` section (no explicit dataset
+      flags). This is the recipe-driven path.
+    * otherwise — build explicit ``--dataset``/``--split``/... flags from
+      ``ds_config`` (the registry fallback path).
+
+    The full ``metrics`` and ``dataset`` maps from the eval output are returned
+    so the report site can grade accuracy against its baseline cache.
+    """
     output_path = model_dir / "winml_eval_output.json"
     model_dir.mkdir(parents=True, exist_ok=True)
 
@@ -967,39 +1886,64 @@ def _run_winml_eval(
         args += ["--task", entry.task]
     if ep:
         args += ["--ep", ep]
-    # When ds_config is provided, pass explicit dataset args;
-    # otherwise winml eval uses its built-in task defaults.
-    if ds_config.get("dataset"):
-        args += ["--dataset", ds_config["dataset"]]
-    if ds_config.get("split"):
-        args += ["--split", ds_config["split"]]
-    num_samples = ds_config.get("num_samples", _DEFAULT_SAMPLES)
-    args += ["--samples", str(num_samples)]
-    if ds_config.get("dataset_config"):
-        args += ["--dataset-name", ds_config["dataset_config"]]
-    if ds_config.get("revision"):
-        args += ["--dataset-revision", ds_config["revision"]]
-    for k, v in ds_config.get("columns_mapping", {}).items():
-        args += ["--column", f"{k}={v}"]
-    if ds_config.get("label_mapping_file"):
-        args += ["--label-mapping", ds_config["label_mapping_file"]]
-    if ds_config.get("streaming"):
-        args += ["--streaming"]
+
+    if recipe_config is not None:
+        # Recipe drives the dataset: winml eval reads the eval/dataset section
+        # from the config. Do not add explicit dataset flags (the recipe wins).
+        args += ["-c", str(recipe_config)]
+        if trust_remote_code:
+            args += ["--trust-remote-code"]
+    else:
+        # When ds_config is provided, pass explicit dataset args;
+        # otherwise winml eval uses its built-in task defaults.
+        if ds_config.get("dataset"):
+            args += ["--dataset", ds_config["dataset"]]
+        if ds_config.get("split"):
+            args += ["--split", ds_config["split"]]
+        args += ["--samples", str(ds_config.get("num_samples", _DEFAULT_SAMPLES))]
+        if ds_config.get("dataset_config"):
+            args += ["--dataset-name", ds_config["dataset_config"]]
+        if ds_config.get("revision"):
+            args += ["--dataset-revision", ds_config["revision"]]
+        for k, v in ds_config.get("columns_mapping", {}).items():
+            args += ["--column", f"{k}={v}"]
+        if ds_config.get("label_mapping_file"):
+            args += ["--label-mapping", ds_config["label_mapping_file"]]
+        if ds_config.get("streaming"):
+            args += ["--streaming"]
     args += ["--output", str(output_path)]
     args += entry.eval_args
 
     proc = _run_subprocess(args, timeout)
 
-    metric = None
+    metrics: dict | None = None
+    dataset: dict | None = None
+    metric: dict | None = None
     if proc["exit_code"] == 0 and output_path.exists():
-        winml_key = ds_config.get("winml_metric_key") or ds_config.get("metric", "accuracy")
-        num_samples = ds_config.get("num_samples", _DEFAULT_SAMPLES)
-        metric = _parse_metric_from_winml_output(output_path, winml_key, num_samples)
-    status = "PASS" if (proc["exit_code"] == 0 and metric is not None) else "FAIL"
+        metrics, dataset = _read_eval_output(output_path)
+        # Best-effort single value for log lines; the site reads the full
+        # metrics map by its own key, so a miss here is non-fatal.
+        winml_key = ds_config.get("winml_metric_key") or ds_config.get("metric")
+        if winml_key and metrics and winml_key in metrics:
+            num_samples = (dataset or {}).get("samples", ds_config.get("num_samples"))
+            metric = {
+                "metric": winml_key,
+                "value": float(metrics[winml_key]),
+                "num_samples": num_samples,
+            }
+
+    # PASS requires a non-empty metrics map: a model that exits 0 but emits no
+    # measured metrics ({}) is treated as FAIL, not PASS (an empty dict is
+    # falsy here on purpose). The legacy PyTorch-baseline path parses a single
+    # metric object instead and uses `is not None`; both mean "no metric => not
+    # a pass".
+    status = "PASS" if (proc["exit_code"] == 0 and metrics) else "FAIL"
 
     return {
         "status": status,
         "metric": metric,
+        "metrics": metrics,
+        "dataset": dataset,
         "exit_code": proc["exit_code"],
         "stdout": proc["stdout"],
         "stderr": proc["stderr"],
@@ -1126,6 +2070,44 @@ def _run_pytorch_baseline(entry: ModelEntry, device: str, timeout: int) -> dict:
     }
 
 
+def _run_update_baseline(entries: list[ModelEntry], args: argparse.Namespace) -> None:
+    """Offline ``--update-baseline`` mode: refresh the PyTorch baseline cache.
+
+    Runs the PyTorch baseline for each filtered model and stores the result in
+    ``cache/baseline_cache.json`` (keyed by model/task/dataset/split/samples).
+    The per-run accuracy phase no longer computes baselines inline; this mode is
+    the independent, offline maintainer of the cache the report site grades
+    against. Builds/perf/eval are not run here.
+    """
+    safe_print(f"Update baseline cache: {len(entries)} models -> {BASELINE_CACHE_PATH}")
+    updated = 0
+    failed = 0
+    for i, entry in enumerate(entries, 1):
+        label = f"{entry.hf_id} / {entry.task}" if entry.task else entry.hf_id
+        ds_config = get_dataset_config(entry.hf_id, entry.task) or {}
+        cached = _lookup_baseline_cache(entry.hf_id, entry.task, ds_config)
+        if cached is not None and not args.retry_failed:
+            safe_print(f"[{i}/{len(entries)}] {label}  (cached {cached['metric']})")
+            continue
+
+        safe_print(f"[{i}/{len(entries)}] {label}  running baseline ...")
+        _build_dataset(ds_config, args.timeout)
+        baseline = _run_pytorch_baseline(entry, args.device, args.timeout)
+        if baseline["status"] == "PASS":
+            _store_baseline_cache(entry.hf_id, entry.task, ds_config, baseline)
+            updated += 1
+            safe_print(f"    stored: {baseline['metric']}")
+        else:
+            failed += 1
+            safe_print(f"    FAILED (exit {baseline.get('exit_code')})")
+            if args.verbose:
+                for line in (baseline.get("stderr", "") or "").strip().splitlines()[-10:]:
+                    safe_print(f"      {line}")
+
+    safe_print(f"\nBaseline cache updated: {updated} stored, {failed} failed")
+    sys.exit(0 if failed == 0 else 1)
+
+
 def _run_accuracy_phase(
     entry: ModelEntry,
     device: str,
@@ -1133,45 +2115,49 @@ def _run_accuracy_phase(
     model_dir: Path,
     onnx_paths: dict[str, str] | None = None,
     ep: str | None = None,
+    recipe_config: Path | None = None,
+    trust_remote_code: bool = False,
 ) -> dict:
-    """Run winml eval + pytorch baseline for one model. Returns accuracy sub-section dict."""
+    """Run winml eval for one model and return the accuracy sub-section dict.
+
+    Records measured facts only — the full ``metrics`` and ``dataset`` maps plus
+    the winml-eval status. Grading against a PyTorch baseline (delta/verdict) is
+    the report site's job; the runner no longer runs the baseline inline (use
+    ``--update-baseline`` to refresh the offline baseline cache separately).
+
+    When ``recipe_config`` is given the dataset comes from the recipe's ``eval``
+    section; otherwise the registry's ``dataset_config`` (if any) supplies it.
+    """
     ds_config = get_dataset_config(entry.hf_id, entry.task) or {}
 
-    # Build local dataset if a build_script is configured
-    _build_dataset(ds_config, timeout)
+    # Build local dataset if a build_script is configured (registry path only).
+    if recipe_config is None:
+        _build_dataset(ds_config, timeout)
 
-    winml = _run_winml_eval(entry, device, timeout, ds_config, model_dir, onnx_paths, ep=ep)
-
-    # Check baseline cache before running the expensive PyTorch baseline
-    cached = _lookup_baseline_cache(entry.hf_id, entry.task, ds_config)
-    if cached is not None:
-        safe_print(f"    baseline: cached ({cached['metric']})")
-        baseline = cached
-    else:
-        baseline = _run_pytorch_baseline(entry, device, timeout)
-        _store_baseline_cache(entry.hf_id, entry.task, ds_config, baseline)
-
-    delta_abs, delta_rel = compute_delta(winml["metric"], baseline["metric"])
+    winml = _run_winml_eval(
+        entry,
+        device,
+        timeout,
+        ds_config,
+        model_dir,
+        onnx_paths,
+        ep=ep,
+        recipe_config=recipe_config,
+        trust_remote_code=trust_remote_code,
+    )
 
     return {
         "skipped": False,
         "skip_reason": None,
         "winml_eval_status": winml["status"],
         "winml_metric": winml["metric"],
+        "metrics": winml.get("metrics"),
+        "dataset": winml.get("dataset"),
         "winml_eval_exit_code": winml.get("exit_code"),
         "winml_eval_stdout": winml.get("stdout", ""),
         "winml_eval_stderr": winml.get("stderr", ""),
         "elapsed_winml": winml["elapsed"],
-        "pytorch_baseline_status": baseline["status"],
-        "pytorch_baseline_metric": baseline["metric"],
-        "pytorch_baseline_exit_code": baseline.get("exit_code"),
-        "pytorch_baseline_stderr": baseline.get("stderr", ""),
-        "elapsed_pytorch": baseline["elapsed"],
-        "delta_absolute": delta_abs,
-        "delta_relative": delta_rel,
-        "dataset_config": {k: v for k, v in ds_config.items() if k != "hf_token_required"},
         "winml_eval_command": winml["command"],
-        "pytorch_baseline_command": baseline["command"],
     }
 
 
@@ -1213,7 +2199,7 @@ def save_environment_info(path: Path) -> None:
     # `winml sys --format json` captures hardware details (devices, EPs,
     # backends) that the lightweight package-version probes above miss.
     try:
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(
             [sys.executable, "-m", "winml", "sys", "--format", "json"],
             capture_output=True,
             text=True,
@@ -1237,11 +2223,37 @@ def _get_disk_free_gb() -> float:
     return shutil.disk_usage(anchor).free / (1024**3)
 
 
+def _needs_accuracy_backfill(existing: dict, eval_type: str) -> bool:
+    """True when an existing result is missing accuracy that this run wants.
+
+    A perf-only result (``accuracy is None``) is *incomplete* for an accuracy
+    run, so ``--continue`` should top it up with accuracy instead of skipping —
+    reusing the already-recorded perf rather than re-benchmarking it.
+
+    - ``perf``            : never (accuracy is not wanted).
+    - ``accuracy``        : always, when accuracy has not been recorded yet.
+    - ``both``            : only when the recorded perf passed (a failed-perf
+      job would have accuracy skipped as ``perf_failed``, not backfilled).
+    """
+    if eval_type not in ("both", "accuracy"):
+        return False
+    if existing.get("accuracy") is not None:
+        return False
+    if eval_type == "accuracy":
+        return True
+    return bool((existing.get("perf") or {}).get("passed"))
+
+
 def _should_skip_existing(existing: dict, retry_types: set[str] | None, eval_type: str) -> bool:
     """Return True if an existing eval_result should be skipped (not re-run).
 
     Used by both --list-json and the main eval loop to share continue/retry logic.
     """
+    # Accuracy backfill takes priority over a plain skip: a perf-only result is
+    # not "done" for an accuracy run, so we re-process it (accuracy only).
+    if _needs_accuracy_backfill(existing, eval_type):
+        return False
+
     if retry_types is None:
         return True  # --continue without --retry-failed: skip all existing
 
@@ -1254,21 +2266,100 @@ def _should_skip_existing(existing: dict, retry_types: set[str] | None, eval_typ
         if not retry_types or cls in retry_types:
             return False  # Should retry
 
-    # Check accuracy verdict
+    # Check accuracy status (coarse, baseline-free)
     if acc is not None and not acc.get("skipped"):
-        verdict = derive_verdict(acc).value
-        if not retry_types or verdict in retry_types:
+        status = accuracy_status(acc)
+        if not retry_types or status in retry_types:
             return False  # Should retry
 
     return True  # No retry criteria matched — skip
 
 
-def model_result_dir(output_dir: Path, hf_id: str, task: str = "") -> Path:
-    """Convert model ID + task to directory slug."""
+def model_result_dir(
+    output_dir: Path, hf_id: str, task: str = "", precision: str | None = None
+) -> Path:
+    """Convert model ID + task (+ precision) to a results directory slug.
+
+    Recipe runs evaluate multiple precision variants per (model, task), so the
+    precision is part of the slug to keep each variant's eval_result.json
+    separate (e.g. ``microsoft__resnet-50__image-classification__w8a16``).
+    """
     slug = hf_id.replace("/", "__")
     if task:
         slug += f"__{task}"
+    if precision:
+        slug += f"__{precision}"
     return output_dir / "models" / slug
+
+
+@dataclass
+class EvalJob:
+    """One unit of evaluation: a model entry paired with a build source.
+
+    ``variant`` is the authored recipe variant to build (one per precision),
+    or ``None`` for the fallback path that generates the build config with
+    ``winml config``. Each job produces one ``eval_result.json``.
+    """
+
+    entry: ModelEntry
+    variant: RecipeVariant | None
+
+    @property
+    def precision(self) -> str | None:
+        """Recipe precision (e.g. ``fp16``/``w8a16``), or None for the fallback."""
+        return self.variant.precision if self.variant is not None else None
+
+
+def _build_jobs(entries: list[ModelEntry], recipes_dir: Path | None) -> list[EvalJob]:
+    """Expand entries into jobs, one per recipe precision variant.
+
+    For each entry, if ``recipes_dir`` is set and the model has recipe variants
+    for its task, emit one job per variant (precision); otherwise emit a single
+    fallback job (``variant=None``) that builds via ``winml config``.
+    """
+    jobs: list[EvalJob] = []
+    for entry in entries:
+        variants = (
+            discover_recipe_variants(recipes_dir, entry.hf_id, entry.task)
+            if recipes_dir is not None
+            else []
+        )
+        if variants:
+            jobs.extend(EvalJob(entry, variant) for variant in variants)
+        else:
+            jobs.append(EvalJob(entry, None))
+    return jobs
+
+
+def _build_for_job(
+    job: EvalJob, args: argparse.Namespace, model_dir: Path
+) -> tuple[dict, Path | None, bool]:
+    """Build a job's model, returning ``(build_result, recipe_meta, trust)``.
+
+    Shared by the normal perf/accuracy path and the accuracy-backfill path: an
+    authored recipe is built with ``winml build -c`` when the job has a variant,
+    otherwise the ``winml config`` fallback is used. ``recipe_meta`` is the
+    eval/dataset config for ``winml eval -c`` (None for the fallback) and
+    ``trust`` is whether the recipe's dataset needs ``--trust-remote-code``.
+    """
+    if job.variant is not None:
+        build_result = _run_recipe_build(
+            job.entry, job.variant, args.timeout, model_dir, ep=args.ep
+        )
+        recipe_meta = build_result.get("meta_config")
+        trust = _needs_trust_remote_code(recipe_meta)
+    else:
+        build_result = _run_build(
+            job.entry,
+            args.device,
+            _resolve_precision(args.device, job.entry.precision, ep=args.ep),
+            args.timeout,
+            model_dir,
+            ep=args.ep,
+        )
+        recipe_meta = None
+        trust = False
+    return build_result, recipe_meta, trust
 
 
 # ---------------------------------------------------------------------------
@@ -1288,13 +2379,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hf-model", help="Single model (overrides registry)")
     parser.add_argument("--output-dir", type=Path, help="Output directory")
     parser.add_argument(
+        "--recipes-dir",
+        type=Path,
+        default=Path(__file__).resolve().parents[2] / "examples" / "recipes",
+        help=(
+            "Directory of authored recipe configs (default: examples/recipes). "
+            "Each model with a recipe for its task is built per precision variant "
+            "via `winml build -c`; models without one fall back to `winml config`."
+        ),
+    )
+    parser.add_argument(
+        "--no-recipes",
+        action="store_true",
+        help="Ignore examples/recipes and build every model via winml config.",
+    )
+    parser.add_argument(
         "--eval-type",
         choices=["perf", "accuracy", "both"],
         default="perf",
         help=(
             "Evaluation signals to run (default: perf). "
-            "accuracy/both: winml perf runs first to populate cache, "
-            "then winml eval + pytorch baseline."
+            "both: winml perf runs first; winml eval runs only when perf passes. "
+            "Delta/verdict grading (vs the PyTorch baseline) is done by the report site."
         ),
     )
     parser.add_argument("--task", help="Filter by HF task")
@@ -1314,13 +2420,122 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="auto", help="Target device (default: auto)")
     parser.add_argument("--ep", default=None, help="Execution provider (e.g. qnn, dml, ov)")
     parser.add_argument(
+        "--update-baseline",
+        dest="update_baseline",
+        action="store_true",
+        help=(
+            "Offline mode: run the PyTorch baseline for the filtered models and "
+            "store the results in the baseline cache (cache/baseline_cache.json), "
+            "then exit. Does not build/perf/eval. The report site reads this cache "
+            "to grade accuracy deltas; run this when baselines need refreshing."
+        ),
+    )
+    parser.add_argument(
+        "--op-tracing",
+        dest="op_tracing",
+        choices=["basic", "detail", "disabled"],
+        default=None,
+        help=(
+            "Operator-level profiling in winml perf (requires onnxruntime-qnn). "
+            "'basic'/'detail' force the tracing level; 'disabled' turns it off even "
+            "for models that opt in via 'op_tracing_targets'. When omitted, tracing "
+            "defaults to 'basic' for a model whose 'op_tracing_targets' includes the "
+            "current <EP>_<device> target (e.g. QNNExecutionProvider_npu) — this "
+            "auto-enable requires both --ep and --device to be set explicitly "
+            "(the default --device auto does not match). The "
+            "resulting op_trace.json is copied into each model's output folder."
+        ),
+    )
+    parser.add_argument(
+        "--build-only",
+        dest="build_only",
+        action="store_true",
+        help=(
+            "Build-only mode: run config + build with --no-compile and write each "
+            "stage's ONNX (export/optimize/quantize) to the output dir. No execution "
+            "provider required; perf/accuracy are skipped. When --ep/--device are "
+            "omitted, builds once per EP in the build-only matrix "
+            "(qnn/openvino/mlas/dml/vitisai) into <model_dir>/<ep>_<device>/ subdirs. "
+            "Identical export.onnx is deduped into <model_dir>/_shared/."
+        ),
+    )
+    # --- Build-only feed upload (Azure Artifacts Universal Packages) ---
+    parser.add_argument(
+        "--upload",
+        dest="upload",
+        action="store_true",
+        help=(
+            "Build-only only: as each EP/device combo is built, publish that combo "
+            "to an Azure Artifacts feed as its own Universal Package version and "
+            "delete it locally to bound disk usage (peak disk ~= one combo). Auth "
+            "via 'az login' (no PAT)."
+        ),
+    )
+    parser.add_argument(
+        "--feed",
+        default="Modelkit",
+        help="Azure Artifacts feed name for --upload (default: Modelkit)",
+    )
+    parser.add_argument(
+        "--feed-org",
+        default="https://dev.azure.com/microsoft",
+        help="Azure DevOps org URL for --upload (default: https://dev.azure.com/microsoft)",
+    )
+    parser.add_argument(
+        "--feed-project",
+        default="windows.ai.toolkit",
+        help="Azure DevOps project for the project-scoped feed (default: windows.ai.toolkit)",
+    )
+    parser.add_argument(
+        "--package-name",
+        default="winml-cli-models",
+        help="Universal Package name for --upload (default: winml-cli-models)",
+    )
+    parser.add_argument(
+        "--run-stamp",
+        dest="run_stamp",
+        default=None,
+        help=(
+            "Batch stamp used as the feed version prefix "
+            "(<stamp>-<ep>-<device>-<model-slug>). "
+            "Defaults to today's date (YYYYMMDD). Pass the SAME stamp with "
+            "--continue to resume an interrupted batch."
+        ),
+    )
+    parser.add_argument(
+        "--keep-local",
+        dest="keep_local",
+        action="store_true",
+        help=(
+            "With --upload, do NOT delete local combo dirs after any outcome "
+            "(uploaded / failed / timed-out / build-failed). For debugging."
+        ),
+    )
+    parser.add_argument(
+        "--upload-skip-existing",
+        dest="upload_skip_existing",
+        action="store_true",
+        help=(
+            "With --upload: treat a 'version already exists' publish conflict as "
+            "success (and delete the local copy) instead of a failure. This does "
+            "NOT skip the build. To skip rebuilding already-uploaded combos "
+            "entirely, use --continue. Recommended on any --continue resume: a "
+            "previously timed-out upload may have already committed server-side, "
+            "so the retry hits a 409 that should count as done, not failed."
+        ),
+    )
+    parser.add_argument(
         "--timeout", type=int, default=600, help="Per-subprocess timeout in seconds (default: 600)"
     )
     parser.add_argument(
         "--clean-cache",
         dest="clean_cache",
         action="store_true",
-        help="Delete caches and leaked temp files after each model evaluation (saves disk space)",
+        help=(
+            "After each job, delete HF/winml caches and stray scratch models "
+            "libraries leak into the cwd (UUID-named *.onnx/*.data, QNN "
+            "EP-context dumps, sym_shape_infer_temp) to keep disk bounded."
+        ),
     )
     parser.add_argument("--list", action="store_true", help="List filtered models and exit")
     parser.add_argument(
@@ -1332,7 +2547,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-report",
         action="store_true",
-        help="Skip report generation (useful when running per-model in a pipeline loop)",
+        help=(
+            "Suppress the final console tally. Per-job eval_result.json files are "
+            "always written; the report HTML is generated by the site scripts."
+        ),
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     parser.add_argument(
@@ -1344,17 +2562,25 @@ def parse_args() -> argparse.Namespace:
         "--continue",
         dest="continue_run",
         action="store_true",
-        help="Skip models that already have eval_result.json",
+        help=(
+            "Skip jobs that already have an eval_result.json. Exception: with "
+            "--eval-type accuracy/both, a perf-only result (accuracy not yet run) "
+            "is topped up with accuracy, reusing its cached perf instead of "
+            "re-benchmarking."
+        ),
     )
     parser.add_argument(
         "--retry-failed",
         nargs="*",
         metavar="TYPE",
         help=(
-            "Re-run models matching given failure types or accuracy verdicts "
-            "(e.g. ENVIRONMENT, ACCURACY_REGRESSION). "
-            "Use without args to retry ALL non-PASS models. "
-            "Implies --continue for passing models."
+            "Re-run jobs whose recorded status matches one of the given types. "
+            "Valid values are the perf failure classifications "
+            "(EXPORT_FAIL, ANALYZER_BLOCK, OPT_FAIL, COMPILE_FAIL, RUNTIME_FAIL, "
+            "ENVIRONMENT, TIMEOUT, UNKNOWN) and the accuracy status FAIL "
+            "(e.g. --retry-failed ENVIRONMENT FAIL). "
+            "Use without args to retry ALL non-PASS jobs. "
+            "Implies --continue for passing jobs."
         ),
     )
     return parser.parse_args()
@@ -1388,10 +2614,16 @@ def main() -> None:
         except Exception as e:
             safe_print(f"  [registry] Optional enrichment skipped: {e}")
         if matched_entry is not None:
-            # Override task if explicitly provided on CLI. Use dataclasses.replace
-            # so all other fields (onnx_file, precision, perf_args, ...) survive.
+            # Override task if explicitly provided on CLI
             if args.task and args.task != matched_entry.task:
-                matched_entry = dataclasses.replace(matched_entry, task=args.task)
+                matched_entry = ModelEntry(
+                    hf_id=matched_entry.hf_id,
+                    task=args.task,
+                    model_type=matched_entry.model_type,
+                    group=matched_entry.group,
+                    priority=matched_entry.priority,
+                    dataset_config=matched_entry.dataset_config,
+                )
             entries = [matched_entry]
         else:
             entries = [make_adhoc_entry(args.hf_model, args.task)]
@@ -1470,15 +2702,26 @@ def main() -> None:
         safe_print(f"Wrote {len(model_list)} models to {args.list_json}")
         sys.exit(0)
 
+    # Update-baseline mode: refresh the offline PyTorch baseline cache and exit.
+    if args.update_baseline:
+        _run_update_baseline(entries, args)
+        return
+
+    # Build-only mode: generate export+optimize+quantize artifacts only (no EP).
+    # Loops the EP matrix unless --ep/--device pinned. Skips perf/accuracy.
+    if args.build_only:
+        _run_build_only(entries, args)
+        return
+
     # 2. Setup output directory
     output_dir = args.output_dir or Path(f"eval_results/{date.today().isoformat()}")
     output_dir.mkdir(parents=True, exist_ok=True)
     save_environment_info(output_dir / "environment.json")
 
-    # eval_types_run reflects what actually runs for each model:
+    # eval_types_run reflects what actually runs for each job:
     #   "perf"     → winml perf only
-    #   "accuracy" → winml eval + pytorch baseline only (perf skipped)
-    #   "both"     → Strategy B: winml perf first (populates cache), then winml eval + baseline
+    #   "accuracy" → winml eval only (perf skipped)
+    #   "both"     → winml perf first; winml eval only when perf passes
     eval_types_run = (
         ["accuracy"]
         if args.eval_type == "accuracy"
@@ -1493,21 +2736,34 @@ def main() -> None:
         args.continue_run = True
         retry_types = {t.upper() for t in args.retry_failed} if args.retry_failed else set()
 
-    safe_print(f"E2E Evaluation: {len(entries)} models -> {output_dir}")
+    # Expand entries into per-precision recipe jobs; models without a recipe
+    # for their task fall back to a single winml-config build (variant=None).
+    recipes_dir = None if args.no_recipes else args.recipes_dir
+    jobs = _build_jobs(entries, recipes_dir)
+    total_jobs = len(jobs)
+
+    safe_print(f"E2E Evaluation: {len(entries)} models -> {total_jobs} jobs -> {output_dir}")
     ep_label = args.ep or "auto"
     safe_print(
         f"Device: {args.device} | EP: {ep_label} | Timeout: {args.timeout}s | Eval: {args.eval_type}"
     )
     safe_print(f"Disk free: {_get_disk_free_gb():.1f} GB")
+    if recipes_dir is not None:
+        safe_print(f"Recipes: {recipes_dir}  (winml config fallback when a model has none)")
+    else:
+        safe_print("Recipes: disabled (winml config for all builds)")
     if args.clean_cache:
-        safe_print("Cache cleanup: ON (caches + temp files cleaned after each model)")
+        safe_print("Cache cleanup: ON (winml/HF caches + stray cwd models cleaned)")
+        # Sweep any stray scratch models left in the cwd by a prior interrupted
+        # run so a resumed run does not start from an already-polluted root.
+        _clean_stray_cwd_artifacts(Path.cwd())
     if retry_types is not None:
         if retry_types:
             safe_print(f"Retry mode: {', '.join(sorted(retry_types))}")
         else:
-            safe_print("Retry mode: ALL non-PASS models")
+            safe_print("Retry mode: ALL non-PASS jobs")
     elif args.continue_run:
-        safe_print("Continue mode: skipping models with existing eval_result.json")
+        safe_print("Continue mode: skipping jobs with existing eval_result.json")
 
     # 3. Run evaluation
     results: list[dict] = []
@@ -1518,15 +2774,19 @@ def main() -> None:
     if timeout_skip_set:
         safe_print(f"Timeout skip list: {len(timeout_skip_set)} models will be auto-skipped")
 
-    for i, entry in enumerate(entries, 1):
-        label = f"{entry.hf_id} / {entry.task}" if entry.task else entry.hf_id
-        model_dir = model_result_dir(output_dir, entry.hf_id, entry.task)
+    for i, job in enumerate(jobs, 1):
+        entry = job.entry
+        precision = job.precision
+        prec_tag = f" [{precision}]" if precision else ""
+        base_label = f"{entry.hf_id} / {entry.task}" if entry.task else entry.hf_id
+        label = f"{base_label}{prec_tag}"
+        model_dir = model_result_dir(output_dir, entry.hf_id, entry.task, precision)
         result_path = model_dir / "eval_result.json"
 
         # Timeout skip list: skip known-timeout models and write a TIMEOUT result
         if (entry.hf_id, entry.task or "") in timeout_skip_set:
             reason = _get_timeout_skip_reason(entry.hf_id, entry.task or "")
-            safe_print(f"\n[{i}/{len(entries)}] {label}  (SKIP - TIMEOUT: {reason})")
+            safe_print(f"\n[{i}/{total_jobs}] {label}  (SKIP - TIMEOUT: {reason})")
             model_dir.mkdir(parents=True, exist_ok=True)
             timeout_result = build_eval_result(
                 entry=entry,
@@ -1539,9 +2799,10 @@ def main() -> None:
                     "command": "skipped",
                 },
                 device=args.device,
-                eval_types_run=[args.eval_type],
+                eval_types_run=eval_types_run,
                 accuracy_result=None,
                 ep=args.ep,
+                precision=precision,
             )
             write_result_json(timeout_result, result_path)
             results.append(timeout_result)
@@ -1549,6 +2810,7 @@ def main() -> None:
             continue
 
         # --continue / --retry-failed: check existing eval_result.json
+        backfill_existing: dict | None = None
         if args.continue_run and result_path.exists():
             try:
                 existing = load_result_json(result_path)
@@ -1560,43 +2822,61 @@ def main() -> None:
                     acc = existing.get("accuracy")
                     perf_cls = classify_result(existing) or "UNKNOWN"
                     perf_tag = "PASS" if perf.get("passed") else f"FAIL/{perf_cls}"
-                    acc_tag = ""
-                    if acc is not None:
-                        acc_tag = f"  acc={derive_verdict(acc).value}"
+                    acc_tag = f"  acc={accuracy_status(acc)}" if acc is not None else ""
                     safe_print(
-                        f"\n[{i}/{len(entries)}] {label}  (SKIP - {perf_tag}{acc_tag}, cached)"
+                        f"\n[{i}/{total_jobs}] {label}  (SKIP - {perf_tag}{acc_tag}, cached)"
                     )
                     continue
 
-                retry_label = classify_result(existing) or (
-                    derive_verdict(existing.get("accuracy")).value
-                    if existing.get("accuracy")
-                    else "?"
-                )
-                safe_print(f"\n[{i}/{len(entries)}] {label}  (RETRY - was {retry_label})")
+                if _needs_accuracy_backfill(existing, args.eval_type):
+                    # Perf already recorded (and passed); only (re)build + run
+                    # accuracy, then merge it into the existing result.
+                    backfill_existing = existing
+                    safe_print(f"\n[{i}/{total_jobs}] {label}  (BACKFILL accuracy - perf cached)")
+                else:
+                    retry_label = classify_result(existing) or (
+                        accuracy_status(existing.get("accuracy"))
+                        if existing.get("accuracy")
+                        else "?"
+                    )
+                    safe_print(f"\n[{i}/{total_jobs}] {label}  (RETRY - was {retry_label})")
             except (json.JSONDecodeError, KeyError):
                 pass  # Corrupted result file — re-run
 
-        safe_print(f"\n[{i}/{len(entries)}] {label}  ({entry.priority}, {entry.group})")
+        if backfill_existing is None:
+            safe_print(f"\n[{i}/{total_jobs}] {label}  ({entry.priority}, {entry.group})")
 
         try:
             perf_proc: dict | None = None
             accuracy_result: dict | None = None
+            op_tracing = _resolve_op_tracing(args.op_tracing, entry, args.ep, args.device)
 
-            # Build phase: winml config + winml build → list of ONNX paths
-            # Build is shared by perf and eval, avoiding redundant builds.
-            build_result = _run_build(
-                entry,
-                args.device,
-                _resolve_precision(args.device, entry.precision, ep=args.ep),
-                args.timeout,
-                model_dir,
-                ep=args.ep,
-            )
+            # Build phase: an authored recipe (winml build -c) when one exists
+            # for this precision, else the winml-config fallback. Both return
+            # {success, onnx_paths, stage, proc}; build is shared by perf + eval.
+            build_result, recipe_meta, trust = _build_for_job(job, args, model_dir)
+
             onnx_paths = build_result["onnx_paths"] if build_result["success"] else {}
             onnx_size = _compute_onnx_size(onnx_paths)
 
-            if not build_result["success"]:
+            if backfill_existing is not None:
+                # Accuracy backfill: perf was already recorded (and passed), so
+                # skip run_model and only (re)build + run accuracy. A build that
+                # now fails records a skipped accuracy without touching perf.
+                if not build_result["success"]:
+                    accuracy_result = {"skipped": True, "skip_reason": "build_failed"}
+                else:
+                    accuracy_result = _run_accuracy_phase(
+                        entry,
+                        args.device,
+                        args.timeout,
+                        model_dir,
+                        onnx_paths,
+                        ep=args.ep,
+                        recipe_config=recipe_meta,
+                        trust_remote_code=trust,
+                    )
+            elif not build_result["success"]:
                 # Build failed — synthesize failed result for downstream phases
                 fail_proc = build_result["proc"]
                 fail_proc["device"] = args.device
@@ -1615,12 +2895,30 @@ def main() -> None:
                     model_dir,
                     onnx_paths,
                     ep=args.ep,
+                    recipe_config=recipe_meta,
+                    trust_remote_code=trust,
                 )
             elif args.eval_type == "perf":
-                perf_proc = run_model(entry, args.device, args.timeout, onnx_paths, ep=args.ep)
+                perf_proc = run_model(
+                    entry,
+                    args.device,
+                    args.timeout,
+                    onnx_paths,
+                    ep=args.ep,
+                    op_tracing=op_tracing,
+                    model_dir=model_dir,
+                )
             else:
-                # "both": perf → eval
-                perf_proc = run_model(entry, args.device, args.timeout, onnx_paths, ep=args.ep)
+                # "both": perf runs first; accuracy only when perf passes.
+                perf_proc = run_model(
+                    entry,
+                    args.device,
+                    args.timeout,
+                    onnx_paths,
+                    ep=args.ep,
+                    op_tracing=op_tracing,
+                    model_dir=model_dir,
+                )
                 if perf_proc["exit_code"] != 0:
                     accuracy_result = {"skipped": True, "skip_reason": "perf_failed"}
                 else:
@@ -1631,41 +2929,53 @@ def main() -> None:
                         model_dir,
                         onnx_paths,
                         ep=args.ep,
+                        recipe_config=recipe_meta,
+                        trust_remote_code=trust,
                     )
 
         except KeyboardInterrupt:
-            safe_print("\n\n[Ctrl+C] Interrupted — generating reports for completed models...")
+            safe_print("\n\n[Ctrl+C] Interrupted — writing results for completed jobs...")
             interrupted = True
             break
 
-        result = build_eval_result(
-            entry,
-            perf_proc,
-            args.device,
-            eval_types_run,
-            accuracy_result,
-            ep=args.ep,
-            onnx_size_bytes=onnx_size,
-            sanitize_fn=None if args.raw_output else _sanitize_output,
-        )
+        if backfill_existing is not None:
+            # Merge the freshly-run accuracy into the existing result, preserving
+            # its recorded perf verbatim. accuracy_result has the same shape
+            # build_eval_result would store, so it's spliced in directly.
+            result = dict(backfill_existing)
+            result["accuracy"] = accuracy_result
+            etr = result.get("eval_types_run") or []
+            if "accuracy" not in etr:
+                result["eval_types_run"] = [*etr, "accuracy"]
+        else:
+            result = build_eval_result(
+                entry,
+                perf_proc,
+                args.device,
+                eval_types_run,
+                accuracy_result,
+                ep=args.ep,
+                onnx_size_bytes=onnx_size,
+                sanitize_fn=None if args.raw_output else _sanitize_output,
+                precision=precision,
+            )
         results.append(result)
 
         # Write eval_result.json immediately (crash-safe, facts only)
         write_result_json(result, result_path)
 
-        # Print status line
+        # Print status line (coarse accuracy status; the site grades delta/verdict)
         acc_tag = ""
         if accuracy_result is not None:
             if accuracy_result.get("skipped"):
                 acc_tag = f"  acc=SKIP/{accuracy_result['skip_reason']}"
             else:
-                verdict = derive_verdict(accuracy_result).value
-                delta_str = format_delta(accuracy_result)
-                if delta_str:
-                    delta_str = f" {delta_str}"
-                acc_tag = f"  acc={verdict}{delta_str}"
+                acc_tag = f"  acc={accuracy_status(accuracy_result)}"
 
-        if perf_proc is not None:
+        if backfill_existing is not None:
+            # Perf was reused from the cached result; report the backfilled acc.
+            safe_print(f"  [BACKFILL]{acc_tag}")
+        elif perf_proc is not None:
             perf_passed = perf_proc["exit_code"] == 0
             perf_cls = classify_result(result) or "UNKNOWN"
             perf_tag = "PASS" if perf_passed else f"FAIL ({perf_cls})"
@@ -1678,6 +2988,7 @@ def main() -> None:
             safe_print(f"  [acc only]{acc_tag}")
 
         if args.clean_cache:
+            _clean_stray_cwd_artifacts(Path.cwd())
             _clear_disk_caches()
 
     run_duration = time.perf_counter() - run_start
@@ -1686,64 +2997,39 @@ def main() -> None:
         safe_print("\nNo results to report.")
         sys.exit(1)
 
-    # 4. Generate reports
+    # 4. Final tally. Per-job eval_result.json files are already written; the
+    #    perf + accuracy reports are rendered by the ModelKitArtifacts-site
+    #    scripts from those files (delta/verdict graded there against the
+    #    baseline cache). The runner only prints a coarse console summary.
     classify_results(results)
-    if args.eval_type != "perf":
-        derive_verdicts(results)
+
+    perf_results = [r for r in results if r.get("perf") is not None]
+    perf_pass = sum(1 for r in perf_results if (r.get("perf") or {}).get("passed"))
+    acc_results = [
+        r
+        for r in results
+        if r.get("accuracy") is not None and not (r.get("accuracy") or {}).get("skipped")
+    ]
+    acc_pass = sum(1 for r in acc_results if accuracy_status(r.get("accuracy")) == "PASS")
 
     if not args.no_report:
-        summary = generate_summary(results, run_duration)
-        timestamp_slug = time.strftime("%Y%m%d_%H%M%S")
-
-        # JSON report
-        report_json_path = output_dir / f"eval_report_{timestamp_slug}.json"
-        write_summary_json(summary, report_json_path)
-
-        # Text summary (perf-focused)
-        text_report = format_text_summary(results)
-        safe_print(text_report)
-        report_txt_path = output_dir / f"eval_report_{timestamp_slug}.txt"
-        report_txt_path.write_text(text_report, encoding="utf-8")
-
-        # Markdown summary
-        write_summary_md(results, summary, output_dir / "summary.md")
-
-        # HTML report
-        generate_html_report(summary, output_dir / "eval_report.html", args.registry)
-
-        safe_print(f"\nResults saved to: {output_dir}")
-        safe_print(f"  report: {report_json_path.name}")
-        safe_print("  summary: summary.md")
-        safe_print("  html: eval_report.html")
-
-        ps = summary["perf_summary"]
-        total = ps["total"]
-        rate = (ps["passed"] / total * 100) if total else 0
-        safe_print(f"\nPerf pass rate: {ps['passed']}/{total} ({rate:.1f}%)")
-
-        if args.eval_type != "perf":
-            acc_s = summary.get("accuracy_summary", {})
-            evaluated = acc_s.get("evaluated", 0)
-            acc_pass = acc_s.get("accuracy_pass", 0)
-            acc_rate = acc_s.get("pass_rate", 0)
+        safe_print(f"\nResults saved to: {output_dir}  ({run_duration:.1f}s, {len(results)} jobs)")
+        if perf_results:
+            rate = perf_pass / len(perf_results) * 100
+            safe_print(f"Perf pass: {perf_pass}/{len(perf_results)} ({rate:.1f}%)")
+        if acc_results:
+            arate = acc_pass / len(acc_results) * 100
             safe_print(
-                f"Accuracy pass rate: {acc_pass}/{evaluated} ({acc_rate:.1%})  "
-                f"[at-risk={acc_s.get('accuracy_at_risk', 0)} "
-                f"regression={acc_s.get('accuracy_regression', 0)} "
-                f"error={acc_s.get('eval_error', 0)}]"
+                f"Accuracy eval pass: {acc_pass}/{len(acc_results)} ({arate:.1f}%)  "
+                "(metric measured; delta/verdict graded by the report site)"
             )
+        if skipped:
+            safe_print(f"  ({skipped} cached from previous run)")
+        if interrupted:
+            safe_print(f"  (interrupted — {total_jobs - len(results)} jobs not evaluated)")
 
-    if skipped:
-        safe_print(f"  ({skipped} cached from previous run)")
-    if interrupted:
-        safe_print(f"  (interrupted — {len(entries) - len(results)} models not evaluated)")
-
-    all_perf_pass = all((r.get("perf") or {}).get("passed", False) for r in results)
-    all_acc_pass = args.eval_type == "perf" or all(
-        derive_verdict(r.get("accuracy")) == AccuracyVerdict.ACCURACY_PASS
-        for r in results
-        if r.get("accuracy") and not (r.get("accuracy") or {}).get("skipped")
-    )
+    all_perf_pass = all((r.get("perf") or {}).get("passed", False) for r in perf_results)
+    all_acc_pass = all(accuracy_status(r.get("accuracy")) == "PASS" for r in acc_results)
 
     sys.exit(0 if not interrupted and all_perf_pass and all_acc_pass else 1)
 

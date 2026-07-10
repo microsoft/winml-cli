@@ -17,6 +17,43 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+# Local-path indicators used to short-circuit Hub detection. Centralized
+# here so every callsite that classifies a model input string applies the
+# same rejection rules (existing path, ./ ../ /. ~/ prefixes, Windows
+# drive letter). Without this shared helper, each detector tends to
+# reimplement only the easiest check (Path.exists) and accept inputs
+# like ``./model.onnx`` as Hub references.
+_LOCAL_PATH_PREFIXES: tuple[str, ...] = ("./", "../", "/", "~/")
+_WIN_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
+
+
+def _is_local_path(value: str | None) -> bool:
+    r"""Return ``True`` if *value* looks like a local filesystem path.
+
+    Heuristic check used to reject local paths before treating an input as
+    a Hub identifier. Detects:
+
+    * existing filesystem entries (``Path.exists()``);
+    * Unix-style relative/absolute/home prefixes (``./``, ``../``, ``/``, ``~/``);
+    * Windows drive-letter absolute paths (``C:\``, ``D:/``).
+
+    ``None`` and empty strings are not local paths.
+    """
+    if not value:
+        return False
+    try:
+        if Path(value).exists():
+            return True
+    except (OSError, ValueError):
+        # Path may be syntactically invalid on the current platform
+        # (e.g. control characters); treat as "not a local path" so the
+        # caller can apply Hub-format heuristics instead.
+        pass
+    if value.startswith(_LOCAL_PATH_PREFIXES):
+        return True
+    return bool(_WIN_DRIVE_RE.match(value))
+
+
 def is_hub_model(model_name_or_path: str) -> tuple[bool, dict]:
     """Comprehensive Hub model detection with metadata extraction.
 
@@ -26,16 +63,8 @@ def is_hub_model(model_name_or_path: str) -> tuple[bool, dict]:
     Returns:
         Tuple of (is_hub_model, metadata_dict)
     """
-    # Quick rejection for obvious local paths
-    if Path(model_name_or_path).exists():
-        return False, {"type": "local", "path": model_name_or_path}
-
-    # Check for local path indicators
-    if any(model_name_or_path.startswith(prefix) for prefix in ["./", "../", "/", "~/"]):
-        return False, {"type": "local", "path": model_name_or_path}
-
-    # Check for Windows absolute paths
-    if re.match(r"^[A-Za-z]:[\\/]", model_name_or_path):
+    # Local-path rejection (existing path, ./ ../ /. ~/ prefixes, Windows drive)
+    if _is_local_path(model_name_or_path):
         return False, {"type": "local", "path": model_name_or_path}
 
     # Parse potential Hub model format
@@ -59,7 +88,7 @@ def is_hub_model(model_name_or_path: str) -> tuple[bool, dict]:
         # Extract comprehensive metadata
         metadata = {
             "type": "hub",
-            "model_id": model_info.modelId,
+            "model_id": model_info.id,
             "sha": model_info.sha,
             "revision": revision or "main",
             "tags": model_info.tags if hasattr(model_info, "tags") else [],
@@ -90,8 +119,15 @@ def is_hub_model(model_name_or_path: str) -> tuple[bool, dict]:
                 metadata["language"] = card.data.language
             if hasattr(card.data, "task_categories"):
                 metadata["task_categories"] = card.data.task_categories
-        except Exception:
-            pass
+        except Exception as e:
+            # Model card metadata is optional; keep Hub detection working even
+            # when the card cannot be loaded, but leave a breadcrumb for debug logs.
+            logger.debug(
+                "Unable to load model card metadata for '%s': %s",
+                full_model_id,
+                e,
+                exc_info=True,
+            )
 
         return True, metadata
 
@@ -143,7 +179,7 @@ def inject_hub_metadata(onnx_model: Any, model_name_or_path: str, metadata: dict
 
     # Get ModelExport version
     try:
-        from ..version import __version__
+        from .. import __version__
 
         export_version = __version__
     except ImportError:
@@ -202,8 +238,13 @@ def save_local_model_configs(model_name_or_path: str, output_dir: Path, metadata
             processor = AutoProcessor.from_pretrained(model_name_or_path)
             processor.save_pretrained(output_dir)
             components_saved.append("processor")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(
+                "AutoProcessor not saved for '%s'; falling back to other component types: %s",
+                model_name_or_path,
+                e,
+                exc_info=True,
+            )
 
         # Try AutoTokenizer (for text models) - only if processor wasn't saved
         if "processor" not in components_saved:
@@ -213,8 +254,13 @@ def save_local_model_configs(model_name_or_path: str, output_dir: Path, metadata
                 tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
                 tokenizer.save_pretrained(output_dir)
                 components_saved.append("tokenizer")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(
+                    "AutoTokenizer not saved for '%s'; falling back to other component types: %s",
+                    model_name_or_path,
+                    e,
+                    exc_info=True,
+                )
 
         # Try AutoImageProcessor (for vision)
         try:
@@ -223,8 +269,13 @@ def save_local_model_configs(model_name_or_path: str, output_dir: Path, metadata
             image_processor = AutoImageProcessor.from_pretrained(model_name_or_path)
             image_processor.save_pretrained(output_dir)
             components_saved.append("image_processor")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(
+                "AutoImageProcessor not saved for '%s'; falling back to other component types: %s",
+                model_name_or_path,
+                e,
+                exc_info=True,
+            )
 
         # Try AutoFeatureExtractor (for audio)
         try:
@@ -233,8 +284,14 @@ def save_local_model_configs(model_name_or_path: str, output_dir: Path, metadata
             feature_extractor = AutoFeatureExtractor.from_pretrained(model_name_or_path)
             feature_extractor.save_pretrained(output_dir)
             components_saved.append("feature_extractor")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(
+                "AutoFeatureExtractor not saved for '%s'; "
+                "falling back to other component types: %s",
+                model_name_or_path,
+                e,
+                exc_info=True,
+            )
 
         if components_saved:
             logger.info(f"Saved preprocessing components: {', '.join(components_saved)}")
@@ -293,12 +350,14 @@ def load_hf_components_from_onnx(onnx_path: str) -> tuple[Any, Any]:
 
         # Try to load preprocessor from Hub
         preprocessor = None
-        for loader_cls in [
+        # Heterogeneous transformers Auto-loaders sharing a from_pretrained classmethod.
+        hub_loaders: list[Any] = [
             AutoProcessor,
             AutoTokenizer,
             AutoImageProcessor,
             AutoFeatureExtractor,
-        ]:
+        ]
+        for loader_cls in hub_loaders:
             try:
                 preprocessor = loader_cls.from_pretrained(hf_hub_id, revision=hf_revision)
                 break
@@ -322,12 +381,14 @@ def load_hf_components_from_onnx(onnx_path: str) -> tuple[Any, Any]:
 
         # Try to load preprocessor from local files
         preprocessor = None
-        for loader_cls in [
+        # Heterogeneous transformers Auto-loaders sharing a from_pretrained classmethod.
+        local_loaders: list[Any] = [
             AutoProcessor,
             AutoTokenizer,
             AutoImageProcessor,
             AutoFeatureExtractor,
-        ]:
+        ]
+        for loader_cls in local_loaders:
             try:
                 preprocessor = loader_cls.from_pretrained(onnx_dir)
                 break

@@ -109,28 +109,18 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
     optional_message="Overrides device-to-provider mapping. "
     "When used without --device, device is inferred from EP.",
 )
-@click.option(
-    "-p",
-    "--precision",
-    "precision",
-    type=str,
-    default="auto",
-    help="Precision: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16). "
-    "Default: auto (based on device when device is specified).",
-)
+@cli_utils.precision_option()
 @cli_utils.output_option("Output JSON file path (default: stdout)")
+@cli_utils.overwrite_option()
 @click.option(
     "--library",
     "library_name",
     default="transformers",
     help="Source library for TasksManager (default: transformers)",
 )
-@click.option(
-    "--quant/--no-quant",
-    "quant",
-    default=True,
-    show_default=True,
-    help="Include quantization in generated config (use --no-quant to exclude, sets quant=None)",
+@cli_utils.quant_option(
+    help_text="Include quantization in generated config "
+    "(use --no-quant to exclude, sets quant=None)"
 )
 @cli_utils.compile_option(
     default=True,
@@ -138,6 +128,7 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
 )
 @cli_utils.trust_remote_code_option()
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @click.pass_context
 def config(
     ctx: click.Context,
@@ -152,6 +143,7 @@ def config(
     ep: EPNameOrAlias | None,
     precision: str,
     output: Path | None,
+    overwrite: bool,
     library_name: str,
     verbose: int,
     quiet: bool,
@@ -228,6 +220,10 @@ def config(
             generate_onnx_build_config,
         )
 
+        # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
+        # is downloaded once and treated as a local .onnx file thereafter.
+        hf_model = cli_utils.normalize_model_arg(hf_model)
+
         # Load override config from JSON file if provided
         override = None
         _override_file: str | None = None
@@ -270,14 +266,18 @@ def config(
             _shape_config_file = shape_config_path.name
 
         # ONNX file detection: generate simpler config without loader/export
-        if hf_model and cli_utils.is_onnx_file_path(hf_model) and module:
+        _model_input = cli_utils.classify_model_input(hf_model) if hf_model else None
+        _hf_is_onnx = (
+            _model_input is not None and _model_input.kind is cli_utils.ModelInputKind.ONNX_FILE
+        )
+        if hf_model and _hf_is_onnx and module:
             raise click.UsageError(
                 "--module is not supported with ONNX file input. "
                 "Module discovery requires a HuggingFace model."
             )
         config_obj: WinMLBuildConfig | None = None
         output_data: dict[str, Any] | list[Any]
-        if hf_model and cli_utils.is_onnx_file_path(hf_model):
+        if hf_model and _hf_is_onnx:
             config_obj = generate_onnx_build_config(
                 hf_model,
                 task=task,
@@ -321,6 +321,7 @@ def config(
                     no_quant=not quant,
                     no_compile=no_compile,
                     output=output,
+                    overwrite=overwrite,
                     console=console,
                 )
                 return
@@ -455,6 +456,7 @@ def config(
         config_json = json.dumps(output_data, indent=2)
 
         if output:
+            cli_utils.guard_output(output, overwrite)
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text(config_json)
             suffix = f"  [dim]({_n_modules} submodules)[/dim]" if _n_modules else ""
@@ -488,27 +490,14 @@ def _resolve_composite_model_components(
     No --task: ``resolve_task`` detects + tags the composite (its ``.composite``
     field carries the seq2seq bridge), so no-task routing matches --task routing.
     """
-    from transformers import AutoConfig
+    from ..loader.resolution import resolve_composite_components
 
-    from ..loader.resolution import resolve_composite, resolve_task
-
-    if task is not None:
-        resolved_type = model_type
-        if resolved_type is None and hf_model is not None:
-            resolved_type = AutoConfig.from_pretrained(
-                hf_model, trust_remote_code=trust_remote_code
-            ).model_type
-        if resolved_type is None:
-            return None
-        return resolve_composite(resolved_type, task)
-
-    if hf_model is not None:
-        config = AutoConfig.from_pretrained(hf_model, trust_remote_code=trust_remote_code)
-    elif model_type is not None:
-        config = AutoConfig.for_model(model_type)
-    else:
-        return None
-    return resolve_task(config).composite
+    return resolve_composite_components(
+        hf_model,
+        task=task,
+        model_type=model_type,
+        trust_remote_code=trust_remote_code,
+    )
 
 
 def _generate_pipeline_configs(
@@ -527,6 +516,7 @@ def _generate_pipeline_configs(
     no_quant: bool,
     no_compile: bool,
     output: Path | None,
+    overwrite: bool,
     console: Any,
 ) -> None:
     """Generate and save one config file per pipeline sub-component."""
@@ -557,6 +547,7 @@ def _generate_pipeline_configs(
 
         if output:
             suffixed = output.with_stem(f"{output.stem}_{component_name}")
+            cli_utils.guard_output(suffixed, overwrite)
             suffixed.parent.mkdir(parents=True, exist_ok=True)
             tmp = suffixed.with_suffix(".json.tmp")
             tmp.write_text(config_json)

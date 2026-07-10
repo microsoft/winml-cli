@@ -40,7 +40,7 @@ def sample_config():
                 "mode": "qdq",
                 "samples": 10,
                 "task": "image-classification",
-                "model_name": "test-model",
+                "model_id": "test-model",
             },
             "compile": {
                 "execution_provider": "qnn",
@@ -150,7 +150,7 @@ def mock_pipeline():
             return_value=_default_analyze_result(),
         ) as m_analyze,
         patch(
-            "winml.modelkit.build.hf.is_quantized_onnx",
+            "winml.modelkit.build.common.is_quantized_onnx",
             return_value=False,
         ) as m_has_qdq,
         patch(
@@ -321,6 +321,23 @@ class TestBuildHfModel:
         mock_pipeline["load"].assert_called_once()
         call_args = mock_pipeline["load"].call_args
         assert call_args[0][1] == "bert-base"  # model_id
+
+    def test_pretrained_load_threads_model_class(self, sample_config) -> None:
+        """Pretrained load path forwards ``loader.model_class`` to load_hf_model.
+
+        Regression (#836): the pretrained branch dropped the explicit
+        ``model_class``, so e.g. CLIP feature-extraction resolved to the full
+        CLIPModel (which requires ``pixel_values``) instead of the configured
+        CLIPTextModelWithProjection, failing export with text-only inputs.
+        """
+        from winml.modelkit.build.hf import _load_model
+
+        with patch("winml.modelkit.loader.load_hf_model") as m_load:
+            m_load.return_value = (MagicMock(), MagicMock(), "image-classification")
+            _load_model(sample_config, "test-model", trust_remote_code=False)
+
+        m_load.assert_called_once()
+        assert m_load.call_args.kwargs["model_class"] == "AutoModelForImageClassification"
 
     def test_pre_loaded_model_skips_load(
         self, tmp_path: Path, sample_config, mock_pipeline
@@ -798,7 +815,12 @@ class TestBuildHfPreQuantized:
     def test_post_export_qdq_skips_optimize_and_quantize(
         self, tmp_path: Path, sample_config, mock_pipeline
     ) -> None:
-        """If exported ONNX has QDQ nodes, skip optimize+quantize."""
+        """Exported QDQ/QOperator ONNX truly skips both optimize AND quantize.
+
+        Regression: previously the pre-quantized branch logged "skipping
+        optimize" but still invoked ``optimize_onnx``. That hidden call
+        crashed for QOperator models with ``ConvInteger`` (no CPU kernel).
+        """
         mock_pipeline["is_quantized_onnx"].return_value = True
 
         output_dir = tmp_path / "output"
@@ -811,7 +833,7 @@ class TestBuildHfPreQuantized:
         assert "quantize" in result.stages_skipped
         assert "optimize" not in result.stages_completed
         assert "quantize" not in result.stages_completed
-        mock_pipeline["optimize"].assert_called_once()
+        mock_pipeline["optimize"].assert_not_called()
         mock_pipeline["quantize"].assert_not_called()
 
     def test_post_export_qdq_still_exports(
@@ -847,7 +869,7 @@ class TestBuildHfPreQuantized:
     def test_post_export_qdq_runs_analyze_only(
         self, tmp_path: Path, sample_config, mock_pipeline
     ) -> None:
-        """Pre-quantized path runs optimize but skips autoconf (no analyze)."""
+        """Pre-quantized path skips both optimize AND analyze (max_iters=0)."""
         mock_pipeline["is_quantized_onnx"].return_value = True
 
         output_dir = tmp_path / "output"
@@ -856,9 +878,10 @@ class TestBuildHfPreQuantized:
             output_dir=output_dir,
             pytorch_model=mock_pipeline["model"],
         )
-        # max_optim_iterations=0 means no analyze loop runs
+        # max_optim_iterations=0 means no analyze loop runs.
+        # Optimize is also skipped via skip_optimize=True.
         mock_pipeline["analyze"].assert_not_called()
-        mock_pipeline["optimize"].assert_called_once()
+        mock_pipeline["optimize"].assert_not_called()
 
     def test_skip_optimize_kwarg(self, tmp_path: Path, sample_config, mock_pipeline) -> None:
         """skip_optimize=True forces optimize+quantize skip."""
@@ -873,7 +896,7 @@ class TestBuildHfPreQuantized:
         )
         assert "optimize" in result.stages_skipped
         assert "quantize" in result.stages_skipped
-        mock_pipeline["optimize"].assert_called_once()
+        mock_pipeline["optimize"].assert_not_called()
         mock_pipeline["quantize"].assert_not_called()
 
 

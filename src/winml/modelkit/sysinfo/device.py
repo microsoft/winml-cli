@@ -10,7 +10,13 @@ import functools
 import logging
 from typing import TYPE_CHECKING
 
-from ..utils.constants import DEVICE_TYPE_TO_DEVICE, EP_SUPPORTED_DEVICES, EPName, normalize_ep_name
+from ..utils.constants import (
+    DEVICE_TYPE_TO_DEVICE,
+    EP_SUPPORTED_DEVICES,
+    SUPPORTED_EPS,
+    EPName,
+    normalize_ep_name,
+)
 from ..winml import get_registered_ep_devices
 
 
@@ -91,6 +97,15 @@ def get_device_ep_map() -> dict[str, list[EPName]]:
     return {device: list(eps) for device, eps in _DEVICE_EP_MAP.items()}
 
 
+# EPs that exist in ``onnxruntime.get_available_providers()`` but are not yet
+# exposed via the new ``get_ep_devices()``/AutoEP machinery. Mapped to the
+# canonical device they target so they can still be selected via the legacy
+# ``SessionOptions.add_provider`` code path.
+_LEGACY_EP_DEVICE_FALLBACK: dict[EPName, str] = {
+    "VitisAIExecutionProvider": "npu",  # AMD Phoenix/Strix XDNA NPU
+}
+
+
 @functools.lru_cache(maxsize=1)
 def _get_device_ep_map_from_ort() -> dict[str, tuple[EPName, ...]]:
     """Return device -> EPs targeting it, derived from registered ORT EP devices.
@@ -100,19 +115,46 @@ def _get_device_ep_map_from_ort() -> dict[str, tuple[EPName, ...]]:
     :func:`_get_available_devices`, :func:`resolve_device`, and
     :func:`resolve_eps`. Cached for the process lifetime since hardware/EPs
     do not change at runtime.
+
+    Also merges in EPs from :data:`_LEGACY_EP_DEVICE_FALLBACK` that are
+    advertised by ``onnxruntime.get_available_providers()`` but not yet
+    registered as ``OrtEpDevice`` instances (e.g. ``VitisAIExecutionProvider``
+    in ``onnxruntime-vitisai`` 1.23.x).
     """
     result: dict[str, list[EPName]] = {}
     try:
         for ep_device in get_registered_ep_devices():
             device_name = DEVICE_TYPE_TO_DEVICE.get(ep_device.device.type)
-            if device_name is not None:
-                result.setdefault(device_name.lower(), []).append(ep_device.ep_name)
+            if device_name is None:
+                continue
+            # ORT reports device-qualified aliases (e.g. "OpenVINOExecutionProvider.AUTO")
+            # as distinct ep_name values. ORT's ep_name is always a canonical full
+            # name (never a short alias), so a plain SUPPORTED_EPS membership check
+            # drops the aliases and keeps downstream availability sets / error
+            # messages limited to real providers.
+            ep_name = ep_device.ep_name
+            if ep_name not in SUPPORTED_EPS:
+                continue
+            result.setdefault(device_name.lower(), []).append(ep_name)
     except Exception:
         # WARNING (not DEBUG): if ORT is installed but enumeration fails
         # (driver bug, version mismatch, etc.) downstream code sees an empty
         # map and raises "No execution providers detected" — the user needs
         # the root cause visible at default verbosity to act on it.
         logger.warning("Failed to enumerate registered EP devices", exc_info=True)
+
+    # Legacy-API fallback: some EPs (e.g. VitisAI) only register via
+    # ``get_available_providers()``, not via ``get_ep_devices()``.
+    try:
+        import onnxruntime as ort
+
+        available = set(ort.get_available_providers())
+        for ep_name, device_name in _LEGACY_EP_DEVICE_FALLBACK.items():
+            if ep_name in available and ep_name not in result.get(device_name, ()):
+                result.setdefault(device_name, []).append(ep_name)
+    except Exception:
+        logger.debug("Legacy EP fallback enumeration failed", exc_info=True)
+
     return {dev: tuple(eps) for dev, eps in result.items()}
 
 
@@ -145,9 +187,9 @@ def _get_available_eps() -> frozenset[EPName]:
 
 
 def resolve_device(
-    device: str = "auto",
+    device: str,
     *,
-    ep: EPNameOrAlias | None = None,
+    ep: EPNameOrAlias | None,
 ) -> tuple[str, list[str]]:
     """Resolve target device with EP availability cross-check.
 
@@ -233,7 +275,7 @@ def resolve_eps(resolved_device: str) -> list[EPName]:
 
 
 def resolve_check_device_ep(
-    *, device: str = "auto", ep: EPNameOrAlias | None = None
+    *, device: str, ep: EPNameOrAlias | None
 ) -> tuple[str, list[str], list[EPName]]:
     """Resolve or check that the requested device and/or EP combination is valid, raising if not.
 

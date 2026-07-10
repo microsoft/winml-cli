@@ -229,7 +229,13 @@ class HTPExporter:
             monitor.update(ExportStep.INPUT_GEN, **input_gen_data)
 
             # Step 3: Hierarchy Building
-            self._trace_model_hierarchy(model, inputs)
+            # Trace under the Optimum patcher so models that inject constant
+            # forward arguments at export time (e.g. ViTPose MoE's dataset_index)
+            # are traced with the same inputs they are exported with. The export
+            # in Step 4 re-enters the patcher; the contexts are sequential, not
+            # nested.
+            with self._get_optimum_patcher(model, task):
+                self._trace_model_hierarchy(model, inputs)
 
             execution_steps = (
                 self._hierarchy_builder.get_execution_summary().get("execution_steps", 0)
@@ -245,8 +251,20 @@ class HTPExporter:
             # Step 4: ONNX Export
             self._convert_model_to_onnx(model, output_path, inputs, export_config, task=task)
 
+            # The TorchScript ONNX exporter writes one external-data sidecar per
+            # initializer (named by tensor). Record them now: the Step 7 tag-injection
+            # re-save consolidates all weights into a single ``<model>.onnx.data``, so
+            # these per-tensor sidecars must be pruned afterwards or they linger as
+            # orphans that roughly double on-disk size.
+            from ...onnx import get_external_data_files
+
+            try:
+                pre_consolidation_external = get_external_data_files(output_path)
+            except Exception:
+                pre_consolidation_external = []
+
             # Verify ONNX export
-            self._verify_onnx_export(output_path)
+            self._verify_onnx_export(output_path, export_config)
 
             # Update monitor with ONNX export info
             onnx_size_mb = (
@@ -296,6 +314,10 @@ class HTPExporter:
             self._embed_graph_metadata(onnx_model, export_config)
             self._embed_tags_in_onnx(output_path, onnx_model, **kwargs)
 
+            # Prune the per-tensor sidecars orphaned by the consolidated re-save
+            # so the export leaves only ``model.onnx`` + ``model.onnx.data``.
+            self._cleanup_stale_external_data(output_path, pre_consolidation_external)
+
             # Update monitor
             monitor.update(ExportStep.TAG_INJECTION)
 
@@ -344,16 +366,21 @@ class HTPExporter:
         self._hierarchy_data = summary["module_hierarchy"]
         self._export_stats["hierarchy_modules"] = len(self._hierarchy_data)
 
-    def _verify_onnx_export(self, output_path: str) -> None:
+    def _verify_onnx_export(
+        self,
+        output_path: str,
+        export_config: WinMLExportConfig | None = None,
+    ) -> None:
         """Verify ONNX export succeeded and check for common issues.
 
         Post-export validation:
         1. Load ONNX model
         2. Run ONNX checker
-        3. Verify static batch (warn if dynamic detected)
+        3. Verify batch shape and warn only about unexpected dynamic batch
 
         Args:
-            output_path: Path to exported ONNX file
+            output_path: Path to exported ONNX file.
+            export_config: Export configuration used for the export.
         """
         import logging
 
@@ -366,20 +393,35 @@ class HTPExporter:
             model = load_onnx(output_path)
             logger.info("✅ ONNX verification passed")
 
-            # Check for dynamic batch dimension (should be static)
+            # Check for dynamic batch dimension. Static remains the QNN-safe default,
+            # but dynamic dimensions are valid when explicitly requested.
             graph_inputs = model.graph.input
             has_dynamic_batch = False
+            requested_dynamic_axes: dict[str, dict[int, str]] = (
+                export_config.dynamic_axes
+                if export_config and export_config.dynamic_axes is not None
+                else {}
+            )
             for input_tensor in graph_inputs:
                 if input_tensor.type.tensor_type.shape.dim:
                     batch_dim = input_tensor.type.tensor_type.shape.dim[0]
                     if batch_dim.dim_param:  # Has symbolic name (dynamic)
                         has_dynamic_batch = True
-                        logger.warning(
-                            "⚠️  Dynamic batch detected in ONNX for '%s'.\n"
-                            "   This may cause QNN compatibility issues.\n"
-                            "   Recommendation: Remove dynamic_axes from export_config.",
-                            input_tensor.name,
+                        requested_dynamic_batch = 0 in requested_dynamic_axes.get(
+                            input_tensor.name, {}
                         )
+                        if requested_dynamic_batch:
+                            logger.info(
+                                "Dynamic batch confirmed for '%s' as requested.",
+                                input_tensor.name,
+                            )
+                        else:
+                            logger.warning(
+                                "⚠️  Dynamic batch detected in ONNX for '%s'.\n"
+                                "   This may cause QNN compatibility issues.\n"
+                                "   Use static batch for QNN-targeted optimization paths.",
+                                input_tensor.name,
+                            )
 
             if not has_dynamic_batch:
                 logger.info("✅ Static batch confirmed (QNN-compatible)")
@@ -487,7 +529,11 @@ class HTPExporter:
                 task=to_optimum_task(task),
                 library_name="transformers",
             )
-            return cfg_cls(model_config).patch_model_for_export(model)
+            # Pass an explicit empty model_kwargs so patchers that inject extra
+            # forward arguments can populate it. Some patchers (e.g. ViTPose MoE,
+            # which sets a constant dataset_index) assume a mutable dict and crash
+            # on the None default from patch_model_for_export.
+            return cfg_cls(model_config).patch_model_for_export(model, model_kwargs={})
         except KeyError:
             logger.debug(
                 "Model type '%s' (task='%s') not in Optimum registry; "
@@ -611,3 +657,36 @@ class HTPExporter:
         from ...onnx import save_onnx
 
         save_onnx(onnx_model, output_path)
+
+    @staticmethod
+    def _cleanup_stale_external_data(output_path: str, previous_external_files: list[str]) -> None:
+        """Delete per-tensor external-data sidecars orphaned by consolidation.
+
+        ``previous_external_files`` are the sidecars written by the raw exporter
+        (relative filenames). After the consolidated re-save, any of them no longer
+        referenced by the model on disk are pure orphans (their weights now live in
+        the single ``<model>.onnx.data``) and are removed. Files still referenced —
+        e.g. the consolidated sidecar itself — are left untouched.
+        """
+        from ...onnx import get_external_data_files
+
+        out = Path(output_path)
+        try:
+            still_referenced = set(get_external_data_files(output_path))
+        except Exception:
+            # If the final model can't be inspected, keep every sidecar rather than
+            # risk deleting data the model still points at.
+            return
+
+        for name in previous_external_files:
+            if name in still_referenced:
+                continue
+            stale = out.parent / name
+            try:
+                if stale.is_file():
+                    stale.unlink()
+                    logger.debug("Removed orphaned external-data sidecar: %s", stale)
+            except OSError:
+                logger.debug(
+                    "Could not remove orphaned external-data sidecar: %s", stale, exc_info=True
+                )

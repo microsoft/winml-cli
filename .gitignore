@@ -203,6 +203,7 @@ $RECYCLE.BIN/
 # Temporary files
 temp/
 tmp/
+out/
 *.tmp
 *.temp
 
@@ -223,6 +224,17 @@ tmp/
 *.graphml
 *.onnxdata
 
+# ONNX Runtime external-data sidecars dropped at CWD (UUID-named *.data files)
+# from sessions that did not pin the external-data directory
+/*.data
+
+# Quark / quantizer side-effect outputs
+/quantized_info.csv
+
+# Local debug / scratch scripts (convention: leading underscore = private)
+scripts/_*.py
+scripts/_*.json
+
 # Logs
 *.log
 logs/
@@ -241,6 +253,10 @@ nul
 export_config.json
 *_perf.json
 shape_config.json
+/out/
+
+# ONNX external data files at repo root (e.g. EPContext .data blobs)
+/*.data
 
 # UV / pip
 uv.lock

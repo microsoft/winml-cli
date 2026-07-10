@@ -165,14 +165,23 @@ class TestPatternMatcherUnnamedNodeKeys:
 
 
 class TestPatternMatcherLookupInvariants:
-    """PatternMatcher should fail loudly when internal edge registration is broken."""
+    """PatternMatcher should handle missing edge registrations gracefully."""
 
-    def test_missing_registered_edge_asserts(self):
-        """Missing edge_info entries for non-virtual inputs should raise immediately."""
+    def test_missing_registered_edge_returns_none(self):
+        """Missing edge_info entries should return None, not assert."""
+        matcher = PatternMatcher(_make_two_identity_model())
+        result = matcher._get_registered_edge_info("nonexistent_tensor", "some_node")
+        assert result is None
+
+    def test_missing_edge_skips_match_gracefully(self):
+        """Orphaned edges (missing registration) should cause match to skip, not crash."""
         matcher = PatternMatcher(_make_two_identity_model())
         matcher.register_pattern(_TwoIdentityPattern())
 
+        # Remove an edge registration to simulate an orphaned edge after optimization
         matcher.edge_info_by_name["mid"].pop("id1")
 
-        with pytest.raises(AssertionError, match="Missing edge registration"):
-            matcher.match_skeleton()
+        # Should not raise — gracefully skips the pattern match
+        results = matcher.match_skeleton()
+        # The pattern can't match because the edge is missing
+        assert len(results) == 0

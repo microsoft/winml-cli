@@ -13,7 +13,9 @@ for EPs run on the unquantized variant (currently VitisAI).
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
+import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -35,6 +37,10 @@ def _load_run_eval():
 
     spec = importlib.util.spec_from_file_location("_e2e_run_eval", script_path)
     mod = importlib.util.module_from_spec(spec)
+    # Register before exec_module so module-level @dataclass definitions can
+    # resolve their own __module__ in sys.modules (dataclasses looks it up to
+    # detect KW_ONLY/ClassVar); without this, exec raises AttributeError.
+    sys.modules["_e2e_run_eval"] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -94,6 +100,151 @@ class TestResolvePrecision:
         # for an EP that runs on the unquantized variant.
         assert "w8a8" in captured.out
         assert "vitisai" in captured.out
+
+
+class TestResolveOpTracing:
+    """Behaviour of ``_resolve_op_tracing`` and the target-key helpers."""
+
+    @staticmethod
+    def _entry(run_eval, targets):
+        return run_eval.ModelEntry(
+            hf_id="acme/model",
+            task="image-classification",
+            model_type="vit",
+            group="test",
+            priority="P0",
+            op_tracing_targets=list(targets),
+        )
+
+    def test_explicit_disabled_overrides_optin(self, run_eval):
+        # A model that opts in must still be forced off by an explicit 'disabled'.
+        entry = self._entry(run_eval, ["QNNExecutionProvider_npu"])
+        assert run_eval._resolve_op_tracing("disabled", entry, "qnn", "npu") is None
+
+    @pytest.mark.parametrize("level", ["basic", "detail"])
+    def test_explicit_level_used_as_is(self, run_eval, level):
+        # Explicit basic/detail is honoured regardless of opt-in or EP/device.
+        entry = self._entry(run_eval, [])
+        assert run_eval._resolve_op_tracing(level, entry, "qnn", "npu") == level
+        assert run_eval._resolve_op_tracing(level, entry, None, "auto") == level
+
+    def test_unset_auto_enables_on_matching_target(self, run_eval):
+        entry = self._entry(run_eval, ["QNNExecutionProvider_npu"])
+        assert run_eval._resolve_op_tracing(None, entry, "qnn", "npu") == "basic"
+
+    def test_unset_no_match_stays_off(self, run_eval):
+        entry = self._entry(run_eval, ["QNNExecutionProvider_npu"])
+        # Different device (dml/npu) and a model without targets both stay off.
+        assert run_eval._resolve_op_tracing(None, entry, "dml", "npu") is None
+        assert run_eval._resolve_op_tracing(None, self._entry(run_eval, []), "qnn", "npu") is None
+
+    def test_unset_device_auto_does_not_match(self, run_eval):
+        # 'auto' is not resolved to a concrete device here, so it never matches
+        # a device-specific target such as QNNExecutionProvider_npu.
+        entry = self._entry(run_eval, ["QNNExecutionProvider_npu"])
+        assert run_eval._resolve_op_tracing(None, entry, "qnn", "auto") is None
+
+    def test_unset_no_ep_stays_off(self, run_eval):
+        entry = self._entry(run_eval, ["QNNExecutionProvider_npu"])
+        assert run_eval._resolve_op_tracing(None, entry, None, "npu") is None
+
+
+class TestOpTracingTargetKey:
+    """The canonical key builder and the registry target normalizer."""
+
+    def test_target_key_normalizes_ep_and_device(self, run_eval):
+        assert run_eval.op_tracing_target_key("qnn", "NPU") == "QNNExecutionProvider_npu"
+        full = run_eval.op_tracing_target_key("QNNExecutionProvider", "npu")
+        assert full == "QNNExecutionProvider_npu"
+
+    def test_target_key_none_without_ep(self, run_eval):
+        assert run_eval.op_tracing_target_key(None, "npu") is None
+        assert run_eval.op_tracing_target_key("", "npu") is None
+
+    def test_normalize_target_accepts_alias_and_full_name(self, run_eval):
+        from utils.registry import normalize_op_tracing_target
+
+        assert normalize_op_tracing_target("qnn_npu") == "QNNExecutionProvider_npu"
+        assert normalize_op_tracing_target("QNNExecutionProvider_npu") == "QNNExecutionProvider_npu"
+        assert normalize_op_tracing_target("QNN_NPU") == "QNNExecutionProvider_npu"
+
+    def test_registry_normalizes_targets_on_load(self, run_eval, tmp_path):
+        registry = tmp_path / "models.json"
+        registry.write_text(
+            json.dumps(
+                [
+                    {
+                        "hf_id": "acme/model",
+                        "task": "image-classification",
+                        "model_type": "vit",
+                        "group": "test",
+                        "priority": "P0",
+                        "op_tracing_targets": ["qnn_npu"],
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        entries = run_eval.load_registry(registry)
+        assert entries[0].op_tracing_targets == ["QNNExecutionProvider_npu"]
+
+
+class TestCompositeOnnxRegistry:
+    def test_registry_preserves_composite_onnx(self, run_eval, tmp_path):
+        registry = tmp_path / "models.json"
+        registry.write_text(
+            json.dumps(
+                [
+                    {
+                        "hf_id": "onnx-community/sam3-tracker-ONNX",
+                        "task": "mask-generation",
+                        "model_type": "sam3_tracker",
+                        "group": "Top200",
+                        "priority": "P2",
+                        "composite_onnx": {
+                            "image-encoder": "org/repo/encoder.onnx",
+                            "prompt-decoder": "org/repo/decoder.onnx",
+                        },
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        entries = run_eval.load_registry(registry)
+
+        assert entries[0].composite_onnx == {
+            "image-encoder": "org/repo/encoder.onnx",
+            "prompt-decoder": "org/repo/decoder.onnx",
+        }
+
+    def test_run_build_uses_composite_onnx_without_subprocess(self, run_eval, tmp_path):
+        entry = run_eval.ModelEntry(
+            hf_id="onnx-community/sam3-tracker-ONNX",
+            task="mask-generation",
+            model_type="sam3_tracker",
+            group="Top200",
+            priority="P2",
+            composite_onnx={
+                "image-encoder": "org/repo/encoder.onnx",
+                "prompt-decoder": "org/repo/decoder.onnx",
+            },
+        )
+
+        with patch.object(run_eval, "_run_subprocess") as mock_subprocess:
+            result = run_eval._run_build(
+                entry,
+                "cpu",
+                None,
+                300,
+                tmp_path,
+                ep="cpu",
+            )
+
+        assert result["success"] is True
+        assert result["stage"] == "prebuilt"
+        assert result["onnx_paths"] == entry.composite_onnx
+        mock_subprocess.assert_not_called()
 
 
 class TestRunBuildNoQuantInjection:
@@ -174,117 +325,800 @@ class TestRunBuildNoQuantInjection:
         assert all("--no-quant" not in args for args in calls)
 
 
-def _write_onnx(path: Path, opset: int) -> None:
-    """Write a minimal single-node ONNX model at the given opset."""
-    import onnx
-
-    helper = onnx.helper
-    x = helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [1])
-    y = helper.make_tensor_value_info("y", onnx.TensorProto.FLOAT, [1])
-    graph = helper.make_graph([helper.make_node("Identity", ["x"], ["y"])], "g", [x], [y])
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", opset)])
-    onnx.save(model, str(path))
-
-
-class TestEnsureMinOpset:
-    """``_ensure_min_opset`` upgrades sub-minimum ONNX to winml's opset floor."""
-
-    def test_below_minimum_is_upgraded(self, run_eval, tmp_path):
-        import onnx
-
-        src = tmp_path / "low.onnx"
-        _write_onnx(src, opset=11)  # below winml minimum (12)
-        out = run_eval._ensure_min_opset(str(src), tmp_path)
-
-        assert out != str(src)  # a new, upgraded file
-        assert Path(out).exists()
-        upgraded = max(
-            i.version for i in onnx.load(out).opset_import if i.domain in ("", "ai.onnx")
-        )
-        assert upgraded == run_eval._OPSET_UPGRADE_TARGET
-
-    def test_at_or_above_minimum_is_unchanged(self, run_eval, tmp_path):
-        src = tmp_path / "ok.onnx"
-        _write_onnx(src, opset=run_eval._WINML_MIN_OPSET)  # exactly the floor
-        assert run_eval._ensure_min_opset(str(src), tmp_path) == str(src)
-
-
-class TestOnnxFilePreBuiltModel:
-    """Models declaring ``onnx_file`` download the pre-exported ONNX and feed the
-    local path to winml config/build via ``-m``, building with ``--output-dir``
-    (direct-ONNX configs have no ``loader.task`` for ``--use-cache``).
-    """
+class TestFeedVersionForCombo:
+    """``_feed_version_for`` embeds the EP/device combo after the run-stamp."""
 
     @staticmethod
-    def _make_entry(onnx_file: str | None = "inference.onnx"):
+    def _entry(hf_id="microsoft/resnet-50", task="image-classification"):
         entry = MagicMock()
-        entry.hf_id = "PaddlePaddle/PP-OCRv5_server_det_onnx"
-        entry.task = "image-to-text"
-        entry.perf_args = []
-        entry.onnx_file = onnx_file
+        entry.hf_id = hf_id
+        entry.task = task
+        return entry
+
+    def test_combo_label_slugified_after_run_stamp(self, run_eval):
+        version = run_eval._feed_version_for(self._entry(), "20260609", "qnn_npu")
+        assert version == "0.0.0-20260609-qnn-npu-microsoft-resnet-50-image-classification"
+
+    def test_distinct_combos_yield_distinct_versions(self, run_eval):
+        entry = self._entry()
+        v1 = run_eval._feed_version_for(entry, "20260609", "qnn_npu")
+        v2 = run_eval._feed_version_for(entry, "20260609", "ov_cpu")
+        assert v1 != v2
+        assert "-qnn-npu-" in v1
+        assert "-ov-cpu-" in v2
+
+    def test_task_omitted_when_absent(self, run_eval):
+        version = run_eval._feed_version_for(self._entry(task=""), "20260609", "qnn_npu")
+        assert version == "0.0.0-20260609-qnn-npu-microsoft-resnet-50"
+
+
+class TestResultsIO:
+    """``_load_results`` / ``_write_results`` round-trip and tolerate junk."""
+
+    def test_round_trip(self, run_eval, tmp_path):
+        path = tmp_path / "build_only_results.json"
+        data = {"0.0.0-x": {"build_status": "ok", "upload_status": "uploaded"}}
+        run_eval._write_results(path, data)
+        assert run_eval._load_results(path) == data
+
+    def test_missing_file_returns_empty(self, run_eval, tmp_path):
+        assert run_eval._load_results(tmp_path / "nope.json") == {}
+
+    def test_corrupt_file_returns_empty(self, run_eval, tmp_path):
+        path = tmp_path / "bad.json"
+        path.write_text("{not json", encoding="utf-8")
+        assert run_eval._load_results(path) == {}
+
+
+class TestIsAzUnavailable:
+    """A bare timeout is NOT az-unavailable; auth markers and a missing CLI are."""
+
+    def test_pure_timeout_is_not_unavailable(self, run_eval):
+        proc = {"exit_code": -1, "timeout": True, "stdout": "", "stderr": ""}
+        assert run_eval._is_az_unavailable(proc) is False
+
+    def test_missing_cli_is_unavailable(self, run_eval):
+        proc = {"exit_code": 127, "timeout": False, "stdout": "", "stderr": ""}
+        assert run_eval._is_az_unavailable(proc) is True
+
+    @pytest.mark.parametrize(
+        "blob",
+        ["Please run 'az login'", "Not logged in", "AADSTS700082: token has expired"],
+    )
+    def test_auth_markers_are_unavailable(self, run_eval, blob):
+        proc = {"exit_code": 1, "timeout": False, "stdout": "", "stderr": blob}
+        assert run_eval._is_az_unavailable(proc) is True
+
+    def test_invalid_grant_is_unavailable(self, run_eval):
+        # invalid_grant is the OAuth2 code Azure AD uses for an expired/revoked
+        # refresh token (chosen over the broad 'refresh token' substring).
+        proc = {
+            "exit_code": 1,
+            "timeout": False,
+            "stdout": "",
+            "stderr": "OAuth error: invalid_grant - token revoked",
+        }
+        assert run_eval._is_az_unavailable(proc) is True
+
+    def test_informational_refresh_token_is_not_unavailable(self, run_eval):
+        # A bare informational MSAL progress line must NOT trigger an abort now
+        # that the broad 'refresh token' marker has been narrowed.
+        proc = {
+            "exit_code": 1,
+            "timeout": False,
+            "stdout": "Refreshing token for scope https://example",
+            "stderr": "",
+        }
+        assert run_eval._is_az_unavailable(proc) is False
+
+
+class TestClassifyUpload:
+    """``_classify_upload`` maps an ``az`` publish result to an upload status."""
+
+    @staticmethod
+    def _args(upload_skip_existing=False):
+        return argparse.Namespace(upload_skip_existing=upload_skip_existing)
+
+    def test_success(self, run_eval):
+        up = {"exit_code": 0, "timeout": False, "stdout": "", "stderr": ""}
+        assert run_eval._classify_upload(up, self._args()) == "uploaded"
+
+    def test_conflict_with_skip_existing(self, run_eval):
+        up = {"exit_code": 1, "timeout": False, "stdout": "", "stderr": "PackageVersionExists"}
+        assert (
+            run_eval._classify_upload(up, self._args(upload_skip_existing=True)) == "exists-skipped"
+        )
+
+    def test_conflict_without_skip_existing_is_failed(self, run_eval):
+        up = {"exit_code": 1, "timeout": False, "stdout": "", "stderr": "PackageVersionExists"}
+        assert run_eval._classify_upload(up, self._args(upload_skip_existing=False)) == "failed"
+
+    def test_auth_is_abort(self, run_eval):
+        up = {"exit_code": 1, "timeout": False, "stdout": "", "stderr": "Please run 'az login'"}
+        assert run_eval._classify_upload(up, self._args()) == "auth-abort"
+
+    def test_missing_cli_is_abort(self, run_eval):
+        up = {"exit_code": 127, "timeout": False, "stdout": "", "stderr": "az not found"}
+        assert run_eval._classify_upload(up, self._args()) == "auth-abort"
+
+    def test_timeout(self, run_eval):
+        up = {"exit_code": -1, "timeout": True, "stdout": "", "stderr": ""}
+        assert run_eval._classify_upload(up, self._args()) == "timeout"
+
+    def test_plain_failure(self, run_eval):
+        up = {"exit_code": 1, "timeout": False, "stdout": "", "stderr": "500 server error"}
+        assert run_eval._classify_upload(up, self._args()) == "failed"
+
+
+class TestRunBuildOnlyUploadCleanup:
+    """Per-combo upload bounds disk: every outcome cleans up locally + is recorded.
+
+    Exercises the pinned single-combo path (``--ep qnn --device npu``) with
+    ``_run_build`` and ``_upload_model_dir`` mocked, asserting the per-combo dir is
+    removed and the right status lands in ``build_only_results.json``.
+    """
+
+    HF_ID = "microsoft/resnet-50"
+    TASK = "image-classification"
+
+    @classmethod
+    def _entry(cls):
+        entry = MagicMock()
+        entry.hf_id = cls.HF_ID
+        entry.task = cls.TASK
+        entry.priority = "P0"
+        entry.group = "vision"
+        entry.precision = None
         return entry
 
     @staticmethod
-    def _model_arg(args: list[str]) -> str:
-        """Return the value after the *model* ``-m`` (WINML_CLI itself carries a
-        leading ``python -m winml.modelkit.cli``, so take the last ``-m``)."""
-        idx = len(args) - 1 - args[::-1].index("-m")
-        return args[idx + 1]
+    def _args(tmp_path, **overrides):
+        args = argparse.Namespace(
+            output_dir=tmp_path,
+            ep="qnn",
+            device="npu",
+            upload=True,
+            continue_run=False,
+            keep_local=False,
+            upload_skip_existing=False,
+            timeout=300,
+            verbose=False,
+            clean_cache=False,
+            run_stamp="20260609",
+            feed="Modelkit",
+            feed_org="https://dev.azure.com/microsoft",
+            feed_project="windows.ai.toolkit",
+            package_name="winml-cli-models",
+        )
+        for key, value in overrides.items():
+            setattr(args, key, value)
+        return args
 
-    def test_no_onnx_file_returns_hf_id(self, run_eval, tmp_path):
-        entry = self._make_entry(onnx_file=None)
-        assert run_eval._resolve_model_input(entry, tmp_path) == entry.hf_id
+    @staticmethod
+    def _build(success: bool):
+        """Fake ``_run_build`` that materialises the combo dir on disk."""
 
-    def test_onnx_file_downloads_then_ensures_opset(self, run_eval, tmp_path):
-        entry = self._make_entry()
-        fake_dl = str(tmp_path / "inference.onnx")
-        with (
-            patch.object(run_eval, "_ensure_min_opset", return_value="UPGRADED") as ensure,
-            patch("huggingface_hub.hf_hub_download", return_value=fake_dl) as download,
-        ):
-            result = run_eval._resolve_model_input(entry, tmp_path)
-
-        download.assert_called_once_with(repo_id=entry.hf_id, filename="inference.onnx")
-        ensure.assert_called_once_with(fake_dl, tmp_path)
-        assert result == "UPGRADED"
-
-    def test_run_build_uses_output_dir_and_onnx_path(self, run_eval, tmp_path):
-        entry = self._make_entry()
-        onnx_path = str(tmp_path / "inference_op17.onnx")
-        # winml build writes a deterministic <output-dir>/model.onnx
-        build_out = tmp_path / "build"
-        build_out.mkdir()
-        (build_out / "model.onnx").write_text("x")
-        config_path = tmp_path / "build_config.json"
-        config_path.write_text("{}")
-
-        captured: list[list[str]] = []
-
-        def fake_subprocess(args, _timeout):
-            captured.append(list(args))
-            stdout = f"Generated {config_path}" if "config" in args else ""
+        def _fake(entry, device, precision, timeout, build_dir, ep=None, build_only=False):
+            build_dir = Path(build_dir)
+            build_dir.mkdir(parents=True, exist_ok=True)
+            (build_dir / "quantized.onnx").write_text("x", encoding="utf-8")
             return {
-                "exit_code": 0,
-                "stdout": stdout,
-                "stderr": "",
-                "elapsed": 0.1,
-                "command": "winml ...",
+                "success": success,
+                "onnx_paths": {"": str(build_dir)} if success else {},
+                "stage": "complete" if success else "build",
+                "proc": {
+                    "exit_code": 0 if success else 1,
+                    "stdout": "",
+                    "stderr": "" if success else "boom",
+                    "timeout": False,
+                },
             }
 
-        with (
-            patch.object(run_eval, "_resolve_model_input", return_value=onnx_path),
-            patch.object(run_eval, "_run_subprocess", side_effect=fake_subprocess),
-        ):
-            result = run_eval._run_build(entry, "cpu", None, 300, tmp_path, ep=None)
+        return _fake
 
-        config_call = next(a for a in captured if "config" in a)
-        build_call = next(a for a in captured if "build" in a)
-        # -m points at the local ONNX for both config and build
-        assert self._model_arg(config_call) == onnx_path
-        assert self._model_arg(build_call) == onnx_path
-        # build writes to --output-dir, never --use-cache (no loader.task)
-        assert "--output-dir" in build_call
-        assert "--use-cache" not in build_call
-        # artifact resolved deterministically (not via stdout parsing)
+    def _run(self, run_eval, args, build_side_effect, upload_proc):
+        with (
+            patch.object(run_eval, "save_environment_info"),
+            patch.object(run_eval, "_ensure_feed_ready", return_value=None),
+            patch.object(run_eval, "_run_build", side_effect=build_side_effect),
+            patch.object(run_eval, "_upload_model_dir", return_value=upload_proc),
+        ):
+            run_eval._run_build_only([self._entry()], args)
+
+    def _model_dir(self, run_eval, tmp_path):
+        return run_eval.model_result_dir(tmp_path, self.HF_ID, self.TASK)
+
+    def _record(self, tmp_path):
+        results = json.loads((tmp_path / "build_only_results.json").read_text(encoding="utf-8"))
+        assert len(results) == 1
+        return next(iter(results.values()))
+
+    def test_upload_ok_removes_local_and_records(self, run_eval, tmp_path):
+        up = {"exit_code": 0, "stdout": "", "stderr": "", "timeout": False}
+        self._run(run_eval, self._args(tmp_path), self._build(True), up)
+        assert not self._model_dir(run_eval, tmp_path).exists()
+        rec = self._record(tmp_path)
+        assert rec["build_status"] == "ok"
+        assert rec["upload_status"] == "uploaded"
+
+    def test_upload_timeout_cleans_and_continues(self, run_eval, tmp_path):
+        # A timed-out upload must NOT raise SystemExit; it cleans up and is recorded.
+        up = {"exit_code": -1, "stdout": "", "stderr": "", "timeout": True}
+        self._run(run_eval, self._args(tmp_path), self._build(True), up)
+        assert not self._model_dir(run_eval, tmp_path).exists()
+        assert self._record(tmp_path)["upload_status"] == "timeout"
+
+    def test_build_failure_cleans_and_records(self, run_eval, tmp_path):
+        up = {"exit_code": 0, "stdout": "", "stderr": "", "timeout": False}
+        self._run(run_eval, self._args(tmp_path), self._build(False), up)
+        assert not self._model_dir(run_eval, tmp_path).exists()
+        rec = self._record(tmp_path)
+        assert rec["build_status"] == "failed"
+        assert rec["upload_status"] == "skipped"
+
+    def test_auth_failure_aborts_after_cleanup(self, run_eval, tmp_path):
+        up = {"exit_code": 1, "stdout": "", "stderr": "Please run 'az login'", "timeout": False}
+        with pytest.raises(SystemExit):
+            self._run(run_eval, self._args(tmp_path), self._build(True), up)
+        assert not self._model_dir(run_eval, tmp_path).exists()
+        assert self._record(tmp_path)["upload_status"] == "failed"
+
+    def test_keep_local_preserves_dir(self, run_eval, tmp_path):
+        up = {"exit_code": 0, "stdout": "", "stderr": "", "timeout": False}
+        self._run(run_eval, self._args(tmp_path, keep_local=True), self._build(True), up)
+        assert self._model_dir(run_eval, tmp_path).exists()
+        assert self._record(tmp_path)["upload_status"] == "uploaded"
+
+
+class TestFetchFeedVersions:
+    """`_fetch_feed_versions`: resolve the package, then list its versions.
+
+    A package missing from the (possibly paginated) listing returns ``None`` --
+    not an empty set -- so --continue takes the explicit fallback instead of
+    silently rebuilding the whole batch.
+    """
+
+    @staticmethod
+    def _args():
+        return argparse.Namespace(
+            feed_org="https://dev.azure.com/microsoft",
+            feed_project="windows.ai.toolkit",
+            feed="Modelkit",
+            package_name="winml-cli-models",
+        )
+
+    @staticmethod
+    def _ok(stdout):
+        return {"exit_code": 0, "stdout": stdout, "stderr": "", "timeout": False}
+
+    def test_package_not_found_returns_none(self, run_eval):
+        listing = json.dumps({"value": [{"name": "other-pkg", "protocolType": "upack", "id": "x"}]})
+
+        def fake_az(az_args, _timeout=180):
+            return self._ok(listing)
+
+        with patch.object(run_eval, "_run_az", side_effect=fake_az):
+            assert run_eval._fetch_feed_versions(self._args(), "20260609") is None
+
+    def test_returns_versions_matching_run_stamp(self, run_eval):
+        listing = json.dumps(
+            {"value": [{"name": "winml-cli-models", "protocolType": "upack", "id": "PKG"}]}
+        )
+        versions = json.dumps(
+            {
+                "value": [
+                    {"version": "0.0.0-20260609-qnn-npu-m"},
+                    {"version": "0.0.0-20260609-ov-cpu-m"},
+                    {"version": "0.0.0-20251231-qnn-npu-m"},
+                ]
+            }
+        )
+
+        def fake_az(az_args, _timeout=180):
+            return self._ok(versions if "/versions" in az_args[-1] else listing)
+
+        with patch.object(run_eval, "_run_az", side_effect=fake_az):
+            result = run_eval._fetch_feed_versions(self._args(), "20260609")
+        assert result == {"0.0.0-20260609-qnn-npu-m", "0.0.0-20260609-ov-cpu-m"}
+
+    def test_query_failure_returns_none(self, run_eval):
+        def fake_az(az_args, _timeout=180):
+            return {"exit_code": 1, "stdout": "", "stderr": "boom", "timeout": False}
+
+        with patch.object(run_eval, "_run_az", side_effect=fake_az):
+            assert run_eval._fetch_feed_versions(self._args(), "20260609") is None
+
+
+# ---------------------------------------------------------------------------
+# Recipe-driven merge: discovery -> jobs -> build -> eval
+# ---------------------------------------------------------------------------
+
+
+def _entry(hf_id="microsoft/resnet-50", task="image-classification"):
+    entry = MagicMock()
+    entry.hf_id = hf_id
+    entry.task = task
+    entry.precision = None
+    entry.perf_args = []
+    entry.eval_args = []
+    return entry
+
+
+class TestModelResultDirPrecision:
+    """``model_result_dir`` folds precision into the slug for recipe variants."""
+
+    def test_without_precision(self, run_eval, tmp_path):
+        d = run_eval.model_result_dir(tmp_path, "microsoft/resnet-50", "image-classification")
+        assert d.name == "microsoft__resnet-50__image-classification"
+
+    def test_with_precision(self, run_eval, tmp_path):
+        d = run_eval.model_result_dir(
+            tmp_path, "microsoft/resnet-50", "image-classification", "w8a16"
+        )
+        assert d.name == "microsoft__resnet-50__image-classification__w8a16"
+
+
+class TestAccuracyStatus:
+    """``accuracy_status`` is a coarse, baseline-free status."""
+
+    def test_not_run(self, run_eval):
+        assert run_eval.accuracy_status(None) == "NOT_RUN"
+
+    def test_skipped(self, run_eval):
+        acc = {"skipped": True, "skip_reason": "perf_failed"}
+        assert run_eval.accuracy_status(acc) == "SKIPPED"
+
+    def test_pass(self, run_eval):
+        assert run_eval.accuracy_status({"winml_eval_status": "PASS"}) == "PASS"
+
+    def test_fail(self, run_eval):
+        assert run_eval.accuracy_status({"winml_eval_status": "FAIL"}) == "FAIL"
+
+
+class TestRecipeConfigHelpers:
+    """Eval-section detection, meta-config pick, and trust-remote-code gate."""
+
+    def _write(self, path: Path, payload: dict):
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+    def test_has_eval_section(self, run_eval, tmp_path):
+        cfg = tmp_path / "a.json"
+        self._write(cfg, {"eval": {"task": "x"}})
+        assert run_eval._config_has_eval_section(cfg) is True
+
+    def test_missing_eval_section(self, run_eval, tmp_path):
+        cfg = tmp_path / "b.json"
+        self._write(cfg, {"loader": {"task": "x"}})
+        assert run_eval._config_has_eval_section(cfg) is False
+
+    def test_meta_config_picks_eval_component(self, run_eval, tmp_path):
+        # Composite: only the decoder config carries the eval section.
+        model_dir = tmp_path / "microsoft_trocr-base-printed"
+        model_dir.mkdir()
+        enc = model_dir / "image-to-text_fp16_config_encoder.json"
+        dec = model_dir / "image-to-text_fp16_config_decoder.json"
+        self._write(enc, {"loader": {"task": "image-to-text"}})
+        self._write(dec, {"eval": {"task": "image-to-text", "dataset": {"path": "x"}}})
+        variants = run_eval.discover_recipe_variants(
+            tmp_path, "microsoft/trocr-base-printed", "image-to-text"
+        )
+        assert len(variants) == 1
+        assert run_eval._recipe_meta_config(variants[0]) == dec
+
+    def test_needs_trust_remote_code(self, run_eval, tmp_path):
+        cfg = tmp_path / "c.json"
+        self._write(cfg, {"eval": {"dataset": {"path": "x", "build_script": "build.py"}}})
+        assert run_eval._needs_trust_remote_code(cfg) is True
+
+    def test_no_trust_without_build_script(self, run_eval, tmp_path):
+        cfg = tmp_path / "d.json"
+        self._write(cfg, {"eval": {"dataset": {"path": "x"}}})
+        assert run_eval._needs_trust_remote_code(cfg) is False
+        assert run_eval._needs_trust_remote_code(None) is False
+
+
+class TestBuildJobs:
+    """``_build_jobs`` expands entries into one job per recipe precision variant."""
+
+    def _make_single_recipe(self, recipes_dir: Path, slug: str, task: str, precisions: list[str]):
+        model_dir = recipes_dir / slug
+        model_dir.mkdir(parents=True)
+        for prec in precisions:
+            (model_dir / f"{task}_{prec}_config.json").write_text(
+                json.dumps({"eval": {"task": task, "dataset": {"path": "x"}}}), encoding="utf-8"
+            )
+
+    def test_recipe_expands_to_one_job_per_precision(self, run_eval, tmp_path):
+        self._make_single_recipe(
+            tmp_path, "microsoft_resnet-50", "image-classification", ["fp16", "w8a16"]
+        )
+        entry = _entry()
+        jobs = run_eval._build_jobs([entry], tmp_path)
+        assert [j.precision for j in jobs] == ["fp16", "w8a16"]
+        assert all(j.entry is entry for j in jobs)
+
+    def test_no_recipe_falls_back_to_single_job(self, run_eval, tmp_path):
+        entry = _entry("some/model", "text-classification")
+        jobs = run_eval._build_jobs([entry], tmp_path)
+        assert len(jobs) == 1
+        assert jobs[0].variant is None
+        assert jobs[0].precision is None
+
+    def test_recipes_disabled_yields_fallback_jobs(self, run_eval, tmp_path):
+        self._make_single_recipe(tmp_path, "microsoft_resnet-50", "image-classification", ["fp16"])
+        entry = _entry()
+        # recipes_dir=None disables recipe discovery entirely.
+        jobs = run_eval._build_jobs([entry], None)
+        assert len(jobs) == 1
+        assert jobs[0].variant is None
+
+
+class TestRunRecipeBuild:
+    """``_run_recipe_build`` builds authored configs with ``winml build -c --use-cache``."""
+
+    def _variant(self, run_eval, tmp_path, *, composite: bool):
+        model_dir = tmp_path / "recipes" / "microsoft_resnet-50"
+        model_dir.mkdir(parents=True)
+        task = "image-to-text" if composite else "image-classification"
+        if composite:
+            (model_dir / f"{task}_fp16_config_encoder.json").write_text(
+                json.dumps({"loader": {"task": task}}), encoding="utf-8"
+            )
+            (model_dir / f"{task}_fp16_config_decoder.json").write_text(
+                json.dumps({"eval": {"task": task, "dataset": {"path": "x"}}}), encoding="utf-8"
+            )
+        else:
+            (model_dir / f"{task}_fp16_config.json").write_text(
+                json.dumps({"eval": {"task": task, "dataset": {"path": "x"}}}), encoding="utf-8"
+            )
+        variants = run_eval.discover_recipe_variants(
+            tmp_path / "recipes", "microsoft/resnet-50", task
+        )
+        assert len(variants) == 1
+        return variants[0]
+
+    def _fake_subprocess(self, captured):
+        def _fake(args, _timeout):
+            captured.append(list(args))
+            return {
+                "exit_code": 0,
+                "stdout": "",
+                "stderr": "",
+                "elapsed": 0.1,
+                "timeout": False,
+                "command": " ".join(args),
+            }
+
+        return _fake
+
+    def test_single_build_uses_cache(self, run_eval, tmp_path):
+        variant = self._variant(run_eval, tmp_path, composite=False)
+        out = tmp_path / "out"
+        captured: list[list[str]] = []
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=self._fake_subprocess(captured)),
+            patch.object(run_eval, "_extract_onnx_path", side_effect=lambda *a: "m.onnx"),
+        ):
+            result = run_eval._run_recipe_build(_entry(), variant, 300, out, ep="openvino")
+
         assert result["success"] is True
-        assert result["onnx_paths"][""] == str(build_out / "model.onnx")
+        assert result["onnx_paths"] == {"": "m.onnx"}  # single model uses "" label
+        assert result["meta_config"] == variant.components[0].path
+        build_call = captured[0]
+        assert "build" in build_call
+        assert "-c" in build_call and str(variant.components[0].path) in build_call
+        # Artifacts go to the global WinML cache, not the job dir (-o).
+        assert "--use-cache" in build_call
+        assert "-o" not in build_call
+        assert "--no-compile" not in build_call  # openvino is not vitisai
+
+    def test_vitisai_adds_no_compile(self, run_eval, tmp_path):
+        variant = self._variant(run_eval, tmp_path, composite=False)
+        captured: list[list[str]] = []
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=self._fake_subprocess(captured)),
+            patch.object(run_eval, "_extract_onnx_path", side_effect=lambda *a: "m.onnx"),
+        ):
+            run_eval._run_recipe_build(_entry(), variant, 300, tmp_path / "o", ep="vitisai")
+        assert "--no-compile" in captured[0]
+
+    def test_composite_builds_each_role(self, run_eval, tmp_path):
+        variant = self._variant(run_eval, tmp_path, composite=True)
+        out = tmp_path / "out"
+        captured: list[list[str]] = []
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=self._fake_subprocess(captured)),
+            patch.object(run_eval, "_extract_onnx_path", side_effect=lambda *a: "m.onnx"),
+        ):
+            result = run_eval._run_recipe_build(_entry(), variant, 300, out, ep="openvino")
+
+        assert result["success"] is True
+        assert set(result["onnx_paths"]) == {"encoder", "decoder"}
+        assert len(captured) == 2  # one winml build per component
+        assert all("--use-cache" in call for call in captured)
+
+    def test_build_failure_reported(self, run_eval, tmp_path):
+        variant = self._variant(run_eval, tmp_path, composite=False)
+
+        def _fail(args, _timeout):
+            return {
+                "exit_code": 1,
+                "stdout": "",
+                "stderr": "boom",
+                "elapsed": 0.1,
+                "timeout": False,
+                "command": " ".join(args),
+            }
+
+        with patch.object(run_eval, "_run_subprocess", side_effect=_fail):
+            result = run_eval._run_recipe_build(_entry(), variant, 300, tmp_path / "o")
+        assert result["success"] is False
+        assert result["stage"] == "build"
+
+    def test_missing_cached_artifact_is_failure(self, run_eval, tmp_path):
+        # Build exits 0 but the artifact can't be located in the cache -> the job
+        # is a hard build failure (never silently continues without a model).
+        variant = self._variant(run_eval, tmp_path, composite=False)
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=self._fake_subprocess([])),
+            patch.object(run_eval, "_extract_onnx_path", side_effect=lambda *a: None),
+        ):
+            result = run_eval._run_recipe_build(_entry(), variant, 300, tmp_path / "o")
+        assert result["success"] is False
+        assert result["stage"] == "build"
+
+
+class TestRunWinmlEvalRecipePath:
+    """``_run_winml_eval`` reads the dataset from ``-c`` on the recipe path."""
+
+    def _fake_subprocess_writing_output(self, captured, metrics, dataset):
+        def _fake(args, _timeout):
+            captured.append(list(args))
+            out = Path(args[args.index("--output") + 1])
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps({"metrics": metrics, "dataset": dataset}), encoding="utf-8")
+            return {
+                "exit_code": 0,
+                "stdout": "",
+                "stderr": "",
+                "elapsed": 1.0,
+                "timeout": False,
+                "command": " ".join(args),
+            }
+
+        return _fake
+
+    def test_recipe_path_passes_config_not_dataset_flags(self, run_eval, tmp_path):
+        cfg = tmp_path / "recipe.json"
+        cfg.write_text("{}", encoding="utf-8")
+        captured: list[list[str]] = []
+        fake = self._fake_subprocess_writing_output(captured, {"accuracy": 0.9}, {"samples": 100})
+        with patch.object(run_eval, "_run_subprocess", side_effect=fake):
+            res = run_eval._run_winml_eval(
+                _entry(),
+                "npu",
+                300,
+                {},
+                tmp_path,
+                {"": "model.onnx"},
+                ep="openvino",
+                recipe_config=cfg,
+                trust_remote_code=True,
+            )
+        call = captured[0]
+        assert "-c" in call and str(cfg) in call
+        assert "--dataset" not in call  # recipe drives the dataset
+        assert "--trust-remote-code" in call
+        assert res["status"] == "PASS"
+        assert res["metrics"] == {"accuracy": 0.9}
+        assert res["dataset"] == {"samples": 100}
+
+    def test_fallback_path_uses_dataset_flags(self, run_eval, tmp_path):
+        captured: list[list[str]] = []
+        fake = self._fake_subprocess_writing_output(captured, {"accuracy": 0.8}, {"samples": 50})
+        ds_config = {"dataset": "timm/mini-imagenet", "split": "test", "num_samples": 50}
+        with patch.object(run_eval, "_run_subprocess", side_effect=fake):
+            res = run_eval._run_winml_eval(
+                _entry(), "npu", 300, ds_config, tmp_path, {"": "model.onnx"}, ep="openvino"
+            )
+        call = captured[0]
+        assert "-c" not in call
+        assert "--dataset" in call and "timm/mini-imagenet" in call
+        assert res["status"] == "PASS"
+
+
+class TestCleanStrayCwdArtifacts:
+    """``_clean_stray_cwd_artifacts`` sweeps UUID/sym-shape temps from the cwd."""
+
+    def test_removes_uuid_and_sym_shape_keeps_real(self, run_eval, tmp_path):
+        # Stray scratch files libraries leak into the process cwd.
+        (tmp_path / "88158373-7198-11f1-ab34-2c9c5846c436.data").write_text("x")
+        (tmp_path / "b305c74d-7171-11f1-9869-2c9c5846c436.onnx").write_text("x")
+        (tmp_path / "c97746cf-714d-11f1-aa19-2c9c5846c436.onnx.data").write_text("x")
+        # QNN EP-context dump form: <uuid>.onnx_<EP>.bin
+        (tmp_path / "a1b2c3d4-1234-5678-9abc-def012345678.onnx_QNN.bin").write_text("x")
+        (tmp_path / "sym_shape_infer_temp.onnx").write_text("x")
+        # EP engine-compile timing dump (exact fixed name).
+        (tmp_path / "timing_log.csv").write_text("x")
+        # Real files that must survive (not UUID-prefixed / not the timing dump).
+        (tmp_path / "README.md").write_text("x")
+        (tmp_path / "model.onnx").write_text("x")
+        (tmp_path / "pyproject.toml").write_text("x")
+        (tmp_path / "my_timing_log.csv").write_text("x")  # similar but not exact -> keep
+
+        removed = run_eval._clean_stray_cwd_artifacts(tmp_path)
+
+        assert removed == 6
+        survivors = sorted(p.name for p in tmp_path.iterdir())
+        assert survivors == ["README.md", "model.onnx", "my_timing_log.csv", "pyproject.toml"]
+
+    def test_does_not_recurse_into_subdirs(self, run_eval, tmp_path):
+        # Only the top-level cwd is swept; a UUID dir/file one level down is left.
+        sub = tmp_path / "eval_results"
+        sub.mkdir()
+        (sub / "88158373-7198-11f1-ab34-2c9c5846c436.data").write_text("x")
+        removed = run_eval._clean_stray_cwd_artifacts(tmp_path)
+        assert removed == 0
+        assert (sub / "88158373-7198-11f1-ab34-2c9c5846c436.data").exists()
+
+    def test_missing_dir_is_noop(self, run_eval, tmp_path):
+        assert run_eval._clean_stray_cwd_artifacts(tmp_path / "nope") == 0
+
+
+class TestRunAccuracyPhaseSchema:
+    """``_run_accuracy_phase`` records facts only (no inline PyTorch baseline)."""
+
+    def test_schema_has_metrics_and_no_baseline(self, run_eval, tmp_path):
+        winml_ret = {
+            "status": "PASS",
+            "metric": {"metric": "accuracy", "value": 0.9, "num_samples": 100},
+            "metrics": {"accuracy": 0.9},
+            "dataset": {"samples": 100},
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": "",
+            "elapsed": 1.0,
+            "timeout": False,
+            "command": "winml eval ...",
+        }
+        with patch.object(run_eval, "_run_winml_eval", return_value=winml_ret) as mock_eval:
+            acc = run_eval._run_accuracy_phase(
+                _entry(),
+                "npu",
+                300,
+                tmp_path,
+                {"": "model.onnx"},
+                ep="openvino",
+                recipe_config=tmp_path / "r.json",
+                trust_remote_code=True,
+            )
+        # New schema: facts only, baseline/delta removed.
+        assert acc["winml_eval_status"] == "PASS"
+        assert acc["metrics"] == {"accuracy": 0.9}
+        assert acc["dataset"] == {"samples": 100}
+        assert "pytorch_baseline_status" not in acc
+        assert "delta_absolute" not in acc
+        # recipe_config + trust flow through to winml eval.
+        _, kwargs = mock_eval.call_args
+        assert kwargs["recipe_config"] == tmp_path / "r.json"
+        assert kwargs["trust_remote_code"] is True
+
+
+class TestShouldSkipExistingRetry:
+    """``_should_skip_existing`` retry-type matching.
+
+    Guards the fix for the stale ``--retry-failed`` help: accuracy retry types
+    are the coarse ``accuracy_status`` values (PASS/FAIL/SKIPPED/NOT_RUN), never
+    the removed ``ACCURACY_*`` verdicts. Perf retry types are the failure
+    classifications.
+    """
+
+    @staticmethod
+    def _result(perf_passed=True, perf_stdout="", acc_status=None):
+        r = {
+            "perf": {
+                "passed": perf_passed,
+                "timeout": False,
+                "stdout_output": perf_stdout,
+                "stderr_output": "",
+                "exit_code": 0 if perf_passed else 1,
+            }
+        }
+        if acc_status == "PASS":
+            r["accuracy"] = {"skipped": False, "winml_eval_status": "PASS", "metrics": {"a": 1}}
+        elif acc_status == "FAIL":
+            r["accuracy"] = {"skipped": False, "winml_eval_status": "FAIL", "metrics": None}
+        elif acc_status == "SKIPPED":
+            r["accuracy"] = {"skipped": True, "skip_reason": "perf_failed"}
+        else:
+            r["accuracy"] = None
+        return r
+
+    def test_continue_without_retry_skips_all(self, run_eval):
+        # retry_types=None means plain --continue: skip every existing result.
+        res = self._result(perf_passed=False, acc_status="FAIL")
+        assert run_eval._should_skip_existing(res, None, "both") is True
+
+    def test_retry_all_reruns_accuracy_fail(self, run_eval):
+        # empty set = retry ALL non-PASS; an accuracy FAIL must be re-run.
+        res = self._result(perf_passed=True, acc_status="FAIL")
+        assert run_eval._should_skip_existing(res, set(), "both") is False
+
+    def test_retry_fail_matches_accuracy_fail(self, run_eval):
+        # The documented `--retry-failed FAIL` must actually match acc=FAIL.
+        res = self._result(perf_passed=True, acc_status="FAIL")
+        assert run_eval._should_skip_existing(res, {"FAIL"}, "both") is False
+
+    def test_retry_fail_does_not_match_accuracy_pass(self, run_eval):
+        res = self._result(perf_passed=True, acc_status="PASS")
+        assert run_eval._should_skip_existing(res, {"FAIL"}, "both") is True
+
+    def test_stale_accuracy_regression_matches_nothing(self, run_eval):
+        # The removed verdict must never match (the bug the help fix addresses).
+        res = self._result(perf_passed=True, acc_status="FAIL")
+        assert run_eval._should_skip_existing(res, {"ACCURACY_REGRESSION"}, "both") is True
+
+    def test_perf_classification_matches(self, run_eval):
+        # Perf retry types are failure classifications (e.g. RUNTIME_FAIL).
+        res = self._result(
+            perf_passed=False, perf_stdout="RuntimeError: boom", acc_status="SKIPPED"
+        )
+        cls = run_eval.classify_result(res)
+        assert run_eval._should_skip_existing(res, {cls}, "both") is False
+        env_match = run_eval._should_skip_existing(res, {"ENVIRONMENT"}, "both")
+        assert env_match is (cls != "ENVIRONMENT")
+
+
+class TestAccuracyBackfill:
+    """``_needs_accuracy_backfill`` + ``_should_skip_existing`` top up perf-only
+    results with accuracy under ``--continue`` instead of skipping them.
+    """
+
+    @staticmethod
+    def _perf_only(perf_passed=True):
+        # A perf-only run: accuracy never ran (None).
+        return {
+            "perf": {"passed": perf_passed, "timeout": False, "exit_code": 0 if perf_passed else 1},
+            "accuracy": None,
+        }
+
+    def test_backfill_both_perf_passed(self, run_eval):
+        res = self._perf_only(perf_passed=True)
+        assert run_eval._needs_accuracy_backfill(res, "both") is True
+        # Even plain --continue (retry_types=None) must NOT skip it.
+        assert run_eval._should_skip_existing(res, None, "both") is False
+
+    def test_no_backfill_both_perf_failed(self, run_eval):
+        # A failed-perf job has nothing to backfill (accuracy would be skipped).
+        res = self._perf_only(perf_passed=False)
+        assert run_eval._needs_accuracy_backfill(res, "both") is False
+        assert run_eval._should_skip_existing(res, None, "both") is True
+
+    def test_backfill_accuracy_mode_regardless_of_perf(self, run_eval):
+        # accuracy-only mode backfills whenever accuracy is missing.
+        res = self._perf_only(perf_passed=False)
+        assert run_eval._needs_accuracy_backfill(res, "accuracy") is True
+        assert run_eval._should_skip_existing(res, None, "accuracy") is False
+
+    def test_no_backfill_perf_mode(self, run_eval):
+        # A perf run never wants accuracy; a perf-only result is complete.
+        res = self._perf_only(perf_passed=True)
+        assert run_eval._needs_accuracy_backfill(res, "perf") is False
+        assert run_eval._should_skip_existing(res, None, "perf") is True
+
+    def test_no_backfill_when_accuracy_present(self, run_eval):
+        # Already has accuracy -> nothing to backfill -> plain continue skips.
+        res = {
+            "perf": {"passed": True},
+            "accuracy": {"skipped": False, "winml_eval_status": "PASS", "metrics": {"a": 1}},
+        }
+        assert run_eval._needs_accuracy_backfill(res, "both") is False
+        assert run_eval._should_skip_existing(res, None, "both") is True
+
+    def test_no_backfill_when_accuracy_skipped(self, run_eval):
+        # perf_failed skip is a recorded outcome, not a missing accuracy.
+        res = {
+            "perf": {"passed": False},
+            "accuracy": {"skipped": True, "skip_reason": "perf_failed"},
+        }
+        assert run_eval._needs_accuracy_backfill(res, "both") is False

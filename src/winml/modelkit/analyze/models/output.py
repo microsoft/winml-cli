@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -19,6 +19,23 @@ from .support_level import SupportLevel
 
 if TYPE_CHECKING:
     from .onnx_model import ONNXModel
+
+
+class RuntimeDebugSummaryEntry(BaseModel):
+    """Aggregated runtime debug details for a single node_stable_key."""
+
+    case_indices: list[Any] | None = Field(
+        default=None,
+        description="Matched case indices from rule table.",
+    )
+    table_path: str | None = Field(
+        default=None,
+        description="Absolute or normalized path to the source table.",
+    )
+    table_file: str | None = Field(
+        default=None,
+        description="Source table filename.",
+    )
 
 
 class EPSupport(BaseModel):
@@ -58,6 +75,17 @@ class EPSupport(BaseModel):
     )
     information: list[Information] = Field(
         default_factory=list, description="Available information"
+    )
+    runtime_debug_details_summary: (
+        dict[str, list[str] | dict[str, RuntimeDebugSummaryEntry]] | None
+    ) = Field(
+        default=None,
+        description=(
+            "Optional runtime debug summary grouped by support level. "
+            "The 'unknown' level is a list of node_stable_key values (no case "
+            "data); 'supported'/'partial'/'unsupported' map node_stable_key to "
+            "detail entries."
+        ),
     )
 
 

@@ -330,7 +330,7 @@ class TestConfigOnnxOverrides:
         """--no-quant should set quant=None even for ONNX configs."""
         from winml.modelkit.commands.config import config
 
-        # Create a fake .onnx file so is_onnx_file_path returns True
+        # Create a fake .onnx file so it classifies as an ONNX_FILE input
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
 
@@ -466,7 +466,7 @@ class TestConfigBadPath:
         assert result.exit_code != 0
         assert "Traceback (most recent call last)" not in result.output
 
-    @pytest.mark.parametrize("bad_precision", ["bf16", "fp64", "int4", "w3a5"])
+    @pytest.mark.parametrize("bad_precision", ["bf16", "fp64", "w3a5", "w4a4"])
     def test_invalid_precision_rejected(self, bad_precision: str) -> None:
         """Unknown precision strings must produce a UsageError, not a traceback."""
         result = _invoke_config(

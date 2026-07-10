@@ -29,11 +29,15 @@ class OptimizeStage(BaseStage):
     @classmethod
     def should_run(cls, context: CompileContext) -> bool:
         """Run when transforms are registered for the target EP."""
-        return len(get_transforms_for_ep(context.execution_provider)) > 0
+        ep = context.execution_provider
+        return ep is not None and len(get_transforms_for_ep(ep)) > 0
 
     def process(self, context: CompileContext) -> CompileContext:
         """Apply registered transforms sequentially."""
-        transforms = get_transforms_for_ep(context.execution_provider)
+        ep = context.execution_provider
+        if ep is None:
+            return context
+        transforms = get_transforms_for_ep(ep)
         model = load_onnx(context.model_path, validate=False)
         for t in transforms:
             context.log(f"Applying transform: {type(t).__name__}")

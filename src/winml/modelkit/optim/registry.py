@@ -95,7 +95,9 @@ class BoolCapability(CapabilityDef):
     def __post_init__(self) -> None:
         """Validate boolean default."""
         if not isinstance(self.default, bool):
-            msg = f"BoolCapability '{self.name}' must have bool default, got {type(self.default)}"
+            # Unreachable per the typed field, but kept as runtime validation:
+            # dataclasses don't enforce types; exercised by test_registry_cli.py.
+            msg = f"BoolCapability '{self.name}' must have bool default, got {type(self.default)}"  # type: ignore[unreachable]
             raise TypeError(msg)
 
     def cli_flags(self) -> tuple[str, str]:
@@ -122,7 +124,9 @@ class IntCapability(CapabilityDef):
     def __post_init__(self) -> None:
         """Validate integer constraints."""
         if not isinstance(self.default, int):
-            msg = f"IntCapability '{self.name}' must have int default, got {type(self.default)}"
+            # Unreachable per the typed field, but kept as runtime validation:
+            # dataclasses don't enforce types; exercised by test_registry_cli.py.
+            msg = f"IntCapability '{self.name}' must have int default, got {type(self.default)}"  # type: ignore[unreachable]
             raise TypeError(msg)
         if not (self.min_value <= self.default <= self.max_value):
             msg = (
@@ -154,7 +158,9 @@ class ChoiceCapability(CapabilityDef):
     def __post_init__(self) -> None:
         """Validate choice constraints."""
         if not isinstance(self.default, str):
-            msg = f"ChoiceCapability '{self.name}' must have str default, got {type(self.default)}"
+            # Unreachable per the typed field, but kept as runtime validation:
+            # dataclasses don't enforce types; exercised by test_registry_cli.py.
+            msg = f"ChoiceCapability '{self.name}' must have str default, got {type(self.default)}"  # type: ignore[unreachable]
             raise TypeError(msg)
         if not self.choices:
             msg = f"ChoiceCapability '{self.name}' must have at least one choice"

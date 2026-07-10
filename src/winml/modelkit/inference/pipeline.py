@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from ..models.winml.base import WinMLPreTrainedModel
+    from ..models.winml.composite_model import WinMLCompositeModel
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ _HF_PIPELINE_TASK_MAP: dict[str, str] = {
 
 def create_pipeline(
     task: str,
-    model: WinMLPreTrainedModel,
+    model: WinMLPreTrainedModel | WinMLCompositeModel,
     model_id: str | None = None,
 ) -> Any:
     """Create an HF pipeline for a WinML model.

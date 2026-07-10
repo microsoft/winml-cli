@@ -13,29 +13,41 @@ are available via ``modelkit.onnx.inspection`` for diagnostic use.
 
 from __future__ import annotations
 
+from typing import Any
+
 from .domains import ONNXDomain
 from .dtypes import SupportedONNXType, remove_optional_from_type_annotation
-from .external_data import copy_onnx_model
-from .io import InputTensorSpec, OutputTensorSpec, generate_inputs_from_onnx, get_io_config
+from .external_data import copy_onnx_model, get_external_data_files, get_onnx_model_hash
+from .io import (
+    InputTensorSpec,
+    OutputTensorSpec,
+    ShapeDim,
+    generate_inputs_from_onnx,
+    get_io_config,
+)
 from .metadata import capture_metadata, restore_metadata
-from .persistence import cleanup_onnx, load_onnx, save_onnx
+from .persistence import ONNXSaveError, cleanup_onnx, load_onnx, save_onnx
 from .shape import infer_onnx_shapes, infer_shapes
-from .utils import EXTERNAL_DATA_THRESHOLD, check_onnx_model, get_model_size
+from .utils import EXTERNAL_DATA_THRESHOLD, check_onnx_model, get_model_size, strip_node_attrs
 
 
 __all__ = [
     "EXTERNAL_DATA_THRESHOLD",
     "InputTensorSpec",
     "ONNXDomain",
+    "ONNXSaveError",
     "OutputTensorSpec",
+    "ShapeDim",
     "SupportedONNXType",
     "capture_metadata",
     "check_onnx_model",
     "cleanup_onnx",
     "copy_onnx_model",
     "generate_inputs_from_onnx",
+    "get_external_data_files",
     "get_io_config",
     "get_model_size",
+    "get_onnx_model_hash",
     "infer_onnx_shapes",
     "infer_shapes",
     "is_compiled_onnx",
@@ -44,6 +56,7 @@ __all__ = [
     "remove_optional_from_type_annotation",
     "restore_metadata",
     "save_onnx",
+    "strip_node_attrs",
 ]
 
 
@@ -53,7 +66,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
 }
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Lazy-load detection module to avoid circular import with compiler."""
     if name in _LAZY_IMPORTS:
         module_path, attr_name = _LAZY_IMPORTS[name]

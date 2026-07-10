@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import importlib.resources
 import json
 import logging
@@ -30,7 +31,7 @@ import time
 from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,6 +58,8 @@ from .schema_generator import APISchemaGenerator
 
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
@@ -166,7 +169,7 @@ def create_app(
     """
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.start_time = time.time()
         # Raise the modelkit logger to INFO so the ring handler receives
         # operational records during `winml serve`. Tests that build the app
@@ -187,6 +190,8 @@ def create_app(
                 logger.info("Multi-model server started (empty — load via POST /v1/models)")
             app.state.manager = mgr
         else:
+            if model_path is None:
+                raise ValueError("single-model mode requires a model_path")
             engine = InferenceEngine()
             engine.load(model_path, task=task, device=device, ep=ep)
             app.state.manager = SingleModelManager(engine, idle_timeout_sec=idle_timeout_sec)
@@ -240,7 +245,7 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
         mgr = getattr(app.state, "manager", None)
         if mgr is None:
             raise HTTPException(status_code=503, detail="Model not loaded yet")
-        return mgr
+        return cast("SingleModelManager | ModelSlotManager", mgr)
 
     def _get_start_time() -> float:
         return getattr(app.state, "start_time", time.time())
@@ -485,7 +490,7 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
     # ------------------------------------------------------------------
     @app.post("/v1/ep", tags=["management"], summary="Switch execution provider")
     async def switch_ep(request: EpSwitchRequest) -> dict[str, Any]:
-        # Pydantic already validates ep against the EPAlias Literal (rejects
+        # Pydantic already validates ep against the EPNameOrAlias Literal (rejects
         # unknown values with a 422 at parse time), so no extra check needed.
         ep = request.ep
         mgr = _get_mgr()
@@ -733,13 +738,13 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _manifest_from_engine(engine: InferenceEngine) -> dict:
+def _manifest_from_engine(engine: InferenceEngine) -> dict[str, Any]:
     """Build manifest dict from engine, trying build_manifest.json first."""
     if engine.model_path:
         manifest_file = Path(engine.model_path) / "build_manifest.json"
         if manifest_file.exists():
             try:
-                return json.loads(manifest_file.read_text())
+                return cast("dict[str, Any]", json.loads(manifest_file.read_text()))
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning("Failed to load manifest: %s", e)
 
@@ -753,7 +758,7 @@ def _manifest_from_engine(engine: InferenceEngine) -> dict:
 
 
 def _build_model_schema(
-    manifest: dict,
+    manifest: dict[str, Any],
     engine: InferenceEngine | None = None,
     task_override: str | None = None,
 ) -> dict[str, Any]:
@@ -828,7 +833,7 @@ def _decode_rest_inputs(
         if field and field.type in BINARY_TYPES and isinstance(value, str):
             try:
                 result[name] = base64.b64decode(value)
-            except (ValueError, base64.binascii.Error) as exc:
+            except (ValueError, binascii.Error) as exc:
                 raise ValueError(f"Invalid base64 for input '{name}': {exc}") from exc
     return result
 

@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from winml.modelkit.cli import main
@@ -18,6 +19,28 @@ from winml.modelkit.commands.perf import generate_output_path
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+@pytest.fixture(autouse=True)
+def _mock_device_resolution():
+    """Stub perf()'s up-front device/EP resolution so module tests stay hermetic.
+
+    perf() calls resolve_device() (and resolve_eps() when --ep is omitted) before
+    branching into module mode. Tests that need a specific device override
+    resolve_device locally inside their own ``with patch(...)`` block, which
+    nests over (and wins against) this autouse default.
+    """
+    with (
+        patch(
+            "winml.modelkit.sysinfo.resolve_device",
+            return_value=("cpu", ["cpu"]),
+        ),
+        patch(
+            "winml.modelkit.sysinfo.resolve_eps",
+            return_value=["CPUExecutionProvider"],
+        ),
+    ):
+        yield
 
 
 class TestPerfModuleFlag:
@@ -316,6 +339,122 @@ class TestPerfModuleParameterForwarding:
         assert instance["running_model_path"] == str(running_model_path)
 
 
+class TestPerfModuleMonitor:
+    """--monitor must drive the live HW utilization chart in --module mode.
+
+    Regression guard for #654: previously the module path created an
+    HWMonitor and dumped metrics to JSON but never rendered the live chart
+    (via _run_monitored_loop), so --monitor appeared to do nothing.
+    """
+
+    def test_monitor_drives_live_chart_per_module(self, tmp_path: Path) -> None:
+        fake_cfg = MagicMock()
+        fake_cfg.loader.model_type = "bert"
+        fake_cfg.loader.module_path = "encoder.layer.0"
+
+        fake_build_result = MagicMock()
+        fake_build_result.final_onnx_path = tmp_path / "model.onnx"
+
+        fake_stats = MagicMock()
+        for attr in ("mean_ms", "p50_ms", "p90_ms", "p95_ms", "p99_ms", "min_ms", "max_ms"):
+            setattr(fake_stats, attr, 1.0)
+        fake_stats.samples_ms = [1.0, 1.0]
+
+        fake_session = MagicMock()
+        fake_session.perf.return_value.__enter__.return_value = fake_stats
+        fake_session.running_model_path = tmp_path / "model_cpu_ctx.onnx"
+
+        fake_loader_cfg = MagicMock()
+        fake_loader_cfg.task = "fill-mask"
+
+        # HWMonitor instance: context-managed, with a JSON-serializable to_dict().
+        fake_hw = MagicMock()
+        fake_hw.__enter__.return_value = fake_hw
+        fake_hw.to_dict.return_value = {"monitor": "HWMonitor", "device_kind": None}
+        fake_hw_cls = MagicMock()
+        fake_hw_cls.is_available.return_value = True
+        fake_hw_cls.return_value = fake_hw
+
+        out_path = tmp_path / "out.json"
+
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("cpu", ["cpu"]),
+            ),
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=[fake_cfg],
+            ),
+            patch(
+                "winml.modelkit.loader.resolve_loader_config",
+                return_value=(fake_loader_cfg, MagicMock(), MagicMock(), MagicMock()),
+            ),
+            patch(
+                "winml.modelkit.commands.build._instantiate_parent_model",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "winml.modelkit.build.build_hf_model",
+                return_value=fake_build_result,
+            ),
+            patch(
+                "winml.modelkit.session.WinMLSession",
+                return_value=fake_session,
+            ),
+            patch(
+                "winml.modelkit.commands.perf.generate_random_inputs",
+                return_value={},
+            ),
+            # Lazy import inside _perf_modules — patch the source module, not
+            # the call site (winml.modelkit.commands.perf has no HWMonitor name
+            # bound until the function runs).
+            patch(
+                "winml.modelkit.session.monitor.hw_monitor.HWMonitor",
+                fake_hw_cls,
+            ),
+            patch(
+                "winml.modelkit.commands.perf._run_monitored_loop",
+            ) as mock_loop,
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                main,
+                [
+                    "perf",
+                    "-m",
+                    "fake/model",
+                    "--module",
+                    "BertLayer",
+                    "--monitor",
+                    "--iterations",
+                    "1",
+                    "--warmup",
+                    "0",
+                    "-o",
+                    str(out_path),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        # The live-chart loop must be driven once for the single module
+        # instance, with the benchmark params forwarded intact (guards against
+        # e.g. dropping warmup or mislabeling the chart).
+        mock_loop.assert_called_once_with(
+            ANY,
+            ANY,
+            ANY,
+            ANY,
+            total_iterations=1,
+            warmup=0,
+            model_id=ANY,
+            device="cpu",
+        )
+        # And the collected HW metrics still land in the JSON report.
+        report = json.loads(out_path.read_text(encoding="utf-8"))
+        assert report["instances"][0]["hw_monitor"]["monitor"] == "HWMonitor"
+
+
 class TestPerfModuleQuantCompileToggles:
     """--no-quantize and --compile/--no-compile clear cfg.quant / cfg.compile
     independently in the per-module build (mirrors the single-model path)."""
@@ -404,3 +543,206 @@ class TestPerfModuleQuantCompileToggles:
         cfg = self._run(tmp_path, ["--no-quantize", "--compile"])
         assert cfg.quant is None
         assert cfg.compile is not None
+
+
+class TestPerfModuleCache:
+    """--rebuild / --ignore-cache control the per-module build cache the same
+    way they do for the single-model path (mirrors auto.py).
+
+    Regression guard: per-module builds previously always used a throwaway
+    temp dir and never passed rebuild/cache_key, so artifacts were rebuilt
+    every run and the cache flags were silently ignored.
+    """
+
+    @staticmethod
+    def _run_build_kwargs(tmp_path: Path, extra_args: list[str]) -> dict:
+        """Invoke ``perf --module`` and return the build_hf_model call kwargs.
+
+        get_cache_dir is pinned to a known directory so the resolved
+        persistent build dir is deterministic. The benchmark is short-circuited
+        via a failing ``session.perf()`` — build_hf_model is already called by
+        then, so its kwargs are captured.
+        """
+        cache_root = tmp_path / "cache"
+
+        fake_cfg = MagicMock()
+        fake_cfg.loader.model_type = "bert"
+        fake_cfg.loader.module_path = "encoder.layer.0"
+        fake_cfg.generate_cache_key.return_value = "deadbeefdeadbeef"
+
+        fake_build_result = MagicMock()
+        fake_build_result.final_onnx_path = tmp_path / "model.onnx"
+
+        fake_session = MagicMock()
+        fake_session.perf.side_effect = RuntimeError("test-skip-benchmark")
+
+        fake_loader_cfg = MagicMock()
+        fake_loader_cfg.task = "fill-mask"
+
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("cpu", ["cpu"]),
+            ),
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=[fake_cfg],
+            ),
+            patch(
+                "winml.modelkit.loader.resolve_loader_config",
+                return_value=(fake_loader_cfg, MagicMock(), MagicMock(), MagicMock()),
+            ),
+            patch(
+                "winml.modelkit.commands.build._instantiate_parent_model",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "winml.modelkit.build.build_hf_model",
+                return_value=fake_build_result,
+            ) as mock_build,
+            patch(
+                "winml.modelkit.session.WinMLSession",
+                return_value=fake_session,
+            ),
+            # Pin the cache root so the resolved persistent build dir is
+            # deterministic. Patch the source attribute — _perf_modules binds
+            # the name via a function-local `from ..cache import get_cache_dir`.
+            patch(
+                "winml.modelkit.cache.get_cache_dir",
+                return_value=cache_root,
+            ),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                main,
+                [
+                    "perf",
+                    "-m",
+                    "fake/model",
+                    "--module",
+                    "BertLayer",
+                    "--iterations",
+                    "1",
+                    "--warmup",
+                    "0",
+                    "-o",
+                    str(tmp_path / "out.json"),
+                    *extra_args,
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        return dict(mock_build.call_args.kwargs)
+
+    def test_default_uses_persistent_cache_no_rebuild(self, tmp_path: Path) -> None:
+        kwargs = self._run_build_kwargs(tmp_path, [])
+        # Builds into the model's persistent cache dir (under the pinned root),
+        # not a temp dir, and does not force a rebuild.
+        assert kwargs["rebuild"] is False
+        assert (tmp_path / "cache") in kwargs["output_dir"].parents
+        # cache_key disambiguates instances within the shared model dir.
+        assert kwargs["cache_key"]
+
+    def test_rebuild_forces_rebuild_in_cache_dir(self, tmp_path: Path) -> None:
+        kwargs = self._run_build_kwargs(tmp_path, ["--rebuild"])
+        # Reuses the persistent cache dir but overwrites artifacts.
+        assert kwargs["rebuild"] is True
+        assert (tmp_path / "cache") in kwargs["output_dir"].parents
+
+    def test_ignore_cache_uses_temp_dir_and_rebuilds(self, tmp_path: Path) -> None:
+        kwargs = self._run_build_kwargs(tmp_path, ["--ignore-cache"])
+        # Throwaway temp dir (outside the pinned cache root) + forced rebuild.
+        assert kwargs["rebuild"] is True
+        assert (tmp_path / "cache") not in kwargs["output_dir"].parents
+
+    def test_sibling_instances_get_distinct_cache_keys(self, tmp_path: Path) -> None:
+        """Two configs with distinct ``generate_cache_key()`` (as real sibling
+        instances have, since their ``loader.module_path`` differ) must reach
+        ``build_hf_model`` with distinct ``cache_key``s so their artifacts don't
+        collide in the shared model dir.
+
+        Guards the PR's central collision-free claim at this layer; the other
+        cache tests mock ``generate_cache_key`` to a constant and so can't.
+        """
+        cache_root = tmp_path / "cache"
+
+        cfg_a = MagicMock()
+        cfg_a.loader.model_type = "bert"
+        cfg_a.loader.module_path = "encoder.layer.0"
+        cfg_a.generate_cache_key.return_value = "aaaaaaaaaaaaaaaa"
+
+        cfg_b = MagicMock()
+        cfg_b.loader.model_type = "bert"
+        cfg_b.loader.module_path = "encoder.layer.1"
+        cfg_b.generate_cache_key.return_value = "bbbbbbbbbbbbbbbb"
+
+        fake_build_result = MagicMock()
+        fake_build_result.final_onnx_path = tmp_path / "model.onnx"
+
+        fake_session = MagicMock()
+        fake_session.perf.side_effect = RuntimeError("test-skip-benchmark")
+
+        fake_loader_cfg = MagicMock()
+        fake_loader_cfg.task = "fill-mask"
+
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("cpu", ["cpu"]),
+            ),
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=[cfg_a, cfg_b],
+            ),
+            patch(
+                "winml.modelkit.loader.resolve_loader_config",
+                return_value=(fake_loader_cfg, MagicMock(), MagicMock(), MagicMock()),
+            ),
+            patch(
+                "winml.modelkit.commands.build._instantiate_parent_model",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "winml.modelkit.build.build_hf_model",
+                return_value=fake_build_result,
+            ) as mock_build,
+            patch(
+                "winml.modelkit.session.WinMLSession",
+                return_value=fake_session,
+            ),
+            patch(
+                "winml.modelkit.cache.get_cache_dir",
+                return_value=cache_root,
+            ),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                main,
+                [
+                    "perf",
+                    "-m",
+                    "fake/model",
+                    "--module",
+                    "BertLayer",
+                    "--iterations",
+                    "1",
+                    "--warmup",
+                    "0",
+                    "-o",
+                    str(tmp_path / "out.json"),
+                ],
+            )
+        assert result.exit_code == 0, result.output
+
+        cache_keys = [call.kwargs["cache_key"] for call in mock_build.call_args_list]
+        assert len(cache_keys) == 2
+        # Distinct config hashes -> distinct cache keys (collision-free).
+        assert cache_keys[0] != cache_keys[1]
+        assert "aaaaaaaaaaaaaaaa" in cache_keys[0]
+        assert "bbbbbbbbbbbbbbbb" in cache_keys[1]
+
+    def test_no_optimize_changes_cache_key(self, tmp_path: Path) -> None:
+        """``--no-optimize`` must alter the cache key so a prior optimized build
+        isn't silently reused (the optimize toggle isn't part of the config)."""
+        default_key = self._run_build_kwargs(tmp_path, [])["cache_key"]
+        no_opt_key = self._run_build_kwargs(tmp_path, ["--no-optimize"])["cache_key"]
+        assert default_key != no_opt_key

@@ -18,6 +18,7 @@ Usage:
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import time
@@ -34,7 +35,6 @@ from ..utils.console import (
     print_error,
     print_final,
     print_setup,
-    print_stage_skip,
     print_stages_header,
 )
 from ..utils.logging import configure_logging
@@ -56,6 +56,30 @@ console = get_console()
 # =============================================================================
 # CLI HELPERS
 # =============================================================================
+
+
+def _warn_partial_composite_build(completed: list[str], output_dir: Path) -> None:
+    """Warn that a composite build failed mid-run, listing completed components.
+
+    We deliberately do NOT delete anything: the targets may be pre-existing
+    artifacts the user chose to ``--rebuild``, and a component can fail before
+    writing anything, so auto-deleting could destroy artifacts this run never
+    actually wrote. Instead we surface the completed sub-models and let the user
+    decide whether to keep or remove the partial build.
+    """
+    if not completed:
+        return
+    console.print(
+        "\n[yellow]Warning:[/yellow] composite build did not finish; "
+        f"{len(completed)} sub-model(s) were built by this run:"
+    )
+    for name in completed:
+        console.print(f"  • {name} ({output_dir / f'{name}_model.onnx'})")
+    console.print(
+        "[yellow]The build did not complete for every sub-model.[/yellow] "
+        "Review these artifacts and remove them if you don't want to keep the "
+        "partial build."
+    )
 
 
 def _load_config(
@@ -326,6 +350,17 @@ def _validate_task_supported_for_model(
     if task in TASK_SYNONYM_EXTENSIONS:
         return hf_config
 
+    # [2.5] Composite pipeline tasks (summarization / translation /
+    #     table-question-answering / …) fan out to an encoder/decoder pair via the
+    #     composite registry rather than a single Optimum export, so they never
+    #     appear in Optimum's supported_tasks. Accept when the task is a registered
+    #     composite for this architecture. ensure_hf_models_registered() above has
+    #     already populated the registry, so this is a cheap lookup.
+    from ..loader import composite_pipeline_tasks
+
+    if task in composite_pipeline_tasks(model_type.lower().replace("_", "-")):
+        return hf_config
+
     # [3] Optimum synonym fallback — e.g. ``masked-lm`` -> ``fill-mask``.
     #     Accept, but warn so users converge on the canonical spelling.
     #
@@ -359,6 +394,7 @@ def _validate_task_supported_for_model(
 def _validate_loader_tasks_for_model(
     *,
     model_id: str | None,
+    is_onnx: bool,
     configs: list[WinMLBuildConfig],
     trust_remote_code: bool,
 ) -> Any | None:
@@ -384,7 +420,7 @@ def _validate_loader_tasks_for_model(
     if model_id is None:
         return None
 
-    if cli_utils.is_onnx_file_path(model_id):
+    if is_onnx:
         return None
 
     tasks = {
@@ -420,12 +456,9 @@ def _validate_loader_tasks_for_model(
     default=None,
     help="WinMLBuildConfig JSON file. If omitted, config is auto-generated from -m.",
 )
-@click.option(
-    "-m",
-    "--model",
-    "model_id",
-    default=None,
-    help="HuggingFace model ID or path to .onnx file. Omit for random-weight build.",
+@cli_utils.model_option(
+    required=False,
+    help_text="HuggingFace model ID or path to .onnx file. Omit for random-weight build.",
 )
 @click.option(
     "-o",
@@ -447,13 +480,7 @@ def _validate_loader_tasks_for_model(
     show_default=True,
     help="Overwrite existing artifacts and rebuild",
 )
-@click.option(
-    "--quant/--no-quant",
-    "quant",
-    default=True,
-    show_default=True,
-    help="Enable quantization (use --no-quant to skip, overrides config)",
-)
+@cli_utils.quant_option()
 @cli_utils.compile_option(
     default=None,
     help_text="Override compilation. --compile forces enable (config must have a compile section). "
@@ -470,37 +497,23 @@ def _validate_loader_tasks_for_model(
     include_auto=True,
     optional_message="Default: auto-detect.",
 )
-@click.option(
-    "--analyze/--no-analyze",
-    "analyze",
-    default=True,
-    show_default=True,
-    help="Run analyzer loop during build (use --no-analyze to skip)",
+@cli_utils.precision_option(
+    optional_message="With -c, applied only when --device or --precision is passed.",
 )
-@click.option(
-    "--optimize/--no-optimize",
-    "optimize",
-    default=True,
-    show_default=True,
-    help="Run optimization (use --no-optimize to skip for pre-quantized ONNX models)",
-)
-@click.option(
-    "--max-optim-iterations",
-    "max_optim_iterations",
-    type=int,
-    default=None,
-    help="Maximum autoconf re-optimization rounds (default: 3). --no-analyze sets this to 0.",
-)
+@cli_utils.analyze_option()
+@cli_utils.optimize_option()
+@cli_utils.max_optim_iterations_option()
 @cli_utils.allow_unsupported_nodes_option()
 @cli_utils.trust_remote_code_option(
     optional_message="Trust remote code for custom model architectures (e.g., Mu2)."
 )
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @click.pass_context
 def build(
     ctx: click.Context,
     config_file: str | None,
-    model_id: str | None,
+    model: str | None,
     output_dir: str | None,
     use_cache: bool,
     rebuild: bool,
@@ -509,6 +522,7 @@ def build(
     optimize: bool,
     ep: EPNameOrAlias | None,
     device: str,
+    precision: str,
     analyze: bool,
     max_optim_iterations: int | None,
     allow_unsupported_nodes: bool,
@@ -532,6 +546,12 @@ def build(
         # Full pipeline with explicit config
         winml build -c config.json -m microsoft/resnet-50 -o output/
 
+        # Device-aware auto precision (npu->w8a16, gpu/cpu->fp16)
+        winml build -m microsoft/resnet-50 -o output/ --device npu --precision auto
+
+        # Force fp16 (skips quantization)
+        winml build -m bert-base-uncased -o output/ --device gpu --precision fp16
+
         # Build from pre-exported ONNX file
         winml build -c config.json -m model.onnx -o output/
 
@@ -543,6 +563,12 @@ def build(
 
         # Force rebuild
         winml build -c config.json -m microsoft/resnet-50 -o output/ --rebuild
+
+        # Build with INT8 quantization
+        winml build -m microsoft/resnet-50 -o output/ --precision int8
+
+        # Build with mixed precision (INT8 weights, INT8 activations)
+        winml build -m microsoft/resnet-50 -o output/ --precision w8a8
     """
     # Merge top-level -v/-q with subcommand-level flags so either position works.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
@@ -554,28 +580,42 @@ def build(
     if not output_dir and not use_cache:
         raise click.UsageError("One of --output-dir or --use-cache is required.")
 
+    # Validate precision value early for better error messages.
+    if precision is not None:
+        from ..config.precision import _is_valid_precision
+
+        if not _is_valid_precision(precision.lower()):
+            raise click.UsageError(
+                f"Invalid precision '{precision}'. "
+                "Expected: auto, fp32, fp16, int8, int16, or w{{x}}a{{y}} (e.g., w8a8, w8a16)."
+            )
+
     # If ep unspecified, resolve the target device and pick the highest-priority
     # EP compatible with it. Avoids selecting an EP that does not match the host
     # hardware -- analyzing for the wrong EP leaves black nodes that block a
     # later build targeting the actual device (#663).
     #
-    # resolve_device() either returns a device with >=1 available EP (auto-mode
-    # walks the priority list, falls back to cpu which is always valid), or
-    # raises ValueError for an explicit device with no compatible EP. So the
-    # following resolve_eps()[0] is safe whenever resolve_device returns.
+    # resolve_check_device_ep() either returns a device with >=1 available EP
+    # (auto-mode walks the priority list, falls back to cpu which is always
+    # valid), or raises ValueError for an explicit device with no compatible EP.
+    # So the following available_eps[0] is safe whenever it returns.
     if ep is None:
-        from ..sysinfo import resolve_device as _resolve_device
-        from ..sysinfo import resolve_eps as _resolve_eps
+        from ..sysinfo import resolve_check_device_ep
 
         try:
-            resolved_device, _ = _resolve_device(device=device)
+            resolved_device, _, available_eps = resolve_check_device_ep(device=device, ep=ep)
         except ValueError as e:
             raise click.UsageError(str(e)) from e
         device = resolved_device
-        ep = _resolve_eps(resolved_device)[0]
+        ep = available_eps[0]
         logger.info("Auto-resolved device=%s, EP=%s", resolved_device, ep)
 
     try:
+        # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
+        # is downloaded once and treated as a local .onnx file thereafter.
+        if model is not None:
+            model = cli_utils.normalize_model_arg(model)
+
         # Load or auto-generate config
         if config_file is not None:
             config_or_configs = _load_config(
@@ -584,15 +624,30 @@ def build(
                 no_compile=no_compile,
             )
         else:
-            if not model_id:
+            if not model:
                 raise click.UsageError("-m/--model is required when -c is not provided.")
             from ..config import generate_build_config
 
-            config_or_configs = generate_build_config(
-                model_id,
-                trust_remote_code=trust_remote_code,
-                device=device,
-            )
+            # When ``model`` resolves to an .onnx file (either a local path or
+            # a Hub-hosted ONNX ref that was just downloaded by
+            # ``normalize_model_arg``), route to the ONNX config generator instead
+            # of treating the path as a HuggingFace repo id (which would try to
+            # load the .onnx file as a JSON config and crash).
+            if cli_utils.is_onnx_file_path(model):
+                config_or_configs = generate_build_config(
+                    onnx_path=model,
+                    device=device,
+                    precision=precision,
+                    ep=ep,
+                )
+            else:
+                config_or_configs = generate_build_config(
+                    model,
+                    trust_remote_code=trust_remote_code,
+                    device=device,
+                    precision=precision,
+                    ep=ep,
+                )
             if not quant:
                 config_or_configs.quant = None
             # Auto-generated configs: compile disabled by default unless
@@ -602,30 +657,41 @@ def build(
             if no_compile:
                 config_or_configs.compile = None
 
-        # If --device was explicitly provided, patch compile config and clear
-        # quant for CPU/GPU (neither device uses quantization by default).
-        if cli_utils.is_cli_provided(ctx, "device") and device:
+        # If --device or --precision was explicitly provided, patch quant/compile
+        # to honor the requested policy. fp16/fp32 clear quant; npu/int8 etc set it.
+        if cli_utils.is_cli_provided(ctx, "device") or cli_utils.is_cli_provided(ctx, "precision"):
             from ..compiler.configs import WinMLCompileConfig
 
             def _patch_device(cfg: WinMLBuildConfig) -> None:
                 from ..config import resolve_quant_compile_config
 
-                resolved_quant, _ = resolve_quant_compile_config(device=device, ep=ep)
-                if not quant or resolved_quant is None:
+                resolved_quant, _ = resolve_quant_compile_config(
+                    device=device, precision=precision, ep=ep
+                )
+                if cfg.skip_optimize or not quant or resolved_quant is None:
                     cfg.quant = None
                 elif cfg.quant is None:
                     # Populate calibration identifiers from the loader/model
                     # so the resulting config passes HF-build validation.
                     if cfg.loader is not None and cfg.loader.task:
                         resolved_quant.task = cfg.loader.task
-                    if model_id:
-                        resolved_quant.model_name = model_id
+                    if model:
+                        resolved_quant.model_id = model
                     cfg.quant = resolved_quant
                 else:
-                    # Only update precision fields; preserve task/model_name
+                    # Only update precision fields; preserve task/model_id
                     # and other calibration settings from the existing config.
                     cfg.quant.weight_type = resolved_quant.weight_type
                     cfg.quant.activation_type = resolved_quant.activation_type
+                    cfg.quant.mode = resolved_quant.mode
+                    if resolved_quant.mode == "rtn":
+                        cfg.quant.rtn_bits = resolved_quant.rtn_bits
+                        cfg.quant.rtn_block_size = resolved_quant.rtn_block_size
+                        cfg.quant.rtn_symmetric = resolved_quant.rtn_symmetric
+                        cfg.quant.rtn_accuracy_level = resolved_quant.rtn_accuracy_level
+                # Store the original precision string for stage display
+                if precision:
+                    cfg.precision = precision.lower()  # type: ignore[attr-defined]
                 if cfg.compile is not None and cfg.compile.ep_config is not None:
                     provider = cfg.compile.ep_config.provider
                     patched = WinMLCompileConfig.for_provider(provider, device=device)
@@ -652,20 +718,25 @@ def build(
         except ValueError as e:
             raise click.UsageError(f"Config validation failed: {e}") from e
 
+        model_input = cli_utils.classify_model_input(model) if model else None
+        model_is_onnx = (
+            model_input is not None and model_input.kind is cli_utils.ModelInputKind.ONNX_FILE
+        )
+
         preloaded_hf_config = _validate_loader_tasks_for_model(
-            model_id=model_id,
+            model_id=model,
+            is_onnx=model_is_onnx,
             configs=_configs_to_validate,
             trust_remote_code=trust_remote_code,
         )
 
-        # Build extra kwargs for pipeline control
-        extra_kwargs: dict[str, Any] = {}
-        if not optimize:
-            extra_kwargs["skip_optimize"] = True
-        if not analyze:
-            extra_kwargs["hack_max_optim_iterations"] = 0
-        elif max_optim_iterations is not None:
-            extra_kwargs["hack_max_optim_iterations"] = max_optim_iterations
+        # Build extra kwargs for pipeline control. The optimize/analyze/max-optim
+        # mapping is shared with perf and eval via build_pipeline_extra_kwargs.
+        extra_kwargs: dict[str, Any] = cli_utils.build_pipeline_extra_kwargs(
+            optimize=optimize,
+            analyze=analyze,
+            max_optim_iterations=max_optim_iterations,
+        )
         if trust_remote_code:
             extra_kwargs["trust_remote_code"] = True
         # Always set (even when False) so downstream pipeline functions can rely
@@ -691,7 +762,7 @@ def build(
 
             print_setup(
                 console,
-                model=model_id or "random-init",
+                model=model or "random-init",
                 config=Path(config_file).name if config_file else "(auto)",
                 output=str(resolved_dir),
                 source="HuggingFace",
@@ -735,7 +806,7 @@ def build(
 
             write_module_summary(
                 output_path=resolved_dir / "module_summary.json",
-                model_id=model_id or "random-init",
+                model_id=model or "random-init",
                 module_class=configs[0].loader.model_class or "unknown",
                 instances=summary_instances,
             )
@@ -755,7 +826,7 @@ def build(
 
                 task = config.loader.task if config.loader else None
                 resolved_dir = get_model_dir(
-                    model_id or "random-init",
+                    model or "random-init",
                     cache_dir=get_cache_dir(),
                 )
                 if not task:
@@ -766,6 +837,7 @@ def build(
                 cache_key = get_cache_key(
                     get_task_abbrev(task),
                     config.generate_cache_key(),
+                    extra_kwargs,
                 )
             else:
                 # Guarded earlier (line ~381: `if not output_dir and not use_cache`).
@@ -773,18 +845,150 @@ def build(
                     raise click.UsageError("--output-dir is required when --use-cache is not set.")
                 resolved_dir = Path(output_dir)
 
-            _run_single_build(
-                config=config,
-                config_file=config_file,
-                model_id=model_id,
-                resolved_dir=resolved_dir,
-                rebuild=rebuild,
-                cache_key=cache_key,
-                ep=ep,
-                device=device,
-                extra_kwargs=extra_kwargs,
-                preloaded_hf_config=preloaded_hf_config,
-            )
+            # Detect composite pipeline (registry-driven, same pattern as
+            # export command). A composite fans out into one build per
+            # sub-component; a plain model builds to the single output dir.
+            components = None
+            if model and not model_is_onnx:
+                try:
+                    from ..loader.resolution import resolve_composite_components
+
+                    # Only forward an explicit task from a config file. For an
+                    # auto-generated config (no -c), loader.task is the
+                    # auto-detected task (e.g. "text2text-generation" for
+                    # seq2seq), which would take the resolver's explicit-task
+                    # path and skip the seq2seq composite bridge. Pass task=None
+                    # in that case so detection applies the bridge, while still
+                    # forwarding model_type for explicit overrides.
+                    task_hint = config.loader.task if (config_file and config.loader) else None
+                    model_type_hint = config.loader.model_type if config.loader else None
+                    components = resolve_composite_components(
+                        model,
+                        task=task_hint,
+                        model_type=model_type_hint,
+                        trust_remote_code=trust_remote_code,
+                    )
+                except click.ClickException:
+                    raise
+                except ValueError as e:
+                    raise click.UsageError(str(e)) from e
+                except RuntimeError:
+                    raise
+                except OSError as e:
+                    logger.debug("Composite detection unavailable (config not resolvable): %s", e)
+                except Exception as e:
+                    raise click.ClickException(
+                        f"Composite model detection failed unexpectedly: {e}"
+                    ) from e
+
+            if components:
+                if use_cache:
+                    raise click.UsageError(
+                        "--use-cache is not supported for composite models. "
+                        "Use --output-dir instead."
+                    )
+                console.print(
+                    f"\n[dim]Composite model: {len(components)} sub-models "
+                    f"({', '.join(components)})[/dim]"
+                )
+
+                completed: list[str] = []
+                try:
+                    for name, component_task in components.items():
+                        console.print(
+                            f"\n[bold blue]Sub-model:[/bold blue] {name} (task={component_task})"
+                        )
+
+                        from ..config import generate_build_config as gen_cfg
+
+                        component_config = gen_cfg(
+                            model,
+                            task=component_task,
+                            trust_remote_code=trust_remote_code,
+                            device=device,
+                            precision=precision,
+                            ep=ep,
+                        )
+                        # Carry over quant/compile settings from the outer config
+                        # (already patched by CLI overrides like --no-quant /
+                        # --no-compile). Deep-copy to avoid sharing mutable state
+                        # across sub-builds, and preserve the component-specific
+                        # quant metadata (task, model_id, model_type) that
+                        # generate_build_config populated for the sub-model.
+                        if config.quant is None:
+                            component_config.quant = None
+                        else:
+                            # Overlay the outer quant settings, but always keep
+                            # the calibration identity (task / model_id /
+                            # model_type) pointed at *this* sub-model. Prefer the
+                            # component's own generated quant metadata; if the
+                            # component config produced no quant, derive it from
+                            # the sub-model's task, the model arg, and the
+                            # component loader so calibration runs against the
+                            # sub-model rather than the outer model.
+                            component_loader = component_config.loader
+                            if component_config.quant is not None:
+                                saved_meta = (
+                                    component_config.quant.task,
+                                    component_config.quant.model_id,
+                                    component_config.quant.model_type,
+                                )
+                            else:
+                                saved_meta = (
+                                    component_task,
+                                    model,
+                                    component_loader.model_type if component_loader else None,
+                                )
+                            component_config.quant = copy.deepcopy(config.quant)
+                            (
+                                component_config.quant.task,
+                                component_config.quant.model_id,
+                                component_config.quant.model_type,
+                            ) = saved_meta
+
+                        if config.compile is None:
+                            component_config.compile = None
+                        else:
+                            component_config.compile = copy.deepcopy(config.compile)
+
+                        try:
+                            component_config.validate()
+                        except ValueError as e:
+                            raise click.UsageError(
+                                f"Config validation failed for sub-model '{name}': {e}"
+                            ) from e
+
+                        _run_single_build(
+                            config=component_config,
+                            config_file=None,
+                            model_id=model,
+                            is_onnx=False,
+                            resolved_dir=resolved_dir,
+                            rebuild=rebuild,
+                            cache_key=name,
+                            ep=ep,
+                            device=device,
+                            extra_kwargs=dict(extra_kwargs),
+                            preloaded_hf_config=preloaded_hf_config,
+                        )
+                        completed.append(name)
+                except BaseException:
+                    _warn_partial_composite_build(completed, resolved_dir)
+                    raise
+            else:
+                _run_single_build(
+                    config=config,
+                    config_file=config_file,
+                    model_id=model,
+                    is_onnx=model_is_onnx,
+                    resolved_dir=resolved_dir,
+                    rebuild=rebuild,
+                    cache_key=cache_key,
+                    ep=ep,
+                    device=device,
+                    extra_kwargs=extra_kwargs,
+                    preloaded_hf_config=preloaded_hf_config,
+                )
 
     except click.UsageError:
         raise  # Let click handle its own errors
@@ -796,8 +1000,14 @@ def build(
 
         # Map common errors to actionable hints
         err_str = str(e)
+        err_lower = err_str.lower()
         hint = None
-        if "Quantization failed" in err_str:
+        if "disk space" in err_lower or "no space left" in err_lower:
+            hint = (
+                "Free up disk space (e.g. clear the HuggingFace cache or "
+                "~/.cache/winml) and rebuild."
+            )
+        elif "Quantization failed" in err_str:
             hint = "Try: --no-quant to skip quantization"
         elif "Compilation failed" in err_str:
             hint = "Try: --no-compile to skip compilation"
@@ -824,6 +1034,7 @@ def _run_single_build(
     config: WinMLBuildConfig,
     config_file: str | None,
     model_id: str | None,
+    is_onnx: bool,
     resolved_dir: Path,
     rebuild: bool,
     cache_key: str | None,
@@ -833,7 +1044,7 @@ def _run_single_build(
     preloaded_hf_config: Any | None = None,
 ) -> None:
     """Run single-model build with Rich Live progress per stage."""
-    _is_onnx = model_id is not None and cli_utils.is_onnx_file_path(model_id)
+    _is_onnx = is_onnx
     # Derive source from _is_onnx to guarantee header label matches pipeline
     source = "ONNX" if _is_onnx else detect_model_source(model_id)
 
@@ -903,7 +1114,8 @@ def _run_single_build(
             )
 
         elapsed = time.monotonic() - start_time
-        final_path = resolved_dir / "model.onnx"
+        final_name = f"{cache_key}_model.onnx" if cache_key else "model.onnx"
+        final_path = resolved_dir / final_name
         if final_path.exists() and stage_timings:
             config_json = resolved_dir / (
                 f"{cache_key}_winml_build_config.json" if cache_key else "winml_build_config.json"
@@ -978,6 +1190,7 @@ def _run_optimize_stage(
     show_io_first: bool = False,
     analyze_output_path: Path | None = None,
     allow_unsupported_nodes: bool = False,
+    skip_optimize: bool = False,
 ) -> tuple[Path, float]:
     """Run the optimize stage inside a StageLive context.
 
@@ -994,6 +1207,9 @@ def _run_optimize_stage(
         stage_timings: List to append (stage_name, elapsed) tuple to.
         show_io_first: If True, show I/O tensors at the start of the stage
             (used in ONNX mode where there is no export stage).
+        skip_optimize: When True, skip the ORT graph-optimization pass.
+            Used for pre-quantized models (QDQ or QOperator format) whose
+            integer ops have no kernel on the host EP.
 
     Returns:
         Tuple of (current_path, opt_elapsed).
@@ -1024,11 +1240,15 @@ def _run_optimize_stage(
             _header_shown[0] = False
 
         # Resolve "auto" to a concrete device once so that has_rule_data_for_ep
-        # doesn't search for non-existent "*_AUTO_*.parquet" files.
+        # doesn't search for non-existent "*_AUTO_*.parquet" files. Use
+        # resolve_check_device_ep so an explicit device+ep is validated
+        # statically (no availability cross-check): a --no-compile build may
+        # target a device absent on this machine (cross-compile), and this call
+        # only needs a concrete device name for the rule-data lookup.
         from ..analyze.utils.ep_utils import has_rule_data_for_ep
-        from ..sysinfo import resolve_device as _resolve_device
+        from ..sysinfo import resolve_check_device_ep
 
-        _resolved_device, _ = _resolve_device(device=device or "auto", ep=ep)
+        _resolved_device, _, _ = resolve_check_device_ep(device=device or "auto", ep=ep)
 
         def _on_ep_start(ep_name: EPName, operator_counts: dict) -> None:
             nonlocal _current_ep
@@ -1087,6 +1307,7 @@ def _run_optimize_stage(
             device=device,
             max_optim_iterations=max_iters,
             allow_unsupported_nodes=allow_unsupported_nodes,
+            skip_optimize=skip_optimize,
             on_ep_start=_on_ep_start,
             on_node_result=_on_node_result,
             on_iteration_start=_on_iteration_start,
@@ -1124,10 +1345,10 @@ def _run_quantize_stage(
     quantized_path: Path,
     stage_timings: list[tuple[str, float | None]],
 ) -> Path:
-    """Run the quantize stage inside a StageLive context (if quant is configured).
+    """Run the quantize stage (if quant is configured).
 
-    Handles QDQ skip detection, shows dataset/calibration/precision details,
-    and appends timing to stage_timings.
+    Delegates quantization to ``quantize_onnx(config=...)``.
+    The cmd layer only handles UI display and the QDQ skip check.
 
     Args:
         config: Build configuration.
@@ -1138,42 +1359,54 @@ def _run_quantize_stage(
     Returns:
         Updated current_path (quantized_path if quantization ran, else unchanged).
     """
-    from ..onnx import is_quantized_onnx
     from ..quant import quantize_onnx
     from ..utils.console import StageLive
 
+    if config.skip_optimize:
+        config.quant = None
+        return current_path
+
     if config.quant is None:
+        # ``generate_onnx_build_config`` and ``ensure_pre_quantized_stamped``
+        # (in build/common.py) both clear ``config.quant`` for pre-quantized
+        # inputs, so this single check covers both "user-explicit None" and
+        # "auto-detected pre-quantized" cases.
         return current_path
 
-    if is_quantized_onnx(current_path):
-        print_stage_skip(console, "quantize", "(QDQ nodes already present)")
-        stage_timings.append(("Quantize", None))
-        return current_path
+    # Determine stage label from quant mode
+    is_fp16_only = config.quant.mode == "fp16"
+    stage_label = "fp16" if is_fp16_only else "quantize"
+    stage_name = "FP16" if is_fp16_only else "Quantize"
 
-    with StageLive("quantize", console) as sl:
-        wt = config.quant.weight_type
-        sl.set_status(f"Quantizing ({wt})...")
-        # Calibration info before blocking call
-        ds = config.quant.dataset_name or "default"
-        sl.kv(
-            "Dataset:",
-            f"[cyan]{ds}[/cyan]  [dim]({config.quant.task or 'unknown'})[/dim]",
-        )
-        sl.kv(
-            "Calibration:",
-            f"[cyan]{config.quant.samples}[/cyan] samples"
-            f"  [dim]({config.quant.calibration_method})[/dim]",
-        )
-        # Suppress tqdm/datasets progress bars during quantize
-        # to keep Live display clean
+    with StageLive(stage_label, console) as sl:
+        # Show status based on what we're about to do
+        if is_fp16_only:
+            sl.set_status("Converting to FP16...")
+        elif config.quant.mode == "rtn":
+            sl.set_status(f"Quantizing (RTN {config.quant.rtn_bits}-bit)...")
+        else:
+            sl.set_status(f"Quantizing ({config.quant.weight_type})...")
+            ds = config.quant.dataset_name or "default"
+            sl.kv(
+                "Dataset:",
+                f"[cyan]{ds}[/cyan]  [dim]({config.quant.task or 'unknown'})[/dim]",
+            )
+            sl.kv(
+                "Calibration:",
+                f"[cyan]{config.quant.samples}[/cyan] samples"
+                f"  [dim]({config.quant.calibration_method})[/dim]",
+            )
+
+        # Suppress tqdm/datasets progress bars for QDQ calibration
         _datasets_available = False
-        try:
-            import datasets
+        if config.quant.mode in ("static", "dynamic"):
+            try:
+                import datasets
 
-            datasets.disable_progress_bars()
-            _datasets_available = True
-        except ImportError:
-            pass  # datasets package not installed; progress bar suppression not needed
+                datasets.disable_progress_bars()
+                _datasets_available = True
+            except ImportError:
+                pass  # datasets package is optional; calibration falls back to random data
 
         t0 = time.monotonic()
         try:
@@ -1185,27 +1418,42 @@ def _run_quantize_stage(
             )
         finally:
             if _datasets_available:
+                import datasets
+
                 datasets.enable_progress_bars()
+
         if not quant_result.success:
             errors = ", ".join(quant_result.errors) if quant_result.errors else "Unknown"
             sl.set_error(errors)
-            raise RuntimeError(f"Quantization failed: {errors}")
-        current_path = quantized_path
-        _quant_elapsed = time.monotonic() - t0
-        sl.set_done(_quant_elapsed)
-        sl.kv(
-            "Precision:",
-            f"[cyan]{config.quant.weight_type}/"
-            f"{config.quant.activation_type}[/cyan]"
-            f"  [dim](weight/activation)[/dim]",
-        )
-        sl.artifact(
-            str(quantized_path),
-            _safe_size(quantized_path),
-        )
+            raise RuntimeError(f"{stage_name} failed: {errors}")
+
+        elapsed = time.monotonic() - t0
+        sl.set_done(elapsed)
+
+        # Show algorithm-specific result details
+        if is_fp16_only:
+            sl.detail("[dim]I/O types preserved as FP32[/dim]")
+        elif config.quant.mode == "rtn":
+            sl.kv(
+                "Algorithm:",
+                f"[cyan]RTN[/cyan]  [dim](weight-only {config.quant.rtn_bits}-bit)[/dim]",
+            )
+            sl.kv(
+                "Config:",
+                f"block_size={config.quant.rtn_block_size}, symmetric={config.quant.rtn_symmetric}",
+            )
+        else:
+            sl.kv(
+                "Precision:",
+                f"[cyan]{config.quant.weight_type}/{config.quant.activation_type}[/cyan]"
+                f"  [dim](weight/activation)[/dim]",
+            )
+
+        sl.artifact(str(quantized_path), _safe_size(quantized_path))
         sl.blank()
-    stage_timings.append(("Quantize", _quant_elapsed))
-    return current_path
+
+    stage_timings.append((stage_name, elapsed))
+    return quantized_path
 
 
 def _run_compile_stage(
@@ -1238,7 +1486,8 @@ def _run_compile_stage(
     with StageLive("compile", console) as sl:
         _cp = ""
         if hasattr(config.compile, "ep_config") and config.compile.ep_config:
-            _cp = f" for {config.compile.ep_config.provider.upper()}"
+            ep = config.compile.ep_config.provider
+            _cp = f" for {ep.upper()}" if ep else ""
         sl.set_status(f"Compiling{_cp}...")
         t0 = time.monotonic()
         compile_result = compile_onnx(
@@ -1351,7 +1600,11 @@ def _build_hf_pipeline(
 
         # Load + export (blocking)
         pytorch_model = _load_model(
-            config, model_id, trust_remote_code=False, hf_config=preloaded_hf_config
+            config,
+            model_id,
+            trust_remote_code=False,
+            hf_config=preloaded_hf_config,
+            model_type=config.loader.model_type,
         )
         t0 = time.monotonic()
         # config.export is None only for the ONNX build path; this is the HF path.
@@ -1396,6 +1649,14 @@ def _build_hf_pipeline(
     config_path.write_text(json.dumps(config.to_dict(), indent=2))
 
     # ── Quantize stage ───────────────────────────────────────────
+    # A model-type-specific quant policy (e.g. the qwen3_transformer_only w8a16
+    # finalizer) is resolved and applied inside ``quantize_onnx`` from
+    # ``config.quant.model_type``; no per-call-site dispatch needed here. Carry
+    # the resolved variant onto the quant config so configs that were hand-built
+    # or loaded from JSON (skipping assemble_build_config) still trigger it.
+    if config.quant is not None and config.quant.model_type is None:
+        config.quant.model_type = config.loader.model_type
+
     current_path = _run_quantize_stage(
         config=config,
         current_path=current_path,
@@ -1433,6 +1694,7 @@ def _build_onnx_pipeline(
     Returns list of (stage_name, elapsed_seconds | None) for summary,
     or None if build was reused.
     """
+    from ..build.common import ensure_pre_quantized_stamped
     from ..onnx import copy_onnx_model
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
@@ -1474,6 +1736,20 @@ def _build_onnx_pipeline(
     if current_path.resolve() != onnx_path.resolve():
         copy_onnx_model(onnx_path, current_path)
 
+    # Keep the CLI ONNX path aligned with the library build paths: if a user
+    # supplies a pre-quantized model via ``-c config.json`` we must stamp the
+    # config before any stage reads it, otherwise the optimize stage will still
+    # run on integer ops and the quantize stage may try to re-quantize.
+    ensure_pre_quantized_stamped(config, current_path)
+
+    # Pre-quantized models (QDQ or QOperator format) cannot pass through
+    # ORT-based graph optimization on hosts that lack kernels for ops like
+    # ``ConvInteger``. The unified pipeline stamps ``config.skip_optimize``
+    # exactly once in ``generate_onnx_build_config`` -- downstream stages
+    # (here and inside ``build_onnx_model``) read the flag instead of
+    # re-running ``is_quantized_onnx`` on the same file.
+    is_pre_quantized = config.skip_optimize
+
     # ── Optimize stage (first stage for ONNX — show I/O here) ────
     current_path, _ = _run_optimize_stage(
         config=config,
@@ -1486,11 +1762,12 @@ def _build_onnx_pipeline(
         show_io_first=True,
         analyze_output_path=analyze_result_path,
         allow_unsupported_nodes=allow_unsupported_nodes,
+        skip_optimize=is_pre_quantized,
     )
 
     config_path.write_text(json.dumps(config.to_dict(), indent=2))
 
-    # ── Quantize stage ───────────────────────────────────────────
+    # ── Quantize stage ──────
     current_path = _run_quantize_stage(
         config=config,
         current_path=current_path,

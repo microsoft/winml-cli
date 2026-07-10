@@ -133,10 +133,21 @@ def enumerate_adapters() -> dict[str, AdapterInfo]:
         raise RuntimeError(f"PdhEnumObjectItemsW failed: 0x{status & 0xFFFFFFFF:08X}")
 
     instances = _parse_multi_sz(instance_buf, instance_size.value)
+    return _build_adapters(instances)
 
+
+def _build_adapters(instances: list[str]) -> dict[str, AdapterInfo]:
+    """Group PDH GPU-Engine instance strings into adapters keyed by LUID.
+
+    Pure (no PDH / ctypes), so the instance-name parsing can be tested in
+    isolation. Each instance name has the form
+    ``pid_XXXX_luid_0xHHHH_0xHHHH_phys_N_eng_N_engtype_TYPE``; the LUID is the
+    two hex halves after ``luid`` and the engine type is everything after
+    ``engtype`` (joined so multi-word types like ``Compute_0`` survive).
+    Instances missing a ``luid`` or ``engtype`` marker are skipped.
+    """
     adapters: dict[str, AdapterInfo] = {}
     for inst in instances:
-        # Format: pid_XXXX_luid_0xHHHH_0xHHHH_phys_N_eng_N_engtype_TYPE
         parts = inst.split("_")
         if "luid" not in parts or "engtype" not in parts:
             continue

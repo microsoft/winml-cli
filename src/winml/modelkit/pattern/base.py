@@ -169,7 +169,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import onnx
@@ -599,7 +599,10 @@ class Pattern(ABC):
                 if type_str:
                     # Use InputShapeConstraint to create dummy value
                     type_annotation = SupportedONNXType.from_onnx_type(type_str).annotation
-                    inputs[name] = InputShapeConstraint(info.shape).get_value(type_annotation)
+                    # Matched-tensor shapes are concrete here (dynamic dims resolved).
+                    inputs[name] = InputShapeConstraint(
+                        cast("tuple[int, ...]", info.shape)
+                    ).get_value(type_annotation)
 
         # Build is_constant_map from input_infos
         is_constant_map = {name: info.is_constant for name, info in input_infos.items()}
@@ -649,7 +652,7 @@ class Pattern(ABC):
                 node_domain = skeleton.node_domains[node_idx]
                 op_type = skeleton.node_op_types[node_idx]
                 opset_versions = ONNXDomain.get_model_domain_opset_versions(
-                    skeleton_match_result.model
+                    skeleton_match_result.matcher.model
                 )
                 opset_version = opset_versions[node_domain]
                 op_schema = node_domain.get_op_schema(op_type, opset_version)
@@ -845,7 +848,7 @@ class Pattern(ABC):
 
         # Create nodes
         nodes = []
-        node_output_names = {}  # node_idx -> output_name
+        node_output_names: dict[int, str] = {}  # node_idx -> output_name
 
         for node_idx in range(skeleton.n_nodes):
             op_type = skeleton.node_op_types[node_idx]
@@ -1037,7 +1040,7 @@ class Pattern(ABC):
 class PatternInputGenerator(OpInputGenerator):
     """Input generator that wraps a Pattern for runtime checking."""
 
-    pattern: Pattern = None
+    pattern: Pattern | None = None  # subclasses set a real Pattern (asserted in __init__)
     registration_name: str
 
     def __init__(
@@ -1056,7 +1059,9 @@ class PatternInputGenerator(OpInputGenerator):
         self.domain_versions = domain_versions
         schema = self.pattern.get_schema()
         self.op_name = schema.name  # compatibility with OpInputGenerator
-        super().__init__(schema, onnx_types_to_check)
+        # OpInputGenerator duck-types the schema (OpSchema or PatternSchema); it
+        # guards OpSchema-specific access with isinstance internally.
+        super().__init__(cast("OpSchema", schema), onnx_types_to_check)
 
     def _create_model(
         self,
@@ -1086,8 +1091,8 @@ class PatternInputGenerator(OpInputGenerator):
             SupportedONNXType.from_annotation(dtype).onnx_type for dtype in output_dtypes
         ]
 
-        # Use the pattern's get_onnx_model method
-        return self.pattern.get_onnx_model(
+        # Use the pattern's get_onnx_model method (pattern is set by the subclass).
+        return cast("Pattern", self.pattern).get_onnx_model(
             inputs=input_kwargs,
             attributes=attr_kwargs,
             is_constant_map=is_constant_map,
@@ -1514,31 +1519,29 @@ class PatternMatcher:
         """
         return ONNXDomain.from_str(node.domain)
 
-    def _get_registered_edge_info(self, tensor_name: str, consumer_name: str) -> EdgeInfo:
-        """Return edge info for a registered tensor-consumer pair.
+    def _get_registered_edge_info(self, tensor_name: str, consumer_name: str) -> EdgeInfo | None:
+        """Return edge info for a registered tensor-consumer pair, or None.
 
         Skeleton matching only queries edge metadata for non-virtual inputs with an
-        upstream producer in the model graph. Those entries must exist once
-        _build_lookups() has completed, so a miss indicates a broken registration
-        invariant rather than an ordinary pattern mismatch.
+        upstream producer in the model graph. Those entries should exist once
+        _build_lookups() has completed, but graph transformations (e.g. ORT
+        optimization fusing or renaming nodes) can leave edges whose producer was
+        dropped without updating all consumers. Return ``None`` for such orphaned
+        edges so pattern matching can skip them gracefully.
 
         Args:
             tensor_name: Name of the consumed tensor.
             consumer_name: Canonical name of the consumer node.
 
         Returns:
-            Registered EdgeInfo for the tensor-consumer pair.
+            Registered EdgeInfo for the tensor-consumer pair, or ``None`` if the
+            edge was not registered (orphaned after graph transformation).
         """
-        edge_info = self.edge_info_by_name.get(tensor_name, {}).get(consumer_name)
-        assert edge_info is not None, (
-            f"Missing edge registration for tensor '{tensor_name}' consumed by "
-            f"'{consumer_name}'. Non-virtual inputs should be registered in _build_lookups()."
-        )
-        return edge_info
+        return self.edge_info_by_name.get(tensor_name, {}).get(consumer_name)
 
     def _check_constant_constraints(
         self,
-        matched_nodes: list[str],
+        matched_nodes: list[onnx.NodeProto],
         constant_constraints: list[tuple[int, int, np.ndarray]],
     ) -> bool:
         """Check constant value constraints for a skeleton match.
@@ -1592,6 +1595,12 @@ class PatternMatcher:
         outside the skeleton or are graph outputs. The skeleton output is exempt
         because it will be replaced by an equivalent subgraph.
 
+        Consumers are derived directly from ``graph.node`` inputs rather than from
+        ``edge_info_by_name``, which can be incomplete after graph transformations
+        (orphaned edges). Relying on the edge map could miss an unregistered
+        external consumer and wrongly mark the match removable, letting the
+        rewriter delete nodes that still feed outside the match.
+
         Args:
             matched_nodes: List of matched node names in the skeleton.
             skeleton_output: The output tensor name of the skeleton (exempt from check).
@@ -1599,30 +1608,34 @@ class PatternMatcher:
         Returns:
             True if removable, False otherwise.
         """
-        # matched_nodes is list of node name strings
         matched_node_names = set(matched_nodes)
 
-        # Check each matched node's outputs
+        # Collect intermediate tensors (matched-node outputs, excluding the
+        # skeleton output which will be replaced). Bail early if any is a graph
+        # output.
+        intermediate_tensors: set[str] = set()
         for node_name in matched_nodes:
             node = self.node_lookup[node_name]
             for output_tensor in node.output:
-                if not output_tensor:
+                if not output_tensor or output_tensor == skeleton_output:
                     continue
-
-                # Skip the skeleton's final output (it will be replaced)
-                if output_tensor == skeleton_output:
-                    continue
-
-                # If intermediate tensor is a graph output, not removable
                 if output_tensor in self.graph_output_names:
                     return False
+                intermediate_tensors.add(output_tensor)
 
-                # Check all consumers of this tensor
-                consumers = self.edge_info_by_name.get(output_tensor, {})
-                for consumer_node_name in consumers:
-                    # If consumer is outside the skeleton, not removable
-                    if consumer_node_name not in matched_node_names:
-                        return False
+        if not intermediate_tensors:
+            return True
+
+        # Authoritative consumer check: scan every graph node's inputs. If any
+        # node outside the match consumes an intermediate tensor, the match is
+        # not removable. This is independent of edge_info_by_name completeness.
+        for node_idx, node in enumerate(self.graph.node):
+            node_key = make_stable_node_key(node, node_idx)
+            if node_key in matched_node_names:
+                continue
+            for input_name in node.input:
+                if input_name in intermediate_tensors:
+                    return False
 
         return True
 
@@ -1649,7 +1662,9 @@ class PatternMatcher:
         # Validate each result using pattern's check_skeleton_result
         validated_results = []
         for result in skeleton_results:
-            pattern_match_result = result.pattern.check_skeleton_result(result)
+            # match_skeleton() yields results whose .pattern is a registered ABC
+            # Pattern (the pydantic PatternModel is only used for serialization).
+            pattern_match_result = cast("Pattern", result.pattern).check_skeleton_result(result)
             if pattern_match_result is not None:
                 validated_results.append(pattern_match_result)
 
@@ -1724,7 +1739,7 @@ class PatternMatcher:
                         # Free input (graph input / initializer); no edge_info needed.
                         continue
                     edge_info = self._get_registered_edge_info(input_edge, node_name)
-                    if edge_info.src_slot != src_slot:
+                    if edge_info is None or edge_info.src_slot != src_slot:
                         src_slot_matched = False
                         break
                 if not src_slot_matched:
@@ -1753,6 +1768,9 @@ class PatternMatcher:
                             # src_node_matched = False
                             continue
                         edge_info = self._get_registered_edge_info(input_edge, node_name)
+                        if edge_info is None:
+                            dst_slot_partial_mappings.append([])
+                            continue
                         src_matched_mappings = [
                             partial_mapping.node_mapping.copy()
                             for partial_mapping in edge_partial_matching_results[input_edge]
@@ -1773,7 +1791,7 @@ class PatternMatcher:
                 # check 3: the mappings must be compatible
                 valid_merged_mappings = []
                 for mapping_combination in it.product(*dst_slot_partial_mappings):
-                    merged_mapping = _merge_mappings(mapping_combination)
+                    merged_mapping = _merge_mappings(list(mapping_combination))
                     if merged_mapping is not None:
                         # valid mapping
                         merged_mapping[subgraph_node] = node_name
@@ -1955,7 +1973,7 @@ class PatternRewriter:
             nonlocal generated_node_key_counter
 
             if node.name and node.name not in used_graph_node_keys:
-                key = node.name
+                key: str = node.name
             elif node.name:
                 suffix = 1
                 key = f"{node.name}__{suffix}"
@@ -2018,7 +2036,8 @@ class PatternRewriter:
 
                 # Create the new pattern instance
                 new_pattern = new_pattern_class()
-                assert skeleton_match.pattern.get_schema() == new_pattern.get_schema(), (
+                matched_pattern = cast("Pattern", skeleton_match.pattern)
+                assert matched_pattern.get_schema() == new_pattern.get_schema(), (
                     f"New pattern {new_pattern_class.__name__} schema does not match "
                     f"the matched pattern {skeleton_match.pattern.__class__.__name__} schema."
                 )

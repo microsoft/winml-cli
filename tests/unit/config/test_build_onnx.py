@@ -19,7 +19,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
-from transformers import BertConfig
 
 # Import models package to trigger ONNX config registration with TasksManager
 import winml.modelkit.models  # noqa: F401
@@ -142,41 +141,22 @@ class TestConfigOnnxAutoDetect:
         assert output_data["compile"] is not None
         assert output_data["compile"]["execution_provider"] == "qnn"
 
-    def test_config_onnx_suffix_not_exists_uses_hf(
+    def test_config_onnx_suffix_not_exists_raises(
         self,
         tmp_path,
-        mock_hf_config: MagicMock,
-        mock_model_class: MagicMock,
-        mock_loader_config: WinMLLoaderConfig,
-        mock_export_config: WinMLExportConfig,
     ) -> None:
-        """An .onnx path that doesn't exist falls through to HF config generation."""
+        """A missing .onnx path raises instead of silently falling through to HF (#553)."""
         output_file = tmp_path / "result.json"
 
-        with (
-            patch(
-                "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
-            ),
-            patch(
-                "winml.modelkit.config.build._resolve_export_config_from_specs",
-                return_value=mock_export_config,
-            ),
-            patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
-            # config now inspects the HF config to route seq2seq composites (#850);
-            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
-            patch("transformers.AutoConfig.from_pretrained", return_value=BertConfig()),
-        ):
-            runner = CliRunner()
-            result = runner.invoke(
-                config_command,
-                ["-m", "nonexistent.onnx", "-o", str(output_file)],
-            )
+        runner = CliRunner()
+        result = runner.invoke(
+            config_command,
+            ["-m", "nonexistent.onnx", "-o", str(output_file)],
+        )
 
-        assert result.exit_code == 0, f"CLI failed: {result.output}"
-        output_data = json.loads(output_file.read_text())
-        # Should be HF config (export present)
-        assert output_data["export"] is not None
+        assert result.exit_code != 0
+        assert "ONNX file not found" in result.output
+        assert not output_file.exists()
 
 
 # =============================================================================
@@ -220,7 +200,7 @@ class TestGenerateBuildConfigOnnxPath:
         assert config.compile.ep_config.provider == "qnn"
 
     def test_raw_onnx_cpu(self, tmp_path) -> None:
-        """Raw ONNX + device=cpu resolves quant=None and compile=None."""
+        """Raw ONNX + device=cpu with auto-precision resolves to fp32 (no-op), compile=None."""
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
 
@@ -562,10 +542,9 @@ class TestGenerateBuildConfigOnnxPath:
         assert config.export is None
 
     def test_auto_device_auto_precision_defaults(self, tmp_path) -> None:
-        """device=auto + precision=auto (defaults) keeps config defaults.
+        """device=auto + precision=auto resolves to fp32 on CPU.
 
-        resolve_quant_compile_config returns (None, None) when both are auto,
-        so raw ONNX gets quant=None, compile=None.
+        resolve_precision resolves the EP to a concrete device, yielding fp32 (no-op).
         """
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
@@ -580,7 +559,6 @@ class TestGenerateBuildConfigOnnxPath:
         ):
             config = generate_onnx_build_config(str(onnx_file))
 
-        # Both auto -> resolve_precision returns device="auto" -> (None, None)
         assert config.quant is None
         assert config.compile is None
 
@@ -601,7 +579,7 @@ class TestGenerateBuildConfigOnnxPath:
         mock_resolve.assert_not_called()
 
     def test_raw_onnx_with_gpu(self, tmp_path) -> None:
-        """Raw ONNX + device=gpu resolves quant=None, compile=None.
+        """Raw ONNX + device=gpu with auto-precision resolves to fp32 (no-op), compile=None.
 
         DML has enable_ep_context=False so for_provider("dml") returns None —
         no offline compile step is needed.
@@ -619,7 +597,7 @@ class TestGenerateBuildConfigOnnxPath:
         ):
             config = generate_onnx_build_config(str(onnx_file), device="gpu")
 
-        # GPU auto-precision is fp16 -> no quantization; DML has no EPContext step
+        # GPU auto-precision is fp32 → no quantization; DML has no EPContext step
         assert config.quant is None
         assert config.compile is None
 
@@ -660,8 +638,8 @@ class TestResolveQuantCompileConfig:
     the HF and ONNX build config paths.
     """
 
-    def test_auto_auto_returns_none_none(self) -> None:
-        """device=auto + precision=auto returns (None, None)."""
+    def test_auto_auto_returns_no_quant(self) -> None:
+        """device=auto + precision=auto resolves to fp32 (no quantization, no conversion)."""
         with patch(
             "winml.modelkit.sysinfo.resolve_check_device_ep",
             return_value=("auto", ["npu", "gpu", "cpu"], ["CPUExecutionProvider"]),
@@ -685,8 +663,8 @@ class TestResolveQuantCompileConfig:
         assert isinstance(compile_cfg, WinMLCompileConfig)
         assert compile_cfg.ep_config.provider == "qnn"
 
-    def test_gpu_returns_none_quant_and_none_compile(self) -> None:
-        """device=gpu returns (None, None) — DML has no EPContext step."""
+    def test_gpu_returns_fp16_quant_and_none_compile(self) -> None:
+        """device=gpu returns (None, None) — auto-precision is fp32 (no conversion)."""
         with patch(
             "winml.modelkit.sysinfo.resolve_check_device_ep",
             return_value=("gpu", ["gpu", "cpu"], ["DmlExecutionProvider"]),
@@ -696,8 +674,8 @@ class TestResolveQuantCompileConfig:
         assert quant is None
         assert compile_cfg is None
 
-    def test_cpu_returns_none_none(self) -> None:
-        """device=cpu returns (None, None) since CPU has no compile provider."""
+    def test_cpu_returns_fp16_quant_and_none_compile(self) -> None:
+        """device=cpu returns (None, None) — auto-precision is fp32 (no conversion)."""
         with patch(
             "winml.modelkit.sysinfo.resolve_check_device_ep",
             return_value=("cpu", ["cpu"], ["CPUExecutionProvider"]),

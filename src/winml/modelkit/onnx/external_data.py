@@ -16,16 +16,17 @@ Example:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import onnx
 from onnx import external_data_helper
 
-from .persistence import load_onnx, save_onnx
+from .persistence import _cleanup_partial_save, _raise_save_error, load_onnx, save_onnx
 
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ def _tensor_proto_dtype_to_np_dtype(tensor_type: int) -> np.dtype[Any]:
     except ImportError:
         from onnx.mapping import TENSOR_TYPE_TO_NP_TYPE
 
-        return np.dtype(TENSOR_TYPE_TO_NP_TYPE[tensor_type])
+        return cast("np.dtype[Any]", np.dtype(TENSOR_TYPE_TO_NP_TYPE[tensor_type]))
 
     return np.dtype(onnx_tensor_dtype_to_np_dtype(tensor_type))
 
@@ -154,6 +155,50 @@ def has_external_data(model_path: str | Path) -> bool:
     return len(get_external_data_files(model_path)) > 0
 
 
+def _update_hash_from_path_metadata(hash_obj: Any, path: Path) -> None:
+    """Update *hash_obj* with a file's resolved path, size, and mtime."""
+    path = path.resolve()
+    stat = path.stat()
+    hash_obj.update(str(path).encode("utf-8", "surrogatepass"))
+    hash_obj.update(b"\0")
+    hash_obj.update(str(stat.st_size).encode("ascii"))
+    hash_obj.update(b"\0")
+    hash_obj.update(str(stat.st_mtime_ns).encode("ascii"))
+
+
+def get_onnx_model_hash(model_path: str | Path) -> str:
+    """Compute a lightweight metadata hash for an ONNX model and external data."""
+    model_path = Path(model_path).resolve()
+    hash_obj = hashlib.sha256()
+    _update_hash_from_path_metadata(hash_obj, model_path)
+
+    try:
+        external_files = get_external_data_files(model_path)
+    except Exception:
+        logger.debug("Could not inspect ONNX external data for hashing: %s", model_path)
+        external_files = []
+
+    for location in external_files:
+        data_path = Path(location)
+        if not data_path.is_absolute():
+            data_path = model_path.parent / data_path
+        hash_obj.update(b"\0external-data\0")
+        hash_obj.update(location.replace("\\", "/").encode("utf-8"))
+        hash_obj.update(b"\0")
+        try:
+            _update_hash_from_path_metadata(hash_obj, data_path)
+        except FileNotFoundError:
+            logger.debug(
+                "ONNX external data file referenced by %s is missing: %s",
+                model_path,
+                data_path,
+            )
+            hash_obj.update(b"missing")
+            hash_obj.update(str(data_path.resolve(strict=False)).encode("utf-8", "surrogatepass"))
+
+    return hash_obj.hexdigest()[:16]
+
+
 def copy_onnx_model(
     src: str | Path,
     dst: str | Path,
@@ -174,23 +219,30 @@ def copy_onnx_model(
     dst.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        external_files = get_external_data_files(src)
-    except Exception:
-        # Not a valid ONNX file or can't parse — fall back to simple copy
-        shutil.copy2(src, dst)
-        return
+        try:
+            external_files = get_external_data_files(src)
+        except Exception:
+            # Not a valid ONNX file or can't parse — fall back to simple copy
+            shutil.copy2(src, dst)
+            return
 
-    if not external_files:
-        # No external data — simple copy
-        shutil.copy2(src, dst)
-        return
+        if not external_files:
+            # No external data — simple copy
+            shutil.copy2(src, dst)
+            return
 
-    if len(external_files) == 1:
-        # Single external data file — copy .data + patch .onnx
-        _copy_single_external(src, dst, external_files[0])
-    else:
-        # Multiple files — consolidate into one
-        _copy_consolidate(src, dst)
+        if len(external_files) == 1:
+            # Single external data file — copy .data + patch .onnx
+            _copy_single_external(src, dst, external_files[0])
+        else:
+            # Multiple files — consolidate into one
+            _copy_consolidate(src, dst)
+    except OSError as e:
+        # A failed copy (commonly disk-full) can leave a truncated destination
+        # and/or .data sidecar behind. Remove them and surface a clear error
+        # instead of letting a later stage load the corrupt model.
+        _cleanup_partial_save(dst, dst.parent / f"{dst.name}.data")
+        _raise_save_error(e, dst)
 
     logger.debug(
         "Copied ONNX model with external data: %s -> %s (%d data files)",

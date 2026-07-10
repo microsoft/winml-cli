@@ -592,7 +592,7 @@ class TestBuildSubmoduleConfig:
 
         return WinMLBuildConfig(
             optim=WinMLOptimizationConfig(gelu_fusion=True, matmul_add_fusion=True),
-            compile=WinMLCompileConfig(),
+            compile=WinMLCompileConfig.for_qnn(),
         )
 
     def test_single_input_single_output(self, parent_config: WinMLBuildConfig) -> None:
@@ -715,7 +715,7 @@ class TestBuildSubmoduleConfig:
         assert result.loader.module_path == "encoder.layer.0.attention"
 
     def test_quant_uses_random_for_submodules(self, parent_config: WinMLBuildConfig) -> None:
-        """Submodule quant uses random dataset (task=None, model_name=None)."""
+        """Submodule quant uses random dataset (task=None, model_id=None)."""
         parent_config.loader.task = "fill-mask"
         parent_config.loader.model_type = "bert"
 
@@ -733,7 +733,7 @@ class TestBuildSubmoduleConfig:
         # Submodule quant should exist with task=None (random dataset fallback)
         assert result.quant is not None
         assert result.quant.task is None
-        assert result.quant.model_name is None
+        assert result.quant.model_id is None
         assert result.quant.samples == 1
 
     def test_submodule_config_with_quant_passes_validate(
@@ -762,7 +762,7 @@ class TestBuildSubmoduleConfig:
         self,
         parent_config: WinMLBuildConfig,
     ) -> None:
-        """Submodule quant serialization omits task, model_name, dataset_name when None."""
+        """Submodule quant serialization omits task, model_id, dataset_name when None."""
         parent_config.loader.task = "fill-mask"
         parent_config.loader.model_type = "bert"
 
@@ -779,7 +779,7 @@ class TestBuildSubmoduleConfig:
 
         quant_dict = result.quant.to_dict()
         assert "task" not in quant_dict
-        assert "model_name" not in quant_dict
+        assert "model_id" not in quant_dict
         assert "dataset_name" not in quant_dict
 
     def test_empty_inputs(self, parent_config: WinMLBuildConfig) -> None:
@@ -985,6 +985,9 @@ class TestConfigCliOverride:
                 return_value=mock_export_config,
             ),
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+            # config now inspects the HF config to route seq2seq composites (#850);
+            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
+            patch("transformers.AutoConfig.from_pretrained", return_value=BertConfig()),
         ):
             runner = CliRunner()
             result = runner.invoke(
@@ -1018,6 +1021,9 @@ class TestConfigCliOverride:
                 return_value=mock_export_config,
             ),
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+            # config now inspects the HF config to route seq2seq composites (#850);
+            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
+            patch("transformers.AutoConfig.from_pretrained", return_value=BertConfig()),
         ):
             runner = CliRunner()
             result = runner.invoke(
@@ -1055,7 +1061,7 @@ class TestModelTypeOverride:
         mock_model_class: MagicMock,
         mock_export_config: WinMLExportConfig,
     ) -> None:
-        """model_type + task: overrides hf_config.model_type, uses given task."""
+        """model_type + task: threads variant model_type through, uses given task."""
         gpt2_loader_config = WinMLLoaderConfig(
             task="text-generation",
             model_class="GPT2LMHeadModel",
@@ -1469,6 +1475,9 @@ class TestEdgeCases:
                 return_value=mock_export_config,
             ),
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+            # config now inspects the HF config to route seq2seq composites (#850);
+            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
+            patch("transformers.AutoConfig.from_pretrained", return_value=BertConfig()),
         ):
             runner = CliRunner()
             result = runner.invoke(
@@ -1664,6 +1673,9 @@ class TestShapeConfigCli:
                 return_value=mock_export_config,
             ) as mock_gen_export,
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+            # config now inspects the HF config to route seq2seq composites (#850);
+            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
+            patch("transformers.AutoConfig.from_pretrained", return_value=BertConfig()),
         ):
             runner = CliRunner()
             result = runner.invoke(
@@ -1719,7 +1731,7 @@ class TestValidate:
             optim=WinMLOptimizationConfig(),
             quant=WinMLQuantizationConfig(
                 task="image-classification",
-                model_name="microsoft/resnet-50",
+                model_id="microsoft/resnet-50",
             ),
             compile=WinMLCompileConfig(
                 ep_config=EPConfig(provider="qnn"),
@@ -1776,13 +1788,13 @@ class TestValidate:
         config.validate()  # Should not raise
 
     def test_valid_onnx_build_with_quant_no_task(self) -> None:
-        """ONNX build with quant doesn't require quant.task or quant.model_name."""
+        """ONNX build with quant doesn't require quant.task or quant.model_id."""
         config = WinMLBuildConfig(
             loader=WinMLLoaderConfig(task=None),
             export=None,  # ONNX build
             optim=WinMLOptimizationConfig(),
-            quant=WinMLQuantizationConfig(task=None, model_name=None),
-            compile=WinMLCompileConfig(),
+            quant=WinMLQuantizationConfig(task=None, model_id=None),
+            compile=None,
         )
         config.validate()  # Should not raise
 
@@ -1804,22 +1816,22 @@ class TestValidate:
             loader=WinMLLoaderConfig(task="fill-mask"),
             export=WinMLExportConfig(),  # HF build
             optim=WinMLOptimizationConfig(),
-            quant=WinMLQuantizationConfig(task=None, model_name="test-model"),
+            quant=WinMLQuantizationConfig(task=None, model_id="test-model"),
             compile=None,
         )
         with pytest.raises(ValueError, match=r"quant\.task is required"):
             config.validate()
 
-    def test_quant_missing_model_name_raises(self) -> None:
-        """quant enabled but model_name=None raises ValueError for HF builds."""
+    def test_quant_missing_model_id_raises(self) -> None:
+        """quant enabled but model_id=None raises ValueError for HF builds."""
         config = WinMLBuildConfig(
             loader=WinMLLoaderConfig(task="fill-mask"),
             export=WinMLExportConfig(),  # HF build
             optim=WinMLOptimizationConfig(),
-            quant=WinMLQuantizationConfig(task="fill-mask", model_name=None),
+            quant=WinMLQuantizationConfig(task="fill-mask", model_id=None),
             compile=None,
         )
-        with pytest.raises(ValueError, match=r"quant\.model_name is required"):
+        with pytest.raises(ValueError, match=r"quant\.model_id is required"):
             config.validate()
 
     def test_compile_missing_provider_raises(self) -> None:
@@ -1842,7 +1854,7 @@ class TestValidate:
             loader=WinMLLoaderConfig(task=None),
             export=WinMLExportConfig(),  # HF build (export present)
             optim=None,
-            quant=WinMLQuantizationConfig(task=None, model_name=None),
+            quant=WinMLQuantizationConfig(task=None, model_id=None),
             compile=WinMLCompileConfig(ep_config=EPConfig(provider="")),
         )
         with pytest.raises(ValueError, match="Invalid WinMLBuildConfig") as exc_info:
@@ -1852,7 +1864,7 @@ class TestValidate:
         assert "loader.task is required for full model builds" in error_msg
         assert "optim config is required" in error_msg
         assert "quant.task is required when quant is enabled for HF builds" in error_msg
-        assert "quant.model_name is required when quant is enabled for HF builds" in error_msg
+        assert "quant.model_id is required when quant is enabled for HF builds" in error_msg
         assert "compile.ep_config.provider is required" in error_msg
 
     def test_multiple_errors_collected_onnx_build(self) -> None:
@@ -1861,17 +1873,17 @@ class TestValidate:
             loader=WinMLLoaderConfig(task=None),
             export=None,  # ONNX build
             optim=None,
-            quant=WinMLQuantizationConfig(task=None, model_name=None),
+            quant=WinMLQuantizationConfig(task=None, model_id=None),
             compile=WinMLCompileConfig(ep_config=EPConfig(provider="")),
         )
         with pytest.raises(ValueError, match="Invalid WinMLBuildConfig") as exc_info:
             config.validate()
 
         error_msg = str(exc_info.value)
-        # ONNX build: loader.task NOT required, quant.task/model_name NOT required
+        # ONNX build: loader.task NOT required, quant.task/model_id NOT required
         assert "loader.task" not in error_msg
         assert "quant.task" not in error_msg
-        assert "quant.model_name" not in error_msg
+        assert "quant.model_id" not in error_msg
         # These still apply
         assert "optim config is required" in error_msg
         assert "compile.ep_config.provider is required" in error_msg
@@ -1924,6 +1936,22 @@ class TestInt16QuantTypes:
         assert config.activation_type == "uint8"
 
 
+class TestQuantModelId:
+    """Tests for the quant model_id field (renamed from model_name)."""
+
+    def test_to_dict_emits_model_id_key(self) -> None:
+        """to_dict() serializes the HF model id under the 'model_id' key."""
+        config = WinMLQuantizationConfig(model_id="microsoft/resnet-50")
+        data = config.to_dict()
+        assert data["model_id"] == "microsoft/resnet-50"
+        assert "model_name" not in data
+
+    def test_from_dict_reads_model_id(self) -> None:
+        """from_dict() reads the canonical 'model_id' key."""
+        config = WinMLQuantizationConfig.from_dict({"model_id": "microsoft/resnet-50"})
+        assert config.model_id == "microsoft/resnet-50"
+
+
 # =============================================================================
 # TestDevicePrecisionIntegration - device/precision in generate_build_config()
 # =============================================================================
@@ -1954,17 +1982,17 @@ class TestDevicePrecisionIntegration:
         "device,precision,expect_quant,expect_weight,expect_act,expect_compile_provider",
         [
             ("npu", "auto", True, "uint8", "uint16", "qnn"),
-            ("npu", "fp16", False, None, None, "qnn"),
+            ("npu", "fp16", True, "uint8", "uint8", "qnn"),  # fp16 algorithm quant config
             ("npu", "int8", True, "uint8", "uint8", "qnn"),
-            ("gpu", "auto", False, None, None, None),
+            ("gpu", "auto", False, None, None, None),  # auto on gpu -> fp32 (no-op)
             ("gpu", "int8", True, "uint8", "uint8", None),
-            ("gpu", "fp16", False, None, None, None),
-            ("cpu", "auto", False, None, None, None),
+            ("gpu", "fp16", True, None, None, None),  # fp16 algorithm quant config
+            ("cpu", "auto", False, None, None, None),  # auto on cpu -> fp32 (no-op)
             ("cpu", "int8", True, "uint8", "uint8", None),
             ("cpu", "int16", True, "int16", "uint16", None),
-            ("cpu", "fp16", False, None, None, None),
+            ("cpu", "fp16", True, None, None, None),  # fp16 algorithm quant config
             # auto device + explicit precision → picks NPU (mock returns npu first)
-            ("auto", "fp16", False, None, None, "qnn"),
+            ("auto", "fp16", True, None, None, "qnn"),  # fp16 algorithm quant config
             ("auto", "int8", True, "uint8", "uint8", "qnn"),
             ("auto", "int16", True, "int16", "uint16", "qnn"),
         ],
@@ -2021,8 +2049,12 @@ class TestDevicePrecisionIntegration:
             assert result.quant is not None, (
                 f"Expected quant config for device={device}, precision={precision}"
             )
-            assert result.quant.weight_type == expect_weight
-            assert result.quant.activation_type == expect_act
+            if result.quant.mode != "fp16":
+                assert result.quant.weight_type == expect_weight
+                assert result.quant.activation_type == expect_act
+            else:
+                # FP16 algorithm: quant stage does FP16 conversion, not QDQ
+                assert result.quant.mode == "fp16"
         else:
             assert result.quant is None, (
                 f"Expected no quant for device={device}, precision={precision}"
@@ -2033,7 +2065,7 @@ class TestDevicePrecisionIntegration:
             assert result.compile is not None
             assert result.compile.ep_config.provider == expect_compile_provider
             # TODO(#241): assert qdq_config alignment with quant policy
-            # Currently for_qnn() creates qdq_config even for fp16.
+            # Currently for_qnn() creates qdq_config even for the fp16 algorithm.
             # Issue #241 will pass quantize= to for_provider().
         else:
             assert result.compile is None
@@ -2172,6 +2204,11 @@ class TestDevicePrecisionCli:
                 "winml.modelkit.sysinfo.resolve_check_device_ep",
                 return_value=("npu", ["npu", "gpu", "cpu"], ["QNNExecutionProvider"]),
             ),
+            # config now inspects the HF config to route seq2seq composites (#850);
+            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
+            "autoconfig": patch(
+                "transformers.AutoConfig.from_pretrained", return_value=BertConfig()
+            ),
         }
 
     def _invoke(self, tmp_path, extra_args: list[str] | None = None):
@@ -2186,6 +2223,7 @@ class TestDevicePrecisionCli:
             self._patches["export"],
             self._patches["registry"],
             self._patches["device"],
+            self._patches["autoconfig"],
         ):
             runner = CliRunner()
             result = runner.invoke(config_command, args)
@@ -2205,7 +2243,7 @@ class TestDevicePrecisionCli:
         assert data["quant"]["activation_type"] == "uint16"
 
     def test_device_gpu_precision_fp16(self, tmp_path) -> None:
-        """--device gpu --precision fp16 → no quant, compile.provider=dml."""
+        """--device gpu --precision fp16 → fp16 algorithm quant config, no compile."""
         self._patches["device"] = patch(
             "winml.modelkit.sysinfo.resolve_check_device_ep",
             return_value=("gpu", ["gpu", "cpu"], ["DmlExecutionProvider"]),
@@ -2217,7 +2255,8 @@ class TestDevicePrecisionCli:
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
-        assert data["quant"] is None
+        assert data["quant"] is not None
+        assert data["quant"]["mode"] == "fp16"
         assert data["compile"] is None
 
     def test_device_cpu_precision_fp32(self, tmp_path) -> None:
@@ -2319,41 +2358,22 @@ class TestConfigOnnxAutoDetect:
         assert output_data["compile"] is not None
         assert output_data["compile"]["execution_provider"] == "qnn"
 
-    def test_config_onnx_suffix_not_exists_uses_hf(
+    def test_config_onnx_suffix_not_exists_raises(
         self,
         tmp_path,
-        mock_hf_config: MagicMock,
-        mock_model_class: MagicMock,
-        mock_loader_config: WinMLLoaderConfig,
-        mock_export_config: WinMLExportConfig,
     ) -> None:
-        """An .onnx path that doesn't exist falls through to HF config generation."""
+        """A missing .onnx path raises instead of silently falling through to HF (#553)."""
         output_file = tmp_path / "result.json"
 
-        with (
-            patch(
-                "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
-            ),
-            patch(
-                "winml.modelkit.config.build._resolve_export_config_from_specs",
-                return_value=mock_export_config,
-            ),
-            patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
-            # config now inspects the HF config to route seq2seq composites (#850);
-            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
-            patch("transformers.AutoConfig.from_pretrained", return_value=BertConfig()),
-        ):
-            runner = CliRunner()
-            result = runner.invoke(
-                config_command,
-                ["-m", "nonexistent.onnx", "-o", str(output_file)],
-            )
+        runner = CliRunner()
+        result = runner.invoke(
+            config_command,
+            ["-m", "nonexistent.onnx", "-o", str(output_file)],
+        )
 
-        assert result.exit_code == 0, f"CLI failed: {result.output}"
-        output_data = json.loads(output_file.read_text())
-        # Should be HF config (export present)
-        assert output_data["export"] is not None
+        assert result.exit_code != 0
+        assert "ONNX file not found" in result.output
+        assert not output_file.exists()
 
 
 # =============================================================================
@@ -2397,7 +2417,7 @@ class TestGenerateBuildConfigOnnxPath:
         assert config.compile.ep_config.provider == "qnn"
 
     def test_raw_onnx_cpu(self, tmp_path) -> None:
-        """Raw ONNX + device=cpu resolves quant=None and compile=None."""
+        """Raw ONNX + device=cpu with auto-precision resolves to fp32 (no-op), compile=None."""
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
 
@@ -2739,10 +2759,10 @@ class TestGenerateBuildConfigOnnxPath:
         assert config.export is None
 
     def test_auto_device_auto_precision_defaults(self, tmp_path) -> None:
-        """device=auto + precision=auto (defaults) keeps config defaults.
+        """device=auto + precision=auto (defaults) resolves to fp32 on CPU.
 
-        resolve_quant_compile_config returns (None, None) when both are auto,
-        so raw ONNX gets quant=None, compile=None.
+        resolve_check_device_ep returns device="auto" but resolve_precision
+        resolves the EP to pick a concrete device, yielding fp32 (no-op, no conversion).
         """
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
@@ -2757,7 +2777,7 @@ class TestGenerateBuildConfigOnnxPath:
         ):
             config = generate_onnx_build_config(str(onnx_file))
 
-        # Both auto -> resolve_precision returns device="auto" -> (None, None)
+        # EP resolves to CPU, auto-precision=fp32 → no quantization, no compile
         assert config.quant is None
         assert config.compile is None
 
@@ -2778,7 +2798,7 @@ class TestGenerateBuildConfigOnnxPath:
         mock_resolve.assert_not_called()
 
     def test_raw_onnx_with_gpu(self, tmp_path) -> None:
-        """Raw ONNX + device=gpu resolves quant=None, compile=dml."""
+        """Raw ONNX + device=gpu with auto-precision resolves to fp32 (no-op), compile=None."""
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
 
@@ -2792,7 +2812,7 @@ class TestGenerateBuildConfigOnnxPath:
         ):
             config = generate_onnx_build_config(str(onnx_file), device="gpu")
 
-        # GPU auto-precision is fp16 -> no quantization, no compile (DML has no offline step)
+        # GPU auto-precision is fp32 → no quantization, no compile (DML has no offline step)
         assert config.quant is None
         assert config.compile is None
 
@@ -2831,8 +2851,13 @@ class TestResolveQuantCompileConfig:
     the HF and ONNX build config paths.
     """
 
-    def test_auto_auto_returns_none_none(self) -> None:
-        """device=auto + precision=auto returns (None, None)."""
+    def test_auto_auto_returns_no_quant(self) -> None:
+        """device=auto + precision=auto resolves to fp32 (no quantization, no conversion).
+
+        When resolve_check_device_ep returns device="auto" but the EP
+        resolves to a concrete device, resolve_precision picks auto-precision
+        (fp32 for CPU), yielding no quant config.
+        """
         with patch(
             "winml.modelkit.sysinfo.resolve_check_device_ep",
             return_value=("auto", ["npu", "gpu", "cpu"], ["CPUExecutionProvider"]),
@@ -2856,8 +2881,8 @@ class TestResolveQuantCompileConfig:
         assert isinstance(compile_cfg, WinMLCompileConfig)
         assert compile_cfg.ep_config.provider == "qnn"
 
-    def test_gpu_returns_none_quant_and_none_compile(self) -> None:
-        """device=gpu returns (None, None) — DML has no offline compile step."""
+    def test_gpu_returns_no_quant_and_none_compile(self) -> None:
+        """device=gpu returns (None, None) — auto-precision is fp32 (no conversion)."""
         with patch(
             "winml.modelkit.sysinfo.resolve_check_device_ep",
             return_value=("gpu", ["gpu", "cpu"], ["DmlExecutionProvider"]),
@@ -2867,8 +2892,8 @@ class TestResolveQuantCompileConfig:
         assert quant is None
         assert compile_cfg is None
 
-    def test_cpu_returns_none_none(self) -> None:
-        """device=cpu returns (None, None) since CPU has no compile provider."""
+    def test_cpu_returns_no_quant_and_none_compile(self) -> None:
+        """device=cpu returns (None, None) — auto-precision is fp32 (no conversion)."""
         with patch(
             "winml.modelkit.sysinfo.resolve_check_device_ep",
             return_value=("cpu", ["cpu"], ["CPUExecutionProvider"]),

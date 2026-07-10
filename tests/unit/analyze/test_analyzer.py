@@ -23,8 +23,9 @@ from winml.modelkit.analyze import (
     ModelStats,
     ONNXStaticAnalyzer,
     SupportLevel,
-    infer_ihv_from_ep_name,
 )
+from winml.modelkit.analyze.analyzer import _build_runtime_debug_details_summary
+from winml.modelkit.analyze.models.runtime_checks import PatternRuntime, RuntimeTestResult
 from winml.modelkit.optim import WinMLOptimizationConfig
 
 
@@ -716,6 +717,136 @@ class TestAnalysisResult:
         assert config.get("kebab_style_key", False) is True
 
 
+class TestRuntimeDebugDetailsSummary:
+    """Tests for runtime debug_details summary aggregation."""
+
+    def test_build_runtime_debug_details_summary_groups_and_records_unknown(self) -> None:
+        """Should group by support level and record unknown nodes as a key list."""
+        runtime_summary = {
+            "op_runtime_check_result": [
+                PatternRuntime(
+                    pattern_id="OP/ai.onnx/Conv",
+                    result=RuntimeTestResult(
+                        compile=True,
+                        run=True,
+                        debug_details={
+                            "node_stable_key": "node_conv",
+                            "case_indices": ("case_1", "case_2"),
+                            "table_path": "rules/conv.parquet",
+                            "table_file": "conv.parquet",
+                        },
+                    ),
+                ),
+                PatternRuntime(
+                    pattern_id="OP/ai.onnx/Resize",
+                    result=RuntimeTestResult(
+                        compile=False,
+                        run=True,
+                        debug_details={
+                            "node_stable_key": "node_resize",
+                            "case_indices": ["case_3"],
+                            "table_path": "rules/resize.parquet",
+                            "table_file": "resize.parquet",
+                        },
+                    ),
+                ),
+                PatternRuntime(
+                    pattern_id="OP/ai.onnx/Unknown",
+                    result=RuntimeTestResult(
+                        compile=True,
+                        run=True,
+                        no_data=True,
+                        debug_details={
+                            "node_stable_key": "node_unknown",
+                            "case_indices": ["case_4"],
+                            "table_path": "rules/unknown.parquet",
+                            "table_file": "unknown.parquet",
+                        },
+                    ),
+                ),
+            ],
+            "subgraph_runtime_check_result": [
+                PatternRuntime(
+                    pattern_id="SUBGRAPH/TestPattern",
+                    result=RuntimeTestResult(
+                        compile=False,
+                        run=False,
+                        debug_details={
+                            "node_stable_key": "node_subgraph",
+                            "case_indices": ["case_5"],
+                            "table_path": "rules/subgraph.parquet",
+                            "table_file": "subgraph.parquet",
+                        },
+                    ),
+                )
+            ],
+        }
+
+        summary = _build_runtime_debug_details_summary(runtime_summary)
+
+        assert summary is not None
+        assert set(summary.keys()) == {"unknown", "supported", "partial", "unsupported"}
+        # "unknown" must be the first key in output order.
+        assert next(iter(summary)) == "unknown"
+
+        assert summary["supported"]["node_conv"].case_indices == ["case_1", "case_2"]
+        assert summary["supported"]["node_conv"].table_path == "rules/conv.parquet"
+        assert summary["supported"]["node_conv"].table_file == "conv.parquet"
+
+        assert summary["partial"]["node_resize"].case_indices == ["case_3"]
+        assert summary["partial"]["node_resize"].table_path == "rules/resize.parquet"
+        assert summary["partial"]["node_resize"].table_file == "resize.parquet"
+
+        assert summary["unsupported"]["node_subgraph"].case_indices == ["case_5"]
+        assert summary["unsupported"]["node_subgraph"].table_path == "rules/subgraph.parquet"
+        assert summary["unsupported"]["node_subgraph"].table_file == "subgraph.parquet"
+
+        # Unknown nodes are recorded as a plain list of node keys (no case data).
+        assert summary["unknown"] == ["node_unknown"]
+        assert "node_unknown" not in summary["supported"]
+        assert "node_unknown" not in summary["partial"]
+        assert "node_unknown" not in summary["unsupported"]
+
+    def test_build_runtime_debug_details_summary_merges_same_node(self) -> None:
+        """Should merge complementary debug fields for the same node key."""
+        runtime_summary = {
+            "op_runtime_check_result": [
+                PatternRuntime(
+                    pattern_id="OP/ai.onnx/Conv",
+                    result=RuntimeTestResult(
+                        compile=True,
+                        run=True,
+                        debug_details={
+                            "node_stable_key": "node_conv",
+                            "table_path": "rules/conv.parquet",
+                        },
+                    ),
+                ),
+                PatternRuntime(
+                    pattern_id="OP/ai.onnx/Conv",
+                    result=RuntimeTestResult(
+                        compile=True,
+                        run=True,
+                        debug_details={
+                            "node_stable_key": "node_conv",
+                            "case_indices": ("case_42",),
+                            "table_file": "conv.parquet",
+                        },
+                    ),
+                ),
+            ],
+            "subgraph_runtime_check_result": [],
+        }
+
+        summary = _build_runtime_debug_details_summary(runtime_summary)
+
+        assert summary is not None
+        node_entry = summary["supported"]["node_conv"]
+        assert node_entry.table_path == "rules/conv.parquet"
+        assert node_entry.table_file == "conv.parquet"
+        assert node_entry.case_indices == ["case_42"]
+
+
 class TestONNXStaticAnalyzer:
     """Tests for ONNXStaticAnalyzer."""
 
@@ -731,34 +862,6 @@ class TestONNXStaticAnalyzer:
         analyzer = ONNXStaticAnalyzer(config=config)
         assert analyzer.config.enable_information is True
         assert analyzer.config.max_memory_mb == 4096
-
-    def test_map_ep_to_ihv_qnn(self) -> None:
-        """Test EP to IHV mapping for QNN."""
-        assert infer_ihv_from_ep_name("QNNExecutionProvider") == IHVType.QC
-        assert infer_ihv_from_ep_name("qnnexecutionprovider") == IHVType.QC
-        assert infer_ihv_from_ep_name("QualcommProvider") == IHVType.QC
-
-    def test_map_ep_to_ihv_openvino(self) -> None:
-        """Test EP to IHV mapping for OpenVINO."""
-        assert infer_ihv_from_ep_name("OpenVINOExecutionProvider") == IHVType.INTEL
-        assert infer_ihv_from_ep_name("openvino") == IHVType.INTEL
-        assert infer_ihv_from_ep_name("IntelProvider") == IHVType.INTEL
-
-    def test_map_ep_to_ihv_vitisai(self) -> None:
-        """Test EP to IHV mapping for VitisAI."""
-        assert infer_ihv_from_ep_name("VitisAIExecutionProvider") == IHVType.AMD
-        assert infer_ihv_from_ep_name("vitis") == IHVType.AMD
-        assert infer_ihv_from_ep_name("AMDProvider") == IHVType.AMD
-
-    def test_map_ep_to_ihv_nvidia(self) -> None:
-        """Test EP to IHV mapping for NvTensorRTRTX."""
-        assert infer_ihv_from_ep_name("NvTensorRTRTXExecutionProvider") == IHVType.NVIDIA
-        assert infer_ihv_from_ep_name("nvtensorrtx") == IHVType.NVIDIA
-        assert infer_ihv_from_ep_name("TensorRTProvider") == IHVType.NVIDIA
-
-    def test_map_ep_to_ihv_invalid(self) -> None:
-        """Test EP to IHV mapping with unrecognized EP resolves to MICROSOFT."""
-        assert infer_ihv_from_ep_name("InvalidEP") == IHVType.MICROSOFT
 
     def test_analyze_file_not_found(self) -> None:
         """Test analyze with non-existent file."""
@@ -843,6 +946,97 @@ class TestONNXStaticAnalyzer:
 
         # Verify RuntimeChecker was called once
         assert mock_runtime_checker_cls.call_count == 1
+
+    @patch("winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep", return_value=True)
+    @patch("winml.modelkit.analyze.core.onnx_loader.ONNXLoader")
+    @patch("winml.modelkit.analyze.core.pattern_extractor.PatternExtractor")
+    @patch("winml.modelkit.analyze.core.runtime_checker.RuntimeChecker")
+    def test_analyze_from_proto_includes_runtime_debug_summary_when_debug_enabled(
+        self,
+        mock_runtime_checker_cls: Mock,
+        mock_pattern_extractor_cls: Mock,
+        mock_onnx_loader_cls: Mock,
+        _mock_has_rule: Mock,
+    ) -> None:
+        """for_debug=True should add runtime_debug_details_summary to EP output."""
+        mock_model = MagicMock()
+        mock_loader = MagicMock()
+        mock_loader.load.return_value = mock_model
+        mock_onnx_loader_cls.return_value = mock_loader
+
+        mock_extractor = MagicMock()
+        mock_extractor.summary.return_value = {
+            "summary": ModelStats(
+                model_path="test.onnx",
+                opset_version=13,
+                total_operators=2,
+                operator_counts={"Conv": 1, "Relu": 1},
+                unique_operator_types=2,
+                detected_pattern_count={},
+            ),
+            "subgraph_patterns": [],
+        }
+        mock_pattern_extractor_cls.return_value = mock_extractor
+
+        mock_checker = MagicMock()
+        mock_checker.summary.return_value = {
+            "op_runtime_check_result": [
+                PatternRuntime(
+                    pattern_id="OP/ai.onnx/Conv",
+                    result=RuntimeTestResult(
+                        compile=True,
+                        run=True,
+                        debug_details={
+                            "node_stable_key": "node_conv",
+                            "case_indices": ("case_7",),
+                            "table_path": "rules/conv.parquet",
+                            "table_file": "conv.parquet",
+                        },
+                    ),
+                ),
+                PatternRuntime(
+                    pattern_id="OP/ai.onnx/Relu",
+                    result=RuntimeTestResult(
+                        compile=True,
+                        run=True,
+                        no_data=True,
+                        debug_details={
+                            "node_stable_key": "node_unknown",
+                            "case_indices": ["case_9"],
+                            "table_path": "rules/relu.parquet",
+                            "table_file": "relu.parquet",
+                        },
+                    ),
+                ),
+            ],
+            "subgraph_runtime_check_result": [],
+        }
+        mock_runtime_checker_cls.return_value = mock_checker
+
+        analyzer = ONNXStaticAnalyzer()
+        model_proto = MagicMock(spec=onnx.ModelProto)
+
+        result = analyzer.analyze_from_proto(
+            model_proto=model_proto,
+            ep="QNNExecutionProvider",
+            device="NPU",
+            enable_information=False,
+            for_debug=True,
+        )
+
+        assert isinstance(result, AnalysisResult)
+        assert len(result.output.results) == 1
+
+        ep_result = result.output.results[0]
+        assert ep_result.runtime_debug_details_summary is not None
+        node_conv_entry = ep_result.runtime_debug_details_summary["supported"]["node_conv"]
+        assert node_conv_entry.case_indices == ["case_7"]
+        assert node_conv_entry.table_path == "rules/conv.parquet"
+        assert node_conv_entry.table_file == "conv.parquet"
+        assert ep_result.runtime_debug_details_summary["partial"] == {}
+        assert ep_result.runtime_debug_details_summary["unsupported"] == {}
+        assert ep_result.runtime_debug_details_summary["unknown"] == ["node_unknown"]
+        assert "node_unknown" not in ep_result.runtime_debug_details_summary["supported"]
 
     @patch("winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep", return_value=True)
     @patch("winml.modelkit.analyze.core.onnx_loader.ONNXLoader")

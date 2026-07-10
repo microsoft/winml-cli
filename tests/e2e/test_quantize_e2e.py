@@ -21,6 +21,7 @@ import onnx
 import onnxruntime as ort
 import pytest
 
+from tests.fixtures.create_test_models import create_fake_segmentation_model
 from winml.modelkit.commands.quantize import quantize as quantize_cmd
 
 
@@ -104,6 +105,42 @@ def tiny_onnx_external(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return p
 
 
+@pytest.fixture(scope="session")
+def tiny_embed_onnx(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Embedding model where a Gather feeds a non-integer op (Add).
+
+    Dynamic quantization stores the embedding table as int8 and must insert a
+    ``DequantizeLinear`` to restore it to float before the Add — mirroring how
+    real transformer encoders (word + position embeddings) quantize. This
+    exercises the ``DequantizeLinear`` counting path that plain MatMul-only
+    models never hit.
+    """
+    d = tmp_path_factory.mktemp("tiny_embed")
+    p = d / "tiny_embed.onnx"
+    rng = np.random.default_rng(7)
+    vocab, dim, hidden = 64, 32, 16
+    input_ids = onnx.helper.make_tensor_value_info("input_ids", onnx.TensorProto.INT64, [1, 8])
+    y = onnx.helper.make_tensor_value_info("output", onnx.TensorProto.FLOAT, [1, 8, hidden])
+    emb = onnx.numpy_helper.from_array(
+        rng.standard_normal((vocab, dim), dtype=np.float32), "embedding_table"
+    )
+    pos = onnx.numpy_helper.from_array(rng.standard_normal((1, 8, dim), dtype=np.float32), "pos")
+    w = onnx.numpy_helper.from_array(rng.standard_normal((dim, hidden), dtype=np.float32), "W")
+    b = onnx.numpy_helper.from_array(rng.standard_normal((hidden,), dtype=np.float32), "B")
+    nodes = [
+        onnx.helper.make_node("Gather", ["embedding_table", "input_ids"], ["emb"]),
+        onnx.helper.make_node("Add", ["emb", "pos"], ["emb_pos"]),
+        onnx.helper.make_node("MatMul", ["emb_pos", "W"], ["mm"]),
+        onnx.helper.make_node("Add", ["mm", "B"], ["output"]),
+    ]
+    graph = onnx.helper.make_graph(nodes, "tiny_embed", [input_ids], [y], [emb, pos, w, b])
+    model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
+    model.ir_version = 8
+    onnx.checker.check_model(model)
+    onnx.save(model, str(p))
+    return p
+
+
 # ---------------------------------------------------------------------------
 # Real HF-exported ONNX fixtures for per-task calibration dataset coverage
 #
@@ -133,9 +170,7 @@ def _export_hf_to_onnx(hf_id: str, task: str, slug: str) -> Path:
     args = ["-m", hf_id, "-o", str(out), "--task", task]
     r = CliRunner().invoke(export, args, obj={}, catch_exceptions=False)
     if r.exit_code != 0 or not out.exists():
-        raise RuntimeError(
-            f"winml export failed for {hf_id}: exit={r.exit_code}\n{r.output}"
-        )
+        raise RuntimeError(f"winml export failed for {hf_id}: exit={r.exit_code}\n{r.output}")
     return out
 
 
@@ -146,9 +181,7 @@ def onnx_imgcls() -> Path:
 
 @pytest.fixture(scope="session")
 def onnx_txtcls() -> Path:
-    return _export_hf_to_onnx(
-        "Intel/bert-base-uncased-mrpc", "text-classification", "bert_mrpc"
-    )
+    return _export_hf_to_onnx("Intel/bert-base-uncased-mrpc", "text-classification", "bert_mrpc")
 
 
 @pytest.fixture(scope="session")
@@ -157,18 +190,29 @@ def onnx_objdet() -> Path:
 
 
 @pytest.fixture(scope="session")
-def onnx_imgseg() -> Path:
-    return _export_hf_to_onnx(
-        "nvidia/segformer-b0-finetuned-ade-512-512",
-        "image-segmentation",
-        "segformer_b0",
-    )
+def onnx_imgseg(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Fake segmentation ONNX standing in for a real HF export.
+
+    The real ``nvidia/segformer-b0-finetuned-ade-512-512`` export ran as the
+    calibration model here, but its heavy backbone caused random hangs on QNN
+    hosts. ``create_fake_segmentation_model`` builds a tiny model with identical
+    segmentation I/O instead, so calibration still exercises the
+    ImageSegmentationDataset path without running a large model. The dataset
+    itself (image processor + samples) is still loaded from the real
+    ``--model-id`` in the test.
+    """
+    d = tmp_path_factory.mktemp("fake_imgseg")
+    p = d / "model.onnx"
+    onnx.save(create_fake_segmentation_model(), str(p))
+    return p
 
 
 @pytest.fixture(scope="session")
 def onnx_dinov2() -> Path:
     return _export_hf_to_onnx(
-        "facebook/dinov2-small", "image-feature-extraction", "dinov2_small",
+        "facebook/dinov2-small",
+        "image-feature-extraction",
+        "dinov2_small",
     )
 
 
@@ -178,6 +222,7 @@ def onnx_dinov2() -> Path:
 
 
 _QDQ_OPS = {"QuantizeLinear", "DequantizeLinear"}
+_DYNAMIC_QUANT_OPS = {"DynamicQuantizeLinear", "MatMulInteger", "ConvInteger"}
 
 
 def _dtype_of_init(model: onnx.ModelProto, name: str) -> int:
@@ -284,10 +329,49 @@ def _assert_quantized_output(
                     assert np.isfinite(arr).all()
             outs_runs.append(outs)
         differ = any(
-            not np.array_equal(a, b)
-            for a, b in zip(outs_runs[0], outs_runs[1], strict=True)
+            not np.array_equal(a, b) for a, b in zip(outs_runs[0], outs_runs[1], strict=True)
         )
         assert differ, "outputs identical across two distinct inputs (degenerate)"
+
+    return model
+
+
+def _assert_dynamic_quantized_output(
+    *,
+    input_onnx: Path,
+    output_onnx: Path,
+) -> onnx.ModelProto:
+    """Structural assertions for a dynamically quantized model.
+
+    Dynamic quantization emits QOperator-format ops (DynamicQuantizeLinear +
+    MatMulInteger/ConvInteger) rather than QDQ nodes, so it needs its own
+    assertions instead of ``_assert_quantized_output``.
+    """
+    model = onnx.load(str(output_onnx))
+
+    dyn_count = sum(1 for n in model.graph.node if n.op_type in _DYNAMIC_QUANT_OPS)
+    assert dyn_count >= 1, f"no dynamic-quant nodes: {[n.op_type for n in model.graph.node]}"
+    # Dynamic quantization must not emit static QDQ nodes.
+    assert not any(n.op_type in _QDQ_OPS for n in model.graph.node)
+
+    onnx.checker.check_model(model, full_check=True)
+
+    input_model = onnx.load(str(input_onnx))
+    assert [i.name for i in model.graph.input] == [i.name for i in input_model.graph.input]
+    assert [o.name for o in model.graph.output] == [o.name for o in input_model.graph.output]
+
+    # ORT-CPU runs and produces finite outputs.
+    sess = ort.InferenceSession(str(output_onnx), providers=["CPUExecutionProvider"])
+    rng = np.random.default_rng(11)
+    feed = {
+        inp.name: rng.standard_normal(
+            [d if isinstance(d, int) and d > 0 else 1 for d in inp.shape]
+        ).astype(np.float32)
+        for inp in sess.get_inputs()
+    }
+    for arr in sess.run(None, feed):
+        if np.issubdtype(arr.dtype, np.floating):
+            assert np.isfinite(arr).all()
 
     return model
 
@@ -359,38 +443,78 @@ class TestPrecision:
         r = _invoke(
             runner,
             [
-                "-m", str(tiny_onnx), "-o", str(out),
-                "--precision", "int8",
-                "--weight-type", "int8",
-                "--activation-type", "uint8",
-                "--samples", "4",
+                "-m",
+                str(tiny_onnx),
+                "-o",
+                str(out),
+                "--precision",
+                "int8",
+                "--weight-type",
+                "int8",
+                "--activation-type",
+                "uint8",
+                "--samples",
+                "4",
             ],
         )
         model = _assert_quantized_output(input_onnx=tiny_onnx, output_onnx=out, stdout=r.output)
         assert _weight_dq_zero_point_dtype(model) == onnx.TensorProto.INT8
 
-    def test_non_quant_precision_rejected(
-        self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path
-    ):
-        """Float precisions like fp16 must be rejected at CLI parse time.
+    def test_fp16_precision_accepted(self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path):
+        """FP16 precision is now a valid option for winml quantize.
 
-        Replaces the legacy ``test_unknown_precision_falls_back_to_uint8`` which
-        documented the silent-fallback bug that PR #680 fixed.
+        Previously fp16 was rejected, but it now runs FP16 conversion.
         """
         out = tmp_path / "a6.onnx"
         r = _invoke(
             runner,
-            ["-m", str(tiny_onnx), "-o", str(out), "--precision", "fp16", "--samples", "4"],
-            expect_success=False,
+            ["-m", str(tiny_onnx), "-o", str(out), "--precision", "fp16"],
         )
-        assert r.exit_code != 0
-        assert "not a supported quantization precision" in r.output
-        assert not out.exists()
+        assert r.exit_code == 0
+        assert out.exists()
 
+    def test_dynamic_precision_accepted(self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path):
+        """`--precision dynamic` runs dynamic quantization (no calibration data)."""
+        out = tmp_path / "a7.onnx"
+        r = _invoke(
+            runner,
+            ["-m", str(tiny_onnx), "-o", str(out), "--precision", "dynamic"],
+        )
+        assert r.exit_code == 0
+        assert out.exists()
+        model = _assert_dynamic_quantized_output(input_onnx=tiny_onnx, output_onnx=out)
+        # Weights are quantized statically -> MatMul becomes MatMulInteger.
+        assert any(n.op_type == "MatMulInteger" for n in model.graph.node)
 
-# ===========================================================================
-# Calibration method
-# ===========================================================================
+    def test_dynamic_precision_embedding_emits_dequantizelinear(
+        self, runner: CliRunner, tiny_embed_onnx: Path, tmp_path: Path
+    ):
+        """Dynamic quant of an embedding feeding a non-integer op emits a
+        DequantizeLinear (counted as a quantized node) but never a static
+        QuantizeLinear."""
+        out = tmp_path / "a8.onnx"
+        r = _invoke(
+            runner,
+            ["-m", str(tiny_embed_onnx), "-o", str(out), "--precision", "dynamic"],
+        )
+        assert r.exit_code == 0
+        assert out.exists()
+
+        model = onnx.load(str(out))
+        ops = [n.op_type for n in model.graph.node]
+        # Quantized embedding restored to float before the Add.
+        assert "DequantizeLinear" in ops, ops
+        # Dynamic quantization must not emit a static QuantizeLinear.
+        assert "QuantizeLinear" not in ops, ops
+        # Still exercises the integer compute path.
+        assert "MatMulInteger" in ops, ops
+        onnx.checker.check_model(model, full_check=True)
+
+        # Runs under ORT-CPU with valid token indices (< vocab size 64).
+        sess = ort.InferenceSession(str(out), providers=["CPUExecutionProvider"])
+        feed = {"input_ids": np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64)}
+        outs = sess.run(None, feed)
+        assert np.isfinite(outs[0]).all()
 
 
 class TestCalibrationMethod:
@@ -444,10 +568,15 @@ class TestQuantOptions:
         r = _invoke(
             runner,
             [
-                "-m", str(tiny_onnx), "-o", str(out),
+                "-m",
+                str(tiny_onnx),
+                "-o",
+                str(out),
                 "--symmetric",
-                "--weight-type", "int8",
-                "--samples", "4",
+                "--weight-type",
+                "int8",
+                "--samples",
+                "4",
             ],
         )
         model = _assert_quantized_output(input_onnx=tiny_onnx, output_onnx=out, stdout=r.output)
@@ -475,8 +604,15 @@ class TestPerTaskDatasets:
         r = _invoke(
             runner,
             [
-                "-m", str(tiny_onnx), "-o", str(out),
-                "--task", "random", "--samples", "4", "-v",
+                "-m",
+                str(tiny_onnx),
+                "-o",
+                str(out),
+                "--task",
+                "random",
+                "--samples",
+                "4",
+                "-v",
             ],
         )
         _assert_quantized_output(input_onnx=tiny_onnx, output_onnx=out, stdout=r.output)
@@ -490,10 +626,17 @@ class TestPerTaskDatasets:
         r = _invoke(
             runner,
             [
-                "-m", str(onnx_imgcls), "-o", str(out),
-                "--task", "image-classification",
-                "--model-name", "microsoft/resnet-50",
-                "--samples", "4", "-v",
+                "-m",
+                str(onnx_imgcls),
+                "-o",
+                str(out),
+                "--task",
+                "image-classification",
+                "--model-id",
+                "microsoft/resnet-50",
+                "--samples",
+                "4",
+                "-v",
             ],
         )
         _assert_quantized_output(input_onnx=onnx_imgcls, output_onnx=out, stdout=r.output)
@@ -507,10 +650,17 @@ class TestPerTaskDatasets:
         r = _invoke(
             runner,
             [
-                "-m", str(onnx_txtcls), "-o", str(out),
-                "--task", "text-classification",
-                "--model-name", "Intel/bert-base-uncased-mrpc",
-                "--samples", "4", "-v",
+                "-m",
+                str(onnx_txtcls),
+                "-o",
+                str(out),
+                "--task",
+                "text-classification",
+                "--model-id",
+                "Intel/bert-base-uncased-mrpc",
+                "--samples",
+                "4",
+                "-v",
             ],
         )
         _assert_quantized_output(input_onnx=onnx_txtcls, output_onnx=out, stdout=r.output)
@@ -524,16 +674,21 @@ class TestPerTaskDatasets:
         r = _invoke(
             runner,
             [
-                "-m", str(onnx_objdet), "-o", str(out),
-                "--task", "object-detection",
-                "--model-name", "hustvl/yolos-small",
-                "--samples", "4", "-v",
+                "-m",
+                str(onnx_objdet),
+                "-o",
+                str(out),
+                "--task",
+                "object-detection",
+                "--model-id",
+                "hustvl/yolos-small",
+                "--samples",
+                "4",
+                "-v",
             ],
         )
         _assert_quantized_output(input_onnx=onnx_objdet, output_onnx=out, stdout=r.output)
-        assert (
-            "Creating object-detection dataset with ObjectDetectionDataset" in r.output
-        ), r.output
+        assert "Creating object-detection dataset with ObjectDetectionDataset" in r.output, r.output
 
     @pytest.mark.network
     def test_task_image_segmentation_dataset(
@@ -543,16 +698,23 @@ class TestPerTaskDatasets:
         r = _invoke(
             runner,
             [
-                "-m", str(onnx_imgseg), "-o", str(out),
-                "--task", "image-segmentation",
-                "--model-name", "nvidia/segformer-b0-finetuned-ade-512-512",
-                "--samples", "4", "-v",
+                "-m",
+                str(onnx_imgseg),
+                "-o",
+                str(out),
+                "--task",
+                "image-segmentation",
+                "--model-id",
+                "nvidia/segformer-b0-finetuned-ade-512-512",
+                "--samples",
+                "4",
+                "-v",
             ],
         )
         _assert_quantized_output(input_onnx=onnx_imgseg, output_onnx=out, stdout=r.output)
-        assert (
-            "Creating image-segmentation dataset with ImageSegmentationDataset" in r.output
-        ), r.output
+        assert "Creating image-segmentation dataset with ImageSegmentationDataset" in r.output, (
+            r.output
+        )
 
     def test_unsupported_task_falls_back_to_random_dataset(
         self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path
@@ -561,9 +723,14 @@ class TestPerTaskDatasets:
         r = _invoke(
             runner,
             [
-                "-m", str(tiny_onnx), "-o", str(out),
-                "--task", "automatic-speech-recognition",
-                "--samples", "4",
+                "-m",
+                str(tiny_onnx),
+                "-o",
+                str(out),
+                "--task",
+                "automatic-speech-recognition",
+                "--samples",
+                "4",
             ],
         )
         _assert_quantized_output(input_onnx=tiny_onnx, output_onnx=out, stdout=r.output)
@@ -585,16 +752,21 @@ class TestPerTaskDatasets:
         r = _invoke(
             runner,
             [
-                "-m", str(onnx_dinov2), "-o", str(out),
-                "--task", "image-feature-extraction",
-                "--model-name", "facebook/dinov2-small",
-                "--samples", "4", "-v",
+                "-m",
+                str(onnx_dinov2),
+                "-o",
+                str(out),
+                "--task",
+                "image-feature-extraction",
+                "--model-id",
+                "facebook/dinov2-small",
+                "--samples",
+                "4",
+                "-v",
             ],
         )
         _assert_quantized_output(input_onnx=onnx_dinov2, output_onnx=out, stdout=r.output)
-        assert (
-            "Creating image-feature-extraction dataset with ImageDataset" in r.output
-        ), r.output
+        assert "Creating image-feature-extraction dataset with ImageDataset" in r.output, r.output
 
 
 # ===========================================================================
@@ -611,7 +783,7 @@ class TestOutputBehavior:
         local = target_dir / "tiny.onnx"
         local.write_bytes(tiny_onnx.read_bytes())
         r = _invoke(runner, ["-m", str(local), "--samples", "4"])
-        expected = target_dir / "tiny_qdq.onnx"
+        expected = target_dir / "tiny_quantized.onnx"
         assert expected.exists()
         _assert_quantized_output(input_onnx=local, output_onnx=expected, stdout=r.output)
 
@@ -639,9 +811,7 @@ class TestOutputBehavior:
         out_dir = tmp_path / "out_ext"
         out_dir.mkdir()
         out = out_dir / "quant_ext.onnx"
-        r = _invoke(
-            runner, ["-m", str(tiny_onnx_external), "-o", str(out), "--samples", "4"]
-        )
+        r = _invoke(runner, ["-m", str(tiny_onnx_external), "-o", str(out), "--samples", "4"])
         assert out.exists()
         assert (out_dir / f"{out.name}.data").exists()
         _assert_quantized_output(input_onnx=tiny_onnx_external, output_onnx=out, stdout=r.output)
@@ -673,9 +843,14 @@ class TestBuildConfigPrecedence:
         r = _invoke(
             runner,
             [
-                "-m", str(tiny_onnx), "-o", str(out),
-                "--config", str(bc),
-                "--samples", "4",
+                "-m",
+                str(tiny_onnx),
+                "-o",
+                str(out),
+                "--config",
+                str(bc),
+                "--samples",
+                "4",
             ],
         )
         _assert_quantized_output(input_onnx=tiny_onnx, output_onnx=out, stdout=r.output)
@@ -696,10 +871,16 @@ class TestBuildConfigPrecedence:
         r = _invoke(
             runner,
             [
-                "-m", str(tiny_onnx), "-o", str(out),
-                "--config", str(bc),
-                "--precision", "int16",
-                "--samples", "4",
+                "-m",
+                str(tiny_onnx),
+                "-o",
+                str(out),
+                "--config",
+                str(bc),
+                "--precision",
+                "int16",
+                "--samples",
+                "4",
             ],
         )
         # uint16 activations may not run on CPU EP â€” skip S7/S9
@@ -763,10 +944,9 @@ class TestErrors:
         assert "Quantization failed" in r.output
         # Must surface a parse-related cause, not just the generic prefix.
         lowered = r.output.lower()
-        assert any(
-            kw in lowered
-            for kw in ("parse", "protobuf", "decode", "load", "invalid")
-        ), f"expected parse-related cause in output, got:\n{r.output}"
+        assert any(kw in lowered for kw in ("parse", "protobuf", "decode", "load", "invalid")), (
+            f"expected parse-related cause in output, got:\n{r.output}"
+        )
 
 
 # ===========================================================================
@@ -780,9 +960,7 @@ class TestConfigPrecedenceSweep:
     Verifies via structural inspection of the produced model, not stdout.
     """
 
-    def test_weight_type_from_config(
-        self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path
-    ):
+    def test_weight_type_from_config(self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path):
         bc = tmp_path / "bc.json"
         _write_build_config(bc, {"weight_type": "int8"})
         out = tmp_path / "f3a.onnx"
@@ -793,9 +971,7 @@ class TestConfigPrecedenceSweep:
         model = _assert_quantized_output(input_onnx=tiny_onnx, output_onnx=out, stdout=r.output)
         assert _weight_dq_zero_point_dtype(model) == onnx.TensorProto.INT8
 
-    def test_per_channel_from_config(
-        self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path
-    ):
+    def test_per_channel_from_config(self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path):
         bc = tmp_path / "bc.json"
         _write_build_config(bc, {"per_channel": True})
         out = tmp_path / "f3b.onnx"
@@ -820,9 +996,7 @@ class TestConfigPrecedenceSweep:
                     break
         assert has_vector, "per_channel from config not applied (scales are scalar)"
 
-    def test_symmetric_from_config(
-        self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path
-    ):
+    def test_symmetric_from_config(self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path):
         bc = tmp_path / "bc.json"
         # symmetric only unambiguously yields zp==0 with int8 weights
         _write_build_config(bc, {"symmetric": True, "weight_type": "int8"})
@@ -842,9 +1016,7 @@ class TestConfigPrecedenceSweep:
                 arr = onnx.numpy_helper.to_array(init)
                 assert np.all(arr == 0), f"symmetric from config not applied; zp={arr}"
 
-    def test_task_from_config(
-        self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path
-    ):
+    def test_task_from_config(self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path):
         """task='automatic-speech-recognition' from config must trigger fallback warning."""
         bc = tmp_path / "bc.json"
         _write_build_config(bc, {"task": "automatic-speech-recognition"})
@@ -865,9 +1037,7 @@ class TestConfigPrecedenceSweep:
 
 
 class TestVerbose:
-    def test_verbose_emits_more_output(
-        self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path
-    ):
+    def test_verbose_emits_more_output(self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path):
         out_q = tmp_path / "quiet.onnx"
         out_v = tmp_path / "verbose.onnx"
         r_quiet = _invoke(runner, ["-m", str(tiny_onnx), "-o", str(out_q), "--samples", "4"])
@@ -879,3 +1049,97 @@ class TestVerbose:
             f"--- verbose ---\n{r_verbose.output}"
         )
 
+
+# ===========================================================================
+# Multi-precision pipeline
+# ===========================================================================
+
+
+def _build_rtn_onnx(path: Path) -> None:
+    """Build an ONNX with MatMul weights large enough for RTN int4 (K >= block_size=128)."""
+    rng = np.random.default_rng(77)
+    x = onnx.helper.make_tensor_value_info("input", onnx.TensorProto.FLOAT, [1, 256])
+    y = onnx.helper.make_tensor_value_info("output", onnx.TensorProto.FLOAT, [1, 64])
+    w1 = onnx.numpy_helper.from_array(rng.standard_normal((256, 128)).astype(np.float32), "W1")
+    b1 = onnx.numpy_helper.from_array(rng.standard_normal((128,)).astype(np.float32), "B1")
+    w2 = onnx.numpy_helper.from_array(rng.standard_normal((128, 64)).astype(np.float32), "W2")
+    b2 = onnx.numpy_helper.from_array(rng.standard_normal((64,)).astype(np.float32), "B2")
+    nodes = [
+        onnx.helper.make_node("MatMul", ["input", "W1"], ["mm1"]),
+        onnx.helper.make_node("Add", ["mm1", "B1"], ["add1"]),
+        onnx.helper.make_node("MatMul", ["add1", "W2"], ["mm2"]),
+        onnx.helper.make_node("Add", ["mm2", "B2"], ["output"]),
+    ]
+    graph = onnx.helper.make_graph(nodes, "rtn_quantizable", [x], [y], [w1, b1, w2, b2])
+    model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
+    model.ir_version = 8
+    onnx.checker.check_model(model)
+    onnx.save(model, str(path))
+
+
+@pytest.fixture(scope="session")
+def rtn_onnx(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """ONNX with large enough MatMul weights to be quantized by RTN int4."""
+    d = tmp_path_factory.mktemp("rtn_quant")
+    p = d / "rtn.onnx"
+    _build_rtn_onnx(p)
+    return p
+
+
+class TestMultiPrecision:
+    def test_int4_then_fp16_pipeline(self, runner: CliRunner, rtn_onnx: Path, tmp_path: Path):
+        """--precision int4 --precision fp16: RTN pass then FP16 conversion.
+
+        Verifies that:
+        - The pipeline completes successfully
+        - RTN pass applied: model contains MatMulNBits nodes
+        - FP16 pass applied: bias initializers converted to FLOAT16
+        """
+        out = tmp_path / "multi_int4_fp16.onnx"
+        r = _invoke(
+            runner,
+            [
+                "-m",
+                str(rtn_onnx),
+                "-o",
+                str(out),
+                "--precision",
+                "int4",
+                "--precision",
+                "fp16",
+            ],
+        )
+        assert r.exit_code == 0, f"pipeline exited {r.exit_code}\n{r.output}"
+        assert out.exists()
+
+        model = onnx.load(str(out))
+
+        # RTN pass: MatMul nodes replaced by MatMulNBits
+        op_types = {n.op_type for n in model.graph.node}
+        assert "MatMulNBits" in op_types, (
+            f"expected MatMulNBits after RTN pass, got ops: {op_types}"
+        )
+
+        # FP16 pass: bias initializers converted from FLOAT to FLOAT16
+        float16_inits = [
+            i for i in model.graph.initializer if i.data_type == onnx.TensorProto.FLOAT16
+        ]
+        assert float16_inits, (
+            "expected at least one FLOAT16 initializer after FP16 pass; "
+            f"dtypes: {[i.data_type for i in model.graph.initializer]}"
+        )
+
+        # Pipeline label appears in stdout
+        assert "int4" in r.output.lower()
+        assert "fp16" in r.output.lower()
+
+    def test_pipeline_default_output_path(self, runner: CliRunner, rtn_onnx: Path, tmp_path: Path):
+        """Multi-precision without -o should produce {stem}_int4_fp16.onnx next to input."""
+        local = tmp_path / "model.onnx"
+        local.write_bytes(rtn_onnx.read_bytes())
+        r = _invoke(
+            runner,
+            ["-m", str(local), "--precision", "int4", "--precision", "fp16"],
+        )
+        assert r.exit_code == 0, r.output
+        assert (tmp_path / "model_int4_fp16.onnx").exists()

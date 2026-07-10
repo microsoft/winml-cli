@@ -24,7 +24,6 @@ Dimensionality coverage:
 from typing import Any
 
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     OpInputGenerator,
     QDQParameterConfig,
@@ -70,7 +69,7 @@ class BinaryInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Returns comprehensive input combinations for binary operators.
 
         Coverage strategy:
@@ -367,7 +366,7 @@ class BinaryInputGenerator(OpInputGenerator):
         y_name = self.op_input_names[1]
         return [f"{x_name}_shape", f"{y_name}_shape"]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for binary operator inputs."""
         return {
             self.op_input_names[0]: QDQParameterConfig(
@@ -412,7 +411,7 @@ class MulInputGenerator(BinaryInputGenerator):
 
     op_name = "Mul"
 
-    def derive_properties(self, properties):
+    def derive_properties(self, properties: dict[str, Any]) -> dict[str, Any]:
         """Derive properties including broadcasting information."""
         item = super().derive_properties(properties)
         return self._derive_broadcasting_properties(item)
@@ -424,14 +423,14 @@ class DivInputGenerator(BinaryInputGenerator):
 
     op_name = "Div"
 
-    def derive_properties(self, properties):
+    def derive_properties(self, properties: dict[str, Any]) -> dict[str, Any]:
         """Derive properties including broadcasting information."""
         item = super().derive_properties(properties)
         return self._derive_broadcasting_properties(item)
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Returns input combinations for Div operator with division-by-zero protection.
 
         Overrides parent method to set min_max=(2, 3) for the divisor (B parameter)
@@ -445,10 +444,10 @@ class DivInputGenerator(BinaryInputGenerator):
         # Rebuild combinations with min_max set for B parameter
         new_combinations = []
         for combo in combinations:
-            new_combo = {}
+            new_combo: dict[str, object] = {}
             for key, value in combo.items():
                 # Check if this is the second parameter (divisor)
-                if key == divisor_name:
+                if key == divisor_name and isinstance(value, InputShapeConstraint):
                     # Create a new InputShapeConstraint with min_max set
                     new_constraint = InputShapeConstraint(value.shape, min_max=(2, 3))
                     new_combo[key] = new_constraint
@@ -465,7 +464,7 @@ class PowInputGenerator(BinaryInputGenerator):
 
     op_name = "Pow"
 
-    def derive_properties(self, properties):
+    def derive_properties(self, properties: dict[str, Any]) -> dict[str, Any]:
         """Derive properties including broadcasting information."""
         item = super().derive_properties(properties)
         return self._derive_broadcasting_properties(item)
@@ -523,7 +522,7 @@ class ComparisonInputGenerator(BinaryInputGenerator):
     here if needed in the future.
     """
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for comparison operator inputs."""
         return {
             self.op_input_names[0]: QDQParameterConfig(

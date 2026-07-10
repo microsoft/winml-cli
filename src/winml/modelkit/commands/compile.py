@@ -41,29 +41,24 @@ console = Console()
 
 
 @click.command()
-@click.option(
-    "--model",
-    "-m",
+@cli_utils.model_path_option(
     required=False,
     multiple=True,
-    type=click.Path(exists=True, path_type=Path),
-    help="Input ONNX model file. Repeat -m to compile multiple models with a shared "
+    help_text="Input ONNX model file. Repeat -m to compile multiple models with a shared "
     "EP context (weight sharing). Required unless --list.",
 )
 @cli_utils.output_option("Output file path (e.g., model_compiled.onnx)")
+@cli_utils.overwrite_option()
 @click.option(
     "--output-dir",
     type=click.Path(path_type=Path),
     default=None,
     help="Output directory (default: same as input model)",
 )
-@click.option(
-    "--device",
-    "-d",
-    type=click.Choice(["auto", "npu", "gpu", "cpu"], case_sensitive=False),
+@cli_utils.device_option(
+    required=False,
     default="auto",
-    show_default=True,
-    help="Target device",
+    include_auto=True,
 )
 @cli_utils.ep_option(
     required=False,
@@ -102,12 +97,14 @@ console = Console()
 )
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @click.pass_context
 def compile(
     ctx: click.Context,
     model: tuple[Path, ...],
     output: Path | None,
     output_dir: Path | None,
+    overwrite: bool,
     device: str,
     ep: EPNameOrAlias | None,
     validate: bool,
@@ -243,6 +240,9 @@ def compile(
         console.print(f"[bold blue]SDK root:[/bold blue] {qnn_sdk_root}")
     # Resolve output path: -o (file) takes precedence over --output-dir
     resolved_output = output or output_dir
+    # Refuse to clobber an existing output unless the user opted in. A file
+    # blocks when it exists; a directory blocks only when non-empty.
+    cli_utils.guard_output(resolved_output, overwrite)
     if output:
         console.print(f"[bold blue]Output:[/bold blue] {output}")
     elif output_dir:

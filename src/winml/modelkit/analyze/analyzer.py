@@ -15,11 +15,12 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..optim.config import WinMLOptimizationConfig
 from ..utils.constants import EP_SUPPORTED_DEVICES, EPName, EPNameOrAlias, normalize_ep_name
 from .models.information import Information
+from .models.output import RuntimeDebugSummaryEntry
 from .models.support_level import SupportLevel
 from .utils.timing_utils import make_timing_logger
 
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
 
     from .models.information import Action
     from .models.output import AnalysisOutput
-    from .models.runtime_checks import PatternRuntime
+    from .models.runtime_checks import PatternRuntime, RuntimeTestResult
 
 
 @dataclass
@@ -61,6 +62,105 @@ class LintResult:
 
 logger = logging.getLogger(__name__)
 _log_timing = make_timing_logger(logger)
+
+_RUNTIME_DEBUG_SUMMARY_LEVELS: tuple[SupportLevel, ...] = (
+    SupportLevel.UNSUPPORTED,
+    SupportLevel.PARTIAL,
+    SupportLevel.SUPPORTED,
+)
+
+
+def _normalize_case_indices_for_summary(case_indices: Any) -> list[Any] | None:
+    """Normalize case_indices to JSON-friendly list values."""
+    if case_indices is None:
+        return None
+    if isinstance(case_indices, list):
+        return case_indices
+    if isinstance(case_indices, tuple):
+        return list(case_indices)
+    return [case_indices]
+
+
+def _iter_runtime_test_results(pattern_runtime: PatternRuntime) -> list[RuntimeTestResult]:
+    """Iterate all RuntimeTestResult objects reachable from PatternRuntime."""
+    results = [pattern_runtime.result]
+    results.extend(alternative.result for alternative in pattern_runtime.alternatives)
+    return results
+
+
+def _build_runtime_debug_details_summary(
+    runtime_summary: dict[str, list[PatternRuntime]],
+) -> dict[str, list[str] | dict[str, RuntimeDebugSummaryEntry]] | None:
+    """Build debug_details summary grouped by support level and node stable key.
+
+    The returned dict always starts with the ``unknown`` key (in output order),
+    followed by ``unsupported``, ``partial``, and ``supported``. ``unknown``
+    nodes have no matched rule case data, so they are recorded as a plain list
+    of ``node_stable_key`` values; the other levels map ``node_stable_key`` to a
+    :class:`RuntimeDebugSummaryEntry`.
+    """
+    leveled_summary: dict[str, dict[str, RuntimeDebugSummaryEntry]] = {
+        level.value: {} for level in _RUNTIME_DEBUG_SUMMARY_LEVELS
+    }
+    unknown_nodes: set[str] = set()
+
+    for runtime_key in ("op_runtime_check_result", "subgraph_runtime_check_result"):
+        for pattern_runtime in runtime_summary.get(runtime_key, []):
+            for test_result in _iter_runtime_test_results(pattern_runtime):
+                level = test_result.classification
+
+                debug_details = test_result.debug_details
+                if not debug_details:
+                    continue
+
+                node_stable_key = debug_details.get("node_stable_key")
+                if not node_stable_key:
+                    continue
+
+                if level == SupportLevel.UNKNOWN:
+                    # Unknown nodes carry no rule case data; record the
+                    # de-duplicated node key only.
+                    unknown_nodes.add(node_stable_key)
+                    continue
+
+                if level not in _RUNTIME_DEBUG_SUMMARY_LEVELS:
+                    continue
+
+                candidate_entry = RuntimeDebugSummaryEntry(
+                    case_indices=_normalize_case_indices_for_summary(
+                        debug_details.get("case_indices")
+                    ),
+                    table_path=debug_details.get("table_path"),
+                    table_file=debug_details.get("table_file"),
+                )
+
+                level_bucket = leveled_summary[level.value]
+                existing_entry = level_bucket.get(node_stable_key)
+                if existing_entry is None:
+                    level_bucket[node_stable_key] = candidate_entry
+                    continue
+
+                if existing_entry.case_indices is None and candidate_entry.case_indices is not None:
+                    existing_entry.case_indices = candidate_entry.case_indices
+
+                if existing_entry.table_path is None and candidate_entry.table_path is not None:
+                    existing_entry.table_path = candidate_entry.table_path
+
+                if existing_entry.table_file is None and candidate_entry.table_file is not None:
+                    existing_entry.table_file = candidate_entry.table_file
+
+    has_any_entry = bool(unknown_nodes) or any(
+        leveled_summary[level.value] for level in _RUNTIME_DEBUG_SUMMARY_LEVELS
+    )
+    if not has_any_entry:
+        return None
+
+    # "unknown" is intentionally the first key in output order.
+    summary: dict[str, list[str] | dict[str, RuntimeDebugSummaryEntry]] = {
+        "unknown": sorted(unknown_nodes)
+    }
+    summary.update(leveled_summary)
+    return summary
 
 
 class AnalysisResult:
@@ -498,6 +598,7 @@ class ONNXStaticAnalyzer:
         device: str | None = None,
         enable_information: bool = True,
         htp_metadata_path: str | None = None,
+        for_debug: bool = False,
         run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
         on_node_result: Callable | None = None,
@@ -523,6 +624,8 @@ class ONNXStaticAnalyzer:
                 Default: True
             htp_metadata_path: Optional path to HTP metadata JSON file
                 for pattern extraction from hierarchy traces
+            for_debug: Whether to include runtime debug payloads in check results.
+                Default: False
             run_unknown_op: Whether to run unknown operators on the local machine
                 if possible. Default: True
             save_node_types: Set of node types to save for further analysis
@@ -604,6 +707,7 @@ class ONNXStaticAnalyzer:
             enable_information=enable_information,
             model_path=str(model_file),
             htp_metadata_path=htp_metadata_path,
+            for_debug=for_debug,
             run_unknown_op=run_unknown_op,
             save_node_types=save_node_types,
             on_node_result=on_node_result,
@@ -629,6 +733,7 @@ class ONNXStaticAnalyzer:
         enable_information: bool = True,
         model_path: str | None = None,
         htp_metadata_path: str | None = None,
+        for_debug: bool = False,
         run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
         on_node_result: Callable | None = None,
@@ -651,6 +756,8 @@ class ONNXStaticAnalyzer:
             model_path: Optional path to model file (for metadata)
             htp_metadata_path: Optional path to HTP metadata JSON file
                 for pattern extraction from hierarchy traces
+            for_debug: Whether to include runtime debug payloads in check results.
+                Default: False
             run_unknown_op: Whether to run unknown operators on local machine
                 if possible. Default: True
             save_node_types: Set of node types to save for further analysis
@@ -688,7 +795,7 @@ class ONNXStaticAnalyzer:
         if device is not None and device.lower() == "auto":
             from ..sysinfo import resolve_device
 
-            resolved, _ = resolve_device("auto")
+            resolved, _ = resolve_device("auto", ep=ep_normalized)
             device_to_use = resolved.upper()
             logger.info("Device 'auto' resolved to: %s", device_to_use)
         else:
@@ -729,6 +836,9 @@ class ONNXStaticAnalyzer:
         # Step 2: Check runtime support for each EP
         check_op_results: dict[EPName, list[PatternRuntime]] = {}
         information_list: dict[EPName, list[Information]] = {}
+        runtime_debug_details_summary: dict[
+            str, dict[str, list[str] | dict[str, RuntimeDebugSummaryEntry]]
+        ] = {}
         ep_runtime_timing: dict[str, int] = {}
         ep_info_timing: dict[str, int] = {}
         for current_ep in eps_to_analyze:
@@ -753,12 +863,18 @@ class ONNXStaticAnalyzer:
 
             runtime_summary = runtime_checker.summary(
                 patterns=pattern_matches,
+                for_debug=for_debug,
                 run_unknown_op=run_unknown_op_for_ep,
                 save_node_types=save_node_types,
                 on_node_result=on_node_result,
             )
             runtime_summary_ms = int((time.perf_counter() - runtime_summary_start) * 1000)
             ep_runtime_timing[current_ep] = runtime_summary_ms
+
+            if for_debug:
+                ep_debug_summary = _build_runtime_debug_details_summary(runtime_summary)
+                if ep_debug_summary is not None:
+                    runtime_debug_details_summary[current_ep] = ep_debug_summary
 
             # Convert runtime summary to expected format
             op_results_list = runtime_summary.get("op_runtime_check_result", [])
@@ -791,6 +907,13 @@ class ONNXStaticAnalyzer:
             information_list=information_list,
             device=device_to_use,
         )
+
+        if runtime_debug_details_summary:
+            for ep_support in output.results:
+                ep_debug_summary = runtime_debug_details_summary.get(ep_support.ep_type)
+                if ep_debug_summary is not None:
+                    ep_support.runtime_debug_details_summary = ep_debug_summary
+
         aggregate_ms = int((time.perf_counter() - aggregate_start) * 1000)
 
         _log_timing(

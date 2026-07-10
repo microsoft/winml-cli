@@ -369,14 +369,16 @@ def _run_analyze(
             return_value=True,
         ),
         patch(
-            "winml.modelkit.commands.analyze._discover_runtime_rule_parquet_files",
-            return_value=(
-                [Path("runtime_check_rules")],
-                [Path("runtime_check_rules/mock.parquet")],
-            ),
+            "winml.modelkit.analyze.utils.ep_utils.has_any_rule_data",
+            return_value=True,
         ),
-        # Deterministic Tier-3 default: when ep stays "auto" through the
-        # merge block, _get_available_eps -> QNN so target_ep is fixed.
+        # Deterministic Tier-3 default: when ep stays "auto" through the merge
+        # block, analyze resolves it via resolve_eps(resolved_device)[0]. Pin the
+        # ORT device->EP map so npu -> QNN, fixing the resolved target EP.
+        patch(
+            "winml.modelkit.sysinfo.device._get_device_ep_map_from_ort",
+            return_value={"npu": ("QNNExecutionProvider",)},
+        ),
         patch(
             "winml.modelkit.sysinfo.device._get_available_eps",
             return_value=["QNNExecutionProvider"],

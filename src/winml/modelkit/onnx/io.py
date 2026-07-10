@@ -30,6 +30,8 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+ShapeDim = int | str
+
 
 # =============================================================================
 # Tensor Specification Dataclasses
@@ -45,7 +47,8 @@ class InputTensorSpec:
     Attributes:
         name: Input tensor name in the ONNX graph (e.g., "pixel_values", "input_ids")
         dtype: Data type (e.g., "float32", "int64", "float16")
-        shape: Tensor shape as tuple (e.g., (1, 3, 224, 224))
+        shape: Tensor shape as tuple (e.g., (1, 3, 224, 224)). String dimensions
+            are symbolic ONNX dimensions and use size 1 for dummy tensor generation.
         value_range: Optional (min, max_exclusive) for dummy tensor generation.
             Populated by resolve_export_config() via Optimum's interceptor.
             Integer semantics: torch.randint(min, max) — max is exclusive.
@@ -64,7 +67,7 @@ class InputTensorSpec:
 
     name: str | None = None
     dtype: str | None = None  # "float32", "float16", "int64", "int32", etc.
-    shape: tuple[int, ...] | None = None
+    shape: tuple[ShapeDim, ...] | None = None
     value_range: tuple[float, float] | None = None  # (min, max_exclusive)
 
     def to_tensor(self) -> Any:
@@ -97,20 +100,42 @@ class InputTensorSpec:
         }
         torch_dtype = dtype_map.get(self.dtype or "float32", torch.float32)
 
+        concrete_shape = self.concrete_shape()
+
         if self.value_range is not None:
             lo, hi = self.value_range
             if torch_dtype.is_floating_point:
-                return torch.rand(self.shape, dtype=torch_dtype) * (hi - lo) + lo
-            return torch.randint(int(lo), int(hi), self.shape, dtype=torch_dtype)
+                return torch.rand(concrete_shape, dtype=torch_dtype) * (hi - lo) + lo
+            return torch.randint(int(lo), int(hi), concrete_shape, dtype=torch_dtype)
 
         # Fallback: no range info (backward compatible)
         if torch_dtype.is_floating_point:
-            return torch.rand(self.shape, dtype=torch_dtype)
-        return torch.ones(self.shape, dtype=torch_dtype)
+            return torch.rand(concrete_shape, dtype=torch_dtype)
+        return torch.ones(concrete_shape, dtype=torch_dtype)
+
+    def concrete_shape(self) -> tuple[int, ...]:
+        """Return a torch-compatible dummy shape, replacing symbolic dims with 1."""
+        if self.shape is None:
+            raise ValueError(f"Cannot create tensor: shape is None for '{self.name}'")
+
+        concrete: list[int] = []
+        for dim in self.shape:
+            if isinstance(dim, str):
+                if not dim:
+                    raise ValueError(f"Cannot create tensor: empty symbolic dim for '{self.name}'")
+                concrete.append(1)
+            elif isinstance(dim, int):
+                concrete.append(dim)
+            else:
+                raise TypeError(
+                    f"Cannot create tensor: shape for '{self.name}' contains "
+                    f"unsupported dimension {dim!r}"
+                )
+        return tuple(concrete)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values."""
-        result = {}
+        result: dict[str, Any] = {}
         if self.name is not None:
             result["name"] = self.name
         if self.dtype is not None:
@@ -222,6 +247,7 @@ def get_io_config(
     io_config: dict[str, Any] = {
         "input_names": [],
         "input_shapes": [],
+        "input_symbolic_shapes": [],
         "input_types": [],
         "output_names": [],
         "output_shapes": [],
@@ -243,18 +269,25 @@ def get_io_config(
             # Extract dtype
             dtype = ONNX_ELEM_TYPE_TO_NUMPY.get(tensor_type.elem_type, np.dtype("float32"))
 
-            # Extract shape (None for dynamic dims)
-            shape = []
+            # Extract shape (None for dynamic dims) and capture symbolic
+            # dim_param strings in a parallel list so downstream consumers
+            # can resolve dynamic dims by their declared symbolic name.
+            shape: list[int | None] = []
+            symbolic_shape: list[int | str | None] = []
             if tensor_type.HasField("shape"):
                 for dim in tensor_type.shape.dim:
                     if dim.HasField("dim_value"):
                         shape.append(dim.dim_value)
+                        symbolic_shape.append(dim.dim_value)
                     else:
                         shape.append(None)
+                        symbolic_shape.append(dim.dim_param or None)
 
             io_config[f"{prefix}_names"].append(io.name)
             io_config[f"{prefix}_shapes"].append(shape)
             io_config[f"{prefix}_types"].append(dtype)
+            if prefix == "input":
+                io_config["input_symbolic_shapes"].append(symbolic_shape)
 
     # Enhance with value ranges from winml.io.inputs metadata
     for prop in model.metadata_props:

@@ -13,20 +13,26 @@ Orchestrates the end-to-end profiling workflow:
    (detail) post-processing.
 5. Return a structured ``OpTraceResult``.
 """
+
 from __future__ import annotations
 
 import contextlib
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from ...winml import add_ep_for_device
 from ..base import OpTracer
 from ..result import OperatorMetrics, OpTraceResult
 from .csv_parser import parse_qnn_profiling_csv
 from .viewer import find_qnn_sdk, run_qhas_viewer
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 logger = logging.getLogger(__name__)
@@ -52,8 +58,73 @@ def _resolve_shape(shape: list, default_dim: int = 1) -> list[int]:
     return [default_dim if not isinstance(d, int) or d <= 0 else d for d in shape]
 
 
+def _csv_operator_metrics(samples: list[dict[str, Any]]) -> list[OperatorMetrics]:
+    """Aggregate per-sample CSV operator records into ``OperatorMetrics``.
+
+    Each operator's duration and percentage are computed against the metadata
+    of the *same* sample — the accelerator cycle total and cycle->US factor
+    differ slightly between inferences — then averaged across every sample the
+    operator appears in. Operators are keyed by ``op_id`` so identically-named
+    ops in different positions stay separate. The result is sorted by duration
+    descending.
+    """
+    acc: dict[int, dict[str, Any]] = {}
+
+    for sample in samples:
+        meta = sample["metadata"]
+        total_cycles = meta.get("accel_execute_cycles", 0)
+        accel_us = meta.get("accel_execute_us", 0)
+        cycle_to_us = accel_us / total_cycles if total_cycles > 0 else 0.0
+
+        for op in sample["samples"]:
+            oid = op["op_id"]
+            entry = acc.setdefault(
+                oid,
+                {"name": op["name"], "op_id": oid, "duration_us": 0.0, "percent": 0.0, "count": 0},
+            )
+            entry["duration_us"] += op["cycles"] * cycle_to_us
+            entry["percent"] += op["cycles"] / total_cycles * 100 if total_cycles > 0 else 0.0
+            entry["count"] += 1
+
+    metrics = [
+        OperatorMetrics(
+            name=entry["name"],
+            op_path=entry["name"],
+            op_id=entry["op_id"],
+            duration_us=entry["duration_us"] / entry["count"],
+            percent_of_total=entry["percent"] / entry["count"],
+        )
+        for entry in acc.values()
+    ]
+    # duration is the headline metric; percent breaks ties when US timing is
+    # absent (so durations collapse to 0 but cycle shares still differ).
+    metrics.sort(key=lambda m: (m.duration_us, m.percent_of_total), reverse=True)
+    return metrics
+
+
+def _csv_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    """Headline metadata across samples (HVX threads constant; cycles/US averaged)."""
+    if not samples:
+        return {"hvx_threads": 0, "accel_execute_cycles": 0, "accel_execute_us": 0}
+
+    n = len(samples)
+    metas = [s["metadata"] for s in samples]
+    hvx_threads = metas[0]["hvx_threads"]
+    if any(m["hvx_threads"] != hvx_threads for m in metas):
+        logger.warning(
+            "HVX thread count varies across samples (%s); using first sample's value %s",
+            [m["hvx_threads"] for m in metas],
+            hvx_threads,
+        )
+    return {
+        "hvx_threads": hvx_threads,
+        "accel_execute_cycles": round(sum(m["accel_execute_cycles"] for m in metas) / n),
+        "accel_execute_us": round(sum(m["accel_execute_us"] for m in metas) / n),
+    }
+
+
 @contextlib.contextmanager
-def _working_directory(path: Path):
+def _working_directory(path: Path) -> Iterator[None]:
     """Temporarily change CWD and restore on exit.
 
     QNN EP writes ``*_schematic.bin`` into the process CWD, so we
@@ -87,8 +158,9 @@ class QNNProfiler(OpTracer):
         *,
         output_dir: Path,
         level: str = "basic",
+        input_data: dict[str, np.ndarray] | None = None,
     ) -> None:
-        super().__init__(onnx_path, output_dir=output_dir, level=level)
+        super().__init__(onnx_path, output_dir=output_dir, level=level, input_data=input_data)
 
     def is_available(self) -> bool:
         """Check if QNN EP is available for profiling."""
@@ -118,20 +190,23 @@ class QNNProfiler(OpTracer):
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        csv_path = self.output_dir / "profiling_output.csv"
+        csv_path = (self.output_dir / "profiling_output.csv").resolve()
+        csv_path.unlink(missing_ok=True)
         options = self._build_session_options(ort)
         provider_options = self._build_provider_options(csv_path)
+        if not add_ep_for_device(
+            options, "QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU, provider_options
+        ):
+            raise RuntimeError("Failed to add QNNExecutionProvider for NPU device.")
 
         # CWD must be output_dir so schematic.bin lands there.
         with _working_directory(self.output_dir):
             session = ort.InferenceSession(
                 str(self.onnx_path),
                 sess_options=options,
-                providers=["QNNExecutionProvider"],
-                provider_options=provider_options,
             )
 
-            inputs = self._generate_inputs(session)
+            inputs = self._resolve_inputs(session)
 
             # Warmup (not measured).
             for _ in range(warmup):
@@ -145,25 +220,26 @@ class QNNProfiler(OpTracer):
             del session
 
         # ---- Post-processing ----
-        return self._collect_results(csv_path, iterations)
+        return self._collect_results(csv_path, iterations, warmup)
 
     # ------------------------------------------------------------------
     # ORT configuration builders
     # ------------------------------------------------------------------
 
     def _build_session_options(self, ort_module: Any) -> Any:
-        """Create ``ort.SessionOptions`` with profiling config entries."""
+        """Create ``ort.SessionOptions`` with profiling config entries.
+
+        ``ep.context_*`` (EPContext / cached-context) entries are only needed for
+        ``detail`` tracing, so they are gated on the tracing level.
+        """
         options = ort_module.SessionOptions()
-        options.add_session_config_entry(
-            "session.disable_cpu_ep_fallback", "1"
-        )
-        options.add_session_config_entry("ep.context_enable", "1")
-        options.add_session_config_entry("ep.context_embed_mode", "0")
+        options.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
+        if self.level == "detail":
+            options.add_session_config_entry("ep.context_enable", "1")
+            options.add_session_config_entry("ep.context_embed_mode", "0")
         return options
 
-    def _build_provider_options(
-        self, csv_path: Path
-    ) -> list[dict[str, str]]:
+    def _build_provider_options(self, csv_path: Path) -> dict[str, str]:
         """Build QNN EP provider options dict.
 
         - ``basic`` mode uses ``profiling_level=detailed`` (per-op cycles).
@@ -171,20 +247,45 @@ class QNNProfiler(OpTracer):
         """
         profiling_level = "optrace" if self.level == "detail" else "detailed"
 
-        return [
-            {
-                "backend_path": "QnnHtp.dll",
-                "htp_performance_mode": "high_performance",
-                "htp_graph_finalization_optimization_mode": "3",
-                "enable_htp_fp16_precision": "1",
-                "profiling_level": profiling_level,
-                "profiling_file_path": str(csv_path),
-            }
-        ]
+        return {
+            "htp_performance_mode": "high_performance",
+            "htp_graph_finalization_optimization_mode": "3",
+            "enable_htp_fp16_precision": "1",
+            "profiling_level": profiling_level,
+            "profiling_file_path": str(csv_path),
+        }
 
     # ------------------------------------------------------------------
     # Input generation
     # ------------------------------------------------------------------
+
+    def _resolve_inputs(self, session: Any) -> dict[str, np.ndarray]:
+        """Pick trace inputs: the caller-provided tensors, else random.
+
+        When ``input_data`` was supplied (from ``perf --input-data``), use it so
+        the op trace runs on the same real tensors as the latency benchmark.
+        Each array is cast to the session's expected dtype (mirroring
+        ``WinMLSession._prepare_inputs``). If the provided keys don't cover the
+        traced session's inputs -- e.g. a compiled context model with different
+        inputs -- fall back to random generation with a warning rather than
+        failing the trace.
+        """
+        if not self.input_data:
+            return self._generate_inputs(session)
+
+        expected = {inp.name: _ort_type_to_numpy(inp.type) for inp in session.get_inputs()}
+        if set(self.input_data) != set(expected):
+            logger.warning(
+                "--input-data inputs %s do not match the traced model's inputs "
+                "%s; falling back to random inputs for op-tracing.",
+                sorted(self.input_data),
+                sorted(expected),
+            )
+            return self._generate_inputs(session)
+
+        return {
+            name: np.asarray(arr).astype(expected[name]) for name, arr in self.input_data.items()
+        }
 
     @staticmethod
     def _generate_inputs(session: Any) -> dict[str, np.ndarray]:
@@ -200,9 +301,7 @@ class QNNProfiler(OpTracer):
     # Result collection
     # ------------------------------------------------------------------
 
-    def _collect_results(
-        self, csv_path: Path, iterations: int
-    ) -> OpTraceResult:
+    def _collect_results(self, csv_path: Path, iterations: int, warmup: int) -> OpTraceResult:
         """Parse profiling artifacts into an ``OpTraceResult``."""
         artifacts: dict[str, str] = {}
         qnn_log = Path(str(csv_path) + "_qnn.log")
@@ -225,7 +324,7 @@ class QNNProfiler(OpTracer):
 
         # --- Fallback / basic mode: parse CSV ---
         if csv_path.is_file():
-            return self._from_csv(csv_path, iterations, artifacts)
+            return self._from_csv(csv_path, iterations, warmup, artifacts)
 
         # No artifacts at all -- return empty result.
         logger.warning("No profiling artifacts found in %s", self.output_dir)
@@ -256,15 +355,11 @@ class QNNProfiler(OpTracer):
         import json as _json
 
         if schematic is None or not schematic.is_file():
-            logger.info(
-                "No schematic found; falling back to CSV for detail mode"
-            )
+            logger.info("No schematic found; falling back to CSV for detail mode")
             return None
 
         qhas_output = self.output_dir / "qhas_output.json"
-        result_path = run_qhas_viewer(
-            qnn_log, schematic, qhas_output, sdk_root=find_qnn_sdk()
-        )
+        result_path = run_qhas_viewer(qnn_log, schematic, qhas_output, sdk_root=find_qnn_sdk())
 
         if result_path is None or not result_path.is_file():
             logger.info("QHAS viewer did not produce output; falling back")
@@ -308,29 +403,26 @@ class QNNProfiler(OpTracer):
         self,
         csv_path: Path,
         iterations: int,
+        warmup: int,
         artifacts: dict[str, str],
     ) -> OpTraceResult:
-        """Build an ``OpTraceResult`` from the basic CSV parser."""
-        parsed = parse_qnn_profiling_csv(csv_path)
-        meta = parsed["metadata"]
+        """Build an ``OpTraceResult`` from the basic CSV parser.
 
-        # Convert cycles to microseconds using the cycle-to-us factor.
-        total_cycles = meta.get("accel_execute_cycles", 0)
-        accel_us = meta.get("accel_execute_us", 0)
-        cycle_to_us = accel_us / total_cycles if total_cycles > 0 else 0.0
+        The CSV records every execute call, warmup runs included. Warmup
+        carries graph-finalization / JIT overhead, so the first ``warmup``
+        samples are dropped; the remaining samples — which must number
+        ``iterations`` — feed the operator metrics.
+        """
+        samples = parse_qnn_profiling_csv(csv_path)
 
-        operators = [
-            OperatorMetrics(
-                name=op["name"],
-                op_path=op["name"],
-                op_id=op["op_id"],
-                duration_us=op["cycles"] * cycle_to_us,
-                percent_of_total=(
-                    op["cycles"] / total_cycles * 100 if total_cycles > 0 else 0
-                ),
+        measured = samples[warmup:]
+        if len(measured) != iterations:
+            raise ValueError(
+                f"Expected {iterations} measured sample(s) after skipping {warmup} "
+                f"warmup, got {len(measured)} from {len(samples)} total."
             )
-            for op in parsed["operators"]
-        ]
+
+        operators = _csv_operator_metrics(measured)
 
         return OpTraceResult(
             model=self.onnx_path.name,
@@ -339,11 +431,7 @@ class QNNProfiler(OpTracer):
             ep="QNNExecutionProvider",
             tracing_backend="qnn",
             operators=operators,
-            num_samples=meta.get("num_samples", 0),
-            summary={
-                "hvx_threads": meta.get("hvx_threads", 0),
-                "accel_execute_cycles": meta.get("accel_execute_cycles", 0),
-                "accel_execute_us": accel_us,
-            },
+            num_samples=len(measured),
+            summary=_csv_summary(measured),
             artifacts=artifacts,
         )

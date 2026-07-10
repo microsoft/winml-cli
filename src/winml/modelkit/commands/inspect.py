@@ -37,11 +37,6 @@ logger = logging.getLogger(__name__)
 console = Console()
 _stderr_console = Console(stderr=True, highlight=False)
 
-# File extensions that unambiguously indicate a local file path.
-# HF model IDs routinely contain dots in version numbers (Phi-3.5, Qwen2.5, …)
-# so matching on any suffix would cause false-positives; restrict to known extensions.
-_LOCAL_FILE_EXTS = frozenset({".onnx", ".pt", ".pth", ".safetensors", ".bin"})
-
 
 def _validate_task(ctx: click.Context, param: click.Parameter, value: str | None) -> str | None:
     """Click-time validation for --task against the hand-coded KNOWN_TASKS set.
@@ -51,43 +46,69 @@ def _validate_task(ctx: click.Context, param: click.Parameter, value: str | None
     """
     if value is None:
         return None
-    from ..loader.task import KNOWN_TASKS
+    from ..loader.task import COMPOSITE_TASKS, KNOWN_TASKS
 
-    if value in KNOWN_TASKS:
+    # Accept the union of granular tasks (KNOWN_TASKS) and composite pipeline tasks
+    # (summarization/translation etc.), which the resolver builds into composite
+    # exports. Both imports come from ..loader.task, so validation stays transformers-free.
+    accepted = KNOWN_TASKS | COMPOSITE_TASKS
+    if value in accepted:
         return value
-    examples = ", ".join(sorted(KNOWN_TASKS)[:5])
+    examples = ", ".join(sorted(accepted)[:5])
     raise click.UsageError(
-        f"Invalid task '{value}'. Valid: {examples}, ... ({len(KNOWN_TASKS)} total). "
+        f"Invalid task '{value}'. Valid: {examples}, ... ({len(accepted)} total). "
         f"See 'winml inspect --list-tasks' for the full list."
     )
 
 
-def _looks_like_local_path(model_id: str) -> bool:
-    """Return True when model_id is explicitly a local path.
+def _list_tasks_for_model(model_type: str) -> list[str]:
+    """Sorted tasks a model_type supports: Optimum-exportable + composite pipeline.
 
-    Conservative heuristic — only returns True for unambiguous local indicators:
-    path separators, absolute paths, dot/tilde prefixes, or known model file extensions.
+    Unions Optimum's ONNX-exportable tasks with any registered composite pipeline
+    tasks. Optimum's list is intersected with ``KNOWN_TASKS`` first, dropping
+    ``-with-past`` KV-cache export flavors that are not user-facing tasks (and which
+    ``--task`` validation would itself reject). Returns ``[]`` when the model_type is
+    unknown to *both* lookups — the caller (``--list-tasks``) turns that into a loud
+    error rather than printing nothing.
+
+    ``model_type`` must be the canonical HF ``config.model_type`` string. The ``-m``
+    path already passes that; ``--model-type`` is trusted verbatim. Optimum's task
+    table is an exact dict lookup whose keys mix separators (``gpt_neo`` underscored,
+    ``megatron-bert`` hyphenated), so no normalization can reconstruct the canonical
+    key from an arbitrary variant — a non-canonical ``--model-type`` (``gpt-neo``,
+    ``BERT``) resolves empty on the Optimum half by design.
     """
-    from pathlib import Path
+    # get_supported_tasks reads Optimum's ONNX task table, which is populated by
+    # import side-effects. Two triggers are required and order-independent once both
+    # run: optimum's own model_configs, AND winml.modelkit.models.hf, whose
+    # register_onnx_overwrite calls add ModelKit's custom exportable tasks (e.g.
+    # sam -> mask-generation). Importing only the former silently drops those and is
+    # even flaky for stock tasks depending on prior import order.
+    import optimum.exporters.onnx.model_configs  # noqa: F401
 
-    _p = Path(model_id).expanduser()
-    return (
-        _p.exists()
-        or _p.is_absolute()
-        or "\\" in model_id
-        or model_id.startswith(("./", "../", "~/"))
-        or _p.suffix.lower() in _LOCAL_FILE_EXTS
+    import winml.modelkit.models.hf  # noqa: F401  # REQUIRED: registers ModelKit ONNX overwrites
+
+    from ..loader import (
+        composite_pipeline_tasks,
+        get_supported_tasks,
+        resolve_optimum_library,
     )
+    from ..loader.task import KNOWN_TASKS
+
+    # Intersect with KNOWN_TASKS to drop Optimum's `-with-past` export flavors,
+    # which are not user-facing WinML tasks. Composite tasks are added separately
+    # (they intentionally live outside KNOWN_TASKS), so union after the filter.
+    optimum_tasks = get_supported_tasks(model_type, resolve_optimum_library(model_type))
+    tasks: set[str] = {t for t in optimum_tasks if t in KNOWN_TASKS}
+    # Composite registrations key on the hyphenated, lowercased model_type.
+    tasks.update(composite_pipeline_tasks(model_type.lower().replace("_", "-")))
+    return sorted(tasks)
 
 
 @click.command("inspect")
-@click.option(
-    "-m",
-    "--model",
-    "model_id",
+@cli_utils.model_option(
     required=False,
-    default=None,
-    help="HuggingFace model ID (e.g., microsoft/resnet-50)",
+    help_text="HuggingFace model ID (e.g., microsoft/resnet-50)",
 )
 @cli_utils.format_option(choices=["table", "json"], default="table")
 @click.option(
@@ -115,7 +136,8 @@ def _looks_like_local_path(model_id: str) -> bool:
     "--model-type",
     "model_type",
     default=None,
-    help="Override model type (e.g., bert, resnet) — can be used without --model",
+    help="Override model type — use the canonical HF config.model_type "
+    "(e.g. bert, gpt_neo, megatron-bert). Can be used without --model.",
 )
 @click.option(
     "--model-class",
@@ -124,10 +146,11 @@ def _looks_like_local_path(model_id: str) -> bool:
     help="Override model class (e.g., BertForMaskedLM) — can be used without --model",
 )
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @click.pass_context
 def inspect(
     ctx: click.Context,
-    model_id: str | None,
+    model: str | None,
     output_format: cli_utils.OutputFormat,
     verbose: int,
     quiet: bool,
@@ -161,38 +184,92 @@ def inspect(
         # List all known tasks
         winml inspect --list-tasks
     """
-    # Handle --list-tasks (no model required).
-    # Import the hand-coded KNOWN_TASKS directly from loader.task to keep this
-    # branch fast — going through inspect.resolver pulls in ..models which
-    # transitively imports transformers and costs ~10s on a warm cache.
+    # Handle --list-tasks: with a model target, list that model_type's supported
+    # tasks; with no target, dump the full KNOWN_TASKS taxonomy (fast path).
     if list_tasks:
-        from ..loader.task import KNOWN_TASKS
+        # --model-type wins; else resolve the model_type from the id's config
+        # (weight-free); else (no target) dump the full taxonomy via the fast path.
+        if model_type is not None:
+            resolved_type = model_type
+        elif model is not None:
+            from transformers import AutoConfig
 
-        for t in sorted(KNOWN_TASKS):
+            try:
+                hf_config = AutoConfig.from_pretrained(model, trust_remote_code=False)
+            except Exception as e:
+                raise click.ClickException(
+                    f"Could not resolve model type for '{model}': {e}"
+                ) from e
+            mt = getattr(hf_config, "model_type", None)
+            if not mt:
+                raise click.ClickException(
+                    f"Could not determine model type for '{model}' (config has no model_type)."
+                )
+            resolved_type = mt
+        else:
+            # No model target: dump the full KNOWN_TASKS taxonomy. Imports the
+            # hand-coded set directly from loader.task to keep this branch fast —
+            # going through _list_tasks_for_model pulls in transformers (~10s warm).
+            from ..loader.task import KNOWN_TASKS
+
+            for t in sorted(KNOWN_TASKS):
+                click.echo(t)
+            return
+
+        tasks = _list_tasks_for_model(resolved_type)
+        if not tasks:
+            # Empty means the model_type matched neither the Optimum export table
+            # nor the composite registry. For a user-supplied --model-type the
+            # likeliest cause is a typo or non-canonical form (gpt-neo/BERT rather
+            # than gpt_neo/bert), so fail loudly instead of printing nothing and
+            # exiting 0 — mirrors how --task rejects unknown values.
+            if model_type is not None:
+                raise click.ClickException(
+                    f"No exportable tasks found for model type '{resolved_type}'. "
+                    "Check it is the canonical HF config.model_type "
+                    "(e.g. gpt_neo, not gpt-neo; bert, not BERT)."
+                )
+            raise click.ClickException(
+                f"No exportable tasks found for model type '{resolved_type}' "
+                f"(resolved from '{model}')."
+            )
+        for t in tasks:
             click.echo(t)
         return
 
     # Validate: need at least one of model_id, model_type, model_class
-    if model_id is None and model_type is None and model_class is None:
+    if model is None and model_type is None and model_class is None:
         raise click.UsageError(
             "At least one of -m/--model, --model-type, or --model-class is required. "
             "Use --list-tasks to see available tasks."
         )
 
-    # Classify the input before hitting HF Hub: local paths must exist.
-    # _looks_like_local_path uses a conservative allowlist to avoid misclassifying
-    # HF IDs with version dots (Phi-3.5, Qwen2.5, …) as local paths.
-    if model_id and _looks_like_local_path(model_id):
-        from pathlib import Path
-
-        _p = Path(model_id).expanduser()
-        if _p.suffix == ".onnx" and _p.is_file():
+    # Classify the -m value once (existence-first). Rejects a missing path or
+    # invalid id up front, and keeps dotted HF IDs (Phi-3.5, Qwen2.5, …) on the
+    # Hub path instead of misclassifying them as local files.
+    if model:
+        try:
+            model_input = cli_utils.classify_model_input(model)
+        except click.UsageError as e:
+            raise click.ClickException(str(e)) from e
+        if model_input.kind is cli_utils.ModelInputKind.ONNX_FILE:
             raise click.ClickException(
                 "ONNX file inspection is not yet supported. "
                 "Use 'winml config -m model.onnx' for ONNX build config."
             )
-        if not _p.exists():
-            raise click.ClickException(f"Local path '{model_id}' does not exist.")
+
+    # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
+    # is not downloadable for inspect (which targets HF architecture
+    # metadata, not raw ONNX graphs), but surfacing the same friendly
+    # error keeps the UX consistent with local .onnx inputs. Detect via
+    # the unified classifier so we don't trigger an unwanted download.
+    from ..utils.model_input import classify_model_input
+
+    if model and classify_model_input(model).kind == "hub_onnx":
+        raise click.ClickException(
+            "ONNX file inspection is not yet supported. "
+            "Use 'winml config -m model.onnx' for ONNX build config."
+        )
 
     # Merge top-level -v/-q with subcommand-level flags so either position
     # works, once and up front. The banner decision below needs the merged
@@ -207,7 +284,7 @@ def inspect(
     # and in JSON mode (Click 8.4 mixes stderr into CliRunner.result.output,
     # and JSON consumers expect clean stdout regardless).
     json_mode = output_format == "json"
-    target = model_id or model_type or model_class
+    target = model or model_type or model_class
     if not quiet and not json_mode:
         _stderr_console.print(f"[dim]Inspecting [bold]{target}[/bold] …[/dim]")
 
@@ -219,7 +296,7 @@ def inspect(
     try:
         if quiet or json_mode:
             result = _inspect_model_v2(
-                model_id=model_id,
+                model_id=model,
                 task_override=task,
                 model_type_override=model_type,
                 model_class_override=model_class,
@@ -231,7 +308,7 @@ def inspect(
                 spinner="dots",
             ):
                 result = _inspect_model_v2(
-                    model_id=model_id,
+                    model_id=model,
                     task_override=task,
                     model_type_override=model_type,
                     model_class_override=model_class,
@@ -293,6 +370,7 @@ def _inspect_model_v2(
         build_tensor_infos_from_io_specs,
         compile_support_status,
         resolve_cache,
+        resolve_composite_info,
         resolve_io_config,
         resolve_processor,
         resolve_winml,
@@ -508,6 +586,12 @@ def _inspect_model_v2(
         model_type_override or getattr(parent_hf_config, "model_type", None) or model_type
     )
 
+    # Composite pipeline structure. resolution.composite is set on the auto-detect path
+    # AND on an explicit --task naming a composite pipeline task (summarization,
+    # translation, table-question-answering, …). It stays None for a granular explicit
+    # task (text2text-generation -> single decoder) and for --model-class.
+    composite_info = resolve_composite_info(display_model_type, resolution.composite)
+
     return InspectResult(
         model_id=model_id or display_model_type or model_class_override or "unknown",
         model_type=display_model_type,
@@ -524,4 +608,5 @@ def _inspect_model_v2(
         cache=cache_info,
         processor=processor_info,
         io_config=io_config_info,
+        composite=composite_info,
     )

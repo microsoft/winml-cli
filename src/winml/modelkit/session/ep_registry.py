@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from typing import TYPE_CHECKING, Any, cast
 
 
@@ -67,20 +68,35 @@ def _make_progress_bar() -> Any:
 
     tqdm is a dev-only optional dep in this package, so production installs
     without it must still complete EP downloads — they just lose the live bar.
+    In Windows spawn workers, ``sys.stderr`` can be unavailable; tqdm write
+    failures must not abort provider readiness and leave child EP paths empty.
+    Also tolerates non-interactive runtimes where ``sys.stderr`` may be None
+    (e.g., GUI/no-console hosts) so progress rendering failures cannot block
+    EP discovery.
     The pre-download Console notice is emitted by the caller and is unaffected.
 
     Format: ``Downloading... ████████████░░░░░░ 62%``
     """
+    if sys.stderr is None or not hasattr(sys.stderr, "write"):
+        logger.debug("stderr is unavailable; using no-op progress bar.")
+        return _NoopBar()
+
     try:
         from tqdm import tqdm
     except ImportError:
         return _NoopBar()
-    return tqdm(
-        total=100,
-        bar_format="Downloading... {bar} {percentage:3.0f}%",
-        ascii="░█",
-        leave=True,
-    )
+
+    try:
+        return tqdm(
+            total=100,
+            bar_format="Downloading... {bar} {percentage:3.0f}%",
+            ascii="░█",
+            leave=True,
+            file=sys.stderr,
+        )
+    except Exception as e:
+        logger.debug("Failed to initialize tqdm progress bar; falling back to no-op: %s", e)
+        return _NoopBar()
 
 
 def _parse_ep_metadata_from_path(library_path: str) -> tuple[str, str]:
@@ -228,6 +244,10 @@ class WinMLEPRegistry:
         available = registry.get_available_eps()
     """
 
+    # Set in __new__ before __init__ runs; declared here so mypy can resolve its
+    # type at the __init__ read site.
+    _initialized: bool
+
     def __new__(cls) -> WinMLEPRegistry:
         """Singleton pattern."""
         global _winml_ep_registry
@@ -269,7 +289,8 @@ class WinMLEPRegistry:
         """Load EP catalog from WinML."""
         from windowsml import EpCatalog
 
-        checked_eps: set[EPName] = set()
+        # Dedup of raw windowsml provider-name strings (pre-validation).
+        checked_eps: set[str] = set()
         with EpCatalog() as catalog:
             for provider in catalog.find_all_providers():
                 if provider.name in checked_eps:
@@ -326,7 +347,7 @@ class WinMLEPRegistry:
 
             modules.append(onnxruntime)
         if ort_genai:
-            import onnxruntime_genai  # type: ignore[import-not-found]
+            import onnxruntime_genai
 
             modules.append(onnxruntime_genai)
         for name, path in self._ep_paths.items():
@@ -402,4 +423,4 @@ def get_ort_available_providers(use_winml: bool = True) -> list[str]:
         except Exception as e:
             logger.debug("WinML discovery skipped: %s", e)
 
-    return ort.get_available_providers()
+    return cast("list[str]", ort.get_available_providers())

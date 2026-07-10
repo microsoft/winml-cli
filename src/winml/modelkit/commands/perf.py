@@ -9,6 +9,7 @@ Benchmarks model inference performance using WinMLAutoModel and WinMLSession.
 Usage:
     winml perf -m microsoft/resnet-50
     winml perf -m microsoft/resnet-50 --device npu --iterations 100
+    winml perf -m microsoft/resnet-50 --module ResNetConvLayer
     winml perf -m bert-base-uncased --task text-classification
 """
 
@@ -19,11 +20,12 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 
 import click
 import numpy as np
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from ..utils import cli as cli_utils
@@ -46,6 +48,13 @@ logger = logging.getLogger(__name__)
 
 # Hardware monitor polling interval (milliseconds)
 _HW_POLL_INTERVAL_MS = 200
+
+# Inference runtimes selectable via ``--runtime`` (closed set; mirrors the
+# ``--compiler`` / ``COMPILER_NAMES`` convention in utils.constants):
+#   "winml"       -> single-shot ONNX inference (default)
+#   "winml-genai" -> onnxruntime-genai decoder-pipeline generation
+RuntimeName = Literal["winml", "winml-genai"]
+RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
 
 # =============================================================================
 # Constants for Data Generation
@@ -78,15 +87,22 @@ class BenchmarkConfig:
     batch_size: int = 1
     output_path: Path | None = None
     no_quantize: bool = False
+    no_optimize: bool = False
+    no_analyze: bool = False
+    max_optim_iterations: int | None = None
     no_compile: bool = True
     rebuild: bool = False
     ignore_cache: bool = False
     skip_build: bool = True
     allow_unsupported_nodes: bool = False
     monitor: bool = False
+    memory: bool = True
     ep: EPNameOrAlias | None = None
     ep_options: dict[str, str] | None = None
     shape_config: dict | None = None
+    # Path to a .npz file of real input tensors. When set, benchmarking uses
+    # these instead of randomly generated inputs (single-model path only).
+    input_data: Path | None = None
 
 
 @dataclass
@@ -128,6 +144,12 @@ class BenchmarkResult:
     samples_per_sec: float = 0.0
     batches_per_sec: float = 0.0
 
+    # Batch dimension the session actually ran. Equals config.batch_size when
+    # the model's leading input dim is dynamic; falls back to the model's
+    # static batch (often 1) otherwise. samples_per_sec is scaled by this, not
+    # by the requested config.batch_size.
+    effective_batch_size: int = 1
+
     # Actual values used (after auto-detection)
     actual_device: str = ""
     actual_task: str = ""
@@ -139,6 +161,9 @@ class BenchmarkResult:
 
     # Hardware monitor metrics (from HWMonitor.to_dict())
     hw_monitor: dict[str, Any] | None = None
+
+    # Memory profile dict (rss deltas from memory_tracker)
+    memory_profile: dict[str, float] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -154,6 +179,7 @@ class BenchmarkResult:
                 "iterations": self.config.iterations,
                 "warmup": self.config.warmup,
                 "batch_size": self.config.batch_size,
+                "effective_batch_size": self.effective_batch_size,
                 "timestamp": self.timestamp,
             },
             "model_info": {
@@ -183,6 +209,8 @@ class BenchmarkResult:
         }
         if self.hw_monitor:
             result["hw_monitor"] = self.hw_monitor
+        if self.memory_profile:
+            result["memory"] = self.memory_profile
         return result
 
 
@@ -194,6 +222,7 @@ class BenchmarkResult:
 def generate_random_inputs(
     io_config: dict[str, Any],
     batch_size: int = 1,
+    shape_config: dict[str, Any] | None = None,
 ) -> dict[str, np.ndarray]:
     """Generate random inputs based on model io_config.
 
@@ -203,26 +232,47 @@ def generate_random_inputs(
     Args:
         io_config: Model I/O configuration from WinMLSession.io_config.
             Expected keys: ``input_names``, ``input_shapes``, ``input_types``.
-            Optional key: ``input_value_ranges`` -- a dict mapping input names
-            to ``[low, high)`` integer ranges sourced from the build config.
+            Optional keys: ``input_value_ranges`` -- a dict mapping input
+            names to ``[low, high)`` integer ranges sourced from the build
+            config; ``input_symbolic_shapes`` -- a list of shapes whose
+            dynamic dims hold the declared symbolic dim_param name.
         batch_size: Override batch dimension
+        shape_config: Optional overrides for dynamic dimensions. Two forms
+            are supported and may be mixed:
+
+            * Per-input full-shape override:
+              ``{"input_points": [1, 1, 1, 2], ...}`` -- the value is used
+              as the resolved shape verbatim.
+            * Symbolic dim override:
+              ``{"num_points_per_image": 1, "num_boxes_per_image": 1}`` --
+              applied to any dim whose ``dim_param`` matches the key.
+
+            Symbolic overrides take precedence over positional defaults.
 
     Returns:
         Dictionary of input_name -> numpy array
     """
     from ..core import generate_dummy_inputs_from_specs
 
+    symbolic_shapes = io_config.get("input_symbolic_shapes") or [
+        [None] * len(s) for s in io_config["input_shapes"]
+    ]
+    overrides = shape_config or {}
+
     specs: dict[str, dict[str, Any]] = {}
-    for name, shape, dtype_str in zip(
+    for name, shape, symbolic, dtype_str in zip(
         io_config["input_names"],
         io_config["input_shapes"],
+        symbolic_shapes,
         io_config["input_types"],
         strict=True,
     ):
         resolved_shape = _resolve_shape(
             shape=shape,
+            symbolic_shape=symbolic,
             input_name=name,
             batch_size=batch_size,
+            shape_config=overrides,
         )
 
         np_dtype = np.dtype(dtype_str)
@@ -243,17 +293,65 @@ def _resolve_shape(
     shape: list | tuple | None,
     input_name: str,
     batch_size: int,
+    symbolic_shape: list | tuple | None = None,
+    shape_config: dict[str, Any] | None = None,
 ) -> tuple[int, ...]:
-    """Resolve dynamic dimensions in shape."""
+    """Resolve dynamic dimensions in shape.
+
+    Resolution priority for each dim:
+      1. ``shape_config[input_name]`` -- full per-input shape override.
+      2. ``shape_config[dim_param]`` -- symbolic dim override (when the
+         ONNX graph exposed a ``dim_param`` for this dim).
+      3. ``batch_size`` for the first dim.
+      4. ``DYNAMIC_DIM_DEFAULTS`` positional fallback (defaults to 128).
+    """
+    overrides = shape_config or {}
+
+    # Form 1: full per-input shape override.
+    if input_name in overrides and isinstance(overrides[input_name], (list, tuple)):
+        return tuple(int(d) for d in overrides[input_name])
+
     if shape is None:
         logger.warning("Shape unknown for '%s', using (batch_size,)", input_name)
         return (batch_size,)
 
+    sym = list(symbolic_shape) if symbolic_shape is not None else [None] * len(shape)
     resolved = []
     for i, dim in enumerate(shape):
-        if dim is None or dim == -1 or (isinstance(dim, str)):
+        if dim is None or dim == -1 or isinstance(dim, str):
             # Dynamic dimension - resolve
-            if i == 0:
+            sym_name = sym[i] if i < len(sym) else None
+            if isinstance(sym_name, str) and sym_name in overrides:
+                value = overrides[sym_name]
+                if isinstance(value, (list, tuple, dict)):
+                    raise click.ClickException(
+                        f"--shape-config symbolic dimension '{sym_name}' must be "
+                        f"a scalar integer, got {type(value).__name__}. Use the "
+                        f"input name '{input_name}' for full-shape overrides."
+                    )
+                if isinstance(value, bool):
+                    raise click.ClickException(
+                        f"--shape-config symbolic dimension '{sym_name}' must be "
+                        f"a scalar integer, got {value!r}."
+                    )
+                try:
+                    coerced_value = int(value)
+                except (OverflowError, TypeError, ValueError) as e:
+                    raise click.ClickException(
+                        f"--shape-config symbolic dimension '{sym_name}' must be "
+                        f"a scalar integer, got {value!r}."
+                    ) from e
+                try:
+                    is_integral = isinstance(value, str) or value == coerced_value
+                except (TypeError, ValueError):
+                    is_integral = False
+                if not is_integral:
+                    raise click.ClickException(
+                        f"--shape-config symbolic dimension '{sym_name}' must be "
+                        f"a scalar integer, got {value!r}."
+                    )
+                resolved.append(coerced_value)
+            elif i == 0:
                 # First dimension is almost always batch
                 resolved.append(batch_size)
             else:
@@ -270,6 +368,124 @@ def _resolve_shape(
             resolved.append(int(dim))
 
     return tuple(resolved)
+
+
+def load_input_data(
+    path: Path,
+    io_config: dict[str, Any],
+) -> dict[str, np.ndarray]:
+    """Load benchmark inputs from a ``.npz`` file, validated against the model.
+
+    Lets ``winml perf`` profile with real input tensors instead of randomly
+    generated ones. Only ``.npz`` (a named-array archive) is supported today;
+    a single-array ``.npy`` carries no input names to bind against and is
+    rejected with guidance to repackage as ``.npz``.
+
+    Validation:
+
+    * the archive's keys must exactly match the model's input names -- any
+      missing or unexpected key is an error (an unexpected key is usually a
+      typo that would otherwise leave a required input silently unset);
+    * an array whose dtype differs from the model's expected input dtype is
+      cast to the expected dtype with a warning, matching the silent casting
+      ``WinMLSession._prepare_inputs`` does on a normal run (e.g. numpy's
+      default int64 literals binding to an int32 input).
+
+    Shapes are taken from the arrays as-is; correctness beyond dtype (e.g. a
+    static dimension the data violates) surfaces as a runtime error from the
+    inference session.
+
+    Args:
+        path: Path to the ``.npz`` file.
+        io_config: Model I/O configuration (``input_names``, ``input_types``).
+
+    Returns:
+        Dictionary of ``input_name -> numpy array``.
+
+    Raises:
+        click.UsageError: On a non-``.npz`` file or a key mismatch.
+    """
+    if path.suffix.lower() == ".npy":
+        raise click.UsageError(
+            f"--input-data does not support .npy files ({path.name}). A single "
+            f"array carries no input names; save your inputs as a named .npz "
+            f"archive instead (e.g. np.savez('inputs.npz', input_ids=..., "
+            f"attention_mask=...))."
+        )
+    if path.suffix.lower() != ".npz":
+        raise click.UsageError(
+            f"--input-data must be a .npz file, got '{path.suffix or path.name}'."
+        )
+
+    try:
+        with np.load(path, allow_pickle=False) as archive:
+            provided = {name: archive[name] for name in archive.files}
+    except Exception as exc:
+        raise click.UsageError(f"Could not read --input-data file {path}: {exc}") from exc
+
+    expected_names = list(io_config["input_names"])
+    expected_types = list(io_config["input_types"])
+
+    missing = [name for name in expected_names if name not in provided]
+    unexpected = [name for name in provided if name not in expected_names]
+    if missing or unexpected:
+        parts = []
+        if missing:
+            parts.append(f"missing {missing}")
+        if unexpected:
+            parts.append(f"unexpected {unexpected}")
+        raise click.UsageError(
+            f"--input-data keys do not match the model inputs ({', '.join(parts)}). "
+            f"Expected exactly: {expected_names}."
+        )
+
+    # Cast dtype mismatches instead of failing, mirroring the session's
+    # _prepare_inputs, so inputs that would run fine on a normal invocation
+    # (e.g. int64 literals against an int32 input) don't hard-error here.
+    for name, expected_dtype in zip(expected_names, expected_types, strict=True):
+        want = np.dtype(expected_dtype)
+        got = provided[name].dtype
+        if got != want:
+            logger.warning(
+                "--input-data dtype for '%s' is %s; casting to the model's expected %s.",
+                name,
+                got,
+                want,
+            )
+            provided[name] = provided[name].astype(want)
+
+    return provided
+
+
+def effective_batch_size(
+    inputs: dict[str, np.ndarray],
+    input_names: list[str],
+    requested: int,
+) -> int:
+    """The batch dimension actually present in the generated inputs.
+
+    The requested ``--batch-size`` only lands on inputs whose leading
+    dimension is dynamic; a model with a statically-fixed batch dim ignores
+    it (see :func:`_resolve_shape`). Throughput (samples/sec) must be scaled
+    by what the session actually ran, not by what was asked, or a static-batch
+    model reports ``requested / latency`` while only processing one batch per
+    call -- inflating samples/sec by ``requested``.
+
+    Reads the leading dim back from the first batched (rank >= 1) input,
+    matching the "first dim is batch" convention used throughout this module.
+    Falls back to ``requested`` when no batched input exists (e.g. all-scalar
+    inputs), which preserves the prior behavior for that edge case.
+
+    Single-input assumption: only the first batched input is inspected. For
+    multimodal or encoder-decoder models whose batched inputs disagree on the
+    leading dim (e.g. an image batch of 4 alongside a differently batched
+    tensor), the reported value reflects only the first batched input.
+    """
+    for name in input_names:
+        arr = inputs.get(name)
+        if arr is not None and arr.ndim >= 1:
+            return int(arr.shape[0])
+    return requested
 
 
 # =============================================================================
@@ -295,6 +511,58 @@ class PerfBenchmark:
         self.config = config
         self._model: WinMLPreTrainedModel | WinMLCompositeModel | None = None
         self._inputs: dict[str, np.ndarray] | None = None
+        self._effective_batch: int = config.batch_size
+        self._memory: dict[str, float] | None = None
+        # Concrete device + EP resolved from the config's request, populated by
+        # _resolve_device_ep() on the first call (before the build). The config
+        # keeps the raw request (e.g. "auto"); these hold what actually drives
+        # the build and inference.
+        self._resolved_device: str | None = None
+        self._resolved_ep: EPNameOrAlias | None = None
+
+    def _resolve_device_ep(self) -> None:
+        """Resolve the concrete target device + EP, failing fast on a bad combo.
+
+        Idempotent: resolves once, then returns cached values. Called at the
+        start of model loading so an unavailable/invalid device+EP raises here —
+        before the export/optimize/quantize/compile pipeline runs — instead of
+        only surfacing at session.compile(). Deriving a concrete EP also lets the
+        build's static analyzer target one EP instead of aggregating across all
+        of them (WinMLAutoModel itself stays permissive: ep=None is a valid
+        library mode).
+
+        Raises:
+            ValueError: If the requested device/EP combination is unavailable
+                or invalid (propagated from ``resolve_device``).
+        """
+        if self._resolved_device is not None:
+            return
+
+        from ..sysinfo import resolve_device, resolve_eps
+
+        # resolve_device() availability-checks even when --ep is explicit, so a
+        # named-but-absent EP is caught here too.
+        resolved_device, _ = resolve_device(device=self.config.device, ep=self.config.ep)
+        if self.config.ep is not None:
+            # Keep the user's EP (alias or canonical) verbatim — downstream
+            # stages normalize it. Only derive one when the user gave none.
+            resolved_ep: EPNameOrAlias | None = self.config.ep
+        else:
+            device_eps = resolve_eps(resolved_device)
+            resolved_ep = device_eps[0] if device_eps else None
+
+        self._resolved_device = resolved_device
+        self._resolved_ep = resolved_ep
+
+    @property
+    def resolved_device(self) -> str | None:
+        """Concrete device driving the build/inference (``None`` until resolved)."""
+        return self._resolved_device
+
+    @property
+    def resolved_ep(self) -> EPNameOrAlias | None:
+        """Concrete EP driving the build/inference (``None`` until resolved)."""
+        return self._resolved_ep
 
     @property
     def _is_composite(self) -> bool:
@@ -345,12 +613,24 @@ class PerfBenchmark:
             ORT session, so each sub-model is benchmarked individually rather
             than timing the aggregate ``forward()`` pass.
         """
-        # [1] Load model
+        # [1] Load model (build pipeline: optimize, cache, etc.)
         logger.info("Loading model: %s", self.config.model_id)
         self._load_model()
         assert self._model is not None
 
         if self._is_composite:
+            # Composite-ness is only known after _load_model, so this guard
+            # can't live with the up-front --module / --runtime checks. Without
+            # it, each sub-model's child benchmark calls load_input_data with a
+            # single .npz that can't match two different encoders' input names,
+            # surfacing as a re-wrapped "Sub-model '…' failed" RuntimeError
+            # instead of a clean up-front error.
+            if self.config.input_data is not None:
+                raise click.UsageError(
+                    "--input-data is not supported for composite (dual-encoder) "
+                    "models; each sub-model has its own inputs that a single "
+                    ".npz cannot address."
+                )
             return self._run_sub_models()
         return self._run_single()
 
@@ -381,7 +661,26 @@ class PerfBenchmark:
         Returns:
             BenchmarkResult with timing statistics
         """
+        import gc
+
         assert self._model is not None
+
+        # Initialize memory tracking variables
+        adapter_luid: str | None = None
+        rss_baseline = rss_after_compile = 0.0
+        vram_local_baseline = vram_shared_baseline = 0.0
+        vram_local_compile = vram_shared_compile = 0.0
+
+        # Memory: baseline right before compile() — excludes all Python lib
+        # imports, EP DLLs, and build pipeline overhead. Measures only ORT
+        # session compilation (model weights loaded into memory).
+        if self.config.memory:
+            from ..session.monitor.memory_tracker import get_rss_mb, get_vram_mb
+
+            adapter_luid = self._resolve_adapter_luid()
+            gc.collect()
+            rss_baseline = get_rss_mb()
+            vram_local_baseline, vram_shared_baseline = get_vram_mb(adapter_luid)
 
         # [2] Generate inputs
         logger.info("Generating benchmark inputs")
@@ -390,6 +689,11 @@ class PerfBenchmark:
         # Compile session early so model.device is resolved for display
         self._single._session.compile()
 
+        if self.config.memory:
+            gc.collect()
+            rss_after_compile = get_rss_mb()
+            vram_local_compile, vram_shared_compile = get_vram_mb(adapter_luid)
+
         # Print model info before benchmark starts
         _print_model_info(
             self._single.io_config,
@@ -397,6 +701,11 @@ class PerfBenchmark:
             req_device=self.config.device,
             act_device=self._single.device,
             ep_name=self._single.ep_name,
+            actual_shapes=(
+                {name: tuple(arr.shape) for name, arr in self._inputs.items()}
+                if self._inputs
+                else None
+            ),
         )
 
         # [3] Run benchmark
@@ -406,6 +715,30 @@ class PerfBenchmark:
             self.config.warmup,
         )
         stats = self._run_benchmark()
+
+        if self.config.memory:
+            rss_after_inference = get_rss_mb()
+            vram_local_infer, vram_shared_infer = get_vram_mb(adapter_luid)
+            self._memory = {
+                "rss_baseline_mb": round(rss_baseline, 2),
+                "rss_after_compile_mb": round(rss_after_compile, 2),
+                "rss_after_inference_mb": round(rss_after_inference, 2),
+                "rss_model_load_delta_mb": round(rss_after_compile - rss_baseline, 2),
+                "rss_inference_delta_mb": round(rss_after_inference - rss_after_compile, 2),
+                "rss_total_delta_mb": round(rss_after_inference - rss_baseline, 2),
+                "vram_local_after_inference_mb": round(vram_local_infer, 2),
+                "vram_shared_after_inference_mb": round(vram_shared_infer, 2),
+                "vram_local_model_load_delta_mb": round(
+                    vram_local_compile - vram_local_baseline, 2
+                ),
+                "vram_local_inference_delta_mb": round(vram_local_infer - vram_local_compile, 2),
+                "vram_local_total_delta_mb": round(vram_local_infer - vram_local_baseline, 2),
+                "vram_shared_model_load_delta_mb": round(
+                    vram_shared_compile - vram_shared_baseline, 2
+                ),
+                "vram_shared_inference_delta_mb": round(vram_shared_infer - vram_shared_compile, 2),
+                "vram_shared_total_delta_mb": round(vram_shared_infer - vram_shared_baseline, 2),
+            }
 
         # [4] Collect results
         logger.info("Collecting results")
@@ -421,6 +754,10 @@ class PerfBenchmark:
         """
         from ..config import WinMLBuildConfig
         from ..models import WinMLAutoModel
+
+        # Resolve the concrete device + EP first so a bad combo fails fast,
+        # before from_pretrained/from_onnx kick off the build pipeline.
+        self._resolve_device_ep()
 
         model_id = self.config.model_id
         model_path = Path(model_id)
@@ -444,15 +781,22 @@ class PerfBenchmark:
         common_kwargs: dict[str, Any] = {
             "task": self.config.task,
             "config": override,
-            "device": self.config.device,
+            "device": self._resolved_device or self.config.device,
             "precision": self.config.precision,
-            "ep": self.config.ep,
+            "ep": self._resolved_ep,
             "provider_options": self.config.ep_options,
             "use_cache": use_cache,
             "force_rebuild": force_rebuild,
             "shape_config": self.config.shape_config,
             "allow_unsupported_nodes": self.config.allow_unsupported_nodes,
             "no_compile": self.config.no_compile,
+            # optimize/analyze/max-optim toggles, forwarded by WinMLAutoModel to
+            # build_hf_model / build_onnx_model. Shared mapping with build/eval.
+            **cli_utils.build_pipeline_extra_kwargs(
+                optimize=not self.config.no_optimize,
+                analyze=not self.config.no_analyze,
+                max_optim_iterations=self.config.max_optim_iterations,
+            ),
         }
 
         if is_onnx:
@@ -468,11 +812,66 @@ class PerfBenchmark:
             )
 
     def _generate_inputs(self) -> None:
-        """Generate random inputs based on model io_config."""
+        """Generate random inputs, or load real inputs from a .npz file."""
+        io_config = self._single.io_config
+        if self.config.input_data is not None:
+            self._inputs = load_input_data(self.config.input_data, io_config)
+            self._effective_batch = effective_batch_size(
+                self._inputs,
+                io_config["input_names"],
+                self.config.batch_size,
+            )
+            logger.info(
+                "Loaded benchmark inputs from %s (effective batch %d)",
+                self.config.input_data,
+                self._effective_batch,
+            )
+            return
+
         self._inputs = generate_random_inputs(
-            io_config=self._single.io_config,
+            io_config=io_config,
             batch_size=self.config.batch_size,
+            shape_config=self.config.shape_config,
         )
+        self._effective_batch = effective_batch_size(
+            self._inputs,
+            io_config["input_names"],
+            self.config.batch_size,
+        )
+        if self._effective_batch != self.config.batch_size:
+            logger.warning(
+                "Requested --batch-size %d could not be applied: the model's "
+                "leading input dimension is statically %d. Throughput is scaled "
+                "by the actual batch (%d), not the requested value.",
+                self.config.batch_size,
+                self._effective_batch,
+                self._effective_batch,
+            )
+
+    def _resolve_adapter_luid(self) -> str | None:
+        """Resolve adapter LUID for VRAM queries."""
+        import sys
+
+        if sys.platform != "win32":
+            return None
+
+        assert self._model is not None
+        device = self._single.device or self._resolved_device or self.config.device
+        if device == "cpu":
+            return None
+
+        try:
+            from ..sysinfo.pdh_adapters import resolve_adapter_luid
+
+            ep_name = self._single.ep_name
+            for kind in [device] if device in ("npu", "gpu") else ["npu", "gpu"]:
+                luid = resolve_adapter_luid(kind, ep_name=ep_name)
+                if luid:
+                    return luid
+            return None
+        except Exception:
+            logger.debug("Could not resolve adapter LUID", exc_info=True)
+            return None
 
     def _run_benchmark(self) -> PerfStats:
         """Execute benchmark iterations with timing."""
@@ -564,9 +963,11 @@ class PerfBenchmark:
         """Collect benchmark results from PerfStats."""
         io_config = self._single.io_config
 
-        # Calculate throughput
+        # Calculate throughput. Scale by the batch the session actually ran
+        # (self._effective_batch), not the requested config.batch_size, which a
+        # static-batch model silently ignores during input generation.
         mean_latency_sec = stats.mean_ms / 1000.0
-        samples_per_sec = self.config.batch_size / mean_latency_sec if mean_latency_sec > 0 else 0
+        samples_per_sec = self._effective_batch / mean_latency_sec if mean_latency_sec > 0 else 0
         batches_per_sec = 1.0 / mean_latency_sec if mean_latency_sec > 0 else 0
 
         # Calculate standard deviation
@@ -600,6 +1001,7 @@ class PerfBenchmark:
             # Throughput
             samples_per_sec=samples_per_sec,
             batches_per_sec=batches_per_sec,
+            effective_batch_size=self._effective_batch,
             # Actual values (resolved after build + compile)
             actual_device=self._single.device,
             actual_task=self._single.task or self.config.task or "auto-detected",
@@ -607,6 +1009,8 @@ class PerfBenchmark:
             running_model_path=str(self._single.running_model_path),
             # Hardware monitor metrics (only present when --monitor is used)
             hw_monitor=getattr(self, "_hw_metrics", None),
+            # Memory profile (only present when --memory is used)
+            memory_profile=self._memory,
         )
 
 
@@ -624,6 +1028,9 @@ def _perf_modules(
     warmup: int,
     batch_size: int,
     no_quantize: bool,
+    no_optimize: bool,
+    no_analyze: bool,
+    max_optim_iterations: int | None,
     no_compile: bool,
     output: Path | None,
     verbose: bool,
@@ -634,6 +1041,8 @@ def _perf_modules(
     ep_options: dict[str, str] | None = None,
     precision: str = "auto",
     allow_unsupported_nodes: bool = False,
+    rebuild: bool = False,
+    ignore_cache: bool = False,
 ) -> None:
     """Run per-module build and benchmark for matching submodules.
 
@@ -649,6 +1058,9 @@ def _perf_modules(
         warmup: Number of warmup iterations.
         batch_size: Batch size for input generation.
         no_quantize: If True, skip quantization during the per-module build.
+        no_optimize: If True, skip graph optimization during the per-module build.
+        no_analyze: If True, skip the analyzer loop (forces max_optim_iterations=0).
+        max_optim_iterations: Max autoconf re-optimization rounds (None = default 3).
         no_compile: If True, skip the build's compile stage for each module.
         output: Output JSON path, or None for auto-generated path.
         verbose: If True, log exceptions at DEBUG level.
@@ -656,23 +1068,39 @@ def _perf_modules(
         monitor: If True, wrap each per-module benchmark with HWMonitor.
         device: Target device policy ("auto", "cpu", "gpu", "npu").
         ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides
-            device-to-provider mapping when set.
+            device-to-provider mapping when set. When ``None``, a concrete EP is
+            derived from the resolved device so the analyzer targets one EP.
         ep_options: Runtime EP provider options (e.g. QNN
             ``htp_performance_mode``) forwarded to each per-module session.
         precision: Precision mode passed through to the build stage.
         allow_unsupported_nodes: If True, warn instead of failing the build when
             the analyzer reports unsupported nodes that persist.
+        rebuild: If True, overwrite cached per-module artifacts and re-run the
+            build (mirrors the single-model ``--rebuild``).
+        ignore_cache: If True, build each module in a throwaway temp dir and
+            always rebuild, discarding artifacts afterward (mirrors the
+            single-model ``--ignore-cache``).
     """
+    import contextlib
     import difflib
     import json as json_mod
     import tempfile
 
     from ..build import build_hf_model
+    from ..cache import get_cache_dir, get_cache_key, get_model_dir
     from ..config import SubmoduleClassNotFoundError, generate_hf_build_config
-    from ..sysinfo import resolve_device
+    from ..loader.task import get_task_abbrev
+    from ..sysinfo import resolve_device, resolve_eps
     from .build import _instantiate_parent_model
 
     resolved_device, _ = resolve_device(device=device, ep=ep)
+    # Derive a concrete EP when none was given so each per-module build's static
+    # analyzer targets one EP instead of ep=None (which aggregates across all
+    # EPs and warns; see #931). An explicit EP is kept verbatim — downstream
+    # stages normalize it.
+    if ep is None:
+        device_eps = resolve_eps(resolved_device)
+        ep = device_eps[0] if device_eps else None
 
     console.print(f"[dim]Generating module configs for {module_class}...[/dim]")
 
@@ -724,6 +1152,27 @@ def _perf_modules(
     parent_loader_cfg, _, _, _resolution = resolve_loader_config(model_id=hf_model, task=task)
     parent_model = _instantiate_parent_model(model_type, task=parent_loader_cfg.task)
 
+    # Cache control mirrors auto.py / the single-model path:
+    #   --ignore-cache -> build each module in a throwaway temp dir, always
+    #                     rebuild, discard afterward
+    #   --rebuild      -> reuse the persistent model dir but overwrite artifacts
+    # Each module's cache_key folds in loader.module_path (and its I/O shapes),
+    # so sibling instances of the same class get distinct keys and coexist in
+    # the shared model dir without colliding.
+    use_cache = not ignore_cache
+    force_rebuild = rebuild or ignore_cache
+    task_abbrev = get_task_abbrev(parent_loader_cfg.task) if parent_loader_cfg.task else "module"
+    cache_model_dir = get_model_dir(hf_model, cache_dir=get_cache_dir()) if use_cache else None
+
+    # Optimize/analyze toggles aren't part of ``cfg``; fold them into the cache
+    # key so e.g. a later ``--no-optimize`` run doesn't silently reuse a cached
+    # optimized artifact (mirrors the single-model path in auto.py).
+    build_control_kwargs = cli_utils.build_pipeline_extra_kwargs(
+        optimize=not no_optimize,
+        analyze=not no_analyze,
+        max_optim_iterations=max_optim_iterations,
+    )
+
     all_results: list[dict[str, Any]] = []
     for i, cfg in enumerate(module_configs):
         module_path = cfg.loader.module_path
@@ -752,15 +1201,31 @@ def _perf_modules(
         if no_compile:
             cfg.compile = None
 
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        # Compute the cache key AFTER the quant/compile mutations above so it
+        # reflects what is actually built. Build controls (optimize/analyze
+        # toggles) are folded in too since they aren't part of ``cfg``.
+        cache_key = get_cache_key(task_abbrev, cfg.generate_cache_key(), build_control_kwargs)
+
+        # Persistent model dir (reused across runs) when caching, else a
+        # throwaway temp dir that is removed when the with-block exits.
+        build_dir_ctx: Any = (
+            contextlib.nullcontext(cache_model_dir)
+            if use_cache
+            else tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        )
+        with build_dir_ctx as build_dir_raw:
+            build_dir = Path(build_dir_raw)
             try:
                 build_result = build_hf_model(
                     config=cfg,
-                    output_dir=Path(tmpdir),
+                    output_dir=build_dir,
                     pytorch_model=submodule,
+                    rebuild=force_rebuild,
+                    cache_key=cache_key,
                     ep=ep,
                     device=resolved_device,
                     allow_unsupported_nodes=allow_unsupported_nodes,
+                    **build_control_kwargs,
                 )
 
                 # Benchmark using WinMLSession
@@ -793,9 +1258,23 @@ def _perf_modules(
                         )
 
                 if hw_ctx:
+                    # Drive the same live chart single-model mode uses so
+                    # --monitor renders a per-module HW utilization chart
+                    # instead of silently dumping metrics to JSON (issue #654).
                     with session.perf(warmup=warmup) as stats, hw_ctx as hw:
-                        for _ in range(total_iters):
-                            session.run(inputs)
+                        _run_monitored_loop(
+                            session,
+                            inputs,
+                            stats,
+                            hw,
+                            total_iterations=total_iters,
+                            warmup=warmup,
+                            model_id=label,
+                            device=resolved_device,
+                        )
+                        # Collect inside the `with` block: hw_ctx.__exit__
+                        # stops the monitor, so to_dict() must read while it's
+                        # still live (mirrors the single-model path).
                         hw_metrics = hw.to_dict()
                 else:
                     with session.perf(warmup=warmup) as stats:
@@ -943,7 +1422,18 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
 
     # Throughput
     console.print()
-    console.print(f"[bold]Throughput:[/bold] {result.samples_per_sec:.2f} samples/sec")
+    throughput_line = f"[bold]Throughput:[/bold] {result.samples_per_sec:.2f} samples/sec"
+    if result.effective_batch_size != 1:
+        throughput_line += f" [dim](batch {result.effective_batch_size})[/dim]"
+    console.print(throughput_line)
+    # Flag when the requested batch couldn't be honored so a static-batch model
+    # doesn't look like it silently ran the requested batch.
+    if result.config.batch_size != result.effective_batch_size:
+        console.print(
+            f"  [yellow]Note:[/yellow] requested batch {result.config.batch_size} "
+            f"could not be applied (model has a static batch of "
+            f"{result.effective_batch_size})."
+        )
 
     # Hardware section (only when monitoring was active)
     if result.hw_monitor:
@@ -951,7 +1441,6 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
         console.print("[bold]Hardware (during benchmark)[/bold]")
         cpu = result.hw_monitor.get("cpu", {})
         ram = result.hw_monitor.get("ram", {})
-        dev_mem = result.hw_monitor.get("device_memory", {})
         # to_dict() emits both "npu" (always) and "gpu" (when monitoring GPU).
         # device_kind is None when CPU/RAM-only — drop the adapter line entirely
         # rather than printing zeroed "NPU: 0.0% avg".
@@ -962,15 +1451,35 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
                 f"  {device_kind.upper()}: {adapter.get('mean_pct', 0):.1f}% avg, "
                 f"{adapter.get('peak_pct', 0):.1f}% peak  |  "
                 f"CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  "
-                f"Mem: {ram.get('used_mb', 0):.0f} MB"
-            )
-            console.print(
-                f"  Device Mem: {dev_mem.get('local_peak_mb', 0):.0f}/"
-                f"{dev_mem.get('shared_peak_mb', 0):.0f} MB (local/shared)"
+                f"RAM: {ram.get('used_mb', 0):.0f} MB"
             )
         else:
             console.print(
-                f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  Mem: {ram.get('used_mb', 0):.0f} MB"
+                f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  RAM: {ram.get('used_mb', 0):.0f} MB"
+            )
+
+    # Memory section (only when --memory is enabled)
+    if result.memory_profile:
+        mem = result.memory_profile
+        console.print()
+        console.print("[bold]Memory:[/bold]")
+        console.print(
+            f"  RAM:  {mem['rss_after_inference_mb']:.1f} MB -> "
+            f"model load: {mem['rss_model_load_delta_mb']:+.1f} MB  |  "
+            f"inference: {mem['rss_inference_delta_mb']:+.1f} MB  |  "
+            f"total: {mem['rss_total_delta_mb']:+.1f} MB"
+        )
+        vram_local = mem.get("vram_local_after_inference_mb", 0)
+        vram_shared = mem.get("vram_shared_after_inference_mb", 0)
+        if vram_local > 0 or vram_shared > 0:
+            console.print(
+                f"  VRAM: {vram_local:.1f}/{vram_shared:.1f} MB (local/shared) -> "
+                f"model load: {mem['vram_local_model_load_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_model_load_delta_mb']:+.1f} MB  |  "
+                f"inference: {mem['vram_local_inference_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_inference_delta_mb']:+.1f} MB  |  "
+                f"total: {mem['vram_local_total_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_total_delta_mb']:+.1f} MB"
             )
 
     console.print()
@@ -1082,6 +1591,26 @@ def generate_output_path(model_id: str, *, module_class: str | None = None) -> P
 # =============================================================================
 
 
+def _format_input_shape(shape: list, actual: tuple | None) -> str:
+    """Render a declared input shape, marking dynamic dims as ``dynamic``.
+
+    A dynamic dimension (declared as ``None``) is shown as ``dynamic(<n>)``
+    where ``<n>`` is the concrete size the generated input data actually used
+    for that axis, so the real batch/sequence sizes stay visible alongside the
+    fact that the model left them free.
+    """
+    dims: list[str] = []
+    for i, dim in enumerate(shape):
+        if dim is None:
+            if actual is not None and i < len(actual):
+                dims.append(f"dynamic({actual[i]})")
+            else:
+                dims.append("dynamic")
+        else:
+            dims.append(str(dim))
+    return f"[{', '.join(dims)}]"
+
+
 def _print_model_info(
     io_config: dict,
     *,
@@ -1089,6 +1618,7 @@ def _print_model_info(
     req_device: str = "auto",
     act_device: str = "auto",
     ep_name: EPName | None = None,
+    actual_shapes: dict[str, tuple] | None = None,
 ) -> None:
     """Print model I/O metadata before the benchmark starts."""
     console = Console(stderr=True)
@@ -1111,8 +1641,11 @@ def _print_model_info(
         for i, name in enumerate(names):
             shape = shapes[i] if i < len(shapes) else []
             dtype = str(types[i]) if i < len(types) else ""
-            shape_str = f"{shape!s}"
-            line = f"{name:<20s} {shape_str:<22s} {dtype}"
+            actual = actual_shapes.get(name) if actual_shapes else None
+            shape_str = _format_input_shape(shape, actual)
+            # ``shape_str`` can start with a lowercase ``dynamic(...)`` which Rich
+            # would otherwise parse as a markup tag and swallow -- escape it.
+            line = f"{name:<20s} {escape(shape_str):<22s} {dtype}"
             console.print(f"{label if i == 0 else pad}{line}")
 
     out_names = io_config.get("output_names", [])
@@ -1122,7 +1655,8 @@ def _print_model_info(
         pad = "             "
         for i, name in enumerate(out_names):
             shape = out_shapes[i] if i < len(out_shapes) else []
-            console.print(f"{label if i == 0 else pad}{name:<20s} {shape!s}")
+            shape_str = escape(_format_input_shape(shape, None))
+            console.print(f"{label if i == 0 else pad}{name:<20s} {shape_str}")
 
     console.print()
 
@@ -1181,8 +1715,153 @@ def _run_simple_loop(
 # =============================================================================
 
 
+# perf() param names for WinML-only options that a prebuilt genai bundle
+# ignores. Mapped to the user-facing flag for the warning message.
+# NB: ``--ep`` is intentionally absent — it is honored for winml-genai as an EP
+# override (explicit --ep > concrete --device > respect config).
+_GENAI_IGNORED_FLAGS: dict[str, str] = {
+    "task": "--task",
+    "precision": "--precision",
+    "ep_options": "--ep-options",
+    "shape_config_path": "--shape-config",
+    "quant": "--quant/--no-quantize",
+    "optimize": "--optimize/--no-optimize",
+    "analyze": "--analyze/--no-analyze",
+    "max_optim_iterations": "--max-optim-iterations",
+    "rebuild": "--rebuild",
+    "ignore_cache": "--ignore-cache",
+    "skip_build": "--skip-build",
+    "allow_unsupported_nodes": "--allow-unsupported-nodes",
+    "monitor": "--monitor",
+    "memory": "--memory",
+    "op_tracing": "--op-tracing",
+    "batch_size": "--batch-size",
+}
+
+
+def _warn_ignored_genai_flags(ctx: click.Context, console: Console) -> None:
+    """Warn about WinML-only flags the user passed that genai ignores."""
+    ignored = [
+        flag
+        for param, flag in _GENAI_IGNORED_FLAGS.items()
+        if cli_utils.is_cli_provided(ctx, param)
+    ]
+    if ignored:
+        console.print(
+            "[yellow]Warning:[/yellow] the following options are ignored with "
+            f"--runtime winml-genai: {', '.join(sorted(ignored))}"
+        )
+
+
+def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool) -> None:
+    """Validate folder input and dispatch to the winml-genai benchmark path.
+
+    The genai imports are function-local so ``winml perf --help`` does not pay
+    their import cost (see tests/cli/test_import_time.py).
+    """
+    from ._perf_genai import (
+        GenaiPerfConfig,
+        genai_output_path,
+        resolve_genai_ep,
+        run_genai_perf,
+    )
+
+    p = ctx.params
+    model: str = p["model"]
+
+    # --module walks a live nn.Module graph; meaningless for a prebuilt bundle.
+    if p.get("module_class"):
+        raise click.UsageError("--module is not supported with --runtime winml-genai.")
+
+    bundle_dir = Path(model)
+    if bundle_dir.suffix.lower() == ".onnx" or not bundle_dir.is_dir():
+        raise click.UsageError(
+            f"--runtime winml-genai requires a genai bundle *directory*, got '{model}'."
+        )
+    if not (bundle_dir / "genai_config.json").exists():
+        raise click.UsageError(
+            f"No genai_config.json found in '{model}'. Point --model at a bundle "
+            "folder produced by a winml-cli export."
+        )
+
+    _warn_ignored_genai_flags(ctx, console)
+
+    # A full generation is far costlier than one session.run(): default to
+    # fewer iterations/warmup unless the user set them explicitly.
+    iterations = p["iterations"] if cli_utils.is_cli_provided(ctx, "iterations") else 10
+    warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
+
+    # genai defaults to "config" (respect the bundle's own per-stage routing).
+    # The shared --device default is "auto" (the ONNX default), so an omitted
+    # flag is treated as "config"; an explicit --device is a deliberate override.
+    device = p["device"].lower() if cli_utils.is_cli_provided(ctx, "device") else "config"
+    output = p.get("output") or genai_output_path(bundle_dir)
+    cli_utils.guard_output(output, p["overwrite"])
+
+    # EP override precedence: an explicit ``--ep`` wins over the ``--device``
+    # resolution, which in turn wins over the default ("config" = respect the
+    # bundle's genai_config.json routing).  GenaiSession validates the value.
+    ep: EPNameOrAlias | None = (
+        p["ep"] if cli_utils.is_cli_provided(ctx, "ep") else resolve_genai_ep(device)
+    )
+
+    config = GenaiPerfConfig(
+        bundle_dir=bundle_dir,
+        ep=ep,
+        device=device,
+        prompt=p["prompt"],
+        apply_template=p["apply_template"],
+        max_new_tokens=p["max_new_tokens"],
+        iterations=iterations,
+        warmup=warmup,
+        compile=not p["no_compile"],
+        compile_timeout=p["compile_timeout"],
+        output_path=output,
+    )
+    run_genai_perf(config, console=console, json_mode=json_mode)
+
+
 @click.command("perf")
 @cli_utils.model_option(required=False)
+@click.option(
+    "--runtime",
+    type=click.Choice(list(RUNTIME_NAMES)),
+    default="winml",
+    show_default=True,
+    help="Inference runtime. 'winml' benchmarks single-shot ONNX inference; "
+    "'winml-genai' benchmarks an onnxruntime-genai bundle folder "
+    "(LLM generation: TTFT + decode tokens/sec).",
+)
+@click.option(
+    "--prompt",
+    type=str,
+    default="Explain the theory of relativity in simple terms.",
+    show_default=True,
+    help="[winml-genai] Prompt text to generate from. By default it is wrapped in "
+    "the bundle's chat template; pass --no-apply-template to benchmark it verbatim.",
+)
+@click.option(
+    "--apply-template/--no-apply-template",
+    default=True,
+    show_default=True,
+    help="[winml-genai] Wrap --prompt in the bundle's chat template before timing. "
+    "Use --no-apply-template to benchmark a prompt that is already formatted.",
+)
+@click.option(
+    "--max-new-tokens",
+    type=click.IntRange(min=1),
+    default=128,
+    show_default=True,
+    help="[winml-genai] Number of new tokens to generate per iteration.",
+)
+@click.option(
+    "--compile-timeout",
+    type=int,
+    default=300,
+    show_default=True,
+    help="[winml-genai] Max seconds to compile each EPContext stage before falling back "
+    "to the original ONNX (requires --compile).",
+)
 @click.option(
     "--task",
     type=str,
@@ -1203,14 +1882,14 @@ def _run_simple_loop(
     show_default=True,
     help="Number of warmup iterations (excluded from statistics; must be >= 0)",
 )
-@cli_utils.device_option(required=False, default="auto", include_auto=True)
-@click.option(
-    "--precision",
-    type=str,
+@cli_utils.device_option(
+    required=False,
     default="auto",
-    show_default=True,
-    help="Precision mode: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16).",
+    include_auto=True,
+    include_config=True,
+    optional_message="'config' (winml-genai only) respects the bundle's genai_config.json routing.",
 )
+@cli_utils.precision_option()
 @cli_utils.ep_option(
     required=False,
     optional_message="Overrides device-to-provider mapping.",
@@ -1222,6 +1901,7 @@ def _run_simple_loop(
     "Output JSON file path. Defaults to "
     "'~/.cache/winml/perf/<model_slug>[/<module_class>]/<timestamp>.json'."
 )
+@cli_utils.overwrite_option()
 @click.option(
     "--batch-size",
     type=int,
@@ -1230,19 +1910,25 @@ def _run_simple_loop(
     help="Batch size for input generation",
 )
 @click.option(
+    "--input-data",
+    "input_data",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Path to a .npz file of real input tensors to benchmark with instead "
+    "of randomly generated inputs. Keys must match the model's input names and "
+    "dtypes exactly. Not supported with --module or --runtime winml-genai.",
+)
+@click.option(
     "--shape-config",
     "shape_config_path",
     type=click.Path(exists=True, path_type=Path),
     default=None,
     help='JSON file with shape overrides (e.g., {"height": 480, "width": 480}).',
 )
-@click.option(
-    "--quantize/--no-quantize",
-    "quantize",
-    default=True,
-    show_default=True,
-    help="Include quantization during model build (use --no-quantize to skip)",
-)
+@cli_utils.quant_option(optional_message="Applied during model build.")
+@cli_utils.optimize_option(optional_message="Applied during model build.")
+@cli_utils.analyze_option(optional_message="Applied during model build.")
+@cli_utils.max_optim_iterations_option()
 @click.option(
     "--rebuild/--no-rebuild",
     default=False,
@@ -1279,6 +1965,12 @@ def _run_simple_loop(
     help="Show live hardware utilization chart for the benchmarked device (NPU, GPU, or CPU)",
 )
 @click.option(
+    "--memory/--no-memory",
+    default=True,
+    show_default=True,
+    help="Measure process and device memory at each benchmark phase",
+)
+@click.option(
     "--op-tracing",
     "op_tracing",
     type=click.Choice(["basic", "detail"], case_sensitive=False),
@@ -1289,10 +1981,16 @@ def _run_simple_loop(
 @cli_utils.format_option()
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @click.pass_context
 def perf(
     ctx: click.Context,
     model: str | None,
+    runtime: RuntimeName,
+    prompt: str,
+    apply_template: bool,
+    max_new_tokens: int,
+    compile_timeout: int,
     task: str | None,
     iterations: int,
     warmup: int,
@@ -1301,9 +1999,14 @@ def perf(
     ep: EPNameOrAlias | None,
     ep_options: tuple[str, ...],
     output: Path | None,
+    overwrite: bool,
     batch_size: int,
+    input_data: Path | None,
     shape_config_path: Path | None,
-    quantize: bool,
+    quant: bool,
+    optimize: bool,
+    analyze: bool,
+    max_optim_iterations: int | None,
     rebuild: bool,
     ignore_cache: bool,
     skip_build: bool,
@@ -1311,6 +2014,7 @@ def perf(
     allow_unsupported_nodes: bool,
     module_class: str | None,
     monitor: bool,
+    memory: bool,
     op_tracing: str | None,
     output_format: cli_utils.OutputFormat,
     verbose: int,
@@ -1347,13 +2051,26 @@ def perf(
         # Per-module benchmarking
         winml perf -m bert-base-uncased --module BertAttention
 
+        # Benchmark with real inputs from a .npz file
+        winml perf -m model.onnx --input-data inputs.npz
+
         # Operator-level profiling (QNN NPU)
         winml perf -m model.onnx --op-tracing basic
     """
     if not model:
         raise click.UsageError("A model is required via -m/--model.")
 
-    hf_model = model
+    # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
+    # is downloaded once and treated as a local .onnx path thereafter.
+    # Must run BEFORE the ``Path(hf_model).suffix == ".onnx"`` check below
+    # so a Hub ref is not mistaken for a missing local file.
+    # ``normalize_model_arg`` returns ``str | None`` per its signature;
+    # the ``or model`` keeps the narrowed ``str`` type for downstream use.
+    try:
+        hf_model: str = cli_utils.normalize_model_arg(model) or model
+    except Exception as e:
+        raise click.ClickException(f"Failed to resolve Hub-hosted ONNX path {model!r}: {e}") from e
+    model = hf_model
 
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
@@ -1378,6 +2095,34 @@ def perf(
     console = Console(stderr=True) if json_mode else Console()
 
     # =========================================================================
+    # GENAI RUNTIME: benchmark an onnxruntime-genai bundle folder
+    # =========================================================================
+    if runtime == "winml-genai":
+        if input_data is not None:
+            raise click.UsageError(
+                "--input-data is not supported with --runtime winml-genai; "
+                "genai benchmarking is driven by --prompt."
+            )
+        _run_genai_runtime(ctx, console=console, json_mode=json_mode)
+        return
+
+    # ``--device config`` is a winml-genai-only sentinel (respect the bundle's
+    # genai_config.json routing).  It is meaningless for the single-shot WinML
+    # path, so reject it explicitly rather than letting resolve_device raise a
+    # generic "unknown device" error.
+    if device.lower() == "config":
+        raise click.UsageError(
+            "--device config is only valid with --runtime winml-genai "
+            "(it means 'respect the bundle's genai_config.json routing')."
+        )
+
+    # Classify the -m value once (existence-first) so module mode and the
+    # single-model path share one source of truth. Raises cleanly on a missing
+    # .onnx or an invalid id instead of a confusing downstream config error.
+    model_input = cli_utils.classify_model_input(hf_model)
+    is_onnx = model_input.kind is cli_utils.ModelInputKind.ONNX_FILE
+
+    # =========================================================================
     # MODULE MODE: per-module build + benchmark
     # =========================================================================
     if module_class:
@@ -1386,17 +2131,24 @@ def perf(
         # not carry. Without this guard, the user sees a misleading
         # "not a valid JSON file" error from AutoConfig.from_pretrained
         # trying to load the .onnx as an HF config dir (issue #553).
-        if Path(hf_model).suffix.lower() == ".onnx":
+        if is_onnx:
             raise click.UsageError(
                 f"--module is not supported for ONNX files. "
                 f"Submodule benchmarking requires a HuggingFace model ID "
                 f"(e.g., 'microsoft/resnet-50'), not '{hf_model}'."
+            )
+        if input_data is not None:
+            raise click.UsageError(
+                "--input-data is not supported in --module mode. Each submodule "
+                "has its own internal inputs, which a single .npz cannot address."
             )
         if shape_config_path:
             console.print(
                 "[yellow]Warning:[/yellow] --shape-config is not supported "
                 "in --module mode and will be ignored."
             )
+        # _perf_modules resolves the device + derives a concrete EP internally
+        # (it will fold into PerfBenchmark — see #939).
         _perf_modules(
             hf_model=hf_model,
             module_class=module_class,
@@ -1404,7 +2156,10 @@ def perf(
             iterations=iterations,
             warmup=warmup,
             batch_size=batch_size,
-            no_quantize=not quantize,
+            no_quantize=not quant,
+            no_optimize=not optimize,
+            no_analyze=not analyze,
+            max_optim_iterations=max_optim_iterations,
             no_compile=no_compile,
             output=output,
             verbose=bool(verbose),
@@ -1415,6 +2170,8 @@ def perf(
             ep_options=ep_provider_options,
             precision=precision.lower(),
             allow_unsupported_nodes=allow_unsupported_nodes,
+            rebuild=rebuild,
+            ignore_cache=ignore_cache,
         )
         return
 
@@ -1422,9 +2179,20 @@ def perf(
     # SINGLE MODEL MODE: existing benchmark flow
     # =========================================================================
 
-    # Load shape overrides from JSON if provided
+    # Load shape overrides from JSON if provided.
+    #
+    # Real input tensors define their own shapes, so --shape-config doesn't
+    # apply when --input-data is set. Skip parsing/printing the overrides in
+    # that case, otherwise we'd announce "Shape overrides: {…}" and then
+    # immediately warn they're ignored.
     shape_config = None
-    if shape_config_path:
+    if input_data is not None:
+        if shape_config_path:
+            console.print(
+                "[yellow]Warning:[/yellow] --shape-config is ignored when "
+                "--input-data is set; shapes come from the provided tensors."
+            )
+    elif shape_config_path:
         try:
             with shape_config_path.open() as f:
                 shape_config = json.load(f)
@@ -1438,11 +2206,24 @@ def perf(
             ) from e
         console.print(f"[dim]Shape overrides: {shape_config}[/dim]")
 
+    # --batch-size likewise doesn't apply to real input tensors; warn instead
+    # of silently ignoring so the user isn't surprised by the reported batch.
+    if input_data is not None and cli_utils.is_cli_provided(ctx, "batch_size"):
+        console.print(
+            "[yellow]Warning:[/yellow] --batch-size is ignored when "
+            "--input-data is set; the batch comes from the provided tensors."
+        )
+
     # Resolve output path
     if output is None:
         output = generate_output_path(hf_model)
 
-    # Create config
+    # Refuse to clobber an existing report unless the user opted in.
+    cli_utils.guard_output(output, overwrite)
+
+    # Create config. The raw device/EP request is passed through unchanged;
+    # PerfBenchmark resolves the concrete device + EP internally (failing fast
+    # before the build), so the CLI does not pre-resolve here.
     config = BenchmarkConfig(
         model_id=hf_model,
         task=task,
@@ -1452,34 +2233,40 @@ def perf(
         warmup=warmup,
         batch_size=batch_size,
         output_path=output,
-        no_quantize=not quantize,
+        no_quantize=not quant,
+        no_optimize=not optimize,
+        no_analyze=not analyze,
+        max_optim_iterations=max_optim_iterations,
         rebuild=rebuild,
         ignore_cache=ignore_cache,
         skip_build=skip_build,
         no_compile=no_compile,
         allow_unsupported_nodes=allow_unsupported_nodes,
         monitor=monitor,
+        memory=memory,
         ep=ep,
         ep_options=ep_provider_options,
         shape_config=shape_config,
+        input_data=input_data,
     )
 
     try:
         model_path = Path(hf_model)
-        is_onnx = model_path.suffix.lower() == ".onnx"
 
         if is_onnx:
-            # Validate file existence up front; otherwise WinMLAutoModel would
-            # fall through to HF loading and surface a confusing
-            # "not a valid JSON file" error from AutoConfig.
-            if not model_path.exists():
-                raise FileNotFoundError(f"ONNX file not found: {model_path}")
-            if shape_config:
-                console.print(
-                    "[yellow]Warning:[/yellow] --shape-config is ignored for "
-                    "pre-exported ONNX files (shapes are baked into the model)."
-                )
-                config.shape_config = None
+            # Existence already validated by classify_model_input above.
+            # Build-pipeline flags are forwarded to from_onnx but no-op when the
+            # build is skipped (the default). Warn so the silent no-op is visible
+            # — shared detection with eval via utils/cli.py.
+            build_flags_warning = cli_utils.ignored_build_flags_warning(
+                skip_build_onnx=skip_build,
+                quant=quant,
+                optimize=optimize,
+                analyze=analyze,
+                max_optim_iterations=max_optim_iterations,
+            )
+            if build_flags_warning:
+                console.print(f"[yellow]Warning:[/yellow] {build_flags_warning}")
             console.print(f"[dim]Benchmarking ONNX:[/dim] {model_path}")
         else:
             if precision != "auto":
@@ -1523,12 +2310,17 @@ def perf(
         # Op-tracing (additive to existing benchmark)
         # =================================================================
         if op_tracing:
-            from ..optracing import is_qnn_profiling_available
+            from ..optracing import is_profiling_available
 
-            if not is_qnn_profiling_available():
-                console.print("[red]Error:[/red] Op-tracing requires onnxruntime-qnn")
-                console.print("Install with: [bold]pip install onnxruntime-qnn[/bold]")
-                raise SystemExit(1)
+            if not is_profiling_available(
+                benchmark.resolved_ep, benchmark.resolved_device, op_tracing
+            ):
+                raise click.ClickException(
+                    "Op-tracing is only supported for the QNN EP "
+                    "on NPU at the 'basic' level "
+                    f"(resolved EP={benchmark.resolved_ep}, "
+                    f"device={benchmark.resolved_device}, level={op_tracing})."
+                )
 
             from ..optracing import (
                 display_op_trace_report,
@@ -1545,25 +2337,30 @@ def perf(
                 if onnx_for_trace is None:
                     raise AttributeError("benchmark._model not initialized")
             except AttributeError:
-                console.print(
-                    "[red]Error:[/red] Could not determine ONNX model path for op-tracing"
-                )
-                raise SystemExit(1) from None
+                raise click.ClickException(
+                    "Could not determine ONNX model path for op-tracing"
+                ) from None
 
             output_dir = output.parent if output else Path()
 
             # Look up tracer via registry (EP-agnostic).
             tracer_cls = get_tracer("QNNExecutionProvider", op_tracing)
             if tracer_cls is None:
-                console.print(
-                    f"[red]Error:[/red] No tracer registered for QNN EP at level '{op_tracing}'"
+                raise click.ClickException(
+                    f"No tracer registered for QNN EP at level '{op_tracing}'"
                 )
-                raise SystemExit(1)
+
+            # When --input-data was supplied, trace on the same real tensors the
+            # benchmark used (benchmark._inputs), so the op trace isn't measured
+            # on random data. The profiler falls back to random inputs if these
+            # don't match the traced session's inputs.
+            trace_inputs = getattr(benchmark, "_inputs", None) if input_data else None
 
             profiler = tracer_cls(
                 onnx_for_trace,
                 output_dir=output_dir,
                 level=op_tracing,
+                input_data=trace_inputs,
             )
             trace_result = profiler.run(
                 iterations=min(iterations, 10),
@@ -1573,10 +2370,9 @@ def perf(
             # Display and save
             display_op_trace_report(trace_result, console)
 
-            model_slug = hf_model.replace("/", "_").replace("\\", "_")
-            if is_onnx:
-                model_slug = model_path.stem
-            trace_output = output_dir / f"{model_slug}_op_trace.json"
+            # Mirror the benchmark report path so the two files sit side by side:
+            # a/b.json -> a/b_op_trace.json.
+            trace_output = output.with_name(f"{output.stem}_op_trace{output.suffix}")
             write_op_trace_json(trace_result, trace_output)
             console.print(f"[green]Op-trace saved to:[/green] {trace_output}")
 
@@ -1585,6 +2381,10 @@ def perf(
         # the convention used by Click for argument problems.
         raise click.UsageError(f"Model not found: {e}") from e
 
+    except click.ClickException:
+        # Click exceptions are already intentional control flow; re-raise so
+        # the catch-all below doesn't relabel them as "Benchmark failed".
+        raise
     except Exception as e:
         if verbose:
             logger.exception("Benchmark failed")

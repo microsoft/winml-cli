@@ -39,7 +39,7 @@ def sample_onnx_config():
                 "mode": "qdq",
                 "samples": 10,
                 "task": "image-classification",
-                "model_name": "test-model",
+                "model_id": "test-model",
             },
             "compile": {
                 "execution_provider": "qnn",
@@ -144,7 +144,7 @@ def mock_onnx_pipeline():
             side_effect=_create_file_side_effect("output_path", compile_result),
         ) as m_compile,
         patch(
-            "winml.modelkit.build.onnx.is_quantized_onnx",
+            "winml.modelkit.build.common.is_quantized_onnx",
             return_value=False,
         ) as m_has_qdq,
         patch(
@@ -366,7 +366,13 @@ class TestBuildOnnxPreQuantized:
     def test_pre_quantized_skips_optimize_and_quantize(
         self, tmp_path: Path, fake_onnx: Path, sample_onnx_config, mock_onnx_pipeline
     ) -> None:
-        """QDQ model skips both optimize AND quantize stages."""
+        """QDQ/QOperator model truly skips both optimize AND quantize stages.
+
+        Regression: previously the pre-quantized branch logged "skipping
+        optimize" but still invoked ``optimize_onnx``. That hidden call
+        crashed for QOperator models with ``ConvInteger`` (no CPU kernel).
+        ``optimize_onnx`` must NOT be called on pre-quantized models.
+        """
         mock_onnx_pipeline["is_quantized_onnx"].return_value = True
 
         output_dir = tmp_path / "output"
@@ -379,7 +385,7 @@ class TestBuildOnnxPreQuantized:
         assert "quantize" in result.stages_skipped
         assert "optimize" not in result.stages_completed
         assert "quantize" not in result.stages_completed
-        mock_onnx_pipeline["optimize"].assert_called_once()
+        mock_onnx_pipeline["optimize"].assert_not_called()
         mock_onnx_pipeline["quantize"].assert_not_called()
 
     def test_pre_quantized_still_compiles(
@@ -400,7 +406,7 @@ class TestBuildOnnxPreQuantized:
     def test_pre_quantized_runs_analyze_only(
         self, tmp_path: Path, fake_onnx: Path, sample_onnx_config, mock_onnx_pipeline
     ) -> None:
-        """Pre-quantized path runs optimize but skips autoconf (no analyze)."""
+        """Pre-quantized path skips both optimize AND analyze (max_iters=0)."""
         mock_onnx_pipeline["is_quantized_onnx"].return_value = True
 
         output_dir = tmp_path / "output"
@@ -409,9 +415,10 @@ class TestBuildOnnxPreQuantized:
             config=sample_onnx_config,
             output_dir=output_dir,
         )
-        # max_optim_iterations=0 means no analyze loop runs
+        # max_optim_iterations=0 means no analyze loop runs.
+        # Optimize is also skipped via skip_optimize=True.
         mock_onnx_pipeline["analyze"].assert_not_called()
-        mock_onnx_pipeline["optimize"].assert_called_once()
+        mock_onnx_pipeline["optimize"].assert_not_called()
 
     def test_skip_optimize_kwarg(
         self, tmp_path: Path, fake_onnx: Path, sample_onnx_config, mock_onnx_pipeline
@@ -428,7 +435,7 @@ class TestBuildOnnxPreQuantized:
         )
         assert "optimize" in result.stages_skipped
         assert "quantize" in result.stages_skipped
-        mock_onnx_pipeline["optimize"].assert_called_once()
+        mock_onnx_pipeline["optimize"].assert_not_called()
         mock_onnx_pipeline["quantize"].assert_not_called()
 
 
@@ -581,3 +588,86 @@ class TestOnnxAnalyzeJsonOutput:
         mock_onnx_pipeline["is_quantized_onnx"].return_value = True
         build_onnx_model(fake_onnx, config=sample_onnx_config, output_dir=tmp_path / "output")
         mock_onnx_pipeline["analyze"].assert_not_called()
+
+
+# =============================================================================
+# CACHE KEY TESTS
+# =============================================================================
+
+
+class TestBuildOnnxCacheKey:
+    """Test cache_key parameter for artifact naming."""
+
+    def test_no_cache_key_produces_model_onnx(
+        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config_minimal, mock_onnx_pipeline
+    ) -> None:
+        """cache_key=None (default) produces model.onnx as the final artifact."""
+        output_dir = tmp_path / "output"
+        result = build_onnx_model(
+            fake_onnx,
+            config=sample_onnx_config_minimal,
+            output_dir=output_dir,
+        )
+        assert result.final_onnx_path == output_dir / "model.onnx"
+
+    def test_cache_key_prefixes_final_artifact(
+        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config_minimal, mock_onnx_pipeline
+    ) -> None:
+        """cache_key prefixes the final artifact filename."""
+        output_dir = tmp_path / "output"
+        result = build_onnx_model(
+            fake_onnx,
+            config=sample_onnx_config_minimal,
+            output_dir=output_dir,
+            cache_key="imgcls_abc1234567890123",
+        )
+        assert result.final_onnx_path == output_dir / "imgcls_abc1234567890123_model.onnx"
+
+    def test_cache_key_prefixes_config_path(
+        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config_minimal, mock_onnx_pipeline
+    ) -> None:
+        """cache_key prefixes the config JSON filename."""
+        output_dir = tmp_path / "output"
+        result = build_onnx_model(
+            fake_onnx,
+            config=sample_onnx_config_minimal,
+            output_dir=output_dir,
+            cache_key="imgcls_abc1234567890123",
+        )
+        assert result.config_path == output_dir / "imgcls_abc1234567890123_winml_build_config.json"
+        assert result.config_path.exists()
+
+    def test_cache_key_reuse_checks_prefixed_path(
+        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config_minimal, mock_onnx_pipeline
+    ) -> None:
+        """Existing prefixed model.onnx is reused when rebuild=False."""
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+        (output_dir / "imgcls_abc1234567890123_model.onnx").write_text("existing")
+
+        result = build_onnx_model(
+            fake_onnx,
+            config=sample_onnx_config_minimal,
+            output_dir=output_dir,
+            cache_key="imgcls_abc1234567890123",
+        )
+        assert result.reused is True
+        mock_onnx_pipeline["optimize"].assert_not_called()
+
+    def test_cache_key_rebuild_does_not_remove_unrelated_artifacts(
+        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config_minimal, mock_onnx_pipeline
+    ) -> None:
+        """rebuild=True with cache_key removes only matching prefixed files, not unrelated ones."""
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+        other = output_dir / "other_model.onnx"
+        other.write_text("other-model")
+
+        build_onnx_model(
+            fake_onnx,
+            config=sample_onnx_config_minimal,
+            output_dir=output_dir,
+            cache_key="imgcls_abc1234567890123",
+            rebuild=True,
+        )
+        assert other.exists(), "unrelated artifacts should not be removed"

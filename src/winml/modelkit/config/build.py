@@ -136,6 +136,14 @@ class WinMLBuildConfig:
     compile: WinMLCompileConfig | None = field(default_factory=WinMLCompileConfig)
     eval: WinMLEvaluationConfig | None = None
     auto: bool = True
+    # Stamped True by generate_*_build_config (or by the build_*_model
+    # entry-point defensive fallback) when the input ONNX is already
+    # quantized (QDQ or QOperator format). When True, the optimize stage
+    # is bypassed for downstream pipelines (no ORT graph optimization,
+    # no autoconf analyze loop). This is the SINGLE source of truth for
+    # "is this model pre-quantized?" — downstream stages must read this
+    # flag instead of calling ``is_quantized_onnx`` again.
+    skip_optimize: bool = False
 
     def __post_init__(self) -> None:
         # Lazy import: inject into module globals so typing.get_type_hints()
@@ -169,6 +177,7 @@ class WinMLBuildConfig:
             ),
             eval=eval_cfg,
             auto=config_dict.get("auto", True),
+            skip_optimize=config_dict.get("skip_optimize", False),
         )
 
     def to_dict(self) -> dict:
@@ -176,6 +185,8 @@ class WinMLBuildConfig:
         result: dict = {}
         if not self.auto:
             result["auto"] = False
+        if self.skip_optimize:
+            result["skip_optimize"] = True
         result.update(
             {
                 "export": self.export.to_dict() if self.export is not None else None,
@@ -200,7 +211,7 @@ class WinMLBuildConfig:
 
         Build types:
             - HF build (export is not None): requires loader.task, quant.task,
-              quant.model_name when quant is enabled
+              quant.model_id when quant is enabled
             - ONNX build (export is None): relaxed — loader.task and quant
               fields are optional since the ONNX model is pre-exported
 
@@ -222,16 +233,18 @@ class WinMLBuildConfig:
             errors.append("optim config is required")  # type: ignore[unreachable]
 
         # 3. quant validation (when present)
-        # Exceptions: ONNX builds (export=None) don't need quant.task/model_name
+        # Exceptions: ONNX builds (export=None) don't need quant.task/model_id
         # because the ONNX model is pre-exported. Submodule builds (module_path
         # set) use RandomDataset which only needs the ONNX model_path.
+        # Algorithms that skip calibration (fp16, rtn, dynamic) also don't
+        # need task/model_id since they don't generate calibration datasets.
         if self.quant is not None:
-            is_submodule = bool(self.loader and self.loader.module_path)
-            needs_quant_ids = not is_onnx_build and not is_submodule
+            needs_calibration = self.quant.mode == "static"
+            needs_quant_ids = not is_onnx_build and not is_submodule and needs_calibration
             if needs_quant_ids and not self.quant.task:
                 errors.append("quant.task is required when quant is enabled for HF builds")
-            if needs_quant_ids and not self.quant.model_name:
-                errors.append("quant.model_name is required when quant is enabled for HF builds")
+            if needs_quant_ids and not self.quant.model_id:
+                errors.append("quant.model_id is required when quant is enabled for HF builds")
 
         # 4. compile validation (when present)
         if self.compile is not None and (
@@ -327,7 +340,11 @@ def resolve_quant_compile_config(
         policy does not require that stage (e.g., CPU with fp32).
     """
     from ..sysinfo import resolve_check_device_ep
-    from .precision import resolve_precision
+    from .precision import (
+        extract_weight_bits,
+        is_weight_only_precision,
+        resolve_precision,
+    )
 
     resolved_device, available_devices, resolved_eps = resolve_check_device_ep(device=device, ep=ep)
     logger.info(
@@ -353,6 +370,15 @@ def resolve_quant_compile_config(
         quant_config = WinMLQuantizationConfig()
         quant_config.weight_type = policy.weight_type
         quant_config.activation_type = policy.activation_type
+    elif policy.precision == "fp16":
+        # Pure FP16: no QDQ quantization, only FP16 conversion
+        quant_config = WinMLQuantizationConfig(mode="fp16")
+    elif is_weight_only_precision(policy.precision):
+        # Weight-only (RTN): derive rtn_bits from precision
+        quant_config = WinMLQuantizationConfig(
+            mode="rtn",
+            rtn_bits=extract_weight_bits(policy.precision),
+        )
 
     # Compile config
     compile_config = WinMLCompileConfig.for_provider(policy.compile_provider, device=policy.device)
@@ -428,8 +454,11 @@ def generate_onnx_build_config(
         )
 
         if is_quantized_onnx(onnx_path_resolved):
-            # Skip optimize+quantize, compile with resolved policy
+            # Skip optimize+quantize, compile with resolved policy.
+            # ``skip_optimize`` is the single source of truth — downstream
+            # pipelines must read this flag and not re-detect.
             config.quant = None
+            config.skip_optimize = True
             config.compile = resolved_compile
             logger.info("Quantized model (QDQ) detected")
         else:
@@ -660,7 +689,11 @@ def generate_hf_build_config(
     # STEP 4.5: Apply device/precision policy (affects quant + compile only)
     # =========================================================================
     from ..sysinfo import resolve_check_device_ep
-    from .precision import resolve_precision
+    from .precision import (
+        extract_weight_bits,
+        is_weight_only_precision,
+        resolve_precision,
+    )
 
     # ALWAYS detect hardware — even when device="auto" — so we don't
     # blindly default to QNN on machines without an NPU (#412).
@@ -687,9 +720,21 @@ def generate_hf_build_config(
             parent_config.quant = WinMLQuantizationConfig()
         parent_config.quant.weight_type = policy.weight_type
         parent_config.quant.activation_type = policy.activation_type
+    elif policy.precision == "fp16":
+        # Pure FP16: no QDQ, only FP16 conversion via quantize stage
+        parent_config.quant = WinMLQuantizationConfig(mode="fp16")
+    elif policy.precision and is_weight_only_precision(policy.precision):
+        # RTN weight-only quantization (e.g. int4, w4a16, w4a32)
+        parent_config.quant = WinMLQuantizationConfig(
+            mode="rtn",
+            rtn_bits=extract_weight_bits(policy.precision),
+        )
     else:
-        # CPU/GPU: precision is float (fp16/fp32) — no quantization
+        # CPU/GPU: precision is float (fp32) — no quantization
         parent_config.quant = None
+
+    # Store resolved precision for multi-pass expansion.
+    parent_config.precision = policy.precision  # type: ignore[attr-defined]
 
     # Compile config
     parent_config.compile = WinMLCompileConfig.for_provider(
@@ -718,7 +763,7 @@ def generate_hf_build_config(
 
         # Extract input shapes and dtypes from export_config -- NO HARDCODED VALUES
         input_tensors = [t for t in (export_config.input_tensors or []) if t.shape is not None]
-        input_shapes = [t.shape for t in input_tensors if t.shape is not None]
+        input_shapes = [t.concrete_shape() for t in input_tensors]
         input_dtypes = [t.dtype for t in input_tensors]
         if not input_shapes:
             raise ValueError(
@@ -882,7 +927,7 @@ def _build_submodule_config(
         - Inherited model_type from parent; task intentionally omitted
         - module_path and model_class from sub_info
         - Inherited optim/compile from parent
-        - Quant with task=None, model_name=None (RandomDataset fallback)
+        - Quant with task=None, model_id=None (RandomDataset fallback)
     """
 
     # Build InputTensorSpec for EACH input tensor (not just the first).
@@ -924,12 +969,12 @@ def _build_submodule_config(
         ),
         optim=copy.deepcopy(parent_config.optim),
         # Submodule builds use RandomDataset for calibration:
-        # quantize_onnx() falls back to "random" when task/model_name are None,
+        # quantize_onnx() falls back to "random" when task/model_id are None,
         # and RandomDataset reads input specs from the ONNX model file.
         quant=WinMLQuantizationConfig(
             samples=1,
             task=None,
-            model_name=None,
+            model_id=None,
         ),
         compile=copy.deepcopy(parent_config.compile),
     )
@@ -992,14 +1037,14 @@ def _assemble_config(
     """Assemble WinMLBuildConfig from resolved loader and export configs.
 
     Handles optim/quant/compile from the registry or defaults,
-    and populates quant config with task and model_name.
+    and populates quant config with task and model_id.
 
     Args:
         loader_config: Resolved WinMLLoaderConfig (from resolve_loader_config).
         export_config: Resolved WinMLExportConfig
             (from registry or _resolve_export_config_from_specs).
         registered: Registered config from MODEL_BUILD_CONFIGS (or None).
-        model_id: HuggingFace model ID (for quant model_name), or None.
+        model_id: HuggingFace model ID (for quant model_id), or None.
         model_type: Parent HF model type (for quant fallback name).
 
     Returns:
@@ -1023,16 +1068,20 @@ def _assemble_config(
         else WinMLCompileConfig()
     )
 
-    # Populate quant config with task and model_name for task-aware calibration
+    # Populate quant config with task and model_id for task-aware calibration
     if quant_config:
         quant_config.task = loader_config.task
         if model_id is None and model_type is not None:
             logger.warning(
-                "Quantization model_name set to '%s' (model type). "
+                "Quantization model_id set to '%s' (model type). "
                 "For calibration datasets, provide --model with a full model ID.",
                 model_type,
             )
-        quant_config.model_name = model_id or model_type
+        quant_config.model_id = model_id or model_type
+        # Carry the resolved model_type so quantize_onnx can resolve a
+        # model-type-specific quant policy (e.g. the qwen3_transformer_only
+        # w8a16 finalizer) from the exported graph.
+        quant_config.model_type = loader_config.model_type
 
     return WinMLBuildConfig(
         loader=loader_config,

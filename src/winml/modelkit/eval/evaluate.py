@@ -20,6 +20,7 @@ from .config import WinMLEvaluationConfig
 
 if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
+    from ..models.winml.composite_model import WinMLCompositeModel
     from .base_evaluator import WinMLEvaluator
 
 logger = logging.getLogger(__name__)
@@ -62,8 +63,12 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
         "winml.modelkit.eval.zero_shot_image_classification_evaluator:WinMLZeroShotImageClassificationEvaluator",
     "depth-estimation":
         "winml.modelkit.eval.depth_estimation_evaluator:WinMLDepthEstimationEvaluator",
+    "keypoint-detection":
+        "winml.modelkit.eval.keypoint_detection_evaluator:WinMLKeypointDetectionEvaluator",
     "compare-tensor":
         "winml.modelkit.eval.tensor_similarity_evaluator:TensorSimilarityEvaluator",
+    "mask-generation":
+        "winml.modelkit.eval.mask_generation_evaluator:WinMLMaskGenerationEvaluator",
 }
 # fmt: on
 
@@ -172,6 +177,28 @@ _DEFAULT_DATASETS: dict[str, dict] = {
         # the legacy `nyu_depth_v2.py` loader script.
         "revision": "refs/convert/parquet",
     },
+    "keypoint-detection": {
+        # Built locally by scripts/build_coco_keypoints.py (COCO has no
+        # script-free HF mirror for person keypoints). Run that script first,
+        # or pass --dataset-path to point at your own build.
+        "path": "~/.cache/winml/datasets/coco_keypoints_val2017",
+        "split": "validation",
+        "columns_mapping": {
+            "input_column": "image",
+            "annotation_column": "objects",
+            "keypoints_key": "keypoints",
+            "bbox_key": "bbox",
+            "area_key": "area",
+            "box_format": "xywh",
+        },
+    },
+    "mask-generation": {
+        # LIP-derived multi-class body-part labels, collapsed to a single
+        # binary foreground/background mask by ``MaskGenerationDataset``.
+        # Same dataset used by ``scripts/sam3_smoke_eval.py``.
+        "path": "mattmdjaga/human_parsing_dataset",
+        "split": "train",
+    },
 }
 
 
@@ -190,12 +217,39 @@ class EvalResult:
         }
 
 
-def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
-    """Load model from ONNX path or HF model ID."""
+def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCompositeModel | None:
+    """Load model from ONNX path or HF model ID.
+
+    For evaluators that handle their own ORT session construction from a
+    composite ``role=path`` model dict (currently only
+    ``mask-generation``), returns ``None`` -- the evaluator reads
+    ``config.model_path`` directly.  Going through ``WinMLAutoModel``'s
+    composite registry would require registering the model type (e.g.,
+    SAM 3), which is a heavier follow-up; this bypass lets standalone
+    ONNX exports be evaluated today.
+    """
     from ..models import WinMLAutoModel
+    from ..utils import cli as cli_utils
+
+    quant_override: Any = None
+    if not config.quant:
+        from ..config import WinMLBuildConfig
+
+        quant_override = WinMLBuildConfig()
+        quant_override.quant = None
+
+    pipeline_kwargs = cli_utils.build_pipeline_extra_kwargs(
+        optimize=config.optimize,
+        analyze=config.analyze,
+        max_optim_iterations=config.max_optim_iterations,
+    )
 
     if config.model_id is None:
         raise ValueError("model_id is required.")
+
+    if isinstance(config.model_path, dict) and config.task == "mask-generation":
+        # Evaluator-driven session loading; skip WinMLAutoModel entirely.
+        return None
 
     if config.model_path is not None:
         # Pre-built ONNX: precision is already baked into the model and is
@@ -209,7 +263,9 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
             device=config.device,
             ep=config.ep,
             skip_build=config.skip_build,
+            config=quant_override,
             hf_config=hf_config,
+            **pipeline_kwargs,
         )
         model.config = hf_config
         return model
@@ -221,6 +277,8 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
         precision=config.precision,
         ep=config.ep,
         allow_unsupported_nodes=config.allow_unsupported_nodes,
+        config=quant_override,
+        **pipeline_kwargs,
     )
 
 
@@ -306,7 +364,11 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
     cls = get_evaluator_class(config)
     try:
         console.print("[bold]Loading dataset and evaluating...[/bold]")
-        task_evaluator = cls(config, model)
+        # ``model`` is ``None`` for composite evaluators that load ORT
+        # sessions directly from ``config.model_path`` (currently only
+        # mask-generation).  Type-checker can't follow the per-task
+        # invariant, so suppress here at the unified call site.
+        task_evaluator = cls(config, model)  # type: ignore[arg-type]
         metrics = task_evaluator.compute()
     except DatasetValidationError as error:
         raise ValueError(

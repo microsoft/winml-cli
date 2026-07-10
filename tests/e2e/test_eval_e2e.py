@@ -71,7 +71,7 @@ def tiny_textcls_script(tmp_path: Path) -> Path:
     """
     script = tmp_path / "build_tiny_textcls.py"
     script.write_text(
-        '''import argparse
+        """import argparse
 from datasets import Dataset
 
 ROWS = [
@@ -91,7 +91,7 @@ p = argparse.ArgumentParser()
 p.add_argument("--output", required=True)
 args = p.parse_args()
 Dataset.from_list(ROWS).save_to_disk(args.output)
-''',
+""",
         encoding="utf-8",
     )
     return script
@@ -132,7 +132,10 @@ def _assert_metrics_present(output_path: Path, required_keys: list[str]) -> dict
 
 
 def _assert_in_range(
-    metrics: dict, key: str, lo: float, hi: float,
+    metrics: dict,
+    key: str,
+    lo: float,
+    hi: float,
 ) -> None:
     """Assert ``metrics[key]`` is a finite number within ``[lo, hi]``.
 
@@ -146,9 +149,7 @@ def _assert_in_range(
         f"metric {key} not numeric: {value!r} ({type(value).__name__})"
     )
     assert math.isfinite(value), f"metric {key} is not finite: {value}"
-    assert lo <= value <= hi, (
-        f"metric {key}={value} outside expected range [{lo}, {hi}]"
-    )
+    assert lo <= value <= hi, f"metric {key}={value} outside expected range [{lo}, {hi}]"
 
 
 # ===========================================================================
@@ -166,13 +167,20 @@ class TestEvalPerTask:
         # HF evaluate.evaluator("image-classification") returns `accuracy`.
         # --streaming avoids caching full mini-imagenet (~1-2 GB).
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "google/vit-base-patch16-224",
-            "--task", "image-classification",
-            "--streaming",
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "google/vit-base-patch16-224",
+                "--task",
+                "image-classification",
+                "--streaming",
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         data = _assert_metrics_present(out, ["accuracy"])
         # ViT-base full ImageNet ≈ 0.81; floor at 0.5 still catches
         # broken-pipeline regressions on 10 samples.
@@ -184,12 +192,19 @@ class TestEvalPerTask:
         # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
         require_not_ep("vitisai")
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "Intel/bert-base-uncased-mrpc",
-            "--task", "text-classification",
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "Intel/bert-base-uncased-mrpc",
+                "--task",
+                "text-classification",
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         data = _assert_metrics_present(out, ["accuracy"])
         # bert-mrpc full MRPC ≈ 0.86; MRPC majority baseline ≈ 0.68.
         # Magnitude assertion is QNN-only: VitisAI W8A8 quantization
@@ -201,12 +216,19 @@ class TestEvalPerTask:
         # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
         require_not_ep("vitisai")
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "dslim/bert-base-NER",
-            "--task", "token-classification",
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "dslim/bert-base-NER",
+                "--task",
+                "token-classification",
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         data = _assert_metrics_present(
             out,
             ["overall_precision", "overall_recall", "overall_f1", "overall_accuracy"],
@@ -220,13 +242,20 @@ class TestEvalPerTask:
         # COCO val is ~6 GB; --streaming keeps only the bytes needed
         # for the sampled subset.
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "hustvl/yolos-small",
-            "--task", "object-detection",
-            "--streaming",
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "hustvl/yolos-small",
+                "--task",
+                "object-detection",
+                "--streaming",
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         data = _assert_metrics_present(out, ["map", "map_50", "mar_100"])
         # COCO mAP / mAR are bounded by [0, 1]; torchmetrics may report -1
         # when no positives are sampled, which is acceptable for tiny N.
@@ -238,27 +267,43 @@ class TestEvalPerTask:
         # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
         require_not_ep("vitisai")
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "nvidia/segformer-b1-finetuned-ade-512-512",
-            "--task", "image-segmentation",
-            "--dataset", "danjacobellis/scene_parse_150",
-            "--split", "validation",
-            "--streaming",
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "nvidia/segformer-b1-finetuned-ade-512-512",
+                "--task",
+                "image-segmentation",
+                "--dataset",
+                "danjacobellis/scene_parse_150",
+                "--split",
+                "validation",
+                "--streaming",
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         data = _assert_metrics_present(out, ["mean_iou"])
         _assert_in_range(data["metrics"], "mean_iou", 0.0, 1.0)
 
     def test_question_answering(self, runner: CliRunner, tmp_path: Path) -> None:
         require_ep("qnn")
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "distilbert/distilbert-base-cased-distilled-squad",
-            "--task", "question-answering",
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "distilbert/distilbert-base-cased-distilled-squad",
+                "--task",
+                "question-answering",
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         data = _assert_metrics_present(out, ["exact_match", "f1"])
         # distilbert-squad full SQuAD v1: EM ≈ 77, F1 ≈ 85 (percentages).
         # Both are harsh on N=10 (heavy per-sample variance with seed=42).
@@ -268,12 +313,19 @@ class TestEvalPerTask:
 
     def test_feature_extraction(self, runner: CliRunner, tmp_path: Path) -> None:
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "sentence-transformers/all-MiniLM-L6-v2",
-            "--task", "feature-extraction",
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "sentence-transformers/all-MiniLM-L6-v2",
+                "--task",
+                "feature-extraction",
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         # Spearman correlation reported as percentage in [-100, 100].
         # MiniLM-L6-v2 full STSB ≈ 80; 10-sample noise can be large.
         # Magnitude assertion is QNN-only: VitisAI W8A8 quantization
@@ -285,19 +337,28 @@ class TestEvalPerTask:
     def test_sentence_similarity(self, runner: CliRunner, tmp_path: Path) -> None:
         # Alias for feature-extraction.
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "sentence-transformers/all-MiniLM-L6-v2",
-            "--task", "sentence-similarity",
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "sentence-transformers/all-MiniLM-L6-v2",
+                "--task",
+                "sentence-similarity",
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         # Same quantization caveat as test_feature_extraction.
         data = _assert_metrics_present(out, ["cosine_spearman"])
         if is_host("qnn"):
             _assert_in_range(data["metrics"], "cosine_spearman", 40.0, 100.0)
 
     def test_image_feature_extraction(
-        self, runner: CliRunner, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
     ) -> None:
         # kNN accuracies reported as percentages 0..100.
         # --streaming avoids caching mini-imagenet.
@@ -307,15 +368,23 @@ class TestEvalPerTask:
         # modality-aware task vocabulary, so it is not a valid task for a vision
         # model (it would resolve to the text evaluator/dataset and fail).
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "facebook/dinov2-small",
-            "--task", "image-feature-extraction",
-            "--streaming",
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "facebook/dinov2-small",
+                "--task",
+                "image-feature-extraction",
+                "--streaming",
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         data = _assert_metrics_present(
-            out, ["knn_top1_accuracy", "knn_top5_accuracy"],
+            out,
+            ["knn_top1_accuracy", "knn_top5_accuracy"],
         )
         # Smoke-only: at --samples 10 over mini-imagenet's 100 classes,
         # leave-one-out kNN is statistical noise (even unquantized fp32
@@ -331,18 +400,30 @@ class TestEvalPerTask:
         # Only test that exercises non-auto --precision.
         # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
         require_not_ep("vitisai")
+        require_not_ep("migraphx")
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "Salesforce/blip-image-captioning-base",
-            "--task", "image-to-text",
-            "--dataset", "lmms-lab/flickr30k",
-            "--split", "test",
-            "--streaming",
-            "--samples", SAMPLES,
-            "--precision", "fp16",
-            "--column", "label_column=caption",
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "Salesforce/blip-image-captioning-base",
+                "--task",
+                "image-to-text",
+                "--dataset",
+                "lmms-lab/flickr30k",
+                "--split",
+                "test",
+                "--streaming",
+                "--samples",
+                SAMPLES,
+                "--precision",
+                "fp16",
+                "--column",
+                "label_column=caption",
+                "-o",
+                str(out),
+            ],
+        )
         # CLI contract: exit 0 and produce the metric keys. Tiny N may
         # yield None values; magnitude is checked in the accuracy regression
         # suite, not here.
@@ -351,21 +432,26 @@ class TestEvalPerTask:
         for k, hi in (("cer", 10.0), ("cider", 20.0)):
             v = m[k]
             assert v is None or (
-                isinstance(v, (int, float))
-                and math.isfinite(v)
-                and 0.0 <= v <= hi
+                isinstance(v, (int, float)) and math.isfinite(v) and 0.0 <= v <= hi
             ), f"metric {k}={v!r} not None or in [0,{hi}]"
         assert isinstance(m["n_samples"], int) and m["n_samples"] >= 0
 
     def test_fill_mask(self, runner: CliRunner, tmp_path: Path) -> None:
         # Pseudo-perplexity >= 1 (perplexity is exp of non-neg NLL).
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "distilbert/distilbert-base-uncased",
-            "--task", "fill-mask",
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "distilbert/distilbert-base-uncased",
+                "--task",
+                "fill-mask",
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         data = _assert_metrics_present(out, ["pseudo_perplexity", "nll"])
         # Pseudo-perplexity over a 10-sample wikitext stream can vary
         # widely (we observed ~3000 with seed=42). Cap is set well above
@@ -374,17 +460,26 @@ class TestEvalPerTask:
         _assert_in_range(data["metrics"], "nll", 0.0, 15.0)
 
     def test_zero_shot_classification(
-        self, runner: CliRunner, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
     ) -> None:
         require_ep("qnn")
         # Zero-shot uses ClassificationMetric → accuracy + f1.
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "cross-encoder/nli-deberta-v3-small",
-            "--task", "zero-shot-classification",
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "cross-encoder/nli-deberta-v3-small",
+                "--task",
+                "zero-shot-classification",
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         data = _assert_metrics_present(out, ["accuracy", "f1"])
         # nli-deberta-v3-small zero-shot on AG News, N=10. 4-class random
         # baseline = 0.25; tiny-N variance can push real models below
@@ -393,17 +488,26 @@ class TestEvalPerTask:
         _assert_in_range(data["metrics"], "f1", 0.1, 1.0)
 
     def test_zero_shot_image_classification(
-        self, runner: CliRunner, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
     ) -> None:
         # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
         require_not_ep("vitisai")
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "openai/clip-vit-base-patch32",
-            "--task", "zero-shot-image-classification",
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "openai/clip-vit-base-patch32",
+                "--task",
+                "zero-shot-image-classification",
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         data = _assert_metrics_present(out, ["top1_accuracy", "top5_accuracy"])
         # CLIP-ViT-B/32 zero-shot on CIFAR-100: top1 ≈ 0.63, top5 ≈ 0.88
         # (full set). Floors leave headroom for tiny-N variance.
@@ -420,15 +524,26 @@ class TestEvalModelInputForms:
     """Coverage for the two non-default ``-m`` forms."""
 
     def test_onnx_file_mode_monolithic(
-        self, runner: CliRunner, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
     ) -> None:
         hf_id = "google/vit-base-patch16-224"
         task = "image-classification"
 
         # Warm cache via HF id (use streaming to avoid mini-imagenet cache).
-        _invoke(runner, [
-            "-m", hf_id, "--task", task, "--streaming", "--samples", SAMPLES,
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                hf_id,
+                "--task",
+                task,
+                "--streaming",
+                "--samples",
+                SAMPLES,
+            ],
+        )
 
         cache_dir = find_cache_dir(hf_id, task=task)
         assert cache_dir is not None, "expected cache after warm run"
@@ -436,19 +551,29 @@ class TestEvalModelInputForms:
         assert onnx_files, f"no *_model.onnx in {cache_dir}"
 
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", str(onnx_files[0]),
-            "--model-id", hf_id,
-            "--task", task,
-            "--streaming",
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                str(onnx_files[0]),
+                "--model-id",
+                hf_id,
+                "--task",
+                task,
+                "--streaming",
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         data = _assert_metrics_present(out, ["accuracy"])
         _assert_in_range(data["metrics"], "accuracy", 0.5, 1.0)
 
     def test_onnx_file_mode_split_encoder(
-        self, runner: CliRunner, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
     ) -> None:
         # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
         require_not_ep("vitisai")
@@ -475,14 +600,23 @@ class TestEvalModelInputForms:
         text_onnx = _pick_onnx("feat")
 
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", f"image-encoder={image_onnx}",
-            "-m", f"text-encoder={text_onnx}",
-            "--model-id", hf_id,
-            "--task", task,
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                f"image-encoder={image_onnx}",
+                "-m",
+                f"text-encoder={text_onnx}",
+                "--model-id",
+                hf_id,
+                "--task",
+                task,
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         data = _assert_metrics_present(out, ["top1_accuracy"])
         _assert_in_range(data["metrics"], "top1_accuracy", 30.0, 100.0)
 
@@ -496,17 +630,26 @@ class TestEvalOutput:
     """``-o`` path creation + JSON validity."""
 
     def test_creates_nested_output_dir(
-        self, runner: CliRunner, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
     ) -> None:
         # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
         require_not_ep("vitisai")
         out = tmp_path / "nested" / "subdir" / "result.json"
-        _invoke(runner, [
-            "-m", "Intel/bert-base-uncased-mrpc",
-            "--task", "text-classification",
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "Intel/bert-base-uncased-mrpc",
+                "--task",
+                "text-classification",
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         assert out.exists(), "nested output dir not auto-created"
         data = json.loads(out.read_text())
         assert "metrics" in data
@@ -554,33 +697,52 @@ class TestEvalDeviceAndEp:
         # classifier well-suited to a CPU smoke test (no per-token forward
         # passes like fill-mask).
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "microsoft/resnet-50",
-            "--task", "image-classification",
-            "--device", "cpu",
-            "--streaming",
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "microsoft/resnet-50",
+                "--task",
+                "image-classification",
+                "--device",
+                "cpu",
+                "--streaming",
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         data = _assert_metrics_present(out, ["accuracy"])
         # ResNet-50 full ImageNet ≈ 0.76; mini-imagenet is shifted, floor 0.4.
         _assert_in_range(data["metrics"], "accuracy", 0.4, 1.0)
 
     def test_device_npu_and_ep_qnn(
-        self, runner: CliRunner, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
     ) -> None:
         # Combined --device + --ep.
         require_ep("qnn")
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "google/vit-base-patch16-224",
-            "--task", "image-classification",
-            "--device", "npu",
-            "--ep", "qnn",
-            "--streaming",
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "google/vit-base-patch16-224",
+                "--task",
+                "image-classification",
+                "--device",
+                "npu",
+                "--ep",
+                "qnn",
+                "--streaming",
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         data = _assert_metrics_present(out, ["accuracy"])
         _assert_in_range(data["metrics"], "accuracy", 0.5, 1.0)
 
@@ -592,28 +754,43 @@ class TestEvalDeviceAndEp:
 
 class TestEvalAdditionalOptions:
     def test_dataset_name_explicit(
-        self, runner: CliRunner, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
     ) -> None:
         # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
         require_not_ep("vitisai")
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "Intel/bert-base-uncased-mrpc",
-            "--task", "text-classification",
-            "--dataset", "nyu-mll/glue",
-            "--dataset-name", "mrpc",
-            "--column", "input_column=sentence1",
-            "--column", "second_input_column=sentence2",
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "Intel/bert-base-uncased-mrpc",
+                "--task",
+                "text-classification",
+                "--dataset",
+                "nyu-mll/glue",
+                "--dataset-name",
+                "mrpc",
+                "--column",
+                "input_column=sentence1",
+                "--column",
+                "second_input_column=sentence2",
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         # Same quantization caveat as TestEvalPerTask.test_text_classification.
         data = _assert_metrics_present(out, ["accuracy"])
         if is_host("qnn"):
             _assert_in_range(data["metrics"], "accuracy", 0.6, 1.0)
 
     def test_label_mapping_image_segmentation(
-        self, runner: CliRunner, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
     ) -> None:
         # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
         require_not_ep("vitisai")
@@ -624,36 +801,58 @@ class TestEvalAdditionalOptions:
             pytest.skip(f"label-mapping file not in repo: {label_map}")
 
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "nvidia/segformer-b1-finetuned-ade-512-512",
-            "--task", "image-segmentation",
-            "--dataset", "danjacobellis/scene_parse_150",
-            "--split", "validation",
-            "--streaming",
-            "--label-mapping", str(label_map),
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "nvidia/segformer-b1-finetuned-ade-512-512",
+                "--task",
+                "image-segmentation",
+                "--dataset",
+                "danjacobellis/scene_parse_150",
+                "--split",
+                "validation",
+                "--streaming",
+                "--label-mapping",
+                str(label_map),
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         data = _assert_metrics_present(out, ["mean_iou"])
         _assert_in_range(data["metrics"], "mean_iou", 0.0, 1.0)
 
     def test_config_file_basic(
-        self, runner: CliRunner, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
     ) -> None:
         # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
         require_not_ep("vitisai")
         # `eval` section provides task + samples.
         cfg = tmp_path / "cfg.json"
-        cfg.write_text(json.dumps({
-            "loader": {"task": "text-classification"},
-            "eval": {"dataset": {"samples": 5}},
-        }))
+        cfg.write_text(
+            json.dumps(
+                {
+                    "loader": {"task": "text-classification"},
+                    "eval": {"dataset": {"samples": 5}},
+                }
+            )
+        )
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "Intel/bert-base-uncased-mrpc",
-            "--config", str(cfg),
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "Intel/bert-base-uncased-mrpc",
+                "--config",
+                str(cfg),
+                "-o",
+                str(out),
+            ],
+        )
         # Same quantization caveat as TestEvalPerTask.test_text_classification.
         data = _assert_metrics_present(out, ["accuracy"])
         if is_host("qnn"):
@@ -663,23 +862,36 @@ class TestEvalAdditionalOptions:
         )
 
     def test_config_file_cli_override(
-        self, runner: CliRunner, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
     ) -> None:
         # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
         require_not_ep("vitisai")
         # CLI wins over config file.
         cfg = tmp_path / "cfg.json"
-        cfg.write_text(json.dumps({
-            "loader": {"task": "text-classification"},
-            "eval": {"dataset": {"samples": 5}},
-        }))
+        cfg.write_text(
+            json.dumps(
+                {
+                    "loader": {"task": "text-classification"},
+                    "eval": {"dataset": {"samples": 5}},
+                }
+            )
+        )
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "Intel/bert-base-uncased-mrpc",
-            "--config", str(cfg),
-            "--samples", "7",
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "Intel/bert-base-uncased-mrpc",
+                "--config",
+                str(cfg),
+                "--samples",
+                "7",
+                "-o",
+                str(out),
+            ],
+        )
         # Same quantization caveat as TestEvalPerTask.test_text_classification.
         data = _assert_metrics_present(out, ["accuracy"])
         if is_host("qnn"):
@@ -689,17 +901,25 @@ class TestEvalAdditionalOptions:
         )
 
     def test_auto_task_detection(
-        self, runner: CliRunner, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
     ) -> None:
         # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
         require_not_ep("vitisai")
         # No --task flag; CLI infers from HF model.
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "Intel/bert-base-uncased-mrpc",
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "Intel/bert-base-uncased-mrpc",
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         # Same quantization caveat as TestEvalPerTask.test_text_classification.
         data = _assert_metrics_present(out, ["accuracy"])
         if is_host("qnn"):
@@ -709,7 +929,10 @@ class TestEvalAdditionalOptions:
         )
 
     def test_precision_warning_for_prebuilt_onnx(
-        self, runner: CliRunner, tmp_path: Path, caplog,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        caplog,
     ) -> None:
         # Pre-built ONNX + --precision emits warning, still succeeds.
         import logging as _logging
@@ -726,63 +949,100 @@ class TestEvalAdditionalOptions:
 
         out = tmp_path / "result.json"
         with caplog.at_level(_logging.WARNING, logger="winml.modelkit.commands.eval"):
-            _invoke(runner, [
-                "-m", str(onnx_files[0]),
-                "--model-id", hf_id,
-                "--task", task,
-                "--precision", "fp16",
-                "--streaming",
-                "--samples", SAMPLES,
-                "-o", str(out),
-            ])
+            _invoke(
+                runner,
+                [
+                    "-m",
+                    str(onnx_files[0]),
+                    "--model-id",
+                    hf_id,
+                    "--task",
+                    task,
+                    "--precision",
+                    "fp16",
+                    "--streaming",
+                    "--samples",
+                    SAMPLES,
+                    "-o",
+                    str(out),
+                ],
+            )
         # Warning is emitted via ``logger.warning(...)``; capture from log records.
         msgs = [r.getMessage().lower() for r in caplog.records]
-        assert any(
-            "precision" in m and ("ignor" in m or "pre-built" in m)
-            for m in msgs
-        ), f"expected precision-ignored warning, got:\n{msgs!r}"
+        assert any("precision" in m and ("ignor" in m or "pre-built" in m) for m in msgs), (
+            f"expected precision-ignored warning, got:\n{msgs!r}"
+        )
         _assert_metrics_present(out, ["accuracy"])
 
     def test_dataset_script_with_column_remap(
-        self, runner: CliRunner, tmp_path: Path, tiny_textcls_script: Path,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        tiny_textcls_script: Path,
     ) -> None:
         # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
         require_not_ep("vitisai")
         # --dataset-script + --column + --trust-remote-code (happy path).
         ds_path = tmp_path / "tiny_textcls"
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "-m", "Intel/bert-base-uncased-mrpc",
-            "--task", "text-classification",
-            "--dataset-script", str(tiny_textcls_script),
-            "--dataset", str(ds_path),
-            "--trust-remote-code",
-            "--column", "input_column=text_a",
-            "--column", "second_input_column=text_b",
-            "--samples", "10",
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "-m",
+                "Intel/bert-base-uncased-mrpc",
+                "--task",
+                "text-classification",
+                "--dataset-script",
+                str(tiny_textcls_script),
+                "--dataset",
+                str(ds_path),
+                "--trust-remote-code",
+                "--column",
+                "input_column=text_a",
+                "--column",
+                "second_input_column=text_b",
+                "--samples",
+                "10",
+                "-o",
+                str(out),
+            ],
+        )
         assert ds_path.exists(), "dataset script did not write to --dataset path"
         data = _assert_metrics_present(out, ["accuracy"])
         _assert_in_range(data["metrics"], "accuracy", 0.0, 1.0)
 
     def test_dataset_script_without_trust_remote_code(
-        self, runner: CliRunner, tmp_path: Path, tiny_textcls_script: Path,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        tiny_textcls_script: Path,
     ) -> None:
         ds_path = tmp_path / "tiny_textcls"
-        result = _invoke(runner, [
-            "-m", "Intel/bert-base-uncased-mrpc",
-            "--task", "text-classification",
-            "--dataset-script", str(tiny_textcls_script),
-            "--dataset", str(ds_path),
-            "--samples", "10",
-        ], expect_success=False)
+        result = _invoke(
+            runner,
+            [
+                "-m",
+                "Intel/bert-base-uncased-mrpc",
+                "--task",
+                "text-classification",
+                "--dataset-script",
+                str(tiny_textcls_script),
+                "--dataset",
+                str(ds_path),
+                "--samples",
+                "10",
+            ],
+            expect_success=False,
+        )
         assert result.exit_code != 0
         assert "trust-remote-code" in result.output.lower(), result.output
 
     def test_compare_mode_image_classification(
-        self, runner: CliRunner, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
     ) -> None:
+        require_not_ep("migraphx")
         # --mode compare runs the ONNX candidate and the HF PyTorch reference
         # on the same random inputs and reports per-output tensor-parity
         # metrics in display-ready flat shape:
@@ -790,14 +1050,23 @@ class TestEvalAdditionalOptions:
         # over 5 metrics (sqnr_db, psnr_db, cosine_similarity, mse,
         # max_abs_diff) x 4 stats (mean, std, min, max) = 20 top-level keys.
         out = tmp_path / "result.json"
-        _invoke(runner, [
-            "--mode", "compare",
-            "-m", "microsoft/resnet-50",
-            "--task", "image-classification",
-            "--precision", "fp16",
-            "--samples", SAMPLES,
-            "-o", str(out),
-        ])
+        _invoke(
+            runner,
+            [
+                "--mode",
+                "compare",
+                "-m",
+                "microsoft/resnet-50",
+                "--task",
+                "image-classification",
+                "--precision",
+                "fp16",
+                "--samples",
+                SAMPLES,
+                "-o",
+                str(out),
+            ],
+        )
         assert out.exists(), f"output file not created: {out}"
         data = json.loads(out.read_text())
         metrics = data.get("metrics", {})
@@ -816,9 +1085,7 @@ class TestEvalAdditionalOptions:
         per_output_names: set[str] | None = None
         for key in expected_keys:
             row = metrics[key]
-            assert isinstance(row, dict) and row, (
-                f"metrics[{key!r}] not a non-empty dict: {row!r}"
-            )
+            assert isinstance(row, dict) and row, f"metrics[{key!r}] not a non-empty dict: {row!r}"
             assert all(isinstance(v, (int, float)) for v in row.values()), (
                 f"non-numeric value in metrics[{key!r}]: {row!r}"
             )
@@ -847,8 +1114,7 @@ class TestEvalAdditionalOptions:
         threshold = 0.95 if is_host("qnn") else 0.5
         for output_name, value in cos_mean.items():
             assert value >= threshold, (
-                f"cosine_similarity_mean[{output_name}]={value} "
-                f"below {threshold} sanity floor"
+                f"cosine_similarity_mean[{output_name}]={value} below {threshold} sanity floor"
             )
 
 
@@ -859,45 +1125,76 @@ class TestEvalAdditionalOptions:
 
 class TestEvalErrorPaths:
     def test_bad_column_format(
-        self, runner: CliRunner, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
     ) -> None:
-        result = _invoke(runner, [
-            "-m", "Intel/bert-base-uncased-mrpc",
-            "--task", "text-classification",
-            "--column", "foo",  # missing '='
-            "--samples", "1",
-        ], expect_success=False)
+        result = _invoke(
+            runner,
+            [
+                "-m",
+                "Intel/bert-base-uncased-mrpc",
+                "--task",
+                "text-classification",
+                "--column",
+                "foo",  # missing '='
+                "--samples",
+                "1",
+            ],
+            expect_success=False,
+        )
         assert result.exit_code != 0
         assert "key=value" in result.output.lower() or "invalid" in result.output.lower(), (
             result.output
         )
 
     def test_missing_label_mapping_file(
-        self, runner: CliRunner, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
     ) -> None:
         missing = tmp_path / "does-not-exist.json"
-        result = _invoke(runner, [
-            "-m", "Intel/bert-base-uncased-mrpc",
-            "--task", "text-classification",
-            "--label-mapping", str(missing),
-            "--samples", "1",
-        ], expect_success=False)
+        result = _invoke(
+            runner,
+            [
+                "-m",
+                "Intel/bert-base-uncased-mrpc",
+                "--task",
+                "text-classification",
+                "--label-mapping",
+                str(missing),
+                "--samples",
+                "1",
+            ],
+            expect_success=False,
+        )
         assert result.exit_code != 0
         out_lower = result.output.lower()
-        assert ("does not exist" in out_lower
-                or "not found" in out_lower
-                or "no such file" in out_lower), result.output
+        assert (
+            "does not exist" in out_lower or "not found" in out_lower or "no such file" in out_lower
+        ), result.output
 
     def test_bogus_dataset_name(
-        self, runner: CliRunner, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
     ) -> None:
-        result = _invoke(runner, [
-            "-m", "Intel/bert-base-uncased-mrpc",
-            "--task", "text-classification",
-            "--dataset", "nyu-mll/glue",
-            "--dataset-name", "not_a_real_glue_config",
-            "--samples", "1",
-        ], expect_success=False)
+        result = _invoke(
+            runner,
+            [
+                "-m",
+                "Intel/bert-base-uncased-mrpc",
+                "--task",
+                "text-classification",
+                "--dataset",
+                "nyu-mll/glue",
+                "--dataset-name",
+                "not_a_real_glue_config",
+                "--samples",
+                "1",
+            ],
+            expect_success=False,
+        )
         assert result.exit_code != 0
         # Loose: exact wording depends on datasets lib version
         assert "config" in result.output.lower() or "not_a_real_glue_config" in result.output, (
@@ -913,18 +1210,23 @@ class TestEvalErrorPaths:
     def test_schema_bogus_task(self, runner: CliRunner) -> None:
         # get_evaluator_class ValueError wrapped as UsageError.
         result = _invoke(
-            runner, ["--schema", "--task", "not-a-real-task"],
+            runner,
+            ["--schema", "--task", "not-a-real-task"],
             expect_success=False,
         )
         assert result.exit_code != 0
         out_lower = result.output.lower()
-        assert ("not-a-real-task" in out_lower
-                or "unknown" in out_lower
-                or "unsupported" in out_lower
-                or "invalid" in out_lower), result.output
+        assert (
+            "not-a-real-task" in out_lower
+            or "unknown" in out_lower
+            or "unsupported" in out_lower
+            or "invalid" in out_lower
+        ), result.output
 
     def test_onnx_file_without_model_id(
-        self, runner: CliRunner, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
     ) -> None:
         # Needs a real .onnx file path that exists; reuse warmed cache.
         hf_id = "google/vit-base-patch16-224"
@@ -935,10 +1237,17 @@ class TestEvalErrorPaths:
         onnx_files = list(cache_dir.glob("*_model.onnx"))
         assert onnx_files
 
-        result = _invoke(runner, [
-            "-m", str(onnx_files[0]),
-            "--task", task,
-            "--samples", "1",
-        ], expect_success=False)
+        result = _invoke(
+            runner,
+            [
+                "-m",
+                str(onnx_files[0]),
+                "--task",
+                task,
+                "--samples",
+                "1",
+            ],
+            expect_success=False,
+        )
         assert result.exit_code != 0
         assert "model-id" in result.output.lower(), result.output

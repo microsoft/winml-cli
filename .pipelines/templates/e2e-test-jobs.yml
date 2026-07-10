@@ -17,8 +17,8 @@ parameters:
   - name: agentSuffix
     type: string
   # See catalog in `eval-report-jobs.yml`. Valid names:
-  #   qnn_npu, qnn_gpu, vitisai_npu, dml_gpu,
-  #   mlas_cpu, ov_cpu, ov_gpu, ov_npu
+  #   qnn_npu, qnn_gpu, vitisai_npu, migraphx_gpu, dml_gpu,
+  #   mlas_cpu, ov_cpu, ov_gpu, ov_npu, trtrtx_gpu
   - name: pairNames
     type: object
   # Inline list of models to test. Each entry: { hf_id: <str>, task: <str> }.
@@ -63,6 +63,44 @@ jobs:
         fetchDepth: 1
         lfs: true
         path: artifacts
+        # Keep the GitHub auth token in the repo's git config so the runtime
+        # step below can fetch/checkout the matching release branch.
+        persistCredentials: true
+
+      # The ModelKitArtifacts resource is pinned to `main` (a repository
+      # resource `ref` cannot be conditionally chosen from the running branch).
+      # When this pipeline runs on a release/* branch, switch the already
+      # checked-out artifacts repo to the same-named release branch so its
+      # content matches the modelkit release. Fall back to main (with a
+      # warning) when no such branch exists — e.g. feature/ad-hoc branches.
+      - powershell: |
+          $srcBranch = "$(Build.SourceBranch)"
+          if ($srcBranch -notlike 'refs/heads/release/*') {
+            Write-Host "Source branch '$srcBranch' is not a release branch; using ModelKitArtifacts@main."
+            exit 0
+          }
+          $relBranch = $srcBranch -replace '^refs/heads/', ''
+          $repoDir = "$(Agent.BuildDirectory)/artifacts"
+          if (-not (Test-Path "$repoDir/.git")) {
+            $repoDir = "$(Agent.BuildDirectory)/ModelKitArtifacts"
+          }
+          Push-Location $repoDir
+          try {
+            Write-Host "Fetching ModelKitArtifacts branch '$relBranch'..."
+            git fetch --depth 1 origin "${relBranch}:${relBranch}"
+            if ($LASTEXITCODE -ne 0) {
+              Write-Warning "ModelKitArtifacts has no branch '$relBranch' (or fetch failed); staying on main."
+              exit 0
+            }
+            git checkout $relBranch
+            if ($LASTEXITCODE -ne 0) { Write-Error "Failed to checkout ModelKitArtifacts '$relBranch'."; exit 1 }
+            git lfs pull
+            if ($LASTEXITCODE -ne 0) { Write-Error "git lfs pull failed for ModelKitArtifacts '$relBranch'."; exit 1 }
+            Write-Host "Switched ModelKitArtifacts to '$relBranch'."
+          } finally {
+            Pop-Location
+          }
+        displayName: 'Align ModelKitArtifacts with release branch'
 
       - powershell: |
           Write-Host "Agent.BuildDirectory : $(Agent.BuildDirectory)"
@@ -140,14 +178,16 @@ jobs:
               - ${{ each pairName in parameters.pairNames }}:
                   - powershell: |
                       $catalog = @{
-                          'qnn_npu'     = @{ ep = 'qnn';      device = 'npu'; displayName = 'QNN NPU' }
-                          'qnn_gpu'     = @{ ep = 'qnn';      device = 'gpu'; displayName = 'QNN GPU' }
-                          'vitisai_npu' = @{ ep = 'vitisai';  device = 'npu'; displayName = 'VitisAI NPU' }
-                          'dml_gpu'     = @{ ep = 'dml';      device = 'gpu'; displayName = 'DML GPU' }
-                          'mlas_cpu'    = @{ ep = 'cpu';      device = 'cpu'; displayName = 'MLAS CPU' }
-                          'ov_cpu'      = @{ ep = 'openvino'; device = 'cpu'; displayName = 'OV CPU' }
-                          'ov_gpu'      = @{ ep = 'openvino'; device = 'gpu'; displayName = 'OV GPU' }
-                          'ov_npu'      = @{ ep = 'openvino'; device = 'npu'; displayName = 'OV NPU' }
+                          'qnn_npu'      = @{ ep = 'qnn';             device = 'npu'; displayName = 'QNN NPU' }
+                          'qnn_gpu'      = @{ ep = 'qnn';             device = 'gpu'; displayName = 'QNN GPU' }
+                          'vitisai_npu'  = @{ ep = 'vitisai';         device = 'npu'; displayName = 'VitisAI NPU' }
+                          'migraphx_gpu' = @{ ep = 'migraphx';        device = 'gpu'; displayName = 'MIGraphX GPU' }
+                          'dml_gpu'      = @{ ep = 'dml';             device = 'gpu'; displayName = 'DML GPU' }
+                          'mlas_cpu'     = @{ ep = 'cpu';             device = 'cpu'; displayName = 'MLAS CPU' }
+                          'ov_cpu'       = @{ ep = 'openvino';        device = 'cpu'; displayName = 'OV CPU' }
+                          'ov_gpu'       = @{ ep = 'openvino';        device = 'gpu'; displayName = 'OV GPU' }
+                          'ov_npu'       = @{ ep = 'openvino';        device = 'npu'; displayName = 'OV NPU' }
+                          'trtrtx_gpu'   = @{ ep = 'nv_tensorrt_rtx'; device = 'gpu'; displayName = 'TensorRT-RTX GPU' }
                       }
                       $name = '${{ pairName }}'
                       if (-not $catalog.ContainsKey($name)) {

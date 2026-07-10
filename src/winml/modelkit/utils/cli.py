@@ -7,6 +7,10 @@
 from __future__ import annotations
 
 import json
+import os
+import re
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
@@ -27,6 +31,136 @@ F = TypeVar("F", bound="Callable[..., Any]")
 
 # Allowed values for ``--format`` / ``-f``.
 OutputFormat: TypeAlias = Literal["text", "json", "table", "compact"]
+
+
+class ModelInputKind(Enum):
+    """Back-compat kind enum for CLI call sites.
+
+    Canonical classifier values now live in ``utils.model_input`` as string
+    literals. Command modules still compare against enum members, so this enum
+    preserves the old API surface while delegating classification to the
+    canonical implementation.
+    """
+
+    ONNX_FILE = "local_onnx"
+    FOLDER = "build_dir"
+    HUB_ONNX = "hub_onnx"
+    HF_ID = "hf_id"
+    INVALID = "invalid"
+
+
+@dataclass(frozen=True)
+class ModelInput:
+    """Back-compat model-input classification result used by CLI commands/tests."""
+
+    kind: ModelInputKind
+    raw: str
+    local_path: str | None = None
+    hf_id: str | None = None
+    is_hf_folder: bool = False
+    folder_has_onnx: bool = False
+    is_winml_cli_folder: bool = False
+
+
+def classify_model_input(value: str) -> ModelInput:
+    """Classify CLI model input with legacy semantics and error messages.
+
+    Returns a back-compat ``ModelInput`` object and raises ``click.UsageError``
+    for invalid/missing local-path-like values.
+    """
+    if value is None or not str(value).strip():
+        raise click.UsageError("Model input cannot be empty.")
+
+    raw = value
+    path = Path(value).expanduser()
+
+    if path.exists():
+        if path.is_file():
+            if path.suffix.lower() != ".onnx":
+                raise click.UsageError(
+                    f"Unsupported model file: '{value}'. Only .onnx files are supported."
+                )
+            return ModelInput(
+                kind=ModelInputKind.ONNX_FILE,
+                raw=raw,
+                local_path=str(path),
+            )
+
+        if path.is_dir():
+            onnx_files = list(path.glob("*.onnx"))
+            manifest_files = list(path.glob("build_manifest.json")) + list(
+                path.glob("*_build_manifest.json")
+            )
+            has_onnx = bool(onnx_files)
+            is_hf_folder = (path / "config.json").exists()
+            is_winml_folder = has_onnx and bool(manifest_files)
+            return ModelInput(
+                kind=ModelInputKind.FOLDER,
+                raw=raw,
+                local_path=str(path),
+                is_hf_folder=is_hf_folder,
+                folder_has_onnx=has_onnx,
+                is_winml_cli_folder=is_winml_folder,
+            )
+
+    if value.lower().endswith(".onnx"):
+        raise click.UsageError(f"ONNX file not found: {value}")
+
+    if (
+        value.startswith(("./", "../", "/", "~"))
+        or "\\" in value
+        or re.match(r"^[A-Za-z]:[\\/]", value)
+        or value.count("/") >= 2
+    ):
+        raise click.UsageError(f"Model path does not exist: {value}")
+
+    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)?$", value):
+        raise click.UsageError(
+            f"'{value}' is not a valid HuggingFace model identifier "
+            "(expected 'name' or 'org/name')."
+        )
+
+    return ModelInput(kind=ModelInputKind.HF_ID, raw=raw, hf_id=value)
+
+
+class ModelLoadError(click.ClickException):
+    """Exit code 3: model could not be loaded onto the device/EP.
+
+    Use for failures loading a model onto a device/EP, missing accelerators,
+    or session creation that fails for hardware reasons. The message is printed
+    verbatim to stderr (no ``Error:`` prefix) so callers control the wording.
+    """
+
+    exit_code = 3
+
+    def show(self, file: Any = None) -> None:
+        """Print the message verbatim to stderr (no ``Error:`` prefix)."""
+        click.echo(self.format_message(), err=True)
+
+
+class InferenceError(click.ClickException):
+    """Exit code 4: inference/prediction failed at runtime.
+
+    Use for prediction failures after the model loaded successfully. The
+    message is printed verbatim to stderr (no ``Error:`` prefix).
+    """
+
+    exit_code = 4
+
+    def show(self, file: Any = None) -> None:
+        """Print the message verbatim to stderr (no ``Error:`` prefix)."""
+        click.echo(self.format_message(), err=True)
+
+
+class PartialSupportError(click.exceptions.Exit):
+    """Exit code 1: a valid negative result, not an error.
+
+    Raised silently (no ``Error:`` prefix) so commands can signal an
+    actionable-but-non-fatal outcome (e.g. analyze: model not fully supported).
+    """
+
+    def __init__(self) -> None:
+        super().__init__(1)
 
 
 # Shared stderr console for security/diagnostic messages emitted from utils.
@@ -63,45 +197,126 @@ def warn_trust_remote_code() -> None:
     )
 
 
-def model_path_option(required: bool = True) -> Callable[[F], F]:
-    """Add --model option that accepts a local ONNX file path.
+def warn_ignored_calibration_options(
+    ctx: click.Context, reason: str, *, console: Console | None = None
+) -> None:
+    """Warn if the user passed calibration-related CLI options that are ignored.
 
-    The path is validated for existence on disk.
+    Checks whether ``--samples``, ``--method``, ``--weight-type``, or
+    ``--activation-type`` were explicitly provided on the command line and
+    emits a yellow warning listing the ignored options.
 
     Args:
-        required: Whether the model option is required (default: True)
+        ctx: Click context (used to detect explicitly-provided params).
+        reason: Human-readable explanation (e.g., "FP16 does not use
+            calibration data.").
+        console: Optional Rich console for output. Defaults to stderr.
+    """
+    ignored = []
+    if is_cli_provided(ctx, "samples"):
+        ignored.append("--samples")
+    if is_cli_provided(ctx, "method"):
+        ignored.append("--method")
+    if is_cli_provided(ctx, "weight_type"):
+        ignored.append("--weight-type")
+    if is_cli_provided(ctx, "activation_type"):
+        ignored.append("--activation-type")
+    if ignored:
+        out = console or _stderr_console
+        out.print(f"[yellow]Warning:[/yellow] {', '.join(ignored)} ignored — {reason}")
+
+
+def model_path_option(
+    required: bool = True,
+    multiple: bool = False,
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add ``-m/--model`` option that accepts a local ONNX file path.
+
+    The path is validated for existence on disk and delivered as a
+    :class:`pathlib.Path`. Shared by the ONNX-only commands (``analyze``,
+    ``compile``, ``optimize``, ``quantize``) so the flag spelling, ``Path``
+    type, and existence check stay identical. The decorated function receives
+    the value as the ``model`` parameter (a tuple when ``multiple=True``).
+
+    Args:
+        required: Whether the model option is required (default: True).
+        multiple: Accept the flag repeatably; the value becomes a tuple
+            (default: False).
+        help_text: Override for the help string (default: a generic
+            ONNX-file description).
 
     Returns:
-        Decorator function
+        Decorator function.
     """
     return click.option(
         "--model",
         "-m",
         required=required,
+        multiple=multiple,
         type=click.Path(exists=True, path_type=Path),
-        help="Path to ONNX model file to analyze",
+        help=help_text or "Path to ONNX model file to analyze",
     )
 
 
-def model_option(required: bool = True, optional_message: str | None = None) -> Callable[[F], F]:
-    """Add --model option that accepts any model reference.
+def model_option(
+    required: bool = True,
+    optional_message: str | None = None,
+    multiple: bool = False,
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add ``-m/--model`` option that accepts any model reference.
 
     Accepts a HuggingFace model ID, build output directory, or .onnx file path.
-    No path existence validation is performed.
+    No path existence validation is performed. Shared by the flexible-input
+    commands (``build``, ``config``, ``eval``, ``export``, ``inspect``,
+    ``perf``, ``run``, ``serve``) so the flag spelling stays identical. The
+    decorated function receives the value as the ``model`` parameter (a tuple
+    when ``multiple=True``).
 
     Args:
-        required: Whether the model option is required (default: True)
+        required: Whether the model option is required (default: True).
+        optional_message: Command-specific note appended after the help text.
+        multiple: Accept the flag repeatably; the value becomes a tuple
+            (default: False).
+        help_text: Override for the base help string. Commands whose accepted
+            inputs are narrower (e.g. ``inspect`` takes only an HF ID) supply
+            their own; ``optional_message`` is still appended to it.
 
     Returns:
-        Decorator function
+        Decorator function.
     """
-    help = "Model: HF model ID, build output directory, or .onnx file path"
+    help = help_text or "Model: HF model ID, build output directory, or .onnx file path"
     if optional_message:
         help = f"{help}. {optional_message}"
+    # ``multiple`` options default to an empty tuple; single-valued ones to None.
+    kwargs: dict[str, Any] = {"multiple": True} if multiple else {"default": None}
     return click.option(
         "--model",
         "-m",
         required=required,
+        help=help,
+        **kwargs,
+    )
+
+
+def model_id_option(help_text: str | None = None) -> Callable[[F], F]:
+    """Add ``--model-id`` option for a HuggingFace model ID.
+
+    Shared by commands (e.g. ``quantize`` and ``eval``) that take an ONNX model
+    path via ``-m/--model`` and need a separate HuggingFace model ID, for example
+    to resolve the matching preprocessor/tokenizer or calibration datasets.
+
+    Args:
+        help_text: Optional override for the help string.
+
+    Returns:
+        Decorator function.
+    """
+    help = help_text or "HuggingFace model ID (e.g., 'microsoft/resnet-50')."
+    return click.option(
+        "--model-id",
+        type=str,
         default=None,
         help=help,
     )
@@ -125,6 +340,76 @@ def output_option(help_text: str, required: bool = False) -> Callable[[F], F]:
     else:
         kwargs["default"] = None
     return click.option("--output", "-o", **kwargs)
+
+
+def overwrite_option(optional_message: str | None = None) -> Callable[[F], F]:
+    """Add the shared ``--overwrite/--no-overwrite`` toggle (default: no-overwrite).
+
+    Output-producing commands default to *not* clobbering an existing output so
+    a re-run can't silently destroy a previous result. Pair this with
+    :func:`guard_output`, which performs the actual existence check. The
+    decorated function receives the value as the ``overwrite`` parameter.
+
+    Args:
+        optional_message: Command-specific note appended after the help text.
+
+    Returns:
+        Decorator function.
+    """
+    help_text = "Overwrite an existing output instead of erroring out"
+    if optional_message:
+        help_text = f"{help_text}. {optional_message}"
+    return click.option(
+        "--overwrite/--no-overwrite",
+        "overwrite",
+        default=False,
+        show_default=True,
+        help=help_text,
+    )
+
+
+def guard_output(
+    path: str | Path | None,
+    overwrite: bool,
+    *,
+    label: str = "Output",
+) -> None:
+    """Fail fast when an output path already exists and ``--overwrite`` was not set.
+
+    Shared safety check for every output-producing command so a re-run can't
+    silently clobber a previous result. Call this *before* any ``mkdir`` /
+    cleanup / work, with the fully resolved output path (including defaulted
+    paths like ``{stem}_qdq.onnx``). A ``None`` path (e.g. output goes to
+    stdout) is a no-op.
+
+    Files block when they exist. Directories block only when they exist *and*
+    are non-empty, so a freshly-created or empty output directory does not
+    false-trigger.
+
+    Args:
+        path: Resolved output file or directory path, or ``None``.
+        overwrite: When ``True``, the check is skipped (user opted in).
+        label: Human-readable noun for the error message (e.g. ``"Output dir"``).
+
+    Raises:
+        click.ClickException: If the path exists (non-empty, for directories)
+            and ``overwrite`` is ``False``.
+    """
+    if path is None or overwrite:
+        return
+    resolved = Path(path)
+    if not resolved.exists():
+        return
+    if resolved.is_dir():
+        if any(resolved.iterdir()):
+            raise click.ClickException(
+                f"{label} directory '{resolved}' already exists and is not empty. "
+                "Re-run with --overwrite to replace its contents."
+            )
+        return
+    raise click.ClickException(
+        f"{label} '{resolved}' already exists. Re-run with --overwrite to replace it."
+    )
 
 
 def format_option(
@@ -155,7 +440,13 @@ def format_option(
     )
 
 
-def ep_option(required: bool = True, optional_message: str | None = None) -> Callable[[F], F]:
+def ep_option(
+    required: bool = True,
+    optional_message: str | None = None,
+    default: str | None = None,
+    include_auto: bool = False,
+    include_all: bool = False,
+) -> Callable[[F], F]:
     """Add --ep (execution provider) option to a Click command.
 
     Args:
@@ -163,6 +454,11 @@ def ep_option(required: bool = True, optional_message: str | None = None) -> Cal
         optional_message: Message to append to help text when
             optional (e.g., "If not specified, analyzes all
             supported EPs.")
+        default: Default value when optional (default: None)
+        include_auto: Whether to include "auto" as a valid choice
+            (default: False).
+        include_all: Whether to include "all" as a valid choice
+            (default: False).
 
     Returns:
         Decorator function
@@ -176,13 +472,16 @@ def ep_option(required: bool = True, optional_message: str | None = None) -> Cal
         help_text = f"{help_text}. {optional_message}"
 
     ep_choices = [name for name in ALL_EP_NAMES if name not in ("cuda", "CUDAExecutionProvider")]
+    choices = ["auto", *ep_choices] if include_auto else ep_choices
+    choices = ["all", *choices] if include_all else choices
 
     return click.option(
         "--ep",
         "--execution-provider",
         required=required,
-        default=None,
-        type=click.Choice(ep_choices, case_sensitive=False),
+        default=default if not required else None,
+        show_default=True,
+        type=click.Choice(choices, case_sensitive=False),
         help=help_text,
     )
 
@@ -262,6 +561,8 @@ def device_option(
     optional_message: str | None = None,
     default: str | None = "NPU",
     include_auto: bool = False,
+    include_all: bool = False,
+    include_config: bool = False,
 ) -> Callable[[F], F]:
     """Add --device option to a Click command.
 
@@ -273,12 +574,19 @@ def device_option(
         default: Default value when optional (default: "NPU")
         include_auto: Whether to include "auto" as a valid choice
             (default: False).
+        include_all: Whether to include "all" as a valid choice
+            (default: False).
+        include_config: Whether to include "config" as a valid choice
+            (default: False). Used by ``perf`` for the winml-genai sentinel
+            meaning "respect the bundle's genai_config.json routing".
 
     Returns:
         Decorator function
     """
     device_choices = [device.lower() for device in SUPPORTED_DEVICES]
     choices = ["auto", *device_choices] if include_auto else device_choices
+    choices = ["config", *choices] if include_config else choices
+    choices = ["all", *choices] if include_all else choices
     help_text = f"Target device type ({', '.join(choices)})"
     if optional_message:
         help_text = f"{help_text}. {optional_message}"
@@ -291,6 +599,62 @@ def device_option(
         show_default=True,
         type=click.Choice(choices, case_sensitive=False),
         help=help_text,
+    )
+
+
+def precision_option(
+    default: str | tuple[str, ...] | None = "auto",
+    optional_message: str | None = None,
+    include_short: bool = True,
+    help_text: str | None = None,
+    multiple: bool = False,
+) -> Callable[[F], F]:
+    """Add --precision option to a Click command.
+
+    Shared across ``build``, ``config``, ``eval``, ``perf``, and ``quantize`` so
+    the flag spelling (``-p``/``--precision``) and parsing stay consistent. Uses
+    ``type=str`` (not ``click.Choice``) so the ``w{x}a{y}`` mixed-precision
+    format (e.g. ``w8a16``) is accepted; invalid values are rejected downstream
+    (``resolve_precision`` for build-path commands, ``_resolve_quant_types`` for
+    ``quantize``).
+
+    Args:
+        default: Default precision value (default: "auto"). Pass ``None`` for
+            commands like ``quantize`` that treat "no precision" distinctly.
+        optional_message: Command-specific note appended after the help text
+            (e.g., "Ignored for pre-built ONNX inputs.").
+        include_short: Whether to also register the ``-p`` short alias
+            (default: True).
+        help_text: Override for the base help text. Commands whose accepted
+            values differ from the default float+int set (e.g. ``quantize``,
+            which has no fp16/fp32) supply their own; ``optional_message`` is
+            still appended to it.
+        multiple: Allow the flag to be specified multiple times to compose a
+            pass pipeline (e.g. ``-p int4 -p fp16``). When True the parameter
+            receives a ``tuple[str, ...]`` and ``default`` should be ``()``
+            (default: False).
+
+    Returns:
+        Decorator function.
+    """
+    base_help = help_text or (
+        "Precision: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16). "
+        "auto resolves from --device (npu->w8a16, gpu/cpu->fp16); "
+        "fp16/fp32 skip quantization"
+    )
+    if optional_message:
+        base_help = f"{base_help}. {optional_message}"
+
+    param_decls = ["--precision", "precision"]
+    if include_short:
+        param_decls.insert(0, "-p")
+    return click.option(
+        *param_decls,
+        type=str,
+        default=default,
+        multiple=multiple,
+        show_default=not multiple,
+        help=base_help,
     )
 
 
@@ -323,6 +687,34 @@ def verbosity_options() -> Callable[[F], F]:
         )(f)
 
     return decorator
+
+
+def no_color_option() -> Callable[[F], F]:
+    """Add a ``--no-color`` flag that disables colored output.
+
+    Rich honors the ``NO_COLOR`` environment variable for every Console, so the
+    flag's callback just sets ``NO_COLOR=1`` for the remainder of the run — this
+    covers all consoles regardless of how they are constructed and matches the
+    existing ``NO_COLOR=1`` / ``CI=true`` environment behavior. The change lives
+    only in the current process, so the next invocation is colored again.
+
+    Returns:
+        Decorator function adding the ``--no-color`` flag (no exposed param).
+    """
+
+    def _disable_color(ctx: click.Context, param: click.Parameter, value: bool) -> bool:
+        if value:
+            os.environ["NO_COLOR"] = "1"
+        return value
+
+    return click.option(
+        "--no-color",
+        is_flag=True,
+        default=False,
+        expose_value=False,
+        callback=_disable_color,
+        help="Disable colored output (also via NO_COLOR=1 or CI=true).",
+    )
 
 
 def resolve_verbosity(ctx: click.Context, verbose: int, quiet: bool) -> tuple[int, bool]:
@@ -472,6 +864,208 @@ def compile_option(
     )
 
 
+def quant_option(
+    default: bool = True,
+    optional_message: str | None = None,
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add the shared ``--quant/--no-quant`` quantization toggle.
+
+    Shared across ``build``, ``config``, ``perf``, and ``eval`` so the flag
+    spelling and default stay consistent. ``--quantize/--no-quantize`` is kept
+    as an alias so existing ``perf`` invocations keep working. The decorated
+    function receives the value as the ``quant`` parameter (``True`` = run
+    quantization, ``--no-quant`` overrides the config's quant section).
+
+    Args:
+        default: Default value (default: True = quantize).
+        optional_message: Command-specific note appended after the help text.
+        help_text: Override for the base help text. ``config`` phrases it in
+            terms of the emitted config section; ``optional_message`` is still
+            appended to it.
+
+    Returns:
+        Decorator function.
+    """
+    base_help = help_text or "Enable quantization (use --no-quant to skip, overrides config)"
+    if optional_message:
+        base_help = f"{base_help}. {optional_message}"
+    return click.option(
+        "--quant/--no-quant",
+        "--quantize/--no-quantize",
+        "quant",
+        default=default,
+        show_default=True,
+        help=base_help,
+    )
+
+
+def optimize_option(
+    default: bool = True,
+    optional_message: str | None = None,
+) -> Callable[[F], F]:
+    """Add the shared ``--optimize/--no-optimize`` toggle.
+
+    Controls whether the build pipeline runs graph optimization. The decorated
+    function receives the value as the ``optimize`` parameter; ``--no-optimize``
+    maps to ``skip_optimize=True`` downstream (see
+    :func:`build_pipeline_extra_kwargs`).
+
+    Args:
+        default: Default value (default: True = optimize).
+        optional_message: Command-specific note appended after the help text.
+
+    Returns:
+        Decorator function.
+    """
+    base_help = "Run optimization (use --no-optimize to skip for pre-quantized ONNX models)"
+    if optional_message:
+        base_help = f"{base_help}. {optional_message}"
+    return click.option(
+        "--optimize/--no-optimize",
+        "optimize",
+        default=default,
+        show_default=True,
+        help=base_help,
+    )
+
+
+def analyze_option(
+    default: bool = True,
+    optional_message: str | None = None,
+) -> Callable[[F], F]:
+    """Add the shared ``--analyze/--no-analyze`` toggle.
+
+    Controls whether the build runs the autoconf analyzer loop. The decorated
+    function receives the value as the ``analyze`` parameter; ``--no-analyze``
+    forces ``max_optim_iterations`` to 0 (see
+    :func:`build_pipeline_extra_kwargs`).
+
+    Args:
+        default: Default value (default: True = analyze).
+        optional_message: Command-specific note appended after the help text.
+
+    Returns:
+        Decorator function.
+    """
+    base_help = "Run analyzer loop during build (use --no-analyze to skip)"
+    if optional_message:
+        base_help = f"{base_help}. {optional_message}"
+    return click.option(
+        "--analyze/--no-analyze",
+        "analyze",
+        default=default,
+        show_default=True,
+        help=base_help,
+    )
+
+
+def max_optim_iterations_option(optional_message: str | None = None) -> Callable[[F], F]:
+    """Add the shared ``--max-optim-iterations`` option.
+
+    The decorated function receives the value as the ``max_optim_iterations``
+    parameter (``None`` = use the pipeline default of 3). ``--no-analyze`` wins
+    over an explicit value (see :func:`build_pipeline_extra_kwargs`).
+
+    Args:
+        optional_message: Command-specific note appended to the help text.
+
+    Returns:
+        Decorator function.
+    """
+    base_help = "Maximum autoconf re-optimization rounds (default: 3). --no-analyze sets this to 0"
+    if optional_message:
+        base_help = f"{base_help}. {optional_message}"
+    return click.option(
+        "--max-optim-iterations",
+        "max_optim_iterations",
+        type=int,
+        default=None,
+        help=base_help,
+    )
+
+
+def build_pipeline_extra_kwargs(
+    *,
+    optimize: bool = True,
+    analyze: bool = True,
+    max_optim_iterations: int | None = None,
+) -> dict[str, Any]:
+    """Translate the shared optimize/analyze/max-optim flags into build kwargs.
+
+    Centralizes the mapping shared by ``build``, ``perf``, and ``eval`` so the
+    semantics stay identical:
+
+    * ``--no-optimize`` -> ``skip_optimize=True``
+    * ``--no-analyze``  -> ``hack_max_optim_iterations=0``
+    * ``--max-optim-iterations N`` -> ``hack_max_optim_iterations=N`` (only when
+      analysis is enabled; ``--no-analyze`` takes precedence).
+
+    Keys are omitted when they would carry the pipeline default, so callers can
+    splat the result unconditionally onto ``build_hf_model`` /
+    ``build_onnx_model`` (or ``WinMLAutoModel``, which forwards them).
+
+    Returns:
+        Mapping of build-control kwargs.
+    """
+    extra: dict[str, Any] = {}
+    if not optimize:
+        extra["skip_optimize"] = True
+    if not analyze:
+        extra["hack_max_optim_iterations"] = 0
+    elif max_optim_iterations is not None:
+        extra["hack_max_optim_iterations"] = max_optim_iterations
+    return extra
+
+
+def ignored_build_flags_warning(
+    *,
+    skip_build_onnx: bool,
+    quant: bool = True,
+    optimize: bool = True,
+    analyze: bool = True,
+    max_optim_iterations: int | None = None,
+) -> str | None:
+    """Build a warning for build-pipeline flags that are no-ops on a pre-built ONNX.
+
+    Commands that accept a pre-built ``.onnx`` input (``eval``, ``perf``) forward
+    ``--no-quant``/``--no-optimize``/``--no-analyze``/``--max-optim-iterations`` to
+    ``from_onnx``, but with ``skip_build`` (the default) no build runs, so those
+    toggles silently take no effect. This returns a message naming the flags the
+    user actually set (or ``None`` when nothing was set or a build will run), so
+    callers can surface it through their own logger/console — mirroring the
+    ``--precision``-ignored warning.
+
+    Args:
+        skip_build_onnx: True when the input is a pre-built ONNX *and* the build
+            is skipped (the precondition under which the flags are no-ops).
+        quant/optimize/analyze: Enabled-semantics toggles (False = user passed
+            the ``--no-*`` form).
+        max_optim_iterations: Explicit value, or ``None`` when left at default.
+
+    Returns:
+        Warning message, or ``None`` if no ignored flags apply.
+    """
+    if not skip_build_onnx:
+        return None
+    ignored = [
+        flag
+        for flag, was_set in (
+            ("--no-quant", not quant),
+            ("--no-optimize", not optimize),
+            ("--no-analyze", not analyze),
+            ("--max-optim-iterations", max_optim_iterations is not None),
+        )
+        if was_set
+    ]
+    if not ignored:
+        return None
+    return (
+        f"{', '.join(ignored)} ignored for pre-built ONNX inputs "
+        "(no build runs; pass --no-skip-build to rebuild)."
+    )
+
+
 def allow_unsupported_nodes_option(optional_message: str | None = None) -> Callable[[F], F]:
     """Add shared --allow-unsupported-nodes option to a Click command.
 
@@ -532,14 +1126,52 @@ def load_build_config(config_path: Path) -> tuple[WinMLBuildConfig, dict]:
     return WinMLBuildConfig.from_dict(data), data
 
 
-def is_onnx_file_path(model_input: str) -> bool:
-    """Check if input is a path to an existing ``.onnx`` file.
+# ---------------------------------------------------------------------------
+# ``-m/--model`` input classification
+# ---------------------------------------------------------------------------
 
-    Shared helper for CLI commands that accept either a HuggingFace model ID
-    or a local ``.onnx`` file path for the ``-m/--model`` option.
+
+def is_onnx_file_path(model_input: str) -> bool:
+    """Return True when *model_input* resolves to a local ONNX file path.
+
+    Thin wrapper kept for backwards-compatible callers; new code should
+    use :func:`~winml.modelkit.utils.model_input.classify_model_input`
+    directly and inspect the returned ``ModelInput.kind``.
     """
-    path = Path(model_input)
-    return path.suffix == ".onnx" and path.exists()
+    return classify_model_input(model_input).kind is ModelInputKind.ONNX_FILE
+
+
+def normalize_model_arg(value: str | None) -> str | None:
+    """Normalize a CLI ``-m/--model`` value to a local path or pass-through.
+
+    Single CLI-layer entry point for resolving Hub-hosted ONNX references
+    (``org/repo/path/file.onnx``) into local cached paths. Every
+    ``winml`` subcommand should call this once on the raw ``-m`` value
+    near the top of its command body, so downstream code (build configs,
+    perf benchmarks, eval sessions, inspect lookups) only ever sees:
+
+    * a local filesystem path (Hub refs are resolved here), or
+    * a HuggingFace model ID (``org/name``, passed through unchanged), or
+    * ``None`` (pass-through).
+
+    Delegates to :func:`~winml.modelkit.utils.model_input.resolve_model_input`,
+    the single unified classifier+resolver. This is the CLI counterpart
+    to library entry points such as :meth:`WinMLSession.load` and
+    :meth:`WinMLAutoModel.from_pretrained`, which call ``resolve_model_input``
+    directly at the programmatic boundary.
+
+    Args:
+        value: Raw ``-m/--model`` value (HF id, local path, Hub ONNX ref, or ``None``).
+
+    Returns:
+        Local ``.onnx`` path string when ``value`` was a Hub ref; the
+        original ``value`` otherwise. ``None`` returns ``None``.
+    """
+    if value is None:
+        return None
+    from .model_input import resolve_model_input
+
+    return resolve_model_input(value).local_path or value
 
 
 def is_cli_provided(ctx: click.Context, param_name: str) -> bool:

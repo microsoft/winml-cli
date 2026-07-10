@@ -12,19 +12,23 @@ from .hub_utils import (
     load_hf_components_from_onnx,
     save_local_model_configs,
 )
-from .optimum_loader import (
-    OptimumONNXModel,
-    load_optimum_model,
+from .model_input import (
+    ModelInput,
+    ModelInputKind,
+    classify_model_input,
+    resolve_model_input,
 )
 
 
 __all__ = [
-    "OptimumONNXModel",
+    "ModelInput",
+    "ModelInputKind",
+    "classify_model_input",
     "inject_hub_metadata",
     "is_hub_model",
     "load_hf_components_from_onnx",
-    "load_optimum_model",
     "merge_config",
     "normalize_ep_name",
+    "resolve_model_input",
     "save_local_model_configs",
 ]

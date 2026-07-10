@@ -7,15 +7,267 @@
 from __future__ import annotations
 
 import logging
-import os
-import time
+import tempfile
+import traceback
 from pathlib import Path
 from typing import Any
 
 from .config import QuantizeResult, WinMLQuantizationConfig
+from .passes import BaseQuantPass, DynamicPass, FP16Pass, RTNPass, StaticPass
 
 
 logger = logging.getLogger(__name__)
+
+# Precision strings that expand to multiple sequential passes.
+_COMPOSITE_PRECISIONS: dict[str, list[str]] = {}
+
+
+def expand_precision(
+    precision: str | None = None,
+    config: WinMLQuantizationConfig | None = None,
+) -> list[BaseQuantPass]:
+    """Expand a precision string into an ordered list of quantization passes.
+
+    All passes share the same ``config`` so every pass can read the fields
+    relevant to it.  When *precision* is omitted, ``config.mode`` is used so
+    that ``expand_precision(config=cfg)`` works as a single-precision
+    convenience.
+
+    Supported values:
+
+    ============= =======================
+    precision     passes
+    ============= =======================
+    ``fp16``      ``[FP16Pass(config)]``
+    ``rtn``       ``[RTNPass(config)]``
+    ``static``    ``[StaticPass(config)]``
+    ``dynamic``   ``[DynamicPass(config)]``
+    ============= =======================
+
+    Args:
+        precision: Precision string (e.g. ``"fp16"``).  When *None*, falls back
+            to ``config.mode`` (or ``"static"`` if *config* is also *None*).
+        config: Shared quantization configuration.  If *None*, a default
+            :class:`WinMLQuantizationConfig` is used.
+
+    Returns:
+        Ordered list of :class:`~winml.modelkit.quant.passes.BaseQuantPass`
+        instances ready to be executed by :class:`Quantizer`.
+
+    Raises:
+        ValueError: If *precision* is not recognised.
+    """
+    config = config or WinMLQuantizationConfig()
+    effective_precision = precision if precision is not None else config.mode
+
+    _pass_types: dict[str, type[BaseQuantPass]] = {
+        "fp16": FP16Pass,
+        "rtn": RTNPass,
+        "static": StaticPass,
+        "dynamic": DynamicPass,
+    }
+
+    if effective_precision in _pass_types:
+        return [_pass_types[effective_precision](config)]
+
+    if effective_precision in _COMPOSITE_PRECISIONS:
+        return [_pass_types[step](config) for step in _COMPOSITE_PRECISIONS[effective_precision]]
+
+    raise ValueError(
+        f"Unknown precision {effective_precision!r}. "
+        f"Valid values: {sorted(_pass_types) + sorted(_COMPOSITE_PRECISIONS)}"
+    )
+
+
+class Quantizer:
+    """Orchestrate a sequential pipeline of quantization passes.
+
+    Each pass receives the output of the previous pass as its input.  For a
+    single-pass pipeline no temporary files are created.  For multi-pass
+    pipelines, intermediate models are written to a ``tempfile.TemporaryDirectory``
+    that is cleaned up automatically on success *or* failure.
+
+    :class:`QuantizeResult` fields are merged across passes:
+
+    - ``success`` — logical AND of all pass results
+    - ``output_path`` — path written by the final pass
+    - Timing fields — summed across passes
+    - ``nodes_quantized`` — summed across passes
+    - ``errors`` / ``warnings`` — concatenated across passes
+
+    Example::
+
+        from winml.modelkit.quant import Quantizer, expand_precision, WinMLQuantizationConfig
+
+        config = WinMLQuantizationConfig(mode="rtn", rtn_bits=4)
+        quantizer = Quantizer(expand_precision("rtn", config))
+        result = quantizer.run("model.onnx", "model_rtn.onnx")
+    """
+
+    def __init__(self, passes: list[BaseQuantPass]) -> None:
+        if not passes:
+            raise ValueError("Quantizer requires at least one pass.")
+        self._passes = passes
+
+    @property
+    def passes(self) -> list[BaseQuantPass]:
+        """Return a copy of the pass list."""
+        return list(self._passes)
+
+    def run(
+        self,
+        model_path: str | Path,
+        output_path: str | Path,
+        *,
+        use_external_data: bool = True,
+    ) -> QuantizeResult:
+        """Run the quantization pipeline.
+
+        Args:
+            model_path: Path to the input ONNX model.
+            output_path: Path for the final output model.
+            use_external_data: Whether to write large tensors as external data.
+
+        Returns:
+            Merged :class:`~winml.modelkit.quant.config.QuantizeResult`.
+        """
+        model_path = Path(model_path)
+        output_path = Path(output_path)
+
+        if not model_path.exists():
+            return QuantizeResult(
+                success=False,
+                output_path=None,
+                errors=[f"Model not found: {model_path}"],
+            )
+
+        if len(self._passes) == 1:
+            return self._run_pass(self._passes[0], model_path, output_path, use_external_data)
+
+        return self._run_multi_pass(model_path, output_path, use_external_data)
+
+    def _run_pass(
+        self,
+        pass_: BaseQuantPass,
+        model_path: Path,
+        output_path: Path,
+        use_external_data: bool,
+    ) -> QuantizeResult:
+        try:
+            return pass_.run(model_path, output_path, use_external_data=use_external_data)
+        except Exception:
+            logger.exception("Pass %s failed", type(pass_).__name__)
+            return QuantizeResult(
+                success=False,
+                output_path=None,
+                errors=[traceback.format_exc()],
+            )
+
+    def _run_multi_pass(
+        self,
+        model_path: Path,
+        output_path: Path,
+        use_external_data: bool,
+    ) -> QuantizeResult:
+        accumulated = QuantizeResult(success=True, output_path=None)
+
+        with tempfile.TemporaryDirectory(prefix="winml_quant_") as tmp_dir:
+            current_input = model_path
+
+            for i, pass_ in enumerate(self._passes):
+                is_last = i == len(self._passes) - 1
+                if is_last:
+                    current_output = output_path
+                else:
+                    current_output = Path(tmp_dir) / f"pass_{i}_{type(pass_).__name__}.onnx"
+
+                logger.info(
+                    "Pass %d/%d: %s  %s -> %s",
+                    i + 1,
+                    len(self._passes),
+                    type(pass_).__name__,
+                    current_input.name,
+                    current_output.name,
+                )
+
+                result = self._run_pass(pass_, current_input, current_output, use_external_data)
+                accumulated = _merge_results(accumulated, result)
+
+                if not result.success:
+                    logger.error("Pass %s failed — aborting pipeline.", type(pass_).__name__)
+                    break
+
+                current_input = current_output
+
+        return accumulated
+
+
+def _merge_results(base: QuantizeResult, new: QuantizeResult) -> QuantizeResult:
+    """Merge two QuantizeResult objects, accumulating stats."""
+    return QuantizeResult(
+        success=base.success and new.success,
+        output_path=new.output_path if new.output_path is not None else base.output_path,
+        calibration_path=new.calibration_path or base.calibration_path,
+        calibration_time_seconds=base.calibration_time_seconds + new.calibration_time_seconds,
+        qdq_insertion_time_seconds=base.qdq_insertion_time_seconds + new.qdq_insertion_time_seconds,
+        postproc_time_seconds=base.postproc_time_seconds + new.postproc_time_seconds,
+        total_time_seconds=base.total_time_seconds + new.total_time_seconds,
+        nodes_quantized=base.nodes_quantized + new.nodes_quantized,
+        nodes_skipped=base.nodes_skipped + new.nodes_skipped,
+        errors=base.errors + new.errors,
+        warnings=base.warnings + new.warnings,
+    )
+
+
+def _check_input_model_opset(model_path: Path) -> str | None:
+    """Return a clear error message if *model_path* is empty/corrupt, else None.
+
+    Mirrors ORT's ``get_opset_version`` requirement: a usable model must declare
+    a default (``""`` / ``ai.onnx``) opset import. A zero-byte or truncated file
+    parses into an (almost) empty ModelProto with no such opset import — the
+    signature of a previous stage that failed to finish writing (most commonly
+    because it ran out of disk space). Detecting it here lets us surface the
+    real cause instead of ORT's opaque "Failed to find proper ai.onnx domain".
+
+    A zero-byte file (the most common disk-full artefact) is caught up front
+    with a cheap ``stat`` so the healthy success path never pays for a full
+    proto parse. The full parse via ``onnx.load_model`` (graph only — no
+    external weights, so it never trips over a missing ``.data`` sidecar) is the
+    fallback for the rarer truncated-but-nonzero case.
+    """
+    from onnx import load_model
+
+    # Fast path: a zero-byte output is the most common disk-full artefact.
+    try:
+        if model_path.stat().st_size == 0:
+            return (
+                f"Input ONNX model is empty (zero bytes): {model_path}. "
+                "A previous build stage may have run out of disk space. "
+                "Free up disk space and rebuild."
+            )
+    except OSError:
+        # stat() failing is unexpected (existence was already checked); fall
+        # through to the full parse, which surfaces a clear error either way.
+        pass
+
+    try:
+        model = load_model(str(model_path), load_external_data=False)
+    except Exception as e:
+        return (
+            f"Input ONNX model could not be parsed: {model_path} ({e}). "
+            "The file may be truncated or corrupt — for example, a previous "
+            "build stage may have run out of disk space. Free up disk space "
+            "and rebuild."
+        )
+
+    has_default_opset = any(opset.domain in ("", "ai.onnx") for opset in model.opset_import)
+    if not has_default_opset:
+        return (
+            f"Input ONNX model is empty or corrupt (no ai.onnx opset import): "
+            f"{model_path}. It may have been truncated by a previous failed "
+            "write (e.g. insufficient disk space). Free up disk space and rebuild."
+        )
+    return None
 
 
 def quantize_onnx(
@@ -24,246 +276,68 @@ def quantize_onnx(
     config: WinMLQuantizationConfig | None = None,
     **kwargs: Any,
 ) -> QuantizeResult:
-    """Quantize ONNX model by inserting QDQ nodes.
+    """Quantize an ONNX model.
+
+    Backward-compatible entry point.  Internally builds a :class:`Quantizer`
+    pipeline from ``config.mode`` via :func:`expand_precision`.
+
+    The quantization mode is driven by ``config.mode``:
+
+    - ``"fp16"`` — FP16 conversion (no quantization)
+    - ``"rtn"`` — RTN weight-only quantization
+    - ``"static"`` — QDQ calibrated quantization (requires calibration data)
+    - ``"dynamic"`` — dynamic quantization (weights static, activations at
+      runtime; no calibration data)
 
     Args:
-        model_path: Path to input float32 ONNX model
-        output_path: Path for output quantized model (defaults to {model_stem}_qdq.onnx)
-        config: Quantization configuration (uses defaults if None)
+        model_path: Path to input ONNX model.
+        output_path: Path for output model (defaults to ``{model_stem}_quantized.onnx``).
+        config: Quantization configuration (uses defaults if *None*).
 
     Returns:
-        QuantizeResult with path to quantized model and metrics
+        :class:`QuantizeResult` with path to final output model and metrics.
 
     Examples:
-        # Quick quantize with defaults (10 samples, uint8)
-        result = quantize_onnx("model.onnx")
-
-        # Quantize with explicit output path
-        result = quantize_onnx("model.onnx", "model_quantized.onnx")
-
-        # Quantize with custom config
-        result = quantize_onnx("model.onnx", config=WinMLQuantizationConfig(samples=100))
+        >>> result = quantize_onnx("model.onnx", config=WinMLQuantizationConfig(mode="rtn"))
+        >>> result = quantize_onnx("model.onnx", config=WinMLQuantizationConfig(mode="fp16"))
     """
-    from onnxruntime.quantization import (
-        CalibrationMethod,
-        QuantType,
-        get_qdq_config,
-        quantize,
-    )
-
-    weight_type_map = {
-        "uint8": QuantType.QUInt8,
-        "int8": QuantType.QInt8,
-        "uint16": QuantType.QUInt16,
-        "int16": QuantType.QInt16,
-    }
-    activation_type_map = {
-        "uint8": QuantType.QUInt8,
-        "int8": QuantType.QInt8,
-        "uint16": QuantType.QUInt16,
-        "int16": QuantType.QInt16,
-    }
-    calibration_method_map = {
-        "minmax": CalibrationMethod.MinMax,
-        "entropy": CalibrationMethod.Entropy,
-        "percentile": CalibrationMethod.Percentile,
-    }
-
-    # TODO: Move to global env config
-    use_external_data: bool = kwargs.pop("use_external_data", True)
-
-    start_time = time.perf_counter()
     model_path = Path(model_path)
     config = config or WinMLQuantizationConfig()
 
-    # Validate input
-    if not model_path.exists():
-        return QuantizeResult(
-            success=False,
-            output_path=None,
-            errors=[f"Model not found: {model_path}"],
-        )
-
-    # Determine output path
     if output_path is not None:
         output_path = Path(output_path)
     else:
-        output_path = model_path.parent / f"{model_path.stem}_qdq.onnx"
+        output_path = model_path.parent / f"{model_path.stem}_quantized.onnx"
 
-    errors: list[str] = []
-    warnings: list[str] = []
+    use_external_data: bool = kwargs.pop("use_external_data", True)
+    if kwargs:
+        raise TypeError(f"quantize_onnx() got unexpected keyword arguments: {sorted(kwargs)}")
 
-    try:
-        # Create calibration data reader
-        cal_start = time.perf_counter()
-
-        if config.calibration_data is not None:
-            # User provided explicit calibration data
-            data_reader = config.calibration_data
-            logger.info("Using custom calibration data")
-        else:
-            # Use DatasetCalibrationReader for all cases:
-            # - task-aware: auto-selects TextDataset, ImageDataset, etc.
-            # - fallback: unsupported tasks → RandomDataset (reads ONNX metadata)
-            # - no task: task="random" → RandomDataset directly
-            from ..datasets import DatasetCalibrationReader
-
-            task = config.task or "random"
-            data_reader = DatasetCalibrationReader(
-                model_name=config.model_name or "random",
-                task=task,
-                max_samples=config.samples,
-                dataset_name=config.dataset_name,
-                model_path=model_path,
-            )
-            logger.info(
-                "Using calibration: task=%s, samples=%d",
-                task,
-                config.samples,
+    # Guard against an empty/corrupt input model before building the pipeline.
+    # A previous stage that ran out of disk space can leave a truncated/zero-byte
+    # .onnx behind; without this check a pass fails deep inside ORT with the
+    # opaque "Failed to find proper ai.onnx domain". Surface the real cause
+    # instead, and catch it before the model-type finalizer reads the model. A
+    # missing file is left to Quantizer.run(), which reports a clear
+    # "Model not found".
+    if model_path.exists():
+        opset_error = _check_input_model_opset(model_path)
+        if opset_error is not None:
+            return QuantizeResult(
+                success=False,
+                output_path=None,
+                errors=[opset_error],
             )
 
-        cal_time = time.perf_counter() - cal_start
+    # Apply model-type-specific quant finalizer if registered. Some model types
+    # finalize calibration reader / nodes-to-exclude / dtypes only once the
+    # exported ONNX exists.
+    if config.model_type and config.calibration_data is None:
+        from .calibration import get_quant_finalizer
 
-        # Apply QDQ quantization
-        qdq_start = time.perf_counter()
+        finalizer = get_quant_finalizer(config.model_type)
+        if finalizer is not None:
+            config = finalizer.finalize(config, onnx_path=model_path, model_id=config.model_id)
 
-        # Map config to ORT types
-        weight_type = weight_type_map[config.weight_type]
-        activation_type = activation_type_map[config.activation_type]
-        calibrate_method = calibration_method_map[config.calibration_method]
-
-        # Build extra options
-        extra_options = {
-            "ActivationSymmetric": config.symmetric,
-            "WeightSymmetric": config.symmetric,
-        }
-
-        # Step 1: Generate QDQ config
-        logger.info("Generating QDQ config...")
-        qdq_config = get_qdq_config(
-            model_input=str(model_path),
-            calibration_data_reader=data_reader,
-            weight_type=weight_type,
-            activation_type=activation_type,
-            per_channel=config.per_channel,
-            calibrate_method=calibrate_method,
-            op_types_to_quantize=config.op_types_to_quantize,
-            nodes_to_exclude=config.nodes_to_exclude or [],
-            extra_options=extra_options,
-        )
-
-        # Step 2: Capture metadata before ORT quantization (it rebuilds the graph)
-        from ..onnx import capture_metadata, load_onnx, restore_metadata, save_onnx
-        from .qdq_fix import fix_qdq_dtype_info
-
-        pre_quant_model = load_onnx(model_path, load_weights=False, validate=False)
-        metadata_snapshot = capture_metadata(pre_quant_model)
-        del pre_quant_model
-
-        # Step 3: Apply quantization
-        if use_external_data:
-            qdq_config.use_external_data_format = True
-        logger.info("Applying quantization...")
-        # Temporarily change CWD to the output directory so that ORT's
-        # save_model_to_file() — which passes a bare filename
-        # (e.g. "quantized.onnx.data") to onnx.convert_model_to_external_data —
-        # resolves its CWD-relative os.path.exists() check against the actual
-        # output directory rather than the process CWD.  Without this, a stale
-        # .onnx.data sidecar in the process CWD from a previous build triggers
-        # a false-positive FileExistsError even when the output dir is clean.
-        # Use absolute paths so the chdir does not break relative input/output
-        # resolution.  output_path.parent is guaranteed to exist (caller mkdir).
-        abs_model_input = str(Path(model_path).resolve())
-        abs_model_output = str(Path(output_path).resolve())
-        # Remove stale output artifacts from a previous build.  ORT/onnx refuse
-        # to overwrite an existing external-data sidecar (e.g. quantized.onnx.data),
-        # raising FileExistsError, so we proactively clear them here.
-        if output_path.exists():
-            output_path.unlink()
-        stale_sidecar = output_path.parent / f"{output_path.name}.data"
-        if stale_sidecar.exists():
-            stale_sidecar.unlink()
-        original_cwd = Path.cwd()
-        try:
-            os.chdir(output_path.parent)
-            quantize(
-                model_input=abs_model_input,
-                model_output=abs_model_output,
-                quant_config=qdq_config,
-            )
-        finally:
-            os.chdir(original_cwd)
-
-        qdq_time = time.perf_counter() - qdq_start
-
-        # Post-processing: fix QDQ dtype + shape inference + restore metadata
-        postproc_start = time.perf_counter()
-
-        # Step 4: Load quantized model for post-processing
-        quantized_model = load_onnx(output_path, validate=False)
-
-        # Step 5: Fix QDQ node dtype info (scale/zero_point may have UNDEFINED types)
-        logger.info("Fixing QDQ node dtype info...")
-        fix_result = fix_qdq_dtype_info(quantized_model)
-        warnings.extend(fix_result.warnings)
-
-        # Step 6: Run shape inference (defensive — propagates shapes through QDQ nodes)
-        # Uses the shared infer_shapes which tries symbolic first (handles
-        # com.microsoft ops like QLinearConv) then falls back to ONNX standard.
-        # Does NOT run graph optimization pipes that could break quantized models.
-        from ..onnx import infer_shapes
-
-        logger.info("Running shape inference on quantized model...")
-        quantized_model = infer_shapes(quantized_model)
-
-        # Step 7: Restore metadata lost during ORT quantization
-        if metadata_snapshot.node_count > 0:
-            logger.info("Restoring metadata from pre-quantization model...")
-            restore_metadata(quantized_model, metadata_snapshot)
-
-        # Step 8: Save the fixed model back
-        save_onnx(quantized_model, output_path)
-
-        postproc_time = time.perf_counter() - postproc_start
-
-        # Count quantized nodes from in-memory model
-        from ..compiler import QDQ_OP_TYPES
-
-        nodes_quantized = sum(
-            1 for node in quantized_model.graph.node if node.op_type in QDQ_OP_TYPES
-        )
-
-        total_time = time.perf_counter() - start_time
-
-        logger.info(
-            "Quantization complete: %s -> %s (%.2fs)",
-            model_path.name,
-            output_path.name,
-            total_time,
-        )
-
-        return QuantizeResult(
-            success=True,
-            output_path=output_path,
-            calibration_time_seconds=cal_time,
-            qdq_insertion_time_seconds=qdq_time,
-            postproc_time_seconds=postproc_time,
-            total_time_seconds=total_time,
-            nodes_quantized=nodes_quantized,
-            errors=errors,
-            warnings=warnings,
-        )
-
-    except Exception:
-        total_time = time.perf_counter() - start_time
-        logger.exception("Quantization failed")
-
-        import traceback
-
-        return QuantizeResult(
-            success=False,
-            output_path=None,
-            total_time_seconds=total_time,
-            errors=[traceback.format_exc()],
-            warnings=warnings,
-        )
+    passes = expand_precision(config=config)
+    return Quantizer(passes).run(model_path, output_path, use_external_data=use_external_data)

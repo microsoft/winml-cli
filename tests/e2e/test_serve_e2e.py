@@ -66,7 +66,13 @@ from .conftest import hub_test_id as _pytest_id
 from .conftest import resolve_model_arg as _resolve_model_arg
 
 
-pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.network, pytest.mark.timeout(3600)]
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.e2e_serve,
+    pytest.mark.slow,
+    pytest.mark.network,
+    pytest.mark.timeout(3600),
+]
 
 
 # ---------------------------------------------------------------------------

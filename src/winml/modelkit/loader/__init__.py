@@ -25,8 +25,17 @@ Note:
     See docs/design/loader/hf.md for design details.
 """
 
+from typing import Any
+
 from .config import WinMLLoaderConfig, resolve_loader_config
-from .resolution import TaskResolution, TaskSource, resolve_composite, resolve_task
+from .onnx_hub import resolve_hf_onnx_path
+from .resolution import (
+    TaskResolution,
+    TaskSource,
+    composite_pipeline_tasks,
+    resolve_composite,
+    resolve_task,
+)
 from .task import (
     HF_TASK_DEFAULTS,
     KNOWN_TASKS,
@@ -46,12 +55,14 @@ __all__ = [
     "TaskResolution",
     "TaskSource",
     "WinMLLoaderConfig",
+    "composite_pipeline_tasks",
     "get_supported_tasks",
     "get_task_abbrev",
     "load_hf_model",
     "normalize_task",
     "resolve_composite",
     "resolve_hf_model_class",
+    "resolve_hf_onnx_path",
     "resolve_loader_config",
     "resolve_optimum_library",
     "resolve_task",
@@ -65,7 +76,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
 }
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Lazy-load heavy exports (hf.py imports transformers)."""
     if name in _LAZY_IMPORTS:
         module_path, attr_name = _LAZY_IMPORTS[name]

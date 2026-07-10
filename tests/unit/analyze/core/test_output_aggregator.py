@@ -510,7 +510,7 @@ class TestOutputAggregatorIntegration:
                     result=RuntimeTestResult(compile=True, run=True),
                 ),
             ],
-            "ACEExecutionProvider": [
+            "VitisAIExecutionProvider": [
                 PatternRuntime(
                     pattern_id="OP/ai.onnx/Add",
                     result=RuntimeTestResult(compile=False, run=False),
@@ -521,7 +521,7 @@ class TestOutputAggregatorIntegration:
         information_list = {
             "QNNExecutionProvider": [],
             "OpenVINOExecutionProvider": [],
-            "ACEExecutionProvider": [
+            "VitisAIExecutionProvider": [
                 Information(
                     explanation="Add not supported",
                     pattern_id="OP/ai.onnx/Add",

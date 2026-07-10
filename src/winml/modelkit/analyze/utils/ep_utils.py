@@ -13,65 +13,59 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from ...utils.constants import EPName
+    from ...utils.constants import EPName, EPNameOrAlias
     from ..models.ihv_type import IHVType
 
 
 logger = logging.getLogger(__name__)
 
 
-def infer_ihv_from_ep_name(ep_name: EPName) -> IHVType:
-    """Infer IHVType from Execution Provider name.
+def infer_ihv_from_ep_name(ep_name: EPNameOrAlias) -> IHVType:
+    """Infer IHVType from an Execution Provider name or alias.
 
-    Maps an execution provider name to its corresponding IHV type.
-    Supports multiple name variations for each provider.
-    Unknown EPs (e.g., CPUExecutionProvider, DmlExecutionProvider) resolve
-    to IHVType.MICROSOFT.
+    Accepts either a canonical ``EPName`` or a shorthand ``EPAlias`` (e.g.
+    ``"openvino"``); aliases are normalized to their canonical name before the
+    exact lookup, which covers every member of the canonical set. Names that
+    are neither a known EP nor a known alias resolve to ``IHVType.UNKNOWN``
+    rather than raising, so callers can treat inference as total.
 
     Args:
-        ep_name: Execution Provider name (e.g., QNNExecutionProvider, OpenVINOExecutionProvider)
+        ep_name: Execution Provider name or alias (see ``utils.constants``).
 
     Returns:
-        IHVType: Inferred IHV type (QC, INTEL, AMD, NVIDIA, or MICROSOFT)
+        IHVType: Inferred IHV type (QC, INTEL, AMD, NVIDIA, MICROSOFT, or
+        UNKNOWN for unrecognized names).
 
     Examples:
         >>> infer_ihv_from_ep_name("QNNExecutionProvider")
         <IHVType.QC: 'QC'>
-        >>> infer_ihv_from_ep_name("OpenVINOExecutionProvider")
-        <IHVType.INTEL: 'INTEL'>
+        >>> infer_ihv_from_ep_name("openvino")
+        <IHVType.INTEL: 'Intel'>
         >>> infer_ihv_from_ep_name("VitisAIExecutionProvider")
         <IHVType.AMD: 'AMD'>
         >>> infer_ihv_from_ep_name("NvTensorRTRTXExecutionProvider")
         <IHVType.NVIDIA: 'NVIDIA'>
         >>> infer_ihv_from_ep_name("CPUExecutionProvider")
         <IHVType.MICROSOFT: 'Microsoft'>
+        >>> infer_ihv_from_ep_name("TotallyFakeEP")
+        <IHVType.UNKNOWN: 'Unknown'>
     """
+    from ...utils.constants import normalize_ep_name
     from ..models.ihv_type import IHVType
 
-    ep_lower = ep_name.lower()
+    ep_name_to_ihv: dict[EPName, IHVType] = {
+        "QNNExecutionProvider": IHVType.QC,
+        "OpenVINOExecutionProvider": IHVType.INTEL,
+        "VitisAIExecutionProvider": IHVType.AMD,
+        "MIGraphXExecutionProvider": IHVType.AMD,
+        "NvTensorRTRTXExecutionProvider": IHVType.NVIDIA,
+        "CUDAExecutionProvider": IHVType.NVIDIA,
+        "CPUExecutionProvider": IHVType.MICROSOFT,
+        "DmlExecutionProvider": IHVType.MICROSOFT,
+    }
 
-    # QNN / Qualcomm
-    if "qnn" in ep_lower or "qualcomm" in ep_lower:
-        return IHVType.QC
-
-    # OpenVINO / Intel
-    if "openvino" in ep_lower or "intel" in ep_lower:
-        return IHVType.INTEL
-
-    # VitisAI / MIGraphX / AMD / ACE (AMD)
-    amd_keywords = ("amd", "quark", "vitis", "ace", "migraphx")
-    if any(kw in ep_lower for kw in amd_keywords):
-        return IHVType.AMD
-
-    # NVIDIA / TensorRT RTX
-    # This is intentionally a permissive substring fallback to cover common
-    # TensorRT naming variants. Callers should prefer canonical EP names.
-    nvidia_keywords = ("nvidia", "nvtensorrt", "trtrtx", "tensorrt", "rtx")
-    if any(kw in ep_lower for kw in nvidia_keywords):
-        return IHVType.NVIDIA
-
-    # Default: Microsoft (e.g., CPUExecutionProvider, DmlExecutionProvider)
-    return IHVType.MICROSOFT
+    canonical = normalize_ep_name(ep_name)
+    return ep_name_to_ihv.get(canonical, IHVType.UNKNOWN)  # type: ignore[arg-type]
 
 
 def get_devices_with_rule_data(ep_name: EPName) -> list[str]:
@@ -106,26 +100,29 @@ def get_devices_with_rule_data(ep_name: EPName) -> list[str]:
 
 
 def has_any_rule_data() -> bool:
-    """Return True if any parquet rule file exists in any search directory.
+    """Return True if any parquet exists under one-level subdirectories.
 
     Used to distinguish "no data at all" (needs setup) from "data exists
     but not for this specific EP/device combination".
+
+    This intentionally uses a minimal filesystem probe pattern.
     """
     from .rule_loader import get_runtime_rules_search_dirs
 
     for search_dir in get_runtime_rules_search_dirs():
-        if search_dir.is_dir() and any(search_dir.rglob("*.parquet")):
+        if not search_dir.is_dir():
+            continue
+
+        if any(search_dir.glob("*/*.parquet")):
             return True
+
     return False
 
 
 def has_rule_data_for_ep(ep_name: EPName, device: str) -> bool:
     """Check whether runtime check rule data exists for a given EP and device.
 
-        Probes runtime-rule search directories for parquet files in either layout:
-        - flat files under search dir:
-            ``*_{ep_name}_{device}_*.parquet``
-        - provider subdirectory layout:
+        Probes runtime-rule search directories for provider subdirectory layout only:
             ``<search_dir>/{ep_name}_{device}/*.parquet``
 
         This is a fast filesystem check and does not parse parquet contents.
@@ -142,13 +139,7 @@ def has_rule_data_for_ep(ep_name: EPName, device: str) -> bool:
 
     def _has_parquet_in_search_dir(search_dir: Path, ep: EPName, device_upper: str) -> bool:
         provider_dir = search_dir / f"{ep}_{device_upper}"
-        if provider_dir.is_dir() and any(provider_dir.glob("*.parquet")):
-            return True
-
-        if any(search_dir.glob(f"*_{ep}_{device_upper}_*.parquet")):
-            return True
-
-        return any(search_dir.glob(f"{ep}_{device_upper}_*.parquet"))
+        return provider_dir.is_dir() and any(provider_dir.glob("*.parquet"))
 
     device_upper = device.upper()
     for search_dir in get_runtime_rules_search_dirs():

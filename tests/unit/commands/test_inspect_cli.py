@@ -43,6 +43,7 @@ def mock_inspect_result() -> MagicMock:
     result.cache = None
     result.processor = None
     result.io_config = None
+    result.composite = None
     result.loader = MagicMock(
         hf_model_class="BertForMaskedLM",
         hf_model_class_source="task_defaults",
@@ -311,7 +312,7 @@ class TestInspectErrors:
         missing = str(tmp_path / "missing.onnx")
         result = runner.invoke(inspect, ["-m", missing], obj={})
         assert result.exit_code != 0
-        assert "does not exist" in result.output
+        assert "ONNX file not found" in result.output
         assert "Network error" not in result.output
 
     def test_missing_local_relative_path_shows_path_error(self, runner: CliRunner) -> None:
@@ -320,7 +321,7 @@ class TestInspectErrors:
 
         result = runner.invoke(inspect, ["-m", "./does-not-exist.onnx"], obj={})
         assert result.exit_code != 0
-        assert "does not exist" in result.output
+        assert "ONNX file not found" in result.output
         assert "Network error" not in result.output
 
     def test_bogus_hf_id_shows_model_not_found(self, runner: CliRunner) -> None:

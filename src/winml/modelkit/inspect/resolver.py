@@ -10,10 +10,11 @@ Leverages existing loader, export, and models modules - NO NEW CONFIG LOGIC.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from ..loader.resolution import _get_custom_model_class
 from ..loader.task import (
+    COMPOSITE_TASKS,
     HF_TASK_DEFAULTS,
     KNOWN_TASKS,
     resolve_optimum_library,
@@ -27,6 +28,7 @@ from ..models import (
 from .types import (
     CacheInfo,
     CacheStageInfo,
+    CompositeInfo,
     ExporterInfo,
     IOConfigInfo,
     LoaderInfo,
@@ -74,9 +76,9 @@ def get_known_tasks() -> set[str]:
         to avoid. The two paths therefore see slightly different sets:
 
         * ``--list-tasks``     ->  :data:`KNOWN_TASKS`
-        * ``validate_task()``  ->  ``KNOWN_TASKS`` plus ``HF_TASK_DEFAULTS``
-                                  keys plus ``HF_MODEL_CLASS_MAPPING`` task
-                                  entries
+        * ``validate_task()``  ->  ``KNOWN_TASKS`` plus :data:`COMPOSITE_TASKS`
+                                  plus ``HF_TASK_DEFAULTS`` keys plus
+                                  ``HF_MODEL_CLASS_MAPPING`` task entries
 
         ``tests/unit/loader/test_known_tasks.py`` asserts ``KNOWN_TASKS``
         is a superset of the local registries, so anything ``validate_task``
@@ -84,6 +86,7 @@ def get_known_tasks() -> set[str]:
         a silent break.
     """
     tasks: set[str] = set(KNOWN_TASKS)
+    tasks.update(COMPOSITE_TASKS)
     tasks.update(HF_TASK_DEFAULTS.keys())
     tasks.update(task for _, task in HF_MODEL_CLASS_MAPPING if task is not None)
     return tasks
@@ -269,7 +272,14 @@ def resolve_exporter(
     # Check MODEL_BUILD_CONFIGS for predefined config
     if model_type_normalized in MODEL_BUILD_CONFIGS:
         config: WinMLBuildConfig = MODEL_BUILD_CONFIGS[model_type_normalized]
+        # MODEL_BUILD_CONFIGS entries are HF export configs; export is None only on
+        # the direct-ONNX build path, which never reaches this registry lookup.
         export_config = config.export
+        if export_config is None:
+            raise ValueError(
+                f"MODEL_BUILD_CONFIGS entry for {model_type_normalized!r} is missing an "
+                "export config (export is None only on the direct-ONNX build path)."
+            )
 
         # Extract input tensors
         input_tensors: list[TensorInfo] = []
@@ -326,8 +336,8 @@ def resolve_exporter(
                 config_name = onnx_config_cls.__name__
 
             # Extract tensor specs via resolve_io_specs (shared with config command)
-            input_tensors: list[TensorInfo] = []
-            output_tensors: list[TensorInfo] = []
+            input_tensors = []
+            output_tensors = []
 
             if hf_config is not None:
                 try:
@@ -581,6 +591,42 @@ def resolve_cache(model_id: str) -> CacheInfo:
     )
 
 
+def resolve_composite_info(
+    model_type: str, detected_components: dict[str, str] | None = None
+) -> CompositeInfo | None:
+    """Composite pipeline structure for a *resolved* model, or ``None``.
+
+    Returns ``None`` unless the model's resolved task bridges to a composite — i.e.
+    ``detected_components`` (from :attr:`TaskResolution.composite`) is set. This scopes
+    the composite view to genuine multi-component / non-runnable-half exports (a seq2seq
+    decoder, etc.) and avoids flagging every model_type that merely *could* serve a
+    composite pipeline (e.g. a CLIP inspected for plain feature-extraction).
+
+    ``pipeline_tasks`` (the higher-level pipelines the model_type serves) come from the
+    live composite registry; ``components`` is the resolver's detected breakdown.
+    """
+    # `is None` (not falsy): only the un-set case means "composite path not taken".
+    # An empty dict would be a genuine (if currently unproduced) composite with no
+    # component breakdown — the pipeline_tasks guard below still protects rendering.
+    if detected_components is None:
+        return None
+
+    from ..loader import composite_pipeline_tasks
+
+    pipeline_tasks = composite_pipeline_tasks(model_type)
+    if not pipeline_tasks:
+        # Registry-divergence guard: the resolver detected a composite but the registry
+        # yields no pipeline tasks for this model_type (e.g. a future registration the
+        # WinMLCompositeModel filter excludes). A CompositeInfo with empty pipeline_tasks
+        # would render a broken "[composite]" Task row, so treat it as non-composite.
+        return None
+
+    return CompositeInfo(
+        pipeline_tasks=pipeline_tasks,
+        components=dict(detected_components),
+    )
+
+
 def _find_nested_configs(config: PretrainedConfig) -> list:
     """Discover all nested PretrainedConfig objects dynamically.
 
@@ -695,8 +741,12 @@ def resolve_io_config(
 
     def get_config_attr(
         attr_name: str,
-    ) -> int | tuple[int, int] | list | None:
-        """Get attribute from main config or any nested config."""
+    ) -> Any:
+        """Get attribute from main config or any nested config.
+
+        Returns ``Any``: HF config attributes are dynamically typed (int, tuple,
+        list, str, ...), so each call site narrows to its target field type.
+        """
         value = getattr(config, attr_name, None)
         if value is not None:
             return value
@@ -952,7 +1002,7 @@ def _resolve_processor_from_hub_configs(model_id: str) -> _HubConfigResult:
     from pathlib import Path
 
     from huggingface_hub import hf_hub_download
-    from huggingface_hub.utils import EntryNotFoundError, RepositoryNotFoundError
+    from huggingface_hub.errors import EntryNotFoundError, RepositoryNotFoundError
 
     processor_class: str | None = None
     tokenizer_class: str | None = None

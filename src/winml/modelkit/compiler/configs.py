@@ -43,7 +43,7 @@ class EPConfig:
         device: Target device ("npu", "gpu", "cpu", "auto")
     """
 
-    provider: EPAlias = "qnn"
+    provider: EPAlias | None = None
     provider_options: dict[str, str] = field(default_factory=dict)
     enable_ep_context: bool = True
     embed_context: bool = False
@@ -92,7 +92,7 @@ class WinMLCompileConfig:
     @property
     def device(self) -> str:
         """Get device/provider name for backward compatibility."""
-        return self.ep_config.provider
+        return self.ep_config.provider or ""
 
     @classmethod
     def for_provider(
@@ -211,10 +211,24 @@ class WinMLCompileConfig:
 
     @classmethod
     def for_vitisai(cls, device: str | None = None) -> WinMLCompileConfig:
-        """Factory for Vitis AI (AMD NPU) compilation."""
+        """Factory for Vitis AI (AMD NPU) compilation.
+
+        Populates Phoenix XDNA defaults from ``RYZEN_AI_INSTALLATION_PATH``
+        when available (target=X1, xclbin=<install>/voe-4.0-win_amd64/
+        xclbins/phoenix/4x4.xclbin, xlnx_enable_py3_round=0). VitisAI EP
+        ignores ``device_type``; the correct device hint is the xclbin path.
+        """
+        import os
+        from pathlib import Path as _Path
+
         provider_options: dict[str, str] = {}
-        if device:
-            provider_options["device_type"] = device.upper()
+        ryzen_ai = os.environ.get("RYZEN_AI_INSTALLATION_PATH")
+        if ryzen_ai:
+            xclbin = _Path(ryzen_ai) / "voe-4.0-win_amd64" / "xclbins" / "phoenix" / "4x4.xclbin"
+            if xclbin.exists():
+                provider_options["target"] = "X1"
+                provider_options["xclbin"] = str(xclbin)
+                provider_options["xlnx_enable_py3_round"] = "0"
         ep_cfg = EPConfig(
             provider="vitisai",
             enable_ep_context=True,
@@ -253,7 +267,7 @@ class WinMLCompileConfig:
     def from_dict(cls, data: dict[str, Any]) -> WinMLCompileConfig:
         """Create from dictionary. Unknown keys are ignored."""
         ep_config = EPConfig(
-            provider=data.get("execution_provider", "qnn"),
+            provider=data.get("execution_provider"),
             provider_options=data.get("provider_options", {}),
             enable_ep_context=data.get("enable_ep_context", True),
             embed_context=data.get("embed_context", False),

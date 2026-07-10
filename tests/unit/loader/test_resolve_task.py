@@ -55,6 +55,35 @@ def test_user_task_preserved_verbatim_no_modality_upgrade():
     assert r.composite is None
 
 
+def test_explicit_composite_pipeline_task_populates_composite():
+    """Explicit --task summarization tags the composite (encoder/decoder pair)."""
+    r = resolve_task(_cfg("bart", ["BartForConditionalGeneration"]), task="summarization")
+    assert r.task == "summarization"
+    assert r.source == TaskSource.USER_TASK
+    assert r.composite == {"encoder": "feature-extraction", "decoder": "text2text-generation"}
+
+
+def test_explicit_text2text_generation_stays_single_decoder():
+    """--task text2text-generation is a granular sub-task, NOT a composite key, so it
+    stays composite=None (single-decoder export) — the ambiguity we must preserve."""
+    r = resolve_task(_cfg("bart", ["BartForConditionalGeneration"]), task="text2text-generation")
+    assert r.task == "text2text-generation"
+    assert r.source == TaskSource.USER_TASK
+    assert r.composite is None
+
+
+def test_pure_composite_task_resolves_without_crashing():
+    """table-question-answering is a pure composite (no single model class). It must
+    populate composite and resolve a representative display class instead of raising."""
+    r = resolve_task(
+        _cfg("bart", ["BartForConditionalGeneration"]), task="table-question-answering"
+    )
+    assert r.task == "table-question-answering"
+    assert r.source == TaskSource.USER_TASK
+    assert r.composite == {"encoder": "feature-extraction", "decoder": "text2text-generation"}
+    assert r.model_class.__name__ == "BartDecoderWrapper"
+
+
 def test_no_architectures_uses_first_supported_task():
     cfg = AutoConfig.for_model("bert")
     assert not getattr(cfg, "architectures", None)

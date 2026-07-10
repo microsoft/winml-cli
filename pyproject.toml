@@ -4,7 +4,7 @@ requires = [ "setuptools>=61", "wheel" ]
 
 [project]
 name = "winml-cli"
-version = "0.1.0"
+version = "0.2.0"
 description = "Accelerate Model Deployment on WinML"
 readme = "README.md"
 keywords = [ "onnx", "winml" ]
@@ -25,11 +25,15 @@ dependencies = [
   "click>=8.4",
   "colorama>=0.4.6",
   "datasets>=4.1.1",
-  # pyarrow 24.0.0 crashes (0xC0000005) on Windows when its C extension is
-  # loaded after the WinML/ORT EP DLLs (see _preload_bundled_onnxruntime_dll
-  # in winml.modelkit.__init__). Cap to <24 until upstream is fixed; re-test
-  # 24.x patches / 25.x before relaxing.
-  "pyarrow>=21,<24",
+  # PINNED EXACTLY ON PURPOSE — do NOT relax to a range.
+  # pyarrow's writer emits parquet bytes that differ across versions, so any bump
+  # produces a huge, semantically-meaningless diff across EVERY generated rule
+  # .parquet artifact. If you truly must change this version, regenerate ALL
+  # parquet artifacts in the same change so the diff stays meaningful.
+  # (Also avoids the Windows 24.0.0 crash 0xC0000005 when pyarrow's C extension
+  # loads after the WinML/ORT EP DLLs — see _preload_bundled_onnxruntime_dll in
+  # winml.modelkit.__init__.)
+  "pyarrow==23.0.1",
   "diffusers>=0.36",
   "evaluate>=0.4.6",
   "fastapi>=0.135.3",
@@ -41,12 +45,19 @@ dependencies = [
   "numpy>=2.2,<2.3",
   "onnx==1.18",
   "onnx-ir>=0.1",
+  "onnxruntime-genai-winml==0.14.1",
   "onnxruntime-windowsml==1.24.5.202604171637",
   "onnxscript>=0.2",
   "opentelemetry-sdk>=1.39.1",
   "optimum>=2",
   "optimum-onnx>=0.1",
   "plotext>=5.3.2",
+  # PINNED EXACTLY ON PURPOSE — do NOT relax to a range.
+  # pandas version drift changes parquet string typing/metadata, producing
+  # non-functional but huge diffs across every generated rule artifact. If you
+  # truly must bump this, regenerate ALL parquet artifacts in the same change.
+  "pandas==2.3.3",
+  "psutil>=7",
   "pydantic>=2",
   "python-multipart>=0.0.22",
   "rapidfuzz>=3.9",
@@ -83,7 +94,7 @@ optional-dependencies.dev = [
   "pytest>=8.4",
   "pytest-cov>=7",
   "pytest-timeout>=2.3",
-  "ruff>=0.14",
+  "ruff>=0.15",
   "seaborn>=0.13",
   "timm>=1.0.20",
   "types-colorama>=0.4.15.20250801",
@@ -288,6 +299,9 @@ lint.per-file-ignores."examples/**" = [ "ANN", "D100", "D103", "S101", "T20" ]
 lint.per-file-ignores."scripts/e2e_eval/**" = [ "ANN", "D103", "E501", "PERF203", "T20" ]
 # Download scripts: Allow subprocess, print, missing docstrings
 lint.per-file-ignores."scripts/download_rules.py" = [ "D103", "E501", "PERF401", "S603", "S607", "SIM108", "T20" ]
+lint.per-file-ignores."docs/reports/download_report.py" = [ "D103", "E501", "PERF401", "S603", "S607", "SIM108", "T20" ]
+# COCO dataset build script: Allow print, missing docstrings, broad excepts
+lint.per-file-ignores."scripts/build_coco_keypoints.py" = [ "BLE001", "D103", "E501", "T20" ]
 # CLI: Allow print statements
 lint.per-file-ignores."src/winml/modelkit/cli.py" = [ "T20", "T201" ]
 lint.per-file-ignores."src/winml/modelkit/commands/**" = [ "T20", "T201" ]
@@ -392,6 +406,10 @@ markers = [
   "requires_network: Tests requiring network access (alias for network)",
   "memory_intensive: Tests requiring >2GB memory",
 
+  # Command Capability Markers
+  "e2e_run: E2E tests for 'winml run' (disabled by default — command not yet enabled)",
+  "e2e_serve: E2E tests for 'winml serve' (disabled by default — command not yet enabled)",
+
   # Hardware Markers
   "npu: Tests requiring NPU hardware",
   "gpu: Tests requiring GPU hardware",
@@ -483,6 +501,9 @@ module = [
   # Third-party ML libraries (no stubs)
   "torchvision.*",
   "onnxruntime.*",
+  # onnxruntime-genai-winml ships no py.typed marker or stubs; treat as untyped.
+  "onnxruntime_genai",
+  "onnxruntime_genai.*",
   "datasets.*",
   "optimum.*",
   "snakemd",
@@ -493,8 +514,21 @@ module = [
   "sklearn.*",       # used in eval/metrics; no community stubs
   "evaluate",        # HF evaluate, used in eval/; no community stubs
   "evaluate.*",
+  "pycocotools.*",   # COCO keypoint OKS-AP in eval/metrics/keypoint.py; no stubs
+  # QAIRT (Qualcomm AI Runtime) SDK — imported only inside compile_qairt_bin.py,
+  # which runs in a separate venv-winml subprocess where the SDK is installed.
+  # Not a dependency of the main/CI environment, so it has no stubs here.
+  "qairt",
+  "qairt.*",
 ]
 ignore_missing_imports = true
+
+# windowsml ships no py.typed marker, but its source is installed and usable —
+# analyze it directly (PEP 561 opt-in) so its inline annotations are honored
+# instead of collapsing every symbol to Any.
+[[tool.mypy.overrides]]
+module = [ "windowsml", "windowsml.*" ]
+follow_untyped_imports = true
 
 # Relaxed modules: tests and WIP code
 

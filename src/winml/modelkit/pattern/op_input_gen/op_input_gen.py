@@ -10,7 +10,7 @@ import json
 import time
 import zlib
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from threading import Lock
 from typing import TYPE_CHECKING, Any
@@ -226,17 +226,20 @@ class InputValueConstraint(InputConstraint):
 
 
 def normalize_constraint_dict(c: dict) -> dict:
-    """Expand same_value/same_value_shape back to the canonical value list form.
+    """Expand same_value/same_value_shape back to the canonical value array form.
 
     Converts the compact representation produced by InputValueConstraint.to_dict()
-    when all values are equal, back to the full nested value list. Use this when
+    when all values are equal, back to the full nested value array. Use this when
     consuming serialized constraint dicts to ensure consistent handling regardless
     of which representation was saved.
     """
     if "same_value" in c and "same_value_shape" in c:
         normalized = {k: v for k, v in c.items() if k not in ("same_value", "same_value_shape")}
         dtype = np.dtype(c["dtype"]) if "dtype" in c else None
-        normalized["value"] = np.full(c["same_value_shape"], c["same_value"], dtype=dtype).tolist()
+        # Keep the ndarray (do NOT call .tolist()): .tolist() coerces numpy scalars
+        # to Python types (e.g. numpy bool_ -> bool), which loses the original dtype
+        # and breaks faithful restoration of the input value.
+        normalized["value"] = np.full(c["same_value_shape"], c["same_value"], dtype=dtype)
 
         return normalized
     return c
@@ -485,7 +488,7 @@ class OpInputGenerator(ABC):
         default_val = attr_info.default_value
         return default_val.ByteSize() > 0 if default_val else False
 
-    def _type_var_combination_iter(self) -> Any:
+    def _type_var_combination_iter(self) -> Iterator[dict[str, str]]:
         options = [
             [
                 (name, value.annotation) for value in dtypes
@@ -502,7 +505,7 @@ class OpInputGenerator(ABC):
             type_annotation = type_annotation.replace(type_var, dtype)
         return type_annotation
 
-    def _finite_attribute_combination_iter(self) -> Any:
+    def _finite_attribute_combination_iter(self) -> Iterator[dict[str, Any]]:
         finite_attribute_sets = self.get_finite_attribute_sets()
         options = [
             [(name, value) for value in values] for name, values in finite_attribute_sets.items()
@@ -511,7 +514,9 @@ class OpInputGenerator(ABC):
             # Omit attributes with None value to simulate them being not provided
             yield {k: v for k, v in attr_comb if v is not None}
 
-    def _optional_input_combination_iter(self, input_comb: dict[str, InputConstraint]) -> Any:
+    def _optional_input_combination_iter(
+        self, input_comb: dict[str, object]
+    ) -> Iterator[dict[str, object]]:
         """Iterate over combinations of optional inputs being provided or None.
 
         For each optional input present in input_comb, generates combinations where
@@ -542,7 +547,8 @@ class OpInputGenerator(ABC):
 
         for comb in itertools.product(*options):
             use_value_map = dict(comb)
-            modified_input_comb = {}
+            # None marks an optional input deliberately omitted from this combo.
+            modified_input_comb: dict[str, object] = {}
             for k, v in input_comb.items():
                 if k in use_value_map:
                     if use_value_map[k]:
@@ -556,7 +562,9 @@ class OpInputGenerator(ABC):
                     modified_input_comb[k] = v
             yield modified_input_comb
 
-    def _optional_attr_combination_iter(self, input_comb: dict[str, InputConstraint]) -> Any:
+    def _optional_attr_combination_iter(
+        self, input_comb: dict[str, object]
+    ) -> Iterator[dict[str, object]]:
         """Iterate over combinations of optional attributes being provided or omitted.
 
         Only covers attributes without defaults.
@@ -591,7 +599,7 @@ class OpInputGenerator(ABC):
 
         for comb in itertools.product(*options):
             use_value_map = dict(comb)
-            modified_input_comb = {}
+            modified_input_comb: dict[str, object] = {}
             for k, v in input_comb.items():
                 if k in use_value_map:
                     if use_value_map[k]:
@@ -734,13 +742,13 @@ class OpInputGenerator(ABC):
         for output in self.schema.outputs:
             output_name = output.name
             output_config = qdq_config.get(output_name)
-            options = []
+            out_options: list[bool] = []
             if output_config is None or output_config.support_activation:
-                options.append(True)
+                out_options.append(True)
             if output_config is not None and output_config.support_non_qdq:
-                options.append(False)
+                out_options.append(False)
             output_names.append(output_name)
-            output_option_lists.append(options)
+            output_option_lists.append(out_options)
 
         all_names = input_names + output_names
         all_option_lists = input_option_lists + output_option_lists
@@ -809,6 +817,10 @@ class OpInputGenerator(ABC):
             )
             input_names_to_process = self.op_input_names + variadic_keys
 
+        # QDQ generation requires a configured generator; capture it once so each
+        # per-input QDQ branch can gate on (quant_type, qdq_generator) both present.
+        qdq_generator = self.qdq_generator
+
         # Iterate over input names in order to maintain correct positional ordering.
         # For optional inputs that are None, use empty string "" as placeholder.
         # This is required by ONNX spec for operators with multiple optional inputs.
@@ -821,13 +833,9 @@ class OpInputGenerator(ABC):
             input_shape = list(input_value.shape)
             if is_constant_map[input_name]:
                 # Constant input -> create initializer
-                if (
-                    qdq_types is not None
-                    and input_name in qdq_types
-                    and qdq_types[input_name] is not None
-                ):
+                quant_type = qdq_types.get(input_name) if qdq_types is not None else None
+                if quant_type is not None and qdq_generator is not None:
                     # For QDQ: create quantized initializer with DequantizeLinear
-                    quant_type = qdq_types[input_name]
                     dq_output_name = f"{input_name}_dq"
                     scale_name = f"{input_name}_scale"
                     zp_name = f"{input_name}_zero_point"
@@ -860,7 +868,7 @@ class OpInputGenerator(ABC):
                         "DequantizeLinear",
                         inputs=[input_name, scale_name, zp_name],
                         outputs=[dq_output_name],
-                        domain=self.qdq_generator.domain.value,
+                        domain=qdq_generator.domain.value,
                     )
                     input_dq_nodes.append(dq_node)
                     node_inputs.append(dq_output_name)
@@ -883,13 +891,9 @@ class OpInputGenerator(ABC):
                         if axis_idx < len(input_shape):
                             input_shape[axis_idx] = -1  # ONNX unknown dimension
 
-                if (
-                    qdq_types is not None
-                    and input_name in qdq_types
-                    and qdq_types[input_name] is not None
-                ):
+                quant_type = qdq_types.get(input_name) if qdq_types is not None else None
+                if quant_type is not None and qdq_generator is not None:
                     # For QDQ: create quantized graph input with DequantizeLinear
-                    quant_type = qdq_types[input_name]
                     dq_output_name = f"{input_name}_dq"
                     scale_name = f"{input_name}_scale"
                     zp_name = f"{input_name}_zero_point"
@@ -922,7 +926,7 @@ class OpInputGenerator(ABC):
                         "DequantizeLinear",
                         inputs=[input_name, scale_name, zp_name],
                         outputs=[dq_output_name],
-                        domain=self.qdq_generator.domain.value,
+                        domain=qdq_generator.domain.value,
                     )
                     input_dq_nodes.append(dq_node)
                     node_inputs.append(dq_output_name)
@@ -950,14 +954,13 @@ class OpInputGenerator(ABC):
             schema_output_name = (
                 self.schema.outputs[idx].name if idx < len(self.schema.outputs) else None
             )
-            if (
-                qdq_types is not None
-                and schema_output_name is not None
-                and schema_output_name in qdq_types
-                and qdq_types[schema_output_name] is not None
-            ):
+            quant_type = (
+                qdq_types.get(schema_output_name)
+                if qdq_types is not None and schema_output_name is not None
+                else None
+            )
+            if quant_type is not None and qdq_generator is not None:
                 # For QDQ: operator outputs to intermediate, then Q to final output
-                quant_type = qdq_types[schema_output_name]
                 op_output_name = f"op_output_{idx}"
                 final_output_name = f"output_{idx}"
                 scale_name = f"output_{idx}_scale"
@@ -985,7 +988,7 @@ class OpInputGenerator(ABC):
                     "QuantizeLinear",
                     inputs=[op_output_name, scale_name, zp_name],
                     outputs=[final_output_name],
-                    domain=self.qdq_generator.domain.value,
+                    domain=qdq_generator.domain.value,
                 )
                 output_q_nodes.append(q_node)
 
@@ -1118,7 +1121,7 @@ class OpInputGenerator(ABC):
         Dynamic axes are only applied to non-constant graph inputs.
         """
         qdq_config = self.get_qdq_config()
-        qdq_tested_types: set[tuple[tuple[str, str | None], ...]] = set()
+        qdq_tested_types: set[tuple[tuple[str, str | None] | tuple[str, bool], ...]] = set()
         for is_constant_map in self._iter_constant_combinations(kwargs):
             dynamic_axes_variants = self._build_dynamic_axes_variants(kwargs, is_constant_map)
             for dynamic_axes in dynamic_axes_variants:
@@ -1126,11 +1129,11 @@ class OpInputGenerator(ABC):
                 final_tags = tags.copy()
                 final_tags["dynamic_axes"] = dynamic_axes
 
-                if self.qdq_generator is None:
-                    # qdq_generator will set input_is_constant
-                    # when parameters are not supported for
-                    # quantization, so only set it here when not
-                    # using qdq_generator
+                if self.qdq_generator is None or qdq_config is None:
+                    # No generator, or this op doesn't support QDQ (get_qdq_config
+                    # returned None) — emit a plain model. qdq_generator sets
+                    # input_is_constant when params aren't quantizable, so only set
+                    # it here on the non-QDQ path.
                     final_tags["input_is_constant"] = is_constant_map
                     output_dtypes = self.infer_output_types(kwargs, final_tags)
                     model = self._create_model(
@@ -1162,9 +1165,9 @@ class OpInputGenerator(ABC):
         kwargs: dict[str, Any],
         tags: dict[str, Any],
         is_constant_map: dict[str, bool],
-        should_qdq_map: dict[str, bool],
-        qdq_config: dict[str, QDQParameterConfig],
-        qdq_tested_types: set[tuple[tuple[str, str | None], ...]],
+        should_qdq_map: dict[str, bool | SupportedONNXType],
+        qdq_config: dict[str, QDQParameterConfig] | None,
+        qdq_tested_types: set[tuple[tuple[str, str | None] | tuple[str, bool], ...]],
     ) -> Any:
         """Iterate over different QDQ combinations.
 
@@ -1182,6 +1185,7 @@ class OpInputGenerator(ABC):
         if self.qdq_generator is None:
             return
 
+        # qdq_config may be None when called directly (e.g. unit tests) — yield nothing.
         if qdq_config is None:
             return
 
@@ -1345,6 +1349,12 @@ class OpInputGenerator(ABC):
                     if isinstance(should_val, SupportedONNXType):
                         qdq_types[input_name] = should_val
                     elif is_constant:
+                        # is_constant implies needs_weight_iteration, so weight_onnx_type
+                        # is a real type here, never the `[None]` run-once placeholder.
+                        if weight_onnx_type is None:
+                            raise RuntimeError(
+                                "weight type placeholder reached for a constant input"
+                            )
                         qdq_types[input_name] = SupportedONNXType.from_onnx_type(weight_onnx_type)
                     else:
                         qdq_types[input_name] = SupportedONNXType.from_onnx_type(
@@ -1368,11 +1378,11 @@ class OpInputGenerator(ABC):
                             if should_qdq_map.get(output_name) is False:
                                 qdq_types[output_name] = None  # No Q per should_qdq_map
                             else:
-                                output_config = qdq_config.get(output_name)
+                                out_cfg = qdq_config.get(output_name)
                                 if (
-                                    output_config is not None
-                                    and not output_config.support_weight
-                                    and not output_config.support_activation
+                                    out_cfg is not None
+                                    and not out_cfg.support_weight
+                                    and not out_cfg.support_activation
                                 ):
                                     qdq_types[output_name] = None  # support_non_qdq only
                                 else:
@@ -1448,12 +1458,17 @@ class OpInputGenerator(ABC):
         # TODO: check none of the inputs or attributes are omitted
         invalid_inputs = []
         current_inputs = None
+        current_validation_key = None
         has_succeeded = False
         for kwargs, tags in self.iter():
-            if tags["input_constraints"] != current_inputs:
+            # Use a stable key for grouping so validation remains independent from
+            # type-var-applied dtype serialization in input_constraints.
+            validation_key = tags.get("_validation_input_constraints", tags["input_constraints"])
+            if validation_key != current_validation_key:
                 if current_inputs is not None and not has_succeeded:
                     invalid_inputs.append(current_inputs)
                 current_inputs = tags["input_constraints"]
+                current_validation_key = validation_key
                 has_succeeded = False
                 print("Validating input combination:", current_inputs)
             if has_succeeded:
@@ -1550,11 +1565,19 @@ class OpInputGenerator(ABC):
                 print("Running", kwargs_summary)
 
                 for onnx_model, final_tags in self.iter_const_and_dynamic_models(kwargs, tags):
-                    # Check if we should skip this case based on signature (delta/rerun mode)
+                    # Internal grouping key used only by validate_inputs().
+                    final_tags.pop("_validation_input_constraints", None)
+
+                    # Check if we should skip this case based on signature (delta/rerun mode).
+                    # The skip signature does not depend on model_bytes_b64, so serializing
+                    # the model is deferred until we know the case is not discarded.
                     if skip_signature_fn is not None:
                         if skip_signature_fn(final_tags):
                             if yield_skipped:
-                                # Yield skipped case with marker so caller can reuse existing result
+                                # Reused cases still need the model payload for replay.
+                                final_tags["model_bytes_b64"] = model_bytes_to_b64(
+                                    onnx_model.SerializeToString()
+                                )
                                 final_tags["_skipped"] = True
                                 yield final_tags
                             continue
@@ -1564,9 +1587,8 @@ class OpInputGenerator(ABC):
                         continue
 
                     model_bytes = onnx_model.SerializeToString()
-                    if dry_run:
-                        # For dry_run, stash the model bytes in base64 for JSON output/replay.
-                        final_tags["model_bytes_b64"] = model_bytes_to_b64(model_bytes)
+                    # Keep model payload by default so every persisted case can be replayed.
+                    final_tags["model_bytes_b64"] = model_bytes_to_b64(model_bytes)
 
                     qdq_types = final_tags.get(self.qdq_types_key, None)
                     ep_checker_inputs = self.create_input_dict(kwargs, qdq_types=qdq_types)
@@ -1574,7 +1596,7 @@ class OpInputGenerator(ABC):
                     def _dry_run_result() -> dict[str, Any]:
                         return {
                             "result": {
-                                "success": True,
+                                "success": False,
                                 "reason": "not_run",
                             },
                             "stdout": "not run",
@@ -1660,7 +1682,7 @@ class OpInputGenerator(ABC):
                                 break
 
                         # Add final_tags as ONNX metadata
-                        def _json_default(o: Any):
+                        def _json_default(o: Any) -> Any:
                             if isinstance(o, np.ndarray):
                                 return o.tolist()
                             if isinstance(o, np.generic):
@@ -1718,7 +1740,7 @@ class OpInputGenerator(ABC):
     @abstractmethod
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Returns a list of dicts: {input_or_attribute_name: constraint_or_value}.
 
         Representing a combination of inputs to test the op with.
@@ -1766,11 +1788,6 @@ class OpInputGenerator(ABC):
                                 )
                                 for name, type_annotation in self.type_annotations.items()
                             }
-                            input_constraints = {
-                                k: v.to_dict() if isinstance(v, InputConstraint) else v
-                                for k, v in optional_input_comb.items()
-                                if self._is_input_key(k)
-                            }
                             applied_input_comb = {
                                 k: (
                                     v.get_value(type_annotation=applied_type_annotations[k])
@@ -1779,6 +1796,31 @@ class OpInputGenerator(ABC):
                                 )
                                 for k, v in optional_input_comb.items()
                             }
+
+                            # Stable constraints are used only for validate_inputs() grouping.
+                            # Keep these independent from type_var-applied dtype changes.
+                            validation_input_constraints: dict[str, Any] = {}
+
+                            # Persisted input constraints should mirror runtime-applied
+                            # input values for value constraints.
+                            input_constraints: dict[str, Any] = {}
+                            for k, v in optional_input_comb.items():
+                                if not self._is_input_key(k):
+                                    continue
+                                if isinstance(v, InputConstraint):
+                                    validation_input_constraints[k] = v.to_dict()
+                                else:
+                                    validation_input_constraints[k] = v
+
+                                if isinstance(v, InputValueConstraint):
+                                    input_constraints[k] = InputValueConstraint(
+                                        applied_input_comb[k]
+                                    ).to_dict()
+                                elif isinstance(v, InputConstraint):
+                                    input_constraints[k] = v.to_dict()
+                                else:
+                                    input_constraints[k] = v
+
                             kwargs = {**attr_comb, **applied_input_comb}
                             # Expand variadic inputs to key-value
                             # pairs, and normalize kv order
@@ -1805,6 +1847,9 @@ class OpInputGenerator(ABC):
                             tags = {
                                 self.type_vars_key: type_var_comb,
                                 "input_constraints": self.filter_kwargs_by_opset(input_constraints),
+                                "_validation_input_constraints": self.filter_kwargs_by_opset(
+                                    validation_input_constraints
+                                ),
                                 "attrs": attrs,
                             }
                             yield self.filter_kwargs_by_opset(kwargs), tags
@@ -1997,7 +2042,7 @@ class ExampleReshapeInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for Reshape."""
         return [
             {

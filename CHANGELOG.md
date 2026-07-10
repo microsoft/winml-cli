@@ -4,6 +4,45 @@ All notable changes to this project are documented in this file.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## WinML CLI v0.2.0
+
+This cycle unifies **task detection** across the CLI (modality- and architecture-aware) and expands the eval and perf surfaces — new depth-estimation and tensor-similarity evaluators, a full SA eval pipeline with an HTML report, `winml perf --memory` / `--ep-options`, and `--format json` on `eval` / `analyze` / `perf`. `winml compile` gains a multi-model shared EP context, `winml build` gains `--precision`, and timm image-classification is supported. See the behavior changes below.
+
+### ⚠️ Behavior changes
+
+- `winml perf` no longer compiles by default — added `--compile/--no-compile`, defaulting to no-compile (#879).
+- Boolean CLI options are now `--flag/--no-flag` pairs (#844).
+- Telemetry is enabled in the shipped wheel; consent reworded as "unlinked pseudonymized" (#810).
+
+### ✨ Improvements
+
+- **Task detection** — modality- and architecture-aware `detect_task`, unified across commands via `resolve_task` / `TaskResolution` (#807, #841, #878).
+- `winml perf` — `--memory` reports RAM/VRAM per phase (#861); `--ep-options` passes runtime EP options (#865, #889); output now shows the model path and precision (#875).
+- `winml compile` — multi-model shared EP context with a selectable backend (#871).
+- `winml build` — added `--precision` (#914).
+- `winml inspect` — renders composite (pipeline-led) model structure (#903).
+- `winml analyze` — `--ep` / `--device` auto resolves to a single best target (#919); faster re-runs plus a `--debug` rule locator (#906).
+- `winml eval` — new SA eval pipeline with per-stage perf and an HTML report (#599); depth-estimation (#326, #437) and tensor-similarity (#805) evaluators; scripts track ONNX size and sanitize output (#755).
+- Cross-command — `--format json` on `eval` / `analyze` / `perf` (#855); `--allow-unsupported-nodes` on `perf` / `build` / `eval` / `run` (#821).
+- Quality of life — timm image-classification via library routing (#790); `~` expanded in paths (#815); progress bar during EP warmup (#788); refreshed `--list-device` coloring (#812).
+
+### 🐛 Fixes
+
+- **`winml perf`** — declared `psutil` as a runtime dependency, fixing a crash on clean install (#937); composite (dual-encoder) models supported (#866); HF and ONNX paths unified through `PerfBenchmark` (#659); `--monitor` live chart in `--module` mode (#654, #920); `rich` Live thread crashes (#832).
+- **`winml analyze`** — coverage-counting bugs (#922); analyzer API EP list matches the CLI (#803); Pad / Gemm rule conflicts (#906).
+- **Task / config validation** — fill-mask heads detected as `text2text-generation` (#851); vision feature-extraction model-task inconsistency (#786); model task validated in config (#723); full encoder-decoder composite built for no-task seq2seq (#850, #862); device/EP combination validated without a system check (#780).
+- **`winml export`** — `.data` files written to the output dir, not the cwd (#853); timm `image_size` from `pretrained_cfg` (#806).
+- **`winml inspect` / `winml catalog`** — `--task` validated at parse time (#546, #771); `catalog -t` short flag aligned (#541, #772); VitisAI EP ordered last, catalog table width fixed (#763).
+- **Feature extraction** — `last_hidden_state` now populated in the output (#863).
+- **`winml optimize`** — untie batched constant `MatMul` for OpenVINO GPU (#817).
+- **`winml eval`** — fixed failures on AMD hosts (#783); cleanup runs on `SKIP_*` / exception paths (#890).
+- **CLI output** — quieted `optimum` logger noise (#904); unified verbosity, logger routed to stderr (#566, #793).
+
+### 📦 Assets
+
+- `winml_cli-0.2.0-py3-none-any.whl`
+- `rules-v0.2.0.zip`
+
 ## WinML CLI v0.1.0
 
 First **public preview** release. With the Windows ML 2.0 baseline now in place, this release shifts focus to polishing the CLI surface: faster `winml inspect` / `winml eval`, more accurate device & EP resolution, a real PyPI release pipeline, and a meaningful pass over sysinfo and quantization behavior.
@@ -112,7 +151,7 @@ Expand-Archive -Path .\rules-v0.0.3.zip -DestinationPath src\winml\modelkit\anal
 
 `gh release download` skips pre-releases unless you pass `--tag`, so the explicit `v0.0.3` is required.
 
-If you set `MODELKIT_RULES_DIR` anywhere (shell profile, CI pipeline, user env), rename it to `WINMLCLI_RULES_DIR`. Same `os.pathsep`-separated multi-directory semantics; relative paths still resolve from `src/winml/modelkit/analyze/utils/`.
+If you set `MODELKIT_RULES_DIR` anywhere (shell profile, CI pipeline, user env), rename it to `WINMLCLI_RULES_DIR`. It points to a single rules directory (not split on `os.pathsep`); relative paths still resolve from `src/winml/modelkit/analyze/utils/`.
 
 Related PRs: #411 (Parquet migration), #600 (rules zip in release), #627 (versioned filename), #587 (env var rename as part of ModelKit → WinML CLI Wave 1).
 

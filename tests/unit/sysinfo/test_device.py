@@ -21,12 +21,14 @@ from winml.modelkit.sysinfo.device import (
 from winml.modelkit.utils.constants import EP_NAMES
 
 
-def _make_ep_device(device_type, ep_name: str = "TestEP") -> MagicMock:
+def _make_ep_device(device_type, ep_name: str = "CPUExecutionProvider") -> MagicMock:
     """Build a mock OrtEpDevice with ``.device.type`` and ``.ep_name`` set.
 
     Both attributes matter to ``_get_device_ep_map_from_ort``: ``device.type``
-    keys the result map, and ``ep_name`` populates each value tuple. Tests
-    that don't care about the EP name can rely on the default.
+    keys the result map, and ``ep_name`` populates each value tuple (after
+    canonical-name normalization). Tests that only care about device grouping
+    can rely on the default, which is a valid ``EPName`` so it survives the
+    normalization filter.
     """
     mock = MagicMock()
     mock.device.type = device_type
@@ -83,7 +85,7 @@ class TestGetAvailableDevices:
     def test_returns_empty_when_enumeration_fails(self) -> None:
         """If EP enumeration raises, return empty tuple (no devices visible).
 
-        ``resolve_device("auto")`` is responsible for the CPU fallback when no
+        ``resolve_device("auto", ep=None)`` is responsible for the CPU fallback when no
         devices are reachable; ``_get_available_devices`` only reports what is
         actually registered.
         """
@@ -126,6 +128,50 @@ class TestGetAvailableDevices:
             devices = _get_available_devices()
 
         assert devices == ("gpu", "cpu")
+
+
+class TestGetDeviceEpMapFromOrt:
+    """Tests for _get_device_ep_map_from_ort() ep_name handling."""
+
+    def test_auto_suffixed_ep_names_filtered(self) -> None:
+        """``.AUTO`` device-qualified variants from ORT must not leak into the map.
+
+        ``ort.get_ep_devices()`` reports device-qualified aliases such as
+        ``OpenVINOExecutionProvider.AUTO`` as distinct ``ep_name`` values. These
+        are not canonical ``EPName`` entries and must be dropped so the derived
+        available-EP set and its error messages only list real providers.
+        """
+        import onnxruntime as ort
+
+        from winml.modelkit.sysinfo.device import _get_device_ep_map_from_ort
+
+        with patch(
+            "winml.modelkit.sysinfo.device.get_registered_ep_devices",
+            return_value=[
+                _make_ep_device(ort.OrtHardwareDeviceType.NPU, "OpenVINOExecutionProvider"),
+                _make_ep_device(ort.OrtHardwareDeviceType.NPU, "OpenVINOExecutionProvider.AUTO"),
+            ],
+        ):
+            mapping = _get_device_ep_map_from_ort()
+
+        assert mapping == {"npu": ("OpenVINOExecutionProvider",)}
+
+    def test_unknown_ep_names_filtered(self) -> None:
+        """``ep_name`` values not in the canonical ``EPName`` set are dropped."""
+        import onnxruntime as ort
+
+        from winml.modelkit.sysinfo.device import _get_device_ep_map_from_ort
+
+        with patch(
+            "winml.modelkit.sysinfo.device.get_registered_ep_devices",
+            return_value=[
+                _make_ep_device(ort.OrtHardwareDeviceType.GPU, "DmlExecutionProvider"),
+                _make_ep_device(ort.OrtHardwareDeviceType.GPU, "SomeFutureExecutionProvider"),
+            ],
+        ):
+            mapping = _get_device_ep_map_from_ort()
+
+        assert mapping == {"gpu": ("DmlExecutionProvider",)}
 
 
 class TestMappingConstants:
@@ -214,7 +260,7 @@ class TestResolveDevice:
                 "cpu": ("CPUExecutionProvider",),
             }
         ):
-            device, available = resolve_device("auto")
+            device, available = resolve_device("auto", ep=None)
 
         assert device == "npu"
         assert available == ["npu", "gpu", "cpu"]
@@ -227,7 +273,7 @@ class TestResolveDevice:
                 "cpu": ("CPUExecutionProvider",),
             }
         ):
-            device, available = resolve_device("auto")
+            device, available = resolve_device("auto", ep=None)
 
         assert device == "gpu"
         assert available == ["gpu", "cpu"]
@@ -235,7 +281,7 @@ class TestResolveDevice:
     def test_resolve_device_auto_cpu_fallback(self) -> None:
         """Auto mode: only CPU EP registered -> returns "cpu"."""
         with _patch_device_ep_map({"cpu": ("CPUExecutionProvider",)}):
-            device, available = resolve_device("auto")
+            device, available = resolve_device("auto", ep=None)
 
         assert device == "cpu"
         assert available == ["cpu"]
@@ -248,7 +294,7 @@ class TestResolveDevice:
                 "cpu": ("CPUExecutionProvider",),
             }
         ):
-            device, available = resolve_device("gpu")
+            device, available = resolve_device("gpu", ep=None)
 
         assert device == "gpu"
         assert available == ["gpu", "cpu"]
@@ -256,7 +302,7 @@ class TestResolveDevice:
     def test_resolve_device_explicit_invalid(self) -> None:
         """Unrecognized device "tpu" -> raises ValueError."""
         with pytest.raises(ValueError, match="Unknown device 'tpu'"):
-            resolve_device("tpu")
+            resolve_device("tpu", ep=None)
 
     def test_resolve_device_explicit_no_ep_error_names_missing_eps(self) -> None:
         """Error message must name the compatible EPs so users know what to install."""
@@ -268,7 +314,7 @@ class TestResolveDevice:
             ),
             pytest.raises(ValueError) as exc_info,
         ):
-            resolve_device("npu")
+            resolve_device("npu", ep=None)
 
         message = str(exc_info.value)
         assert "no compatible EP" in message
@@ -278,7 +324,7 @@ class TestResolveDevice:
     def test_resolve_device_case_insensitive(self) -> None:
         """Device argument should be case-insensitive."""
         with _patch_device_ep_map({"cpu": ("CPUExecutionProvider",)}):
-            device, _ = resolve_device("CPU")
+            device, _ = resolve_device("CPU", ep=None)
 
         assert device == "cpu"
 
@@ -293,7 +339,7 @@ class TestResolveDevice:
             _patch_device_ep_map({}),
             pytest.raises(RuntimeError, match="No execution providers detected"),
         ):
-            resolve_device("auto")
+            resolve_device("auto", ep=None)
 
 
 class TestResolveDeviceWithEp:
