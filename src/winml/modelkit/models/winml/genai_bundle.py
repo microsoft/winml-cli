@@ -35,8 +35,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from ...utils.constants import EPNameOrAlias
-    from .base import WinMLPreTrainedModel
-    from .composite_model import WinMLCompositeModel
 
 
 # =========================================================================
@@ -264,9 +262,9 @@ def build_genai_bundle(
             },
         },
     )
-    built = cast("WinMLCompositeModel", built)
-    context_onnx = Path(built.sub_models[transformer.context_sub_model].onnx_path)
-    iterator_onnx = Path(built.sub_models[transformer.iterator_sub_model].onnx_path)
+    sub_models = built.sub_models  # type: ignore[union-attr]
+    context_onnx = Path(sub_models[transformer.context_sub_model].onnx_path)
+    iterator_onnx = Path(sub_models[transformer.iterator_sub_model].onnx_path)
     for label, model_path in (("ctx", context_onnx), ("iter", iterator_onnx)):
         _emit(f"  [{label}] {model_path}")
         _emit(f"        {_node_summary(model_path)}")
@@ -293,8 +291,7 @@ def build_genai_bundle(
             force_rebuild=force_rebuild,
             cache_dir=cache_dir,
         )
-        companion = cast("WinMLPreTrainedModel", companion)
-        companion_path = Path(companion.onnx_path)
+        companion_path = Path(companion.onnx_path)  # type: ignore[union-attr]
         _emit(f"  [{spec.role}] {companion_path}")
         _emit(f"        {_node_summary(companion_path)}")
         companion_srcs[spec.role] = companion_path
