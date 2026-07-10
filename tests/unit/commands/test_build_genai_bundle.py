@@ -11,8 +11,9 @@ only assert *which* path the command takes and *how* the CLI flags map onto the
 orchestrator call. No model download, no real build.
 
 The trigger under test (locked design):
-    registered decoder-LLM family  AND  explicit ``--device npu``  AND
-    explicit ``--ep qnn``  ->  genai bundle.  Every other combination keeps the
+    registered decoder-LLM family  AND  explicit ``--ep qnn``  AND a ``--device``
+    that targets the NPU (explicit ``--device npu`` or ``--device auto``
+    resolving to the NPU)  ->  genai bundle.  Every other combination keeps the
     stock single/composite behavior.
 """
 
@@ -146,6 +147,42 @@ def test_registered_family_npu_qnn_routes_to_bundle(tmp_path: Path):
     assert callable(kwargs["emit"])
 
 
+def test_explicit_no_quant_is_rejected_not_silently_ignored(tmp_path: Path):
+    """A user-supplied pipeline control must error, not become a silent no-op.
+
+    The genai bundle fixes quantization via its recipe, so ``--no-quant`` cannot
+    be honored.  The fast path must reject it instead of quantizing anyway (and
+    it must not reach the orchestrator or the single-model pipeline).
+    """
+    cfg = _write_config(tmp_path, model_type="qwen3")
+
+    with (
+        patch(_BUNDLE_TARGET, side_effect=_record_bundle({})) as bundle,
+        patch(_RUN_SINGLE_TARGET) as run_single,
+        patch(_COMPOSITE_TARGET, return_value=None),
+    ):
+        result = _invoke(
+            [
+                "-c",
+                cfg,
+                "-m",
+                "Qwen/Qwen3-0.6B",
+                "-o",
+                str(tmp_path / "b"),
+                "--device",
+                "npu",
+                "--ep",
+                "qnn",
+                "--no-quant",
+            ]
+        )
+
+    assert result.exit_code != 0
+    assert "--quant/--no-quant" in result.output
+    bundle.assert_not_called()
+    run_single.assert_not_called()
+
+
 def test_rebuild_flag_maps_to_force_rebuild(tmp_path: Path):
     cfg = _write_config(tmp_path, model_type="qwen3")
     recorded: dict = {}
@@ -203,6 +240,59 @@ def test_precision_override_forwarded(tmp_path: Path):
 
     assert result.exit_code == 0, result.output
     assert recorded["kwargs"]["precision"] == "w8a16"
+
+
+def test_registered_family_auto_qnn_routes_to_bundle(tmp_path: Path):
+    """``--device auto`` resolving to the NPU, with explicit ``--ep qnn``, routes."""
+    cfg = _write_config(tmp_path, model_type="qwen3")
+    out = tmp_path / "bundle"
+    recorded: dict = {}
+
+    with (
+        patch(_BUNDLE_TARGET, side_effect=_record_bundle(recorded)) as bundle,
+        patch(_RUN_SINGLE_TARGET) as run_single,
+        patch(_COMPOSITE_TARGET, return_value=None),
+    ):
+        result = _invoke(
+            ["-c", cfg, "-m", "Qwen/Qwen3-0.6B", "-o", str(out), "--device", "auto", "--ep", "qnn"]
+        )
+
+    assert result.exit_code == 0, result.output
+    assert bundle.call_count == 1
+    run_single.assert_not_called()
+    kwargs = recorded["kwargs"]
+    assert kwargs["ep"] == "qnn"
+    assert kwargs["device"] == "npu"
+
+
+def test_auto_qnn_resolving_to_non_npu_does_not_route(tmp_path: Path):
+    """``--device auto`` that resolves to a non-NPU device keeps the stock path."""
+    cfg = _write_config(tmp_path, model_type="qwen3")
+
+    with (
+        patch(_BUNDLE_TARGET) as bundle,
+        patch(_RUN_SINGLE_TARGET) as run_single,
+        patch(_COMPOSITE_TARGET, return_value=None),
+        patch("winml.modelkit.sysinfo.resolve_device", return_value=("cpu", ["cpu"])),
+    ):
+        result = _invoke(
+            [
+                "-c",
+                cfg,
+                "-m",
+                "Qwen/Qwen3-0.6B",
+                "-o",
+                str(tmp_path / "o"),
+                "--device",
+                "auto",
+                "--ep",
+                "qnn",
+            ]
+        )
+
+    assert result.exit_code == 0, result.output
+    bundle.assert_not_called()
+    run_single.assert_called_once()
 
 
 def test_npu_without_explicit_ep_does_not_route(tmp_path: Path):

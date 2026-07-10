@@ -21,7 +21,6 @@ the orchestrator only reads recipe data and delegates to
 from __future__ import annotations
 
 import collections
-import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,8 +33,6 @@ from ...utils.constants import normalize_ep_name
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-
-logger = logging.getLogger(__name__)
 
 
 # =========================================================================
@@ -172,26 +169,18 @@ def resolve_genai_bundle(model_type: str | None) -> GenaiBundleRecipe | None:
 # =========================================================================
 
 
-def _node_summary(path: str | Path) -> str:
-    """One-line op-type summary of an ONNX graph (loads shape metadata only)."""
+def _node_summary(path: str | Path, *, top: int = 6) -> str:
+    """One-line op-type histogram of an ONNX graph (loads shape metadata only).
+
+    Architecture-agnostic: reports the total node count, the number of distinct
+    op types and the *top* most common op types by count.  Hardcodes no
+    operator names, so it stays valid for any model the recipe registry drives.
+    """
     model = onnx.load(str(path), load_external_data=False)
     counts = collections.Counter(n.op_type for n in model.graph.node)
-    gqa_io: set[str] = set()
-    for node in model.graph.node:
-        if node.op_type == "GroupQueryAttention":
-            gqa_io.update(node.input)
-            gqa_io.update(node.output)
-    qdq_touching_gqa = sum(
-        1
-        for n in model.graph.node
-        if n.op_type in ("QuantizeLinear", "DequantizeLinear")
-        and (set(n.input) & gqa_io or set(n.output) & gqa_io)
-    )
-    return (
-        f"Gather={counts['Gather']} MatMulNBits={counts['MatMulNBits']} "
-        f"Q={counts['QuantizeLinear']} DQ={counts['DequantizeLinear']} "
-        f"GQA={counts['GroupQueryAttention']} QDQ@GQA={qdq_touching_gqa}"
-    )
+    total = sum(counts.values())
+    top_ops = " ".join(f"{op}={n}" for op, n in counts.most_common(top))
+    return f"{total} nodes, {len(counts)} op types: {top_ops}"
 
 
 def build_genai_bundle(

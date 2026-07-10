@@ -36,7 +36,12 @@ from winml.modelkit.models.hf.qwen3.genai import QWEN3_GENAI_BUNDLE_RECIPE
 from winml.modelkit.models.winml import build_genai_bundle
 
 
-_DEVICES = ("cpu", "gpu", "npu")
+# Map the user-facing ``--device`` token to the execution-provider alias the
+# genai-bundle orchestrator understands.  ``normalize_ep_name`` resolves these
+# aliases to canonical EP names; passing a bare device token (e.g. ``"gpu"``)
+# would slip through unresolved and be rejected downstream as an unknown EP.
+_DEVICE_TO_EP = {"cpu": "cpu", "gpu": "dml", "npu": "qnn"}
+_DEVICES = tuple(_DEVICE_TO_EP)
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_BUNDLE = _REPO_ROOT / "out" / "bundle"
@@ -122,7 +127,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
         args.model_id,
         args.output,
         QWEN3_GENAI_BUNDLE_RECIPE,
-        ep="qnn" if args.device == "npu" else args.device,
+        ep=_DEVICE_TO_EP[args.device],
         device=args.device,
         precision=args.precision,
         max_cache_len=args.max_cache_len,

@@ -41,11 +41,14 @@ graph LR
 
 ## Step 1: Build the bundle (one command)
 
-Targeting the NPU HTP with **both** `--device npu` and `--ep qnn` switches
-`winml build` from the stock per-model ONNX output to the full genai bundle:
+Targeting the NPU HTP with an explicit `--ep qnn` switches `winml build` from the
+stock per-model ONNX output to the full genai bundle. Pair it with `--device npu`,
+or `--device auto` when auto-detection resolves to the NPU:
 
 ```bash
 winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --device npu --ep qnn
+# or, letting device auto-detection pick the NPU:
+winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --device auto --ep qnn
 ```
 
 This builds (or reuses from cache) all four components and assembles them, writing
@@ -63,10 +66,10 @@ winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --device npu --ep qnn --preci
 Force a clean rebuild of every component with `--rebuild`.
 
 !!! note "Opt-in, non-destructive"
-    The bundle path only triggers when **both** `--device npu` and `--ep qnn` are
-    passed explicitly. Qwen3 on any other target — CPU, GPU, or an auto-detected
-    NPU without an explicit `--ep qnn` — still produces the stock composite build,
-    unchanged.
+    The bundle path only triggers on an **explicit `--ep qnn`** together with an
+    NPU target — either `--device npu` or a `--device auto` that resolves to the
+    NPU. Qwen3 on any other target — CPU, GPU, or an auto-detected NPU *without*
+    an explicit `--ep qnn` — still produces the stock composite build, unchanged.
 
 ## Step 2: Tune context and prefill lengths (optional)
 

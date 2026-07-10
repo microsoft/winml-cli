@@ -55,9 +55,10 @@ single-pass build. Individual stages can be suppressed with `--no-quant`,
 ## Genai bundles for decoder LLMs (NPU + QNN)
 
 For a registered decoder-LLM family (currently **Qwen3**), targeting the NPU HTP
-by passing **both** `--device npu` and `--ep qnn` switches `winml build` to
-produce a complete [onnxruntime-genai](https://github.com/microsoft/onnxruntime-genai)
-**bundle** directory instead of the stock per-model ONNX output:
+with an explicit `--ep qnn` switches `winml build` to produce a complete
+[onnxruntime-genai](https://github.com/microsoft/onnxruntime-genai) **bundle**
+directory instead of the stock per-model ONNX output. Pair `--ep qnn` with
+`--device npu`, or with `--device auto` when auto-detection resolves to the NPU:
 
 | File | Role | Precision |
 |---|---|---|
@@ -70,9 +71,12 @@ produce a complete [onnxruntime-genai](https://github.com/microsoft/onnxruntime-
 ```bash
 # One command: HF decoder LLM → full onnxruntime-genai bundle on the NPU
 winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --device npu --ep qnn
+# or let device auto-detection pick the NPU:
+winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --device auto --ep qnn
 ```
 
-The trigger is data-driven and opt-in: **both flags must be passed explicitly**.
+The trigger is data-driven and opt-in: **`--ep qnn` must be passed explicitly**,
+alongside an NPU target (`--device npu`, or `--device auto` resolving to the NPU).
 Every other target — including Qwen3 on CPU/GPU, or an auto-detected NPU target
 without an explicit `--ep qnn` — keeps the existing behavior (the stock composite
 build). `--output-dir` is required (the bundle is a directory) and `--use-cache`

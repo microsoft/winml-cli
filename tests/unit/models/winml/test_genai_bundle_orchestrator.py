@@ -14,9 +14,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import onnx
 import pytest
-from onnx import TensorProto, helper
+from onnx import TensorProto, helper, save
 
 from winml.modelkit.models.auto import WinMLAutoModel
 from winml.modelkit.models.winml import (
@@ -32,7 +31,7 @@ def _write_tiny_onnx(path: Path) -> None:
     y = helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 4])
     node = helper.make_node("Relu", ["x"], ["y"])
     graph = helper.make_graph([node], "g", [x], [y])
-    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)]), str(path))
+    save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)]), str(path))
 
 
 class _StubModel:
