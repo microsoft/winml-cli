@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Compile command for winml CLI.
+"""Compile command for WinML CLI.
 
 This module provides the compile command that compiles ONNX models to
 EP-specific formats (e.g., QNN EPContext).

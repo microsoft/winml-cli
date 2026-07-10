@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Quantize command for winml CLI.
+"""Quantize command for WinML CLI.
 
 This module provides the quantize command that inserts QDQ (Quantize-Dequantize)
 nodes into ONNX models for quantization-aware inference.
