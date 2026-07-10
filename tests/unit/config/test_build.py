@@ -335,6 +335,121 @@ class TestGenerateBuildConfigFast:
 
 
 # =============================================================================
+# TestStep45PreservesModelType - STEP 4.5 precision policy must keep model_type
+# =============================================================================
+
+
+class TestStep45PreservesModelType:
+    """STEP 4.5's precision policy must preserve the quant ``model_type``.
+
+    ``_assemble_config`` stamps ``quant.model_type`` (plus ``task`` / ``model_id``)
+    so ``quantize_onnx`` can dispatch a registered model-type quant finalizer.
+    The weight-only (RTN) and FP16 policy branches historically *replaced* the
+    quant config with a fresh object, silently dropping those identity fields —
+    so the finalizer never ran and weight-only builds fell back to the default
+    RTN block size instead of the finalizer's pinned scheme. These are the
+    regression guards; they use a synthetic ``model_type`` (no real arch names).
+    """
+
+    def _run(
+        self,
+        policy: PrecisionPolicy,  # noqa: F821 - imported inside test
+        loader_config: WinMLLoaderConfig,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_export_config: WinMLExportConfig,
+    ) -> WinMLBuildConfig:
+        with (
+            patch(
+                "winml.modelkit.config.build.resolve_loader_config",
+                return_value=(loader_config, mock_hf_config, mock_model_class, MagicMock()),
+            ),
+            patch(
+                "winml.modelkit.config.build._resolve_export_config_from_specs",
+                return_value=mock_export_config,
+            ),
+            patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+            patch(
+                "winml.modelkit.config.precision.resolve_precision",
+                return_value=policy,
+            ),
+        ):
+            return generate_build_config(
+                "some/model",
+                task="feature-extraction",
+                precision=policy.precision,
+                device=policy.device,
+            )
+
+    def test_weight_only_policy_preserves_model_type(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        """Weight-only (RTN) precision keeps model_type/task/model_id."""
+        from winml.modelkit.config.precision import PrecisionPolicy
+
+        loader_config = WinMLLoaderConfig(
+            task="feature-extraction",
+            model_class="SomeModelClass",
+            model_type="some_variant_only",
+        )
+        policy = PrecisionPolicy(
+            device="cpu",
+            precision="w4a32",
+            weight_type=None,
+            activation_type=None,
+            compile_provider=None,
+        )
+
+        result = self._run(
+            policy, loader_config, mock_hf_config, mock_model_class, mock_export_config
+        )
+
+        assert result.quant is not None
+        assert result.quant.mode == "rtn"
+        assert result.quant.rtn_bits == 4
+        # The regression: identity fields must survive the policy replacement so
+        # quantize_onnx can resolve the registered model-type quant finalizer.
+        assert result.quant.model_type == "some_variant_only"
+        assert result.quant.task == "feature-extraction"
+        assert result.quant.model_id == "some/model"
+
+    def test_fp16_policy_preserves_model_type(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        """FP16 precision keeps model_type/task/model_id."""
+        from winml.modelkit.config.precision import PrecisionPolicy
+
+        loader_config = WinMLLoaderConfig(
+            task="feature-extraction",
+            model_class="SomeModelClass",
+            model_type="some_variant_only",
+        )
+        policy = PrecisionPolicy(
+            device="gpu",
+            precision="fp16",
+            weight_type=None,
+            activation_type=None,
+            compile_provider=None,
+        )
+
+        result = self._run(
+            policy, loader_config, mock_hf_config, mock_model_class, mock_export_config
+        )
+
+        assert result.quant is not None
+        assert result.quant.mode == "fp16"
+        assert result.quant.model_type == "some_variant_only"
+        assert result.quant.task == "feature-extraction"
+        assert result.quant.model_id == "some/model"
+
+
+# =============================================================================
 # TestRegistryShortCircuit - Registry-before-Optimum export config resolution
 # =============================================================================
 
