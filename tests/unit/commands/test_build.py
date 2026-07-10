@@ -194,6 +194,10 @@ class TestBuildCliInterface:
         assert "--verbose" in result.output
         assert "--no-analyze" in result.output
         assert "--max-optim-iterations" in result.output
+        assert "--shape-config" in result.output
+        assert "--input-specs" in result.output
+        assert "--export-config" in result.output
+        assert "--dynamic-axes" in result.output
 
     def test_config_required(self, runner: CliRunner) -> None:
         from winml.modelkit.commands.build import build
@@ -1857,6 +1861,60 @@ class TestBuildEpResolution:
             )
         assert result.exit_code == 0, result.output
         assert mock_gen.call_args.kwargs["ep"] == "openvino"
+
+    def test_export_overrides_forwarded_to_generate_build_config(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ):
+        """Auto-config builds should pass export-related CLI overrides into config generation."""
+        input_specs = tmp_path / "inputs.json"
+        input_specs.write_text(
+            json.dumps({"pixel_values": {"dtype": "float32", "shape": ["batch", 3, 224, 224]}})
+        )
+        export_config = tmp_path / "export.json"
+        export_config.write_text(json.dumps({"opset_version": 18}))
+        dynamic_axes = tmp_path / "dynamic_axes.json"
+        dynamic_axes.write_text(json.dumps({"pixel_values": {"0": "batch"}}))
+        shape_config = tmp_path / "shapes.json"
+        shape_config.write_text(json.dumps({"height": 224, "width": 224}))
+
+        fake_cfg = MagicMock()
+        fake_cfg.compile = None
+        fake_cfg.validate.return_value = None
+        fake_cfg.loader = MagicMock()
+        fake_cfg.loader.task = "image-classification"
+
+        with (
+            patch("winml.modelkit.config.generate_build_config", return_value=fake_cfg) as mock_gen,
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = _invoke(
+                [
+                    "-m",
+                    "microsoft/resnet-50",
+                    "-o",
+                    str(tmp_path / "out"),
+                    "--shape-config",
+                    str(shape_config),
+                    "--input-specs",
+                    str(input_specs),
+                    "--export-config",
+                    str(export_config),
+                    "--dynamic-axes",
+                    str(dynamic_axes),
+                ]
+            )
+
+        assert result.exit_code == 0, result.output
+        kwargs = mock_gen.call_args.kwargs
+        assert kwargs["shape_config"] == {"height": 224, "width": 224}
+        export_override = kwargs["override"]["export"]
+        assert export_override["opset_version"] == 18
+        assert export_override["dynamic_axes"] == {"pixel_values": {"0": "batch"}}
+        assert export_override["input_tensors"][0].name == "pixel_values"
+        assert export_override["input_tensors"][0].shape == ("batch", 3, 224, 224)
 
     def test_auto_config_onnx_model_uses_single_generate_call(
         self, tmp_path: Path, mock_run_single_build: MagicMock

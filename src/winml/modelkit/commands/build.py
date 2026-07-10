@@ -29,6 +29,7 @@ import click
 from rich.logging import RichHandler
 
 from ..utils import cli as cli_utils
+from ..utils.config_utils import merge_config
 from ..utils.console import (
     detect_model_source,
     get_console,
@@ -500,6 +501,17 @@ def _validate_loader_tasks_for_model(
 @cli_utils.precision_option(
     optional_message="With -c, applied only when --device or --precision is passed.",
 )
+@cli_utils.shape_config_option(
+    help_text="JSON with shape overrides for auto-generated HuggingFace export configs.",
+)
+@cli_utils.input_specs_option()
+@cli_utils.export_config_option()
+@cli_utils.dynamic_axes_option(
+    help_text=(
+        "JSON dynamic axes mapping for HuggingFace ONNX export "
+        '(e.g., {"input_ids": {"0": "batch", "1": "sequence"}}).'
+    )
+)
 @cli_utils.analyze_option()
 @cli_utils.optimize_option()
 @cli_utils.max_optim_iterations_option()
@@ -523,6 +535,10 @@ def build(
     ep: EPNameOrAlias | None,
     device: str,
     precision: str,
+    shape_config: Path | None,
+    input_specs: Path | None,
+    export_config: Path | None,
+    dynamic_axes: Path | None,
     analyze: bool,
     max_optim_iterations: int | None,
     allow_unsupported_nodes: bool,
@@ -590,6 +606,21 @@ def build(
                 "Expected: auto, fp32, fp16, int8, int16, or w{{x}}a{{y}} (e.g., w8a8, w8a16)."
             )
 
+    shape_overrides = None
+    if shape_config is not None:
+        if config_file is not None:
+            raise click.UsageError(
+                "--shape-config can only be used when the build config is auto-generated "
+                "(omit -c/--config). Put fixed input specs in the config file instead."
+            )
+        shape_overrides = cli_utils.load_json_object(shape_config, "--shape-config")
+
+    export_overrides = cli_utils.load_export_overrides(
+        export_config=export_config,
+        input_specs=input_specs,
+        dynamic_axes=dynamic_axes,
+    )
+
     # If ep unspecified, resolve the target device and pick the highest-priority
     # EP compatible with it. Avoids selecting an EP that does not match the host
     # hardware -- analyzing for the wrong EP leaves black nodes that block a
@@ -623,6 +654,27 @@ def build(
                 no_quant=not quant,
                 no_compile=no_compile,
             )
+            if export_overrides:
+                config_list = (
+                    config_or_configs
+                    if isinstance(config_or_configs, list)
+                    else [config_or_configs]
+                )
+                for cfg in config_list:
+                    if cfg.export is None:
+                        raise click.UsageError(
+                            "--input-specs, --export-config, and --dynamic-axes require "
+                            "a HuggingFace export config; they are not supported when "
+                            "the build config has export=null."
+                        )
+                if isinstance(config_or_configs, list):
+                    config_or_configs = [
+                        merge_config(cfg, {"export": export_overrides}) for cfg in config_or_configs
+                    ]
+                else:
+                    config_or_configs = merge_config(
+                        config_or_configs, {"export": export_overrides}
+                    )
         else:
             if not model:
                 raise click.UsageError("-m/--model is required when -c is not provided.")
@@ -634,6 +686,12 @@ def build(
             # of treating the path as a HuggingFace repo id (which would try to
             # load the .onnx file as a JSON config and crash).
             if cli_utils.is_onnx_file_path(model):
+                if export_overrides:
+                    raise click.UsageError(
+                        "--input-specs, --export-config, and --dynamic-axes are only "
+                        "supported when exporting HuggingFace model inputs, not "
+                        "pre-exported ONNX files."
+                    )
                 config_or_configs = generate_build_config(
                     onnx_path=model,
                     device=device,
@@ -647,6 +705,8 @@ def build(
                     device=device,
                     precision=precision,
                     ep=ep,
+                    shape_config=shape_overrides,
+                    override={"export": export_overrides} if export_overrides else None,
                 )
             if not quant:
                 config_or_configs.quant = None
@@ -908,6 +968,8 @@ def build(
                             device=device,
                             precision=precision,
                             ep=ep,
+                            shape_config=shape_overrides,
+                            override={"export": export_overrides} if export_overrides else None,
                         )
                         # Carry over quant/compile settings from the outer config
                         # (already patched by CLI overrides like --no-quant /

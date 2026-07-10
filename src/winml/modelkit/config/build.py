@@ -263,6 +263,9 @@ class WinMLBuildConfig:
         return hashlib.sha256(json_str.encode()).hexdigest()[:16]
 
 
+BuildConfigOverride = WinMLBuildConfig | dict[str, Any]
+
+
 # =============================================================================
 # SUBMODULE INFO DATACLASS
 # =============================================================================
@@ -398,7 +401,7 @@ def generate_onnx_build_config(
     device: str = "auto",
     precision: str = "auto",
     ep: EPNameOrAlias | None = None,
-    override: WinMLBuildConfig | None = None,
+    override: BuildConfigOverride | None = None,
     no_compile: bool = False,
 ) -> WinMLBuildConfig:
     """Generate build config for a pre-exported ONNX model (Scenario D).
@@ -495,7 +498,7 @@ def generate_hf_build_config(
     model_class: str | None = None,
     model_type: str | None = None,
     module: None = None,
-    override: WinMLBuildConfig | None = None,
+    override: BuildConfigOverride | None = None,
     shape_config: dict | None = None,
     library_name: str = "transformers",
     device: str = "auto",
@@ -514,7 +517,7 @@ def generate_hf_build_config(
     model_class: str | None = None,
     model_type: str | None = None,
     module: str,
-    override: WinMLBuildConfig | None = None,
+    override: BuildConfigOverride | None = None,
     shape_config: dict | None = None,
     library_name: str = "transformers",
     device: str = "auto",
@@ -537,7 +540,7 @@ def generate_hf_build_config(
     # resolve the call against the two narrower overloads above and fails with
     # "too many union combinations".
     module: str | None,
-    override: WinMLBuildConfig | None = None,
+    override: BuildConfigOverride | None = None,
     shape_config: dict | None = None,
     library_name: str = "transformers",
     device: str = "auto",
@@ -555,7 +558,7 @@ def generate_hf_build_config(
     model_class: str | None = None,
     model_type: str | None = None,
     module: str | None = None,
-    override: WinMLBuildConfig | None = None,
+    override: BuildConfigOverride | None = None,
     shape_config: dict | None = None,
     library_name: str = "transformers",
     device: str = "auto",
@@ -593,7 +596,7 @@ def generate_hf_build_config(
         module: If specified, generate configs for submodules matching this
                 class name. Uses torchinfo to discover submodules and infer
                 I/O shapes.
-        override: Partial WinMLBuildConfig to merge on top of auto-detected.
+        override: Partial WinMLBuildConfig or sparse mapping to merge on top of auto-detected.
         shape_config: Shape overrides passed to resolve_export_config().
         library_name: Source library for TasksManager lookup.
         device: Target device ("auto", "npu", "gpu", "cpu").
@@ -611,9 +614,19 @@ def generate_hf_build_config(
                     detection fails, or model_type has no supported tasks.
     """
     # STEP 1: Resolve loader config (ALL loader concerns)
-    _trust_remote_code = trust_remote_code or (
-        override.loader.trust_remote_code if override and override.loader else False
-    )
+    if isinstance(override, WinMLBuildConfig):
+        override_trust_remote_code = override.loader.trust_remote_code if override.loader else False
+    elif isinstance(override, dict):
+        loader_override = override.get("loader")
+        override_trust_remote_code = (
+            bool(loader_override.get("trust_remote_code"))
+            if isinstance(loader_override, dict)
+            else False
+        )
+    else:
+        override_trust_remote_code = False
+
+    _trust_remote_code = trust_remote_code or override_trust_remote_code
     if _trust_remote_code:
         from ..utils.cli import warn_trust_remote_code
 
@@ -797,7 +810,7 @@ def generate_build_config(
     model_class: str | None = None,
     model_type: str | None = None,
     module: None = None,
-    override: WinMLBuildConfig | None = None,
+    override: BuildConfigOverride | None = None,
     shape_config: dict | None = None,
     library_name: str = "transformers",
     device: str = "auto",
@@ -816,7 +829,7 @@ def generate_build_config(
     model_class: str | None = None,
     model_type: str | None = None,
     module: str,
-    override: WinMLBuildConfig | None = None,
+    override: BuildConfigOverride | None = None,
     shape_config: dict | None = None,
     library_name: str = "transformers",
     device: str = "auto",
@@ -834,7 +847,7 @@ def generate_build_config(
     model_class: str | None = None,
     model_type: str | None = None,
     module: str | None = None,
-    override: WinMLBuildConfig | None = None,
+    override: BuildConfigOverride | None = None,
     shape_config: dict | None = None,
     library_name: str = "transformers",
     device: str = "auto",

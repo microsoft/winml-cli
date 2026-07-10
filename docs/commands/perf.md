@@ -27,7 +27,10 @@ $ winml perf [options]
 | `--output` | `-o` | `PATH` | `~/.cache/winml/perf/<slug>/<timestamp>.json` | Output JSON file path for the benchmark report. |
 | `--batch-size` | | `INTEGER` | `1` | Batch size used when generating synthetic input tensors. Ignored when `--input-data` is set. |
 | `--input-data` | | `PATH` | — | Path to a `.npz` file of real input tensors to benchmark with instead of randomly generated inputs. The archive's keys must match the model's inputs exactly; dtypes are cast to the model's expected dtype (with a warning) to mirror normal inference. Not supported with `--module`, `--runtime winml-genai`, or composite (dual-encoder) models. |
-| `--shape-config` | | `PATH` | — | Path to a JSON file containing shape overrides (e.g., `{"height": 480, "width": 480}`). Ignored for pre-exported ONNX files, in `--module` mode, and when `--input-data` is set. |
+| `--shape-config` | | `PATH` | — | Path to a JSON file containing shape overrides (e.g., `{"height": 480, "width": 480}`). Used for Hugging Face export and random input generation; ignored in `--module` mode and when `--input-data` is set. |
+| `--input-specs` | | `PATH` | — | JSON input tensor specs to merge into the Hugging Face export config before benchmarking. Symbolic string dimensions infer dynamic axes. Ignored for pre-exported ONNX files and in `--module` mode. |
+| `--export-config` | | `PATH` | — | JSON ONNX export config overrides to apply when `perf` builds a Hugging Face model before benchmarking. Ignored for pre-exported ONNX files and in `--module` mode. |
+| `--dynamic-axes` | | `PATH` | — | JSON dynamic axes mapping for Hugging Face ONNX export, for example `{"input_ids": {"0": "batch", "1": "sequence"}}`. Ignored for pre-exported ONNX files and in `--module` mode. |
 | `--quantize/--no-quantize` | | flag | `true` | Run quantization during model build (use `--no-quantize` to skip it). Useful for measuring the fp32 baseline. |
 | `--rebuild/--no-rebuild` | | flag | `false` | Force model rebuild even if a cached artifact already exists. |
 | `--ignore-cache/--no-ignore-cache` | | flag | `false` | Build from scratch in a temporary folder and discard the artifact after benchmarking. Implies `--rebuild`. |
@@ -100,6 +103,12 @@ Benchmark with real inputs from a `.npz` file instead of random data:
 $ winml perf -m model.onnx --input-data inputs.npz
 ```
 
+Benchmark a Hugging Face model with dynamic export axes before measuring:
+
+```bash
+$ winml perf -m microsoft/resnet-50 --dynamic-axes dynamic_axes.json
+```
+
 The archive must contain one array per model input, keyed by the input name —
 for example:
 
@@ -121,8 +130,8 @@ and logs a warning.
 
 - **Warm-up too low on NPU.** The first several inferences on an NPU EP can be significantly slower due to kernel compilation and caching. The default of 10 warm-up iterations is usually enough for vision models, but transformer models with many operators may need `--warmup 30` or higher to reach steady-state latency.
 - **`--input-data` keys must match; dtypes are cast.** The `.npz` keys must equal the model's input names — a missing or unexpected key is a hard error (typo protection). Array dtypes are cast to the model's expected dtype with a warning (matching normal inference), so you don't have to hand-match widths. `.npy` files are not supported — save named arrays as `.npz`. When `--input-data` is set, `--batch-size` and `--shape-config` are ignored (the tensors define their own shapes). It is also rejected for `--module` mode, `--runtime winml-genai`, and composite (dual-encoder) models such as CLIP/SigLIP, where each sub-model has its own inputs that a single `.npz` cannot address.
-- **Real data only binds if the export kept axes dynamic.** When `-m` is a HuggingFace model ID, `perf` exports it with default shapes (because `--shape-config`/`--batch-size` are ignored under `--input-data`). If that export baked in static shapes, ORT will reject differently-shaped `--input-data`. Export the model to ONNX with dynamic axes first (or point `-m` at that ONNX file) so the provided tensors bind cleanly.
-- **`--shape-config` is silently ignored in two cases.** It has no effect on pre-exported ONNX files (shapes are baked into the graph) and is ignored in `--module` mode. The command prints a warning in both situations.
+- **Real data only binds if the export kept axes dynamic.** When `-m` is a HuggingFace model ID, `perf` exports it with default shapes (because `--shape-config`/`--batch-size` are ignored under `--input-data`). If that export baked in static shapes, ORT will reject differently-shaped `--input-data`. Use `--dynamic-axes`/symbolic `--input-specs` for the Hugging Face build, or point `-m` at an ONNX file that already has dynamic axes.
+- **`--shape-config` is ignored when real or module inputs own the shape.** It is ignored in `--module` mode and when `--input-data` is set. The command prints a warning in both situations.
 - **Random inputs do not represent real data distributions.** Latency numbers are accurate, but memory access patterns may differ from production because the generated tensors are uniform random values. For memory-bandwidth-sensitive models this can understate real-world latency.
 - **Cross-device comparison.** To compare performance across devices, run `winml perf` separately with different `--device` values and compare the resulting JSON reports.
 
