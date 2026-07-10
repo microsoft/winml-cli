@@ -1,6 +1,6 @@
 # Supported Models
 
-Windows ML CLI has validated a set of models for compatibility across all
+WinML CLI has validated a set of models for compatibility across all
 Execution Providers (EPs)—see the full
 [Model Accuracy Report](../reports/model_accuracy_report.html).
 

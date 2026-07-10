@@ -1,6 +1,6 @@
 # winml-cli
 
-Windows ML CLI is a command line tool for building portable, performant, and high-quality AI models for Windows ML. It takes you from a source model — whether from Hugging Face or your own pipeline — to a hardware-optimized artifact in a reproducible workflow.
+WinML CLI is a command line tool for building portable, performant, and high-quality AI models for Windows ML. It takes you from a source model — whether from Hugging Face or your own pipeline — to a hardware-optimized artifact in a reproducible workflow.
 
 Purpose-built for Windows hardware diversity, the CLI handles conversion, graph optimization, and compilation across AMD, Intel, NVIDIA, and Qualcomm targets. The CLI fits naturally into CI/CD pipelines so teams can validate and ship models easily.
 
@@ -29,7 +29,7 @@ Purpose-built for Windows hardware diversity, the CLI handles conversion, graph 
 
 ## Repository access
 
-To request access to the Windows ML CLI repository, visit [aka.ms/winml-cli](https://aka.ms/winml-cli).
+To request access to the WinML CLI repository, visit [aka.ms/winml-cli](https://aka.ms/winml-cli).
 
 ## License
 

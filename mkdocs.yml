@@ -1,4 +1,4 @@
-site_name: Windows ML CLI
+site_name: WinML CLI
 site_description: A CLI toolkit to build portable, performant, and high-quality models for Windows ML.
 site_url: https://microsoft.github.io/winml-cli/
 repo_url: https://github.com/microsoft/winml-cli
