@@ -26,6 +26,7 @@ class ModelEntry:
     dataset_config: dict | None = None
     perf_args: list[str] = field(default_factory=list)
     eval_args: list[str] = field(default_factory=list)
+    composite_onnx: dict[str, str] | None = None
     downloads: int = 0
     last_update_time: str | None = None
     optimum_supported: bool = False
@@ -110,6 +111,7 @@ def load_registry(path: Path) -> list[ModelEntry]:
                 dataset_config=ds_config,
                 perf_args=perf_args,
                 eval_args=eval_args,
+                composite_onnx=item.get("composite_onnx"),
                 downloads=item.get("downloads", 0) or 0,
                 last_update_time=item.get("last_update_time"),
                 optimum_supported=item.get("optimum_supported", False),

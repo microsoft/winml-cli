@@ -106,6 +106,39 @@ class TestSinglePlain:
         with pytest.raises(click.BadParameter, match="ONNX file not found"):
             _resolve_model_path(model=(str(missing),), model_id="some/id")
 
+    def test_hub_onnx_ref_is_resolved(self, tmp_path):
+        """Hub-style ONNX refs (``<org>/<repo>/<path>.onnx``) must be
+        downloaded once and treated as the resolved local path -- not
+        rejected by the ``ONNX file not found`` validation that fires
+        for missing local files.
+
+        Regression test for ``winml eval`` on Hub refs like
+        ``onnx-community/sam3-tracker-ONNX/onnx/...``.
+        """
+        from unittest.mock import patch
+
+        local = tmp_path / "vision_encoder_int8.onnx"
+        local.write_bytes(b"")
+        hub_ref = "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
+
+        # eval.py routes all Hub-ONNX resolution through
+        # ``cli_utils.normalize_model_arg`` -> ``resolve_model_input``
+        # (the single CLI-layer entry point). Patch the underlying
+        # downloader so the lazy ``from ..loader.onnx_hub import
+        # resolve_hf_onnx_path`` picks up the mock at call time.
+        with patch(
+            "winml.modelkit.loader.onnx_hub.resolve_hf_onnx_path",
+            return_value=local,
+        ) as mock_resolve:
+            path, mid = _resolve_model_path(
+                model=(hub_ref,),
+                model_id="facebook/sam3-tracker",
+            )
+        mock_resolve.assert_called_once()
+        # The Hub ref was resolved to the local path; eval can now load it.
+        assert path == str(local)
+        assert mid == "facebook/sam3-tracker"
+
     def test_multiple_plain_raises(self, onnx_file):
         """Multiple plain -m values without role=path are ambiguous."""
         with pytest.raises(click.UsageError, match="role=path"):
@@ -187,6 +220,84 @@ class TestComposite:
             model_id="some/id",
         )
         assert path == {"image-encoder": str(onnx_vision)}
+
+    def test_composite_hub_refs_resolved(self, tmp_path):
+        """role=org/repo/path/file.onnx resolves via Hub-ONNX loader.
+
+        Regression test for the multi-role variant of the single-model
+        Hub-ref resolution -- needed by SAM 3's
+        ``-m image-encoder=...ONNX/onnx/vision_encoder_int8.onnx
+          -m prompt-decoder=...ONNX/onnx/prompt_encoder_mask_decoder_int8.onnx``
+        invocation in ``winml eval``.
+        """
+        enc_local = tmp_path / "vision_encoder_int8.onnx"
+        enc_local.write_bytes(b"")
+        dec_local = tmp_path / "prompt_encoder_mask_decoder_int8.onnx"
+        dec_local.write_bytes(b"")
+        enc_ref = (
+            "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
+        )
+        dec_ref = (
+            "onnx-community/sam3-tracker-ONNX/onnx/"
+            "prompt_encoder_mask_decoder_int8.onnx"
+        )
+
+        # Map each Hub ref to its (different) local cache location.
+        def fake_resolve(ref, **kwargs):
+            return {
+                enc_ref: enc_local,
+                dec_ref: dec_local,
+            }[str(ref)]
+
+        with patch(
+            "winml.modelkit.loader.onnx_hub.resolve_hf_onnx_path",
+            side_effect=fake_resolve,
+        ) as mock_resolve:
+            path, mid = _resolve_model_path(
+                model=(
+                    f"image-encoder={enc_ref}",
+                    f"prompt-decoder={dec_ref}",
+                ),
+                model_id="facebook/sam3-tracker",
+            )
+        assert mock_resolve.call_count == 2
+        assert path == {
+            "image-encoder": str(enc_local),
+            "prompt-decoder": str(dec_local),
+        }
+        assert mid == "facebook/sam3-tracker"
+
+    def test_composite_mixed_hub_and_local(self, onnx_vision, tmp_path):
+        """One role is a Hub ref, the other is a local path -- both work."""
+        dec_local = tmp_path / "decoder.onnx"
+        dec_local.write_bytes(b"")
+        enc_ref = (
+            "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
+        )
+
+        # ``resolve_hf_onnx_path`` is the underlying downloader; the
+        # unified classifier+resolver only calls it for hub_onnx inputs.
+        # Local paths short-circuit in the classifier and never reach
+        # this mock.
+        with patch(
+            "winml.modelkit.loader.onnx_hub.resolve_hf_onnx_path",
+            return_value=dec_local,
+        ) as mock_resolve:
+            path, mid = _resolve_model_path(
+                model=(
+                    f"image-encoder={enc_ref}",
+                    f"prompt-decoder={onnx_vision}",
+                ),
+                model_id="facebook/sam3-tracker",
+            )
+        # Only the Hub ref triggers a download; local path passes
+        # through the classifier without touching the resolver.
+        mock_resolve.assert_called_once()
+        assert path == {
+            "image-encoder": str(dec_local),
+            "prompt-decoder": str(onnx_vision),
+        }
+        assert mid == "facebook/sam3-tracker"
 
 
 # ---------------------------------------------------------------------------

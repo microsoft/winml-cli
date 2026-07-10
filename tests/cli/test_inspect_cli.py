@@ -67,6 +67,22 @@ class TestInspectCliSurface:
         output_lower = result.output.lower()
         assert "xml" in output_lower or "choice" in output_lower or "invalid" in output_lower
 
+    def test_composite_task_passes_validation(self) -> None:
+        """A composite pipeline task (summarization) must pass --task validation.
+
+        Regression for #1069: it was rejected with "Invalid task" despite being
+        advertised by --list-tasks. Validation is a Click callback (no network), so a
+        rejection surfaces as "Invalid task" regardless of model resolution.
+        """
+        result = _run("--model-type", "t5", "--task", "summarization")
+        assert "Invalid task" not in result.output
+
+    def test_bogus_task_still_rejected(self) -> None:
+        """A genuinely unknown task must still be rejected at validation time."""
+        result = _run("--model-type", "t5", "--task", "not-a-real-task")
+        assert result.exit_code != 0
+        assert "Invalid task" in result.output
+
 
 # ===========================================================================
 # --list-tasks
@@ -114,6 +130,85 @@ class TestInspectListTasks:
         assert result.exit_code == 0
         lines = [line.strip() for line in result.output.splitlines() if line.strip()]
         assert lines == sorted(lines), "Task list is not sorted"
+
+    @staticmethod
+    def _task_lines(output: str) -> list[str]:
+        return [line.strip() for line in output.splitlines() if line.strip()]
+
+    def test_list_tasks_model_type_is_strict_subset(self) -> None:
+        """clip's tasks are a strict subset of the full taxonomy.
+
+        This holds for clip specifically because its composite task
+        (zero-shot-image-classification) happens to live inside KNOWN_TASKS, so the
+        whole listing stays within the full set. It is NOT a general guarantee: only
+        the Optimum half is intersected with KNOWN_TASKS; composite tasks are unioned
+        unfiltered, so a model whose composite task sits outside KNOWN_TASKS (t5 ->
+        summarization/translation, see test_list_tasks_excludes_with_past_flavors)
+        would break the subset relation. Asserted only for clip.
+        """
+        full = set(self._task_lines(_run("--list-tasks").output))
+        result = _run("--list-tasks", "--model-type", "clip")
+        assert result.exit_code == 0
+        clip_tasks = self._task_lines(result.output)
+        assert clip_tasks, "Expected clip to have at least one task"
+        assert clip_tasks == sorted(clip_tasks)
+        clip_set = set(clip_tasks)
+        assert clip_set < full, "clip's tasks should be a strict subset of the full taxonomy"
+        # Optimum-exportable and composite pipeline tasks both surface.
+        assert "image-classification" in clip_set
+        assert "zero-shot-image-classification" in clip_set
+
+    def test_list_tasks_model_type_is_model_specific(self) -> None:
+        """--list-tasks --model-type bert lists NLP tasks and excludes vision-only ones."""
+        result = _run("--list-tasks", "--model-type", "bert")
+        assert result.exit_code == 0
+        bert_set = set(self._task_lines(result.output))
+        assert {"fill-mask", "feature-extraction"} <= bert_set
+        assert "image-classification" not in bert_set
+
+    def test_list_tasks_excludes_with_past_flavors(self) -> None:
+        """Optimum's `-with-past` export flavors are not user-facing tasks and must not leak."""
+        result = _run("--list-tasks", "--model-type", "t5")
+        assert result.exit_code == 0
+        t5_tasks = self._task_lines(result.output)
+        assert not any(t.endswith("-with-past") for t in t5_tasks), t5_tasks
+        # The real tasks (exportable + composite) still surface.
+        assert {"summarization", "translation", "text2text-generation"} <= set(t5_tasks)
+
+    def test_list_tasks_includes_modelkit_registered_tasks(self) -> None:
+        """ModelKit's register_onnx_overwrite tasks must surface (needs models.hf import).
+
+        sam -> mask-generation is registered by winml.modelkit.models.hf, not by
+        stock Optimum. If the listing only triggers optimum's own registry it is
+        silently dropped, so this pins the models.hf import trigger.
+        """
+        result = _run("--list-tasks", "--model-type", "sam")
+        assert result.exit_code == 0
+        sam_set = set(self._task_lines(result.output))
+        assert "mask-generation" in sam_set, sam_set
+
+    def test_list_tasks_resolves_underscored_model_type(self) -> None:
+        """An underscored model_type (depth_anything) must resolve, not return empty."""
+        result = _run("--list-tasks", "--model-type", "depth_anything")
+        assert result.exit_code == 0
+        assert "depth-estimation" in self._task_lines(result.output)
+
+    def test_list_tasks_unknown_model_type_fails_loudly(self) -> None:
+        """A typo'd --model-type must exit non-zero, not print nothing and exit 0."""
+        result = _run("--list-tasks", "--model-type", "asdf")
+        assert result.exit_code != 0
+        assert "No exportable tasks" in result.output
+
+    def test_list_tasks_non_canonical_separator_fails_loudly(self) -> None:
+        """Hyphenated gpt-neo (canonical is gpt_neo) resolves empty and must error.
+
+        Optimum's export table is keyed on the exact config.model_type with no
+        separator normalization, so a hyphenated variant finds nothing. Rather than
+        silently emit an empty list, --list-tasks fails and points at the canonical form.
+        """
+        result = _run("--list-tasks", "--model-type", "gpt-neo")
+        assert result.exit_code != 0
+        assert "canonical" in result.output.lower()
 
 
 # ===========================================================================

@@ -394,6 +394,7 @@ def get_io_config(model_proto: onnx.ModelProto) -> dict:
     io_config: dict[str, list] = {
         "input_names": [],
         "input_shapes": [],
+        "input_symbolic_shapes": [],
         "input_types": [],
         "output_names": [],
         "output_shapes": [],
@@ -418,18 +419,25 @@ def get_io_config(model_proto: onnx.ModelProto) -> dict:
             except (KeyError, AttributeError):
                 dtype = np.dtype(np.float32)  # Default fallback
 
-            # Extract shape (None for dynamic dims)
+            # Extract shape (None for dynamic dims) and capture symbolic
+            # dim_param names in a parallel list so downstream consumers
+            # can resolve dynamic dims by their declared name.
             shape: list[int | None] = []
+            symbolic_shape: list[int | str | None] = []
             if tensor_type.HasField("shape"):
                 for dim in tensor_type.shape.dim:
                     if dim.HasField("dim_value"):
                         shape.append(dim.dim_value)
+                        symbolic_shape.append(dim.dim_value)
                     else:
                         shape.append(None)  # Dynamic dimension
+                        symbolic_shape.append(dim.dim_param or None)
 
             io_config[f"{prefix}_names"].append(name)
             io_config[f"{prefix}_shapes"].append(shape)
             io_config[f"{prefix}_types"].append(dtype)
+            if prefix == "input":
+                io_config["input_symbolic_shapes"].append(symbolic_shape)
 
     return io_config
 

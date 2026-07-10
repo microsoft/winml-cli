@@ -28,6 +28,7 @@ $ winml export [options]
 | `--task` | `-t` | string | `None` | Override auto-detected Hugging Face task (e.g., `image-feature-extraction`). |
 | `--export-config` | | path | `None` | JSON file with ONNX export parameters such as `opset_version` and `do_constant_folding`. |
 | `--shape-config` | | path | `None` | JSON object mapping symbolic dimension names to concrete sizes (e.g., `{"sequence_length": 2048}`). Ignored when `--input-specs` is provided. |
+| `--dynamic-axes` | | path | `None` | JSON object mapping tensor names to dynamic axis names for ONNX export (e.g., `{"input_ids": {"0": "batch", "1": "sequence"}}`). |
 | `--trust-remote-code/--no-trust-remote-code` | | flag | `false` | Allow executing custom code from model repositories during export. Use only with trusted sources. |
 | `--allow-unsupported-nodes/--no-allow-unsupported-nodes` | | flag | `false` | Allow unsupported nodes to remain in the exported graph instead of failing export. |
 | `--help` | `-h` | flag | | Show this message and exit. |
@@ -79,6 +80,19 @@ winml export -m bert-base-uncased -o bert.onnx --input-specs inputs.json
 ```
 
 ```bash
+# Export with dynamic batch and sequence dimensions
+winml export -m bert-base-uncased -o bert.onnx --dynamic-axes dynamic_axes.json
+# dynamic_axes.json:
+# {"input_ids": {"0": "batch", "1": "sequence"}, "attention_mask": {"0": "batch", "1": "sequence"}}
+```
+
+`--input-specs` also accepts symbolic dimension names in `shape`; symbolic
+entries are used as dynamic ONNX axis names while size `1` is used for the
+dummy input tensor. For example, `{"input_ids": {"dtype": "int64", "shape":
+["batch", "sequence"]}}` exports `input_ids` with dynamic `batch` and
+`sequence` dimensions.
+
+```bash
 # Produce clean ONNX without hierarchy metadata (for third-party optimizers)
 winml export -m microsoft/resnet-50 -o resnet50_clean.onnx --no-hierarchy
 ```
@@ -97,6 +111,9 @@ winml export -m microsoft/resnet-50 -o resnet50_clean.onnx --no-hierarchy
 - **`--shape-config` is silently ignored when `--input-specs` is set.**
   `--input-specs` takes full priority; remove it if you only want to override
   individual dimensions.
+- **Dynamic dimensions can reduce QNN optimization coverage.** Static batch and
+  static shapes remain the default because some QNN fusions require them. Use
+  `--dynamic-axes` only when downstream runtime scenarios need variable sizes.
 - **`--dynamo` and `--torch-module` are experimental.** Both flags emit a
   warning and have no effect in the current release. Do not rely on them in
   automated pipelines yet.

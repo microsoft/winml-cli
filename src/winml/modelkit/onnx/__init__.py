@@ -18,7 +18,13 @@ from typing import Any
 from .domains import ONNXDomain
 from .dtypes import SupportedONNXType, remove_optional_from_type_annotation
 from .external_data import copy_onnx_model, get_external_data_files, get_onnx_model_hash
-from .io import InputTensorSpec, OutputTensorSpec, generate_inputs_from_onnx, get_io_config
+from .io import (
+    InputTensorSpec,
+    OutputTensorSpec,
+    ShapeDim,
+    generate_inputs_from_onnx,
+    get_io_config,
+)
 from .metadata import capture_metadata, restore_metadata
 from .persistence import ONNXSaveError, cleanup_onnx, load_onnx, save_onnx
 from .shape import infer_onnx_shapes, infer_shapes
@@ -31,6 +37,7 @@ __all__ = [
     "ONNXDomain",
     "ONNXSaveError",
     "OutputTensorSpec",
+    "ShapeDim",
     "SupportedONNXType",
     "capture_metadata",
     "check_onnx_model",
