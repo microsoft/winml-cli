@@ -469,6 +469,7 @@ def device_option(
     default: str | None = "NPU",
     include_auto: bool = False,
     include_all: bool = False,
+    include_config: bool = False,
 ) -> Callable[[F], F]:
     """Add --device option to a Click command.
 
@@ -482,12 +483,16 @@ def device_option(
             (default: False).
         include_all: Whether to include "all" as a valid choice
             (default: False).
+        include_config: Whether to include "config" as a valid choice
+            (default: False). Used by ``perf`` for the winml-genai sentinel
+            meaning "respect the bundle's genai_config.json routing".
 
     Returns:
         Decorator function
     """
     device_choices = [device.lower() for device in SUPPORTED_DEVICES]
     choices = ["auto", *device_choices] if include_auto else device_choices
+    choices = ["config", *choices] if include_config else choices
     choices = ["all", *choices] if include_all else choices
     help_text = f"Target device type ({', '.join(choices)})"
     if optional_message:

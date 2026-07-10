@@ -29,7 +29,9 @@ Running these tests:
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -737,3 +739,202 @@ class TestPerfModule:
         # The real ResNetStage class should appear in the available list.
         assert "ResNetStage" in result.output
         assert not output_file.exists(), "Output file should not be written on failure"
+
+
+# ===========================================================================
+# GenAI runtime (winml-genai): --device / --ep override
+# ===========================================================================
+
+
+def _genai_perf_args(
+    *,
+    bundle_dir: Path,
+    output_file: Path,
+    device: str | None = None,
+    ep: str | None = None,
+) -> list[str]:
+    """Build argv for a fast winml-genai perf run against a tiny bundle.
+
+    Kept deliberately small (2 iterations, 1 warmup, 4 new tokens) so the
+    generation loop stays quick while still producing real timing samples.
+    """
+    args: list[str] = [
+        "-m",
+        str(bundle_dir),
+        "--runtime",
+        "winml-genai",
+        "--iterations",
+        "2",
+        "--warmup",
+        "1",
+        "--max-new-tokens",
+        "4",
+        "-o",
+        str(output_file),
+    ]
+    if device is not None:
+        args += ["--device", device]
+    if ep is not None:
+        args += ["--ep", ep]
+    return args
+
+
+class TestPerfGenaiContract:
+    """Contract for the winml-genai ``config`` sentinel — no bundle required.
+
+    These lock the CLI surface that ``config`` is a winml-genai-only
+    ``--device`` value: it is advertised in ``--help`` and rejected with a
+    helpful message on the single-shot ONNX path. They run on any host under
+    ``-m e2e`` (no genai stack, model download, or accelerator needed).
+    """
+
+    def test_help_lists_config_device(self):
+        """``perf --help`` advertises ``config`` as a --device choice."""
+        result = CliRunner().invoke(perf, ["--help"], obj={}, catch_exceptions=False)
+        assert result.exit_code == 0
+        assert "[config|auto|cpu|gpu|npu]" in result.output
+        assert "winml-genai only" in result.output
+
+    def test_onnx_rejects_device_config(self, tmp_path: Path, onnx_model_path: Path):
+        """``--device config`` is rejected on the ONNX runtime (genai-only sentinel)."""
+        output_file = tmp_path / "perf_reject.json"
+
+        result = CliRunner().invoke(
+            perf,
+            _build_perf_args(
+                model_arg=str(onnx_model_path), output_file=output_file, device="config"
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 2, f"expected UsageError exit 2, got {result.exit_code}"
+        assert "--device config is only valid with --runtime winml-genai" in result.output
+        assert not output_file.exists(), "no report should be written on rejection"
+
+
+@pytest.mark.slow
+@pytest.mark.network
+@pytest.mark.timeout(1800)
+class TestPerfGenai:
+    """Benchmark a real onnxruntime-genai bundle across --device / --ep overrides.
+
+    A tiny Qwen3-0.6B int4 CPU bundle is built once per class via the
+    onnxruntime-genai model builder (slow + network), then the perf CLI runs
+    for each device/ep resolution. Skipped unless ``onnxruntime_genai`` /
+    ``torch`` / ``transformers`` are importable and the build succeeds.
+
+    Both ``config`` / CPU routing and the honest-reporting path are asserted:
+    the builder emits a *flat* bundle (single ``model.onnx``, no
+    ``decoder.pipeline``), so a hardware-EP override matches no stage and is
+    reported as ``config`` rather than the requested EP (and still runs on CPU).
+    The pipeline-rewrite override (skip-CPU, device-aware options) is covered by
+    the GenaiSession unit tests.
+    """
+
+    @pytest.fixture(scope="class")
+    def genai_bundle(self, tmp_path_factory: pytest.TempPathFactory) -> Path:
+        """Build a tiny Qwen3-0.6B int4 CPU genai bundle once for the class."""
+        for mod in ("onnxruntime_genai", "torch", "transformers"):
+            if importlib.util.find_spec(mod) is None:
+                pytest.skip(f"{mod} not installed; genai perf e2e needs the full LLM stack")
+
+        out = tmp_path_factory.mktemp("genai_bundle") / "qwen3_0_6b_int4_cpu"
+        cache = tmp_path_factory.mktemp("genai_hf_cache")
+        cmd = [
+            sys.executable,
+            "-m",
+            "onnxruntime_genai.models.builder",
+            "-m",
+            "Qwen/Qwen3-0.6B",
+            "-o",
+            str(out),
+            "-p",
+            "int4",
+            "-e",
+            "cpu",
+            "-c",
+            str(cache),
+            "--extra_options",
+            "hf_token=false",
+        ]
+        try:
+            proc = subprocess.run(  # noqa: S603 -- trusted args (sys.executable + constants)
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=1500,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            proc = None
+
+        if proc is None:
+            pytest.skip("onnxruntime-genai model build timed out")
+        elif proc.returncode != 0 or not (out / "genai_config.json").exists():
+            pytest.skip(
+                "onnxruntime-genai model build failed (network / auth / unsupported):\n"
+                f"stdout:\n{proc.stdout[-2000:]}\nstderr:\n{proc.stderr[-2000:]}"
+            )
+        return out
+
+    def _run(
+        self,
+        bundle: Path,
+        output_file: Path,
+        *,
+        device: str | None = None,
+        ep: str | None = None,
+    ) -> dict:
+        """Invoke perf on the bundle and return the parsed JSON report."""
+        result = CliRunner().invoke(
+            perf,
+            _genai_perf_args(bundle_dir=bundle, output_file=output_file, device=device, ep=ep),
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, (
+            f"genai perf failed (exit {result.exit_code}):\n{result.output}"
+        )
+        assert output_file.exists(), f"report not written: {output_file}"
+        data = json.loads(output_file.read_text())
+        assert data["benchmark_info"]["runtime"] == "winml-genai"
+        assert data["benchmark_info"]["generated_tokens"] > 0
+        return data
+
+    def test_default_respects_config(self, tmp_path: Path, genai_bundle: Path):
+        """Omitting --device respects the bundle config (device == ep == config)."""
+        data = self._run(genai_bundle, tmp_path / "genai_default.json")
+        assert data["benchmark_info"]["device"] == "config"
+        assert data["benchmark_info"]["ep"] == "config"
+
+    def test_device_config_respects_config(self, tmp_path: Path, genai_bundle: Path):
+        """--device config is the explicit form of the default (no override)."""
+        data = self._run(genai_bundle, tmp_path / "genai_device_config.json", device="config")
+        assert data["benchmark_info"]["device"] == "config"
+        assert data["benchmark_info"]["ep"] == "config"
+
+    def test_ep_cpu_overrides_ep_only(self, tmp_path: Path, genai_bundle: Path):
+        """--ep cpu forces the EP but leaves device at the config default."""
+        data = self._run(genai_bundle, tmp_path / "genai_ep_cpu.json", ep="cpu")
+        assert data["benchmark_info"]["device"] == "config"
+        assert data["benchmark_info"]["ep"] == "cpu"
+
+    def test_device_cpu_overrides_device_and_ep(self, tmp_path: Path, genai_bundle: Path):
+        """--device cpu forces both the device and the resolved EP to cpu."""
+        data = self._run(genai_bundle, tmp_path / "genai_device_cpu.json", device="cpu")
+        assert data["benchmark_info"]["device"] == "cpu"
+        assert data["benchmark_info"]["ep"] == "cpu"
+
+    def test_ep_qnn_on_flat_bundle_reports_config(self, tmp_path: Path, genai_bundle: Path):
+        """A hardware-EP override matching no stage is reported as config.
+
+        The flat CPU bundle has no ``decoder.pipeline`` for ``--ep qnn`` to
+        rewrite, so the override takes no effect: nothing routes to QNN (so QNN
+        never has to register — this runs on CPU-only CI), and the report says
+        ``ep: config`` instead of falsely claiming ``qnn`` (comment #3).  The
+        *requested* device is still echoed back.
+        """
+        data = self._run(genai_bundle, tmp_path / "genai_ep_qnn_flat.json", ep="qnn")
+        assert data["benchmark_info"]["ep"] == "config"
+        assert data["benchmark_info"]["device"] == "config"

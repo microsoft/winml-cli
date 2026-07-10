@@ -11,6 +11,7 @@ real model files or GPU/NPU hardware is required.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -87,6 +88,72 @@ def bundle_dir_with_pipeline(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def bundle_dir_cpu_pipeline(tmp_path: Path) -> Path:
+    """CPU-only bundle WITH pipeline stages (no hardware provider_options).
+
+    Used to verify that forcing a hardware EP override is a no-op on an all-CPU
+    bundle: skip-CPU leaves every stage untouched, so the registration/compile
+    gates stay off and the run honestly reports "config".
+    """
+    cfg = {
+        "model": {
+            "type": "decoder-pipeline",
+            "context_length": 256,
+            "decoder": {
+                "pipeline": [
+                    {"embeddings": {"filename": "embeddings.onnx"}},
+                    {
+                        "context": {
+                            "filename": "ctx.onnx",
+                            "session_options": {"provider_options": []},
+                        }
+                    },
+                ]
+            },
+        },
+        "search": {"max_length": 256},
+    }
+    (tmp_path / "genai_config.json").write_text(json.dumps(cfg), encoding="utf-8")
+    (tmp_path / "ctx.onnx").write_bytes(b"fake")
+    (tmp_path / "embeddings.onnx").write_bytes(b"fake")
+    (tmp_path / "tokenizer.json").write_text("{}", encoding="utf-8")
+    return tmp_path
+
+
+@pytest.fixture
+def bundle_dir_dml_pipeline(tmp_path: Path) -> Path:
+    """Bundle whose context stage runs on a hardware EP (DML), with a CPU
+    embeddings stage.
+
+    Used to verify that forcing a *different* hardware EP re-routes the existing
+    hardware stage (flipping registration on) while leaving the CPU stage alone.
+    """
+    cfg = {
+        "model": {
+            "type": "decoder-pipeline",
+            "context_length": 256,
+            "decoder": {
+                "pipeline": [
+                    {"embeddings": {"filename": "embeddings.onnx"}},
+                    {
+                        "context": {
+                            "filename": "ctx.onnx",
+                            "session_options": {"provider_options": [{"dml": {}}]},
+                        }
+                    },
+                ]
+            },
+        },
+        "search": {"max_length": 256},
+    }
+    (tmp_path / "genai_config.json").write_text(json.dumps(cfg), encoding="utf-8")
+    (tmp_path / "ctx.onnx").write_bytes(b"fake")
+    (tmp_path / "embeddings.onnx").write_bytes(b"fake")
+    (tmp_path / "tokenizer.json").write_text("{}", encoding="utf-8")
+    return tmp_path
+
+
+@pytest.fixture
 def mock_og() -> MagicMock:
     """Return a fully mocked onnxruntime_genai module."""
     og = MagicMock(name="onnxruntime_genai")
@@ -146,9 +213,10 @@ class TestGenaiSessionInit:
         with pytest.raises(FileNotFoundError, match="winml-cli export"):
             GenaiSession(tmp_path)
 
-    def test_default_ep_is_cpu(self, bundle_dir: Path) -> None:
+    def test_default_ep_is_none_respects_config(self, bundle_dir: Path) -> None:
+        # No ep override -> respect the bundle's genai_config.json routing.
         session = GenaiSession(bundle_dir)
-        assert session.ep == "cpu"
+        assert session.ep is None
 
     def test_not_loaded_after_init(self, bundle_dir: Path) -> None:
         session = GenaiSession(bundle_dir)
@@ -160,9 +228,25 @@ class TestGenaiSessionInit:
         assert session.bundle_dir == bundle_dir
 
     def test_supported_eps(self, bundle_dir: Path) -> None:
-        for ep in ("cpu", "mixed", "qnn", "dml"):
+        # A concrete override is normalized to its canonical short alias,
+        # whether passed as an alias or a full *ExecutionProvider name.
+        for ep, expected in (
+            ("cpu", "cpu"),
+            ("qnn", "qnn"),
+            ("dml", "dml"),
+            ("openvino", "openvino"),
+            ("QNNExecutionProvider", "qnn"),
+            ("DmlExecutionProvider", "dml"),
+        ):
             session = GenaiSession(bundle_dir, ep=ep)
-            assert session.ep == ep
+            assert session.ep == expected
+
+    def test_invalid_ep_raises_value_error(self, bundle_dir: Path) -> None:
+        # The retired "mixed"/"auto" sentinels (and any unknown provider) are
+        # rejected rather than silently becoming a no-op override.
+        for bad in ("mixed", "auto", "not-an-ep"):
+            with pytest.raises(ValueError, match="Unknown execution provider"):
+                GenaiSession(bundle_dir, ep=bad)
 
     def test_compile_timeout_default(self, bundle_dir: Path) -> None:
         session = GenaiSession(bundle_dir)
@@ -281,17 +365,70 @@ class TestEPRegistration:
             patch("winml.modelkit.session.genai_session.WinMLEPRegistry") as mock_reg_cls,
         ):
             mock_reg_cls.get_instance.return_value = mock_registry
-            # ep defaults to "cpu"; registration is driven by the bundle config,
-            # which routes the ctx/iter stages to QNN.
+            # ep defaults to None (respect config); registration is driven by
+            # the bundle config, which routes the ctx/iter stages to QNN.
             session = GenaiSession(bundle_dir_with_pipeline)
             session.load()
         mock_registry.register_execution_providers.assert_called_once_with(ort_genai=True)
 
-    def test_registration_follows_config_not_ep_arg(
-        self, bundle_dir: Path, mock_og: MagicMock
+    def test_force_hardware_ep_on_cpu_bundle_skips_registration(
+        self,
+        bundle_dir_cpu_pipeline: Path,
+        mock_og: MagicMock,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
-        # A CPU-only bundle must NOT register even when ep="qnn" is requested;
-        # EP routing is read from genai_config.json (override tracked in #1025).
+        # Forcing a hardware EP on an all-CPU pipeline is a no-op: skip-CPU leaves
+        # every stage untouched, so the effective config stays CPU-only, no WinML
+        # EPs are registered, and the override is reported as ineffective.
+        with (
+            _patch_og(mock_og),
+            patch("winml.modelkit.session.genai_session.WinMLEPRegistry") as mock_reg_cls,
+            caplog.at_level(logging.WARNING),
+        ):
+            session = GenaiSession(bundle_dir_cpu_pipeline, ep="qnn")
+            session.load()
+        mock_reg_cls.assert_not_called()
+        assert session.effective_ep is None
+        assert "did not take effect" in caplog.text
+
+    def test_force_hardware_ep_reroutes_hardware_stage_registers(
+        self, bundle_dir_dml_pipeline: Path, mock_og: MagicMock
+    ) -> None:
+        # Forcing QNN onto a bundle whose context stage runs on DML re-routes that
+        # hardware stage to QNN (the CPU embeddings stage is left alone), so the
+        # effective config now needs WinML EP registration.
+        mock_registry = MagicMock()
+        mock_registry.winml_available = True
+        mock_registry.register_execution_providers.return_value = {
+            "onnxruntime_genai": ["QNNExecutionProvider"]
+        }
+        with (
+            _patch_og(mock_og),
+            patch("winml.modelkit.session.genai_session.WinMLEPRegistry") as mock_reg_cls,
+        ):
+            mock_reg_cls.get_instance.return_value = mock_registry
+            session = GenaiSession(bundle_dir_dml_pipeline, ep="qnn")
+            session.load()
+        mock_registry.register_execution_providers.assert_called_once_with(ort_genai=True)
+        assert session.effective_ep == "qnn"
+
+    def test_force_cpu_on_hardware_bundle_skips_registration(
+        self, bundle_dir_with_pipeline: Path, mock_og: MagicMock
+    ) -> None:
+        # Overriding a hardware bundle to CPU strips every stage's hardware
+        # provider_options, so the effective config is CPU-only -> no WinML EP
+        # registration.
+        with (
+            _patch_og(mock_og),
+            patch("winml.modelkit.session.genai_session.WinMLEPRegistry") as mock_reg_cls,
+        ):
+            session = GenaiSession(bundle_dir_with_pipeline, ep="cpu")
+            session.load()
+        mock_reg_cls.assert_not_called()
+
+    def test_force_ep_on_empty_pipeline_is_noop(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+        # A bundle with no pipeline stages has nothing to route: forcing "qnn"
+        # cannot invent hardware stages, so registration stays off.
         with (
             _patch_og(mock_og),
             patch("winml.modelkit.session.genai_session.WinMLEPRegistry") as mock_reg_cls,
@@ -307,6 +444,32 @@ class TestEPRegistration:
             session.load()
         mock_og.Config.return_value.clear_providers.assert_not_called()
         mock_og.Config.return_value.append_provider.assert_not_called()
+
+    def test_override_loads_model_from_derived_bundle(
+        self, bundle_dir_with_pipeline: Path, mock_og: MagicMock
+    ) -> None:
+        # A concrete override rewrites the config, so og.Model must load from the
+        # derived _compiled/ directory (not the original bundle) to pick it up.
+        with _patch_og(mock_og):
+            session = GenaiSession(bundle_dir_with_pipeline, ep="cpu")
+            session.load()
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        mock_og.Config.assert_called_once_with(str(compiled_dir))
+        written = json.loads((compiled_dir / "genai_config.json").read_text(encoding="utf-8"))
+        assert GenaiSession._bundle_uses_hardware_ep(written) is None
+
+    def test_no_override_loads_model_from_original_bundle(
+        self, bundle_dir_with_pipeline: Path, mock_og: MagicMock
+    ) -> None:
+        # ep=None + compile=False: no derived bundle, load straight from source.
+        with (
+            _patch_og(mock_og),
+            patch("winml.modelkit.session.genai_session.WinMLEPRegistry"),
+        ):
+            session = GenaiSession(bundle_dir_with_pipeline)
+            session.load()
+        mock_og.Config.assert_called_once_with(str(bundle_dir_with_pipeline))
+        assert not (bundle_dir_with_pipeline / "_compiled").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +545,254 @@ class TestBundleUsesHardwareEp:
     def test_flat_decoder_no_provider_options_returns_none(self) -> None:
         cfg = {"model": {"decoder": {"session_options": {"log_id": "test"}}}}
         assert GenaiSession._bundle_uses_hardware_ep(cfg) is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: _apply_ep_override (explicit arg > bundle config)
+# ---------------------------------------------------------------------------
+
+
+class TestEPOverride:
+    """The ``ep`` override re-routes hardware stages generically."""
+
+    @staticmethod
+    def _pipeline_cfg(*stages: dict) -> dict:
+        return {"model": {"context_length": 256, "decoder": {"pipeline": list(stages)}}}
+
+    def test_none_override_returns_config_verbatim(self, bundle_dir: Path) -> None:
+        # ep=None must not copy or touch the config (config-driven bundles
+        # behave exactly as before).
+        session = GenaiSession(bundle_dir)
+        cfg = self._pipeline_cfg(
+            {"context": {"session_options": {"provider_options": [{"qnn": {}}]}}}
+        )
+        effective, changed = session._apply_ep_override(cfg)
+        assert changed is False
+        assert effective is cfg
+
+    def test_force_cpu_strips_hardware_provider_options(self, bundle_dir: Path) -> None:
+        session = GenaiSession(bundle_dir, ep="cpu")
+        cfg = self._pipeline_cfg(
+            {"context": {"session_options": {"provider_options": [{"qnn": {}}]}}},
+            {"iterator": {"session_options": {"provider_options": [{"dml": {}}]}}},
+        )
+        effective, changed = session._apply_ep_override(cfg)
+        assert changed is True
+        stages = effective["model"]["decoder"]["pipeline"]
+        assert stages[0]["context"]["session_options"]["provider_options"] == []
+        assert stages[1]["iterator"]["session_options"]["provider_options"] == []
+        assert GenaiSession._bundle_uses_hardware_ep(effective) is None
+
+    def test_force_cpu_leaves_cpu_stage_untouched(self, bundle_dir: Path) -> None:
+        # A stage with no session_options is already CPU; forcing CPU is a no-op.
+        session = GenaiSession(bundle_dir, ep="cpu")
+        cfg = self._pipeline_cfg({"embeddings": {"filename": "embeddings.onnx"}})
+        effective, changed = session._apply_ep_override(cfg)
+        assert changed is False
+        assert "session_options" not in effective["model"]["decoder"]["pipeline"][0]["embeddings"]
+
+    def test_force_hardware_reroutes_only_hardware_stages(self, bundle_dir: Path) -> None:
+        # Forcing a hardware EP re-routes stages already on a hardware EP but
+        # leaves CPU-intended stages (empty/missing provider_options, e.g.
+        # embeddings/lm_head) untouched, so a large CPU graph is never forced
+        # onto an accelerator (which can trigger a very slow on-the-fly compile).
+        session = GenaiSession(bundle_dir, ep="qnn")
+        cfg = self._pipeline_cfg(
+            {"embeddings": {"filename": "embeddings.onnx"}},
+            {"lm_head": {"session_options": {"provider_options": []}}},
+            {"context": {"session_options": {"provider_options": [{"dml": {}}]}}},
+        )
+        effective, changed = session._apply_ep_override(cfg)
+        assert changed is True
+        stages = effective["model"]["decoder"]["pipeline"]
+        # CPU-intended stages are left exactly as-is.
+        assert "session_options" not in stages[0]["embeddings"]
+        assert stages[1]["lm_head"]["session_options"]["provider_options"] == []
+        # Only the hardware stage is re-routed to the forced EP.
+        assert stages[2]["context"]["session_options"]["provider_options"] == [{"qnn": {}}]
+        assert GenaiSession._bundle_uses_hardware_ep(effective) == "qnn"
+
+    def test_reroute_borrows_options_from_another_stage(self, bundle_dir: Path) -> None:
+        # Forcing QNN onto a DML stage reuses QNN options the bundle already
+        # defines elsewhere (backend_path/soc_model) rather than guessing them.
+        session = GenaiSession(bundle_dir, ep="qnn")
+        qnn_opts = {"backend_path": "QnnHtp.dll", "soc_model": "60"}
+        cfg = self._pipeline_cfg(
+            {"context": {"session_options": {"provider_options": [{"qnn": dict(qnn_opts)}]}}},
+            {"iterator": {"session_options": {"provider_options": [{"dml": {}}]}}},
+        )
+        effective, _ = session._apply_ep_override(cfg)
+        stages = effective["model"]["decoder"]["pipeline"]
+        assert stages[0]["context"]["session_options"]["provider_options"] == [{"qnn": qnn_opts}]
+        assert stages[1]["iterator"]["session_options"]["provider_options"] == [{"qnn": qnn_opts}]
+
+    def test_reroute_synthesizes_device_type_for_openvino(self, bundle_dir: Path) -> None:
+        # OpenVINO selects hardware via device_type; forcing it derives that from
+        # the requested --device when the stage has no reusable options.
+        session = GenaiSession(bundle_dir, ep="openvino", device="npu")
+        cfg = self._pipeline_cfg(
+            {"context": {"session_options": {"provider_options": [{"dml": {}}]}}}
+        )
+        effective, _ = session._apply_ep_override(cfg)
+        stage = effective["model"]["decoder"]["pipeline"][0]["context"]
+        assert stage["session_options"]["provider_options"] == [
+            {"openvino": {"device_type": "NPU"}}
+        ]
+
+    def test_reroute_openvino_defaults_device_type_without_device(self, bundle_dir: Path) -> None:
+        # No --device: fall back to the EP's primary supported device (npu).
+        session = GenaiSession(bundle_dir, ep="openvino")
+        cfg = self._pipeline_cfg(
+            {"context": {"session_options": {"provider_options": [{"dml": {}}]}}}
+        )
+        effective, _ = session._apply_ep_override(cfg)
+        stage = effective["model"]["decoder"]["pipeline"][0]["context"]
+        assert stage["session_options"]["provider_options"] == [
+            {"openvino": {"device_type": "NPU"}}
+        ]
+
+    def test_reroute_synthesizes_device_type_for_vitisai(self, bundle_dir: Path) -> None:
+        session = GenaiSession(bundle_dir, ep="vitisai", device="npu")
+        cfg = self._pipeline_cfg(
+            {"context": {"session_options": {"provider_options": [{"dml": {}}]}}}
+        )
+        effective, _ = session._apply_ep_override(cfg)
+        stage = effective["model"]["decoder"]["pipeline"][0]["context"]
+        assert stage["session_options"]["provider_options"] == [{"vitisai": {"device_type": "NPU"}}]
+
+    def test_reroute_qnn_without_reusable_options_warns_and_empties(
+        self, bundle_dir: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # Forcing QNN onto a stage with no borrowable QNN options must NOT
+        # hardcode a backend_path: it warns and writes empty options.
+        session = GenaiSession(bundle_dir, ep="qnn")
+        cfg = self._pipeline_cfg(
+            {"context": {"session_options": {"provider_options": [{"dml": {}}]}}}
+        )
+        with caplog.at_level(logging.WARNING):
+            effective, _ = session._apply_ep_override(cfg)
+        stage = effective["model"]["decoder"]["pipeline"][0]["context"]
+        assert stage["session_options"]["provider_options"] == [{"qnn": {}}]
+        assert "empty QNN options" in caplog.text
+
+    def test_force_same_ep_preserves_existing_options(self, bundle_dir: Path) -> None:
+        # Re-selecting the bundle's own EP keeps its finely-tuned options.
+        session = GenaiSession(bundle_dir, ep="qnn")
+        opts = {"backend_path": "QnnHtp.dll", "soc_model": "60"}
+        cfg = self._pipeline_cfg(
+            {"context": {"session_options": {"provider_options": [{"qnn": dict(opts)}]}}}
+        )
+        effective, _ = session._apply_ep_override(cfg)
+        stage = effective["model"]["decoder"]["pipeline"][0]["context"]
+        assert stage["session_options"]["provider_options"] == [{"qnn": opts}]
+
+    def test_force_different_hardware_ep_drops_foreign_options(self, bundle_dir: Path) -> None:
+        # Switching QNN -> DML must not carry QNN's backend_path across.
+        session = GenaiSession(bundle_dir, ep="dml")
+        cfg = self._pipeline_cfg(
+            {"context": {"session_options": {"provider_options": [{"qnn": {"backend_path": "x"}}]}}}
+        )
+        effective, changed = session._apply_ep_override(cfg)
+        assert changed is True
+        stage = effective["model"]["decoder"]["pipeline"][0]["context"]
+        assert stage["session_options"]["provider_options"] == [{"dml": {}}]
+
+    def test_full_name_override_uses_canonical_alias(self, bundle_dir: Path) -> None:
+        # A full *ExecutionProvider name overrides identically to its alias: the
+        # re-routed stage is keyed by the canonical short alias ("openvino").
+        session = GenaiSession(bundle_dir, ep="OpenVINOExecutionProvider", device="gpu")
+        cfg = self._pipeline_cfg(
+            {"context": {"session_options": {"provider_options": [{"dml": {}}]}}}
+        )
+        effective, _ = session._apply_ep_override(cfg)
+        stage = effective["model"]["decoder"]["pipeline"][0]["context"]
+        assert stage["session_options"]["provider_options"] == [
+            {"openvino": {"device_type": "GPU"}}
+        ]
+
+    def test_override_does_not_mutate_input_config(self, bundle_dir: Path) -> None:
+        session = GenaiSession(bundle_dir, ep="cpu")
+        cfg = self._pipeline_cfg(
+            {"context": {"session_options": {"provider_options": [{"qnn": {"backend_path": "x"}}]}}}
+        )
+        original = json.loads(json.dumps(cfg))
+        session._apply_ep_override(cfg)
+        assert cfg == original
+
+    def test_device_param_stored_lowercased(self, bundle_dir: Path) -> None:
+        assert GenaiSession(bundle_dir, ep="openvino", device="NPU")._device == "npu"
+        assert GenaiSession(bundle_dir, ep="openvino")._device is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: effective_ep (honest reporting when an override is a no-op)
+# ---------------------------------------------------------------------------
+
+
+class TestEffectiveEp:
+    """``effective_ep`` reports the EP that actually applied, else "config"."""
+
+    @staticmethod
+    def _pipeline_cfg(*stages: dict) -> dict:
+        return {"model": {"context_length": 256, "decoder": {"pipeline": list(stages)}}}
+
+    def test_no_override_is_not_effective(self, bundle_dir: Path) -> None:
+        session = GenaiSession(bundle_dir)
+        assert session._override_took_effect(self._pipeline_cfg()) is False
+        assert session.effective_ep is None
+
+    def test_hardware_override_effective_when_a_stage_routes_to_it(self, bundle_dir: Path) -> None:
+        session = GenaiSession(bundle_dir, ep="qnn")
+        cfg = self._pipeline_cfg(
+            {"context": {"session_options": {"provider_options": [{"qnn": {}}]}}}
+        )
+        effective, _ = session._apply_ep_override(cfg)
+        assert session._override_took_effect(effective) is True
+
+    def test_hardware_override_not_effective_on_empty_pipeline(self, bundle_dir: Path) -> None:
+        # Flat/empty pipeline: nothing routes to qnn, so the override is a no-op.
+        session = GenaiSession(bundle_dir, ep="qnn")
+        effective, _ = session._apply_ep_override(self._pipeline_cfg())
+        assert session._override_took_effect(effective) is False
+
+    def test_hardware_override_not_effective_on_all_cpu_bundle(self, bundle_dir: Path) -> None:
+        # Every stage is CPU-intended, so skip-CPU leaves nothing on qnn.
+        session = GenaiSession(bundle_dir, ep="qnn")
+        cfg = self._pipeline_cfg(
+            {"embeddings": {"filename": "e.onnx"}},
+            {"context": {"session_options": {"provider_options": []}}},
+        )
+        effective, _ = session._apply_ep_override(cfg)
+        assert session._override_took_effect(effective) is False
+
+    def test_cpu_override_effective_when_hardware_removed(self, bundle_dir: Path) -> None:
+        session = GenaiSession(bundle_dir, ep="cpu")
+        cfg = self._pipeline_cfg(
+            {"context": {"session_options": {"provider_options": [{"qnn": {}}]}}}
+        )
+        effective, _ = session._apply_ep_override(cfg)
+        assert session._override_took_effect(effective) is True
+
+    def test_cpu_override_not_effective_when_hardware_outside_pipeline(
+        self, bundle_dir: Path
+    ) -> None:
+        # Hardware on a flat decoder the pipeline walk cannot strip: cpu did not
+        # actually take effect, so report "config" rather than falsely "cpu".
+        session = GenaiSession(bundle_dir, ep="cpu")
+        cfg = {
+            "model": {
+                "context_length": 256,
+                "decoder": {"session_options": {"provider_options": [{"qnn": {}}]}},
+            }
+        }
+        effective, _ = session._apply_ep_override(cfg)
+        assert session._override_took_effect(effective) is False
+
+    def test_effective_ep_property_reflects_effectiveness(self, bundle_dir: Path) -> None:
+        session = GenaiSession(bundle_dir, ep="qnn")
+        assert session.effective_ep is None  # not yet applied (pre-load default)
+        session._override_effective = True
+        assert session.effective_ep == "qnn"
 
 
 # ---------------------------------------------------------------------------
@@ -893,7 +1304,30 @@ class TestPrepareCompiledBundle:
         written = json.loads(config_out.read_text(encoding="utf-8"))
         assert "model" in written
         # A cache marker is written next to each compiled stage.
-        assert (compiled_dir / "context_ctx.onnx.meta.json").exists()
+        assert (compiled_dir / "context_qnn_ctx.onnx.meta.json").exists()
+
+    def test_override_only_writes_derived_bundle_without_compile(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """An override with compile=False still writes a derived _compiled/ bundle.
+
+        The rewritten routing must reach og.Model even when nothing is compiled,
+        and the non-compiled ONNX files must be mirrored so they resolve.
+        """
+        session = GenaiSession(bundle_dir_with_pipeline, ep="cpu")
+        cfg = session._read_genai_config()
+        effective, overridden = session._apply_ep_override(cfg)
+        assert overridden is True
+
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        result = session._prepare_compiled_bundle(effective, overridden=True)
+
+        assert result == compiled_dir
+        written = json.loads((compiled_dir / "genai_config.json").read_text(encoding="utf-8"))
+        assert GenaiSession._bundle_uses_hardware_ep(written) is None
+        # ONNX files are mirrored (not compiled) so og.Model finds them by name.
+        assert (compiled_dir / "ctx.onnx").exists()
+        assert (compiled_dir / "iter.onnx").exists()
 
     @staticmethod
     def _prime_cache(bundle_dir: Path, marker_opts: dict) -> Path:
@@ -901,7 +1335,7 @@ class TestPrepareCompiledBundle:
         compiled_dir = bundle_dir / "_compiled"
         compiled_dir.mkdir()
         for stage, src_name in (("context", "ctx.onnx"), ("iterator", "iter.onnx")):
-            ctx = compiled_dir / f"{stage}_ctx.onnx"
+            ctx = compiled_dir / f"{stage}_qnn_ctx.onnx"
             ctx.write_bytes(b"ep_ctx")
             GenaiSession._write_compile_marker(ctx, "qnn", marker_opts)
             src_mtime = (bundle_dir / src_name).stat().st_mtime
@@ -945,7 +1379,7 @@ class TestPrepareCompiledBundle:
         compiled_dir = self._prime_cache(bundle_dir_with_pipeline, {"backend_path": "QnnHtp.dll"})
 
         # ctx.onnx.data is newer than the compiled context stage -> stale.
-        ctx_stage = compiled_dir / "context_ctx.onnx"
+        ctx_stage = compiled_dir / "context_qnn_ctx.onnx"
         data_sidecar = bundle_dir_with_pipeline / "ctx.onnx.data"
         data_sidecar.write_bytes(b"weights")
         ctx_mtime = ctx_stage.stat().st_mtime
@@ -958,6 +1392,68 @@ class TestPrepareCompiledBundle:
         # Only the context stage (whose .data changed) is recompiled.
         assert spy.call_count == 1
         assert spy.call_args.args[2] == "context"
+
+    def test_compiled_artifact_path_is_keyed_by_ep(
+        self, bundle_dir_with_pipeline: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Different EPContext-capable EPs compile to distinct cache artifacts.
+
+        Regression: the derived-bundle cache key must encode the execution
+        provider.  Forcing a bundle onto EP-A and later onto EP-B (both leaving
+        empty provider options, as happens when a non-native EP is forced) must
+        not let EP-A's compiled binary be reused for EP-B, which would load a
+        graph built for the wrong accelerator.
+        """
+
+        def _context_ctx_path_for(ep: str) -> Path:
+            session = GenaiSession(bundle_dir_with_pipeline, ep=ep, compile=True)
+            effective, overridden = session._apply_ep_override(session._read_genai_config())
+            captured: list[Path] = []
+
+            def _fake_compile(src, ctx, stage_key, ep_alias, ep_opts):
+                captured.append(ctx)
+                return True
+
+            monkeypatch.setattr(session, "_compile_stage", _fake_compile)
+            session._prepare_compiled_bundle(effective, overridden=overridden)
+            return next(p for p in captured if p.name.startswith("context"))
+
+        ov_ctx = _context_ctx_path_for("openvino")
+        vitis_ctx = _context_ctx_path_for("vitisai")
+
+        assert ov_ctx.name == "context_openvino_ctx.onnx"
+        assert vitis_ctx.name == "context_vitisai_ctx.onnx"
+        assert ov_ctx != vitis_ctx
+
+    def test_different_ep_does_not_reuse_cached_epcontext(
+        self, bundle_dir_with_pipeline: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A fresh cache built for one EP is not reused when a different EP is forced.
+
+        Regression companion to :meth:`test_compiled_artifact_path_is_keyed_by_ep`:
+        prime a genuinely-fresh OpenVINO cache (matching mtimes + marker with
+        empty options), then force VitisAI with identically-empty options and
+        assert both stages are recompiled rather than served from the OpenVINO
+        artifacts.
+        """
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+        for stage, src_name in (("context", "ctx.onnx"), ("iterator", "iter.onnx")):
+            ov_ctx = compiled_dir / f"{stage}_openvino_ctx.onnx"
+            ov_ctx.write_bytes(b"ep_ctx")
+            GenaiSession._write_compile_marker(ov_ctx, "openvino", {})
+            src_mtime = (bundle_dir_with_pipeline / src_name).stat().st_mtime
+            os.utime(ov_ctx, (src_mtime + 100, src_mtime + 100))
+
+        session = GenaiSession(bundle_dir_with_pipeline, ep="vitisai", compile=True)
+        effective, overridden = session._apply_ep_override(session._read_genai_config())
+        spy = MagicMock(return_value=True)
+        monkeypatch.setattr(session, "_compile_stage", spy)
+        session._prepare_compiled_bundle(effective, overridden=overridden)
+
+        # Both stages recompiled for VitisAI; the OpenVINO cache is untouched.
+        assert spy.call_count == 2
+        assert (compiled_dir / "context_openvino_ctx.onnx").exists()
 
     def test_failed_compile_falls_back_to_relative_mirrored_onnx(
         self, bundle_dir_with_pipeline: Path, monkeypatch: pytest.MonkeyPatch
