@@ -15,7 +15,6 @@ import click
 from rich.console import Console
 
 from .constants import ALL_EP_NAMES, SUPPORTED_DEVICES
-from .model_input import ModelInputKind, classify_model_input
 
 
 if TYPE_CHECKING:
@@ -1032,16 +1031,6 @@ def load_build_config(config_path: Path) -> tuple[WinMLBuildConfig, dict]:
 # ---------------------------------------------------------------------------
 # ``-m/--model`` input classification
 # ---------------------------------------------------------------------------
-
-
-def is_onnx_file_path(model_input: str) -> bool:
-    """Return True when *model_input* resolves to a local ONNX file path.
-
-    Thin wrapper kept for backwards-compatible callers; new code should
-    use :func:`~winml.modelkit.utils.model_input.classify_model_input`
-    directly and inspect the returned ``ModelInput.kind``.
-    """
-    return classify_model_input(model_input).kind is ModelInputKind.ONNX_FILE
 
 
 def normalize_model_arg(value: str | None) -> str | None:

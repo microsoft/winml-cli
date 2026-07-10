@@ -634,7 +634,7 @@ def build(
             # ``normalize_model_arg``), route to the ONNX config generator instead
             # of treating the path as a HuggingFace repo id (which would try to
             # load the .onnx file as a JSON config and crash).
-            if cli_utils.is_onnx_file_path(model):
+            if classify_model_input(model).kind is ModelInputKind.ONNX_FILE:
                 config_or_configs = generate_build_config(
                     onnx_path=model,
                     device=device,
