@@ -507,6 +507,15 @@ def _validate_loader_tasks_for_model(
 @cli_utils.trust_remote_code_option(
     optional_message="Trust remote code for custom model architectures (e.g., Mu2)."
 )
+@click.option(
+    "--submodel",
+    type=str,
+    default=None,
+    help=(
+        "Build a specific sub-model from a composite model "
+        "(e.g., 'encoder', 'decoder'). Omit to build all sub-models automatically."
+    ),
+)
 @cli_utils.verbosity_options()
 @cli_utils.no_color_option()
 @click.pass_context
@@ -527,6 +536,7 @@ def build(
     max_optim_iterations: int | None,
     allow_unsupported_nodes: bool,
     trust_remote_code: bool,
+    submodel: str | None,
     verbose: int,
     quiet: bool,
 ) -> None:
@@ -880,6 +890,22 @@ def build(
                     raise click.ClickException(
                         f"Composite model detection failed unexpectedly: {e}"
                     ) from e
+
+            # ── --submodel validation ──────────────────────────────────────
+            if submodel is not None:
+                if components is None:
+                    raise click.BadParameter(
+                        f"'{submodel}' was specified, but '{model}' "
+                        f"is not a composite model (no sub-models detected).",
+                        param_hint="--submodel",
+                    )
+                if submodel not in components:
+                    raise click.BadParameter(
+                        f"Unknown sub-model '{submodel}'. "
+                        f"Available: {', '.join(components.keys())}",
+                        param_hint="--submodel",
+                    )
+                components = {submodel: components[submodel]}
 
             if components:
                 if use_cache:

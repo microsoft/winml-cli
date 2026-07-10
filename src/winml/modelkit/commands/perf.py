@@ -80,6 +80,7 @@ class BenchmarkConfig:
 
     model_id: str
     task: str | None = None
+    submodel: str | None = None
     device: str = "auto"
     precision: str = "auto"
     iterations: int = 100
@@ -632,6 +633,12 @@ class PerfBenchmark:
                     ".npz cannot address."
                 )
             return self._run_sub_models()
+        if self.config.submodel is not None:
+            raise click.UsageError(
+                f"--submodel '{self.config.submodel}' was specified, but "
+                f"'{self.config.model_id}' is not a composite model "
+                f"(no sub-models detected)."
+            )
         return self._run_single()
 
     def _run_sub_models(self) -> dict[str, BenchmarkResult]:
@@ -640,10 +647,19 @@ class PerfBenchmark:
         Each sub-model is itself a single-session ``WinMLAutoModel``, so it is
         benchmarked through the standard single-model pipeline by spawning a
         child ``PerfBenchmark`` with the already-loaded sub-model. Results are
-        keyed by sub-model name for per-component reporting.
+        keyed by sub-model name for per-component reporting. ``--submodel``
+        narrows this to a single named sub-model.
         """
+        sub_models = self._sub_models
+        if self.config.submodel is not None:
+            if self.config.submodel not in sub_models:
+                raise click.UsageError(
+                    f"Unknown sub-model '{self.config.submodel}'. "
+                    f"Available: {', '.join(sub_models)}"
+                )
+            sub_models = {self.config.submodel: sub_models[self.config.submodel]}
         results: dict[str, BenchmarkResult] = {}
-        for name, sub in self._sub_models.items():
+        for name, sub in sub_models.items():
             logger.info("Benchmarking sub-model '%s'", name)
             Console(stderr=True).print(f"\n[bold]Sub-model:[/bold] {name}")
             child = PerfBenchmark(self.config)
@@ -1869,6 +1885,15 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     help="Explicit task (e.g., 'image-classification'). Auto-detected if not specified.",
 )
 @click.option(
+    "--submodel",
+    type=str,
+    default=None,
+    help=(
+        "Benchmark a specific sub-model of a composite model "
+        "(e.g., 'text_model', 'vision_model'). Omit to benchmark all sub-models."
+    ),
+)
+@click.option(
     "--iterations",
     type=click.IntRange(min=1),
     default=100,
@@ -1992,6 +2017,7 @@ def perf(
     max_new_tokens: int,
     compile_timeout: int,
     task: str | None,
+    submodel: str | None,
     iterations: int,
     warmup: int,
     device: str,
@@ -2227,6 +2253,7 @@ def perf(
     config = BenchmarkConfig(
         model_id=hf_model,
         task=task,
+        submodel=submodel,
         device=device.lower(),
         precision=precision.lower(),
         iterations=iterations,
