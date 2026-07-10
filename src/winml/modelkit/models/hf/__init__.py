@@ -92,18 +92,15 @@ from .t5 import MODEL_CLASS_MAPPING as _T5_CLASS_MAPPING
 from .t5 import T5_CONFIG
 from .t5 import T5DecoderIOConfig as _T5DecoderIOConfig  # triggers registration
 from .t5 import T5EncoderIOConfig as _T5EncoderIOConfig  # triggers registration
+from .vilt import MODEL_CLASS_MAPPING as _VILT_CLASS_MAPPING
+from .vilt import ViltVqaOnnxConfig as _ViltVqaOnnxConfig  # triggers registration
 from .vision_encoder_decoder import MODEL_CLASS_MAPPING as _VED_CLASS_MAPPING
 from .vision_encoder_decoder import VISION_ENCODER_DECODER_CONFIG
 from .vision_encoder_decoder import (
     VisionDecoderIOConfig as _VisionDecoderIOConfig,  # triggers registration
 )
 from .vision_encoder_decoder import VisionEncoderIOConfig as _VisionEncoderIOConfig
-<<<<<<< HEAD
 from .vitpose import MODEL_CLASS_MAPPING as _VITPOSE_CLASS_MAPPING
-=======
-from .vilt import MODEL_CLASS_MAPPING as _VILT_CLASS_MAPPING
-from .vilt import ViltVqaOnnxConfig as _ViltVqaOnnxConfig  # triggers registration
->>>>>>> a2426c79 (Add ViLT (dandelin/vilt-b32-finetuned-vqa) visual-question-answering support)
 from .zoedepth import ZoeDepthIOConfig as _ZoeDepthIOConfig  # triggers registration
 
 

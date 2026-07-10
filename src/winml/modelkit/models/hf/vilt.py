@@ -21,16 +21,17 @@ The forward takes 4 required tensors (pixel_mask is omitted — see Notes):
 
 Output: ``logits`` [B, num_labels] over the answer vocabulary.
 
-Notes
+Notes:
 -----
 ViLT's stock ``visual_embed`` is fundamentally NOT ONNX-traceable: it iterates
 Python-level over tensor values (``for h, w in zip(x_h, x_w)``), uses
 ``torch.multinomial`` (random + non-exportable), and does per-row Python loops
 over ``nonzero()`` results. We replace it during export with a statically-
 shaped equivalent (see ``_patched_visual_embed`` + ``_ViltVisualEmbedPatcher``)
-that assumes an all-ones ``pixel_mask`` — which is exactly what ``ViltProcessor``
-emits in production (the processor pre-pads images to 384×384). Because the
-patched path ignores ``pixel_mask``, we drop it from the exported ONNX graph.
+that assumes an all-ones ``pixel_mask`` — which is what ``ViltProcessor`` emits
+for a square 384x384 input (see ``inputs`` for the square-only constraint).
+Because the patched path ignores ``pixel_mask``, we drop it from the exported
+ONNX graph.
 Verified numerically equivalent: ``cos=1.000000``, same argmax,
 max_abs_diff≈1.2e-5.
 
@@ -64,8 +65,8 @@ from ...export import MaxLengthTextInputGenerator, register_onnx_overwrite
 # legacy ``torch.onnx.export`` tracing the shape resolves to 0 and PyTorch's
 # ``F.interpolate`` aborts with ``input (H: 12, W: 12) output (H: 0, W: 0)``.
 #
-# For the production ``visual-question-answering`` inference path the
-# ``ViltProcessor`` ALWAYS pads to 384×384 and emits an all-ones ``pixel_mask``,
+# For the production ``visual-question-answering`` inference path with a square
+# 384x384 image the ``ViltProcessor`` emits an all-ones ``pixel_mask``,
 # so the per-sample subset selection is a no-op. We replace ``visual_embed``
 # during export with a simplified, statically-shaped implementation that:
 #   * uses ``x.shape[2], x.shape[3]`` (static) for position-embed interpolation
@@ -113,7 +114,11 @@ class _ViltVisualEmbedPatcher(ModelPatcher):
 
     def __enter__(self):
         super().__enter__()
-        emb = self._model.vilt.embeddings if hasattr(self._model, "vilt") else self._model.embeddings
+        emb = (
+            self._model.vilt.embeddings
+            if hasattr(self._model, "vilt")
+            else self._model.embeddings
+        )
         self._emb_ref = emb
         self._orig_visual_embed = emb.visual_embed
         emb.visual_embed = types.MethodType(_patched_visual_embed, emb)
@@ -177,20 +182,32 @@ class ViltVqaOnnxConfig(OnnxConfig):
     def inputs(self) -> dict[str, dict[int, str]]:
         """Declare 4 model inputs (insertion order matches forward).
 
-        ``pixel_values`` H,W is kept STATIC — ViLT interpolates position
-        embeddings from the actual H,W, and exposing those as dynamic symbols
-        trips the ONNX ``Resize`` shape-inference (``input (H:12 W:12) output
-        (H:0 W:0)``). Pinning H,W matches all known production usage (always
-        384×384 input via ``ViltProcessor``).
+        ``pixel_values`` H,W is kept STATIC at ``image_size`` (384x384), so the
+        exported ONNX accepts ONLY 384x384 pixel_values.
+
+        Honest constraint: ``ViltImageProcessor`` pins the *shortest* edge to
+        384 with ``size_divisor=32`` and preserves aspect ratio, so ONLY square
+        inputs land on 384x384 — a non-square image (e.g. 480x640 -> 384x512)
+        does NOT match this graph and must be square-resized upstream, which
+        distorts aspect ratio and can cost VQA accuracy. Callers must feed
+        384x384 (square) pixel_values.
+
+        Dynamic H,W is a known follow-up, not enabled here: the patched
+        ``visual_embed`` already interpolates position embeddings to the real
+        ``x.shape[2], x.shape[3]``, so a dynamic-H,W export is plausible — but
+        it is left static because it has NOT been export-verified. (The original
+        0x0 ``Resize`` shape-inference failure was a property of ViLT's *stock*
+        non-traceable ``visual_embed``, which the patcher replaces; it does not
+        by itself justify pinning the patched path.)
 
         Note: ViLT's ``forward`` also takes a ``pixel_mask`` parameter, but
-        this contribution exports without it. The ``ViltProcessor`` always
-        emits an all-ones mask (the image is padded to 384×384 before the
-        model sees it), and our export-time ``ModelPatcher`` replaces the
-        original ``visual_embed`` with a statically-shaped version that
-        synthesizes an all-ones token mask internally. Including ``pixel_mask``
-        as an ONNX input would dead-code-eliminate (since the patched path
-        doesn't reference it) and confuse runtime callers.
+        this contribution exports without it. For the square-384 path the
+        ``ViltProcessor`` emits an all-ones mask, and our export-time
+        ``ModelPatcher`` replaces the original ``visual_embed`` with a
+        statically-shaped version that synthesizes an all-ones token mask
+        internally. Including ``pixel_mask`` as an ONNX input would
+        dead-code-eliminate (since the patched path doesn't reference it) and
+        confuse runtime callers.
         """
         return {
             "input_ids": {0: "batch_size", 1: "sequence_length"},
@@ -237,6 +254,6 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
 
 
 __all__ = [
-    "ViltVqaOnnxConfig",
     "MODEL_CLASS_MAPPING",
+    "ViltVqaOnnxConfig",
 ]
