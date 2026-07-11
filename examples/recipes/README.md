@@ -6,15 +6,17 @@ Curated recipe configuration samples for **portable, high-performance, and high-
 
 DML/GPU, MLAS/CPU, OpenVINO (CPU/GPU/NPU), QNN (GPU/NPU), VitisAI/NPU, NVIDIA TensorRT RTX/GPU
 
-Each *(model, task)* includes:
+Each *(model, task)* includes one or more checked-in precision variants:
 
-- `fp16`
-- `w8a8`
-- `w8a16` quantized variants
+- `fp32` or `fp16`
+- optional `w8a8`
+- optional `w8a16` quantized variants
 
 ## Models
 
-Total: **76** (model, task) tuples that pass fp16 eval on all 10 (EP, device) buckets.
+Total: **76** indexed (model, task) tuples with built-in recipes.
+
+Precision note: `impira/layoutlm-document-qa` currently ships `question-answering_fp32_config.json` and `question-answering_w8a16_config.json`.
 
 | Model | Task |
 |---|---|
