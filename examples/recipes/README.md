@@ -14,7 +14,7 @@ Each *(model, task)* includes:
 
 ## Models
 
-Total: **75** (model, task) tuples that pass fp16 eval on all 10 (EP, device) buckets.
+Total: **76** (model, task) tuples that pass fp16 eval on all 10 (EP, device) buckets.
 
 | Model | Task |
 |---|---|
@@ -32,6 +32,7 @@ Total: **75** (model, task) tuples that pass fp16 eval on all 10 (EP, device) bu
 | Intel/bert-base-uncased-mrpc | feature-extraction |
 | Intel/bert-base-uncased-mrpc | text-classification |
 | Isotonic/distilbert_finetuned_ai4privacy_v2 | token-classification |
+| MahmoudAshraf/mms-300m-1130-forced-aligner | automatic-speech-recognition |
 | ProsusAI/finbert | text-classification |
 | Salesforce/blip-image-captioning-base | image-to-text |
 | StanfordAIMI/dinov2-base-xray-224 | image-feature-extraction |
