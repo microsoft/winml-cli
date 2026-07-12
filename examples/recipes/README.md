@@ -14,7 +14,7 @@ Each *(model, task)* includes:
 
 ## Models
 
-Total: **75** (model, task) tuples that pass fp16 eval on all 10 (EP, device) buckets.
+Total: **76** (model, task) tuples that pass fp16 eval on all 10 (EP, device) buckets.
 
 | Model | Task |
 |---|---|
@@ -37,6 +37,7 @@ Total: **75** (model, task) tuples that pass fp16 eval on all 10 (EP, device) bu
 | StanfordAIMI/dinov2-base-xray-224 | image-feature-extraction |
 | ahotrod/electra_large_discriminator_squad2_512 | question-answering |
 | apple/mobilevit-small | image-classification |
+| audeering/wav2vec2-large-robust-24-ft-age-gender | audio-classification |
 | cardiffnlp/twitter-roberta-base-sentiment-latest | text-classification |
 | dbmdz/bert-large-cased-finetuned-conll03-english | token-classification |
 | deepset/bert-large-uncased-whole-word-masking-squad2 | question-answering |
