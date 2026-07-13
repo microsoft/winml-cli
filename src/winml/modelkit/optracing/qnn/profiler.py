@@ -126,6 +126,7 @@ def _load_onnx_operator_data(onnx_path: Path) -> dict[str, dict[str, Any]]:
     model = infer_shapes(model)
     value_info = _collect_value_info(model)
     initializers = {init.name: init for init in model.graph.initializer}
+    opset_versions = _collect_opset_versions(model)
 
     operator_data: dict[str, dict[str, Any]] = {}
     for node in model.graph.node:
@@ -134,13 +135,14 @@ def _load_onnx_operator_data(onnx_path: Path) -> dict[str, dict[str, Any]]:
         operator_data[node.name] = {
             "onnx_op_type": node.op_type,
             "onnx_attributes": {attr.name: _serialize_attribute(attr) for attr in node.attribute},
-            "onnx_inputs": {
-                name: _input_tensor_metadata(name, value_info, initializers)
-                for name in node.input
-                if name
-            },
+            "onnx_inputs": _node_input_metadata(node, opset_versions, value_info, initializers),
         }
     return operator_data
+
+
+def _collect_opset_versions(model: Any) -> dict[str, int]:
+    """Collect imported ONNX opset versions by domain."""
+    return {opset.domain: opset.version for opset in model.opset_import}
 
 
 def _collect_value_info(model: Any) -> dict[str, Any]:
@@ -151,13 +153,79 @@ def _collect_value_info(model: Any) -> dict[str, Any]:
     }
 
 
+def _node_input_metadata(
+    node: Any,
+    opset_versions: dict[str, int],
+    value_info: dict[str, Any],
+    initializers: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Return input metadata keyed by ONNX schema formal input name."""
+    metadata: dict[str, dict[str, Any]] = {}
+    for index, value_name in enumerate(node.input):
+        if not value_name:
+            continue
+        schema_name = _schema_input_name(node, index, opset_versions)
+        key = _unique_input_key(schema_name, index, metadata)
+        metadata[key] = _input_tensor_metadata(value_name, value_info, initializers)
+    return metadata
+
+
+def _schema_input_name(node: Any, input_index: int, opset_versions: dict[str, int]) -> str:
+    """Resolve a node input index to its ONNX schema formal parameter name."""
+    from onnx import defs
+
+    domain = node.domain
+    opset_version = opset_versions.get(domain)
+    if opset_version is None:
+        logger.debug(
+            "Could not resolve ONNX opset version for %s domain=%r input=%d",
+            node.op_type,
+            domain,
+            input_index,
+        )
+        return f"input_{input_index}"
+
+    try:
+        schema = defs.get_schema(
+            node.op_type,
+            max_inclusive_version=opset_version,
+            domain=domain,
+        )
+    except defs.SchemaError:
+        logger.debug(
+            "Could not resolve ONNX schema for %s domain=%r input=%d",
+            node.op_type,
+            domain,
+            input_index,
+            exc_info=True,
+        )
+        return f"input_{input_index}"
+
+    if input_index < len(schema.inputs):
+        return schema.inputs[input_index].name
+    if schema.inputs:
+        return schema.inputs[-1].name
+    return f"input_{input_index}"
+
+
+def _unique_input_key(
+    schema_name: str,
+    input_index: int,
+    existing: dict[str, dict[str, Any]],
+) -> str:
+    """Keep schema names as keys while disambiguating repeated variadic inputs."""
+    if schema_name not in existing:
+        return schema_name
+    return f"{schema_name}[{input_index}]"
+
+
 def _input_tensor_metadata(
     name: str,
     value_info: dict[str, Any],
     initializers: dict[str, Any],
 ) -> dict[str, Any]:
     """Return JSON-safe shape and type metadata for a node input tensor."""
-    metadata: dict[str, Any] = {}
+    metadata: dict[str, Any] = {"name": name}
     if name in initializers:
         initializer = initializers[name]
         metadata["dims"] = list(initializer.dims)

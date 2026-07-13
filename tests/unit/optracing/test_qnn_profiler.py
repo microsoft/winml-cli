@@ -392,7 +392,8 @@ def test_qnn_profiler_from_csv_adds_onnx_data_when_env_is_set(tmp_path, monkeypa
     assert operator["onnx_op_type"] == node.op_type
     assert operator["onnx_attributes"] == {"perm": list(node.attribute[0].ints)}
     assert operator["onnx_inputs"] == {
-        graph_input.name: {
+        "data": {
+            "name": graph_input.name,
             "data_type": TensorProto.DataType.Name(graph_input.type.tensor_type.elem_type),
             "dims": [
                 dim.dim_value if dim.HasField("dim_value") else dim.dim_param
