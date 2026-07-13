@@ -46,7 +46,7 @@ def test_symbolic_inference_keeps_parent_cwd_usable_while_worker_runs() -> None:
     """The parent CWD remains usable while symbolic inference owns its scratch CWD."""
     working_dir = (Path("temp") / "shape-inference-test").resolve()
     rmtree(working_dir, ignore_errors=True)
-    working_dir.mkdir()
+    working_dir.mkdir(parents=True)
 
     original_cwd = Path.cwd()
     os.chdir(working_dir)
@@ -76,7 +76,7 @@ def test_symbolic_inference_uses_system_scratch_when_cwd_is_unwritable(monkeypat
     created_dirs: list[Path] = []
     working_dir = (Path("temp") / "shape-inference-unwritable-cwd-test").resolve()
     rmtree(working_dir, ignore_errors=True)
-    working_dir.mkdir()
+    working_dir.mkdir(parents=True)
 
     def temporary_directory(*args, **kwargs):
         if kwargs.get("dir") == working_dir:
@@ -104,7 +104,7 @@ def test_symbolic_worker_reports_serialization_failure() -> None:
     """A failed worker must return its error to the parent explicitly."""
     working_dir = (Path("temp") / "shape-inference-failure-test").resolve()
     rmtree(working_dir, ignore_errors=True)
-    working_dir.mkdir()
+    working_dir.mkdir(parents=True)
 
     original_cwd = Path.cwd()
     os.chdir(working_dir)
