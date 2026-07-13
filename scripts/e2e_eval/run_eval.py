@@ -780,6 +780,8 @@ def _run_recipe_build(
             "-m",
             entry.hf_id,
             "--use-cache",
+            "--precision",
+            variant.precision,
         ]
         if no_compile:
             build_args += ["--no-compile"]

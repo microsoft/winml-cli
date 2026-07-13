@@ -2064,5 +2064,24 @@
         "mask_column": "mask"
       }
     }
+  },
+  {
+    "hf_id": "microsoft/Florence-2-base",
+    "task": "image-to-text",
+    "model_type": "florence2",
+    "group": "microsoft",
+    "priority": "P1",
+    "precision": "fp16",
+    "dataset_config": {
+      "path": "lmms-lab/flickr30k",
+      "split": "test",
+      "samples": 500,
+      "metric": "cider",
+      "winml_metric_key": "cider",
+      "columns_mapping": {
+        "input_column": "image",
+        "label_column": "caption"
+      }
+    }
   }
 ]

@@ -100,6 +100,9 @@ def _merge_dataclass(base: T, overrides: dict[str, Any]) -> T:
             current[key] = None
         elif current_val is None:
             # Base is None, override has value - use override
+            if isinstance(value, list):
+                current[key] = _reconstruct_list_items(base, key, value)
+                continue
             # Try to construct from dict if nested config
             field_type = _get_field_type(base, key)
             if field_type and isinstance(value, dict):
@@ -118,7 +121,7 @@ def _merge_dataclass(base: T, overrides: dict[str, Any]) -> T:
             current[key] = _merge_into(current_val, value)
         elif isinstance(value, list) and isinstance(current_val, list):
             # List - replace entirely (no merge)
-            current[key] = value
+            current[key] = _reconstruct_list_items(base, key, value)
         else:
             # Primitive - override
             current[key] = value
@@ -160,3 +163,39 @@ def _get_field_type(obj: Any, field_name: str) -> type | None:
             if arg is not type(None):
                 return cast("type", arg)
     return resolved if isinstance(resolved, type) else None
+
+
+def _reconstruct_list_items(obj: Any, field_name: str, values: list[Any]) -> list[Any]:
+    """Rebuild typed list items from serialized configuration data."""
+    try:
+        annotation = typing.get_type_hints(type(obj)).get(field_name)
+    except (NameError, AttributeError):
+        annotation = None
+
+    annotation_args = typing.get_args(annotation)
+    if type(None) in annotation_args:
+        annotation = next(
+            (arg for arg in annotation_args if arg is not type(None)),
+            None,
+        )
+
+    if typing.get_origin(annotation) is not list:
+        return values
+
+    item_types = typing.get_args(annotation)
+    if len(item_types) != 1 or not isinstance(item_types[0], type):
+        return values
+
+    item_type = item_types[0]
+    if not hasattr(item_type, "from_dict") and not dataclasses.is_dataclass(item_type):
+        return values
+
+    reconstructed: list[Any] = []
+    for value in values:
+        if not isinstance(value, dict):
+            reconstructed.append(value)
+        elif hasattr(item_type, "from_dict"):
+            reconstructed.append(item_type.from_dict(value))
+        else:
+            reconstructed.append(item_type(**value))
+    return reconstructed

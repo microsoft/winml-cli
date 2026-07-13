@@ -73,7 +73,8 @@ class WinMLImageToTextEvaluator(WinMLEvaluator):
                 continue
 
             try:
-                out = self.pipe(image)
+                kwargs = {"prompt": self.config.prompt} if self.config.prompt is not None else {}
+                out = self.pipe(image, **kwargs)
             except Exception as e:
                 logger.warning("Pipeline call failed (skipping): %s", e)
                 skipped += 1

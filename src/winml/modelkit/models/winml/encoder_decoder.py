@@ -188,11 +188,20 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
 
         # Build {name: shape} lookups from ONNX I/O metadata
         enc_io = raw_encoder.io_config
+        enc_input_names = enc_io.get("input_names", [])
+        if not enc_input_names:
+            raise KeyError("Encoder ONNX I/O metadata is missing input_names.")
         enc_expected = dict(
-            zip(enc_io.get("input_names", []), enc_io.get("input_shapes", []), strict=False)
+            zip(enc_input_names, enc_io.get("input_shapes", []), strict=False)
         )
+        self._enc_expected = enc_expected
         # Wrap encoder with auto-padding so all callsites just use self._encoder(...)
-        self._encoder = self._EncoderWithInputPadding(raw_encoder, enc_expected)
+        self._encoder = self._EncoderWithInputPadding(
+            raw_encoder,
+            enc_expected,
+            main_input_name=enc_input_names[0],
+        )
+        self.encoder = self._encoder
 
         dec_io = self._decoder.io_config
         self._dec_expected = dict(
@@ -230,10 +239,17 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
         ``get_encoder()`` (GenerationMixin contract).
         """
 
-        def __init__(self, encoder: Any, expected: dict[str, list[int]]) -> None:
+        def __init__(
+            self,
+            encoder: Any,
+            expected: dict[str, list[int]],
+            *,
+            main_input_name: str,
+        ) -> None:
             super().__init__()
             self._encoder = encoder
             self._expected = expected
+            self.main_input_name = main_input_name
 
         def forward(self, **kwargs: Any) -> BaseModelOutput:
             feeds = pad_inputs(kwargs, self._expected)
@@ -247,6 +263,12 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
     def can_generate(self) -> bool:  # noqa: D102
         return True
 
+    def _validate_model_kwargs(self, model_kwargs: dict[str, Any]) -> None:
+        """Allow declared encoder ONNX inputs through GenerationMixin validation."""
+        super()._validate_model_kwargs(
+            {name: value for name, value in model_kwargs.items() if name not in self._enc_expected}
+        )
+
     def prepare_inputs_for_generation(  # type: ignore[override]  # GenerationMixin's base signature differs; static-cache flow
         self,
         input_ids: torch.LongTensor,
@@ -258,7 +280,8 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
         """Build decoder inputs for each generate() step."""
         from .kv_cache import WinMLCache
 
-        if isinstance(past_key_values, WinMLCache) and past_key_values.get_seq_length() > 0:
+        cache = getattr(past_key_values, "self_attention_cache", past_key_values)
+        if isinstance(cache, WinMLCache) and cache.step > 0:
             decoder_input_ids = input_ids[:, -1:]
         else:
             decoder_input_ids = input_ids

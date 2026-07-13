@@ -10,6 +10,7 @@ InputTensorSpec / OutputTensorSpec roundtrip serialization.
 
 from __future__ import annotations
 
+import json
 import logging
 
 import pytest
@@ -19,6 +20,7 @@ from winml.modelkit.export import (
     OutputTensorSpec,
     WinMLExportConfig,
 )
+from winml.modelkit.utils.config_utils import merge_config
 
 
 # =============================================================================
@@ -241,6 +243,44 @@ class TestCleanOnnxConflictWarning:
 
 class TestInputTensorSpecRoundtrip:
     """InputTensorSpec serialization roundtrip."""
+
+    def test_semantic_dummy_value_runs_survive_recipe_merge_and_export(self):
+        """Compact semantic values survive JSON recipe parsing and typed config reconstruction."""
+        generated = WinMLExportConfig(
+            input_tensors=[
+                InputTensorSpec(
+                    name="tokens",
+                    dtype="int64",
+                    shape=(1, 5),
+                    dummy_value_runs=((3, 17), (2, 0)),
+                )
+            ]
+        )
+        recipe = json.loads(json.dumps(generated.to_dict()))
+
+        parsed_recipe = WinMLExportConfig.from_dict(recipe)
+        restored = merge_config(generated, parsed_recipe)
+
+        assert restored.generate_dummy_inputs()["tokens"].tolist() == [[17, 17, 17, 0, 0]]
+
+    def test_semantic_dummy_value_runs_reject_invalid_entries(self):
+        """Serialized runs must have positive integer counts and numeric values."""
+        with pytest.raises(ValueError, match="counts must be positive"):
+            InputTensorSpec(dummy_value_runs=((0, 1),))
+        with pytest.raises(TypeError, match="values must be numeric"):
+            InputTensorSpec(dummy_value_runs=((1, "not-a-number"),))  # type: ignore[arg-type]
+
+    def test_semantic_dummy_value_runs_must_fill_tensor_shape(self):
+        """Semantic values cannot silently create a partially initialized tensor."""
+        spec = InputTensorSpec(
+            name="tokens",
+            dtype="int64",
+            shape=(1, 3),
+            dummy_value_runs=((2, 1),),
+        )
+
+        with pytest.raises(ValueError, match="must fill the concrete tensor shape"):
+            spec.to_tensor()
 
     def test_full_roundtrip(self):
         original = InputTensorSpec(name="pixel_values", dtype="float32", shape=(1, 3, 224, 224))

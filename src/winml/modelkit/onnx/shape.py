@@ -17,9 +17,13 @@ full optimizer.
 from __future__ import annotations
 
 import logging
+import multiprocessing as mp
+import os
+import queue
 import tempfile
+import traceback
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import onnx
 
@@ -68,18 +72,7 @@ def _run_inference(model: onnx.ModelProto) -> onnx.ModelProto:
     """
     # Try symbolic first (handles com.microsoft ops from ORT fusion/quantization)
     try:
-        from onnxruntime.tools.symbolic_shape_infer import SymbolicShapeInference
-
-        return cast(
-            "onnx.ModelProto",
-            SymbolicShapeInference.infer_shapes(
-                model,
-                int_max=2**31 - 1,
-                auto_merge=False,
-                guess_output_rank=False,
-                verbose=0,
-            ),
-        )
+        return infer_symbolic_shapes(model)
     except Exception as e:
         logger.debug("Symbolic shape inference failed: %s", e)
 
@@ -93,6 +86,63 @@ def _run_inference(model: onnx.ModelProto) -> onnx.ModelProto:
     except Exception as e:
         logger.warning("Shape inference failed: %s", e)
         return model
+
+
+def _infer_symbolic_shapes_worker(
+    model_bytes: bytes,
+    scratch_dir: str,
+    result_queue: Any,
+) -> None:
+    """Run symbolic inference in a worker's isolated current directory."""
+    from onnxruntime.tools.symbolic_shape_infer import SymbolicShapeInference
+
+    try:
+        os.chdir(scratch_dir)
+        result = cast(
+            "onnx.ModelProto",
+            SymbolicShapeInference.infer_shapes(
+                onnx.load_model_from_string(model_bytes),
+                int_max=2**31 - 1,
+                auto_merge=False,
+                guess_output_rank=False,
+                verbose=0,
+            ),
+        )
+        result_queue.put((True, result.SerializeToString()))
+    except Exception:
+        result_queue.put((False, traceback.format_exc()))
+
+
+def infer_symbolic_shapes(model: onnx.ModelProto) -> onnx.ModelProto:
+    """Run ORT symbolic inference in an isolated worker process."""
+    with tempfile.TemporaryDirectory(prefix="winmlcli_shape_") as scratch_dir:
+        context = mp.get_context("spawn")
+        result_queue = context.Queue()
+        worker = context.Process(
+            target=_infer_symbolic_shapes_worker,
+            args=(model.SerializeToString(), scratch_dir, result_queue),
+        )
+        worker.start()
+        try:
+            while True:
+                try:
+                    success, payload = result_queue.get(timeout=0.1)
+                    break
+                except queue.Empty:
+                    if not worker.is_alive():
+                        raise RuntimeError(
+                            "Symbolic shape inference worker "
+                            f"exited with code {worker.exitcode} without a result"
+                        ) from None
+            worker.join()
+        finally:
+            result_queue.close()
+            result_queue.join_thread()
+            worker.close()
+
+        if not success:
+            raise RuntimeError(f"Symbolic shape inference worker failed:\n{payload}")
+        return onnx.load_model_from_string(payload)
 
 
 def infer_onnx_shapes(

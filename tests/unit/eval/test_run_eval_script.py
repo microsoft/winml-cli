@@ -18,6 +18,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -835,6 +836,28 @@ class TestRunRecipeBuild:
         assert set(result["onnx_paths"]) == {"encoder", "decoder"}
         assert len(captured) == 2  # one winml build per component
         assert all("--use-cache" in call for call in captured)
+
+    def test_composite_build_forwards_variant_precision_to_each_component(
+        self, run_eval
+    ):
+        variant = SimpleNamespace(
+            precision="fp16",
+            components=[
+                SimpleNamespace(path=Path("encoder.json"), role="encoder"),
+                SimpleNamespace(path=Path("decoder.json"), role="decoder"),
+            ],
+        )
+        captured: list[list[str]] = []
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=self._fake_subprocess(captured)),
+            patch.object(run_eval, "_extract_onnx_path", side_effect=lambda *a: "m.onnx"),
+        ):
+            run_eval._run_recipe_build(_entry(), variant, 300, Path("temp") / "out")
+
+        assert len(captured) == 2
+        assert all(
+            call[call.index("--precision") + 1] == variant.precision for call in captured
+        )
 
     def test_build_failure_reported(self, run_eval, tmp_path):
         variant = self._variant(run_eval, tmp_path, composite=False)

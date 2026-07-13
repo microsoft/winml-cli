@@ -20,7 +20,11 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
+
+from transformers.pipelines.image_to_text import ImageToTextPipeline
+
+from ..models.winml.composite_model import PipelineCapability
 
 
 if TYPE_CHECKING:
@@ -36,6 +40,96 @@ logger = logging.getLogger(__name__)
 _HF_PIPELINE_TASK_MAP: dict[str, str] = {
     "sentence-similarity": "feature-extraction",
 }
+
+
+class SupportsPipelineCapabilities(Protocol):
+    """Model protocol for selecting non-default preprocessing pipelines."""
+
+    pipeline_capabilities: frozenset[PipelineCapability]
+
+
+class SupportsCombinedProcessor(SupportsPipelineCapabilities, Protocol):
+    """Model protocol for combined image/text processor construction."""
+
+    def create_combined_processor(self, model_id: str) -> Any:
+        """Load the processor that satisfies the model's declared contract."""
+
+
+class SupportsTokenDecoding(Protocol):
+    """Tokenizer capability required by image-to-text postprocessing."""
+
+    def decode(self, token_ids: Any, *, skip_special_tokens: bool) -> str:
+        """Decode generated token IDs."""
+
+
+class SupportsTokenizer(Protocol):
+    """Processor capability for supplying the postprocessing tokenizer."""
+
+    tokenizer: SupportsTokenDecoding
+
+
+class CombinedProcessorImageToTextPipeline(ImageToTextPipeline):
+    """Image-to-text pipeline that preserves a processor's joint image/text contract."""
+
+    _load_processor = True
+    _load_image_processor = False
+    _load_feature_extractor = False
+    _load_tokenizer = False
+
+    def preprocess(
+        self, image: Any, prompt: str | None = None, timeout: float | None = None
+    ) -> Any:
+        """Create model inputs with one combined processor invocation."""
+        from transformers.image_utils import load_image
+
+        if prompt is None:
+            raise ValueError("A prompt is required by the combined image/text processor.")
+        image = load_image(image, timeout=timeout)
+        model_inputs = self.processor(
+            images=image,
+            text=prompt,
+            return_tensors=self.framework,
+        )
+        if self.framework == "pt":
+            model_inputs = model_inputs.to(self.dtype)
+        return model_inputs
+
+
+def _pipeline_class_for(model: Any) -> type | None:
+    """Resolve an HF pipeline implementation from declared model capabilities."""
+    capabilities = inspect.getattr_static(model, "pipeline_capabilities", frozenset())
+    if not isinstance(capabilities, frozenset):
+        raise TypeError("pipeline_capabilities must be a frozenset of PipelineCapability values")
+    if not all(isinstance(capability, PipelineCapability) for capability in capabilities):
+        raise TypeError("pipeline_capabilities must contain PipelineCapability values")
+    if PipelineCapability.COMBINED_IMAGE_TEXT_PROCESSOR in capabilities:
+        return CombinedProcessorImageToTextPipeline
+    return None
+
+
+def _combined_processor_for(model: Any, model_id: str | None) -> Any:
+    """Load the declared combined processor with explicit capability errors."""
+    loader = getattr(model, "create_combined_processor", None)
+    if not callable(loader):
+        raise TypeError(
+            "Models declaring combined-image-text-processor must implement "
+            "create_combined_processor(model_id)."
+        )
+    if model_id is None:
+        raise ValueError(
+            "A model ID is required to load a combined image/text processor."
+        )
+    return loader(model_id)
+
+
+def _tokenizer_for(processor: SupportsTokenizer) -> SupportsTokenDecoding:
+    """Return the processor-owned tokenizer required by image-to-text decoding."""
+    tokenizer = getattr(processor, "tokenizer", None)
+    if not callable(getattr(tokenizer, "decode", None)):
+        raise TypeError(
+            "Combined image/text processors must expose a tokenizer with a decode method."
+        )
+    return tokenizer
 
 
 def create_pipeline(
@@ -65,7 +159,13 @@ def create_pipeline(
         # WinMLSession handles device delegation internally.
         "device": "cpu",
     }
-    if model_id:
+    pipeline_class = _pipeline_class_for(model)
+    if pipeline_class is not None:
+        processor = _combined_processor_for(model, model_id)
+        kwargs["pipeline_class"] = pipeline_class
+        kwargs["processor"] = processor
+        kwargs["tokenizer"] = _tokenizer_for(processor)
+    elif model_id:
         kwargs["tokenizer"] = model_id
         kwargs["feature_extractor"] = model_id
         kwargs["image_processor"] = model_id
@@ -129,7 +229,10 @@ def _adapt_tokenizer_padding(pipe: Any, task: str, model: Any) -> None:
     #    No **kwargs — only accepts specific named params
     #    → set only params that appear in the signature
 
-    preprocess_sig = inspect.signature(type(pipe).preprocess)
+    preprocess = getattr(type(pipe), "preprocess", None)
+    if not callable(preprocess):
+        return
+    preprocess_sig = inspect.signature(preprocess)
     sig_params = preprocess_sig.parameters
 
     tok_dict_key = _detect_tokenizer_dict_param(pipe, sig_params)

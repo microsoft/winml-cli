@@ -5225,5 +5225,19 @@
     "last_update_time": "2024-08-16T10:14:52+00:00",
     "optimum_supported": true,
     "order": 5
+  },
+  {
+    "hf_id": "microsoft/Florence-2-base",
+    "task": "image-to-text",
+    "model_type": "florence2",
+    "group": "microsoft",
+    "priority": "P1",
+    "downloads": 2651904,
+    "last_update_time": "2025-08-04T17:36:57+00:00",
+    "optimum_supported": false,
+    "order": 1,
+    "tags": [
+      "acc"
+    ]
   }
 ]

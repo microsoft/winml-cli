@@ -91,6 +91,7 @@ class TestInspectCliInterface:
             "-m",
             "--format",
             "-f",
+            "--trust-remote-code",
             "--verbose",
             "-v",
             "--task",
@@ -234,6 +235,32 @@ class TestInspectFlagCombinations:
             # inspect_model(model, include_hierarchy=..., task_override=...)
             _, call_kwargs = mock_api.call_args
             assert call_kwargs["task_override"] == "fill-mask"
+
+    @pytest.mark.parametrize(
+        ("args", "expected_trust_remote_code"),
+        [
+            ([], False),
+            (["--trust-remote-code"], True),
+        ],
+    )
+    def test_trust_remote_code_passed_to_api(
+        self,
+        runner: CliRunner,
+        mock_inspect_result: MagicMock,
+        args: list[str],
+        expected_trust_remote_code: bool,
+    ) -> None:
+        """The CLI must pass its explicit or default trust consent to the API."""
+        from winml.modelkit.commands.inspect import inspect
+
+        with (
+            patch(_INSPECT_MODEL, return_value=mock_inspect_result) as mock_api,
+            patch(_OUTPUT_TABLE),
+        ):
+            result = runner.invoke(inspect, ["-m", "test", *args], obj={})
+
+        assert result.exit_code == 0, result.output
+        assert mock_api.call_args.kwargs["trust_remote_code"] is expected_trust_remote_code
 
     def test_hierarchy_flag_passed_to_api(
         self,

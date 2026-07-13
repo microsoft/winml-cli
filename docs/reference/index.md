@@ -67,6 +67,7 @@ stages based on the target device and precision.
 | `dtype` | `str \| null` | Data type (e.g., `float32`, `int64`). |
 | `shape` | `list[int \| str] \| null` | Tensor shape (e.g., `[1, 3, 224, 224]`). String entries declare symbolic dynamic axes and use size `1` for dummy inputs. |
 | `value_range` | `[float, float] \| null` | Min/max for dummy tensor generation. |
+| `dummy_value_runs` | `list[[int, int \| float]] \| null` | Run-length encoded deterministic dummy values. Generated configs use this only when it compactly preserves semantic input values; runs must fill the concrete tensor shape exactly. |
 
 ---
 

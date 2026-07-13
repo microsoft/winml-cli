@@ -344,6 +344,63 @@ class TestMergeConfigUnknownFields:
 class TestMergeConfigListReplacement:
     """Test that lists are replaced, not merged."""
 
+    def test_default_base_reconstructs_input_tensor_specs(self) -> None:
+        """Serialized input specs must work when the base list is absent."""
+        merged = merge_config(
+            WinMLExportConfig(),
+            {"input_tensors": [{"name": "recipe_input", "shape": [1, 4]}]},
+        )
+
+        assert merged.input_tensors == [InputTensorSpec(name="recipe_input", shape=(1, 4))]
+
+    def test_default_base_reconstructs_output_tensor_specs(self) -> None:
+        """Serialized output specs must work when the base list is absent."""
+        merged = merge_config(
+            WinMLExportConfig(),
+            {"output_tensors": [{"name": "recipe_output"}]},
+        )
+
+        assert merged.output_tensors == [OutputTensorSpec(name="recipe_output")]
+
+    def test_config_object_override_reconstructs_tensor_specs(self) -> None:
+        """Serialized config overrides must retain typed tensor specifications."""
+        base = WinMLExportConfig(
+            input_tensors=[InputTensorSpec(name="base_input", shape=(1, 2))],
+            output_tensors=[OutputTensorSpec(name="base_output")],
+        )
+        override = WinMLExportConfig(
+            input_tensors=[InputTensorSpec(name="override_input", shape=(1, 3))],
+            output_tensors=[OutputTensorSpec(name="override_output")],
+        )
+
+        merged = merge_config(base, override)
+
+        assert merged.input_tensors == [InputTensorSpec(name="override_input", shape=(1, 3))]
+        assert merged.output_tensors == [OutputTensorSpec(name="override_output")]
+
+    def test_recipe_override_reconstructs_tensor_specs(self) -> None:
+        """Recipe tensor lists must be reconstructed when merged into a build config."""
+        base = WinMLBuildConfig(
+            export=WinMLExportConfig(
+                input_tensors=[InputTensorSpec(name="base_input", shape=(1, 2))],
+                output_tensors=[OutputTensorSpec(name="base_output")],
+            )
+        )
+
+        merged = merge_config(
+            base,
+            {
+                "export": {
+                    "input_tensors": [{"name": "recipe_input", "shape": [1, 4]}],
+                    "output_tensors": [{"name": "recipe_output"}],
+                }
+            },
+        )
+
+        assert merged.export is not None
+        assert merged.export.input_tensors == [InputTensorSpec(name="recipe_input", shape=(1, 4))]
+        assert merged.export.output_tensors == [OutputTensorSpec(name="recipe_output")]
+
     def test_list_replacement_with_spec_objects(self) -> None:
         """Test that input_tensors list is replaced, not merged (using InputTensorSpec objects)."""
         base = WinMLExportConfig(
@@ -369,13 +426,8 @@ class TestMergeConfigListReplacement:
     def test_list_replacement_with_raw_dicts_on_simple_list(self) -> None:
         """Test list replacement with raw dicts on a config without validation.
 
-        Note: merge_config replaces lists directly without converting dict items
-        to their proper types. This works for configs that don't validate list
-        contents in __post_init__.
-
-        For WinMLExportConfig specifically, using raw dicts in input_tensors
-        will fail because __post_init__ validates that items are InputTensorSpec
-        objects with 'shape' attribute. Use InputTensorSpec objects instead.
+        Typed dataclass lists are reconstructed from serialized dictionaries.
+        This config's list contains strings, so it is replaced directly.
         """
         # Test with WinMLQuantizationConfig's optional list fields
         base = WinMLQuantizationConfig(

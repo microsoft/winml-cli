@@ -41,6 +41,7 @@ from optimum.utils.input_generators import (
 )
 
 from ..loader import to_optimum_task
+from ..onnx import InputTensorSpec
 from .value_range import intercept_value_ranges
 
 
@@ -486,13 +487,20 @@ def resolve_io_specs(
 
     input_shapes = [tuple(t.shape) for t in dummy_inputs.values()]
     input_dtypes = [str(t.dtype).replace("torch.", "") for t in dummy_inputs.values()]
+    dummy_value_runs = {}
+    if getattr(onnx_config, "PRESERVE_DUMMY_VALUE_RUNS", False):
+        dummy_value_runs = {
+            name: value_runs
+            for name, tensor in dummy_inputs.items()
+            if (value_runs := InputTensorSpec.compact_dummy_value_runs(tensor)) is not None
+        }
 
     # Build value_range dict: {name: (min, max)} from intercepted data
     value_range_tuples = {
         name: (info["min"], info["max"]) for name, info in value_ranges.items()
     }
 
-    return {
+    specs = {
         "inputs": onnx_config.inputs,
         "outputs": onnx_config.outputs,
         "input_names": list(onnx_config.inputs.keys()),
@@ -502,3 +510,6 @@ def resolve_io_specs(
         "input_dtypes": input_dtypes,
         "value_ranges": value_range_tuples,
     }
+    if dummy_value_runs:
+        specs["dummy_value_runs"] = dummy_value_runs
+    return specs
