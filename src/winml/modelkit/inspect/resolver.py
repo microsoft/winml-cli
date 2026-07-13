@@ -493,6 +493,7 @@ def resolve_cache(model_id: str) -> CacheInfo:
     import json
 
     from ..cache import get_cache_dir, get_model_dir
+    from ..utils.manifest import MANIFEST_FILENAME, WinMLManifest
 
     cache_dir = get_cache_dir()
     model_dir = get_model_dir(model_id, cache_dir=cache_dir)
@@ -508,18 +509,20 @@ def resolve_cache(model_id: str) -> CacheInfo:
     # PRIMARY: Manifest-based resolution
     # -------------------------------------------------------------------------
     if model_dir.exists():
-        manifests = list(model_dir.glob("*build_manifest.json"))
-        if manifests:
-            # Use the most recent manifest (by mtime) when multiple variants exist
-            manifest_path = max(manifests, key=lambda p: p.stat().st_mtime)
+        manifest_paths = sorted(
+            model_dir.glob(f"*{MANIFEST_FILENAME}"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        if manifest_paths:
             try:
-                manifest = json.loads(manifest_path.read_text())
-                manifest_stages = {s["name"]: s for s in manifest.get("stages", [])}
+                manifest = WinMLManifest.load(manifest_paths[0])
+                manifest_stages = {s.name: s for s in manifest.stages}
 
                 for stage in pipeline_stages:
                     ms = manifest_stages.get(stage)
-                    if ms and ms.get("status") == "completed":
-                        filename = ms.get("filename")
+                    if ms and ms.status == "completed":
+                        filename = ms.filename
                         artifact = model_dir / filename if filename else None
                         size_bytes = (
                             artifact.stat().st_size if artifact and artifact.exists() else 0
@@ -544,7 +547,7 @@ def resolve_cache(model_id: str) -> CacheInfo:
                     total_size_mb=round(total_size_mb, 2),
                 )
             except (json.JSONDecodeError, KeyError, OSError) as exc:
-                logger.debug("Failed to read manifest %s: %s", manifest_path, exc)
+                logger.debug("Failed to read manifest %s: %s", manifest_paths[0], exc)
                 # Fall through to filename scanning
                 stages = []
                 total_cached = 0

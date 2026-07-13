@@ -110,13 +110,15 @@ def build_onnx_model(
     def _name(base: str) -> str:
         return f"{cache_key}_{base}" if cache_key else base
 
+    from ..utils.manifest import MANIFEST_FILENAME
+
     # Define output paths
     optimized_path = output_dir / _name("optimized.onnx")
     quantized_path = output_dir / _name("quantized.onnx")
     compiled_path = output_dir / _name("compiled.onnx")
     final_path = output_dir / _name("model.onnx")
     config_path = output_dir / _name("winml_build_config.json")
-    manifest_path = output_dir / _name("build_manifest.json")
+    manifest_path = output_dir / _name(MANIFEST_FILENAME)
     analyze_result_path = output_dir / _name("analyze_result.json")
 
     # Check for existing artifact (skip build if present and not rebuilding)
