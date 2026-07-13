@@ -12,7 +12,7 @@ sharing the same code path as ``winml eval``.  The WinMLPreTrainedModel
 Loading strategies (auto-detected from model_path):
   1. HF model ID  (e.g. "microsoft/resnet-50")
        → WinMLAutoModel.from_pretrained(model_id)
-  2. Build output directory  (contains model.onnx + winml_manifest.json)
+  2. Build output directory  (contains model.onnx + build_manifest.json)
        → read manifest → instantiate WinMLPreTrainedModel directly + HF config
   3. Raw .onnx file  (requires task=)
        → WinMLAutoModel.from_onnx(onnx_path, task=task)
@@ -130,7 +130,7 @@ def _sanitize_numpy(obj: Any) -> Any:
 
 
 def _find_build_artifacts(build_dir: Path, *, task: str | None = None) -> tuple[Path, dict | None]:
-    """Locate model.onnx and winml_manifest.json inside a build/cache directory.
+    """Locate model.onnx and build_manifest.json inside a build/cache directory.
 
     Supports both plain layout (``model.onnx``) and cache-key-prefixed layout
     (``{cache_key}_model.onnx``) so that ``InferenceEngine.load()`` can load
@@ -150,7 +150,7 @@ def _find_build_artifacts(build_dir: Path, *, task: str | None = None) -> tuple[
     """
     # Try plain layout first (bare build output)
     plain_onnx = build_dir / "model.onnx"
-    plain_manifest = build_dir / "winml_manifest.json"
+    plain_manifest = build_dir / "build_manifest.json"
     if plain_onnx.exists():
         manifest = json.loads(plain_manifest.read_text()) if plain_manifest.exists() else None
         if task is None or manifest is None or manifest.get("task") == task:
@@ -161,7 +161,7 @@ def _find_build_artifacts(build_dir: Path, *, task: str | None = None) -> tuple[
     candidates: list[tuple[Path, dict | None]] = []
     for onnx_path in sorted(build_dir.glob("*_model.onnx")):
         prefix = onnx_path.name.rsplit("_model.onnx", 1)[0]
-        manifest_path = build_dir / f"{prefix}_winml_manifest.json"
+        manifest_path = build_dir / f"{prefix}_build_manifest.json"
         manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else None
         if task is not None:
             if manifest is None or manifest.get("task") == task:
@@ -977,7 +977,7 @@ class InferenceEngine:
     @staticmethod
     def _resolve_model_id_from_dir(build_dir: Path) -> str | None:
         """Extract model_id from any manifest in the directory (task-agnostic)."""
-        for manifest_path in build_dir.glob("*winml_manifest.json"):
+        for manifest_path in build_dir.glob("*build_manifest.json"):
             manifest: dict[str, Any] = json.loads(manifest_path.read_text())
             model_id = manifest.get("model_id")
             if model_id:

@@ -739,14 +739,15 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
 
 
 def _manifest_from_engine(engine: InferenceEngine) -> dict[str, Any]:
-    """Build manifest dict from engine, trying winml_manifest.json first."""
+    """Build manifest dict from engine, trying build_manifest.json first."""
     if engine.model_path:
-        manifest_file = Path(engine.model_path) / "winml_manifest.json"
-        if manifest_file.exists():
-            try:
-                return cast("dict[str, Any]", json.loads(manifest_file.read_text()))
-            except (json.JSONDecodeError, OSError) as e:
-                logger.warning("Failed to load manifest: %s", e)
+        for name in ("build_manifest.json", "export_manifest.json"):
+            manifest_file = Path(engine.model_path) / name
+            if manifest_file.exists():
+                try:
+                    return cast("dict[str, Any]", json.loads(manifest_file.read_text()))
+                except (json.JSONDecodeError, OSError) as e:
+                    logger.warning("Failed to load manifest: %s", e)
 
     return {
         "model_id": engine.model_id or "unknown",

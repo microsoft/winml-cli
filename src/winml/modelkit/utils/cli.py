@@ -88,8 +88,8 @@ def classify_model_input(value: str) -> ModelInput:
 
         if path.is_dir():
             onnx_files = list(path.glob("*.onnx"))
-            manifest_files = list(path.glob("winml_manifest.json")) + list(
-                path.glob("*_winml_manifest.json")
+            manifest_files = list(path.glob("build_manifest.json")) + list(
+                path.glob("*_build_manifest.json")
             )
             has_onnx = bool(onnx_files)
             is_hf_folder = (path / "config.json").exists()

@@ -1005,14 +1005,14 @@ class TestExportComposite:
 
 
 class TestExportManifest:
-    """Export writes a winml_manifest.json alongside each ONNX artifact."""
+    """Export writes a export_manifest.json alongside each ONNX artifact."""
 
     def test_single_export_writes_manifest(
         self,
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        """A single (non-composite) export produces one winml_manifest.json."""
+        """A single (non-composite) export produces one export_manifest.json."""
         from winml.modelkit.commands.export import export
         from winml.modelkit.export import WinMLExportConfig
         from winml.modelkit.loader import WinMLLoaderConfig
@@ -1041,8 +1041,8 @@ class TestExportManifest:
             )
 
         assert result.exit_code == 0, result.output
-        manifest_path = tmp_path / "winml_manifest.json"
-        assert manifest_path.exists(), "winml_manifest.json was not created"
+        manifest_path = tmp_path / "export_manifest.json"
+        assert manifest_path.exists(), "export_manifest.json was not created"
         data = json.loads(manifest_path.read_text())
         assert data["source"] == "export"
         assert data["final_artifact"] == "model.onnx"
@@ -1057,7 +1057,7 @@ class TestExportManifest:
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        """Each composite sub-model gets a <stem>_winml_manifest.json."""
+        """Each composite sub-model gets a <stem>_export_manifest.json."""
         from winml.modelkit.commands.export import export
         from winml.modelkit.export import WinMLExportConfig
         from winml.modelkit.loader import WinMLLoaderConfig
@@ -1093,7 +1093,7 @@ class TestExportManifest:
 
         for name in components:
             stem = f"{output_path.stem}_{name}"
-            manifest = tmp_path / f"{stem}_winml_manifest.json"
+            manifest = tmp_path / f"{stem}_export_manifest.json"
             assert manifest.exists(), f"{manifest.name} was not created"
             data = json.loads(manifest.read_text())
             assert data["source"] == "export"
@@ -1101,4 +1101,4 @@ class TestExportManifest:
             assert data["schema_version"] == 1
 
         # No un-prefixed manifest for composite exports
-        assert not (tmp_path / "winml_manifest.json").exists()
+        assert not (tmp_path / "export_manifest.json").exists()

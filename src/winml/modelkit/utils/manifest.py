@@ -4,11 +4,12 @@
 # --------------------------------------------------------------------------
 """WinML manifest: machine-readable provenance for build and export outputs.
 
-``winml_manifest.json`` sits alongside every ONNX artifact produced by
-``winml build``, ``winml export``, or their Python-API equivalents.  It
-records *what* was built, *how* (which pipeline stages ran), and *when*,
-so downstream tools (``winml inspect``, ``winml serve``, the inference
-engine) can discover model metadata without re-running the pipeline.
+``build_manifest.json`` sits alongside every ONNX artifact produced by
+``winml build`` (or the Python API), while ``export_manifest.json`` is
+written by ``winml export``.  They record *what* was built, *how* (which
+pipeline stages ran), and *when*, so downstream tools (``winml inspect``,
+``winml serve``, the inference engine) can discover model metadata without
+re-running the pipeline.
 
 The :class:`WinMLManifest` dataclass is the single source of truth for the
 manifest schema.  All producers **must** construct a ``WinMLManifest``
@@ -30,8 +31,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-MANIFEST_FILENAME = "winml_manifest.json"
-"""Bare manifest filename (no cache-key prefix)."""
+MANIFEST_FILENAME = "build_manifest.json"
+"""Bare manifest filename for build outputs (no cache-key prefix)."""
+
+EXPORT_MANIFEST_FILENAME = "export_manifest.json"
+"""Bare manifest filename for export outputs."""
 
 SCHEMA_VERSION = 1
 
@@ -158,13 +162,16 @@ class WinMLManifest:
     def manifest_path_for(
         output_dir: Path,
         prefix: str | None = None,
+        filename: str = MANIFEST_FILENAME,
     ) -> Path:
         """Return the canonical manifest path in *output_dir*.
 
         When *prefix* is given (e.g. a cache key or composite-component
-        stem), the filename becomes ``{prefix}_winml_manifest.json``.
+        stem), the filename becomes ``{prefix}_{filename}``.
+        *filename* defaults to :data:`MANIFEST_FILENAME` (build); pass
+        :data:`EXPORT_MANIFEST_FILENAME` for export outputs.
         """
-        name = f"{prefix}_{MANIFEST_FILENAME}" if prefix else MANIFEST_FILENAME
+        name = f"{prefix}_{filename}" if prefix else filename
         return output_dir / name
 
     @classmethod
@@ -194,12 +201,13 @@ class WinMLManifest:
 
     @classmethod
     def find(cls, directory: Path) -> list[WinMLManifest]:
-        """Discover and load all ``*winml_manifest.json`` in *directory*."""
+        """Discover and load all manifests (build and export) in *directory*."""
         results: list[WinMLManifest] = []
-        for p in sorted(directory.glob(f"*{MANIFEST_FILENAME}")):
-            m = cls._try_load(p)
-            if m is not None:
-                results.append(m)
+        for pattern in (f"*{MANIFEST_FILENAME}", f"*{EXPORT_MANIFEST_FILENAME}"):
+            for p in sorted(directory.glob(pattern)):
+                m = cls._try_load(p)
+                if m is not None:
+                    results.append(m)
         return results
 
     @classmethod

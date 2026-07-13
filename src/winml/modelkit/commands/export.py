@@ -461,11 +461,11 @@ def export(
         )
         logger.debug("Export stats: %s", export_stats)
 
-        # Write winml_manifest.json alongside the exported ONNX.
+        # Write export_manifest.json alongside the exported ONNX.
         # For composite exports each sub-model gets a prefixed manifest
-        # (e.g. model_decoder_winml_manifest.json); single exports get
-        # a plain winml_manifest.json.
-        from ..utils import ManifestStage, WinMLManifest
+        # (e.g. model_decoder_export_manifest.json); single exports get
+        # a plain export_manifest.json.
+        from ..utils import EXPORT_MANIFEST_FILENAME, ManifestStage, WinMLManifest
 
         elapsed = time.monotonic() - start_time
         manifest = WinMLManifest(
@@ -486,7 +486,10 @@ def export(
             export_stats=export_stats,
         )
         prefix = None if out_path.name == output_path.name else out_path.stem
-        manifest.save(WinMLManifest.manifest_path_for(out_path.parent, prefix=prefix))
+        manifest_path = WinMLManifest.manifest_path_for(
+            out_path.parent, prefix=prefix, filename=EXPORT_MANIFEST_FILENAME
+        )
+        manifest.save(manifest_path)
 
         console.print(f"\n[bold green]Success![/bold green] Model exported to: {out_path}")
 

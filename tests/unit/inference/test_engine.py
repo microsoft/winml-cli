@@ -347,7 +347,7 @@ class TestLoadSchemaOnly:
         import json
 
         manifest = {"model_id": "test/model", "task": "text-classification"}
-        (tmp_path / "winml_manifest.json").write_text(json.dumps(manifest))
+        (tmp_path / "build_manifest.json").write_text(json.dumps(manifest))
         (tmp_path / "model.onnx").write_bytes(b"fake")
         engine = InferenceEngine()
         engine.load_schema_only(tmp_path)
@@ -360,7 +360,7 @@ class TestLoadSchemaOnly:
         import json
 
         manifest = {"model_id": "test/model", "task": "text-classification"}
-        (tmp_path / "winml_manifest.json").write_text(json.dumps(manifest))
+        (tmp_path / "build_manifest.json").write_text(json.dumps(manifest))
         (tmp_path / "model.onnx").write_bytes(b"fake")
         engine = InferenceEngine()
         engine.load_schema_only(tmp_path, task="image-classification")
@@ -470,7 +470,7 @@ class TestFindBuildArtifacts:
 
         (tmp_path / "model.onnx").write_bytes(b"fake")
         manifest = {"model_id": "test/model", "task": "text-classification"}
-        (tmp_path / "winml_manifest.json").write_text(json.dumps(manifest))
+        (tmp_path / "build_manifest.json").write_text(json.dumps(manifest))
         onnx_path, m = _find_build_artifacts(tmp_path)
         assert onnx_path.name == "model.onnx"
         assert m["task"] == "text-classification"
@@ -480,7 +480,7 @@ class TestFindBuildArtifacts:
 
         (tmp_path / "txtcls_abc123_model.onnx").write_bytes(b"fake")
         manifest = {"model_id": "test/model", "task": "text-classification"}
-        (tmp_path / "txtcls_abc123_winml_manifest.json").write_text(json.dumps(manifest))
+        (tmp_path / "txtcls_abc123_build_manifest.json").write_text(json.dumps(manifest))
         onnx_path, m = _find_build_artifacts(tmp_path)
         assert onnx_path.name == "txtcls_abc123_model.onnx"
         assert m["task"] == "text-classification"
@@ -503,11 +503,11 @@ class TestFindBuildArtifacts:
 
         # Two variants in same directory
         (tmp_path / "feat_aaa_model.onnx").write_bytes(b"fake-feat")
-        (tmp_path / "feat_aaa_winml_manifest.json").write_text(
+        (tmp_path / "feat_aaa_build_manifest.json").write_text(
             json.dumps({"model_id": "m", "task": "feature-extraction"})
         )
         (tmp_path / "txtcls_bbb_model.onnx").write_bytes(b"fake-txtcls")
-        (tmp_path / "txtcls_bbb_winml_manifest.json").write_text(
+        (tmp_path / "txtcls_bbb_build_manifest.json").write_text(
             json.dumps({"model_id": "m", "task": "text-classification"})
         )
 
@@ -522,7 +522,7 @@ class TestFindBuildArtifacts:
         import pytest
 
         (tmp_path / "feat_aaa_model.onnx").write_bytes(b"fake")
-        (tmp_path / "feat_aaa_winml_manifest.json").write_text(
+        (tmp_path / "feat_aaa_build_manifest.json").write_text(
             json.dumps({"model_id": "m", "task": "feature-extraction"})
         )
 
@@ -534,7 +534,7 @@ class TestFindBuildArtifacts:
         import json
 
         (tmp_path / "feat_aaa_model.onnx").write_bytes(b"fake")
-        (tmp_path / "feat_aaa_winml_manifest.json").write_text(
+        (tmp_path / "feat_aaa_build_manifest.json").write_text(
             json.dumps({"model_id": "m", "task": "feature-extraction"})
         )
 
