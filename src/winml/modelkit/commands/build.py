@@ -442,6 +442,134 @@ def _validate_loader_tasks_for_model(
     return hf_config
 
 
+def _maybe_build_genai_bundle(
+    ctx: click.Context,
+    *,
+    model: str | None,
+    model_is_onnx: bool,
+    config_or_configs: Any,
+    preloaded_hf_config: Any | None,
+    output_dir: str | None,
+    use_cache: bool,
+    device: str,
+    ep: EPNameOrAlias | None,
+    precision: str | None,
+    rebuild: bool,
+) -> bool:
+    """Route a registered decoder-LLM to the genai-bundle builder, if applicable.
+
+    Returns ``True`` when this call fully handled the build (an
+    onnxruntime-genai bundle was produced) and the caller should stop; ``False``
+    to fall through to the normal single/composite pipeline.
+
+    The trigger is intentionally narrow and explicit (see the call site): a
+    single HuggingFace model whose ``model_type`` has a registered
+    :class:`~winml.modelkit.models.winml.genai_bundle.GenaiBundleRecipe`, built
+    with an explicit ``--ep qnn`` and a ``--device`` that targets the NPU --
+    either ``--device npu`` or ``--device auto`` that resolves to the NPU on
+    this system. Nothing here is architecture-specific; the recipe carries every
+    model detail.
+    """
+    if (
+        not model
+        or model_is_onnx
+        or isinstance(config_or_configs, list)
+        or not cli_utils.is_cli_provided(ctx, "device")
+        or not cli_utils.is_cli_provided(ctx, "ep")
+    ):
+        return False
+
+    from ..utils.constants import normalize_ep_name
+
+    if normalize_ep_name(ep) != "QNNExecutionProvider":
+        return False
+
+    # Target must be the NPU HTP: an explicit ``--device npu``, or ``--device
+    # auto`` that resolves to the NPU (QNN) on this system. ``--ep qnn`` paired
+    # with any other explicit device is a contradiction left to the normal build
+    # path (which surfaces the error).
+    device_target = device.lower()
+    if device_target == "auto":
+        from .. import sysinfo
+
+        try:
+            device_target, _ = sysinfo.resolve_device(device, ep=ep)
+        except ValueError:
+            return False
+    if device_target != "npu":
+        return False
+
+    from ..models.winml import build_genai_bundle, resolve_genai_bundle
+
+    single_config = config_or_configs
+    model_type = getattr(preloaded_hf_config, "model_type", None)
+    if not model_type and single_config.loader is not None:
+        model_type = single_config.loader.model_type
+    recipe = resolve_genai_bundle(model_type)
+    if recipe is None:
+        return False
+
+    # A genai bundle is fully recipe-driven: every component, shape, precision,
+    # quantization and compile setting comes from the recipe, so a supplied
+    # ``-c/--config`` file would be silently discarded. Reject it explicitly
+    # (the bundle is produced directly from ``-m``), matching the fast path's
+    # other "don't silently ignore a user control" rejections below.
+    if cli_utils.is_cli_provided(ctx, "config_file"):
+        raise click.UsageError(
+            "-c/--config is not supported for a genai bundle build: the bundle's "
+            "components, shapes, quantization and compilation are fixed by its "
+            "recipe. Re-run without -c (the bundle is built directly from -m/--model)."
+        )
+
+    if use_cache:
+        raise click.UsageError(
+            "genai bundle output is a directory; pass --output-dir, not --use-cache."
+        )
+    if not output_dir:
+        raise click.UsageError("--output-dir is required for a genai bundle build.")
+
+    # The genai-bundle pipeline is recipe-driven: quantization, optimization,
+    # analysis and compilation are fixed by the recipe (with ``--precision`` the
+    # only transformer knob).  The normal single/composite pipeline controls are
+    # bypassed here, so reject any that the user explicitly passed rather than
+    # letting a supplied flag silently become a no-op.
+    _unsupported_controls = {
+        "quant": "--quant/--no-quant",
+        "optimize": "--optimize/--no-optimize",
+        "analyze": "--analyze/--no-analyze",
+        "no_compile": "--compile/--no-compile",
+        "max_optim_iterations": "--max-optim-iterations",
+        "allow_unsupported_nodes": "--allow-unsupported-nodes",
+    }
+    rejected = [
+        flag for name, flag in _unsupported_controls.items() if cli_utils.is_cli_provided(ctx, name)
+    ]
+    if rejected:
+        raise click.UsageError(
+            f"{', '.join(rejected)} not supported for a genai bundle build: the "
+            "bundle's components, quantization, optimization and compilation are "
+            "fixed by its recipe."
+        )
+
+    bundle_dir = Path(output_dir)
+    override_precision = precision if cli_utils.is_cli_provided(ctx, "precision") else None
+    console.print(f"\n[bold blue]Genai bundle[/bold blue] ({model_type}): {model} -> {bundle_dir}")
+    config_path = build_genai_bundle(
+        model,
+        bundle_dir,
+        recipe,
+        ep="qnn",
+        device="npu",
+        precision=override_precision,
+        force_rebuild=rebuild,
+        emit=lambda msg: console.print(msg, markup=False),
+    )
+    console.print(
+        f"\n[green]\u2713[/green] genai bundle ready: {bundle_dir} ([dim]{config_path.name}[/dim])"
+    )
+    return True
+
+
 # =============================================================================
 # CLI COMMAND
 # =============================================================================
@@ -746,6 +874,33 @@ def build(
         # on the key being present, matching the module-mode path which passes
         # allow_unsupported_nodes explicitly regardless of its value.
         extra_kwargs["allow_unsupported_nodes"] = allow_unsupported_nodes
+
+        # ---- GENAI BUNDLE FAST PATH ----
+        # A registered decoder-LLM family targeted at the NPU HTP via an explicit
+        # ``--ep qnn`` -- together with ``--device npu`` or a ``--device auto``
+        # that resolves to the NPU -- emits a full onnxruntime-genai bundle
+        # (ctx/iter/embeddings/lm_head + genai_config.json + tokenizer) in one
+        # command, instead of the stock per-model ONNX output. The switch is
+        # data-driven (the genai-bundle recipe registry) and architecture-
+        # agnostic here -- every model-specific value lives in the recipe.
+        # ``--ep qnn`` must be explicit, so an auto-detected NPU *without* an
+        # explicit ``--ep qnn`` and every other device/ep combination keep
+        # today's behavior unchanged (including this family's stock composite
+        # build).
+        if _maybe_build_genai_bundle(
+            ctx,
+            model=model,
+            model_is_onnx=model_is_onnx,
+            config_or_configs=config_or_configs,
+            preloaded_hf_config=preloaded_hf_config,
+            output_dir=output_dir,
+            use_cache=use_cache,
+            device=device,
+            ep=ep,
+            precision=precision,
+            rebuild=rebuild,
+        ):
+            return
 
         if isinstance(config_or_configs, list):
             # ---- MODULE MODE: array config, one build per submodule ----
