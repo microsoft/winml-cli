@@ -238,21 +238,29 @@ def build_genai_bundle(
     # A transformer whose ``model_type`` has a registered quant finalizer has an
     # authoritative, reference-matched quantization scheme: the finalizer would
     # revert any differing ``precision`` back to the recipe's, making the
-    # override a silent no-op. Reject it up-front instead. Keyed on the finalizer
-    # registry (not any model name), so a transformer *without* a finalizer still
-    # honors the override.
-    if (
-        precision is not None
-        and precision != transformer.precision
-        and has_quant_finalizer(transformer.model_type)
-    ):
-        raise ValueError(
-            f"precision override {precision!r} is not supported for this genai "
-            f"bundle: the {transformer.model_type!r} transformer's quantization "
-            f"scheme is pinned to {transformer.precision!r} by its quant finalizer. "
-            f"Re-run without a precision override (or pass {transformer.precision!r})."
-        )
-    transformer_precision = precision or transformer.precision
+    # override a silent no-op. Reject a genuinely conflicting override up-front.
+    # Keyed on the finalizer registry (not any model name), so a transformer
+    # *without* a finalizer still honors the override.
+    pinned_by_finalizer = has_quant_finalizer(transformer.model_type)
+    if precision is not None and pinned_by_finalizer:
+        # ``auto`` defers to the system default, which for a pinned transformer
+        # is exactly the recipe precision, so it never conflicts. Compare
+        # case-insensitively so variants like ``W8A16`` are accepted too — the
+        # downstream precision resolver is likewise case-insensitive.
+        requested = precision.strip().lower()
+        if requested != "auto" and requested != transformer.precision.strip().lower():
+            raise ValueError(
+                f"precision override {precision!r} is not supported for this genai "
+                f"bundle: the {transformer.model_type!r} transformer's quantization "
+                f"scheme is pinned to {transformer.precision!r} by its quant finalizer. "
+                f"Re-run without a precision override (or pass {transformer.precision!r})."
+            )
+    # A finalizer-pinned transformer's scheme is fixed by the recipe, so a
+    # matching or ``auto`` override collapses to the canonical recipe precision
+    # (keeps the value clean for the downstream builder and logs).
+    transformer_precision = (
+        transformer.precision if pinned_by_finalizer else (precision or transformer.precision)
+    )
     transformer_ep = normalize_ep_name(cast("EPNameOrAlias", ep)) or ep
     companion_ep = normalize_ep_name("cpu") or "cpu"
 

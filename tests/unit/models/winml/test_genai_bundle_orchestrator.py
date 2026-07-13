@@ -211,6 +211,35 @@ def test_no_precision_override_uses_recipe_default_when_finalizer_pinned(harness
     assert _by_model_type(harness["calls"], "T-transformer")["precision"] == "w8a16"
 
 
+def test_auto_precision_override_allowed_when_finalizer_pinned(harness, monkeypatch):
+    """``--precision auto`` defers to the recipe scheme, so it is not a conflict.
+
+    ``auto`` resolves to the device default (``w8a16`` on NPU), which equals the
+    pinned recipe precision, so a generic ``auto`` invocation must be accepted
+    and collapse to the canonical recipe precision — not rejected on the raw
+    ``"auto" != "w8a16"`` string comparison.
+    """
+    import winml.modelkit.models.winml.genai_bundle as gb
+
+    monkeypatch.setattr(gb, "has_quant_finalizer", lambda model_type: True)
+    build_genai_bundle("m", harness["tmp_path"] / "b", harness["recipe"], precision="auto")
+    assert _by_model_type(harness["calls"], "T-transformer")["precision"] == "w8a16"
+
+
+def test_case_variant_precision_override_allowed_when_finalizer_pinned(harness, monkeypatch):
+    """A case variant like ``W8A16`` matches the pinned precision (case-insensitive).
+
+    Downstream precision resolution is case-insensitive, so the guard must not
+    reject an equivalent upper/mixed-case override; it collapses to the
+    canonical recipe precision.
+    """
+    import winml.modelkit.models.winml.genai_bundle as gb
+
+    monkeypatch.setattr(gb, "has_quant_finalizer", lambda model_type: True)
+    build_genai_bundle("m", harness["tmp_path"] / "b", harness["recipe"], precision="W8A16")
+    assert _by_model_type(harness["calls"], "T-transformer")["precision"] == "w8a16"
+
+
 def test_length_overrides_flow_to_shapes_and_assembler(harness):
     build_genai_bundle(
         "m", harness["tmp_path"] / "b", harness["recipe"], max_cache_len=1024, prefill_seq_len=32
