@@ -33,6 +33,7 @@ from rich.console import Console
 
 from ..utils import cli as cli_utils
 from ..utils.logging import configure_logging
+from ..utils.model_input import ModelInputKind, classify_model_input
 
 
 logger = logging.getLogger(__name__)
@@ -266,13 +267,15 @@ def export(
     # Classify the -m value once (existence-first). Export only works with
     # HuggingFace model IDs — reject ONNX files and folders early.
     if model:
-        model_input = cli_utils.classify_model_input(model)
-        if model_input.kind is cli_utils.ModelInputKind.ONNX_FILE:
+        model_input = classify_model_input(model)
+        if model_input.kind is ModelInputKind.INVALID:
+            raise click.UsageError(model_input.error or f"Invalid model input: {model}")
+        if model_input.kind is ModelInputKind.ONNX_FILE:
             raise click.UsageError(
                 "export requires a HuggingFace model ID, not an ONNX file. "
                 "Use 'winml inspect -m model.onnx' to inspect an existing ONNX model."
             )
-        if model_input.kind is cli_utils.ModelInputKind.FOLDER:
+        if model_input.kind is ModelInputKind.FOLDER:
             raise click.UsageError(
                 "export requires a HuggingFace model ID, not a directory. "
                 "Provide a HuggingFace model ID (e.g., prajjwal1/bert-tiny)."
