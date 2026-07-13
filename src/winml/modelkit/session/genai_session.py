@@ -45,22 +45,39 @@ Dependencies::
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
+from ..utils.constants import (
+    EP_NAME_TO_ALIAS,
+    EP_NAMES,
+    EP_SUPPORTED_DEVICES,
+    normalize_ep_name,
+)
 from .ep_registry import WinMLEPRegistry
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
+    from ..utils.constants import EPAlias, EPName, EPNameOrAlias
+
 
 logger = logging.getLogger(__name__)
+
+# EPs whose hardware target is selected by a ``device_type`` provider option
+# (rather than a backend path/library).  When forcing one of these onto a stage
+# the bundle defines no options for, synthesize ``device_type`` from the
+# requested device.  Kept as full EP names so comparisons stay canonical.
+_DEVICE_TYPE_EPS: frozenset[str] = frozenset(
+    {"OpenVINOExecutionProvider", "VitisAIExecutionProvider"}
+)
 
 
 # ---------------------------------------------------------------------------
@@ -252,12 +269,36 @@ class GenaiSession:
     Args:
         bundle_dir: Path to the genai bundle directory.  Must contain
             ``genai_config.json`` and the ONNX files it references.
-        ep: Execution provider short name (e.g. ``"cpu"``, ``"qnn"``, ``"dml"``,
-            ``"mixed"``), recorded for reporting.  Whether WinML EPs are
-            registered and whether stages are pre-compiled is decided from the
-            bundle's ``genai_config.json`` (per-stage ``session_options``), not
-            from this argument.  Overriding the config via ``ep``/``device`` is
-            tracked in #1025.
+        ep: Execution-provider **override** (short alias such as ``"cpu"``,
+            ``"qnn"``, ``"dml"``, or a full ``*ExecutionProvider`` name).  The
+            precedence is **explicit arg > bundle config**:
+
+            * ``None`` (default) — *respect the bundle config*.  EP registration
+              and pre-compilation are decided from ``genai_config.json`` (per-stage
+              ``session_options.provider_options``), exactly as the bundle
+              author intended.
+            * a concrete EP — *override the pipeline's execution provider*.
+              ``"cpu"`` strips the hardware providers from every stage (CPU
+              fallback, no WinML EP registration or compilation).  A hardware EP
+              re-routes **only the stages that already run on a hardware EP**,
+              leaving stages the bundle deliberately keeps on CPU (e.g.
+              ``embeddings``/``lm_head``) untouched — forcing a large
+              CPU-intended graph onto an accelerator is rarely wanted and can
+              trigger very slow on-the-fly compilation.  A re-routed stage reuses
+              the bundle's own options for the target EP when available (e.g. QNN
+              ``backend_path``/``soc_model``, borrowed from any stage), otherwise
+              synthesizes ``device_type`` from *device* for device-parameterized
+              EPs (OpenVINO/VitisAI).
+
+            The override is generic — validated against and rewritten from the
+            shared EP union, with no hardcoded EP short-name → behavior map.  If
+            the override matches no stage (flat/empty pipeline, or an all-CPU
+            bundle) the run follows the bundle config and :attr:`effective_ep`
+            reports ``None`` (the always-safe override direction is ``"cpu"``).
+        device: Concrete target device (``"npu"``/``"gpu"``/``"cpu"``) the forced
+            *ep* should run on.  Used only to synthesize ``device_type`` for
+            device-parameterized EPs (OpenVINO/VitisAI) when a re-routed stage
+            has no reusable options; ignored when respecting the bundle config.
         context_length: Override for the static KV cache length.  When
             ``None`` (default), read from ``genai_config.json``.
             Must match the ``--max-cache-len`` used during the winml-cli build.
@@ -265,13 +306,18 @@ class GenaiSession:
         compile: Pre-compile EPContext-capable pipeline stages (e.g. QNN) to
             EPContext ONNX on first run (inside ``bundle_dir/_compiled/``).
             Subsequent calls reuse the cached EPContext files, eliminating
-            per-run JIT overhead.  Only stages that ``genai_config.json`` routes
-            to an EPContext-capable EP and that can be compiled without hanging
-            are attempted; stages that fail compilation fall back to the
-            original ONNX.  A CPU-only bundle is a no-op.
+            per-run JIT overhead.  Only stages that the *effective* config (after
+            any ``ep`` override) routes to an EPContext-capable EP and that can be
+            compiled without hanging are attempted; stages that fail compilation
+            fall back to the original ONNX.  A CPU-only (or CPU-forced) bundle is
+            a no-op.
         compile_timeout: Maximum seconds to wait for each stage to compile
             before killing the subprocess and falling back to the original
             ONNX.  Defaults to 300 seconds (5 minutes).
+
+    Raises:
+        ValueError: *ep* is not ``None`` and does not resolve to a known
+            execution provider.
     """
 
     # Sub-directory within the bundle that holds pre-compiled EPContext ONNX files.
@@ -285,15 +331,28 @@ class GenaiSession:
     def __init__(
         self,
         bundle_dir: str | Path,
-        ep: str = "cpu",
+        ep: EPNameOrAlias | None = None,
         *,
+        device: str | None = None,
         context_length: int | None = None,
         verbose: bool = False,
         compile: bool = False,
         compile_timeout: int = 300,
     ) -> None:
         self._bundle_dir = Path(bundle_dir)
-        self._ep = ep.lower()
+        # None => respect the bundle config; otherwise an EP override.  Validated
+        # and normalized to a canonical EPName so the rewrite/registration logic
+        # stays generic (no hardcoded EP short-name behavior).
+        self._ep_override: EPName | None = self._resolve_ep_override(ep)
+        # Concrete target device (npu/gpu/cpu) for the forced EP, or None.  Only
+        # used to synthesize device-parameterized provider options (OpenVINO /
+        # VitisAI ``device_type``) when re-routing a stage that has no reusable
+        # options for the target EP; QNN reuses the bundle's own ``backend_path``.
+        self._device: str | None = device.lower() if device else None
+        # Set at load(): did the override actually take effect (rewrite/strip at
+        # least one stage)?  Drives :attr:`effective_ep` so the report never
+        # claims an EP that never applied (flat/empty pipeline, all-CPU bundle).
+        self._override_effective: bool = False
         self._context_length_override = context_length
         self._verbose = verbose
         self._compile = compile
@@ -315,7 +374,35 @@ class GenaiSession:
                 "Ensure the bundle was created with a winml-cli export command."
             )
 
-        logger.info("GenaiSession initialized: bundle=%s ep=%s", self._bundle_dir, self._ep)
+        logger.info(
+            "GenaiSession initialized: bundle=%s ep=%s",
+            self._bundle_dir,
+            self._ep_override or "config",
+        )
+
+    @staticmethod
+    def _resolve_ep_override(ep: EPNameOrAlias | None) -> EPName | None:
+        """Validate and normalize the ``ep`` override to a canonical EPName.
+
+        Returns ``None`` when *ep* is ``None`` (respect the bundle config).
+        Otherwise the value is normalized via the shared EP union; an
+        unrecognized provider is rejected so an override can never silently
+        become a no-op.
+
+        Raises:
+            ValueError: *ep* does not resolve to a known execution provider.
+        """
+        if ep is None:
+            return None
+        normalized = normalize_ep_name(ep)
+        if normalized not in EP_NAMES:
+            valid = ", ".join(sorted(EP_NAME_TO_ALIAS.values()))
+            raise ValueError(
+                f"Unknown execution provider {ep!r} for GenaiSession ep override. "
+                f"Pass one of: {valid} (or a full *ExecutionProvider name), or None "
+                "to respect the bundle's genai_config.json."
+            )
+        return normalized
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -338,29 +425,49 @@ class GenaiSession:
 
         cfg = self._read_genai_config()
 
-        # Register WinML EPs only when the bundle routes at least one stage to a
-        # hardware EP.  This decision comes from genai_config.json, not the
-        # ``ep`` argument (see #1025 for the planned override path).
-        hw_ep = self._bundle_uses_hardware_ep(cfg)
-        logger.info("Hardware EP detected in genai_config.json: %s", hw_ep)
+        # Apply the ``ep`` override (if any) to obtain the *effective* config that
+        # actually drives routing.  Precedence is explicit arg > bundle config:
+        # when no override is set this is the bundle config verbatim.
+        effective_cfg, overridden = self._apply_ep_override(cfg)
+
+        # Record whether the override actually applied so :attr:`effective_ep`
+        # (and the perf report) never claim an EP that matched no stage.  Warn
+        # when a requested override is a no-op so ``--ep qnn`` on a flat/all-CPU
+        # bundle is visibly reported as "config" rather than silently ignored.
+        self._override_effective = self._override_took_effect(effective_cfg)
+        if self._ep_override is not None and not self._override_effective:
+            logger.warning(
+                "EP override %r was requested but did not take effect (flat/empty "
+                "pipeline, or every stage runs on CPU); the run follows the "
+                "bundle's genai_config.json instead.",
+                EP_NAME_TO_ALIAS[self._ep_override],
+            )
+
+        # Register WinML EPs only when the *effective* config routes at least one
+        # stage to a hardware EP.  Reading it from the post-override config means
+        # a "force cpu" override skips registration and a "force <hw ep>" override
+        # triggers it — all without a hardcoded EP short-name → behavior map.
+        hw_ep = self._bundle_uses_hardware_ep(effective_cfg)
+        logger.info("Hardware EP detected in effective genai_config: %s", hw_ep)
         if hw_ep is not None:
             self._register_eps()
 
         if self._verbose:
             og.set_log_options(enabled=True, model_input_values=True, model_output_shapes=True)
 
-        # Pre-compile EPContext-capable stages when requested.  The bundle config
-        # decides which stages are compilable; a bundle with none is a no-op.
+        # Materialize the directory og.Model loads from.  A derived ``_compiled/``
+        # bundle is written when the override rewrote the config and/or stages
+        # were pre-compiled; otherwise the original bundle dir is used as-is.
         load_dir = self._bundle_dir
-        if self._compile:
-            load_dir = self._prepare_compiled_bundle()
+        if self._compile or overridden:
+            load_dir = self._prepare_compiled_bundle(effective_cfg, overridden=overridden)
 
         try:
             config = og.Config(str(load_dir))
-            # EP routing is driven entirely by genai_config.json (per-stage
-            # session_options).  Do NOT call clear_providers/append_provider —
-            # those only touch the top-level provider and cannot override
-            # per-stage session_options already embedded in the pipeline config.
+            # Per-stage EP routing lives in the (possibly overridden) genai_config
+            # that og.Config loads from ``load_dir``.  Do NOT call
+            # clear_providers/append_provider — those only touch the top-level
+            # provider and cannot override per-stage session_options.
             self._model = og.Model(config)
             self._tokenizer = og.Tokenizer(self._model)
         except Exception as exc:
@@ -371,7 +478,7 @@ class GenaiSession:
         self._context_length = self._context_length_override or self._read_context_length()
         logger.info(
             "GenaiSession loaded: ep=%s context_length=%d",
-            self._ep,
+            self._ep_override or "config",
             self._context_length,
         )
 
@@ -638,9 +745,29 @@ class GenaiSession:
         return self._bundle_dir
 
     @property
-    def ep(self) -> str:
-        """Execution provider short name (as passed to ``__init__``)."""
-        return self._ep
+    def ep(self) -> EPAlias | None:
+        """The execution-provider override alias, or ``None`` when respecting config.
+
+        ``None`` means EP routing follows the bundle's ``genai_config.json``.  A
+        non-``None`` value is the canonical short alias of the forced provider
+        (e.g. ``"cpu"``, ``"qnn"``, ``"dml"``).
+        """
+        if self._ep_override is None:
+            return None
+        return EP_NAME_TO_ALIAS[self._ep_override]
+
+    @property
+    def effective_ep(self) -> EPAlias | None:
+        """The EP alias that actually took effect, or ``None`` to mean "config".
+
+        Differs from :attr:`ep` (the *requested* override) when the override was
+        a no-op: ``None`` when there was no override, **or** when the requested EP
+        matched no pipeline stage (flat/empty pipeline, or an all-CPU bundle) so
+        the run follows the bundle config.  Valid only after :meth:`load`.
+        """
+        if self._ep_override is None or not self._override_effective:
+            return None
+        return EP_NAME_TO_ALIAS[self._ep_override]
 
     @property
     def context_length(self) -> int | None:
@@ -686,56 +813,260 @@ class GenaiSession:
         )
         return og.Generator(self._model, params)
 
-    def _prepare_compiled_bundle(self) -> Path:
-        """Create (or reuse) a *compiled* bundle directory.
+    # ------------------------------------------------------------------
+    # EP override (explicit arg > bundle config)
+    # ------------------------------------------------------------------
 
-        Reads ``genai_config.json`` and finds pipeline stages whose execution
-        provider supports EPContext pre-compilation (resolved generically via
+    def _apply_ep_override(self, cfg: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        """Return ``(effective_cfg, changed)`` after applying the ``ep`` override.
+
+        When no override is set (:attr:`_ep_override` is ``None``) the bundle
+        config is returned verbatim (``changed=False``) so config-driven bundles
+        behave exactly as before.
+
+        Otherwise the stages in ``model.decoder.pipeline`` are rewritten:
+
+        * **CPU** — strip hardware ``provider_options`` (set to ``[]``) so
+          onnxruntime-genai falls back to the CPU provider.  Stages that were
+          already CPU are left untouched.
+        * **hardware EP** — re-route only the stages that *already run on a
+          hardware EP* to that EP as ``[{alias: opts}]``, leaving CPU-intended
+          stages (``embeddings``/``lm_head``) untouched.  A re-routed stage's
+          options are, in priority order: its own options when it already
+          targeted the *same* provider; else options borrowed from any pipeline
+          stage that targets the provider (e.g. QNN ``backend_path``); else a
+          ``device_type`` synthesized from *device* for device-parameterized EPs
+          (OpenVINO/VitisAI), else empty.
+
+        The rewrite is generic: EPs are compared/aliased through the shared EP
+        union, and the only literal provider name is the universal ``"cpu"``.
+
+        Returns:
+            The effective config (a deep copy when modified) and whether it
+            differs from *cfg*.
+        """
+        if self._ep_override is None:
+            return cfg, False
+
+        effective = copy.deepcopy(cfg)
+        pipeline = effective.get("model", {}).get("decoder", {}).get("pipeline", [])
+        if isinstance(pipeline, list):
+            # Pre-scan for options the bundle already defines for the target EP,
+            # so re-routing another hardware stage onto it can reuse the bundle's
+            # own machine-correct options (e.g. QNN backend_path/soc_model)
+            # instead of guessing them.
+            borrow_opts = self._pipeline_opts_for_ep(pipeline, self._ep_override)
+            for stage_entry in pipeline:
+                if not isinstance(stage_entry, dict):
+                    continue
+                for stage_cfg in stage_entry.values():
+                    if isinstance(stage_cfg, dict):
+                        self._override_stage_provider(stage_cfg, borrow_opts)
+
+        return effective, effective != cfg
+
+    def _override_stage_provider(self, stage_cfg: dict[str, Any], borrow_opts: dict) -> None:
+        """Rewrite one pipeline stage's ``provider_options`` for the override EP.
+
+        Mutates *stage_cfg* in place.  Assumes :attr:`_ep_override` is set.
+        *borrow_opts* are options harvested from another pipeline stage that
+        already targets the override EP (empty when none exist).
+        """
+        ep = self._ep_override
+        if ep is None:
+            return
+
+        if ep == "CPUExecutionProvider":
+            # Force CPU: drop any hardware provider_options so og falls back to
+            # CPU.  Only touch stages that actually carry a hardware provider so
+            # an already-CPU stage stays byte-for-byte identical.
+            so = stage_cfg.get("session_options")
+            if isinstance(so, dict):
+                po = so.get("provider_options")
+                if isinstance(po, list) and self._provider_list_has_hardware_ep(po):
+                    so["provider_options"] = []
+            return
+
+        # Force a hardware EP: only re-route stages the bundle already runs on a
+        # hardware EP.  Stages it deliberately keeps on CPU (empty/missing
+        # provider_options — typically embeddings/lm_head) are left untouched;
+        # forcing a large CPU-intended graph onto an accelerator is rarely wanted
+        # and can trigger very slow on-the-fly compilation.
+        so = stage_cfg.get("session_options")
+        current_po = so.get("provider_options") if isinstance(so, dict) else None
+        if not (isinstance(current_po, list) and self._provider_list_has_hardware_ep(current_po)):
+            return
+
+        alias = EP_NAME_TO_ALIAS[ep]
+        if self._stage_targets_ep(current_po, ep):
+            # Re-selecting the stage's own EP: preserve its shipped options
+            # verbatim (even when empty) — this is a byte-for-byte no-op.
+            opts = self._existing_opts_for_ep(current_po, ep)
+        elif borrow_opts:
+            opts = dict(borrow_opts)
+        else:
+            opts = self._default_opts_for_device(ep)
+        if not isinstance(so, dict):
+            so = {}
+            stage_cfg["session_options"] = so
+        so["provider_options"] = [{alias: opts}]
+
+    def _default_opts_for_device(self, ep: EPName) -> dict[str, Any]:
+        """Synthesize provider options for *ep* when the bundle defines none.
+
+        Device-parameterized EPs (OpenVINO/VitisAI) need a ``device_type`` to
+        target hardware; it is derived from the session's *device* (falling back
+        to the EP's primary supported device).  QNN needs a ``backend_path`` that
+        this code must not hardcode, so it warns and returns empty options; other
+        EPs (e.g. DML) take no options.
+        """
+        if ep in _DEVICE_TYPE_EPS:
+            device = self._device or EP_SUPPORTED_DEVICES[ep][0]
+            return {"device_type": device.upper()}
+        if ep == "QNNExecutionProvider":
+            logger.warning(
+                "Forcing %s onto a stage the bundle did not route to it, and no "
+                "reusable QNN options were found in the pipeline; writing empty "
+                "QNN options. QNN will fall back to its default backend and may "
+                "not target the intended device. Point --ep/--device at a bundle "
+                "whose config already defines QNN, or rebuild it for this EP.",
+                EP_NAME_TO_ALIAS[ep],
+            )
+        return {}
+
+    @staticmethod
+    def _stage_targets_ep(provider_options: Any, target: EPName) -> bool:
+        """True if *provider_options* already names *target* (any options)."""
+        if isinstance(provider_options, list):
+            for entry in provider_options:
+                if isinstance(entry, dict):
+                    for name in entry:
+                        if normalize_ep_name(cast("EPNameOrAlias", str(name))) == target:
+                            return True
+        return False
+
+    @classmethod
+    def _pipeline_opts_for_ep(cls, pipeline: list, target: EPName) -> dict:
+        """Return the first non-empty options any pipeline stage defines for *target*.
+
+        Lets forcing a hardware EP onto a stage reuse the bundle's own
+        machine-correct options for that EP (e.g. QNN ``backend_path``/
+        ``soc_model``) rather than guessing them.  Empty (``{}``) stage options
+        are skipped since borrowing them adds nothing.
+        """
+        for stage_entry in pipeline:
+            if not isinstance(stage_entry, dict):
+                continue
+            for stage_cfg in stage_entry.values():
+                if not isinstance(stage_cfg, dict):
+                    continue
+                so = stage_cfg.get("session_options")
+                if not isinstance(so, dict):
+                    continue
+                opts = cls._existing_opts_for_ep(so.get("provider_options"), target)
+                if opts:
+                    return opts
+        return {}
+
+    @staticmethod
+    def _provider_list_has_hardware_ep(provider_options: list) -> bool:
+        """True if *provider_options* names any non-CPU execution provider."""
+        for entry in provider_options:
+            if isinstance(entry, dict) and any(str(name).lower() != "cpu" for name in entry):
+                return True
+        return False
+
+    @staticmethod
+    def _existing_opts_for_ep(provider_options: Any, target: EPName) -> dict:
+        """Return the stage's existing options iff it already targets *target*.
+
+        Lets "force the bundle's own EP" preserve the finely-tuned options the
+        bundle shipped (e.g. QNN ``backend_path``/``soc_model``); a different
+        provider starts from empty options.
+        """
+        if isinstance(provider_options, list):
+            for entry in provider_options:
+                if not isinstance(entry, dict):
+                    continue
+                for name, opts in entry.items():
+                    if normalize_ep_name(cast("EPNameOrAlias", str(name))) == target and isinstance(
+                        opts, dict
+                    ):
+                        return dict(opts)
+        return {}
+
+    def _prepare_compiled_bundle(
+        self, effective_cfg: dict[str, Any] | None = None, *, overridden: bool = False
+    ) -> Path:
+        """Create (or reuse) a derived bundle directory og.Model can load from.
+
+        Starts from *effective_cfg* (the post-override config; when ``None`` the
+        on-disk ``genai_config.json`` is read, preserving the pre-override
+        behavior) and finds pipeline stages whose execution provider supports
+        EPContext pre-compilation (resolved generically via
         :meth:`WinMLCompileConfig.for_provider` — QNN, OpenVINO, VitisAI, …),
         then tries to compile their ONNX to EPContext format through the shared
         compiler.  Stages on EPs that do not emit EPContext (CPU, DML, …) are
         left untouched and load via JIT.
 
-        The compiled bundle is stored under ``bundle_dir/_compiled/``.  A cached
-        EPContext file is reused only when it is newer than the source graph and
-        its external-weights sidecar *and* was built with the same provider
-        options (see :meth:`_epcontext_is_fresh`); otherwise it is recompiled.
+        The derived bundle is stored under ``bundle_dir/_compiled/``.  Each
+        compiled artifact is named ``{stage}_{ep}_ctx.onnx`` so stages compiled
+        for different execution providers never collide.  A cached EPContext
+        file is reused only when it is newer than the source graph and its
+        external-weights sidecar *and* was built with the same execution
+        provider and provider options (see :meth:`_epcontext_is_fresh`);
+        otherwise it is recompiled.
+
+        Args:
+            effective_cfg: The config to compile/load from (post ``ep`` override).
+                ``None`` reads the bundle's on-disk config unchanged.
+            overridden: Whether *effective_cfg* differs from the on-disk config.
+                When ``True`` a derived directory is always written (even if no
+                stage was compiled) so the rewritten routing reaches og.Model.
 
         Returns:
-            Path to the compiled bundle directory (may equal ``bundle_dir``
-            if no compilable stages were found, or if all compilations failed).
+            Path to the derived bundle directory (equals ``bundle_dir`` when the
+            config was not overridden and no stage needed compiling).
         """
         from ..onnx import is_compiled_onnx
 
         compiled_dir = self._bundle_dir / self._COMPILED_SUBDIR
-        cfg = self._read_genai_config()
+        cfg = effective_cfg if effective_cfg is not None else self._read_genai_config()
 
         # Collect pipeline stages whose EP supports EPContext pre-compilation.
         # genai_config pipeline entries: [{"context": {...}}, {"iterator": {...}}, ...]
         # provider_options format: [{"<ep_alias>": {...}}]
+        # Only scan when compilation was requested; an override-only pass writes
+        # the rewritten config without compiling anything.
         pipeline_list: list = cfg.get("model", {}).get("decoder", {}).get("pipeline", [])
         # [(stage_key, onnx_filename, ep_alias, ep_opts), ...]
         compilable_stages: list[tuple[str, str, str, dict]] = []
-        for stage_entry in pipeline_list:
-            if not isinstance(stage_entry, dict):
-                continue
-            for stage_key, stage_cfg in stage_entry.items():
-                if not isinstance(stage_cfg, dict):
+        if self._compile:
+            for stage_entry in pipeline_list:
+                if not isinstance(stage_entry, dict):
                     continue
-                so = stage_cfg.get("session_options", {})
-                ep_alias, ep_opts = self._resolve_stage_ep(so.get("provider_options", []))
-                if ep_alias is not None:
-                    onnx_filename = stage_cfg.get("filename", f"{stage_key}.onnx")
-                    compilable_stages.append((stage_key, onnx_filename, ep_alias, ep_opts))
+                for stage_key, stage_cfg in stage_entry.items():
+                    if not isinstance(stage_cfg, dict):
+                        continue
+                    so = stage_cfg.get("session_options", {})
+                    ep_alias, ep_opts = self._resolve_stage_ep(so.get("provider_options", []))
+                    if ep_alias is not None:
+                        onnx_filename = stage_cfg.get("filename", f"{stage_key}.onnx")
+                        compilable_stages.append((stage_key, onnx_filename, ep_alias, ep_opts))
 
         if not compilable_stages:
-            logger.info(
-                "No EPContext-capable stages found in genai_config.json; skipping pre-compilation"
-            )
-            return self._bundle_dir
+            if self._compile:
+                logger.info(
+                    "No EPContext-capable stages found in the effective genai_config; "
+                    "skipping pre-compilation"
+                )
+            # Nothing to compile.  Still write a derived bundle when the ``ep``
+            # override rewrote routing, so the change reaches og.Model.
+            if not overridden:
+                return self._bundle_dir
 
         compiled_dir.mkdir(exist_ok=True)
-        modified_cfg = self._read_genai_config()
+        modified_cfg = copy.deepcopy(cfg)
         any_compiled = False
         # Original stage ONNX filenames that were replaced by a compiled
         # EPContext artifact (``{stage_key}_ctx.onnx``) and so must NOT be
@@ -748,10 +1079,13 @@ class GenaiSession:
 
         for stage_key, onnx_filename, ep_alias, ep_opts in compilable_stages:
             src_onnx = self._bundle_dir / onnx_filename
-            ctx_onnx = compiled_dir / f"{stage_key}_ctx.onnx"
+            # The EP is part of the cache key: an ``ep`` override can route the
+            # same stage onto different EPContext providers across runs, so each
+            # EP gets its own artifact and EP-A's binary is never reused for EP-B.
+            ctx_onnx = compiled_dir / f"{stage_key}_{ep_alias}_ctx.onnx"
 
             # Skip recompilation only when the cache is genuinely up-to-date.
-            if self._epcontext_is_fresh(src_onnx, ctx_onnx, ep_opts):
+            if self._epcontext_is_fresh(src_onnx, ctx_onnx, ep_alias, ep_opts):
                 logger.info("Stage %r: reusing cached EPContext %s", stage_key, ctx_onnx.name)
                 # Use just the filename — genai_config.json lives in compiled_dir,
                 # so ort-genai resolves filenames relative to compiled_dir.
@@ -799,7 +1133,9 @@ class GenaiSession:
                 # would be wrongly joined onto compiled_dir into a broken path.
                 self._patch_stage_filename(modified_cfg, stage_key, onnx_filename)
 
-        if not any_compiled:
+        # A derived bundle is only needed when routing changed: either a stage
+        # was (re)compiled or the ``ep`` override rewrote the config.
+        if not any_compiled and not overridden:
             return self._bundle_dir
 
         # Write the modified genai_config into the compiled sub-directory.
@@ -853,7 +1189,9 @@ class GenaiSession:
         )
 
     @classmethod
-    def _epcontext_is_fresh(cls, src_onnx: Path, ctx_onnx: Path, ep_opts: dict) -> bool:
+    def _epcontext_is_fresh(
+        cls, src_onnx: Path, ctx_onnx: Path, ep_alias: str, ep_opts: dict
+    ) -> bool:
         """Return ``True`` when a cached EPContext file may be reused as-is.
 
         The cache is stale (forcing a recompile) when any of these hold:
@@ -863,6 +1201,9 @@ class GenaiSession:
         * the source external-weights ``.data`` sidecar is newer (decoder graphs
           often keep all weights there, so the ``.onnx`` mtime alone is not a
           sufficient cache key);
+        * the execution provider recorded at compile time differs from
+          *ep_alias* (a stage forced onto a different EPContext provider must not
+          reuse a binary built for another one, even if their options match);
         * the provider options recorded at compile time differ from *ep_opts*
           (so changing a knob like ``soc_model`` re-compiles even when the
           ``.onnx`` mtime is unchanged).
@@ -881,7 +1222,7 @@ class GenaiSession:
             recorded = json.loads(marker.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return False
-        return bool(recorded.get("provider_options") == ep_opts)
+        return bool(recorded.get("ep") == ep_alias and recorded.get("provider_options") == ep_opts)
 
     @staticmethod
     def _patch_stage_filename(cfg: dict, stage_key: str, filename: str) -> None:
@@ -940,6 +1281,17 @@ class GenaiSession:
             compile_opts,
         )
 
+        # Snapshot the mtimes of any EPContext artifacts that already exist
+        # before spawning the compiler. A teardown-crash salvage then accepts
+        # only files this subprocess actually created or rewrote — never a stale
+        # leftover from an earlier compile (e.g. one built with different
+        # provider options), which merely *looks* like a valid EPContext.
+        pre_compile_mtimes = {
+            str(p): p.stat().st_mtime_ns
+            for p in self._epcontext_candidate_paths(src_onnx, ctx_out)
+            if p.exists()
+        }
+
         ctx = multiprocessing.get_context("spawn")
         proc = ctx.Process(
             target=_compile_stage_worker,
@@ -960,12 +1312,162 @@ class GenaiSession:
             return False
 
         if proc.exitcode != 0:
+            if self._salvage_epcontext(src_onnx, ctx_out, pre_compile_mtimes):
+                logger.warning(
+                    "Stage %r compile subprocess exited %d, but a valid EPContext "
+                    "was already written to disk (crash during teardown); salvaging %s",
+                    stage_key,
+                    proc.exitcode,
+                    ctx_out.name,
+                )
+                return True
             logger.warning("Stage %r compilation failed (exit %d)", stage_key, proc.exitcode)
             self._discard_compiled_stage(ctx_out)
             return False
 
         logger.info("Stage %r compiled successfully → %s", stage_key, ctx_out)
         return True
+
+    def _salvage_epcontext(
+        self, src_onnx: Path, ctx_out: Path, pre_compile_mtimes: dict[str, int]
+    ) -> bool:
+        """Recover a valid EPContext written by a crashed compile subprocess.
+
+        Some accelerator runtimes (notably QNN on the Hexagon NPU) fault during
+        interpreter / driver teardown — i.e. *after* the EPContext ``.onnx`` and
+        its weights ``.bin`` have already been flushed to disk. Judging success
+        by exit code alone would then discard fully valid compiled work and fall
+        back to a JIT compile of the original graph, which just repeats the same
+        crashing native path at model-load time.
+
+        The shared compiler first writes the EPContext under Onnx Runtime's auto
+        name ``{src_stem}_<device>_ctx.onnx`` *next to the source model*, then
+        copies it to *ctx_out*. A teardown crash can leave the artifact in either
+        directory, so both are searched. On the first *fresh* and *valid* match,
+        the graph (and any external-weights ``.bin`` sidecar) is moved to
+        *ctx_out* so the caller can treat it exactly like a cleanly compiled
+        stage. The ``.bin`` keeps its name, so the graph's ``ep_cache_context``
+        reference still resolves once both files sit in the compiled directory.
+
+        A candidate is *fresh* only if this compile actually produced it: a path
+        already present before the subprocess started (``pre_compile_mtimes``)
+        must have advanced its modification time, otherwise it is a stale
+        leftover from an earlier compile and is ignored. Validity additionally
+        requires an ``embed_mode=0`` context's external weights file to exist —
+        see :meth:`_epcontext_is_valid`.
+
+        The provider / device token in the auto name is matched with a wildcard,
+        so no execution provider is hardcoded.
+
+        Returns ``True`` when a valid EPContext is now present at *ctx_out*.
+        """
+        for candidate in self._epcontext_candidate_paths(src_onnx, ctx_out):
+            if not candidate.exists():
+                continue
+            prior = pre_compile_mtimes.get(str(candidate))
+            if prior is not None and candidate.stat().st_mtime_ns <= prior:
+                # Pre-existing and untouched by this compile — a stale artifact
+                # (e.g. built with different provider options). Never salvage it.
+                continue
+            if not self._epcontext_is_valid(candidate):
+                continue
+            if candidate != ctx_out:
+                self._promote_epcontext(candidate, ctx_out)
+            return True
+        return False
+
+    @staticmethod
+    def _epcontext_candidate_paths(src_onnx: Path, ctx_out: Path) -> list[Path]:
+        """Ordered EPContext locations a crashed compile may have left behind.
+
+        The canonical output *ctx_out* first, then Onnx Runtime's auto-named
+        ``{src_stem}_<device>_ctx.onnx`` beside the canonical output and beside
+        the source model (the device token is a wildcard, so no EP is
+        hardcoded). ``dict.fromkeys`` dedups the directories, preserving order,
+        in case they coincide.
+        """
+        candidates: list[Path] = [ctx_out]
+        for directory in dict.fromkeys([ctx_out.parent, src_onnx.parent]):
+            candidates.extend(sorted(directory.glob(f"{src_onnx.stem}_*_ctx.onnx")))
+        return candidates
+
+    @staticmethod
+    def _epcontext_is_valid(candidate: Path) -> bool:
+        """True if *candidate* is an EPContext graph with its weights present.
+
+        Beyond the structural check (an ``EPContext`` node exists), the *main
+        context* node (``main_context=1``, the default) with ``embed_mode=0``
+        stores its compiled blob in an external file named by
+        ``ep_cache_context``; that file must exist and be non-empty next to the
+        graph, otherwise the salvaged stage would reference a missing binary and
+        crash at load time. ``embed_mode=1`` (or an absent attribute) embeds the
+        blob inline, so only the structural check applies — the
+        ``ep_cache_context`` bytes are the raw blob, not a path, and must not be
+        treated as a filename.
+
+        Secondary partition nodes (``main_context=0``) legitimately omit
+        ``ep_cache_context`` per the EPContext schema — a single QNN context can
+        hold all partitions, with only the ``main_context=1`` node carrying the
+        external reference — so they are skipped here, mirroring the compiler's
+        own ``main_context`` handling.
+        """
+        from ..onnx import is_compiled_onnx, load_onnx
+
+        # Structural gate. ``is_compiled_onnx`` normalises a corrupt / unreadable
+        # file to ValueError (missing → OSError), so a garbage leftover from a
+        # crashed compile is rejected here rather than propagating.
+        try:
+            if not is_compiled_onnx(candidate):
+                return False
+        except (ValueError, OSError):
+            return False
+
+        # Parseable and structurally an EPContext; verify the main context's
+        # external weights file is present (the load below cannot raise a parse
+        # error now that the structural gate has passed).
+        model = load_onnx(str(candidate), load_weights=False, validate=False)
+        for node in model.graph.node:
+            if node.op_type != "EPContext":
+                continue
+            embed_mode = 1
+            main_context = 1
+            cache_ref = ""
+            for attr in node.attribute:
+                if attr.name == "embed_mode":
+                    embed_mode = attr.i
+                elif attr.name == "main_context":
+                    main_context = attr.i
+                elif attr.name == "ep_cache_context":
+                    cache_ref = attr.s.decode("utf-8", "ignore")
+            # Secondary partitions share the main context's blob and carry no
+            # external reference of their own — nothing to validate.
+            if main_context == 0:
+                continue
+            if embed_mode == 0:
+                if not cache_ref:
+                    return False
+                ref_path = candidate.parent / cache_ref
+                try:
+                    if not ref_path.is_file() or ref_path.stat().st_size == 0:
+                        return False
+                except OSError:
+                    return False
+        return True
+
+    @staticmethod
+    def _promote_epcontext(src_ctx: Path, ctx_out: Path) -> None:
+        """Move a salvaged EPContext graph and its ``.bin`` sidecars to *ctx_out*.
+
+        External-weights sidecars are moved first, keeping their original names
+        so the graph's ``ep_cache_context`` reference resolves once everything
+        lives in *ctx_out*'s directory.
+        """
+        compiled_dir = ctx_out.parent
+        for sidecar in sorted(src_ctx.parent.glob(f"{src_ctx.stem}*.bin")):
+            dst_bin = compiled_dir / sidecar.name
+            if sidecar != dst_bin:
+                sidecar.replace(dst_bin)
+        src_ctx.replace(ctx_out)
 
     @classmethod
     def _discard_compiled_stage(cls, ctx_out: Path) -> None:
@@ -1092,6 +1594,44 @@ class GenaiSession:
                 if ep is not None:
                     return ep
         return None
+
+    def _override_took_effect(self, effective_cfg: dict[str, Any]) -> bool:
+        """Whether the ``ep`` override actually applied to *effective_cfg*.
+
+        Drives :attr:`effective_ep`: ``False`` means the override matched no
+        stage (flat/empty pipeline, or an all-CPU bundle) so the report should
+        say "config" rather than claim an EP that never applied.
+
+        * no override → ``False`` (there is nothing to claim).
+        * force CPU → ``True`` iff no hardware EP remains (so ``--ep cpu`` on a
+          bundle whose hardware lives outside the pipeline honestly reports
+          "config").
+        * force a hardware EP → ``True`` iff a stage routes to it.
+        """
+        ep = self._ep_override
+        if ep is None:
+            return False
+        if ep == "CPUExecutionProvider":
+            return self._bundle_uses_hardware_ep(effective_cfg) is None
+        return self._config_routes_to_ep(effective_cfg, ep)
+
+    @classmethod
+    def _config_routes_to_ep(cls, cfg: dict[str, Any], target: EPName) -> bool:
+        """True if any decoder-pipeline stage's provider_options names *target*."""
+        pipeline = cfg.get("model", {}).get("decoder", {}).get("pipeline", [])
+        if not isinstance(pipeline, list):
+            return False
+        for stage_entry in pipeline:
+            if not isinstance(stage_entry, dict):
+                continue
+            for stage_cfg in stage_entry.values():
+                if not isinstance(stage_cfg, dict):
+                    continue
+                so = stage_cfg.get("session_options")
+                po = so.get("provider_options") if isinstance(so, dict) else None
+                if cls._stage_targets_ep(po, target):
+                    return True
+        return False
 
     def _read_context_length(self) -> int:
         """Read ``model.context_length`` from ``genai_config.json``."""

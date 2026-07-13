@@ -35,6 +35,7 @@ from rich.console import Console
 
 from ..utils import cli as cli_utils
 from ..utils.logging import configure_logging
+from ..utils.model_input import ModelInputKind, classify_model_input
 
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,23 @@ def _warn_partial_composite(completed: list[Path]) -> None:
         "Review these files and remove them if you don't want to keep the "
         "partial export."
     )
+
+
+def _load_json_object(path: Path, option_name: str) -> dict:
+    """Load a JSON object from a CLI option path."""
+    try:
+        with path.open() as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        raise click.ClickException(f"Invalid JSON in {option_name}: {path}: {e}") from e
+    except Exception as e:
+        raise click.ClickException(f"Failed to load {option_name}: {e}") from e
+
+    if not isinstance(data, dict):
+        raise click.ClickException(
+            f"{option_name} must contain a JSON object, got {type(data).__name__}"
+        )
+    return data
 
 
 @click.command()
@@ -154,6 +172,27 @@ def _warn_partial_composite(completed: list[Path]) -> None:
     default=None,
     help='JSON with shape overrides (e.g., {"sequence_length": 2048, "height": 640}).',
 )
+@click.option(
+    "--dynamic-axes",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help=(
+        "JSON dynamic axes mapping for ONNX export "
+        '(e.g., {"input_ids": {"0": "batch", "1": "sequence"}}).'
+    ),
+)
+@click.option(
+    "--submodel",
+    type=str,
+    default=None,
+    help=(
+        "Export a specific sub-model from a composite model "
+        "(e.g., 'encoder', 'decoder'). The selected sub-model is still "
+        "written to '{stem}_{name}.onnx' (e.g. '-o t5.onnx --submodel encoder' "
+        "-> 't5_encoder.onnx'), not to the -o path verbatim. "
+        "Omit to export all sub-models automatically."
+    ),
+)
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
 @cli_utils.no_color_option()
@@ -174,6 +213,8 @@ def export(
     input_specs: Path | None,
     export_config: Path | None,
     shape_config: Path | None,
+    dynamic_axes: Path | None,
+    submodel: str | None,
     config_file: Path | None,
 ) -> None:
     r"""Export HuggingFace model to ONNX format with HTP.
@@ -216,17 +257,28 @@ def export(
 
         # Custom ONNX export configuration
         winml export -m bert-base-uncased -o bert.onnx --export-config config.json
+
+        # Dynamic dimensions from a dedicated JSON file
+        winml export -m bert-base-uncased -o bert.onnx --dynamic-axes dynamic_axes.json
+
+        # Export all sub-models of a composite model (auto-detected)
+        winml export -m google-t5/t5-small --task translation -o t5.onnx
+
+        # Export only the encoder sub-model
+        winml export -m google-t5/t5-small --task translation -o t5.onnx --submodel encoder
     """
     # Classify the -m value once (existence-first). Export only works with
     # HuggingFace model IDs — reject ONNX files and folders early.
     if model:
-        model_input = cli_utils.classify_model_input(model)
-        if model_input.kind is cli_utils.ModelInputKind.ONNX_FILE:
+        model_input = classify_model_input(model)
+        if model_input.kind is ModelInputKind.INVALID:
+            raise click.UsageError(model_input.error or f"Invalid model input: {model}")
+        if model_input.kind is ModelInputKind.ONNX_FILE:
             raise click.UsageError(
                 "export requires a HuggingFace model ID, not an ONNX file. "
                 "Use 'winml inspect -m model.onnx' to inspect an existing ONNX model."
             )
-        if model_input.kind is cli_utils.ModelInputKind.FOLDER:
+        if model_input.kind is ModelInputKind.FOLDER:
             raise click.UsageError(
                 "export requires a HuggingFace model ID, not a directory. "
                 "Provide a HuggingFace model ID (e.g., prajjwal1/bert-tiny)."
@@ -278,36 +330,27 @@ def export(
         console.print(f"[bold blue]Input specs:[/bold blue] {input_specs}")
     if export_config:
         console.print(f"[bold blue]Export config:[/bold blue] {export_config}")
+    if dynamic_axes:
+        console.print(f"[bold blue]Dynamic axes:[/bold blue] {dynamic_axes}")
 
     output_path = Path(output)
 
     # Load export configuration from JSON file if provided (task-independent).
     export_config_dict: dict = {}
     if export_config:
-        try:
-            with export_config.open() as f:
-                export_config_dict = json.load(f)
-            console.print(f"[dim]Loaded export config: {list(export_config_dict.keys())}[/dim]")
-        except Exception as e:
-            console.print(f"[bold red]Failed to load export config:[/bold red] {e}")
-            raise click.ClickException(f"Failed to load export config: {e}") from e
+        export_config_dict = _load_json_object(export_config, "--export-config")
+        console.print(f"[dim]Loaded export config: {list(export_config_dict.keys())}[/dim]")
 
     # Load shape overrides from JSON (task-independent).
     shape_overrides = None
     if shape_config:
-        try:
-            with shape_config.open() as f:
-                shape_overrides = json.load(f)
-            if not isinstance(shape_overrides, dict):
-                raise click.ClickException(
-                    f"--shape-config must contain a JSON object, "
-                    f"got {type(shape_overrides).__name__}"
-                )
-        except json.JSONDecodeError as e:
-            raise click.ClickException(
-                f"Invalid JSON in --shape-config: {shape_config}: {e}"
-            ) from e
+        shape_overrides = _load_json_object(shape_config, "--shape-config")
         console.print(f"[dim]Shape overrides: {shape_overrides}[/dim]")
+
+    dynamic_axes_dict = None
+    if dynamic_axes:
+        dynamic_axes_dict = _load_json_object(dynamic_axes, "--dynamic-axes")
+        console.print(f"[dim]Dynamic axes: {dynamic_axes_dict}[/dim]")
 
     # One-time warnings (apply to every sub-model in a composite export).
     if torch_module:
@@ -429,6 +472,8 @@ def export(
             config_kwargs["verbose"] = bool(verbose)
         if cli_utils.is_cli_provided(ctx, "dynamo"):
             config_kwargs["dynamo"] = dynamo
+        if dynamic_axes_dict is not None:
+            config_kwargs["dynamic_axes"] = dynamic_axes_dict
 
         # Add input/output tensors if we resolved them
         if input_tensors:
@@ -540,15 +585,34 @@ def export(
         # producing a single-model artifact for a possibly-composite model.
         raise click.ClickException(f"Composite model detection failed unexpectedly: {e}") from e
 
+    # ── --submodel validation ──────────────────────────────────────────
+    if submodel is not None:
+        if components is None:
+            raise click.BadParameter(
+                f"'{submodel}' was specified, but '{model}' "
+                f"is not a composite model (no sub-models detected).",
+                param_hint="--submodel",
+            )
+        if submodel not in components:
+            raise click.BadParameter(
+                f"Unknown sub-model '{submodel}'. Available: {', '.join(components.keys())}",
+                param_hint="--submodel",
+            )
+        components = {submodel: components[submodel]}
+
     try:
         console.print("\n[bold]Starting HTP export...[/bold]")
 
         if components:
-            if input_specs:
+            # A genuine multi-component fan-out can't take --input-specs (each
+            # sub-model resolves its own I/O). But when --submodel narrows the
+            # export to exactly one component, --input-specs is meaningful and
+            # applies to that single sub-model, so allow it there.
+            if input_specs and submodel is None:
                 raise click.UsageError(
-                    "--input-specs is not supported for composite models; each sub-model "
-                    "resolves its own I/O. Export a sub-model individually with --task if "
-                    "you need custom input specs."
+                    "--input-specs is not supported when exporting multiple sub-models of a "
+                    "composite model; each sub-model resolves its own I/O. Select a single "
+                    "sub-model with --submodel to apply custom input specs."
                 )
             console.print(
                 f"[dim]Composite model: {len(components)} sub-models "

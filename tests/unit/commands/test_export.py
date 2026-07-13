@@ -74,12 +74,22 @@ class TestExportCLIInterface:
         assert "--torch-module" in result.output
         assert "--input-specs" in result.output
         assert "--export-config" in result.output
+        assert "--dynamic-axes" in result.output
+        assert "--submodel" in result.output
 
     def test_export_help_examples_run(self, runner: CliRunner, tmp_path: Path) -> None:
         """Every command example in export help should execute without crashing."""
         from winml.modelkit.commands.export import export
         from winml.modelkit.export import WinMLExportConfig
         from winml.modelkit.loader import WinMLLoaderConfig
+
+        # The composite (t5) examples exercise the sub-model path, so keep
+        # resolution offline: report t5 as a composite (encoder/decoder) and
+        # everything else as a plain single model.
+        def _fake_resolve_composite(model_id: str, task: str | None = None):
+            if "t5" in model_id:
+                return {"encoder": "translation", "decoder": "translation"}
+            return None
 
         doc = getdoc(export) or ""
         examples = [
@@ -91,6 +101,8 @@ class TestExportCLIInterface:
         specs_file.write_text(json.dumps({"input_ids": {"dtype": "int64", "shape": [1, 8]}}))
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"opset_version": 17}))
+        dynamic_axes_file = tmp_path / "dynamic_axes.json"
+        dynamic_axes_file.write_text(json.dumps({"input_ids": {"0": "batch"}}))
 
         mock_export_cfg = WinMLExportConfig()
         mock_loader_cfg = WinMLLoaderConfig(task="feature-extraction", model_type="bert")
@@ -102,6 +114,10 @@ class TestExportCLIInterface:
                 "winml.modelkit.export.resolve_export_config",
                 return_value=(mock_export_cfg, mock_loader_cfg),
             ),
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                side_effect=_fake_resolve_composite,
+            ) as mock_resolve_composite,
         ):
             mock_model = MagicMock()
             mock_load.return_value = (mock_model, None, "feature-extraction")
@@ -118,6 +134,9 @@ class TestExportCLIInterface:
                 args = tokens[2:]  # drop "winml export"
                 args = [str(specs_file) if arg == "inputs.json" else arg for arg in args]
                 args = [str(config_file) if arg == "config.json" else arg for arg in args]
+                args = [
+                    str(dynamic_axes_file) if arg == "dynamic_axes.json" else arg for arg in args
+                ]
                 args = [str(tmp_path / arg) if arg.endswith(".onnx") else arg for arg in args]
                 saw_input_specs_example |= str(specs_file) in args
                 saw_export_config_example |= str(config_file) in args
@@ -127,6 +146,9 @@ class TestExportCLIInterface:
 
         assert saw_input_specs_example
         assert saw_export_config_example
+        # The --submodel example must actually reach composite detection rather
+        # than silently hitting the Hub, so confirm it was exercised.
+        assert mock_resolve_composite.called
 
     def test_export_requires_model(self, runner: CliRunner) -> None:
         """Test export fails without --model argument."""
@@ -409,6 +431,127 @@ class TestExportConfigFiles:
         assert config.input_tensors is not None
         assert len(config.input_tensors) == 2
 
+    def test_export_loads_dynamic_axes_json(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        mock_load_hf_model: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Test --dynamic-axes loads and normalizes JSON dynamic axes."""
+        from winml.modelkit.commands.export import export
+
+        dynamic_axes_file = tmp_path / "dynamic_axes.json"
+        dynamic_axes_file.write_text(
+            json.dumps(
+                {
+                    "input_ids": {"0": "batch", "1": "sequence"},
+                    "logits": {"0": "batch"},
+                }
+            )
+        )
+
+        output_path = tmp_path / "model.onnx"
+        result = runner.invoke(
+            export,
+            [
+                "--model",
+                "test-model",
+                "--output",
+                str(output_path),
+                "--dynamic-axes",
+                str(dynamic_axes_file),
+            ],
+            obj={"debug": False},
+        )
+
+        assert result.exit_code == 0, result.output
+        call_kwargs = mock_export_onnx.call_args.kwargs
+        config = call_kwargs["export_config"]
+        assert config.dynamic_axes == {
+            "input_ids": {0: "batch", 1: "sequence"},
+            "logits": {0: "batch"},
+        }
+
+    def test_export_input_specs_symbolic_shape_infers_dynamic_axes(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        mock_load_hf_model: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Symbolic dims in --input-specs become dynamic axes."""
+        from winml.modelkit.commands.export import export
+
+        specs_file = tmp_path / "inputs.json"
+        specs_file.write_text(
+            json.dumps(
+                {
+                    "input_ids": {
+                        "dtype": "int64",
+                        "shape": ["batch", "sequence"],
+                    }
+                }
+            )
+        )
+
+        output_path = tmp_path / "model.onnx"
+        result = runner.invoke(
+            export,
+            [
+                "--model",
+                "test-model",
+                "--output",
+                str(output_path),
+                "--input-specs",
+                str(specs_file),
+            ],
+            obj={"debug": False},
+        )
+
+        assert result.exit_code == 0, result.output
+        call_kwargs = mock_export_onnx.call_args.kwargs
+        config = call_kwargs["export_config"]
+        assert config.input_tensors is not None
+        assert config.input_tensors[0].shape == ("batch", "sequence")
+        assert config.dynamic_axes == {"input_ids": {0: "batch", 1: "sequence"}}
+
+    def test_export_dynamic_axes_overrides_export_config(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        mock_load_hf_model: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Dedicated --dynamic-axes has CLI precedence over --export-config."""
+        from winml.modelkit.commands.export import export
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"dynamic_axes": {"input_ids": {"0": "old"}}}))
+        dynamic_axes_file = tmp_path / "dynamic_axes.json"
+        dynamic_axes_file.write_text(json.dumps({"input_ids": {"0": "batch"}}))
+
+        output_path = tmp_path / "model.onnx"
+        result = runner.invoke(
+            export,
+            [
+                "--model",
+                "test-model",
+                "--output",
+                str(output_path),
+                "--export-config",
+                str(config_file),
+                "--dynamic-axes",
+                str(dynamic_axes_file),
+            ],
+            obj={"debug": False},
+        )
+
+        assert result.exit_code == 0, result.output
+        call_kwargs = mock_export_onnx.call_args.kwargs
+        config = call_kwargs["export_config"]
+        assert config.dynamic_axes == {"input_ids": {0: "batch"}}
+
     def test_export_invalid_export_config_raises(
         self,
         runner: CliRunner,
@@ -437,7 +580,7 @@ class TestExportConfigFiles:
         )
 
         assert result.exit_code != 0
-        assert "Failed to load export config" in result.output
+        assert "Invalid JSON in --export-config" in result.output
 
 
 class TestExportWarnings:
@@ -1002,6 +1145,184 @@ class TestExportComposite:
         # The user is warned that the export did not finish (and how many were written).
         assert "did not finish" in result.output
         assert "1 sub-model" in result.output
+
+
+class TestExportSubmodel:
+    """Test --submodel filters composite export to a single sub-model."""
+
+    def test_submodel_exports_only_requested_component(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--submodel exports only the named component."""
+        from winml.modelkit.commands.export import export
+        from winml.modelkit.export import WinMLExportConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
+
+        components = {
+            "decoder_prefill": "feature-extraction",
+            "decoder_gen": "text2text-generation",
+        }
+        output_path = tmp_path / "qwen3.onnx"
+
+        with (
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value=components,
+            ),
+            patch("winml.modelkit.loader.load_hf_model") as mock_load,
+            patch("winml.modelkit.export.resolve_export_config") as mock_resolve_cfg,
+        ):
+            mock_load.side_effect = lambda _model, task=None: (MagicMock(), None, task)
+            mock_resolve_cfg.return_value = (
+                WinMLExportConfig(),
+                WinMLLoaderConfig(task="text-generation"),
+            )
+            result = runner.invoke(
+                export,
+                [
+                    "--model",
+                    "Qwen/Qwen3-0.6B",
+                    "--output",
+                    str(output_path),
+                    "--submodel",
+                    "decoder_prefill",
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert mock_export_onnx.call_count == 1
+        exported_path = Path(mock_export_onnx.call_args.kwargs["output_path"])
+        assert exported_path == output_path.with_stem(f"{output_path.stem}_decoder_prefill")
+        assert mock_export_onnx.call_args.kwargs["task"] == "feature-extraction"
+
+    def test_submodel_rejects_unknown_name(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--submodel with an invalid name is a clean error."""
+        from winml.modelkit.commands.export import export
+
+        components = {
+            "decoder_prefill": "feature-extraction",
+            "decoder_gen": "text2text-generation",
+        }
+
+        with patch(
+            "winml.modelkit.loader.resolution.resolve_composite_components",
+            return_value=components,
+        ):
+            result = runner.invoke(
+                export,
+                [
+                    "--model",
+                    "Qwen/Qwen3-0.6B",
+                    "--output",
+                    str(tmp_path / "qwen3.onnx"),
+                    "--submodel",
+                    "encoder",
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code != 0
+        assert "Unknown sub-model 'encoder'" in result.output
+        assert "decoder_prefill" in result.output
+        mock_export_onnx.assert_not_called()
+
+    def test_submodel_rejects_non_composite(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--submodel on a non-composite model is a clean error."""
+        from winml.modelkit.commands.export import export
+
+        with patch(
+            "winml.modelkit.loader.resolution.resolve_composite_components",
+            return_value=None,
+        ):
+            result = runner.invoke(
+                export,
+                [
+                    "--model",
+                    "prajjwal1/bert-tiny",
+                    "--output",
+                    str(tmp_path / "bert.onnx"),
+                    "--submodel",
+                    "encoder",
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code != 0
+        assert "not a composite model" in result.output
+        mock_export_onnx.assert_not_called()
+
+    def test_submodel_allows_input_specs(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--input-specs is allowed when --submodel narrows to a single sub-model."""
+        from winml.modelkit.commands.export import export
+        from winml.modelkit.export import WinMLExportConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
+
+        components = {
+            "decoder_prefill": "feature-extraction",
+            "decoder_gen": "text2text-generation",
+        }
+        output_path = tmp_path / "qwen3.onnx"
+        specs_file = tmp_path / "inputs.json"
+        specs_file.write_text(json.dumps({"input_ids": {"dtype": "int64", "shape": [1, 8]}}))
+
+        with (
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value=components,
+            ),
+            patch("winml.modelkit.loader.load_hf_model") as mock_load,
+            patch("winml.modelkit.export.resolve_export_config") as mock_resolve_cfg,
+        ):
+            mock_load.side_effect = lambda _model, task=None: (MagicMock(), None, task)
+            mock_resolve_cfg.return_value = (
+                WinMLExportConfig(),
+                WinMLLoaderConfig(task="text-generation"),
+            )
+            result = runner.invoke(
+                export,
+                [
+                    "--model",
+                    "Qwen/Qwen3-0.6B",
+                    "--output",
+                    str(output_path),
+                    "--submodel",
+                    "decoder_prefill",
+                    "--input-specs",
+                    str(specs_file),
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert mock_export_onnx.call_count == 1
+        exported_path = Path(mock_export_onnx.call_args.kwargs["output_path"])
+        assert exported_path == output_path.with_stem(f"{output_path.stem}_decoder_prefill")
+
+        # The spec must actually reach the selected sub-model's export_config,
+        # not just be accepted without error (guards against a refactor silently
+        # dropping --input-specs on the single-sub-model path).
+        export_config = mock_export_onnx.call_args.kwargs["export_config"]
+        spec_names = [t.name for t in (export_config.input_tensors or [])]
+        assert "input_ids" in spec_names
 
 
 class TestExportManifest:

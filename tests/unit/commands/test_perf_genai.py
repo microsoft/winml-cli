@@ -25,9 +25,9 @@ from winml.modelkit.commands._perf_genai import (
     GenaiBenchmarkResult,
     GenaiPerfBenchmark,
     GenaiPerfConfig,
-    device_to_genai_ep,
     display_genai_report,
     genai_output_path,
+    resolve_genai_ep,
     run_genai_perf,
     write_genai_report,
 )
@@ -76,6 +76,7 @@ class _FakeSession:
         prompt_ids: list[int] | None = None,
         context_length: int = 256,
         chat_template: bool = True,
+        effective_ep: str | None = None,
     ) -> None:
         self._timings = list(timings)
         self._i = 0
@@ -84,6 +85,10 @@ class _FakeSession:
         self._chat_template = chat_template
         self.encoded_text: str | None = None
         self.template_applied = False
+        # Mirrors GenaiSession.effective_ep: the EP that actually took effect (or
+        # None to mean "config").  Reported by the benchmark instead of the
+        # requested ep so a no-op override is not falsely claimed.
+        self.effective_ep = effective_ep
 
     def encode(self, text: str) -> list[int]:
         self.encoded_text = text
@@ -112,24 +117,80 @@ def _make_bundle(tmp_path: Path, name: str = "bundle") -> Path:
 
 
 # ---------------------------------------------------------------------------
-# device_to_genai_ep
+# resolve_genai_ep
 # ---------------------------------------------------------------------------
 
 
-class TestDeviceToGenaiEp:
+class TestResolveGenaiEp:
+    """``resolve_genai_ep`` reuses the shared resolve_device/resolve_eps path.
+
+    ``resolve_genai_ep`` imports them from ``..sysinfo`` at call time, so the
+    tests patch ``winml.modelkit.sysinfo`` and assert the *device -> best
+    available EP alias* mapping without probing real hardware.
+    """
+
+    def test_config_short_circuits_without_resolving(self, monkeypatch) -> None:
+        # "config" means "respect the bundle": no device resolution happens.
+        import winml.modelkit.sysinfo as sysinfo
+
+        def _must_not_run(*_args: object, **_kwargs: object) -> object:
+            raise AssertionError("resolve_device must not be called for 'config'")
+
+        monkeypatch.setattr(sysinfo, "resolve_device", _must_not_run)
+        monkeypatch.setattr(sysinfo, "resolve_eps", _must_not_run)
+        assert resolve_genai_ep("config") is None
+
     @pytest.mark.parametrize(
-        ("device", "expected"),
+        ("device", "resolved_device", "eps", "expected"),
         [
-            ("cpu", "cpu"),
-            ("npu", "qnn"),
-            ("gpu", "dml"),
-            ("auto", "mixed"),
-            ("NPU", "qnn"),
-            ("unknown-device", "mixed"),
+            # auto picks the highest-priority available device + its best EP.
+            ("auto", "npu", ["QNNExecutionProvider"], "qnn"),
+            # npu that is QNN vs VitisAI/OpenVINO -- whatever ORT advertises,
+            # not a static "npu -> qnn" guess.
+            ("npu", "npu", ["QNNExecutionProvider", "OpenVINOExecutionProvider"], "qnn"),
+            ("npu", "npu", ["VitisAIExecutionProvider"], "vitisai"),
+            ("gpu", "gpu", ["DmlExecutionProvider"], "dml"),
+            # cpu matches ONNX: OpenVINO-on-CPU when available, else plain CPU.
+            ("cpu", "cpu", ["OpenVINOExecutionProvider", "CPUExecutionProvider"], "openvino"),
+            ("cpu", "cpu", ["CPUExecutionProvider"], "cpu"),
         ],
     )
-    def test_mapping(self, device: str, expected: str) -> None:
-        assert device_to_genai_ep(device) == expected
+    def test_resolves_best_available_ep_alias(
+        self,
+        monkeypatch,
+        device: str,
+        resolved_device: str,
+        eps: list[str],
+        expected: str,
+    ) -> None:
+        import winml.modelkit.sysinfo as sysinfo
+
+        monkeypatch.setattr(
+            sysinfo, "resolve_device", lambda **_kwargs: (resolved_device, [resolved_device])
+        )
+        monkeypatch.setattr(sysinfo, "resolve_eps", lambda _device: list(eps))
+        assert resolve_genai_ep(device) == expected
+
+    def test_no_available_ep_returns_none(self, monkeypatch) -> None:
+        # A device that resolves to an empty EP list falls back to None
+        # (respect config) rather than raising.
+        import winml.modelkit.sysinfo as sysinfo
+
+        monkeypatch.setattr(sysinfo, "resolve_device", lambda **_kwargs: ("npu", ["npu"]))
+        monkeypatch.setattr(sysinfo, "resolve_eps", lambda _device: [])
+        assert resolve_genai_ep("npu") is None
+
+    def test_unavailable_device_propagates_valueerror(self, monkeypatch) -> None:
+        # resolve_device raises for an unavailable device; genai fails fast
+        # (matches the ONNX path) instead of silently respecting config.
+        import winml.modelkit.sysinfo as sysinfo
+
+        def _raise(**_kwargs: object) -> object:
+            raise ValueError("Device 'npu' requested but no compatible EP is available.")
+
+        monkeypatch.setattr(sysinfo, "resolve_device", _raise)
+        with pytest.raises(ValueError, match="no compatible EP"):
+            resolve_genai_ep("npu")
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +347,9 @@ class TestResultToDict:
             compile=True,
             compile_timeout=120,
         )
-        session = _FakeSession([_timing(0.4, 0.6, [0.4, 0.4, 0.4])], prompt_ids=[1, 2, 3])
+        session = _FakeSession(
+            [_timing(0.4, 0.6, [0.4, 0.4, 0.4])], prompt_ids=[1, 2, 3], effective_ep="qnn"
+        )
         bench = GenaiPerfBenchmark(cfg, session=session)
         return bench.run()
 
@@ -327,6 +390,70 @@ class TestResultToDict:
         # Round-trips without error.
         json.dumps(self._result().to_dict())
 
+    def test_to_dict_ep_none_reports_config(self) -> None:
+        # ep=None (respect the bundle config) is reported as the label "config"
+        # so the JSON never carries a null EP.
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("bundle"), ep=None, device="auto", iterations=1, warmup=0
+        )
+        session = _FakeSession([_timing(0.4, 0.6, [0.4, 0.4])])
+        info = GenaiPerfBenchmark(cfg, session=session).run().to_dict()["benchmark_info"]
+        assert info["ep"] == "config"
+        assert info["device"] == "auto"
+
+    def test_to_dict_reports_effective_ep_over_requested_ep(self) -> None:
+        # A hardware override that took no effect (session.effective_ep is None,
+        # e.g. flat/all-CPU bundle) is reported as "config", never the requested
+        # ep — so the JSON never claims an EP that never applied.
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("bundle"), ep="qnn", device="npu", iterations=1, warmup=0
+        )
+        session = _FakeSession([_timing(0.4, 0.6, [0.4, 0.4])], effective_ep=None)
+        info = GenaiPerfBenchmark(cfg, session=session).run().to_dict()["benchmark_info"]
+        assert info["ep"] == "config"
+        assert info["device"] == "npu"
+
+
+# ---------------------------------------------------------------------------
+# _session_device (concrete device for a forced EP)
+# ---------------------------------------------------------------------------
+
+
+class TestSessionDevice:
+    """``_session_device`` resolves the device a forced EP should target."""
+
+    @staticmethod
+    def _bench(ep: str | None, device: str) -> GenaiPerfBenchmark:
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), ep=ep, device=device)
+        return GenaiPerfBenchmark(cfg, session=_FakeSession([]))
+
+    def test_none_without_override(self) -> None:
+        assert self._bench(None, "config")._session_device() is None
+
+    def test_concrete_device_used_verbatim(self) -> None:
+        assert self._bench("openvino", "npu")._session_device() == "npu"
+
+    def test_config_sentinel_falls_back_to_ep_primary_device(self) -> None:
+        # --ep given alone (device defaults to "config"): use the EP's primary
+        # supported device so device-parameterized EPs still get a device_type.
+        assert self._bench("openvino", "config")._session_device() == "npu"
+
+    def test_auto_falls_back_to_ep_primary_device(self) -> None:
+        assert self._bench("qnn", "auto")._session_device() == "npu"
+
+    def test_build_session_forwards_device(self, monkeypatch) -> None:
+        captured: dict = {}
+
+        def fake_ctor(bundle_dir, ep, *, device=None, **_kwargs):
+            captured["ep"] = ep
+            captured["device"] = device
+            return _FakeSession([])
+
+        monkeypatch.setattr(perf_genai, "GenaiSession", fake_ctor)
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), ep="openvino", device="npu")
+        GenaiPerfBenchmark(cfg)._build_session()
+        assert captured == {"ep": "openvino", "device": "npu"}
+
 
 # ---------------------------------------------------------------------------
 # Reporting helpers
@@ -356,6 +483,15 @@ class TestReporting:
 
     def test_display_genai_report_does_not_crash(self) -> None:
         display_genai_report(self._result(), Console())
+
+    def test_display_genai_report_ep_none_does_not_crash(self) -> None:
+        # ep=None renders as "<device> (config)" without error.
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("bundle"), ep=None, device="auto", iterations=1, warmup=0
+        )
+        session = _FakeSession([_timing(0.4, 0.6, [0.4, 0.4, 0.4])])
+        result = GenaiPerfBenchmark(cfg, session=session).run()
+        display_genai_report(result, Console())
 
     def test_genai_output_path_uses_bundle_name(self) -> None:
         path = genai_output_path(Path("/some/dir/my-bundle"))
@@ -445,8 +581,14 @@ class TestCliDispatch:
         return captured
 
     def test_dispatches_and_maps_device_to_ep(
-        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
     ) -> None:
+        # A concrete --device resolves to the best available EP for that device
+        # via the shared resolve_device/resolve_eps path (here: npu -> qnn).
+        import winml.modelkit.sysinfo as sysinfo
+
+        monkeypatch.setattr(sysinfo, "resolve_device", lambda **_k: ("npu", ["npu"]))
+        monkeypatch.setattr(sysinfo, "resolve_eps", lambda _d: ["QNNExecutionProvider"])
         bundle = _make_bundle(tmp_path)
         result = runner.invoke(
             perf, ["-m", str(bundle), "--runtime", "winml-genai", "--device", "npu"]
@@ -457,6 +599,94 @@ class TestCliDispatch:
         assert cfg.device == "npu"
         assert cfg.bundle_dir == bundle
 
+    def test_device_auto_resolves_best_ep(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
+    ) -> None:
+        # Explicit --device auto matches the ONNX path: pick the best device +
+        # its best available EP and force the whole pipeline onto it.
+        import winml.modelkit.sysinfo as sysinfo
+
+        monkeypatch.setattr(sysinfo, "resolve_device", lambda **_k: ("gpu", ["gpu"]))
+        monkeypatch.setattr(sysinfo, "resolve_eps", lambda _d: ["DmlExecutionProvider"])
+        bundle = _make_bundle(tmp_path)
+        result = runner.invoke(
+            perf, ["-m", str(bundle), "--runtime", "winml-genai", "--device", "auto"]
+        )
+        assert result.exit_code == 0, result.output
+        cfg = capture_run["config"]
+        assert cfg.ep == "dml"
+        assert cfg.device == "auto"
+
+    def test_explicit_ep_overrides_device(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        # Explicit --ep wins over the --device mapping (precedence:
+        # --ep > concrete --device > respect config).
+        bundle = _make_bundle(tmp_path)
+        result = runner.invoke(
+            perf,
+            ["-m", str(bundle), "--runtime", "winml-genai", "--device", "npu", "--ep", "cpu"],
+        )
+        assert result.exit_code == 0, result.output
+        cfg = capture_run["config"]
+        assert cfg.ep == "cpu"
+        assert cfg.device == "npu"
+
+    def test_explicit_ep_without_device(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        # --ep alone forces that EP even though --device is omitted (its
+        # effective default for genai is "config" = respect the bundle).
+        bundle = _make_bundle(tmp_path)
+        result = runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai", "--ep", "dml"])
+        assert result.exit_code == 0, result.output
+        cfg = capture_run["config"]
+        assert cfg.ep == "dml"
+        assert cfg.device == "config"
+
+    def test_default_device_is_config(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        # Omitting --device is genai's "respect the bundle" default: no EP
+        # override, device recorded as "config".
+        bundle = _make_bundle(tmp_path)
+        result = runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai"])
+        assert result.exit_code == 0, result.output
+        cfg = capture_run["config"]
+        assert cfg.device == "config"
+        assert cfg.ep is None
+
+    def test_explicit_device_config_respects_bundle(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        # Passing --device config explicitly is the same as omitting it: no EP
+        # override (and it must not trigger device resolution).
+        bundle = _make_bundle(tmp_path)
+        result = runner.invoke(
+            perf, ["-m", str(bundle), "--runtime", "winml-genai", "--device", "config"]
+        )
+        assert result.exit_code == 0, result.output
+        cfg = capture_run["config"]
+        assert cfg.device == "config"
+        assert cfg.ep is None
+
+    def test_onnx_runtime_rejects_device_config(self, runner: CliRunner, tmp_path: Path) -> None:
+        # "config" is a winml-genai-only sentinel; the default (winml) runtime
+        # rejects it with a clear message rather than a generic device error.
+        result = runner.invoke(perf, ["-m", str(tmp_path / "model.onnx"), "--device", "config"])
+        assert result.exit_code != 0
+        assert "winml-genai" in result.output
+
+    def test_ep_flag_not_warned_as_ignored(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        # --ep is honored for winml-genai, so it must not appear in the
+        # "options are ignored" warning.
+        bundle = _make_bundle(tmp_path)
+        result = runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai", "--ep", "qnn"])
+        assert result.exit_code == 0, result.output
+        assert "--ep" not in result.output
+
     def test_genai_iteration_defaults(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
     ) -> None:
@@ -465,11 +695,11 @@ class TestCliDispatch:
         cfg = capture_run["config"]
         assert cfg.iterations == 10
         assert cfg.warmup == 2
-        # Default device ("auto") must resolve to mixed execution so the
-        # bundle's per-stage EP routing (ctx/iter on QNN, embeddings/lm_head
-        # on CPU) is honored.
-        assert cfg.device == "auto"
-        assert cfg.ep == "mixed"
+        # Omitting --device means "config": no EP override, so the bundle's own
+        # per-stage routing in genai_config.json is respected (ctx/iter on QNN,
+        # embeddings/lm_head on CPU).
+        assert cfg.device == "config"
+        assert cfg.ep is None
 
     def test_explicit_iterations_honored(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict

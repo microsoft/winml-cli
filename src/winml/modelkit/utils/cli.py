@@ -8,9 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
-from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
@@ -31,96 +28,6 @@ F = TypeVar("F", bound="Callable[..., Any]")
 
 # Allowed values for ``--format`` / ``-f``.
 OutputFormat: TypeAlias = Literal["text", "json", "table", "compact"]
-
-
-class ModelInputKind(Enum):
-    """Back-compat kind enum for CLI call sites.
-
-    Canonical classifier values now live in ``utils.model_input`` as string
-    literals. Command modules still compare against enum members, so this enum
-    preserves the old API surface while delegating classification to the
-    canonical implementation.
-    """
-
-    ONNX_FILE = "local_onnx"
-    FOLDER = "build_dir"
-    HUB_ONNX = "hub_onnx"
-    HF_ID = "hf_id"
-    INVALID = "invalid"
-
-
-@dataclass(frozen=True)
-class ModelInput:
-    """Back-compat model-input classification result used by CLI commands/tests."""
-
-    kind: ModelInputKind
-    raw: str
-    local_path: str | None = None
-    hf_id: str | None = None
-    is_hf_folder: bool = False
-    folder_has_onnx: bool = False
-    is_winml_cli_folder: bool = False
-
-
-def classify_model_input(value: str) -> ModelInput:
-    """Classify CLI model input with legacy semantics and error messages.
-
-    Returns a back-compat ``ModelInput`` object and raises ``click.UsageError``
-    for invalid/missing local-path-like values.
-    """
-    if value is None or not str(value).strip():
-        raise click.UsageError("Model input cannot be empty.")
-
-    raw = value
-    path = Path(value).expanduser()
-
-    if path.exists():
-        if path.is_file():
-            if path.suffix.lower() != ".onnx":
-                raise click.UsageError(
-                    f"Unsupported model file: '{value}'. Only .onnx files are supported."
-                )
-            return ModelInput(
-                kind=ModelInputKind.ONNX_FILE,
-                raw=raw,
-                local_path=str(path),
-            )
-
-        if path.is_dir():
-            onnx_files = list(path.glob("*.onnx"))
-            manifest_files = list(path.glob("build_manifest.json")) + list(
-                path.glob("*_build_manifest.json")
-            )
-            has_onnx = bool(onnx_files)
-            is_hf_folder = (path / "config.json").exists()
-            is_winml_folder = has_onnx and bool(manifest_files)
-            return ModelInput(
-                kind=ModelInputKind.FOLDER,
-                raw=raw,
-                local_path=str(path),
-                is_hf_folder=is_hf_folder,
-                folder_has_onnx=has_onnx,
-                is_winml_cli_folder=is_winml_folder,
-            )
-
-    if value.lower().endswith(".onnx"):
-        raise click.UsageError(f"ONNX file not found: {value}")
-
-    if (
-        value.startswith(("./", "../", "/", "~"))
-        or "\\" in value
-        or re.match(r"^[A-Za-z]:[\\/]", value)
-        or value.count("/") >= 2
-    ):
-        raise click.UsageError(f"Model path does not exist: {value}")
-
-    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)?$", value):
-        raise click.UsageError(
-            f"'{value}' is not a valid HuggingFace model identifier "
-            "(expected 'name' or 'org/name')."
-        )
-
-    return ModelInput(kind=ModelInputKind.HF_ID, raw=raw, hf_id=value)
 
 
 class ModelLoadError(click.ClickException):
@@ -562,6 +469,7 @@ def device_option(
     default: str | None = "NPU",
     include_auto: bool = False,
     include_all: bool = False,
+    include_config: bool = False,
 ) -> Callable[[F], F]:
     """Add --device option to a Click command.
 
@@ -575,12 +483,16 @@ def device_option(
             (default: False).
         include_all: Whether to include "all" as a valid choice
             (default: False).
+        include_config: Whether to include "config" as a valid choice
+            (default: False). Used by ``perf`` for the winml-genai sentinel
+            meaning "respect the bundle's genai_config.json routing".
 
     Returns:
         Decorator function
     """
     device_choices = [device.lower() for device in SUPPORTED_DEVICES]
     choices = ["auto", *device_choices] if include_auto else device_choices
+    choices = ["config", *choices] if include_config else choices
     choices = ["all", *choices] if include_all else choices
     help_text = f"Target device type ({', '.join(choices)})"
     if optional_message:
@@ -1124,16 +1036,6 @@ def load_build_config(config_path: Path) -> tuple[WinMLBuildConfig, dict]:
 # ---------------------------------------------------------------------------
 # ``-m/--model`` input classification
 # ---------------------------------------------------------------------------
-
-
-def is_onnx_file_path(model_input: str) -> bool:
-    """Return True when *model_input* resolves to a local ONNX file path.
-
-    Thin wrapper kept for backwards-compatible callers; new code should
-    use :func:`~winml.modelkit.utils.model_input.classify_model_input`
-    directly and inspect the returned ``ModelInput.kind``.
-    """
-    return classify_model_input(model_input).kind is ModelInputKind.ONNX_FILE
 
 
 def normalize_model_arg(value: str | None) -> str | None:

@@ -125,6 +125,7 @@ nav:
   - Samples:
       - BERT — Config + Build + Perf: samples/bert-config-build.md
       - CLIP — Composite Models: samples/clip-composite.md
+      - Qwen3 — Genai Bundle: samples/qwen3-genai-bundle.md
   - Tutorials:
       - Overview: tutorials/index.md
       - Hugging Face Model to NPU: tutorials/npu-convnext.md

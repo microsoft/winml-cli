@@ -50,7 +50,7 @@ stages based on the target device and precision.
 | `batch_size` | `int` | `1` | Static batch size. Use 1 for QNN compatibility. |
 | `input_tensors` | `list[InputTensorSpec] \| null` | `null` | Input tensor specifications. Auto-inferred if omitted. |
 | `output_tensors` | `list[OutputTensorSpec] \| null` | `null` | Output tensor specifications. |
-| `dynamic_axes` | `dict \| null` | `null` | Dynamic axes mapping. ⚠️ Breaks MatMulAddFusion on QNN. |
+| `dynamic_axes` | `dict \| null` | `null` | Dynamic axes mapping. Static shapes remain the QNN-safe default; dynamic batch may reduce fusion coverage. |
 | `export_params` | `bool` | `true` | Include model parameters in ONNX. |
 | `do_constant_folding` | `bool` | `true` | Fold constants during export. |
 | `verbose` | `bool` | `false` | Verbose export logging. |
@@ -65,7 +65,7 @@ stages based on the target device and precision.
 |-------|------|-------------|
 | `name` | `str \| null` | Tensor name (e.g., `pixel_values`). |
 | `dtype` | `str \| null` | Data type (e.g., `float32`, `int64`). |
-| `shape` | `list[int] \| null` | Tensor shape (e.g., `[1, 3, 224, 224]`). |
+| `shape` | `list[int \| str] \| null` | Tensor shape (e.g., `[1, 3, 224, 224]`). String entries declare symbolic dynamic axes and use size `1` for dummy inputs. |
 | `value_range` | `[float, float] \| null` | Min/max for dummy tensor generation. |
 
 ---

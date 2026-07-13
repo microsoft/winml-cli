@@ -37,6 +37,18 @@ QUANT_FINALIZERS: dict[str, tuple[str, str]] = {
 }
 
 
+def has_quant_finalizer(model_type: str | None) -> bool:
+    """Return ``True`` if *model_type* has a registered quant finalizer.
+
+    A lightweight membership test that — unlike :func:`get_quant_finalizer` —
+    does **not** import the (heavy) finalizer module. Use it when a caller only
+    needs to know whether a model type's quantization scheme is pinned by a
+    finalizer (so e.g. a precision override would be authoritatively reverted),
+    without paying the cost of instantiating it.
+    """
+    return model_type is not None and model_type in QUANT_FINALIZERS
+
+
 def get_quant_finalizer(model_type: str | None) -> QuantConfigFinalizer | None:
     """Return a finalizer instance for ``model_type``, or ``None`` if unregistered.
 
