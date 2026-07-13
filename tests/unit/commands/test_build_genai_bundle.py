@@ -10,6 +10,10 @@ and the single-model pipeline (``_run_single_build``) are patched so the tests
 only assert *which* path the command takes and *how* the CLI flags map onto the
 orchestrator call. No model download, no real build.
 
+The bundle is fully recipe-driven, so it is built directly from ``-m`` with no
+``-c/--config`` (a supplied config would be discarded, and is rejected). Tests
+inject ``model_type`` by stubbing the auto config generator instead.
+
 The trigger under test (locked design):
     registered decoder-LLM family  AND  explicit ``--ep qnn``  AND a ``--device``
     that targets the NPU (explicit ``--device npu`` or ``--device auto``
@@ -36,6 +40,7 @@ _DEVICE_TO_EPS = {
 _BUNDLE_TARGET = "winml.modelkit.models.winml.build_genai_bundle"
 _RUN_SINGLE_TARGET = "winml.modelkit.commands.build._run_single_build"
 _COMPOSITE_TARGET = "winml.modelkit.loader.resolution.resolve_composite_components"
+_GENERATE_TARGET = "winml.modelkit.config.generate_build_config"
 
 
 def _fake_resolve_check_device_ep(*, device: str = "auto", ep: str | None = None):
@@ -80,21 +85,36 @@ def _skip_task_validation():
         yield
 
 
-def _write_config(
-    tmp_path: Path,
-    *,
-    model_type: str,
-    task: str = "text-generation",
-    name: str = "config.json",
-) -> str:
+def _fake_config(model_type: str, task: str = "text-generation"):
+    """A minimal valid ``WinMLBuildConfig`` carrying ``loader.model_type``.
+
+    The genai fast path reads ``model_type`` from the (auto-generated) config's
+    loader, so stubbing ``generate_build_config`` to return this is how a test
+    selects the routed family -- no ``-c`` needed (and none is accepted).
+    """
+    from winml.modelkit.config import WinMLBuildConfig
+
+    return WinMLBuildConfig.from_dict(
+        {
+            "loader": {"task": task, "model_type": model_type},
+            "export": {"opset_version": 17, "batch_size": 1},
+            "optim": {},
+            "quant": None,
+            "compile": None,
+        }
+    )
+
+
+def _write_config_file(tmp_path: Path, *, model_type: str = "qwen3") -> str:
+    """Write a real config JSON file (only for the -c rejection test)."""
     config = {
-        "loader": {"task": task, "model_type": model_type},
+        "loader": {"task": "text-generation", "model_type": model_type},
         "export": {"opset_version": 17, "batch_size": 1},
         "optim": {},
         "quant": None,
         "compile": None,
     }
-    path = tmp_path / name
+    path = tmp_path / "config.json"
     path.write_text(json.dumps(config))
     return str(path)
 
@@ -117,17 +137,17 @@ def _record_bundle(store: dict):
 
 
 def test_registered_family_npu_qnn_routes_to_bundle(tmp_path: Path):
-    cfg = _write_config(tmp_path, model_type="qwen3")
     out = tmp_path / "bundle"
     recorded: dict = {}
 
     with (
+        patch(_GENERATE_TARGET, return_value=_fake_config("qwen3")),
         patch(_BUNDLE_TARGET, side_effect=_record_bundle(recorded)) as bundle,
         patch(_RUN_SINGLE_TARGET) as run_single,
         patch(_COMPOSITE_TARGET, return_value=None),
     ):
         result = _invoke(
-            ["-c", cfg, "-m", "Qwen/Qwen3-0.6B", "-o", str(out), "--device", "npu", "--ep", "qnn"]
+            ["-m", "Qwen/Qwen3-0.6B", "-o", str(out), "--device", "npu", "--ep", "qnn"]
         )
 
     assert result.exit_code == 0, result.output
@@ -147,16 +167,17 @@ def test_registered_family_npu_qnn_routes_to_bundle(tmp_path: Path):
     assert callable(kwargs["emit"])
 
 
-def test_explicit_no_quant_is_rejected_not_silently_ignored(tmp_path: Path):
-    """A user-supplied pipeline control must error, not become a silent no-op.
+def test_explicit_config_file_is_rejected_for_bundle(tmp_path: Path):
+    """A ``-c/--config`` file must error, not be silently discarded.
 
-    The genai bundle fixes quantization via its recipe, so ``--no-quant`` cannot
-    be honored.  The fast path must reject it instead of quantizing anyway (and
-    it must not reach the orchestrator or the single-model pipeline).
+    The bundle is fully recipe-driven, so nothing in a supplied config would be
+    honored.  The fast path rejects it (before reaching the orchestrator or the
+    single-model pipeline).
     """
-    cfg = _write_config(tmp_path, model_type="qwen3")
+    cfg = _write_config_file(tmp_path, model_type="qwen3")
 
     with (
+        patch(_GENERATE_TARGET, return_value=_fake_config("qwen3")),
         patch(_BUNDLE_TARGET, side_effect=_record_bundle({})) as bundle,
         patch(_RUN_SINGLE_TARGET) as run_single,
         patch(_COMPOSITE_TARGET, return_value=None),
@@ -165,6 +186,38 @@ def test_explicit_no_quant_is_rejected_not_silently_ignored(tmp_path: Path):
             [
                 "-c",
                 cfg,
+                "-m",
+                "Qwen/Qwen3-0.6B",
+                "-o",
+                str(tmp_path / "b"),
+                "--device",
+                "npu",
+                "--ep",
+                "qnn",
+            ]
+        )
+
+    assert result.exit_code != 0
+    assert "-c/--config" in result.output
+    bundle.assert_not_called()
+    run_single.assert_not_called()
+
+
+def test_explicit_no_quant_is_rejected_not_silently_ignored(tmp_path: Path):
+    """A user-supplied pipeline control must error, not become a silent no-op.
+
+    The genai bundle fixes quantization via its recipe, so ``--no-quant`` cannot
+    be honored.  The fast path must reject it instead of quantizing anyway (and
+    it must not reach the orchestrator or the single-model pipeline).
+    """
+    with (
+        patch(_GENERATE_TARGET, return_value=_fake_config("qwen3")),
+        patch(_BUNDLE_TARGET, side_effect=_record_bundle({})) as bundle,
+        patch(_RUN_SINGLE_TARGET) as run_single,
+        patch(_COMPOSITE_TARGET, return_value=None),
+    ):
+        result = _invoke(
+            [
                 "-m",
                 "Qwen/Qwen3-0.6B",
                 "-o",
@@ -184,18 +237,16 @@ def test_explicit_no_quant_is_rejected_not_silently_ignored(tmp_path: Path):
 
 
 def test_rebuild_flag_maps_to_force_rebuild(tmp_path: Path):
-    cfg = _write_config(tmp_path, model_type="qwen3")
     recorded: dict = {}
 
     with (
+        patch(_GENERATE_TARGET, return_value=_fake_config("qwen3")),
         patch(_BUNDLE_TARGET, side_effect=_record_bundle(recorded)),
         patch(_RUN_SINGLE_TARGET),
         patch(_COMPOSITE_TARGET, return_value=None),
     ):
         result = _invoke(
             [
-                "-c",
-                cfg,
                 "-m",
                 "Qwen/Qwen3-0.6B",
                 "-o",
@@ -213,18 +264,16 @@ def test_rebuild_flag_maps_to_force_rebuild(tmp_path: Path):
 
 
 def test_precision_override_forwarded(tmp_path: Path):
-    cfg = _write_config(tmp_path, model_type="qwen3")
     recorded: dict = {}
 
     with (
+        patch(_GENERATE_TARGET, return_value=_fake_config("qwen3")),
         patch(_BUNDLE_TARGET, side_effect=_record_bundle(recorded)),
         patch(_RUN_SINGLE_TARGET),
         patch(_COMPOSITE_TARGET, return_value=None),
     ):
         result = _invoke(
             [
-                "-c",
-                cfg,
                 "-m",
                 "Qwen/Qwen3-0.6B",
                 "-o",
@@ -244,17 +293,17 @@ def test_precision_override_forwarded(tmp_path: Path):
 
 def test_registered_family_auto_qnn_routes_to_bundle(tmp_path: Path):
     """``--device auto`` resolving to the NPU, with explicit ``--ep qnn``, routes."""
-    cfg = _write_config(tmp_path, model_type="qwen3")
     out = tmp_path / "bundle"
     recorded: dict = {}
 
     with (
+        patch(_GENERATE_TARGET, return_value=_fake_config("qwen3")),
         patch(_BUNDLE_TARGET, side_effect=_record_bundle(recorded)) as bundle,
         patch(_RUN_SINGLE_TARGET) as run_single,
         patch(_COMPOSITE_TARGET, return_value=None),
     ):
         result = _invoke(
-            ["-c", cfg, "-m", "Qwen/Qwen3-0.6B", "-o", str(out), "--device", "auto", "--ep", "qnn"]
+            ["-m", "Qwen/Qwen3-0.6B", "-o", str(out), "--device", "auto", "--ep", "qnn"]
         )
 
     assert result.exit_code == 0, result.output
@@ -267,9 +316,8 @@ def test_registered_family_auto_qnn_routes_to_bundle(tmp_path: Path):
 
 def test_auto_qnn_resolving_to_non_npu_does_not_route(tmp_path: Path):
     """``--device auto`` that resolves to a non-NPU device keeps the stock path."""
-    cfg = _write_config(tmp_path, model_type="qwen3")
-
     with (
+        patch(_GENERATE_TARGET, return_value=_fake_config("qwen3")),
         patch(_BUNDLE_TARGET) as bundle,
         patch(_RUN_SINGLE_TARGET) as run_single,
         patch(_COMPOSITE_TARGET, return_value=None),
@@ -277,8 +325,6 @@ def test_auto_qnn_resolving_to_non_npu_does_not_route(tmp_path: Path):
     ):
         result = _invoke(
             [
-                "-c",
-                cfg,
                 "-m",
                 "Qwen/Qwen3-0.6B",
                 "-o",
@@ -297,33 +343,27 @@ def test_auto_qnn_resolving_to_non_npu_does_not_route(tmp_path: Path):
 
 def test_npu_without_explicit_ep_does_not_route(tmp_path: Path):
     """Auto-resolved QNN (no explicit --ep) must keep the stock path."""
-    cfg = _write_config(tmp_path, model_type="qwen3")
-
     with (
+        patch(_GENERATE_TARGET, return_value=_fake_config("qwen3")),
         patch(_BUNDLE_TARGET) as bundle,
         patch(_RUN_SINGLE_TARGET),
         patch(_COMPOSITE_TARGET, return_value=None),
     ):
-        result = _invoke(
-            ["-c", cfg, "-m", "Qwen/Qwen3-0.6B", "-o", str(tmp_path / "o"), "--device", "npu"]
-        )
+        result = _invoke(["-m", "Qwen/Qwen3-0.6B", "-o", str(tmp_path / "o"), "--device", "npu"])
 
     assert result.exit_code == 0, result.output
     bundle.assert_not_called()
 
 
 def test_cpu_target_does_not_route(tmp_path: Path):
-    cfg = _write_config(tmp_path, model_type="qwen3")
-
     with (
+        patch(_GENERATE_TARGET, return_value=_fake_config("qwen3")),
         patch(_BUNDLE_TARGET) as bundle,
         patch(_RUN_SINGLE_TARGET),
         patch(_COMPOSITE_TARGET, return_value=None),
     ):
         result = _invoke(
             [
-                "-c",
-                cfg,
                 "-m",
                 "Qwen/Qwen3-0.6B",
                 "-o",
@@ -340,17 +380,17 @@ def test_cpu_target_does_not_route(tmp_path: Path):
 
 
 def test_unregistered_family_npu_qnn_does_not_route(tmp_path: Path):
-    cfg = _write_config(tmp_path, model_type="resnet", task="image-classification")
-
     with (
+        patch(
+            _GENERATE_TARGET,
+            return_value=_fake_config("resnet", task="image-classification"),
+        ),
         patch(_BUNDLE_TARGET) as bundle,
         patch(_RUN_SINGLE_TARGET) as run_single,
         patch(_COMPOSITE_TARGET, return_value=None),
     ):
         result = _invoke(
             [
-                "-c",
-                cfg,
                 "-m",
                 "microsoft/resnet-50",
                 "-o",
@@ -368,16 +408,13 @@ def test_unregistered_family_npu_qnn_does_not_route(tmp_path: Path):
 
 
 def test_use_cache_rejected_for_bundle(tmp_path: Path):
-    cfg = _write_config(tmp_path, model_type="qwen3")
-
     with (
+        patch(_GENERATE_TARGET, return_value=_fake_config("qwen3")),
         patch(_BUNDLE_TARGET) as bundle,
         patch(_RUN_SINGLE_TARGET),
         patch(_COMPOSITE_TARGET, return_value=None),
     ):
-        result = _invoke(
-            ["-c", cfg, "-m", "Qwen/Qwen3-0.6B", "--use-cache", "--device", "npu", "--ep", "qnn"]
-        )
+        result = _invoke(["-m", "Qwen/Qwen3-0.6B", "--use-cache", "--device", "npu", "--ep", "qnn"])
 
     assert result.exit_code != 0
     assert "output-dir" in result.output.lower()

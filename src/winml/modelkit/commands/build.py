@@ -508,6 +508,18 @@ def _maybe_build_genai_bundle(
     if recipe is None:
         return False
 
+    # A genai bundle is fully recipe-driven: every component, shape, precision,
+    # quantization and compile setting comes from the recipe, so a supplied
+    # ``-c/--config`` file would be silently discarded. Reject it explicitly
+    # (the bundle is produced directly from ``-m``), matching the fast path's
+    # other "don't silently ignore a user control" rejections below.
+    if cli_utils.is_cli_provided(ctx, "config_file"):
+        raise click.UsageError(
+            "-c/--config is not supported for a genai bundle build: the bundle's "
+            "components, shapes, quantization and compilation are fixed by its "
+            "recipe. Re-run without -c (the bundle is built directly from -m/--model)."
+        )
+
     if use_cache:
         raise click.UsageError(
             "genai bundle output is a directory; pass --output-dir, not --use-cache."
@@ -534,8 +546,8 @@ def _maybe_build_genai_bundle(
     if rejected:
         raise click.UsageError(
             f"{', '.join(rejected)} not supported for a genai bundle build: the "
-            "bundle's quantization, optimization and compilation are fixed by its "
-            "recipe. Use --precision to override the transformer precision."
+            "bundle's components, quantization, optimization and compilation are "
+            "fixed by its recipe."
         )
 
     bundle_dir = Path(output_dir)

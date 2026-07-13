@@ -168,10 +168,47 @@ def test_assembler_receives_paths_ep_and_passes(harness):
 
 
 def test_precision_override_only_affects_transformer(harness):
+    # ``T-transformer`` has no registered quant finalizer, so a precision
+    # override is honored (forwarded to the transformer build).
     build_genai_bundle("m", harness["tmp_path"] / "b", harness["recipe"], precision="w4a16")
     assert _by_model_type(harness["calls"], "T-transformer")["precision"] == "w4a16"
     assert _by_model_type(harness["calls"], "T-emb")["precision"] == "fp32"
     assert _by_model_type(harness["calls"], "T-lmh")["precision"] == "w4a32"
+
+
+def test_precision_override_rejected_when_transformer_finalizer_pinned(harness, monkeypatch):
+    """A precision override that conflicts with a finalizer-pinned transformer errors.
+
+    When the transformer's ``model_type`` has a registered quant finalizer, its
+    scheme is authoritative — a differing ``--precision`` would be silently
+    reverted, so it is rejected up-front instead. Architecture-agnostic: the
+    guard keys on the finalizer registry, not on any model name.
+    """
+    import winml.modelkit.models.winml.genai_bundle as gb
+
+    monkeypatch.setattr(gb, "has_quant_finalizer", lambda model_type: True)
+    with pytest.raises(ValueError, match="precision"):
+        build_genai_bundle("m", harness["tmp_path"] / "b", harness["recipe"], precision="w4a16")
+    # Fail-fast: rejected before any component is built.
+    assert harness["calls"] == []
+
+
+def test_matching_precision_override_allowed_when_finalizer_pinned(harness, monkeypatch):
+    """Passing exactly the recipe transformer precision is a no-op, not rejected."""
+    import winml.modelkit.models.winml.genai_bundle as gb
+
+    monkeypatch.setattr(gb, "has_quant_finalizer", lambda model_type: True)
+    build_genai_bundle("m", harness["tmp_path"] / "b", harness["recipe"], precision="w8a16")
+    assert _by_model_type(harness["calls"], "T-transformer")["precision"] == "w8a16"
+
+
+def test_no_precision_override_uses_recipe_default_when_finalizer_pinned(harness, monkeypatch):
+    """Omitting a precision override builds at the recipe default even when pinned."""
+    import winml.modelkit.models.winml.genai_bundle as gb
+
+    monkeypatch.setattr(gb, "has_quant_finalizer", lambda model_type: True)
+    build_genai_bundle("m", harness["tmp_path"] / "b", harness["recipe"])
+    assert _by_model_type(harness["calls"], "T-transformer")["precision"] == "w8a16"
 
 
 def test_length_overrides_flow_to_shapes_and_assembler(harness):

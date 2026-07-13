@@ -56,12 +56,10 @@ This builds (or reuses from cache) all four components and assembles them, writi
 `--output-dir` is required — the bundle is a directory — and `--use-cache` is not
 supported for bundles.
 
-Override the transformer precision if needed (the CPU companions keep their
-bundle-standard precisions):
-
-```bash
-winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --device npu --ep qnn --precision w8a16
-```
+The Qwen3 transformer's quantization scheme is fixed by its recipe (`w8a16`, the
+scheme its QNN HTP export is tuned for), so it is not overridable — passing a
+`--precision` that differs from `w8a16` is rejected rather than silently reverted.
+The CPU companions likewise keep their bundle-standard precisions.
 
 Force a clean rebuild of every component with `--rebuild`.
 

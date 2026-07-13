@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, cast
 
 import onnx
 
+from ...quant.calibration import has_quant_finalizer
 from ...utils.constants import normalize_ep_name
 
 
@@ -234,6 +235,23 @@ def build_genai_bundle(
     prefill_seq_len = recipe.prefill_seq_len if prefill_seq_len is None else prefill_seq_len
     soc_model = recipe.soc_model if soc_model is None else soc_model
     transformer = recipe.transformer
+    # A transformer whose ``model_type`` has a registered quant finalizer has an
+    # authoritative, reference-matched quantization scheme: the finalizer would
+    # revert any differing ``precision`` back to the recipe's, making the
+    # override a silent no-op. Reject it up-front instead. Keyed on the finalizer
+    # registry (not any model name), so a transformer *without* a finalizer still
+    # honors the override.
+    if (
+        precision is not None
+        and precision != transformer.precision
+        and has_quant_finalizer(transformer.model_type)
+    ):
+        raise ValueError(
+            f"precision override {precision!r} is not supported for this genai "
+            f"bundle: the {transformer.model_type!r} transformer's quantization "
+            f"scheme is pinned to {transformer.precision!r} by its quant finalizer. "
+            f"Re-run without a precision override (or pass {transformer.precision!r})."
+        )
     transformer_precision = precision or transformer.precision
     transformer_ep = normalize_ep_name(cast("EPNameOrAlias", ep)) or ep
     companion_ep = normalize_ep_name("cpu") or "cpu"
