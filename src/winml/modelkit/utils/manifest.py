@@ -41,10 +41,11 @@ SCHEMA_VERSION = 1
 
 
 def _sanitize_value(value: Any) -> Any:
-    """Coerce non-JSON-native types (``Path``, etc.) to JSON-safe primitives.
+    """Coerce non-JSON-native types to JSON-safe primitives.
 
-    This replaces the blanket ``default=str`` in ``json.dumps`` so that
-    numeric metrics are never accidentally serialised as strings.
+    Handles ``Path`` (→ ``str``) and numpy scalars (→ native Python
+    numbers/bools) so that numeric metrics are never accidentally
+    serialised as strings by the ``default=str`` fallback.
     """
     from pathlib import PurePath
 
@@ -54,6 +55,14 @@ def _sanitize_value(value: Any) -> Any:
         return {k: _sanitize_value(v) for k, v in value.items()}
     if isinstance(value, list):
         return [_sanitize_value(v) for v in value]
+    # numpy scalars → native Python types (int, float, bool, etc.)
+    try:
+        import numpy as np
+
+        if isinstance(value, np.generic):
+            return value.item()
+    except ImportError:
+        pass
     return value
 
 

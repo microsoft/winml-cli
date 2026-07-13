@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
+import pytest
+
 from winml.modelkit.utils.manifest import (
     EXPORT_MANIFEST_FILENAME,
     MANIFEST_FILENAME,
@@ -166,6 +168,26 @@ class TestWinMLManifestIO:
         data = json.loads(path.read_text())
         assert isinstance(data["export_stats"]["output_path"], str)
         assert data["export_stats"]["count"] == 5  # numeric stays numeric
+
+    def test_save_sanitizes_numpy_scalars(self, tmp_path: Path) -> None:
+        """Numpy scalars in export_stats are coerced to native Python types."""
+        np = pytest.importorskip("numpy")
+        m = WinMLManifest(
+            source="export",
+            final_artifact="model.onnx",
+            export_stats={
+                "accuracy": np.float32(0.95),
+                "count": np.int64(42),
+                "flag": np.bool_(True),
+            },
+        )
+        path = tmp_path / MANIFEST_FILENAME
+        m.save(path)
+        data = json.loads(path.read_text())
+        assert data["export_stats"]["accuracy"] == pytest.approx(0.95, abs=1e-5)
+        assert data["export_stats"]["count"] == 42
+        assert isinstance(data["export_stats"]["count"], int)
+        assert data["export_stats"]["flag"] is True
 
     def test_manifest_path_for_plain(self, tmp_path: Path) -> None:
         p = WinMLManifest.manifest_path_for(tmp_path)
