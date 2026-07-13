@@ -56,13 +56,10 @@ def _sanitize_value(value: Any) -> Any:
     if isinstance(value, list):
         return [_sanitize_value(v) for v in value]
     # numpy scalars → native Python types (int, float, bool, etc.)
-    try:
-        import numpy as np
+    import numpy as np
 
-        if isinstance(value, np.generic):
-            return value.item()
-    except ImportError:  # numpy is an optional dependency
-        pass
+    if isinstance(value, np.generic):
+        return value.item()
     return value
 
 
