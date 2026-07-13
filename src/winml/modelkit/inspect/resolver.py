@@ -508,9 +508,7 @@ def resolve_cache(model_id: str) -> CacheInfo:
     # PRIMARY: Manifest-based resolution
     # -------------------------------------------------------------------------
     if model_dir.exists():
-        manifests = list(model_dir.glob("*build_manifest.json")) + list(
-            model_dir.glob("*export_manifest.json")
-        )
+        manifests = list(model_dir.glob("*build_manifest.json"))
         if manifests:
             # Use the most recent manifest (by mtime) when multiple variants exist
             manifest_path = max(manifests, key=lambda p: p.stat().st_mtime)

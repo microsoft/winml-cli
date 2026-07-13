@@ -24,8 +24,6 @@ Examples:
 
 from __future__ import annotations
 
-import contextlib
-import datetime
 import json
 import logging
 from pathlib import Path
@@ -61,8 +59,7 @@ def _delete_onnx_with_external_data(onnx_path: Path) -> None:
         logger.debug("Could not parse external data from %s", onnx_path, exc_info=True)
 
     if onnx_path.exists():
-        with contextlib.suppress(OSError):
-            onnx_path.unlink()
+        onnx_path.unlink()
 
 
 def _warn_partial_composite(completed: list[Path]) -> None:
@@ -375,11 +372,8 @@ def export(
 
     def _run_component_export(component_task: str | None, out_path: Path) -> None:
         """Resolve I/O, build config, load, and export one (model, task) to ``out_path``."""
-        import time
-
         from ..export import ONNXConfigNotFoundError
 
-        start_time = time.monotonic()
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Load input/output specifications.
@@ -505,36 +499,6 @@ def export(
             enable_reporting=with_report,
         )
         logger.debug("Export stats: %s", export_stats)
-
-        # Write export_manifest.json alongside the exported ONNX.
-        # For composite exports each sub-model gets a prefixed manifest
-        # (e.g. model_decoder_export_manifest.json); single exports get
-        # a plain export_manifest.json.
-        from ..utils import EXPORT_MANIFEST_FILENAME, ManifestStage, WinMLManifest
-
-        elapsed = time.monotonic() - start_time
-        manifest = WinMLManifest(
-            source="export",
-            model_id=model,
-            task=detected_task,
-            timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            elapsed_seconds=round(elapsed, 3),
-            final_artifact=out_path.name,
-            stages=[
-                ManifestStage(
-                    name="export",
-                    status="completed",
-                    filename=out_path.name,
-                    elapsed_seconds=round(elapsed, 3),
-                )
-            ],
-            export_stats=export_stats,
-        )
-        prefix = None if out_path.name == output_path.name else out_path.stem
-        manifest_path = WinMLManifest.manifest_path_for(
-            out_path.parent, prefix=prefix, filename=EXPORT_MANIFEST_FILENAME
-        )
-        manifest.save(manifest_path)
 
         console.print(f"\n[bold green]Success![/bold green] Model exported to: {out_path}")
 

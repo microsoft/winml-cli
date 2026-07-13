@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 import pytest
 
 from winml.modelkit.utils.manifest import (
-    EXPORT_MANIFEST_FILENAME,
     MANIFEST_FILENAME,
     ManifestStage,
     WinMLManifest,
@@ -197,17 +196,13 @@ class TestWinMLManifestIO:
         p = WinMLManifest.manifest_path_for(tmp_path, prefix="imgcls_abc123")
         assert p.name == "imgcls_abc123_build_manifest.json"
 
-    def test_manifest_path_for_export(self, tmp_path: Path) -> None:
-        p = WinMLManifest.manifest_path_for(tmp_path, filename=EXPORT_MANIFEST_FILENAME)
-        assert p.name == EXPORT_MANIFEST_FILENAME
-
     def test_find_discovers_multiple(self, tmp_path: Path) -> None:
-        for name in ["build_manifest.json", "feat_aaa_build_manifest.json", "export_manifest.json"]:
+        for name in ["build_manifest.json", "feat_aaa_build_manifest.json"]:
             (tmp_path / name).write_text(
                 json.dumps({"schema_version": 1, "source": "hf", "final_artifact": "model.onnx"})
             )
         found = WinMLManifest.find(tmp_path)
-        assert len(found) == 3
+        assert len(found) == 2
 
     def test_find_skips_corrupt(self, tmp_path: Path) -> None:
         (tmp_path / MANIFEST_FILENAME).write_text("not json{{{")
