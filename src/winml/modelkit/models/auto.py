@@ -389,9 +389,15 @@ class WinMLAutoModel:
                     _model_type = None
 
             if _model_type is not None and (_model_type, task) in COMPOSITE_MODEL_REGISTRY:
-                from .winml.composite_model import WinMLCompositeModel
+                # Resolve the concrete composite class for the (possibly
+                # overridden) model_type so an explicit ``model_type`` (e.g.
+                # "qwen3_transformer_only") selects its variant composite.  The
+                # base ``WinMLCompositeModel.from_pretrained`` re-derives the
+                # native model_type from the HF config, which would silently drop
+                # the override and build the stock composite instead.
+                composite_cls = COMPOSITE_MODEL_REGISTRY[(_model_type, task)]
 
-                return WinMLCompositeModel.from_pretrained(
+                return composite_cls.from_pretrained(
                     model_id,
                     task,
                     device=device,

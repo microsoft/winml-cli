@@ -30,6 +30,7 @@ $ winml build [options]
 | `--optimize/--no-optimize` | | flag | `true` | Run the optimization stage (use `--no-optimize` to skip). |
 | `--ep` | | string | `None` | Target execution provider for the analyzer (e.g., `qnn`). Falls back to the compile config EP if not set. |
 | `--device` | `-d` | string | `auto` | Target device for the analyzer (e.g., `npu`, `gpu`). Default: `auto` (auto-detect). |
+| `--precision` | `-p` | string | `auto` | Target precision (e.g., `fp16`, `int8`, `w8a16`). With `-c`, applied only when `--device` or `--precision` is passed. |
 | `--analyze/--no-analyze` | | flag | `true` | Run the analyzer loop during build (use `--no-analyze` to skip). |
 | `--max-optim-iterations` | | integer | `None` | Maximum autoconf re-optimization rounds (3 enforced internally when not set). `--no-analyze` implicitly sets this to 0. |
 | `--shape-config` | | path | `None` | JSON shape overrides used while auto-generating a Hugging Face export config, for example `{"height": 480, "width": 480}`. Only valid when `--config` is omitted. |
@@ -54,6 +55,38 @@ single-pass build. Individual stages can be suppressed with `--no-quant`,
 
 !!! tip "Reproducible CI/CD builds"
     The config file is a portable, self-contained pipeline specification. Check it into source control and invoke `winml build -c config.json` in CI to produce identical artifacts without manual flag management. Set `"auto": false` in the config to disable the autoconf discovery loop for fully deterministic output.
+
+## Genai bundles for decoder LLMs (NPU + QNN)
+
+For a registered decoder-LLM family (currently **Qwen3**), targeting the NPU HTP
+with an explicit `--ep qnn` switches `winml build` to produce a complete
+[onnxruntime-genai](https://github.com/microsoft/onnxruntime-genai) **bundle**
+directory instead of the stock per-model ONNX output. Pair `--ep qnn` with
+`--device npu`, or with `--device auto` when auto-detection resolves to the NPU:
+
+| File | Role | Precision |
+|---|---|---|
+| `ctx.onnx` | Transformer prefill graph | `w8a16` (default) |
+| `iter.onnx` | Transformer decode graph | `w8a16` (default) |
+| `embeddings.onnx` | Token embedding table (CPU) | `fp32` |
+| `lm_head.onnx` | Vocab projection (CPU) | `w4a32` |
+| `genai_config.json` + tokenizer | onnxruntime-genai runtime metadata | — |
+
+```bash
+# One command: HF decoder LLM → full onnxruntime-genai bundle on the NPU
+winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --device npu --ep qnn
+# or let device auto-detection pick the NPU:
+winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --device auto --ep qnn
+```
+
+The trigger is data-driven and opt-in: **`--ep qnn` must be passed explicitly**,
+alongside an NPU target (`--device npu`, or `--device auto` resolving to the NPU).
+Every other target — including Qwen3 on CPU/GPU, or an auto-detected NPU target
+without an explicit `--ep qnn` — keeps the existing behavior (the stock composite
+build). `--output-dir` is required (the bundle is a directory) and `--use-cache`
+is not supported. Use `--precision` to override the transformer precision; the CPU
+companions always use their bundle-standard precisions. See
+[Qwen3 — Genai Bundle](../samples/qwen3-genai-bundle.md) for the full walkthrough.
 
 ## Examples
 
@@ -117,6 +150,9 @@ winml build -m microsoft/resnet-50 -o output/ \
   pre-exported ONNX inputs because the export step has already happened.
 - **Existing artifacts are reused by default.** Pass `--rebuild` to force a
   fresh run after changing the config.
+- **Genai bundles require `--output-dir`, not `--use-cache`.** A decoder-LLM
+  bundle (`--device npu --ep qnn`) writes a directory of components and rejects
+  `--use-cache`.
 
 ## See also
 

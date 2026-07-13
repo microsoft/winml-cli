@@ -32,6 +32,7 @@ from rich.console import Console
 
 from ..utils import cli as cli_utils
 from ..utils.logging import configure_logging
+from ..utils.model_input import ModelInputKind, classify_model_input
 
 
 logger = logging.getLogger(__name__)
@@ -140,6 +141,18 @@ def _warn_partial_composite(completed: list[Path]) -> None:
     help_text='JSON with shape overrides (e.g., {"sequence_length": 2048, "height": 640}).',
 )
 @cli_utils.dynamic_axes_option()
+@click.option(
+    "--submodel",
+    type=str,
+    default=None,
+    help=(
+        "Export a specific sub-model from a composite model "
+        "(e.g., 'encoder', 'decoder'). The selected sub-model is still "
+        "written to '{stem}_{name}.onnx' (e.g. '-o t5.onnx --submodel encoder' "
+        "-> 't5_encoder.onnx'), not to the -o path verbatim. "
+        "Omit to export all sub-models automatically."
+    ),
+)
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
 @cli_utils.no_color_option()
@@ -161,6 +174,7 @@ def export(
     export_config: Path | None,
     shape_config: Path | None,
     dynamic_axes: Path | None,
+    submodel: str | None,
     config_file: Path | None,
 ) -> None:
     r"""Export HuggingFace model to ONNX format with HTP.
@@ -206,17 +220,25 @@ def export(
 
         # Dynamic dimensions from a dedicated JSON file
         winml export -m bert-base-uncased -o bert.onnx --dynamic-axes dynamic_axes.json
+
+        # Export all sub-models of a composite model (auto-detected)
+        winml export -m google-t5/t5-small --task translation -o t5.onnx
+
+        # Export only the encoder sub-model
+        winml export -m google-t5/t5-small --task translation -o t5.onnx --submodel encoder
     """
     # Classify the -m value once (existence-first). Export only works with
     # HuggingFace model IDs — reject ONNX files and folders early.
     if model:
-        model_input = cli_utils.classify_model_input(model)
-        if model_input.kind is cli_utils.ModelInputKind.ONNX_FILE:
+        model_input = classify_model_input(model)
+        if model_input.kind is ModelInputKind.INVALID:
+            raise click.UsageError(model_input.error or f"Invalid model input: {model}")
+        if model_input.kind is ModelInputKind.ONNX_FILE:
             raise click.UsageError(
                 "export requires a HuggingFace model ID, not an ONNX file. "
                 "Use 'winml inspect -m model.onnx' to inspect an existing ONNX model."
             )
-        if model_input.kind is cli_utils.ModelInputKind.FOLDER:
+        if model_input.kind is ModelInputKind.FOLDER:
             raise click.UsageError(
                 "export requires a HuggingFace model ID, not a directory. "
                 "Provide a HuggingFace model ID (e.g., prajjwal1/bert-tiny)."
@@ -485,15 +507,34 @@ def export(
         # producing a single-model artifact for a possibly-composite model.
         raise click.ClickException(f"Composite model detection failed unexpectedly: {e}") from e
 
+    # ── --submodel validation ──────────────────────────────────────────
+    if submodel is not None:
+        if components is None:
+            raise click.BadParameter(
+                f"'{submodel}' was specified, but '{model}' "
+                f"is not a composite model (no sub-models detected).",
+                param_hint="--submodel",
+            )
+        if submodel not in components:
+            raise click.BadParameter(
+                f"Unknown sub-model '{submodel}'. Available: {', '.join(components.keys())}",
+                param_hint="--submodel",
+            )
+        components = {submodel: components[submodel]}
+
     try:
         console.print("\n[bold]Starting HTP export...[/bold]")
 
         if components:
-            if input_specs:
+            # A genuine multi-component fan-out can't take --input-specs (each
+            # sub-model resolves its own I/O). But when --submodel narrows the
+            # export to exactly one component, --input-specs is meaningful and
+            # applies to that single sub-model, so allow it there.
+            if input_specs and submodel is None:
                 raise click.UsageError(
-                    "--input-specs is not supported for composite models; each sub-model "
-                    "resolves its own I/O. Export a sub-model individually with --task if "
-                    "you need custom input specs."
+                    "--input-specs is not supported when exporting multiple sub-models of a "
+                    "composite model; each sub-model resolves its own I/O. Select a single "
+                    "sub-model with --submodel to apply custom input specs."
                 )
             console.print(
                 f"[dim]Composite model: {len(components)} sub-models "

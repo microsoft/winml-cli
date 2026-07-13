@@ -727,7 +727,12 @@ def generate_hf_build_config(
 
     # Apply policy: resolve_device() always returns a concrete device so
     # policy.device is never "auto" here.
-    # Quant config (weight_type and activation_type are always both-None or both-set)
+    # Quant config (weight_type and activation_type are always both-None or both-set).
+    # NOTE: mutate parent_config.quant in place (never replace it) so the
+    # calibration identity fields _assemble_config stamped on it — model_type,
+    # task, model_id — survive the precision policy. quantize_onnx dispatches a
+    # registered model-type quant finalizer off config.model_type; replacing the
+    # object here silently drops it and skips the finalizer.
     if policy.weight_type is not None and policy.activation_type is not None:
         if parent_config.quant is None:
             parent_config.quant = WinMLQuantizationConfig()
@@ -735,13 +740,15 @@ def generate_hf_build_config(
         parent_config.quant.activation_type = policy.activation_type
     elif policy.precision == "fp16":
         # Pure FP16: no QDQ, only FP16 conversion via quantize stage
-        parent_config.quant = WinMLQuantizationConfig(mode="fp16")
+        if parent_config.quant is None:
+            parent_config.quant = WinMLQuantizationConfig()
+        parent_config.quant.mode = "fp16"
     elif policy.precision and is_weight_only_precision(policy.precision):
         # RTN weight-only quantization (e.g. int4, w4a16, w4a32)
-        parent_config.quant = WinMLQuantizationConfig(
-            mode="rtn",
-            rtn_bits=extract_weight_bits(policy.precision),
-        )
+        if parent_config.quant is None:
+            parent_config.quant = WinMLQuantizationConfig()
+        parent_config.quant.mode = "rtn"
+        parent_config.quant.rtn_bits = extract_weight_bits(policy.precision)
     else:
         # CPU/GPU: precision is float (fp32) — no quantization
         parent_config.quant = None

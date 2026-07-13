@@ -13,11 +13,12 @@ quantized.
 from __future__ import annotations
 
 from .base import QuantConfigFinalizer
-from .registry import QUANT_FINALIZERS, get_quant_finalizer
+from .registry import QUANT_FINALIZERS, get_quant_finalizer, has_quant_finalizer
 
 
 __all__ = [
     "QUANT_FINALIZERS",
     "QuantConfigFinalizer",
     "get_quant_finalizer",
+    "has_quant_finalizer",
 ]
