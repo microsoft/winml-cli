@@ -185,34 +185,34 @@ def _shape_dim_to_value(dim: Any) -> int | str | None:
 
 def _tensor_data_type_name(data_type: int) -> str:
     """Return the ONNX TensorProto datatype name for an enum value."""
-    import onnx
+    from onnx import TensorProto
 
-    return onnx.TensorProto.DataType.Name(data_type)
+    return TensorProto.DataType.Name(data_type)
 
 
 def _serialize_attribute(attr: Any) -> Any:
     """Convert an ONNX AttributeProto value into compact JSON-safe metadata."""
-    import onnx
+    from onnx import AttributeProto, helper
 
-    value = onnx.helper.get_attribute_value(attr)
+    value = helper.get_attribute_value(attr)
     attr_type = attr.type
-    if attr_type == onnx.AttributeProto.STRING:
+    if attr_type == AttributeProto.STRING:
         return value.decode("utf-8", errors="replace")
-    if attr_type == onnx.AttributeProto.STRINGS:
+    if attr_type == AttributeProto.STRINGS:
         return [item.decode("utf-8", errors="replace") for item in value]
-    if attr_type == onnx.AttributeProto.TENSOR:
+    if attr_type == AttributeProto.TENSOR:
         return _tensor_attribute_metadata(value)
-    if attr_type == onnx.AttributeProto.TENSORS:
+    if attr_type == AttributeProto.TENSORS:
         return [_tensor_attribute_metadata(tensor) for tensor in value]
-    if attr_type in (onnx.AttributeProto.INTS, onnx.AttributeProto.FLOATS):
+    if attr_type in (AttributeProto.INTS, AttributeProto.FLOATS):
         return list(value)
-    if attr_type == onnx.AttributeProto.GRAPH:
+    if attr_type == AttributeProto.GRAPH:
         return _graph_attribute_metadata(value)
-    if attr_type == onnx.AttributeProto.GRAPHS:
+    if attr_type == AttributeProto.GRAPHS:
         return [_graph_attribute_metadata(graph) for graph in value]
-    if attr_type == onnx.AttributeProto.SPARSE_TENSOR:
+    if attr_type == AttributeProto.SPARSE_TENSOR:
         return _sparse_tensor_attribute_metadata(value)
-    if attr_type == onnx.AttributeProto.SPARSE_TENSORS:
+    if attr_type == AttributeProto.SPARSE_TENSORS:
         return [_sparse_tensor_attribute_metadata(tensor) for tensor in value]
     return value
 

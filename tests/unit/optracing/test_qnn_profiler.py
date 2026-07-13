@@ -10,8 +10,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import onnx
 import pytest
+from onnx import TensorProto, helper, load, save_model
 
 from winml.modelkit.optracing.qnn.profiler import (
     QNNProfiler,
@@ -291,21 +291,21 @@ def _make_csv_sample(cycles: int, us: int, conv_cycles: int, add_cycles: int) ->
 
 def _write_transpose_model(path: Path) -> None:
     """Write a generated ONNX model with node input and attribute metadata."""
-    input_info = onnx.helper.make_tensor_value_info(
-        "input", onnx.TensorProto.FLOAT, [1, 3, "height", "width"]
+    input_info = helper.make_tensor_value_info(
+        "input", TensorProto.FLOAT, [1, 3, "height", "width"]
     )
-    output_info = onnx.helper.make_tensor_value_info(
-        "output", onnx.TensorProto.FLOAT, [1, "height", "width", 3]
+    output_info = helper.make_tensor_value_info(
+        "output", TensorProto.FLOAT, [1, "height", "width", 3]
     )
-    node = onnx.helper.make_node(
+    node = helper.make_node(
         "Transpose",
         ["input"],
         ["output"],
         name="transpose_node",
         perm=[0, 2, 3, 1],
     )
-    graph = onnx.helper.make_graph([node], "transpose_graph", [input_info], [output_info])
-    onnx.save_model(onnx.helper.make_model(graph), path)
+    graph = helper.make_graph([node], "transpose_graph", [input_info], [output_info])
+    save_model(helper.make_model(graph), path)
 
 
 def _make_node_csv_sample(node_name: str) -> str:
@@ -386,14 +386,14 @@ def test_qnn_profiler_from_csv_adds_onnx_data_when_env_is_set(tmp_path, monkeypa
     result = profiler._from_csv(csv_path, iterations=1, warmup=0, artifacts={})
 
     operator = result.to_dict()["operators"][0]
-    model = onnx.load(model_path)
+    model = load(model_path)
     node = model.graph.node[0]
     graph_input = model.graph.input[0]
     assert operator["onnx_op_type"] == node.op_type
     assert operator["onnx_attributes"] == {"perm": list(node.attribute[0].ints)}
     assert operator["onnx_inputs"] == {
         graph_input.name: {
-            "data_type": onnx.TensorProto.DataType.Name(graph_input.type.tensor_type.elem_type),
+            "data_type": TensorProto.DataType.Name(graph_input.type.tensor_type.elem_type),
             "dims": [
                 dim.dim_value if dim.HasField("dim_value") else dim.dim_param
                 for dim in graph_input.type.tensor_type.shape.dim
