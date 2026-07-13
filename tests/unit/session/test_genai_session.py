@@ -794,6 +794,53 @@ class TestCompileStageSalvage:
         path.parent.mkdir(parents=True, exist_ok=True)
         onnx.save(model, str(path))
 
+    @staticmethod
+    def _make_multipartition_epcontext(path: Path, bin_name: str) -> None:
+        """Code-generate a QNN-style multi-partition EPContext model.
+
+        One ``main_context=1`` node carries the external ``.bin`` reference for
+        all partitions; a secondary ``main_context=0`` node legitimately omits
+        ``ep_cache_context`` (per the EPContext schema). Salvage validation must
+        accept this artifact, not reject it at the secondary node.
+        """
+        import onnx
+        from onnx import TensorProto, helper
+
+        main = helper.make_node(
+            "EPContext",
+            inputs=[],
+            outputs=["main_out"],
+            name="ep_context_main",
+            domain="com.microsoft",
+            embed_mode=0,
+            ep_cache_context=bin_name,
+            main_context=1,
+        )
+        secondary = helper.make_node(
+            "EPContext",
+            inputs=[],
+            outputs=["secondary_out"],
+            name="ep_context_secondary",
+            domain="com.microsoft",
+            embed_mode=0,
+            main_context=0,
+        )
+        main_info = helper.make_tensor_value_info("main_out", TensorProto.FLOAT, [1, 4])
+        secondary_info = helper.make_tensor_value_info("secondary_out", TensorProto.FLOAT, [1, 4])
+        graph = helper.make_graph(
+            [main, secondary], "epcontext_multipartition", [], [main_info, secondary_info]
+        )
+        model = helper.make_model(
+            graph,
+            opset_imports=[
+                helper.make_opsetid("", 17),
+                helper.make_opsetid("com.microsoft", 1),
+            ],
+        )
+        model.ir_version = 9
+        path.parent.mkdir(parents=True, exist_ok=True)
+        onnx.save(model, str(path))
+
     def _crash_context(self, on_start: object = None) -> MagicMock:
         """A multiprocessing context whose Process reports a non-zero exit.
 
@@ -1023,10 +1070,61 @@ class TestCompileStageSalvage:
         assert ok is False
         assert not ctx_out.exists()
 
+    def test_salvages_multipartition_qnn_epcontext_with_secondary_nodes(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """A QNN artifact can pack all partitions into one main_context=1 node
+        while secondary main_context=0 nodes omit ep_cache_context. Validation
+        must accept it (only the main context's external .bin is required), not
+        reject it at the first secondary node."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
 
-# ---------------------------------------------------------------------------
-# Tests: _compile_stage_worker (delegation to the shared compiler)
-# ---------------------------------------------------------------------------
+        auto_onnx = bundle_dir_with_pipeline / "ctx_auto_ctx.onnx"
+        auto_bin = bundle_dir_with_pipeline / "ctx_auto_ctx_qnn.bin"
+
+        def _write() -> None:
+            auto_bin.write_bytes(b"weights")
+            self._make_multipartition_epcontext(auto_onnx, "ctx_auto_ctx_qnn.bin")
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
+
+        with patch(
+            "multiprocessing.get_context", return_value=self._crash_context(on_start=_write)
+        ):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is True
+        assert ctx_out.exists()
+        # The main context's external weights sidecar came along with the graph.
+        assert (compiled_dir / "ctx_auto_ctx_qnn.bin").exists()
+
+    def test_multipartition_epcontext_missing_main_bin_is_not_salvaged(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """Even for a multi-partition artifact, the main_context=1 node's
+        external .bin must exist — a missing main-context binary is rejected."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
+        auto_onnx = bundle_dir_with_pipeline / "ctx_auto_ctx.onnx"
+
+        def _write() -> None:
+            # Multi-partition graph, but the main context's .bin is never written.
+            self._make_multipartition_epcontext(auto_onnx, "ctx_auto_ctx_qnn.bin")
+
+        with patch(
+            "multiprocessing.get_context", return_value=self._crash_context(on_start=_write)
+        ):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is False
+        assert not ctx_out.exists()
 
 
 class TestCompileStageWorker:

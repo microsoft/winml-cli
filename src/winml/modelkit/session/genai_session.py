@@ -1054,14 +1054,21 @@ class GenaiSession:
     def _epcontext_is_valid(candidate: Path) -> bool:
         """True if *candidate* is an EPContext graph with its weights present.
 
-        Beyond the structural check (an ``EPContext`` node exists), a context
-        with ``embed_mode=0`` stores its compiled blob in an external file named
-        by ``ep_cache_context``; that file must exist and be non-empty next to
-        the graph, otherwise the salvaged stage would reference a missing binary
-        and crash at load time. ``embed_mode=1`` (or an absent attribute) embeds
-        the blob inline, so only the structural check applies — the
+        Beyond the structural check (an ``EPContext`` node exists), the *main
+        context* node (``main_context=1``, the default) with ``embed_mode=0``
+        stores its compiled blob in an external file named by
+        ``ep_cache_context``; that file must exist and be non-empty next to the
+        graph, otherwise the salvaged stage would reference a missing binary and
+        crash at load time. ``embed_mode=1`` (or an absent attribute) embeds the
+        blob inline, so only the structural check applies — the
         ``ep_cache_context`` bytes are the raw blob, not a path, and must not be
         treated as a filename.
+
+        Secondary partition nodes (``main_context=0``) legitimately omit
+        ``ep_cache_context`` per the EPContext schema — a single QNN context can
+        hold all partitions, with only the ``main_context=1`` node carrying the
+        external reference — so they are skipped here, mirroring the compiler's
+        own ``main_context`` handling.
         """
         from ..onnx import is_compiled_onnx, load_onnx
 
@@ -1074,20 +1081,27 @@ class GenaiSession:
         except (ValueError, OSError):
             return False
 
-        # Parseable and structurally an EPContext; verify any ``embed_mode=0``
-        # context has its external weights file present (the load below cannot
-        # raise a parse error now that the structural gate has passed).
+        # Parseable and structurally an EPContext; verify the main context's
+        # external weights file is present (the load below cannot raise a parse
+        # error now that the structural gate has passed).
         model = load_onnx(str(candidate), load_weights=False, validate=False)
         for node in model.graph.node:
             if node.op_type != "EPContext":
                 continue
             embed_mode = 1
+            main_context = 1
             cache_ref = ""
             for attr in node.attribute:
                 if attr.name == "embed_mode":
                     embed_mode = attr.i
+                elif attr.name == "main_context":
+                    main_context = attr.i
                 elif attr.name == "ep_cache_context":
                     cache_ref = attr.s.decode("utf-8", "ignore")
+            # Secondary partitions share the main context's blob and carry no
+            # external reference of their own — nothing to validate.
+            if main_context == 0:
+                continue
             if embed_mode == 0:
                 if not cache_ref:
                     return False
