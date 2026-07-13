@@ -29,7 +29,7 @@ memory-bound companions stay on CPU.
 
 ```mermaid
 graph LR
-    A["winml build -m Qwen/Qwen3-0.6B --device npu --ep qnn"] --> B[Genai bundle recipe]
+    A["winml build -m Qwen/Qwen3-0.6B --export-type specialized"] --> B[Genai bundle recipe]
     B --> C[ctx.onnx / iter.onnx — NPU]
     B --> D[embeddings.onnx — CPU]
     B --> E[lm_head.onnx — CPU]
@@ -41,14 +41,12 @@ graph LR
 
 ## Step 1: Build the bundle (one command)
 
-Targeting the NPU HTP with an explicit `--ep qnn` switches `winml build` from the
-stock per-model ONNX output to the full genai bundle. Pair it with `--device npu`,
-or `--device auto` when auto-detection resolves to the NPU:
+`--export-type specialized` switches `winml build` from the stock per-model ONNX
+output to the full genai bundle. It **infers** the recipe's target (Qwen3 builds
+for the NPU HTP via QNN), so `--ep`/`--device` are optional:
 
 ```bash
-winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --device npu --ep qnn
-# or, letting device auto-detection pick the NPU:
-winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --device auto --ep qnn
+winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --export-type specialized
 ```
 
 This builds (or reuses from cache) all four components and assembles them, writing
@@ -63,11 +61,22 @@ The CPU companions likewise keep their bundle-standard precisions.
 
 Force a clean rebuild of every component with `--rebuild`.
 
-!!! note "Opt-in, non-destructive"
-    The bundle path only triggers on an **explicit `--ep qnn`** together with an
+!!! note "Backward-compatible shortcut"
+    When `--export-type` is omitted, an **explicit `--ep qnn`** together with an
     NPU target — either `--device npu` or a `--device auto` that resolves to the
-    NPU. Qwen3 on any other target — CPU, GPU, or an auto-detected NPU *without*
-    an explicit `--ep qnn` — still produces the stock composite build, unchanged.
+    NPU — still routes a registered family to its bundle:
+
+    ```bash
+    winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --device npu --ep qnn
+    # or, letting device auto-detection pick the NPU:
+    winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --device auto --ep qnn
+    ```
+
+    Qwen3 on any other target — CPU, GPU, or an auto-detected NPU *without* an
+    explicit `--ep qnn` — still produces the stock composite build. `--export-type
+    generic` always forces the stock build, even on the NPU. A pinned
+    `--ep`/`--device` that contradicts the recipe fails fast rather than silently
+    reverting.
 
 ## Step 2: Tune context and prefill lengths (optional)
 
