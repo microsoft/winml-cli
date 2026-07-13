@@ -20,7 +20,7 @@ import contextlib
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -177,9 +177,9 @@ def _input_tensor_metadata(
 def _shape_dim_to_value(dim: Any) -> int | str | None:
     """Convert an ONNX TensorShapeProto dimension into a JSON-safe value."""
     if dim.HasField("dim_value"):
-        return dim.dim_value
+        return cast("int", dim.dim_value)
     if dim.HasField("dim_param"):
-        return dim.dim_param
+        return cast("str", dim.dim_param)
     return None
 
 
@@ -193,9 +193,8 @@ def _tensor_data_type_name(data_type: int) -> str:
 def _serialize_attribute(attr: Any) -> Any:
     """Convert an ONNX AttributeProto value into compact JSON-safe metadata."""
     import onnx
-    from onnx import helper
 
-    value = helper.get_attribute_value(attr)
+    value = onnx.helper.get_attribute_value(attr)
     attr_type = attr.type
     if attr_type == onnx.AttributeProto.STRING:
         return value.decode("utf-8", errors="replace")
