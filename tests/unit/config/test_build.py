@@ -34,6 +34,7 @@ from winml.modelkit.config.build import (
     SubmoduleInfo,
     _build_submodule_config,
     _patch_input_tensors,
+    merge_export_overrides,
     resolve_quant_compile_config,
 )
 from winml.modelkit.export import (
@@ -186,6 +187,87 @@ class TestPatchInputTensors:
         result = _patch_input_tensors(None, patches)
 
         assert [t.name for t in result] == ["input_ids"]
+
+
+class TestMergeExportOverrides:
+    """merge_export_overrides patches input-specs and re-derives dynamic axes."""
+
+    def _base(self) -> WinMLBuildConfig:
+        return WinMLBuildConfig(
+            export=WinMLExportConfig(
+                input_tensors=[
+                    InputTensorSpec(
+                        name="input_ids", dtype="int64", shape=(1, 16), value_range=(0, 30522)
+                    ),
+                    InputTensorSpec(name="attention_mask", dtype="int64", shape=(1, 16)),
+                ],
+            )
+        )
+
+    def test_symbolic_dims_derive_dynamic_axes(self) -> None:
+        # Regression: symbolic --input-specs dims must produce dynamic_axes even
+        # without --dynamic-axes, matching WinMLExportConfig.__post_init__.
+        base = self._base()
+        patches = [InputTensorSpec(name="input_ids", dtype=None, shape=("batch", "seq"))]
+
+        merged = merge_export_overrides(base, {"input_tensors": patches})
+
+        assert merged.export.dynamic_axes == {"input_ids": {0: "batch", 1: "seq"}}
+
+    def test_preserves_unlisted_inputs_and_fields(self) -> None:
+        base = self._base()
+        patches = [InputTensorSpec(name="input_ids", shape=("batch", "seq"))]
+
+        merged = merge_export_overrides(base, {"input_tensors": patches})
+
+        names = {t.name for t in merged.export.input_tensors}
+        assert names == {"input_ids", "attention_mask"}
+        ids = next(t for t in merged.export.input_tensors if t.name == "input_ids")
+        assert ids.dtype == "int64"  # preserved, not forced to float32
+        assert ids.value_range == (0, 30522)
+
+    def test_does_not_mutate_base(self) -> None:
+        base = self._base()
+        patches = [InputTensorSpec(name="input_ids", shape=("batch", "seq"))]
+
+        merge_export_overrides(base, {"input_tensors": patches})
+
+        assert base.export.input_tensors[0].shape == (1, 16)
+        assert base.export.dynamic_axes is None
+
+    def test_explicit_dynamic_axes_merged_with_symbolic(self) -> None:
+        base = self._base()
+        merged = merge_export_overrides(
+            base,
+            {
+                "dynamic_axes": {"attention_mask": {"0": "batch"}},
+                "input_tensors": [InputTensorSpec(name="input_ids", shape=(1, "seq"))],
+            },
+        )
+
+        assert merged.export.dynamic_axes == {
+            "attention_mask": {0: "batch"},
+            "input_ids": {1: "seq"},
+        }
+
+    def test_conflicting_dynamic_axes_raises(self) -> None:
+        base = self._base()
+        with pytest.raises(ValueError, match="Conflicting dynamic axis"):
+            merge_export_overrides(
+                base,
+                {
+                    "dynamic_axes": {"input_ids": {"0": "batch"}},
+                    "input_tensors": [InputTensorSpec(name="input_ids", shape=("other", "seq"))],
+                },
+            )
+
+    def test_non_input_overrides_merged(self) -> None:
+        base = self._base()
+        merged = merge_export_overrides(base, {"opset_version": 18})
+
+        assert merged.export.opset_version == 18
+        # input_tensors untouched when not patched
+        assert [t.name for t in merged.export.input_tensors] == ["input_ids", "attention_mask"]
 
 
 class TestGetIoSpecsFromConfig:

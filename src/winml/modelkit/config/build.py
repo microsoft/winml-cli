@@ -71,6 +71,8 @@ from ..utils.config_utils import merge_config
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     import torch
     from torch import nn
 
@@ -520,6 +522,35 @@ def _patch_input_tensors(
     return result
 
 
+def merge_export_overrides(
+    config: WinMLBuildConfig,
+    export_overrides: Mapping[str, Any],
+) -> WinMLBuildConfig:
+    """Merge export CLI overrides onto a build config, returning a new config.
+
+    Handles ``--export-config``/``--dynamic-axes``/``--input-specs``.
+    ``input_tensors`` (from ``--input-specs``) are patched onto the config's
+    auto-resolved specs *by name* rather than replacing the list wholesale, so
+    inputs the user didn't mention (e.g. ``attention_mask``) and their
+    dtype/value_range are preserved. The patched list is routed back through
+    ``merge_config`` so ``WinMLExportConfig.__post_init__`` re-runs and
+    re-derives ``dynamic_axes`` from any symbolic ``--input-specs`` dims;
+    assigning the list directly would bypass that and silently produce a static
+    model for e.g. ``--input-specs '{"input_ids": {"shape": ["batch", "seq"]}}'``.
+    """
+    export_overrides = dict(export_overrides)
+    input_spec_patches = export_overrides.pop("input_tensors", None)
+
+    merged = merge_config(config, {"export": export_overrides}) if export_overrides else config
+
+    if input_spec_patches is not None:
+        base_tensors = merged.export.input_tensors if merged.export is not None else None
+        patched = _patch_input_tensors(base_tensors, input_spec_patches)
+        merged = merge_config(merged, {"export": {"input_tensors": patched}})
+
+    return merged
+
+
 @overload
 def generate_hf_build_config(
     model_id: str | None = None,
@@ -726,29 +757,22 @@ def generate_hf_build_config(
         model_type=hf_config.model_type,
     )
     if override:
-        # ``--input-specs`` (build/perf) arrives as override["export"]["input_tensors"].
-        # merge_config replaces lists wholesale, which would drop auto-resolved inputs
-        # the user didn't list (e.g. attention_mask) and their value_ranges. Instead,
-        # patch these specs onto the auto-resolved input_tensors by name (mirroring the
-        # export command): matched names get their explicitly-set fields overwritten,
-        # unspecified fields keep the resolved values, and unknown names are appended.
-        input_spec_patches = None
+        # Export CLI overrides (--export-config/--dynamic-axes/--input-specs) arrive
+        # under override["export"] as a plain dict. Route them through
+        # merge_export_overrides so --input-specs patches the auto-resolved
+        # input_tensors by name (preserving unlisted inputs) and dynamic_axes are
+        # re-derived from symbolic dims. Any other override keys (e.g. quant) are
+        # merged normally.
+        export_overrides = None
         if isinstance(override, dict) and isinstance(override.get("export"), dict):
-            export_override = override["export"]
-            if "input_tensors" in export_override:
-                input_spec_patches = export_override["input_tensors"]
-                # Shallow-copy so the caller's dict isn't mutated when we drop the key.
-                override = {
-                    **override,
-                    "export": {k: v for k, v in export_override.items() if k != "input_tensors"},
-                }
+            export_overrides = override["export"]
+            override = {k: v for k, v in override.items() if k != "export"}
 
-        parent_config = merge_config(parent_config, override)
+        if override:
+            parent_config = merge_config(parent_config, override)
 
-        if input_spec_patches is not None and parent_config.export is not None:
-            parent_config.export.input_tensors = _patch_input_tensors(
-                parent_config.export.input_tensors, input_spec_patches
-            )
+        if export_overrides is not None:
+            parent_config = merge_export_overrides(parent_config, export_overrides)
 
     # =========================================================================
     # STEP 4.5: Apply device/precision policy (affects quant + compile only)

@@ -29,7 +29,6 @@ import click
 from rich.logging import RichHandler
 
 from ..utils import cli as cli_utils
-from ..utils.config_utils import merge_config
 from ..utils.console import (
     detect_model_source,
     get_console,
@@ -789,6 +788,8 @@ def build(
                 no_compile=no_compile,
             )
             if export_overrides:
+                from ..config import merge_export_overrides
+
                 config_list = (
                     config_or_configs
                     if isinstance(config_or_configs, list)
@@ -801,14 +802,15 @@ def build(
                             "a HuggingFace export config; they are not supported when "
                             "the build config has export=null."
                         )
+                # Route through merge_export_overrides so --input-specs patches each
+                # config's export.input_tensors by name (preserving inputs defined in
+                # the config file) instead of merge_config replacing the list wholesale.
                 if isinstance(config_or_configs, list):
                     config_or_configs = [
-                        merge_config(cfg, {"export": export_overrides}) for cfg in config_or_configs
+                        merge_export_overrides(cfg, export_overrides) for cfg in config_or_configs
                     ]
                 else:
-                    config_or_configs = merge_config(
-                        config_or_configs, {"export": export_overrides}
-                    )
+                    config_or_configs = merge_export_overrides(config_or_configs, export_overrides)
         else:
             if not model:
                 raise click.UsageError("-m/--model is required when -c is not provided.")

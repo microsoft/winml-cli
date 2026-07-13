@@ -1089,10 +1089,65 @@ class TestBuildEpDevice:
         call_kwargs = mock_build_api.call_args.kwargs
         assert call_kwargs["device"] == "npu"
 
+    def test_input_specs_patches_config_file_inputs(
+        self,
+        runner: CliRunner,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """-c + --input-specs must patch by name, not drop other config inputs.
 
-# =============================================================================
-# EP AUTO-SELECTION TESTS
-# =============================================================================
+        Regression: the -c branch merged export overrides wholesale, so
+        merge_config replaced export.input_tensors entirely -- dropping inputs
+        defined in the config file and exporting the survivor as float32.
+        """
+        from winml.modelkit.commands.build import build
+
+        config = {
+            "loader": {"task": "text-classification"},
+            "export": {
+                "opset_version": 17,
+                "batch_size": 1,
+                "input_tensors": [
+                    {"name": "input_ids", "dtype": "int64", "shape": [1, 16]},
+                    {"name": "attention_mask", "dtype": "int64", "shape": [1, 16]},
+                ],
+            },
+            "optim": {},
+            "quant": None,
+            "compile": None,
+        }
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps(config))
+
+        input_specs = tmp_path / "inputs.json"
+        input_specs.write_text(json.dumps({"input_ids": {"shape": ["batch", "seq"]}}))
+
+        result = runner.invoke(
+            build,
+            [
+                "-c",
+                str(config_path),
+                "-m",
+                "test",
+                "-o",
+                str(tmp_path / "out"),
+                "--input-specs",
+                str(input_specs),
+            ],
+            obj={"debug": False},
+        )
+
+        assert result.exit_code == 0, result.output
+        merged = mock_build_api.call_args.kwargs["config"]
+        tensors = {t.name: t for t in merged.export.input_tensors}
+        # attention_mask preserved (not dropped), input_ids patched with symbolic dims
+        assert set(tensors) == {"input_ids", "attention_mask"}
+        assert tensors["input_ids"].shape == ("batch", "seq")
+        assert tensors["input_ids"].dtype == "int64"  # preserved, not float32
+        assert tensors["attention_mask"].dtype == "int64"
+        # symbolic dims derive dynamic axes
+        assert merged.export.dynamic_axes == {"input_ids": {0: "batch", 1: "seq"}}
 
 
 class TestBuildEpAutoSelection:

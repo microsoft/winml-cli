@@ -29,6 +29,7 @@ from .build import (
     generate_build_config,
     generate_hf_build_config,
     generate_onnx_build_config,
+    merge_export_overrides,
     resolve_quant_compile_config,
 )
 from .precision import (
@@ -56,6 +57,7 @@ __all__ = [
     "is_quantized_precision",
     "is_weight_only_precision",
     "merge_config",
+    "merge_export_overrides",
     "resolve_precision",
     "resolve_quant_compile_config",
     "resolve_quant_types",
