@@ -46,6 +46,9 @@ class OperatorMetrics:
     num_htp_ops: int | None = None
     data_type: str | None = None
     dims: list[int] | None = None
+    onnx_op_type: str | None = None
+    onnx_attributes: dict[str, Any] | None = None
+    onnx_inputs: dict[str, dict[str, Any]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dict, omitting fields left unset (``None``).
