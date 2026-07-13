@@ -1392,10 +1392,43 @@ class TestBuildOnnxAutoDetect:
         assert "ONNX file not found" in result.output
         assert not mock_build_api.called
 
+    def test_build_configless_missing_onnx_raises(
+        self,
+        runner: CliRunner,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Config-less path: a missing .onnx path is rejected up front (#553)."""
+        from winml.modelkit.commands.build import build
 
-# =============================================================================
-# ANALYZER CONTROL TESTS
-# =============================================================================
+        output_dir = tmp_path / "out"
+        result = runner.invoke(
+            build,
+            ["-m", "nonexistent.onnx", "-o", str(output_dir), "--ep", "cpu"],
+            obj={"debug": False},
+        )
+        assert result.exit_code != 0
+        assert "ONNX file not found" in result.output
+        assert not mock_build_api.called
+
+    def test_build_configless_invalid_id_raises(
+        self,
+        runner: CliRunner,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Config-less path: an unparsable id gets the friendly classifier error."""
+        from winml.modelkit.commands.build import build
+
+        output_dir = tmp_path / "out"
+        result = runner.invoke(
+            build,
+            ["-m", "has spaces", "-o", str(output_dir), "--ep", "cpu"],
+            obj={"debug": False},
+        )
+        assert result.exit_code != 0
+        assert "not a valid HuggingFace" in result.output
+        assert not mock_build_api.called
 
 
 class TestBuildAnalyzerControl:
