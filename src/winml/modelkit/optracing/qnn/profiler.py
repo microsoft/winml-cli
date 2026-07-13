@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
+from ..._env import env_flag_enabled
 from ...winml import add_ep_for_device
 from ..base import OpTracer
 from ..result import OperatorMetrics, OpTraceResult
@@ -114,7 +115,7 @@ def _csv_operator_metrics(
 
 def _is_op_add_data_enabled() -> bool:
     """Return whether basic QNN op metrics should include ONNX node metadata."""
-    return os.getenv(_OP_ADD_DATA_ENV) is not None
+    return env_flag_enabled(_OP_ADD_DATA_ENV)
 
 
 def _load_onnx_operator_data(onnx_path: Path) -> dict[str, dict[str, Any]]:
