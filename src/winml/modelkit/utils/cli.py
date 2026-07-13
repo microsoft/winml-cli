@@ -1133,7 +1133,19 @@ def load_input_tensor_specs(path: Path, option_name: str = "--input-specs") -> l
         if dtype is not None and not isinstance(dtype, str):
             raise click.ClickException(f"{option_name}['{name}'].dtype must be a string")
 
-        specs.append(InputTensorSpec(name=name, dtype=dtype or "float32", shape=shape))
+        value_range = spec.get("value_range")
+        if value_range is not None:
+            if not isinstance(value_range, list) or len(value_range) != 2:
+                raise click.ClickException(
+                    f"{option_name}['{name}'].value_range must be a [min, max] list"
+                )
+            value_range = tuple(value_range)
+
+        # Preserve unspecified fields as None so build/perf can patch these specs
+        # onto the auto-resolved input_tensors (keeping the resolved dtype/shape/
+        # value_range for anything the user did not explicitly set) instead of
+        # forcing defaults that would replace correct values.
+        specs.append(InputTensorSpec(name=name, dtype=dtype, shape=shape, value_range=value_range))
 
     return specs
 
@@ -1158,7 +1170,13 @@ def load_export_overrides(
     if overrides:
         # Validate field names/types and dynamic-axis conflicts early, but return
         # the sparse mapping so build config merges do not clobber unrelated fields.
-        WinMLExportConfig.from_dict(overrides)
+        # from_dict can raise raw ValueError/TypeError for realistic bad input
+        # (non-integer axis keys, conflicting axes, batch_size <= 0); surface these
+        # as friendly CLI errors instead of a traceback.
+        try:
+            WinMLExportConfig.from_dict(overrides)
+        except (ValueError, TypeError) as e:
+            raise click.UsageError(f"Invalid export configuration: {e}") from e
     return overrides
 
 

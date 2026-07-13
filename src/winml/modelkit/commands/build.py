@@ -826,6 +826,11 @@ def build(
                         "supported when exporting HuggingFace model inputs, not "
                         "pre-exported ONNX files."
                     )
+                if shape_overrides:
+                    raise click.UsageError(
+                        "--shape-config is only supported when exporting HuggingFace "
+                        "model inputs, not pre-exported ONNX files."
+                    )
                 config_or_configs = generate_build_config(
                     onnx_path=model,
                     device=device,

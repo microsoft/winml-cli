@@ -33,6 +33,7 @@ from winml.modelkit.config import (
 from winml.modelkit.config.build import (
     SubmoduleInfo,
     _build_submodule_config,
+    _patch_input_tensors,
     resolve_quant_compile_config,
 )
 from winml.modelkit.export import (
@@ -129,6 +130,62 @@ def mock_io_specs() -> dict:
 # =============================================================================
 # TestGetIoSpecsFromConfig - Unit tests for resolve_io_specs()
 # =============================================================================
+
+
+class TestPatchInputTensors:
+    """_patch_input_tensors patches --input-specs onto auto-resolved specs by name."""
+
+    def test_matched_name_patches_only_specified_fields(self) -> None:
+        resolved = [
+            InputTensorSpec(name="input_ids", dtype="int64", shape=(2, 16), value_range=(0, 30522)),
+        ]
+        # User only overrides shape; dtype and value_range must be preserved.
+        patches = [InputTensorSpec(name="input_ids", dtype=None, shape=("batch", "seq"))]
+
+        result = _patch_input_tensors(resolved, patches)
+
+        assert len(result) == 1
+        assert result[0].shape == ("batch", "seq")
+        assert result[0].dtype == "int64"
+        assert result[0].value_range == (0, 30522)
+
+    def test_unlisted_inputs_are_preserved(self) -> None:
+        resolved = [
+            InputTensorSpec(name="input_ids", dtype="int64", shape=(2, 16)),
+            InputTensorSpec(name="attention_mask", dtype="int64", shape=(2, 16)),
+        ]
+        patches = [InputTensorSpec(name="input_ids", shape=("batch", "seq"))]
+
+        result = _patch_input_tensors(resolved, patches)
+
+        names = {t.name for t in result}
+        assert names == {"input_ids", "attention_mask"}
+        mask = next(t for t in result if t.name == "attention_mask")
+        assert mask.dtype == "int64"
+
+    def test_unknown_name_is_appended(self) -> None:
+        resolved = [InputTensorSpec(name="input_ids", dtype="int64", shape=(2, 16))]
+        patches = [InputTensorSpec(name="extra", dtype="float32", shape=(1, 4))]
+
+        result = _patch_input_tensors(resolved, patches)
+
+        assert [t.name for t in result] == ["input_ids", "extra"]
+        assert result[1].dtype == "float32"
+
+    def test_does_not_mutate_resolved_input(self) -> None:
+        resolved = [InputTensorSpec(name="input_ids", dtype="int64", shape=(2, 16))]
+        patches = [InputTensorSpec(name="input_ids", shape=("batch", "seq"))]
+
+        _patch_input_tensors(resolved, patches)
+
+        assert resolved[0].shape == (2, 16)
+
+    def test_none_resolved_uses_patches(self) -> None:
+        patches = [InputTensorSpec(name="input_ids", dtype="int64", shape=(1, 8))]
+
+        result = _patch_input_tensors(None, patches)
+
+        assert [t.name for t in result] == ["input_ids"]
 
 
 class TestGetIoSpecsFromConfig:

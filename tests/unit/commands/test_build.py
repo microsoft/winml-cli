@@ -1979,6 +1979,32 @@ class TestBuildEpResolution:
         assert mock_gen.call_count == 1
         assert mock_gen.call_args.kwargs["onnx_path"] == str(onnx_file)
 
+    def test_shape_config_rejected_for_onnx_input(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ):
+        """--shape-config must be rejected (not silently ignored) for ONNX inputs."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake-onnx-data")
+        shape_config = tmp_path / "shapes.json"
+        shape_config.write_text(json.dumps({"height": 224, "width": 224}))
+
+        with patch("winml.modelkit.config.generate_build_config") as mock_gen:
+            result = _invoke(
+                [
+                    "-m",
+                    str(onnx_file),
+                    "-o",
+                    str(tmp_path / "out"),
+                    "--shape-config",
+                    str(shape_config),
+                ]
+            )
+
+        assert result.exit_code != 0
+        assert "--shape-config" in result.output
+        assert "pre-exported ONNX" in result.output
+        mock_gen.assert_not_called()
+
 
 class TestBuildOnnxPipelineRegressions:
     """Regressions for CLI ONNX pipeline behavior in _build_onnx_pipeline."""

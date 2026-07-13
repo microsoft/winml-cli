@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import TYPE_CHECKING
 
@@ -18,6 +19,8 @@ from winml.modelkit.utils.cli import (
     build_pipeline_extra_kwargs,
     guard_output,
     ignored_build_flags_warning,
+    load_export_overrides,
+    load_input_tensor_specs,
     max_optim_iterations_option,
     no_color_option,
     optimize_option,
@@ -445,3 +448,49 @@ class TestGuardOutput:
         f.write_text("x")
         with pytest.raises(click.ClickException):
             guard_output(str(f), overwrite=False)
+
+
+class TestLoadInputTensorSpecs:
+    """load_input_tensor_specs preserves unspecified fields for patch-merging."""
+
+    def test_omitted_dtype_stays_none(self, tmp_path: Path) -> None:
+        f = tmp_path / "inputs.json"
+        f.write_text(json.dumps({"input_ids": {"shape": ["batch", "seq"]}}))
+
+        specs = load_input_tensor_specs(f)
+
+        assert len(specs) == 1
+        assert specs[0].name == "input_ids"
+        assert specs[0].dtype is None
+        assert specs[0].shape == ("batch", "seq")
+
+    def test_value_range_parsed(self, tmp_path: Path) -> None:
+        f = tmp_path / "inputs.json"
+        f.write_text(json.dumps({"input_ids": {"value_range": [0, 30522]}}))
+
+        specs = load_input_tensor_specs(f)
+
+        assert specs[0].value_range == (0, 30522)
+
+    def test_invalid_value_range_raises(self, tmp_path: Path) -> None:
+        f = tmp_path / "inputs.json"
+        f.write_text(json.dumps({"input_ids": {"value_range": [0]}}))
+
+        with pytest.raises(click.ClickException):
+            load_input_tensor_specs(f)
+
+
+class TestLoadExportOverrides:
+    """load_export_overrides surfaces validation errors as friendly CLI errors."""
+
+    def test_invalid_dynamic_axes_becomes_usage_error(self, tmp_path: Path) -> None:
+        # Non-integer axis key is rejected by WinMLExportConfig.from_dict with a
+        # raw ValueError; it must be re-raised as a click UsageError.
+        f = tmp_path / "dynamic_axes.json"
+        f.write_text(json.dumps({"input_ids": {"not_an_int": "batch"}}))
+
+        with pytest.raises(click.UsageError):
+            load_export_overrides(dynamic_axes=f)
+
+    def test_empty_returns_empty_mapping(self) -> None:
+        assert load_export_overrides() == {}

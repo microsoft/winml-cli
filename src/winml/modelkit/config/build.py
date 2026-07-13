@@ -490,6 +490,36 @@ def generate_onnx_build_config(
 # =============================================================================
 
 
+def _patch_input_tensors(
+    resolved: list[InputTensorSpec] | None,
+    patches: list[InputTensorSpec],
+) -> list[InputTensorSpec]:
+    """Patch user ``--input-specs`` onto auto-resolved input tensors by name.
+
+    Mirrors the ``export`` command: for a name that matches an auto-resolved
+    tensor, only the fields the user explicitly set (dtype/shape/value_range)
+    are overwritten, so unspecified fields keep their resolved values. Names
+    that don't match any resolved tensor are appended. Auto-resolved tensors
+    the user didn't mention are preserved untouched.
+    """
+    result = [copy.deepcopy(t) for t in (resolved or [])]
+    by_name = {t.name: t for t in result}
+    for patch in patches:
+        existing = by_name.get(patch.name)
+        if existing is not None:
+            if patch.dtype is not None:
+                existing.dtype = patch.dtype
+            if patch.shape is not None:
+                existing.shape = patch.shape
+            if patch.value_range is not None:
+                existing.value_range = patch.value_range
+        else:
+            new_spec = copy.deepcopy(patch)
+            result.append(new_spec)
+            by_name[new_spec.name] = new_spec
+    return result
+
+
 @overload
 def generate_hf_build_config(
     model_id: str | None = None,
@@ -696,7 +726,29 @@ def generate_hf_build_config(
         model_type=hf_config.model_type,
     )
     if override:
+        # ``--input-specs`` (build/perf) arrives as override["export"]["input_tensors"].
+        # merge_config replaces lists wholesale, which would drop auto-resolved inputs
+        # the user didn't list (e.g. attention_mask) and their value_ranges. Instead,
+        # patch these specs onto the auto-resolved input_tensors by name (mirroring the
+        # export command): matched names get their explicitly-set fields overwritten,
+        # unspecified fields keep the resolved values, and unknown names are appended.
+        input_spec_patches = None
+        if isinstance(override, dict) and isinstance(override.get("export"), dict):
+            export_override = override["export"]
+            if "input_tensors" in export_override:
+                input_spec_patches = export_override["input_tensors"]
+                # Shallow-copy so the caller's dict isn't mutated when we drop the key.
+                override = {
+                    **override,
+                    "export": {k: v for k, v in export_override.items() if k != "input_tensors"},
+                }
+
         parent_config = merge_config(parent_config, override)
+
+        if input_spec_patches is not None and parent_config.export is not None:
+            parent_config.export.input_tensors = _patch_input_tensors(
+                parent_config.export.input_tensors, input_spec_patches
+            )
 
     # =========================================================================
     # STEP 4.5: Apply device/precision policy (affects quant + compile only)
