@@ -34,7 +34,7 @@ class RegressionHead(nn.Module):
         self.dropout = nn.Dropout(config.final_dropout)
         self.out_proj = nn.Linear(config.hidden_size, config.num_labels)
 
-    def forward(self, features: torch.Tensor, **kwargs: Any) -> torch.Tensor:  # noqa: D102
+    def forward(self, features: torch.Tensor) -> torch.Tensor:  # noqa: D102
         x = features
         x = self.dropout(x)
         x = self.dense(x)

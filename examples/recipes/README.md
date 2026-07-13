@@ -14,7 +14,7 @@ Each *(model, task)* includes:
 
 ## Models
 
-Total: **76** (model, task) tuples with curated model recipes.
+Total: **76** (model, task) tuples with curated recipes. 75 pass fp16 eval on all 10 (EP, device) buckets; audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim (audio-classification) is fp32/CPU-only.
 
 | Model | Task |
 |---|---|

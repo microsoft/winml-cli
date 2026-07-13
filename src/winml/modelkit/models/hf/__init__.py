@@ -95,10 +95,9 @@ from .vision_encoder_decoder import (
 )
 from .vision_encoder_decoder import VisionEncoderIOConfig as _VisionEncoderIOConfig
 from .vitpose import MODEL_CLASS_MAPPING as _VITPOSE_CLASS_MAPPING
+from .wav2vec2 import MODEL_CLASS_MAPPING as _WAV2VEC2_CLASS_MAPPING
 from .wav2vec2 import (
-    MODEL_CLASS_MAPPING as _WAV2VEC2_CLASS_MAPPING,
-)
-from .wav2vec2 import (
+    # triggers registration
     Wav2Vec2EmotionRegressionIOConfig as _Wav2Vec2EmotionRegressionIOConfig,
 )
 from .zoedepth import ZoeDepthIOConfig as _ZoeDepthIOConfig  # triggers registration
