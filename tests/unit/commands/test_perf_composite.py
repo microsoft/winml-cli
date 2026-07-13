@@ -249,66 +249,6 @@ class TestPerfBenchmarkComposite:
         assert bench._run_sub_models() == {}
 
 
-class TestPerfSubmodelFilter:
-    """--submodel narrows composite benchmarking to a single named sub-model."""
-
-    def _bench_with_submodel(self, submodel: str | None) -> PerfBenchmark:
-        config = BenchmarkConfig(
-            model_id="google/siglip-base-patch16-224",
-            task="zero-shot-image-classification",
-            device="gpu",
-            iterations=3,
-            warmup=1,
-            submodel=submodel,
-        )
-        bench = PerfBenchmark(config)
-        bench._model = _siglip_like()
-        return bench
-
-    def test_submodel_benchmarks_only_requested_component(self) -> None:
-        bench = self._bench_with_submodel("text-encoder")
-        results = bench._run_sub_models()
-
-        assert set(results) == {"text-encoder"}
-
-    def test_submodel_runs_only_requested_session(self) -> None:
-        bench = self._bench_with_submodel("text-encoder")
-        model = bench._model
-        assert isinstance(model, _FakeComposite)
-        bench._run_sub_models()
-
-        # Only the selected sub-session is compiled/run; the other is untouched.
-        assert model.sub_models["text-encoder"]._session.compiled is True
-        assert model.sub_models["image-encoder"]._session.compiled is False
-        assert len(model.sub_models["image-encoder"]._session.run_log) == 0
-
-    def test_submodel_unknown_name_raises(self) -> None:
-        import click
-
-        bench = self._bench_with_submodel("bogus")
-        with pytest.raises(click.UsageError, match="Unknown sub-model 'bogus'"):
-            bench._run_sub_models()
-
-    def test_submodel_on_non_composite_raises(self) -> None:
-        import click
-
-        config = BenchmarkConfig(
-            model_id="prajjwal1/bert-tiny",
-            device="cpu",
-            submodel="encoder",
-        )
-        bench = PerfBenchmark(config)
-        bench._model = _FakeSubModel(
-            _io_config(["input_ids"], [[1, 8]], ["int64"], ["logits"], [[1, 2]]),
-            task="text-classification",
-        )
-        # run() detects composite post-load; bypass the (network) load step.
-        bench._load_model = lambda: None  # type: ignore[method-assign]
-
-        with pytest.raises(click.UsageError, match="not a composite model"):
-            bench.run()
-
-
 class TestReportCompositeResults:
     """report_composite_results writes a combined per-component JSON report."""
 

@@ -1286,3 +1286,119 @@ class TestPerfFormatJson:
         # Should NOT be parseable as JSON (it's console text)
         with pytest.raises(json.JSONDecodeError):
             json.loads(result.output)
+
+
+class TestPerfSubmodel:
+    """--submodel narrows a composite model to a single sub-component."""
+
+    _COMPONENTS: ClassVar[dict[str, str]] = {
+        "encoder": "feature-extraction",
+        "decoder": "text2text-generation",
+    }
+
+    def test_submodel_loads_component_as_single_with_its_task(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """--submodel rewrites the load task to the component's own task."""
+        captured: dict[str, BenchmarkConfig] = {}
+
+        def capture_config(config: BenchmarkConfig) -> MagicMock:
+            captured["config"] = config
+            mock = MagicMock()
+            mock.run.return_value = MagicMock()
+            return mock
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf._resolve_composite_components_for_perf",
+                return_value=dict(self._COMPONENTS),
+            ),
+            patch("winml.modelkit.commands.perf.PerfBenchmark", side_effect=capture_config),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                [
+                    "-m",
+                    "google-t5/t5-small",
+                    "--submodel",
+                    "encoder",
+                    "-o",
+                    str(tmp_path / "out.json"),
+                ],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        # The selected component is loaded as a single model using its own task.
+        assert captured["config"].task == "feature-extraction"
+        assert captured["config"].submodel == "encoder"
+
+    def test_submodel_rejects_unknown_name(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--submodel with an invalid name is a clean error listing the available ones."""
+        with (
+            patch(
+                "winml.modelkit.commands.perf._resolve_composite_components_for_perf",
+                return_value=dict(self._COMPONENTS),
+            ),
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_bench,
+        ):
+            result = runner.invoke(
+                perf,
+                ["-m", "google-t5/t5-small", "--submodel", "bogus"],
+                obj={},
+            )
+
+        assert result.exit_code != 0
+        assert "Unknown sub-model 'bogus'" in result.output
+        assert "encoder" in result.output
+        mock_bench.assert_not_called()
+
+    def test_submodel_rejects_non_composite(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--submodel on a non-composite model is a clean error."""
+        with (
+            patch(
+                "winml.modelkit.commands.perf._resolve_composite_components_for_perf",
+                return_value=None,
+            ),
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_bench,
+        ):
+            result = runner.invoke(
+                perf,
+                ["-m", "prajjwal1/bert-tiny", "--submodel", "encoder"],
+                obj={},
+            )
+
+        assert result.exit_code != 0
+        assert "not a composite model" in result.output
+        mock_bench.assert_not_called()
+
+    def test_submodel_rejects_onnx_file(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--submodel on an ONNX file is rejected (already a single model)."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        result = runner.invoke(
+            perf,
+            ["-m", str(onnx_file), "--submodel", "encoder"],
+            obj={},
+        )
+
+        assert result.exit_code != 0
+        assert "not supported for ONNX files" in result.output
+
+    def test_submodel_rejects_with_module(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--submodel cannot be combined with --module."""
+        with patch(
+            "winml.modelkit.commands.perf._resolve_composite_components_for_perf",
+            return_value=dict(self._COMPONENTS),
+        ):
+            result = runner.invoke(
+                perf,
+                ["-m", "google-t5/t5-small", "--submodel", "encoder", "--module", "T5Block"],
+                obj={},
+            )
+
+        assert result.exit_code != 0
+        assert "cannot be combined with --module" in result.output
