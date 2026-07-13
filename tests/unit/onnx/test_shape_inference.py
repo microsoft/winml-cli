@@ -14,32 +14,31 @@ from queue import Queue
 from shutil import rmtree
 
 import onnx
-from onnx import TensorProto, helper
 
 from winml.modelkit.onnx import infer_shapes, shape
 from winml.modelkit.onnx.shape import _infer_symbolic_shapes_worker
 
 
 def _make_model() -> onnx.ModelProto:
-    input_ = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1])
-    output = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1])
-    node = helper.make_node("Identity", ["input"], ["output"])
-    graph = helper.make_graph([node], "test", [input_], [output])
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    input_ = onnx.helper.make_tensor_value_info("input", onnx.TensorProto.FLOAT, [1])
+    output = onnx.helper.make_tensor_value_info("output", onnx.TensorProto.FLOAT, [1])
+    node = onnx.helper.make_node("Identity", ["input"], ["output"])
+    graph = onnx.helper.make_graph([node], "test", [input_], [output])
+    return onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
 
 
 def _make_large_model() -> onnx.ModelProto:
-    input_ = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1])
-    output = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1])
+    input_ = onnx.helper.make_tensor_value_info("input", onnx.TensorProto.FLOAT, [1])
+    output = onnx.helper.make_tensor_value_info("output", onnx.TensorProto.FLOAT, [1])
     nodes = []
     previous = "input"
     for index in range(1_000):
         current = f"value_{index}"
-        nodes.append(helper.make_node("Identity", [previous], [current]))
+        nodes.append(onnx.helper.make_node("Identity", [previous], [current]))
         previous = current
-    nodes.append(helper.make_node("Identity", [previous], ["output"]))
-    graph = helper.make_graph(nodes, "large_test", [input_], [output])
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    nodes.append(onnx.helper.make_node("Identity", [previous], ["output"]))
+    graph = onnx.helper.make_graph(nodes, "large_test", [input_], [output])
+    return onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
 
 
 def test_symbolic_inference_keeps_parent_cwd_usable_while_worker_runs() -> None:
