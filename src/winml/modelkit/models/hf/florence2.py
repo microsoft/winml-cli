@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol, TypedDict, cast
 
 import torch
 import torch.nn as nn
@@ -25,7 +25,9 @@ from .decoder_wrapper import WinMLDecoderWrapper, WinMLStaticCacheDecoderIOConfi
 
 
 if TYPE_CHECKING:
-    from transformers import GenerationConfig, PretrainedConfig
+    from collections.abc import Callable, Sequence
+
+    from transformers import GenerationConfig, PretrainedConfig, PreTrainedModel
 
 
 FLORENCE2_CONFIG = WinMLBuildConfig(
@@ -37,25 +39,89 @@ FLORENCE2_CONFIG = WinMLBuildConfig(
 )
 
 
+class _LoadingInfo(TypedDict):
+    """Subset of Transformers' checkpoint reconciliation metadata."""
+
+    missing_keys: Sequence[object]
+    unexpected_keys: Sequence[object]
+    mismatched_keys: Sequence[object]
+
+
+class _Florence2EncoderOutput(Protocol):
+    """Encoder result needed by the ONNX export wrapper."""
+
+    last_hidden_state: torch.Tensor
+
+
+class _Florence2Encoder(Protocol):
+    """Callable encoder surface exposed by Florence-2."""
+
+    def __call__(
+        self,
+        *,
+        attention_mask: torch.Tensor,
+        inputs_embeds: torch.Tensor,
+        return_dict: bool,
+    ) -> _Florence2EncoderOutput:
+        """Encode the supplied embeddings."""
+
+
+class _Florence2DecoderOutput(Protocol):
+    """Decoder result needed by the static-cache export wrapper."""
+
+    last_hidden_state: torch.Tensor
+    past_key_values: tuple[tuple[torch.Tensor, ...], ...]
+
+
+class _Florence2Decoder(Protocol):
+    """Callable decoder surface exposed by Florence-2."""
+
+    def __call__(
+        self,
+        *,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        encoder_hidden_states: torch.Tensor,
+        encoder_attention_mask: None,
+        past_key_values: tuple[tuple[torch.Tensor, torch.Tensor], ...],
+        use_cache: bool,
+        return_dict: bool,
+    ) -> _Florence2DecoderOutput:
+        """Decode a token using the supplied encoder states and cache."""
+
+
+class _Florence2LanguageModel(Protocol):
+    """Language-model head surface used after Florence-2 decoding."""
+
+    lm_head: Callable[[torch.Tensor], torch.Tensor]
+
+
 class _NativeFlorence2ForConditionalGeneration:
     """Load the checkpoint with its upstream model implementation."""
 
     @classmethod
     def from_pretrained(
         cls, pretrained_model_name_or_path: str, **kwargs: Any
-    ) -> nn.Module:
+    ) -> PreTrainedModel:
         """Load all checkpoint tensors through the model's upstream contract."""
         from transformers import AutoModelForCausalLM
 
         kwargs["output_loading_info"] = True
         kwargs.setdefault("attn_implementation", "eager")
-        model, loading_info = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name_or_path, **kwargs
+        model, loading_info = cast(
+            "tuple[PreTrainedModel, _LoadingInfo]",
+            AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name_or_path, **kwargs
+            ),
         )
         unresolved = {
-            name: loading_info[name]
-            for name in ("missing_keys", "unexpected_keys", "mismatched_keys")
-            if loading_info[name]
+            name: keys
+            for name, keys in (
+                ("missing_keys", loading_info["missing_keys"]),
+                ("unexpected_keys", loading_info["unexpected_keys"]),
+                ("mismatched_keys", loading_info["mismatched_keys"]),
+            )
+            if keys
         }
         if unresolved:
             counts = ", ".join(f"{name}={len(keys)}" for name, keys in unresolved.items())
@@ -138,23 +204,33 @@ class Florence2EncoderWrapper(nn.Module):
         attention_mask: torch.Tensor,
     ) -> torch.Tensor:
         """Encode the caption prompt after replacing image placeholders."""
-        inputs_embeds = self.model.get_input_embeddings()(input_ids)
-        image_features = self.model._encode_image(pixel_values).to(
+        get_input_embeddings = cast(
+            "Callable[[], Callable[[torch.Tensor], torch.Tensor]]",
+            self.model.get_input_embeddings,
+        )
+        input_embeddings = get_input_embeddings()
+        inputs_embeds = input_embeddings(input_ids)
+        encode_image = cast("Callable[[torch.Tensor], torch.Tensor]", self.model._encode_image)
+        image_features = encode_image(pixel_values).to(
             inputs_embeds.device, inputs_embeds.dtype
         )
-        inputs_embeds, _ = self.model._merge_input_ids_with_image_features(
-            image_features, inputs_embeds
+        merge_image_features = cast(
+            "Callable[[torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor]]",
+            self.model._merge_input_ids_with_image_features,
         )
+        inputs_embeds, _ = merge_image_features(image_features, inputs_embeds)
         image_attention_mask = attention_mask.new_ones(
             (attention_mask.size(0), image_features.size(1))
         )
         attention_mask = torch.cat((image_attention_mask, attention_mask), dim=1)
-        outputs = self.model.get_encoder()(
+        get_encoder = cast("Callable[[], _Florence2Encoder]", self.model.get_encoder)
+        encoder = get_encoder()
+        outputs = encoder(
             attention_mask=attention_mask,
             inputs_embeds=inputs_embeds,
             return_dict=True,
         )
-        return cast("torch.Tensor", outputs.last_hidden_state)
+        return outputs.last_hidden_state
 
 
 @register_onnx_overwrite("florence2", "feature-extraction", library_name="transformers")
@@ -257,7 +333,9 @@ class Florence2DecoderWrapper(WinMLDecoderWrapper):
             )
             for layer in cache.layers
         )
-        decoder_outputs = self.model.get_decoder()(
+        get_decoder = cast("Callable[[], _Florence2Decoder]", self.model.get_decoder)
+        decoder = get_decoder()
+        decoder_outputs = decoder(
             input_ids=inputs["decoder_input_ids"],
             attention_mask=inputs["decoder_attention_mask"][
                 :, : cache_position + inputs["decoder_input_ids"].size(1)
@@ -273,8 +351,8 @@ class Florence2DecoderWrapper(WinMLDecoderWrapper):
                 key[:, :, cache_position:, :],
                 value[:, :, cache_position:, :],
             )
-        return cast(
-            "torch.Tensor", self.model.language_model.lm_head(decoder_outputs.last_hidden_state)
+        return cast("_Florence2LanguageModel", self.model.language_model).lm_head(
+            decoder_outputs.last_hidden_state
         )
 
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from transformers.pipelines.image_to_text import ImageToTextPipeline
 
@@ -29,6 +29,8 @@ from ..models.winml.composite_model import PipelineCapability
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+    from transformers.pipelines.base import GenericTensor
 
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
@@ -68,6 +70,22 @@ class SupportsTokenizer(Protocol):
     tokenizer: SupportsTokenDecoding
 
 
+class SupportsCombinedProcessorInputs(Protocol):
+    """Processor output that can be transferred to the pipeline tensor dtype."""
+
+    def to(self, device: object) -> SupportsCombinedProcessorInputs:
+        """Move the processor output to a tensor device or dtype."""
+
+
+class SupportsCombinedImageTextProcessor(SupportsTokenizer, Protocol):
+    """Combined image/text processor surface required by the custom pipeline."""
+
+    def __call__(
+        self, *, images: object, text: str, return_tensors: str
+    ) -> SupportsCombinedProcessorInputs:
+        """Process an image and its text prompt together."""
+
+
 class CombinedProcessorImageToTextPipeline(ImageToTextPipeline):
     """Image-to-text pipeline that preserves a processor's joint image/text contract."""
 
@@ -76,23 +94,29 @@ class CombinedProcessorImageToTextPipeline(ImageToTextPipeline):
     _load_feature_extractor = False
     _load_tokenizer = False
 
-    def preprocess(
-        self, image: Any, prompt: str | None = None, timeout: float | None = None
-    ) -> Any:
+    # Transformers' Pipeline stub uses ``input_`` plus ``**dict`` while its
+    # ImageToTextPipeline override uses image/prompt/timeout. Preserve the
+    # latter's public API and narrow only the incompatible base-stub override.
+    def preprocess(  # type: ignore[override]
+        self, image: Any, prompt: Any = None, timeout: Any = None
+    ) -> dict[str, GenericTensor]:
         """Create model inputs with one combined processor invocation."""
         from transformers.image_utils import load_image
 
         if prompt is None:
             raise ValueError("A prompt is required by the combined image/text processor.")
+        processor = self.processor
+        if processor is None or not callable(processor):
+            raise TypeError("A combined image/text processor is required.")
         image = load_image(image, timeout=timeout)
-        model_inputs = self.processor(
+        model_inputs = cast("SupportsCombinedImageTextProcessor", processor)(
             images=image,
             text=prompt,
             return_tensors=self.framework,
         )
         if self.framework == "pt":
             model_inputs = model_inputs.to(self.dtype)
-        return model_inputs
+        return cast("dict[str, GenericTensor]", model_inputs)
 
 
 def _pipeline_class_for(model: Any) -> type | None:
@@ -107,7 +131,9 @@ def _pipeline_class_for(model: Any) -> type | None:
     return None
 
 
-def _combined_processor_for(model: Any, model_id: str | None) -> Any:
+def _combined_processor_for(
+    model: Any, model_id: str | None
+) -> SupportsCombinedImageTextProcessor:
     """Load the declared combined processor with explicit capability errors."""
     loader = getattr(model, "create_combined_processor", None)
     if not callable(loader):
@@ -119,17 +145,19 @@ def _combined_processor_for(model: Any, model_id: str | None) -> Any:
         raise ValueError(
             "A model ID is required to load a combined image/text processor."
         )
-    return loader(model_id)
+    processor = loader(model_id)
+    tokenizer = getattr(processor, "tokenizer", None)
+    if not callable(processor) or not callable(getattr(tokenizer, "decode", None)):
+        raise TypeError(
+            "Combined image/text processors must be callable and expose a tokenizer "
+            "with a decode method."
+        )
+    return cast("SupportsCombinedImageTextProcessor", processor)
 
 
 def _tokenizer_for(processor: SupportsTokenizer) -> SupportsTokenDecoding:
     """Return the processor-owned tokenizer required by image-to-text decoding."""
-    tokenizer = getattr(processor, "tokenizer", None)
-    if not callable(getattr(tokenizer, "decode", None)):
-        raise TypeError(
-            "Combined image/text processors must expose a tokenizer with a decode method."
-        )
-    return tokenizer
+    return processor.tokenizer
 
 
 def create_pipeline(
