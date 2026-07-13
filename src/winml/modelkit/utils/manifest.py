@@ -61,7 +61,7 @@ def _sanitize_value(value: Any) -> Any:
 
         if isinstance(value, np.generic):
             return value.item()
-    except ImportError:
+    except ImportError:  # numpy is an optional dependency
         pass
     return value
 
