@@ -103,6 +103,22 @@ CPU companions handle the embedding lookup and vocab projection. The command rep
 time-to-first-token (prefill) and decode throughput, and writes a results JSON under
 `~/.cache/winml/perf/`.
 
+!!! tip "One command from a model id (auto-build)"
+    `winml perf --runtime winml-genai` also accepts a HuggingFace **model id** directly.
+    When `-m` is not a prebuilt bundle directory, it builds the genai bundle on demand
+    (into `~/.cache/winml/`, reused on later runs) and then benchmarks it — no separate
+    `winml build` step:
+
+    ```bash
+    winml perf -m Qwen/Qwen3-0.6B --runtime winml-genai --compile \
+      --compile-timeout 600 --max-new-tokens 20 --prompt "What is the capital of France?"
+    ```
+
+    The auto-build always targets the NPU HTP via QNN (the only supported genai bundle
+    target today). `-o/--output` stays the results-JSON path, and `--rebuild` forces a
+    fresh bundle. To persist the bundle at a specific directory instead, run `winml build`
+    (Step 1) and point `perf -m` at that folder.
+
 !!! warning "`--compile` is required on the NPU"
     The genai NPU path needs `--compile` (EPContext pre-compilation): each QNN stage is
     compiled once to a context binary before generation. Without `--compile`,

@@ -1767,6 +1767,80 @@ def _warn_ignored_genai_flags(ctx: click.Context, console: Console) -> None:
         )
 
 
+def _autobuild_genai_bundle(ctx: click.Context, *, model: str, console: Console) -> Path:
+    """Build (or reuse) a genai bundle for a HuggingFace model id.
+
+    Mirrors the winml runtime's on-the-fly build: when ``-m`` is a model id
+    rather than a prebuilt bundle directory, emit a genai bundle into a managed
+    cache directory and benchmark that. A prior build is reused unless
+    ``--rebuild`` / ``--ignore-cache`` forces a fresh one. genai bundles target
+    the NPU HTP via QNN, so the build pins ``ep=qnn`` / ``device=npu`` regardless
+    of the benchmark's ``--device`` (which still selects the runtime EP).
+
+    The imports are function-local so ``winml perf --help`` does not pay their
+    cost and so a bundle-directory run never imports the build stack.
+    """
+    from ..cache import get_cache_dir, get_model_dir
+    from ..loader import resolve_loader_config
+    from ..models.winml import build_genai_bundle, resolve_genai_bundle
+
+    p = ctx.params
+    cache_dir = get_cache_dir()
+    bundle_dir = get_model_dir(model, cache_dir=cache_dir) / "genai-bundle"
+    # --ignore-cache and --rebuild both force a fresh bundle. (For the genai
+    # auto-build the fresh build lands in the same cache dir rather than a
+    # throwaway temp folder; the expensive component builds are cache-keyed.)
+    force_rebuild = bool(p.get("rebuild") or p.get("ignore_cache"))
+
+    # Fast path: reuse a previously built bundle (keyed by model id) unless a
+    # rebuild was requested. Checked before any model resolution so a cache hit
+    # never touches the network.
+    if (bundle_dir / "genai_config.json").exists() and not force_rebuild:
+        console.print(f"[dim]Reusing cached genai bundle:[/dim] {bundle_dir}")
+        return bundle_dir
+
+    # Cache miss (or forced rebuild): resolve the model family so its
+    # genai-bundle recipe can drive the build.
+    try:
+        loader_cfg, hf_config, *_rest = resolve_loader_config(model_id=model, task=p.get("task"))
+    except click.ClickException:
+        raise
+    except Exception as exc:
+        raise click.UsageError(
+            f"Could not resolve '{model}' for a genai bundle build ({exc}). Pass a "
+            "prebuilt genai bundle *directory* produced by a winml-cli export instead."
+        ) from exc
+
+    model_type = getattr(hf_config, "model_type", None) or loader_cfg.model_type
+    recipe = resolve_genai_bundle(model_type)
+    if recipe is None:
+        raise click.UsageError(
+            f"--runtime winml-genai cannot auto-build '{model}': no genai bundle recipe "
+            f"is registered for model type '{model_type or 'unknown'}'. Pass a prebuilt "
+            "genai bundle *directory* (e.g. from "
+            f"'winml build -m {model} -o <dir> --device npu --ep qnn')."
+        )
+
+    precision = p["precision"] if cli_utils.is_cli_provided(ctx, "precision") else None
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    console.print(
+        f"[dim]Building genai bundle for[/dim] {model} "
+        f"[dim](model_type={model_type}) ->[/dim] {bundle_dir}"
+    )
+    build_genai_bundle(
+        model,
+        bundle_dir,
+        recipe,
+        ep="qnn",
+        device="npu",
+        precision=precision,
+        force_rebuild=force_rebuild,
+        cache_dir=cache_dir,
+        emit=lambda msg: console.print(msg, markup=False),
+    )
+    return bundle_dir
+
+
 def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool) -> None:
     """Validate folder input and dispatch to the winml-genai benchmark path.
 
@@ -1787,16 +1861,25 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     if p.get("module_class"):
         raise click.UsageError("--module is not supported with --runtime winml-genai.")
 
+    # Resolve the bundle. A local directory is used as-is (it must be a real
+    # genai bundle); an ``.onnx`` file is rejected; anything else is treated as
+    # a HuggingFace model id and a genai bundle is auto-built on demand -- the
+    # same way the winml runtime auto-builds an ONNX from a model id.
     bundle_dir = Path(model)
-    if bundle_dir.suffix.lower() == ".onnx" or not bundle_dir.is_dir():
+    autobuilt_from: str | None = None
+    if bundle_dir.is_dir():
+        if not (bundle_dir / "genai_config.json").exists():
+            raise click.UsageError(
+                f"No genai_config.json found in '{model}'. Point --model at a bundle "
+                "folder produced by a winml-cli export."
+            )
+    elif bundle_dir.suffix.lower() == ".onnx":
         raise click.UsageError(
             f"--runtime winml-genai requires a genai bundle *directory*, got '{model}'."
         )
-    if not (bundle_dir / "genai_config.json").exists():
-        raise click.UsageError(
-            f"No genai_config.json found in '{model}'. Point --model at a bundle "
-            "folder produced by a winml-cli export."
-        )
+    else:
+        bundle_dir = _autobuild_genai_bundle(ctx, model=model, console=console)
+        autobuilt_from = model
 
     _warn_ignored_genai_flags(ctx, console)
 
@@ -1809,7 +1892,14 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     # The shared --device default is "auto" (the ONNX default), so an omitted
     # flag is treated as "config"; an explicit --device is a deliberate override.
     device = p["device"].lower() if cli_utils.is_cli_provided(ctx, "device") else "config"
-    output = p.get("output") or genai_output_path(bundle_dir)
+    if p.get("output"):
+        output = p["output"]
+    elif autobuilt_from is not None:
+        # The auto-built bundle lives in a cache dir whose name is not a
+        # meaningful slug, so derive the report path from the model id instead.
+        output = generate_output_path(autobuilt_from)
+    else:
+        output = genai_output_path(bundle_dir)
     cli_utils.guard_output(output, p["overwrite"])
 
     # EP override precedence: an explicit ``--ep`` wins over the ``--device``

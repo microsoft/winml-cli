@@ -116,6 +116,34 @@ def _make_bundle(tmp_path: Path, name: str = "bundle") -> Path:
     return bundle
 
 
+def _fake_resolve_loader_config(model_type: str):
+    """Return a ``resolve_loader_config`` stand-in yielding *model_type*.
+
+    Keeps the auto-build tests offline (no HF-hub access).
+    """
+    from types import SimpleNamespace
+
+    def _resolve(model_id: object = None, *, task: object = None, **_kw: object):
+        cfg = SimpleNamespace(model_type=model_type)
+        hf = SimpleNamespace(model_type=model_type)
+        return cfg, hf, object, None
+
+    return _resolve
+
+
+def _fake_build_genai_bundle(captured: dict):
+    """A ``build_genai_bundle`` stand-in that writes a stub bundle and records kwargs."""
+
+    def _build(model_id: str, output_dir: object, recipe: object, **kwargs: object) -> Path:
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "genai_config.json").write_text("{}", encoding="utf-8")
+        captured["build"] = {"model_id": model_id, "output_dir": out, **kwargs}
+        return out / "genai_config.json"
+
+    return _build
+
+
 # ---------------------------------------------------------------------------
 # resolve_genai_ep
 # ---------------------------------------------------------------------------
@@ -821,9 +849,19 @@ class TestCliDispatch:
         assert "directory" in result.output.lower()
         assert "config" not in capture_run
 
-    def test_missing_directory_rejected(
-        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    def test_unresolvable_model_id_rejected(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
     ) -> None:
+        # A -m that is neither a bundle dir nor an .onnx is treated as a model
+        # id; an unresolvable one surfaces a clean UsageError, not a traceback.
+        import winml.modelkit.loader as loader_mod
+
+        monkeypatch.setenv("WINML_CACHE_DIR", str(tmp_path))
+
+        def _boom(*_a: object, **_k: object):
+            raise ValueError("nope")
+
+        monkeypatch.setattr(loader_mod, "resolve_loader_config", _boom)
         result = runner.invoke(perf, ["-m", str(tmp_path / "nope"), "--runtime", "winml-genai"])
         assert result.exit_code != 0
         assert "config" not in capture_run
@@ -836,6 +874,111 @@ class TestCliDispatch:
         result = runner.invoke(perf, ["-m", str(empty), "--runtime", "winml-genai"])
         assert result.exit_code != 0
         assert "genai_config.json" in result.output
+        assert "config" not in capture_run
+
+    def test_hf_model_id_autobuilds_and_dispatches(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
+    ) -> None:
+        # -m is a model id (not a bundle dir): a genai bundle is built on the
+        # fly into the cache and then benchmarked -- one command, no prior build.
+        import winml.modelkit.loader as loader_mod
+        import winml.modelkit.models.winml as winml_models
+
+        monkeypatch.setenv("WINML_CACHE_DIR", str(tmp_path))
+        monkeypatch.setattr(
+            loader_mod, "resolve_loader_config", _fake_resolve_loader_config("qwen3")
+        )
+        monkeypatch.setattr(winml_models, "resolve_genai_bundle", lambda _mt: object())
+        build_calls: dict = {}
+        monkeypatch.setattr(
+            winml_models, "build_genai_bundle", _fake_build_genai_bundle(build_calls)
+        )
+
+        result = runner.invoke(perf, ["-m", "Qwen/Qwen3-0.6B", "--runtime", "winml-genai"])
+
+        assert result.exit_code == 0, result.output
+        # Built once, pinned to the NPU HTP via QNN regardless of --device.
+        assert build_calls["build"]["ep"] == "qnn"
+        assert build_calls["build"]["device"] == "npu"
+        assert build_calls["build"]["force_rebuild"] is False
+        # Benchmarked the freshly built cache bundle.
+        cfg = capture_run["config"]
+        assert cfg.bundle_dir == build_calls["build"]["output_dir"]
+        assert (cfg.bundle_dir / "genai_config.json").exists()
+        # Omitting --device keeps the "respect the bundle" default.
+        assert cfg.device == "config"
+        assert cfg.ep is None
+
+    def test_autobuild_reuses_cached_bundle(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
+    ) -> None:
+        import winml.modelkit.models.winml as winml_models
+        from winml.modelkit.cache import get_model_dir
+
+        monkeypatch.setenv("WINML_CACHE_DIR", str(tmp_path))
+        cached = get_model_dir("Qwen/Qwen3-0.6B", cache_dir=tmp_path) / "genai-bundle"
+        cached.mkdir(parents=True)
+        (cached / "genai_config.json").write_text("{}", encoding="utf-8")
+
+        build_calls: dict = {}
+        monkeypatch.setattr(
+            winml_models, "build_genai_bundle", _fake_build_genai_bundle(build_calls)
+        )
+
+        result = runner.invoke(perf, ["-m", "Qwen/Qwen3-0.6B", "--runtime", "winml-genai"])
+
+        assert result.exit_code == 0, result.output
+        assert "build" not in build_calls  # cache hit: never rebuilt
+        assert capture_run["config"].bundle_dir == cached
+
+    def test_rebuild_forces_autobuild(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
+    ) -> None:
+        import winml.modelkit.loader as loader_mod
+        import winml.modelkit.models.winml as winml_models
+        from winml.modelkit.cache import get_model_dir
+
+        monkeypatch.setenv("WINML_CACHE_DIR", str(tmp_path))
+        cached = get_model_dir("Qwen/Qwen3-0.6B", cache_dir=tmp_path) / "genai-bundle"
+        cached.mkdir(parents=True)
+        (cached / "genai_config.json").write_text("{}", encoding="utf-8")
+
+        monkeypatch.setattr(
+            loader_mod, "resolve_loader_config", _fake_resolve_loader_config("qwen3")
+        )
+        monkeypatch.setattr(winml_models, "resolve_genai_bundle", lambda _mt: object())
+        build_calls: dict = {}
+        monkeypatch.setattr(
+            winml_models, "build_genai_bundle", _fake_build_genai_bundle(build_calls)
+        )
+
+        result = runner.invoke(
+            perf, ["-m", "Qwen/Qwen3-0.6B", "--runtime", "winml-genai", "--rebuild"]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert build_calls["build"]["force_rebuild"] is True
+
+    def test_autobuild_without_recipe_rejected(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
+    ) -> None:
+        # A model id with no registered genai-bundle recipe cannot be auto-built:
+        # surface a clear UsageError pointing at a prebuilt bundle directory.
+        import winml.modelkit.loader as loader_mod
+        import winml.modelkit.models.winml as winml_models
+
+        monkeypatch.setenv("WINML_CACHE_DIR", str(tmp_path))
+        monkeypatch.setattr(
+            loader_mod, "resolve_loader_config", _fake_resolve_loader_config("bert")
+        )
+        monkeypatch.setattr(winml_models, "resolve_genai_bundle", lambda _mt: None)
+
+        result = runner.invoke(
+            perf, ["-m", "google-bert/bert-base-uncased", "--runtime", "winml-genai"]
+        )
+
+        assert result.exit_code != 0
+        assert "recipe" in result.output.lower()
         assert "config" not in capture_run
 
     def test_winml_runtime_unaffected(

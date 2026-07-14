@@ -16,7 +16,8 @@ $ winml perf [options]
 
 | Flag | Short | Type | Default | Description |
 |---|---|---|---|---|
-| `--model` | `-m` | `TEXT` | — | HuggingFace model ID or path to a local `.onnx` file. Required. |
+| `--model` | `-m` | `TEXT` | — | HuggingFace model ID or path to a local `.onnx` file. Required. With `--runtime winml-genai`, also accepts a prebuilt genai **bundle directory**, or a HuggingFace model ID that is auto-built into a bundle on demand. |
+| `--runtime` | | `winml\|winml-genai` | `winml` | Inference runtime. `winml` benchmarks single-shot ONNX inference; `winml-genai` benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec). With `winml-genai`, a model ID that is not a bundle directory is auto-built into one (cached under `~/.cache/winml/`, targeting the NPU HTP via QNN) before benchmarking; pass `--rebuild` to force a fresh build. |
 | `--task` | | `TEXT` | auto-detected | Explicit task override (e.g., `image-classification`). Inferred from the model if omitted. |
 | `--iterations` | | `INTEGER` | `100` | Number of timed inference iterations used to compute statistics. |
 | `--warmup` | | `INTEGER` | `10` | Number of warm-up iterations run before timing begins; excluded from statistics. |
@@ -36,6 +37,11 @@ $ winml perf [options]
 | `--ignore-cache/--no-ignore-cache` | | flag | `false` | Build from scratch in a temporary folder and discard the artifact after benchmarking. Implies `--rebuild`. |
 | `--module` | | `TEXT` | — | PyTorch module class name for per-module benchmarking (e.g., `BertAttention`). Builds and times each matching instance separately. See [Load and export](../concepts/load-and-export.md). |
 | `--monitor/--no-monitor` | | flag | `false` | Show a live NPU/CPU utilization chart while the benchmark runs and include hardware metrics in the JSON report. |
+| `--compile` / `--no-compile` | | flag | `false` | Compile the model to EPContext binaries during build. For `--runtime winml-genai` on the NPU, `--compile` pre-compiles each QNN stage (in an isolated subprocess) before generation. |
+| `--compile-timeout` | | `INTEGER` | `300` | *(winml-genai)* Max seconds to compile each EPContext stage before falling back to the original ONNX. Requires `--compile`. |
+| `--prompt` | | `TEXT` | `Explain the theory of relativity in simple terms.` | *(winml-genai)* Prompt text to generate from. Wrapped in the bundle's chat template unless `--no-apply-template`. |
+| `--apply-template/--no-apply-template` | | flag | `true` | *(winml-genai)* Wrap `--prompt` in the bundle's chat template before timing. |
+| `--max-new-tokens` | | `INTEGER` | `128` | *(winml-genai)* Number of new tokens to generate per iteration. |
 
 ## How it works
 
