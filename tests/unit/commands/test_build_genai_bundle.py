@@ -512,6 +512,39 @@ def test_export_type_optimized_infers_target_and_builds(tmp_path: Path):
     assert kwargs["device"] == "npu"
 
 
+def test_export_type_optimized_skips_hardware_probe(tmp_path: Path):
+    """``--export-type optimized`` must not probe local hardware (auto-EP).
+
+    Its (ep, device) is inferred from the recipe, so a host without the target
+    accelerator -- modeled here by ``resolve_check_device_ep`` raising, as it
+    does when no compatible EP is available -- must still build the bundle
+    instead of failing in the auto-EP resolution before the recipe target is
+    inferred. Regression test for the reviewer note on PR #1104.
+    """
+    out = tmp_path / "bundle"
+    recorded: dict = {}
+
+    with (
+        patch(_GENERATE_TARGET, return_value=_fake_config("qwen3")),
+        patch(_BUNDLE_TARGET, side_effect=_record_bundle(recorded)) as bundle,
+        patch(_RUN_SINGLE_TARGET) as run_single,
+        patch(_COMPOSITE_TARGET, return_value=None),
+        patch(
+            "winml.modelkit.sysinfo.resolve_check_device_ep",
+            side_effect=ValueError("no compatible EP for device"),
+        ) as probe,
+    ):
+        result = _invoke(["-m", "Qwen/Qwen3-0.6B", "-o", str(out), "--export-type", "optimized"])
+
+    assert result.exit_code == 0, result.output
+    probe.assert_not_called()
+    assert bundle.call_count == 1
+    run_single.assert_not_called()
+    kwargs = recorded["kwargs"]
+    assert kwargs["ep"] == "qnn"
+    assert kwargs["device"] == "npu"
+
+
 def test_export_type_optimized_is_case_insensitive(tmp_path: Path):
     out = tmp_path / "bundle"
     recorded: dict = {}

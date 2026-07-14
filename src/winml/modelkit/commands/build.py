@@ -890,7 +890,16 @@ def build(
     # (auto-mode walks the priority list, falls back to cpu which is always
     # valid), or raises ValueError for an explicit device with no compatible EP.
     # So the following available_eps[0] is safe whenever it returns.
-    if ep is None:
+    #
+    # ``--export-type optimized`` is exempt: its (ep, device) is inferred from
+    # the registered recipe and the build is hardware-independent by contract
+    # (see _resolve_optimized_target), so probing the host here would make an
+    # optimized build fail on a machine without the recipe's accelerator (e.g.
+    # no NPU) before the recipe target is ever inferred.
+    optimized_requested = (
+        cli_utils.is_cli_provided(ctx, "export_type") and export_type.lower() == "optimized"
+    )
+    if ep is None and not optimized_requested:
         from ..sysinfo import resolve_check_device_ep
 
         try:
