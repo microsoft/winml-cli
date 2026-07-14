@@ -741,11 +741,13 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
 def _manifest_from_engine(engine: InferenceEngine) -> dict[str, Any]:
     """Build manifest dict from engine, trying build_manifest.json first."""
     if engine.model_path:
-        manifest_file = Path(engine.model_path) / "build_manifest.json"
+        from ..utils.manifest import MANIFEST_FILENAME, WinMLManifest
+
+        manifest_file = Path(engine.model_path) / MANIFEST_FILENAME
         if manifest_file.exists():
             try:
-                return cast("dict[str, Any]", json.loads(manifest_file.read_text()))
-            except (json.JSONDecodeError, OSError) as e:
+                return WinMLManifest.load(manifest_file).to_dict()
+            except (json.JSONDecodeError, TypeError, ValueError, OSError) as e:
                 logger.warning("Failed to load manifest: %s", e)
 
     return {
