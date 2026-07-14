@@ -48,7 +48,7 @@ class GenaiTarget:
     """A build target a genai-bundle recipe supports: an ``(ep, device)`` pair.
 
     Declared on :class:`GenaiBundleRecipe` so ``winml build`` can validate an
-    explicit ``--export-type specialized`` request against the recipe and infer
+    explicit ``--export-type optimized`` request against the recipe and infer
     the target when the user does not pin one.  Tokens are the short CLI forms
     (e.g. ``ep="qnn"``, ``device="npu"``) so they forward straight to
     :func:`build_genai_bundle`.
@@ -120,7 +120,7 @@ class GenaiBundleRecipe:
             keywords the orchestrator passes (see :func:`build_genai_bundle`).
         supported_targets: The ``(ep, device)`` pairs this recipe can build for.
             The first entry is the preferred/default target inferred when the
-            user selects ``--export-type specialized`` without pinning
+            user selects ``--export-type optimized`` without pinning
             ``--ep``/``--device``.  Must be non-empty (enforced at registration).
         transformer_onnx_passes: ONNX graph transforms applied to the
             transformer graphs during assembly.
@@ -201,7 +201,7 @@ def registered_genai_families() -> list[str]:
     """Return the sorted ``model_type`` keys that have a genai-bundle recipe.
 
     Triggers registry population, so it is safe to call for building a
-    user-facing error message that lists the specialized-export families.
+    user-facing error message that lists the optimized-export families.
     """
     return sorted(_genai_bundle_registry())
 

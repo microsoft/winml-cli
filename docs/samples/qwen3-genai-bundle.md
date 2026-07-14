@@ -29,7 +29,7 @@ memory-bound companions stay on CPU.
 
 ```mermaid
 graph LR
-    A["winml build -m Qwen/Qwen3-0.6B --export-type specialized"] --> B[Genai bundle recipe]
+    A["winml build -m Qwen/Qwen3-0.6B --export-type optimized"] --> B[Genai bundle recipe]
     B --> C[ctx.onnx / iter.onnx — NPU]
     B --> D[embeddings.onnx — CPU]
     B --> E[lm_head.onnx — CPU]
@@ -41,12 +41,12 @@ graph LR
 
 ## Step 1: Build the bundle (one command)
 
-`--export-type specialized` switches `winml build` from the stock per-model ONNX
+`--export-type optimized` switches `winml build` from the stock per-model ONNX
 output to the full genai bundle. It **infers** the recipe's target (Qwen3 builds
 for the NPU HTP via QNN), so `--ep`/`--device` are optional:
 
 ```bash
-winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --export-type specialized
+winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --export-type optimized
 ```
 
 This builds (or reuses from cache) all four components and assembles them, writing

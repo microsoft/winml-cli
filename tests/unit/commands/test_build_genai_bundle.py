@@ -439,12 +439,12 @@ def test_use_cache_rejected_for_bundle(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# --export-type GENERIC | SPECIALIZED (issue #1090)
+# --export-type GENERIC | OPTIMIZED (issue #1090)
 # ---------------------------------------------------------------------------
 
 
-def test_export_type_specialized_infers_target_and_builds(tmp_path: Path):
-    """``--export-type specialized`` builds the recipe, inferring its target.
+def test_export_type_optimized_infers_target_and_builds(tmp_path: Path):
+    """``--export-type optimized`` builds the recipe, inferring its target.
 
     No ``--device``/``--ep`` is pinned, so the recipe's first ``supported_targets``
     entry (qwen3 -> qnn/npu) is inferred. Building a bundle is hardware-independent,
@@ -459,7 +459,7 @@ def test_export_type_specialized_infers_target_and_builds(tmp_path: Path):
         patch(_RUN_SINGLE_TARGET) as run_single,
         patch(_COMPOSITE_TARGET, return_value=None),
     ):
-        result = _invoke(["-m", "Qwen/Qwen3-0.6B", "-o", str(out), "--export-type", "specialized"])
+        result = _invoke(["-m", "Qwen/Qwen3-0.6B", "-o", str(out), "--export-type", "optimized"])
 
     assert result.exit_code == 0, result.output
     assert bundle.call_count == 1
@@ -469,7 +469,7 @@ def test_export_type_specialized_infers_target_and_builds(tmp_path: Path):
     assert kwargs["device"] == "npu"
 
 
-def test_export_type_specialized_is_case_insensitive(tmp_path: Path):
+def test_export_type_optimized_is_case_insensitive(tmp_path: Path):
     out = tmp_path / "bundle"
     recorded: dict = {}
 
@@ -479,7 +479,7 @@ def test_export_type_specialized_is_case_insensitive(tmp_path: Path):
         patch(_RUN_SINGLE_TARGET),
         patch(_COMPOSITE_TARGET, return_value=None),
     ):
-        result = _invoke(["-m", "Qwen/Qwen3-0.6B", "-o", str(out), "--export-type", "SPECIALIZED"])
+        result = _invoke(["-m", "Qwen/Qwen3-0.6B", "-o", str(out), "--export-type", "OPTIMIZED"])
 
     assert result.exit_code == 0, result.output
     assert bundle.call_count == 1
@@ -517,8 +517,8 @@ def test_export_type_generic_forces_stock_even_on_npu_qnn(tmp_path: Path):
     run_single.assert_called_once()
 
 
-def test_export_type_specialized_unregistered_family_errors(tmp_path: Path):
-    """Specialized on a family with no recipe fails fast and lists the families."""
+def test_export_type_optimized_unregistered_family_errors(tmp_path: Path):
+    """Optimized on a family with no recipe fails fast and lists the families."""
     with (
         patch(
             _GENERATE_TARGET,
@@ -535,51 +535,51 @@ def test_export_type_specialized_unregistered_family_errors(tmp_path: Path):
                 "-o",
                 str(tmp_path / "o"),
                 "--export-type",
-                "specialized",
+                "optimized",
             ]
         )
 
     assert result.exit_code != 0
-    assert "no specialized (genai bundle) recipe" in result.output
+    assert "no optimized (genai bundle) recipe" in result.output
     assert "qwen3" in result.output
     bundle.assert_not_called()
     run_single.assert_not_called()
 
 
-def test_resolve_specialized_target_infers_first_when_unpinned():
-    from winml.modelkit.commands.build import _resolve_specialized_target
+def test_resolve_optimized_target_infers_first_when_unpinned():
+    from winml.modelkit.commands.build import _resolve_optimized_target
     from winml.modelkit.models.winml import resolve_genai_bundle
 
     recipe = resolve_genai_bundle("qwen3")
-    ep, device = _resolve_specialized_target(_fake_ctx(set()), recipe, device="auto", ep=None)
+    ep, device = _resolve_optimized_target(_fake_ctx(set()), recipe, device="auto", ep=None)
     assert (ep, device) == ("qnn", "npu")
 
 
-def test_resolve_specialized_target_rejects_unsupported_ep():
-    from winml.modelkit.commands.build import _resolve_specialized_target
+def test_resolve_optimized_target_rejects_unsupported_ep():
+    from winml.modelkit.commands.build import _resolve_optimized_target
     from winml.modelkit.models.winml import resolve_genai_bundle
 
     recipe = resolve_genai_bundle("qwen3")
     with pytest.raises(click.UsageError, match="--ep dml is not supported"):
-        _resolve_specialized_target(_fake_ctx({"ep"}), recipe, device="auto", ep="dml")
+        _resolve_optimized_target(_fake_ctx({"ep"}), recipe, device="auto", ep="dml")
 
 
-def test_resolve_specialized_target_rejects_unsupported_device():
-    from winml.modelkit.commands.build import _resolve_specialized_target
+def test_resolve_optimized_target_rejects_unsupported_device():
+    from winml.modelkit.commands.build import _resolve_optimized_target
     from winml.modelkit.models.winml import resolve_genai_bundle
 
     recipe = resolve_genai_bundle("qwen3")
     with pytest.raises(click.UsageError, match="--device cpu is not supported"):
-        _resolve_specialized_target(_fake_ctx({"device"}), recipe, device="cpu", ep=None)
+        _resolve_optimized_target(_fake_ctx({"device"}), recipe, device="cpu", ep=None)
 
 
-def test_specialized_rejects_onnx_input():
+def test_optimized_rejects_onnx_input():
     from winml.modelkit.commands.build import _maybe_build_genai_bundle
 
     with pytest.raises(click.UsageError, match=r"pre-exported \.onnx"):
         _maybe_build_genai_bundle(
             _fake_ctx({"export_type"}),
-            export_type="specialized",
+            export_type="optimized",
             model="model.onnx",
             model_is_onnx=True,
             config_or_configs=_fake_config("qwen3"),
@@ -593,13 +593,13 @@ def test_specialized_rejects_onnx_input():
         )
 
 
-def test_specialized_rejects_module_mode():
+def test_optimized_rejects_module_mode():
     from winml.modelkit.commands.build import _maybe_build_genai_bundle
 
     with pytest.raises(click.UsageError, match="module mode"):
         _maybe_build_genai_bundle(
             _fake_ctx({"export_type"}),
-            export_type="specialized",
+            export_type="optimized",
             model="Qwen/Qwen3-0.6B",
             model_is_onnx=False,
             config_or_configs=[_fake_config("qwen3")],
@@ -613,13 +613,13 @@ def test_specialized_rejects_module_mode():
         )
 
 
-def test_specialized_requires_model():
+def test_optimized_requires_model():
     from winml.modelkit.commands.build import _maybe_build_genai_bundle
 
     with pytest.raises(click.UsageError, match="requires -m/--model"):
         _maybe_build_genai_bundle(
             _fake_ctx({"export_type"}),
-            export_type="specialized",
+            export_type="optimized",
             model=None,
             model_is_onnx=False,
             config_or_configs=_fake_config("qwen3"),

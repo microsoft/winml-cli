@@ -463,7 +463,7 @@ def _resolve_genai_recipe(
 ) -> Any | None:
     """Return the genai-bundle recipe for this build, or ``None`` if inapplicable.
 
-    ``None`` covers every input a specialized bundle cannot be built from: no
+    ``None`` covers every input an optimized bundle cannot be built from: no
     model, a pre-exported ``.onnx`` file, module mode (array config), or a
     ``model_type`` with no registered recipe.
     """
@@ -474,14 +474,14 @@ def _resolve_genai_recipe(
     return resolve_genai_bundle(_genai_model_type(config_or_configs, preloaded_hf_config))
 
 
-def _resolve_specialized_target(
+def _resolve_optimized_target(
     ctx: click.Context,
     recipe: Any,
     *,
     device: str,
     ep: EPNameOrAlias | None,
 ) -> tuple[str, str]:
-    """Resolve the ``(ep, device)`` a specialized bundle is built for.
+    """Resolve the ``(ep, device)`` an optimized bundle is built for.
 
     The recipe's ``supported_targets`` are the source of truth. An explicit
     ``--ep``/``--device`` narrows the candidates; a value the recipe cannot serve
@@ -501,7 +501,7 @@ def _resolve_specialized_target(
         narrowed = [t for t in candidates if normalize_ep_name(t.ep) == want]
         if not narrowed:
             raise click.UsageError(
-                f"--export-type specialized: --ep {ep} is not supported by the "
+                f"--export-type optimized: --ep {ep} is not supported by the "
                 f"'{recipe.family}' recipe (supported: {_fmt(recipe.supported_targets)})."
             )
         candidates = narrowed
@@ -511,7 +511,7 @@ def _resolve_specialized_target(
         narrowed = [t for t in candidates if t.device.lower() == want_device]
         if not narrowed:
             raise click.UsageError(
-                f"--export-type specialized: --device {device} is not supported by the "
+                f"--export-type optimized: --device {device} is not supported by the "
                 f"'{recipe.family}' recipe (supported: {_fmt(recipe.supported_targets)})."
             )
         candidates = narrowed
@@ -535,30 +535,30 @@ def _maybe_build_genai_bundle(
     precision: str | None,
     rebuild: bool,
 ) -> bool:
-    """Build a specialized (onnxruntime-genai) bundle when selected, else fall through.
+    """Build an optimized (onnxruntime-genai) bundle when selected, else fall through.
 
-    Returns ``True`` when this call fully handled the build (a specialized bundle
+    Returns ``True`` when this call fully handled the build (an optimized bundle
     was produced) and the caller should stop; ``False`` to fall through to the
     normal single/composite (``generic``) pipeline.
 
     Selection:
-      * ``--export-type specialized`` builds the family's registered recipe;
+      * ``--export-type optimized`` builds the family's registered recipe;
         every unmet precondition (no model, ``.onnx`` input, module mode, no
         recipe, or a contradicting ``--ep``/``--device``) is a fail-fast error.
       * ``--export-type generic`` never builds a bundle (returns ``False``).
       * omitted -> backward-compatible shortcut: a registered family with an
         explicit ``--ep qnn`` and an NPU target (``--device npu``, or ``--device
-        auto`` resolving to the NPU) still routes to its specialized bundle;
+        auto`` resolving to the NPU) still routes to its optimized bundle;
         anything else falls through.
 
     Nothing here is architecture-specific; the recipe carries every model detail.
     """
     explicit_type = cli_utils.is_cli_provided(ctx, "export_type")
-    want_specialized = explicit_type and export_type.lower() == "specialized"
+    want_optimized = explicit_type and export_type.lower() == "optimized"
 
     # ``--export-type generic`` forces the stock build even for a registered
     # family on the NPU.
-    if explicit_type and not want_specialized:
+    if explicit_type and not want_optimized:
         return False
 
     recipe = _resolve_genai_recipe(
@@ -568,19 +568,19 @@ def _maybe_build_genai_bundle(
         preloaded_hf_config=preloaded_hf_config,
     )
 
-    if want_specialized:
+    if want_optimized:
         # Explicit request: surface every unmet precondition as an error rather
         # than silently falling back to the generic build.
         if not model:
-            raise click.UsageError("--export-type specialized requires -m/--model.")
+            raise click.UsageError("--export-type optimized requires -m/--model.")
         if model_is_onnx:
             raise click.UsageError(
-                "--export-type specialized is not supported for a pre-exported .onnx "
+                "--export-type optimized is not supported for a pre-exported .onnx "
                 "input; pass a HuggingFace model id so the recipe can build every component."
             )
         if isinstance(config_or_configs, list):
             raise click.UsageError(
-                "--export-type specialized is not supported for module mode (array config)."
+                "--export-type optimized is not supported for module mode (array config)."
             )
         if recipe is None:
             from ..models.winml import registered_genai_families
@@ -588,7 +588,7 @@ def _maybe_build_genai_bundle(
             model_type = _genai_model_type(config_or_configs, preloaded_hf_config)
             families = ", ".join(registered_genai_families()) or "(none)"
             raise click.UsageError(
-                f"--export-type specialized: no specialized (genai bundle) recipe is "
+                f"--export-type optimized: no optimized (genai bundle) recipe is "
                 f"registered for model type '{model_type}'. "
                 f"Families with a recipe: {families}."
             )
@@ -619,10 +619,10 @@ def _maybe_build_genai_bundle(
         if device_target != "npu":
             return False
 
-    # A specialized bundle is being built (explicit request or the shortcut).
+    # An optimized bundle is being built (explicit request or the shortcut).
     # Resolve the (ep, device) the recipe is built for -- an explicit
     # contradiction raises here.
-    bundle_ep, bundle_device = _resolve_specialized_target(ctx, recipe, device=device, ep=ep)
+    bundle_ep, bundle_device = _resolve_optimized_target(ctx, recipe, device=device, ep=ep)
 
     # The bundle is fully recipe-driven: every component, shape, precision,
     # quantization and compile setting comes from the recipe, so a supplied
@@ -631,17 +631,17 @@ def _maybe_build_genai_bundle(
     # ignore a user control" rejections below.
     if cli_utils.is_cli_provided(ctx, "config_file"):
         raise click.UsageError(
-            "-c/--config is not supported for a specialized (genai bundle) build: the "
+            "-c/--config is not supported for an optimized (genai bundle) build: the "
             "bundle's components, shapes, quantization and compilation are fixed by its "
             "recipe. Re-run without -c (the bundle is built directly from -m/--model)."
         )
 
     if use_cache:
         raise click.UsageError(
-            "specialized (genai bundle) output is a directory; pass --output-dir, not --use-cache."
+            "optimized (genai bundle) output is a directory; pass --output-dir, not --use-cache."
         )
     if not output_dir:
-        raise click.UsageError("--output-dir is required for a specialized (genai bundle) build.")
+        raise click.UsageError("--output-dir is required for an optimized (genai bundle) build.")
 
     # The pipeline is recipe-driven: quantization, optimization, analysis and
     # compilation are fixed by the recipe (with ``--precision`` the only
@@ -660,7 +660,7 @@ def _maybe_build_genai_bundle(
     ]
     if rejected:
         raise click.UsageError(
-            f"{', '.join(rejected)} not supported for a specialized (genai bundle) build: the "
+            f"{', '.join(rejected)} not supported for an optimized (genai bundle) build: the "
             "bundle's components, quantization, optimization and compilation are "
             "fixed by its recipe."
         )
@@ -748,15 +748,15 @@ def _maybe_build_genai_bundle(
 )
 @click.option(
     "--export-type",
-    type=click.Choice(["generic", "specialized"], case_sensitive=False),
+    type=click.Choice(["generic", "optimized"], case_sensitive=False),
     default="generic",
     show_default=True,
     help="Output selector. 'generic' builds the stock single/composite ONNX model. "
-    "'specialized' builds the registered runtime-specialized recipe for the family "
+    "'optimized' builds the registered runtime-optimized recipe for the family "
     "(today: the onnxruntime-genai NPU bundle); it infers the recipe's target and "
     "errors if the family has no recipe or --ep/--device contradicts it. When omitted, "
     "an explicit --ep qnn on an NPU target still routes a registered family to its "
-    "specialized bundle (backward-compatible shortcut).",
+    "optimized bundle (backward-compatible shortcut).",
 )
 @cli_utils.shape_config_option(
     help_text="JSON with shape overrides for auto-generated HuggingFace export configs.",
@@ -844,9 +844,9 @@ def build(
         # Build with mixed precision (INT8 weights, INT8 activations)
         winml build -m microsoft/resnet-50 -o output/ --precision w8a8
 
-        # Build the specialized onnxruntime-genai bundle for a decoder LLM
+        # Build the optimized onnxruntime-genai bundle for a decoder LLM
         # (infers the recipe's NPU/QNN target; no --device/--ep needed)
-        winml build -m Qwen/Qwen3-0.6B -o out/ --export-type specialized
+        winml build -m Qwen/Qwen3-0.6B -o out/ --export-type optimized
     """
     # Merge top-level -v/-q with subcommand-level flags so either position works.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
@@ -1076,9 +1076,9 @@ def build(
         # allow_unsupported_nodes explicitly regardless of its value.
         extra_kwargs["allow_unsupported_nodes"] = allow_unsupported_nodes
 
-        # ---- SPECIALIZED (GENAI BUNDLE) EXPORT ----
-        # ``--export-type specialized`` builds the family's registered
-        # runtime-specialized recipe (today: a full onnxruntime-genai bundle --
+        # ---- OPTIMIZED (GENAI BUNDLE) EXPORT ----
+        # ``--export-type optimized`` builds the family's registered
+        # runtime-optimized recipe (today: a full onnxruntime-genai bundle --
         # ctx/iter/embeddings/lm_head + genai_config.json + tokenizer), inferring
         # the recipe's target. When ``--export-type`` is omitted, a registered
         # family targeted at the NPU HTP via an explicit ``--ep qnn`` (with
