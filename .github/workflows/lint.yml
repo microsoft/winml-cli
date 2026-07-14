@@ -27,7 +27,7 @@ jobs:
         run: uv python install 3.11
 
       - name: Install dependencies
-        run: uv sync --all-extras --all-groups
+        run: uv sync --locked --all-extras --all-groups
 
       - name: Check license headers
         run: |
