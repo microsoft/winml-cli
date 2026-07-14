@@ -1149,7 +1149,7 @@ class TestCompileTimeout:
             patch("multiprocessing.get_context", return_value=ctx_mock),
             _patch_og(mock_og),
         ):
-            session._prepare_compiled_bundle()
+            session._prepare_derived_bundle()
 
         # proc.join was called with timeout=42 for each stage
         for call in proc_mock.join.call_args_list:
@@ -1612,27 +1612,27 @@ class TestCompileStageWorker:
 
 
 # ---------------------------------------------------------------------------
-# Tests: _prepare_compiled_bundle_worker (isolated compile subprocess target)
+# Tests: _prepare_derived_bundle_worker (isolated compile subprocess target)
 # ---------------------------------------------------------------------------
 
 
-class TestPrepareCompiledBundleWorker:
+class TestPrepareDerivedBundleWorker:
     """The module-level target executed inside the isolated compile subprocess."""
 
     def test_posts_ok_with_resolved_load_dir(
         self, bundle_dir_with_pipeline: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """On success the worker posts ("ok", <load_dir>) to the result queue."""
-        from winml.modelkit.session.genai_session import _prepare_compiled_bundle_worker
+        from winml.modelkit.session.genai_session import _prepare_derived_bundle_worker
 
         expected = bundle_dir_with_pipeline / "_compiled"
         monkeypatch.setattr(
             GenaiSession,
-            "_prepare_compiled_bundle",
+            "_prepare_derived_bundle",
             lambda self, cfg, *, overridden: expected,
         )
         result_queue = MagicMock()
-        _prepare_compiled_bundle_worker(
+        _prepare_derived_bundle_worker(
             result_queue, str(bundle_dir_with_pipeline), 42, {"model": {}}, False
         )
         result_queue.put.assert_called_once_with(("ok", str(expected)))
@@ -1641,7 +1641,7 @@ class TestPrepareCompiledBundleWorker:
         self, bundle_dir_with_pipeline: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The worker passes the effective config and overridden flag through."""
-        from winml.modelkit.session.genai_session import _prepare_compiled_bundle_worker
+        from winml.modelkit.session.genai_session import _prepare_derived_bundle_worker
 
         seen: dict = {}
 
@@ -1650,8 +1650,8 @@ class TestPrepareCompiledBundleWorker:
             seen["overridden"] = overridden
             return bundle_dir_with_pipeline
 
-        monkeypatch.setattr(GenaiSession, "_prepare_compiled_bundle", _capture)
-        _prepare_compiled_bundle_worker(
+        monkeypatch.setattr(GenaiSession, "_prepare_derived_bundle", _capture)
+        _prepare_derived_bundle_worker(
             MagicMock(), str(bundle_dir_with_pipeline), 7, {"model": {"x": 1}}, True
         )
         assert seen == {"cfg": {"model": {"x": 1}}, "overridden": True}
@@ -1660,7 +1660,7 @@ class TestPrepareCompiledBundleWorker:
         self, bundle_dir_with_pipeline: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The reconstructed session enables compile and preserves the timeout."""
-        from winml.modelkit.session.genai_session import _prepare_compiled_bundle_worker
+        from winml.modelkit.session.genai_session import _prepare_derived_bundle_worker
 
         captured: dict = {}
 
@@ -1669,8 +1669,8 @@ class TestPrepareCompiledBundleWorker:
             captured["timeout"] = self._compile_timeout
             return bundle_dir_with_pipeline
 
-        monkeypatch.setattr(GenaiSession, "_prepare_compiled_bundle", _capture)
-        _prepare_compiled_bundle_worker(
+        monkeypatch.setattr(GenaiSession, "_prepare_derived_bundle", _capture)
+        _prepare_derived_bundle_worker(
             MagicMock(), str(bundle_dir_with_pipeline), 123, {"model": {}}, False
         )
         assert captured == {"compile": True, "timeout": 123}
@@ -1679,14 +1679,14 @@ class TestPrepareCompiledBundleWorker:
         self, bundle_dir_with_pipeline: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A failure inside the orchestration is reported as ("error", <repr>)."""
-        from winml.modelkit.session.genai_session import _prepare_compiled_bundle_worker
+        from winml.modelkit.session.genai_session import _prepare_derived_bundle_worker
 
         def _boom(self, cfg, *, overridden):
             raise RuntimeError("compile blew up")
 
-        monkeypatch.setattr(GenaiSession, "_prepare_compiled_bundle", _boom)
+        monkeypatch.setattr(GenaiSession, "_prepare_derived_bundle", _boom)
         result_queue = MagicMock()
-        _prepare_compiled_bundle_worker(
+        _prepare_derived_bundle_worker(
             result_queue, str(bundle_dir_with_pipeline), 42, {"model": {}}, False
         )
         status, payload = result_queue.put.call_args.args[0]
@@ -1695,11 +1695,11 @@ class TestPrepareCompiledBundleWorker:
 
 
 # ---------------------------------------------------------------------------
-# Tests: _prepare_compiled_bundle_isolated (spawns + drains the worker)
+# Tests: _prepare_derived_bundle_isolated (spawns + drains the worker)
 # ---------------------------------------------------------------------------
 
 
-class TestPrepareCompiledBundleIsolated:
+class TestPrepareDerivedBundleIsolated:
     """Isolation wrapper: spawn the compile worker, drain its single result."""
 
     @staticmethod
@@ -1722,7 +1722,7 @@ class TestPrepareCompiledBundleIsolated:
 
         session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
         with patch("multiprocessing.get_context", return_value=ctx):
-            result = session._prepare_compiled_bundle_isolated({"model": {}}, overridden=False)
+            result = session._prepare_derived_bundle_isolated({"model": {}}, overridden=False)
 
         assert result == compiled
         proc.start.assert_called_once()
@@ -1742,17 +1742,52 @@ class TestPrepareCompiledBundleIsolated:
 
         session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
         with patch("multiprocessing.get_context", return_value=ctx):
-            result = session._prepare_compiled_bundle_isolated({"model": {}}, overridden=False)
+            result = session._prepare_derived_bundle_isolated({"model": {}}, overridden=False)
 
         assert result == compiled
 
-    def test_falls_back_to_compiled_dir_when_worker_reports_nothing(
+    def test_reuses_compiled_dir_when_marker_proves_current_run(
         self, bundle_dir_with_pipeline: Path
     ) -> None:
-        """A silent worker crash still loads a fully written _compiled/ bundle."""
+        """A silent crash after the child wrote _compiled/ + its marker still reuses it.
+
+        Models a child that finished compiling (leaving a complete, current-run
+        _compiled/ and its completion marker) but died before its "ok" result was
+        drained; the fallback safely reuses the freshly written bundle.
+        """
         compiled = bundle_dir_with_pipeline / "_compiled"
         compiled.mkdir()
         (compiled / "genai_config.json").write_text("{}", encoding="utf-8")
+        marker = compiled / GenaiSession._BUNDLE_COMPLETE_MARKER
+
+        proc = MagicMock()
+        proc.is_alive.return_value = False
+        # The parent clears any stale marker before spawning; simulate the child
+        # writing a fresh one as it completes the compile, just before dying.
+        proc.start.side_effect = lambda: marker.write_text("done", encoding="utf-8")
+        result_queue = MagicMock()
+        result_queue.get_nowait.side_effect = queue.Empty
+        ctx = self._mock_ctx(proc, result_queue)
+
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        with patch("multiprocessing.get_context", return_value=ctx):
+            result = session._prepare_derived_bundle_isolated({"model": {}}, overridden=False)
+
+        assert result == compiled
+
+    def test_ignores_compiled_dir_without_completion_marker(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """A _compiled/ with no current-run marker is refused after a silent failure.
+
+        Guards issue #1087: the parent must not load stale EPContext artifacts/config
+        from an earlier run that may predate a config or stage-input change; it
+        surfaces the failure by loading the original bundle instead.
+        """
+        compiled = bundle_dir_with_pipeline / "_compiled"
+        compiled.mkdir()
+        (compiled / "genai_config.json").write_text("{}", encoding="utf-8")
+        # No completion marker, and the mocked child never writes one.
 
         proc = MagicMock()
         proc.is_alive.return_value = False
@@ -1762,9 +1797,37 @@ class TestPrepareCompiledBundleIsolated:
 
         session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
         with patch("multiprocessing.get_context", return_value=ctx):
-            result = session._prepare_compiled_bundle_isolated({"model": {}}, overridden=False)
+            result = session._prepare_derived_bundle_isolated({"model": {}}, overridden=False)
 
-        assert result == compiled
+        assert result == bundle_dir_with_pipeline
+
+    def test_clears_stale_marker_before_spawning_child(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """A marker left by a previous run is removed before spawn so it can't be trusted.
+
+        The mocked child never re-writes the marker, so after a silent failure the
+        stale marker must be gone and the fallback must decline the stale _compiled/
+        (issue #1087 stale-bundle guard).
+        """
+        compiled = bundle_dir_with_pipeline / "_compiled"
+        compiled.mkdir()
+        (compiled / "genai_config.json").write_text("{}", encoding="utf-8")
+        stale_marker = compiled / GenaiSession._BUNDLE_COMPLETE_MARKER
+        stale_marker.write_text("from a previous run", encoding="utf-8")
+
+        proc = MagicMock()
+        proc.is_alive.return_value = False
+        result_queue = MagicMock()
+        result_queue.get_nowait.side_effect = queue.Empty
+        ctx = self._mock_ctx(proc, result_queue)
+
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        with patch("multiprocessing.get_context", return_value=ctx):
+            result = session._prepare_derived_bundle_isolated({"model": {}}, overridden=False)
+
+        assert not stale_marker.exists()
+        assert result == bundle_dir_with_pipeline
 
     def test_falls_back_to_bundle_dir_without_compiled_output(
         self, bundle_dir_with_pipeline: Path
@@ -1778,7 +1841,7 @@ class TestPrepareCompiledBundleIsolated:
 
         session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
         with patch("multiprocessing.get_context", return_value=ctx):
-            result = session._prepare_compiled_bundle_isolated({"model": {}}, overridden=False)
+            result = session._prepare_derived_bundle_isolated({"model": {}}, overridden=False)
 
         assert result == bundle_dir_with_pipeline
 
@@ -1799,7 +1862,7 @@ class TestPrepareCompiledBundleIsolated:
             patch("multiprocessing.get_context", return_value=ctx),
             caplog.at_level(logging.WARNING),
         ):
-            result = session._prepare_compiled_bundle_isolated({"model": {}}, overridden=False)
+            result = session._prepare_derived_bundle_isolated({"model": {}}, overridden=False)
 
         assert result == bundle_dir_with_pipeline
         assert "did not report success" in caplog.text
@@ -1817,7 +1880,7 @@ class TestPrepareCompiledBundleIsolated:
 
         session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
         with patch("multiprocessing.get_context", return_value=ctx):
-            result = session._prepare_compiled_bundle_isolated({"model": {}}, overridden=False)
+            result = session._prepare_derived_bundle_isolated({"model": {}}, overridden=False)
 
         assert result == compiled  # the already-reported result is still returned
         proc.kill.assert_called_once()
@@ -1840,8 +1903,8 @@ class TestLoadCompileIsolation:
         compiled = bundle_dir_with_pipeline / "_compiled"
         isolated = MagicMock(return_value=compiled)
         in_process = MagicMock()
-        monkeypatch.setattr(session, "_prepare_compiled_bundle_isolated", isolated)
-        monkeypatch.setattr(session, "_prepare_compiled_bundle", in_process)
+        monkeypatch.setattr(session, "_prepare_derived_bundle_isolated", isolated)
+        monkeypatch.setattr(session, "_prepare_derived_bundle", in_process)
         monkeypatch.setattr(session, "_register_eps", lambda: None)
 
         with _patch_og(mock_og):
@@ -1859,8 +1922,8 @@ class TestLoadCompileIsolation:
         compiled = bundle_dir_with_pipeline / "_compiled"
         isolated = MagicMock()
         in_process = MagicMock(return_value=compiled)
-        monkeypatch.setattr(session, "_prepare_compiled_bundle_isolated", isolated)
-        monkeypatch.setattr(session, "_prepare_compiled_bundle", in_process)
+        monkeypatch.setattr(session, "_prepare_derived_bundle_isolated", isolated)
+        monkeypatch.setattr(session, "_prepare_derived_bundle", in_process)
         monkeypatch.setattr(session, "_register_eps", lambda: None)
 
         with _patch_og(mock_og):
@@ -1876,8 +1939,8 @@ class TestLoadCompileIsolation:
         session = GenaiSession(bundle_dir)  # compile=False, no override
         isolated = MagicMock()
         in_process = MagicMock()
-        monkeypatch.setattr(session, "_prepare_compiled_bundle_isolated", isolated)
-        monkeypatch.setattr(session, "_prepare_compiled_bundle", in_process)
+        monkeypatch.setattr(session, "_prepare_derived_bundle_isolated", isolated)
+        monkeypatch.setattr(session, "_prepare_derived_bundle", in_process)
 
         with _patch_og(mock_og):
             session.load()
@@ -1888,15 +1951,15 @@ class TestLoadCompileIsolation:
 
 
 # ---------------------------------------------------------------------------
-# Tests: _prepare_compiled_bundle
+# Tests: _prepare_derived_bundle
 # ---------------------------------------------------------------------------
 
 
-class TestPrepareCompiledBundle:
+class TestPrepareDerivedBundle:
     def test_no_compilable_stages_returns_original_bundle_dir(self, bundle_dir: Path) -> None:
         """When no EPContext-capable stages exist, bundle_dir is returned unchanged."""
         session = GenaiSession(bundle_dir, ep="qnn", compile=True)
-        result = session._prepare_compiled_bundle()
+        result = session._prepare_derived_bundle()
         assert result == bundle_dir
         assert not (bundle_dir / "_compiled").exists()
 
@@ -1923,7 +1986,7 @@ class TestPrepareCompiledBundle:
         (tmp_path / "ctx.onnx").write_bytes(b"fake")
 
         session = GenaiSession(tmp_path, ep="dml", compile=True)
-        result = session._prepare_compiled_bundle()
+        result = session._prepare_derived_bundle()
 
         assert result == tmp_path
         assert not (tmp_path / "_compiled").exists()
@@ -1944,7 +2007,7 @@ class TestPrepareCompiledBundle:
         compiled_dir = bundle_dir_with_pipeline / "_compiled"
 
         with patch("multiprocessing.get_context", return_value=ctx_mock):
-            result = session._prepare_compiled_bundle()
+            result = session._prepare_derived_bundle()
 
         assert result == compiled_dir
         config_out = compiled_dir / "genai_config.json"
@@ -1968,7 +2031,7 @@ class TestPrepareCompiledBundle:
         assert overridden is True
 
         compiled_dir = bundle_dir_with_pipeline / "_compiled"
-        result = session._prepare_compiled_bundle(effective, overridden=True)
+        result = session._prepare_derived_bundle(effective, overridden=True)
 
         assert result == compiled_dir
         written = json.loads((compiled_dir / "genai_config.json").read_text(encoding="utf-8"))
@@ -1999,7 +2062,7 @@ class TestPrepareCompiledBundle:
 
         spy = MagicMock(return_value=True)
         monkeypatch.setattr(session, "_compile_stage", spy)
-        result = session._prepare_compiled_bundle()
+        result = session._prepare_derived_bundle()
 
         spy.assert_not_called()
         assert result == compiled_dir
@@ -2015,7 +2078,7 @@ class TestPrepareCompiledBundle:
 
         spy = MagicMock(return_value=True)
         monkeypatch.setattr(session, "_compile_stage", spy)
-        session._prepare_compiled_bundle()
+        session._prepare_derived_bundle()
 
         assert spy.call_count == 2
 
@@ -2035,7 +2098,7 @@ class TestPrepareCompiledBundle:
 
         spy = MagicMock(return_value=True)
         monkeypatch.setattr(session, "_compile_stage", spy)
-        session._prepare_compiled_bundle()
+        session._prepare_derived_bundle()
 
         # Only the context stage (whose .data changed) is recompiled.
         assert spy.call_count == 1
@@ -2063,7 +2126,7 @@ class TestPrepareCompiledBundle:
                 return True
 
             monkeypatch.setattr(session, "_compile_stage", _fake_compile)
-            session._prepare_compiled_bundle(effective, overridden=overridden)
+            session._prepare_derived_bundle(effective, overridden=overridden)
             return next(p for p in captured if p.name.startswith("context"))
 
         ov_ctx = _context_ctx_path_for("openvino")
@@ -2097,7 +2160,7 @@ class TestPrepareCompiledBundle:
         effective, overridden = session._apply_ep_override(session._read_genai_config())
         spy = MagicMock(return_value=True)
         monkeypatch.setattr(session, "_compile_stage", spy)
-        session._prepare_compiled_bundle(effective, overridden=overridden)
+        session._prepare_derived_bundle(effective, overridden=overridden)
 
         # Both stages recompiled for VitisAI; the OpenVINO cache is untouched.
         assert spy.call_count == 2
@@ -2134,7 +2197,7 @@ class TestPrepareCompiledBundle:
         monkeypatch.setattr(session, "_compile_stage", fake_compile)
 
         compiled_dir = bundle_dir_with_pipeline / "_compiled"
-        result = session._prepare_compiled_bundle()
+        result = session._prepare_derived_bundle()
         assert result == compiled_dir
 
         written = json.loads((compiled_dir / "genai_config.json").read_text(encoding="utf-8"))
@@ -2175,7 +2238,7 @@ class TestPrepareCompiledBundle:
         monkeypatch.setattr(session, "_compile_stage", fake_compile)
 
         compiled_dir = bundle_dir_with_pipeline / "_compiled"
-        result = session._prepare_compiled_bundle()
+        result = session._prepare_derived_bundle()
         assert result == compiled_dir
 
         written = json.loads((compiled_dir / "genai_config.json").read_text(encoding="utf-8"))
