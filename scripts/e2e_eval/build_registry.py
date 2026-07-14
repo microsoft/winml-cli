@@ -99,12 +99,12 @@ def get_model_type(model_id: str) -> str | None:
         return None
 
 
-def get_model_metadata(model_id: str) -> dict:
+def try_get_model_metadata(model_id: str) -> dict | None:
     """Fetch last_modified, downloads, and pipeline_tag in one API call."""
     try:
         from huggingface_hub import model_info
     except ImportError:
-        return {"last_modified": None, "downloads": 0, "pipeline_tag": ""}
+        return None
 
     try:
         info = model_info(get_hf_api_model_id(model_id))
@@ -115,7 +115,16 @@ def get_model_metadata(model_id: str) -> dict:
             "pipeline_tag": getattr(info, "pipeline_tag", None) or "",
         }
     except Exception:
-        return {"last_modified": None, "downloads": 0, "pipeline_tag": ""}
+        return None
+
+
+def get_model_metadata(model_id: str) -> dict:
+    """Fetch model metadata, returning empty defaults when the lookup fails."""
+    return try_get_model_metadata(model_id) or {
+        "last_modified": None,
+        "downloads": 0,
+        "pipeline_tag": "",
+    }
 
 
 def load_optimum_types() -> set[str]:
@@ -344,8 +353,9 @@ def build_registry(
             safe_print(f"    [{priority}] {model_id} ({model_type}, {opt_tag}) - {dl} downloads")
 
     # Phase 1.5: Preserve existing (hf_id, task) entries that Phase 1 did not re-add.
-    # All fields are kept verbatim; only ``downloads`` is refreshed so Phase 3 ranking
-    # reflects current popularity. Curated Phase 2 can still override group/priority later.
+    # All fields are kept verbatim; only ``downloads`` is refreshed when top-N queries
+    # run so Phase 4 ranking reflects current popularity. Curated Phase 2 can still
+    # override group/priority later.
     if existing_entries:
         download_cache: dict[str, int] = {}
         preserved_count = 0
@@ -367,7 +377,7 @@ def build_registry(
                 preserved_entry["optimum_supported"] = bool(
                     model_type and model_type in optimum_types
                 )
-            preserved_entry.pop("order", None)  # Phase 3 will reassign
+            preserved_entry.pop("order", None)  # Phase 4 will reassign
             seen.add(key)
             entry_lookup[key] = preserved_entry
             all_entries.append(preserved_entry)
@@ -445,15 +455,24 @@ def build_registry(
     # popularity order should be recomputed from current HF Hub download counts.
     if recheck_downloads:
         safe_print("\n  Rechecking downloads for all entries...")
-        download_cache: dict[str, int] = {}
+        download_cache: dict[str, int | None] = {}
+        updated_count = 0
         for e in all_entries:
             hf_id = e.get("hf_id")
             if not hf_id:
                 continue
             if hf_id not in download_cache:
-                download_cache[hf_id] = get_model_metadata(hf_id).get("downloads", 0)
-            e["downloads"] = download_cache[hf_id]
-        safe_print(f"  Rechecked downloads for {len(download_cache)} model IDs")
+                metadata = try_get_model_metadata(hf_id)
+                download_cache[hf_id] = metadata.get("downloads", 0) if metadata else None
+            downloads = download_cache[hf_id]
+            if downloads is None:
+                safe_print(
+                    f"    WARNING: could not recheck downloads for {hf_id}; keeping existing value"
+                )
+                continue
+            e["downloads"] = downloads
+            updated_count += 1
+        safe_print(f"  Rechecked downloads for {updated_count} entries")
 
     # Phase 4: Rank within each task by downloads (descending).
     task_groups: dict[str, list[dict]] = {}

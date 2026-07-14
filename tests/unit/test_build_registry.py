@@ -77,7 +77,7 @@ def test_build_registry_recheck_downloads_refreshes_preserved_entries(monkeypatc
         },
     ]
 
-    def fake_get_model_metadata(hf_id: str) -> dict[str, Any]:
+    def fake_try_get_model_metadata(hf_id: str) -> dict[str, Any]:
         return {
             "last_modified": None,
             "downloads": {
@@ -87,7 +87,7 @@ def test_build_registry_recheck_downloads_refreshes_preserved_entries(monkeypatc
             "pipeline_tag": "",
         }
 
-    monkeypatch.setattr(build_registry, "get_model_metadata", fake_get_model_metadata)
+    monkeypatch.setattr(build_registry, "try_get_model_metadata", fake_try_get_model_metadata)
 
     entries = build_registry.build_registry(
         tasks=["image-classification"],
@@ -105,3 +105,29 @@ def test_build_registry_recheck_downloads_refreshes_preserved_entries(monkeypatc
         "org/model-b/path/to/model.onnx": 1,
         "org/model-a": 2,
     }
+
+
+def test_build_registry_recheck_downloads_keeps_existing_value_on_failure(monkeypatch) -> None:
+    build_registry = _load_build_registry_module()
+    existing_entries = [
+        {
+            "hf_id": "org/model-a",
+            "task": "image-classification",
+            "model_type": "vit",
+            "group": "P0",
+            "priority": "P0",
+            "downloads": 42,
+            "last_update_time": None,
+        }
+    ]
+
+    monkeypatch.setattr(build_registry, "try_get_model_metadata", lambda _hf_id: None)
+
+    entries = build_registry.build_registry(
+        tasks=["image-classification"],
+        top_n=0,
+        existing_entries=existing_entries,
+        recheck_downloads=True,
+    )
+
+    assert entries[0]["downloads"] == 42
