@@ -129,6 +129,50 @@ def _compile_stage_worker(src: str, dst: str, ep_alias: str, provider_options: d
         raise RuntimeError(f"Compilation failed: {result.errors}")
 
 
+def _prepare_derived_bundle_worker(
+    result_queue: Any,
+    bundle_dir: str,
+    compile_timeout: int,
+    effective_cfg: dict[str, Any],
+    overridden: bool,
+) -> None:
+    """Run the EPContext compile orchestration in an isolated subprocess.
+
+    Executed via ``multiprocessing`` (spawn) by
+    :meth:`GenaiSession._prepare_derived_bundle_isolated`.  Running the whole
+    orchestration here — rather than in the process that later creates
+    ``og.Model`` — is the fix for issue #1087: per-stage accelerator compile
+    workers can native-fault during interpreter/driver teardown (QNN on the
+    Hexagon NPU in particular), and orchestrating those crash-prone subprocesses
+    leaves the *orchestrating* process's native accelerator state fragile.  When
+    that orchestrating process is also the one that loads ``og.Model`` for
+    generation, the load native-crashes (``0xC0000005`` / ``0xC0000374``) before
+    the first token.  Isolating the orchestration in this throwaway process keeps
+    the parent pristine for the model load.
+
+    The compiled artifacts are written to disk (``bundle_dir/_compiled/``) by
+    :meth:`GenaiSession._prepare_derived_bundle`; only the resolved load
+    directory is handed back to the parent through *result_queue* as a
+    ``(status, payload)`` tuple — ``("ok", <load_dir>)`` on success or
+    ``("error", <message>)`` if the orchestration raised.
+
+    Args:
+        result_queue: A ``multiprocessing`` queue the parent drains for the
+            single ``(status, payload)`` result.
+        bundle_dir: The genai bundle directory (as a string path).
+        compile_timeout: Per-stage compile timeout forwarded to the reconstructed
+            session so the nested per-stage workers keep the same bound.
+        effective_cfg: The post-override config to compile/load from.
+        overridden: Whether *effective_cfg* differs from the on-disk config.
+    """
+    try:
+        session = GenaiSession(bundle_dir, compile=True, compile_timeout=compile_timeout)
+        load_dir = session._prepare_derived_bundle(effective_cfg, overridden=overridden)
+        result_queue.put(("ok", str(load_dir)))
+    except Exception as exc:
+        result_queue.put(("error", repr(exc)))
+
+
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -323,6 +367,15 @@ class GenaiSession:
     # Sub-directory within the bundle that holds pre-compiled EPContext ONNX files.
     _COMPILED_SUBDIR: str = "_compiled"
 
+    # Sentinel dropped into ``_compiled/`` as the final step of a successful
+    # :meth:`_prepare_derived_bundle`.  Its presence proves the derived bundle was
+    # written in full for the current effective config and stage inputs.  The
+    # isolated-compile parent removes any stale copy before spawning the child and,
+    # on the post-failure fallback, trusts an existing ``_compiled/`` only when this
+    # marker is present — so it never serves stale EPContext artifacts from an
+    # earlier run (issue #1087).
+    _BUNDLE_COMPLETE_MARKER: str = ".winml_bundle_complete"
+
     # Standalone chat-template sidecar written next to genai_config.json (the
     # conventional onnxruntime-genai / Hugging Face filename).  Read to format
     # prompts with the model's own template; absent for bundles that ship none.
@@ -458,9 +511,17 @@ class GenaiSession:
         # Materialize the directory og.Model loads from.  A derived ``_compiled/``
         # bundle is written when the override rewrote the config and/or stages
         # were pre-compiled; otherwise the original bundle dir is used as-is.
+        #
+        # When compiling, the EPContext orchestration runs in an isolated
+        # subprocess so its crash-prone accelerator teardown cannot poison THIS
+        # process, which must stay pristine to load og.Model (issue #1087).  An
+        # override-only pass (no compilation) merely rewrites JSON + mirrors
+        # files, touches no native accelerator state, and stays in-process.
         load_dir = self._bundle_dir
-        if self._compile or overridden:
-            load_dir = self._prepare_compiled_bundle(effective_cfg, overridden=overridden)
+        if self._compile:
+            load_dir = self._prepare_derived_bundle_isolated(effective_cfg, overridden=overridden)
+        elif overridden:
+            load_dir = self._prepare_derived_bundle(effective_cfg, overridden=overridden)
 
         try:
             config = og.Config(str(load_dir))
@@ -995,7 +1056,126 @@ class GenaiSession:
                         return dict(opts)
         return {}
 
-    def _prepare_compiled_bundle(
+    def _prepare_derived_bundle_isolated(
+        self, effective_cfg: dict[str, Any], *, overridden: bool
+    ) -> Path:
+        """Run :meth:`_prepare_derived_bundle` in a throwaway subprocess.
+
+        This is the root-cause fix for issue #1087.  The EPContext compile
+        orchestration spawns and reaps per-stage accelerator compile workers that
+        can native-fault during interpreter / driver teardown (QNN on the Hexagon
+        NPU).  Doing that orchestration in the *same* process that then creates
+        ``og.Model`` leaves the process's native accelerator state fragile, so the
+        subsequent model load native-crashes (``0xC0000005`` / ``0xC0000374``)
+        before the first token — even when every stage is already compiled and
+        cached.
+
+        Delegating the orchestration to a disposable subprocess (which writes the
+        compiled artifacts to ``bundle_dir/_compiled/`` and exits) keeps *this*
+        process — the one that loads and runs ``og.Model`` — pristine.  The child
+        performs exactly the work today's parent does up to, but not including,
+        the model load, so it completes and reports the load directory back before
+        exiting; only the resolved path crosses the process boundary.
+
+        Args:
+            effective_cfg: The post-override config to compile/load from.
+            overridden: Whether *effective_cfg* differs from the on-disk config.
+
+        Returns:
+            Path to the directory ``og.Model`` should load from — the derived
+            ``_compiled/`` bundle when the child produced one (reported directly,
+            or proven current-run fresh by its completion marker on the fallback
+            path), otherwise the original bundle directory (a clean JIT load in
+            this un-poisoned process).
+        """
+        import multiprocessing
+        import queue as queue_mod
+
+        ctx = multiprocessing.get_context("spawn")
+        result_queue = ctx.Queue()
+        proc = ctx.Process(
+            target=_prepare_derived_bundle_worker,
+            args=(
+                result_queue,
+                str(self._bundle_dir),
+                self._compile_timeout,
+                effective_cfg,
+                overridden,
+            ),
+        )
+        logger.info(
+            "Compiling bundle in an isolated subprocess so the compile orchestration "
+            "cannot poison this model-load process (issue #1087)"
+        )
+        # Drop any completion marker left by a previous run before spawning the
+        # child.  The post-failure fallback below trusts an existing _compiled/
+        # only when THIS run's child re-creates the marker, so a stale one must
+        # never survive into that check (issue #1087 stale-bundle guard).
+        compiled_dir = self._bundle_dir / self._COMPILED_SUBDIR
+        (compiled_dir / self._BUNDLE_COMPLETE_MARKER).unlink(missing_ok=True)
+        proc.start()
+
+        # Drain the single (status, payload) the worker posts when the compile
+        # orchestration finishes.  Poll rather than block indefinitely so a native
+        # crash in the worker (which would post nothing) is noticed promptly
+        # instead of hanging; the worker's runtime is already bounded by the
+        # per-stage compile timeouts it enforces internally.
+        status: str | None = None
+        payload: str | None = None
+        while proc.is_alive():
+            try:
+                status, payload = result_queue.get(timeout=1.0)
+                break
+            except queue_mod.Empty:
+                continue
+        if status is None:
+            try:
+                status, payload = result_queue.get_nowait()
+            except queue_mod.Empty:
+                # The worker exited without ever posting a result (it crashed or
+                # was killed before finishing). Leave status as None: the failure
+                # path below reports the error and never falls back to an
+                # in-process compile (issue #1087).
+                pass
+
+        # The result (if any) is already in hand, so the child's remaining work is
+        # just process teardown.  Bound the wait and kill a child whose native
+        # accelerator teardown hangs instead of exiting: a throwaway compile child
+        # must never be able to wedge this model-load process (issue #1087), and
+        # driver teardown can hang as readily as it can fault.
+        proc.join(timeout=self._compile_timeout)
+        if proc.is_alive():
+            logger.warning(
+                "Isolated compile subprocess did not exit within %ds after reporting; "
+                "terminating it (its compiled artifacts are already on disk)",
+                self._compile_timeout,
+            )
+            proc.kill()
+            proc.join()
+
+        if status == "ok" and payload:
+            return Path(payload)
+
+        # The child failed or crashed before reporting.  Never fall back to an
+        # in-process compile (that would reintroduce the poisoning this method
+        # exists to prevent).  A previously written _compiled/ is reused only when
+        # this run's child left the completion marker: it was removed before spawn
+        # and rewritten only after a full prepare, so its presence proves the
+        # bundle matches the current effective config + stage inputs.  Without it
+        # we cannot rule out a stale bundle from an earlier run, so we surface the
+        # failure by loading the original bundle and letting og.Model report.
+        logger.warning(
+            "Isolated compile subprocess did not report success (status=%s, detail=%s); "
+            "falling back to on-disk state",
+            status,
+            payload,
+        )
+        marker_present = (compiled_dir / self._BUNDLE_COMPLETE_MARKER).exists()
+        if marker_present and (compiled_dir / "genai_config.json").exists():
+            return compiled_dir
+        return self._bundle_dir
+
+    def _prepare_derived_bundle(
         self, effective_cfg: dict[str, Any] | None = None, *, overridden: bool = False
     ) -> Path:
         """Create (or reuse) a derived bundle directory og.Model can load from.
@@ -1153,6 +1333,14 @@ class GenaiSession:
         self._mirror_non_onnx_files(compiled_dir, skip_filenames=compiled_stage_filenames)
 
         logger.info("Compiled bundle prepared at %s", compiled_dir)
+        # Final step: record that the derived bundle was written in full.  The
+        # isolated-compile parent removes this marker before spawning the child and
+        # trusts an existing _compiled/ on its post-failure fallback only when the
+        # marker is present, so writing it last (after the config + mirrored files)
+        # makes its presence prove a complete, current-run bundle (issue #1087).
+        (compiled_dir / self._BUNDLE_COMPLETE_MARKER).write_text(
+            "winml genai derived bundle completed\n", encoding="utf-8"
+        )
         return compiled_dir
 
     @staticmethod
