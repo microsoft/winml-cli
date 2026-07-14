@@ -1116,6 +1116,10 @@ class GenaiSession:
             try:
                 status, payload = result_queue.get_nowait()
             except queue_mod.Empty:
+                # The worker exited without ever posting a result (it crashed or
+                # was killed before finishing). Leave status as None: the failure
+                # path below reports the error and never falls back to an
+                # in-process compile (issue #1087).
                 pass
 
         # The result (if any) is already in hand, so the child's remaining work is
