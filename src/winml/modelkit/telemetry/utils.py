@@ -151,6 +151,40 @@ def _looks_like_path(token: str) -> bool:
     return "\\" in token and _PACKAGE_ROOT in token.replace("\\", "/")
 
 
+def _model_ref_local_marker(value: str) -> str:
+    """Anonymized marker for a local model reference.
+
+    Emits only the file extension or the literal ``dir`` — never any path
+    fragment (no basename, no directory names, no username).
+    """
+    tail = value.replace("\\", "/").rsplit("/", 1)[-1]
+    ext = Path(tail).suffix
+    return f"<local:{ext}>" if ext else "<local:dir>"
+
+
+def _scrub_model_ref(value: str | tuple[str, ...] | None) -> str | None:
+    """Classify a ``-m/--model`` reference for telemetry.
+
+    Clean HuggingFace ids (``org/name``, single slash, not present on
+    disk) pass through verbatim. Everything else — drive-letter paths,
+    absolute paths, on-disk paths, and bare names — collapses to a
+    ``<local:...>`` marker that carries no path content.
+    """
+    if isinstance(value, tuple):
+        value = value[0] if value else None
+    if not value:
+        return None
+    normalized = value.replace("\\", "/")
+    if re.match(r"^[A-Za-z]:[\\/]", value) or normalized.startswith("/"):
+        return _model_ref_local_marker(value)
+    if Path(value).exists():
+        return _model_ref_local_marker(value)
+    parts = normalized.split("/")
+    if len(parts) == 2 and parts[0] and parts[1]:
+        return value
+    return _model_ref_local_marker(value)
+
+
 def _encode_cache_entry(entry: dict[str, Any]) -> str:
     """Encode a cache entry to a single-line string: ``base64(json(dict))``."""
     raw = json.dumps(entry, ensure_ascii=False).encode("utf-8")
