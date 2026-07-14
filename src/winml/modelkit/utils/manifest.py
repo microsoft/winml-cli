@@ -140,10 +140,10 @@ class WinMLManifest:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise to a JSON-safe dict (``schema_version`` injected)."""
-        d: dict[str, Any] = {"schema_version": self.schema_version}
         raw = asdict(self)
         extras = raw.pop("extras", {})
-        raw.pop("schema_version", None)
+        # schema_version is placed first for readability; remaining fields follow.
+        d: dict[str, Any] = {"schema_version": raw.pop("schema_version")}
         # Drop None values for a compact JSON representation.
         d.update({k: _sanitize_value(v) for k, v in raw.items() if v is not None})
         # Stage entries: also drop None fields inside each stage, merge extras.
