@@ -6,8 +6,9 @@
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING
+
+from ..._env import env_flag_enabled
 
 
 if TYPE_CHECKING:
@@ -15,12 +16,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-_TIMING_LOG_ENABLED = os.environ.get("WINMLCLI_TIMING_LOG", "").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
+_TIMING_LOG_ENABLED = env_flag_enabled("WINMLCLI_TIMING_LOG")
 
 
 def make_timing_logger(logger: logging.Logger) -> Callable[..., None]:

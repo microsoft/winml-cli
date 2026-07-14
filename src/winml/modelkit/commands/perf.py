@@ -101,6 +101,7 @@ class BenchmarkConfig:
     ep: EPNameOrAlias | None = None
     ep_options: dict[str, str] | None = None
     shape_config: dict | None = None
+    export_overrides: dict[str, Any] | None = None
     # Path to a .npz file of real input tensors. When set, benchmarking uses
     # these instead of randomly generated inputs (single-model path only).
     input_data: Path | None = None
@@ -770,9 +771,18 @@ class PerfBenchmark:
             # file" error from AutoConfig.
             raise FileNotFoundError(f"ONNX file not found: {model_path}")
 
-        # Only override config when user explicitly passes --no-quantize
-        override = None
-        if self.config.no_quantize:
+        # Only override config for explicitly requested build/export changes.
+        override: WinMLBuildConfig | dict[str, Any] | None = None
+        if self.config.export_overrides:
+            if is_onnx:
+                raise ValueError(
+                    "Export overrides are only supported for HuggingFace model inputs."
+                )
+            override_dict: dict[str, Any] = {"export": self.config.export_overrides}
+            if self.config.no_quantize:
+                override_dict["quant"] = None
+            override = override_dict
+        elif self.config.no_quantize:
             override = WinMLBuildConfig(quant=None)
 
         # Cache control: --ignore-cache -> temp dir, --rebuild -> overwrite cache
@@ -1725,6 +1735,9 @@ _GENAI_IGNORED_FLAGS: dict[str, str] = {
     "precision": "--precision",
     "ep_options": "--ep-options",
     "shape_config_path": "--shape-config",
+    "input_specs": "--input-specs",
+    "export_config": "--export-config",
+    "dynamic_axes": "--dynamic-axes",
     "quant": "--quant/--no-quantize",
     "optimize": "--optimize/--no-optimize",
     "analyze": "--analyze/--no-analyze",
@@ -1919,12 +1932,16 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     "of randomly generated inputs. Keys must match the model's input names and "
     "dtypes exactly. Not supported with --module or --runtime winml-genai.",
 )
-@click.option(
-    "--shape-config",
-    "shape_config_path",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help='JSON file with shape overrides (e.g., {"height": 480, "width": 480}).',
+@cli_utils.shape_config_option(param_name="shape_config_path")
+@cli_utils.input_specs_option()
+@cli_utils.export_config_option(
+    help_text="ONNX export configuration JSON for HuggingFace model builds.",
+)
+@cli_utils.dynamic_axes_option(
+    help_text=(
+        "JSON dynamic axes mapping for HuggingFace ONNX export "
+        '(e.g., {"input_ids": {"0": "batch", "1": "sequence"}}).'
+    )
 )
 @cli_utils.quant_option(optional_message="Applied during model build.")
 @cli_utils.optimize_option(optional_message="Applied during model build.")
@@ -2004,6 +2021,9 @@ def perf(
     batch_size: int,
     input_data: Path | None,
     shape_config_path: Path | None,
+    input_specs: Path | None,
+    export_config: Path | None,
+    dynamic_axes: Path | None,
     quant: bool,
     optimize: bool,
     analyze: bool,
@@ -2153,6 +2173,21 @@ def perf(
                 "[yellow]Warning:[/yellow] --shape-config is not supported "
                 "in --module mode and will be ignored."
             )
+        ignored_export_flags = [
+            flag
+            for flag, value in (
+                ("--input-specs", input_specs),
+                ("--export-config", export_config),
+                ("--dynamic-axes", dynamic_axes),
+            )
+            if value is not None
+        ]
+        if ignored_export_flags:
+            console.print(
+                "[yellow]Warning:[/yellow] "
+                f"{', '.join(ignored_export_flags)} are not supported in --module mode "
+                "and will be ignored."
+            )
         # _perf_modules resolves the device + derives a concrete EP internally
         # (it will fold into PerfBenchmark — see #939).
         _perf_modules(
@@ -2220,6 +2255,36 @@ def perf(
             "--input-data is set; the batch comes from the provided tensors."
         )
 
+    export_overrides = None
+    export_flag_values = (input_specs, export_config, dynamic_axes)
+    if any(value is not None for value in export_flag_values):
+        if is_onnx:
+            ignored = [
+                flag
+                for flag, value in (
+                    ("--input-specs", input_specs),
+                    ("--export-config", export_config),
+                    ("--dynamic-axes", dynamic_axes),
+                )
+                if value is not None
+            ]
+            console.print(
+                "[yellow]Warning:[/yellow] "
+                f"{', '.join(ignored)} are ignored for pre-exported ONNX inputs."
+            )
+        else:
+            export_overrides = cli_utils.load_export_overrides(
+                export_config=export_config,
+                input_specs=input_specs,
+                dynamic_axes=dynamic_axes,
+            )
+            if input_specs:
+                console.print(f"[dim]Input specs:[/dim] {input_specs}")
+            if export_config:
+                console.print(f"[dim]Export config:[/dim] {export_config}")
+            if dynamic_axes:
+                console.print(f"[dim]Dynamic axes:[/dim] {dynamic_axes}")
+
     # Resolve output path
     if output is None:
         output = generate_output_path(hf_model)
@@ -2253,6 +2318,7 @@ def perf(
         ep=ep,
         ep_options=ep_provider_options,
         shape_config=shape_config,
+        export_overrides=export_overrides,
         input_data=input_data,
     )
 

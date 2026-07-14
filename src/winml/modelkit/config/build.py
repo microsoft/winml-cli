@@ -71,6 +71,8 @@ from ..utils.config_utils import merge_config
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     import torch
     from torch import nn
 
@@ -263,6 +265,9 @@ class WinMLBuildConfig:
         return hashlib.sha256(json_str.encode()).hexdigest()[:16]
 
 
+BuildConfigOverride = WinMLBuildConfig | dict[str, Any]
+
+
 # =============================================================================
 # SUBMODULE INFO DATACLASS
 # =============================================================================
@@ -398,7 +403,7 @@ def generate_onnx_build_config(
     device: str = "auto",
     precision: str = "auto",
     ep: EPNameOrAlias | None = None,
-    override: WinMLBuildConfig | None = None,
+    override: BuildConfigOverride | None = None,
     no_compile: bool = False,
 ) -> WinMLBuildConfig:
     """Generate build config for a pre-exported ONNX model (Scenario D).
@@ -487,6 +492,65 @@ def generate_onnx_build_config(
 # =============================================================================
 
 
+def _patch_input_tensors(
+    resolved: list[InputTensorSpec] | None,
+    patches: list[InputTensorSpec],
+) -> list[InputTensorSpec]:
+    """Patch user ``--input-specs`` onto auto-resolved input tensors by name.
+
+    Mirrors the ``export`` command: for a name that matches an auto-resolved
+    tensor, only the fields the user explicitly set (dtype/shape/value_range)
+    are overwritten, so unspecified fields keep their resolved values. Names
+    that don't match any resolved tensor are appended. Auto-resolved tensors
+    the user didn't mention are preserved untouched.
+    """
+    result = [copy.deepcopy(t) for t in (resolved or [])]
+    by_name = {t.name: t for t in result}
+    for patch in patches:
+        existing = by_name.get(patch.name)
+        if existing is not None:
+            if patch.dtype is not None:
+                existing.dtype = patch.dtype
+            if patch.shape is not None:
+                existing.shape = patch.shape
+            if patch.value_range is not None:
+                existing.value_range = patch.value_range
+        else:
+            new_spec = copy.deepcopy(patch)
+            result.append(new_spec)
+            by_name[new_spec.name] = new_spec
+    return result
+
+
+def merge_export_overrides(
+    config: WinMLBuildConfig,
+    export_overrides: Mapping[str, Any],
+) -> WinMLBuildConfig:
+    """Merge export CLI overrides onto a build config, returning a new config.
+
+    Handles ``--export-config``/``--dynamic-axes``/``--input-specs``.
+    ``input_tensors`` (from ``--input-specs``) are patched onto the config's
+    auto-resolved specs *by name* rather than replacing the list wholesale, so
+    inputs the user didn't mention (e.g. ``attention_mask``) and their
+    dtype/value_range are preserved. The patched list is routed back through
+    ``merge_config`` so ``WinMLExportConfig.__post_init__`` re-runs and
+    re-derives ``dynamic_axes`` from any symbolic ``--input-specs`` dims;
+    assigning the list directly would bypass that and silently produce a static
+    model for e.g. ``--input-specs '{"input_ids": {"shape": ["batch", "seq"]}}'``.
+    """
+    export_overrides = dict(export_overrides)
+    input_spec_patches = export_overrides.pop("input_tensors", None)
+
+    merged = merge_config(config, {"export": export_overrides}) if export_overrides else config
+
+    if input_spec_patches is not None:
+        base_tensors = merged.export.input_tensors if merged.export is not None else None
+        patched = _patch_input_tensors(base_tensors, input_spec_patches)
+        merged = merge_config(merged, {"export": {"input_tensors": patched}})
+
+    return merged
+
+
 @overload
 def generate_hf_build_config(
     model_id: str | None = None,
@@ -495,7 +559,7 @@ def generate_hf_build_config(
     model_class: str | None = None,
     model_type: str | None = None,
     module: None = None,
-    override: WinMLBuildConfig | None = None,
+    override: BuildConfigOverride | None = None,
     shape_config: dict | None = None,
     library_name: str = "transformers",
     device: str = "auto",
@@ -514,7 +578,7 @@ def generate_hf_build_config(
     model_class: str | None = None,
     model_type: str | None = None,
     module: str,
-    override: WinMLBuildConfig | None = None,
+    override: BuildConfigOverride | None = None,
     shape_config: dict | None = None,
     library_name: str = "transformers",
     device: str = "auto",
@@ -537,7 +601,7 @@ def generate_hf_build_config(
     # resolve the call against the two narrower overloads above and fails with
     # "too many union combinations".
     module: str | None,
-    override: WinMLBuildConfig | None = None,
+    override: BuildConfigOverride | None = None,
     shape_config: dict | None = None,
     library_name: str = "transformers",
     device: str = "auto",
@@ -555,7 +619,7 @@ def generate_hf_build_config(
     model_class: str | None = None,
     model_type: str | None = None,
     module: str | None = None,
-    override: WinMLBuildConfig | None = None,
+    override: BuildConfigOverride | None = None,
     shape_config: dict | None = None,
     library_name: str = "transformers",
     device: str = "auto",
@@ -593,7 +657,7 @@ def generate_hf_build_config(
         module: If specified, generate configs for submodules matching this
                 class name. Uses torchinfo to discover submodules and infer
                 I/O shapes.
-        override: Partial WinMLBuildConfig to merge on top of auto-detected.
+        override: Partial WinMLBuildConfig or sparse mapping to merge on top of auto-detected.
         shape_config: Shape overrides passed to resolve_export_config().
         library_name: Source library for TasksManager lookup.
         device: Target device ("auto", "npu", "gpu", "cpu").
@@ -611,9 +675,19 @@ def generate_hf_build_config(
                     detection fails, or model_type has no supported tasks.
     """
     # STEP 1: Resolve loader config (ALL loader concerns)
-    _trust_remote_code = trust_remote_code or (
-        override.loader.trust_remote_code if override and override.loader else False
-    )
+    if isinstance(override, WinMLBuildConfig):
+        override_trust_remote_code = override.loader.trust_remote_code if override.loader else False
+    elif isinstance(override, dict):
+        loader_override = override.get("loader")
+        override_trust_remote_code = (
+            bool(loader_override.get("trust_remote_code"))
+            if isinstance(loader_override, dict)
+            else False
+        )
+    else:
+        override_trust_remote_code = False
+
+    _trust_remote_code = trust_remote_code or override_trust_remote_code
     if _trust_remote_code:
         from ..utils.cli import warn_trust_remote_code
 
@@ -683,7 +757,22 @@ def generate_hf_build_config(
         model_type=hf_config.model_type,
     )
     if override:
-        parent_config = merge_config(parent_config, override)
+        # Export CLI overrides (--export-config/--dynamic-axes/--input-specs) arrive
+        # under override["export"] as a plain dict. Route them through
+        # merge_export_overrides so --input-specs patches the auto-resolved
+        # input_tensors by name (preserving unlisted inputs) and dynamic_axes are
+        # re-derived from symbolic dims. Any other override keys (e.g. quant) are
+        # merged normally.
+        export_overrides = None
+        if isinstance(override, dict) and isinstance(override.get("export"), dict):
+            export_overrides = override["export"]
+            override = {k: v for k, v in override.items() if k != "export"}
+
+        if override:
+            parent_config = merge_config(parent_config, override)
+
+        if export_overrides is not None:
+            parent_config = merge_export_overrides(parent_config, export_overrides)
 
     # =========================================================================
     # STEP 4.5: Apply device/precision policy (affects quant + compile only)
@@ -804,7 +893,7 @@ def generate_build_config(
     model_class: str | None = None,
     model_type: str | None = None,
     module: None = None,
-    override: WinMLBuildConfig | None = None,
+    override: BuildConfigOverride | None = None,
     shape_config: dict | None = None,
     library_name: str = "transformers",
     device: str = "auto",
@@ -823,7 +912,7 @@ def generate_build_config(
     model_class: str | None = None,
     model_type: str | None = None,
     module: str,
-    override: WinMLBuildConfig | None = None,
+    override: BuildConfigOverride | None = None,
     shape_config: dict | None = None,
     library_name: str = "transformers",
     device: str = "auto",
@@ -841,7 +930,7 @@ def generate_build_config(
     model_class: str | None = None,
     model_type: str | None = None,
     module: str | None = None,
-    override: WinMLBuildConfig | None = None,
+    override: BuildConfigOverride | None = None,
     shape_config: dict | None = None,
     library_name: str = "transformers",
     device: str = "auto",

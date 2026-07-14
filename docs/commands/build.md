@@ -34,6 +34,10 @@ $ winml build [options]
 | `--precision` | `-p` | string | `auto` | Target precision (e.g., `fp16`, `int8`, `w8a16`). With `-c`, applied only when `--device` or `--precision` is passed. |
 | `--analyze/--no-analyze` | | flag | `true` | Run the analyzer loop during build (use `--no-analyze` to skip). |
 | `--max-optim-iterations` | | integer | `None` | Maximum autoconf re-optimization rounds (3 enforced internally when not set). `--no-analyze` implicitly sets this to 0. |
+| `--shape-config` | | path | `None` | JSON shape overrides used while auto-generating a Hugging Face export config, for example `{"height": 480, "width": 480}`. Only valid when `--config` is omitted. |
+| `--input-specs` | | path | `None` | JSON input tensor specs to merge into the Hugging Face export config. Symbolic string dimensions infer dynamic axes. |
+| `--export-config` | | path | `None` | JSON ONNX export config overrides to merge into the Hugging Face export config. |
+| `--dynamic-axes` | | path | `None` | JSON dynamic axes mapping for Hugging Face ONNX export, for example `{"input_ids": {"0": "batch", "1": "sequence"}}`. |
 | `--trust-remote-code/--no-trust-remote-code` | | flag | `false` | Allow executing custom code from model repositories. Use only with trusted sources. |
 | `--allow-unsupported-nodes/--no-allow-unsupported-nodes` | | flag | `false` | Allow unsupported nodes to remain in the graph instead of failing the build. |
 | `--help` | `-h` | flag | | Show this message and exit. |
@@ -143,6 +147,12 @@ winml build -c config.json -m microsoft/resnet-50 \
   --use-cache --max-optim-iterations 1
 ```
 
+```bash
+# Build with a dynamic batch axis during Hugging Face export
+winml build -m microsoft/resnet-50 -o output/ \
+  --dynamic-axes dynamic_axes.json
+```
+
 ## Common pitfalls
 
 - **Either `--output-dir` or `--use-cache` is required; they are mutually
@@ -151,6 +161,8 @@ winml build -c config.json -m microsoft/resnet-50 \
   array (module mode), only `--output-dir` is accepted.
 - **The config file must come from `winml config`.** The schema is strict;
   unknown keys are rejected.
+- **Export-shape flags only affect Hugging Face export.** They are rejected for
+  pre-exported ONNX inputs because the export step has already happened.
 - **Existing artifacts are reused by default.** Pass `--rebuild` to force a
   fresh run after changing the config.
 - **Genai bundles require `--output-dir`, not `--use-cache`.** A specialized

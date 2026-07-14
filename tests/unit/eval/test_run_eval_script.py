@@ -322,6 +322,57 @@ class TestRunBuildNoQuantInjection:
         assert all("--no-quant" not in args for args in calls)
 
 
+class TestRunBuildConfigOverwrite:
+    """``_run_build`` must pass ``--overwrite`` to ``winml config`` so a re-run
+    replaces its own prior ``build_config.json`` instead of aborting.
+
+    Regression guard: the harness owns build_config.json and re-runs it (plain
+    re-run into an existing output dir, or ``--continue`` / ``--retry-failed``).
+    Without ``--overwrite`` winml config's ``guard_output()`` exits with
+    "... already exists", and the runner records the whole job as
+    build_failed even though the model itself is fine.
+    """
+
+    @staticmethod
+    def _make_entry():
+        entry = MagicMock()
+        entry.hf_id = "AdamCodd/vit-base-nsfw-detector"
+        entry.task = "image-classification"
+        entry.perf_args = []
+        return entry
+
+    def test_config_call_includes_overwrite(self, run_eval, tmp_path):
+        entry = self._make_entry()
+        # A stale config from a prior run is exactly what used to trigger the
+        # "already exists" abort; it must not change the emitted command.
+        (tmp_path / "build_config.json").write_text("{}", encoding="utf-8")
+
+        captured: list[list[str]] = []
+
+        def fake_subprocess(args, _timeout):
+            captured.append(list(args))
+            stdout = "" if "config" in args else "Build cache: model.onnx"
+            return {
+                "exit_code": 0,
+                "stdout": stdout,
+                "stderr": "",
+                "elapsed": 0.1,
+                "command": " ".join(args),
+            }
+
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=fake_subprocess),
+            patch.object(run_eval, "_extract_onnx_path", return_value=str(tmp_path / "model.onnx")),
+        ):
+            run_eval._run_build(entry, "cpu", None, 300, tmp_path, ep="cpu")
+
+        config_call = next(args for args in captured if "config" in args)
+        idx = config_call.index("-o")
+        # Layout is ["-o", <path>, "--overwrite"]; assert the flag is present
+        # and clobbers this specific config path.
+        assert config_call[idx + 2] == "--overwrite", config_call
+
+
 class TestFeedVersionForCombo:
     """``_feed_version_for`` embeds the EP/device combo after the run-stamp."""
 
@@ -928,6 +979,77 @@ class TestRunWinmlEvalRecipePath:
         assert res["status"] == "PASS"
 
 
+class TestRunWinmlEvalOverwrite:
+    """``_run_winml_eval`` must pass ``--overwrite`` so re-runs replace their own
+    ``winml_eval_output.json`` instead of aborting.
+
+    Regression guard: the harness owns that output file and re-runs it (plain
+    re-run into an existing output dir, or ``--continue`` / ``--retry-failed``).
+    Without ``--overwrite`` winml eval's ``guard_output()`` exits 1 with
+    "... already exists" before the model loads, which the runner then
+    misreports as ``acc=FAIL`` for a model that is actually fine.
+    """
+
+    @staticmethod
+    def _capture_fake(captured):
+        def _fake(args, _timeout):
+            captured.append(list(args))
+            out = Path(args[args.index("--output") + 1])
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(
+                json.dumps({"metrics": {"accuracy": 1.0}, "dataset": {"samples": 1}}),
+                encoding="utf-8",
+            )
+            return {
+                "exit_code": 0,
+                "stdout": "",
+                "stderr": "",
+                "elapsed": 1.0,
+                "timeout": False,
+                "command": " ".join(args),
+            }
+
+        return _fake
+
+    @staticmethod
+    def _assert_overwrite_follows_output(call):
+        assert "--output" in call, call
+        idx = call.index("--output")
+        # Layout is ["--output", <path>, "--overwrite"]; assert both the flag's
+        # presence and that it clobbers this specific output path.
+        assert call[idx + 2] == "--overwrite", call
+
+    def test_recipe_path_adds_overwrite(self, run_eval, tmp_path):
+        cfg = tmp_path / "recipe.json"
+        cfg.write_text("{}", encoding="utf-8")
+        # A stale output file from a prior run is exactly what used to trigger
+        # the "already exists" abort; it must not change the emitted command.
+        (tmp_path / "winml_eval_output.json").write_text("stale", encoding="utf-8")
+        captured: list[list[str]] = []
+        with patch.object(run_eval, "_run_subprocess", side_effect=self._capture_fake(captured)):
+            run_eval._run_winml_eval(
+                _entry(),
+                "npu",
+                300,
+                {},
+                tmp_path,
+                {"": "model.onnx"},
+                ep="openvino",
+                recipe_config=cfg,
+            )
+        self._assert_overwrite_follows_output(captured[0])
+
+    def test_fallback_path_adds_overwrite(self, run_eval, tmp_path):
+        (tmp_path / "winml_eval_output.json").write_text("stale", encoding="utf-8")
+        captured: list[list[str]] = []
+        ds_config = {"dataset": "timm/mini-imagenet", "split": "test", "num_samples": 50}
+        with patch.object(run_eval, "_run_subprocess", side_effect=self._capture_fake(captured)):
+            run_eval._run_winml_eval(
+                _entry(), "npu", 300, ds_config, tmp_path, {"": "model.onnx"}, ep="openvino"
+            )
+        self._assert_overwrite_follows_output(captured[0])
+
+
 class TestCleanStrayCwdArtifacts:
     """``_clean_stray_cwd_artifacts`` sweeps UUID/sym-shape temps from the cwd."""
 
@@ -1044,6 +1166,12 @@ class TestShouldSkipExistingRetry:
         # empty set = retry ALL non-PASS; an accuracy FAIL must be re-run.
         res = self._result(perf_passed=True, acc_status="FAIL")
         assert run_eval._should_skip_existing(res, set(), "both") is False
+
+    def test_retry_all_skips_full_pass(self, run_eval):
+        # empty set = retry ALL non-PASS, so a perf+acc PASS job must stay
+        # skipped (--retry-failed "Implies --continue for passing jobs").
+        res = self._result(perf_passed=True, acc_status="PASS")
+        assert run_eval._should_skip_existing(res, set(), "both") is True
 
     def test_retry_fail_matches_accuracy_fail(self, run_eval):
         # The documented `--retry-failed FAIL` must actually match acc=FAIL.
