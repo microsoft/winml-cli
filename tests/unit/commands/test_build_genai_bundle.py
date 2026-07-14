@@ -15,10 +15,11 @@ The bundle is fully recipe-driven, so it is built directly from ``-m`` with no
 inject ``model_type`` by stubbing the auto config generator instead.
 
 The trigger under test (locked design):
-    registered decoder-LLM family  AND  explicit ``--ep qnn``  AND a ``--device``
-    that targets the NPU (explicit ``--device npu`` or ``--device auto``
-    resolving to the NPU)  ->  genai bundle.  Every other combination keeps the
-    stock single/composite behavior.
+    registered decoder-LLM family  AND  explicit ``--ep qnn``  AND an NPU target
+    ->  genai bundle.  The NPU target may be explicit (``--device npu``) or
+    resolved from ``auto`` -- whether ``--device auto`` is typed or ``--device``
+    is omitted (its default).  Every other combination keeps the stock
+    single/composite behavior.
 """
 
 from __future__ import annotations
@@ -352,6 +353,48 @@ def test_auto_qnn_resolving_to_non_npu_does_not_route(tmp_path: Path):
                 "qnn",
             ]
         )
+
+    assert result.exit_code == 0, result.output
+    bundle.assert_not_called()
+    run_single.assert_called_once()
+
+
+def test_registered_family_qnn_without_device_routes_to_bundle(tmp_path: Path):
+    """``--ep qnn`` with ``--device`` omitted must route just like ``--device auto``.
+
+    Omitting ``--device`` falls back to the ``auto`` default; the shortcut must
+    resolve it (here -> NPU) instead of treating a missing flag as "no NPU
+    target". Regression test for ``--ep qnn`` alone silently building generic.
+    """
+    out = tmp_path / "bundle"
+    recorded: dict = {}
+
+    with (
+        patch(_GENERATE_TARGET, return_value=_fake_config("qwen3")),
+        patch(_BUNDLE_TARGET, side_effect=_record_bundle(recorded)) as bundle,
+        patch(_RUN_SINGLE_TARGET) as run_single,
+        patch(_COMPOSITE_TARGET, return_value=None),
+    ):
+        result = _invoke(["-m", "Qwen/Qwen3-0.6B", "-o", str(out), "--ep", "qnn"])
+
+    assert result.exit_code == 0, result.output
+    assert bundle.call_count == 1
+    run_single.assert_not_called()
+    kwargs = recorded["kwargs"]
+    assert kwargs["ep"] == "qnn"
+    assert kwargs["device"] == "npu"
+
+
+def test_qnn_without_device_resolving_to_non_npu_does_not_route(tmp_path: Path):
+    """``--ep qnn`` with ``--device`` omitted still gates on the resolved device."""
+    with (
+        patch(_GENERATE_TARGET, return_value=_fake_config("qwen3")),
+        patch(_BUNDLE_TARGET) as bundle,
+        patch(_RUN_SINGLE_TARGET) as run_single,
+        patch(_COMPOSITE_TARGET, return_value=None),
+        patch("winml.modelkit.sysinfo.resolve_device", return_value=("cpu", ["cpu"])),
+    ):
+        result = _invoke(["-m", "Qwen/Qwen3-0.6B", "-o", str(tmp_path / "o"), "--ep", "qnn"])
 
     assert result.exit_code == 0, result.output
     bundle.assert_not_called()

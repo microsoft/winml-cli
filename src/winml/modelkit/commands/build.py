@@ -547,9 +547,10 @@ def _maybe_build_genai_bundle(
         recipe, or a contradicting ``--ep``/``--device``) is a fail-fast error.
       * ``--export-type generic`` never builds a bundle (returns ``False``).
       * omitted -> backward-compatible shortcut: a registered family with an
-        explicit ``--ep qnn`` and an NPU target (``--device npu``, or ``--device
-        auto`` resolving to the NPU) still routes to its optimized bundle;
-        anything else falls through.
+        explicit ``--ep qnn`` and an NPU target still routes to its optimized
+        bundle. The NPU target may be explicit (``--device npu``) or resolved
+        from ``auto`` -- whether ``--device auto`` is typed or left at its
+        default; anything else falls through.
 
     Nothing here is architecture-specific; the recipe carries every model detail.
     """
@@ -590,13 +591,10 @@ def _maybe_build_genai_bundle(
             )
     else:
         # Implicit shortcut (backward-compatible with #1081): a registered family
-        # + an explicit ``--ep qnn`` + an NPU target. Anything else falls through
-        # to the generic pipeline.
-        if (
-            recipe is None
-            or not cli_utils.is_cli_provided(ctx, "device")
-            or not cli_utils.is_cli_provided(ctx, "ep")
-        ):
+        # + an explicit ``--ep qnn`` + an NPU target. ``--device`` may be omitted
+        # (its ``auto`` default is resolved below just like an explicit
+        # ``--device auto``). Anything else falls through to the generic pipeline.
+        if recipe is None or not cli_utils.is_cli_provided(ctx, "ep"):
             return False
 
         from ..utils.constants import normalize_ep_name

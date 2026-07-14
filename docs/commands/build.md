@@ -89,13 +89,14 @@ use their bundle-standard precisions.
 
 !!! note "Backward-compatible shortcut"
     When `--export-type` is omitted, a registered family with an explicit
-    `--ep qnn` on an NPU target (`--device npu`, or `--device auto` resolving to
-    the NPU) still routes to its optimized bundle:
+    `--ep qnn` on an NPU target still routes to its optimized bundle. The NPU
+    target may be explicit (`--device npu`) or resolved from `auto` — whether
+    `--device auto` is typed or `--device` is left off entirely:
 
     ```bash
     winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --device npu --ep qnn
-    # or let device auto-detection pick the NPU:
-    winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --device auto --ep qnn
+    # or let device auto-detection pick the NPU (--device may be omitted):
+    winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --ep qnn
     ```
 
     `--export-type generic` always forces the stock composite build, even for a

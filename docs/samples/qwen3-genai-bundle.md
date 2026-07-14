@@ -62,14 +62,15 @@ The CPU companions likewise keep their bundle-standard precisions.
 Force a clean rebuild of every component with `--rebuild`.
 
 !!! note "Backward-compatible shortcut"
-    When `--export-type` is omitted, an **explicit `--ep qnn`** together with an
-    NPU target — either `--device npu` or a `--device auto` that resolves to the
-    NPU — still routes a registered family to its bundle:
+    When `--export-type` is omitted, an **explicit `--ep qnn`** targeting the NPU
+    still routes a registered family to its bundle. The NPU target may be
+    explicit (`--device npu`) or resolved from `auto` — whether `--device auto`
+    is typed or `--device` is omitted:
 
     ```bash
     winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --device npu --ep qnn
-    # or, letting device auto-detection pick the NPU:
-    winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --device auto --ep qnn
+    # or, letting device auto-detection pick the NPU (--device may be omitted):
+    winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --ep qnn
     ```
 
     Qwen3 on any other target — CPU, GPU, or an auto-detected NPU *without* an
