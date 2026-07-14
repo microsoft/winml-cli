@@ -23,6 +23,9 @@ $ winml config [options]
 | `--module` | | `TEXT` | *(none)* | Generate configs for every submodule whose class name matches the given string (e.g., `ResNetConvLayer`). The output is a JSON array instead of a single object. |
 | `--config` | `-c` | `PATH` | *(none)* | JSON override file in `WinMLBuildConfig` format. Fields present in this file take precedence over auto-detected values. |
 | `--shape-config` | | `PATH` | *(none)* | JSON file with input shape overrides for dummy input generation. Valid keys by modality — text: `sequence_length`; vision: `height`, `width`, `num_channels`; audio: `feature_size`, `nb_max_frames`, `audio_sequence_length`. |
+| `--input-specs` | | `PATH` | *(none)* | JSON file with input specifications for the HuggingFace export. Fields are patched onto the auto-resolved input tensors *by name* (unlisted inputs and their `dtype`/`value_range` are preserved); unknown names are appended. Only valid when generating a HuggingFace export config. |
+| `--export-config` | | `PATH` | *(none)* | ONNX export configuration JSON (`opset_version`, `do_constant_folding`, etc.) merged into the generated `export` section. Only valid when generating a HuggingFace export config. |
+| `--dynamic-axes` | | `PATH` | *(none)* | JSON dynamic axes mapping for the ONNX export (e.g., `{"input_ids": {"0": "batch", "1": "sequence"}}`). Symbolic string dimensions in `--input-specs` shapes also infer dynamic axes. Only valid when generating a HuggingFace export config. |
 | `--device` | `-d` | `auto\|npu\|gpu\|cpu` | `auto` | Target device. Affects the generated quantization and compilation sub-configs. `auto` leaves those sections unchanged from the kit defaults. |
 | `--ep` | | `TEXT` | *(none)* | Force a specific execution provider (`qnn`, `dml`, `migraphx`, `tensorrt`, `vitisai`, `openvino`, `cpu`). Overrides the device-to-provider mapping. When used without `--device`, the device is inferred from the EP. |
 | `--precision` | `-p` | `TEXT` | `auto` | Target precision: `auto`, `fp32`, `fp16`, `int8`, `int16`, or a mixed format such as `w8a16`. `auto` selects the precision based on the chosen device. |
@@ -81,6 +84,14 @@ Generate a config from an already-exported ONNX file, skipping quantization (com
 $ winml config -m facebook/convnext-tiny-224.onnx --no-quant -o convnext_optim_only.json
 ```
 
+Generate a config with dynamic axes so the exported model accepts a variable batch dimension:
+
+```bash
+$ winml config -m microsoft/resnet-50 --dynamic-axes dynamic_axes.json -o resnet_dyn.json
+```
+
+The `dynamic_axes.json` maps each input to its dynamic dimensions, e.g. `{"pixel_values": {"0": "batch"}}`. Symbolic string dimensions in `--input-specs` shapes (e.g. `{"input_ids": {"shape": ["batch", "sequence"]}}`) infer dynamic axes automatically without a separate `--dynamic-axes` file.
+
 ## Common pitfalls
 
 - **At least one of `-m`, `--model-type`, or `--model-class` is required** — calling `winml config` with none of these three flags raises a usage error immediately.
@@ -88,6 +99,7 @@ $ winml config -m facebook/convnext-tiny-224.onnx --no-quant -o convnext_optim_o
 - **`--module` changes the output shape** — with `--module` the JSON output is an array of configs, not a single object. Scripts that expect a single object will fail to parse this output.
 - **`--trust-remote-code` has security implications** — only use this flag with model repositories you own or explicitly trust; it allows arbitrary Python execution from the remote model card.
 - **Shape overrides in `--shape-config` are modality-specific** — passing a `sequence_length` key for a vision model has no effect. Check the `--help` description for valid keys per modality.
+- **Export controls require a HuggingFace export** — `--input-specs`, `--export-config`, and `--dynamic-axes` are rejected for pre-exported `.onnx` inputs (which set `export` to `null`); use them only when config generates the export section.
 
 ## See also
 

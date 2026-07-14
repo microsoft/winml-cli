@@ -693,3 +693,92 @@ class TestConfigOnnxQdqDetection:
         assert data.get("quant") is not None, (
             f"Non-QDQ model should have default quant settings, got: {data.get('quant')}"
         )
+
+
+class TestConfigExportControls:
+    """Export CLI overrides (--input-specs/--export-config/--dynamic-axes) on config."""
+
+    def test_help_shows_export_control_options(self, runner: CliRunner) -> None:
+        from winml.modelkit.commands.config import config
+
+        result = runner.invoke(config, ["--help"])
+        assert result.exit_code == 0
+        for opt in ("--input-specs", "--export-config", "--dynamic-axes"):
+            assert opt in result.output, f"Expected '{opt}' in help output"
+
+    def test_export_overrides_forwarded_to_merge(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_generate_config: MagicMock,
+    ) -> None:
+        """--input-specs/--export-config/--dynamic-axes are parsed and merged onto the config."""
+        from winml.modelkit.commands.config import config
+
+        input_specs = tmp_path / "inputs.json"
+        input_specs.write_text(
+            json.dumps({"pixel_values": {"dtype": "float32", "shape": ["batch", 3, 224, 224]}})
+        )
+        export_config = tmp_path / "export.json"
+        export_config.write_text(json.dumps({"opset_version": 18}))
+        dynamic_axes = tmp_path / "dynamic_axes.json"
+        dynamic_axes.write_text(json.dumps({"pixel_values": {"0": "batch"}}))
+
+        with patch(
+            "winml.modelkit.config.merge_export_overrides",
+            side_effect=lambda cfg, overrides: cfg,
+        ) as mock_merge:
+            result = runner.invoke(
+                config,
+                [
+                    "-m",
+                    "microsoft/resnet-50",
+                    "--input-specs",
+                    str(input_specs),
+                    "--export-config",
+                    str(export_config),
+                    "--dynamic-axes",
+                    str(dynamic_axes),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert mock_merge.call_count == 1
+        overrides = mock_merge.call_args.args[1]
+        assert overrides["opset_version"] == 18
+        assert overrides["dynamic_axes"] == {"pixel_values": {"0": "batch"}}
+        assert overrides["input_tensors"][0].name == "pixel_values"
+        assert overrides["input_tensors"][0].shape == ("batch", 3, 224, 224)
+
+    def test_no_export_overrides_skips_merge(
+        self,
+        runner: CliRunner,
+        mock_generate_config: MagicMock,
+    ) -> None:
+        """Without export flags, merge_export_overrides is not invoked."""
+        from winml.modelkit.commands.config import config
+
+        with patch(
+            "winml.modelkit.config.merge_export_overrides",
+            side_effect=lambda cfg, overrides: cfg,
+        ) as mock_merge:
+            result = runner.invoke(config, ["-m", "microsoft/resnet-50"])
+
+        assert result.exit_code == 0, result.output
+        assert mock_merge.call_count == 0
+
+    def test_export_overrides_rejected_for_onnx_input(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """--dynamic-axes on a pre-exported ONNX input is a usage error."""
+        from winml.modelkit.commands.config import config
+
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake-onnx")
+        dynamic_axes = tmp_path / "dynamic_axes.json"
+        dynamic_axes.write_text(json.dumps({"input": {"0": "batch"}}))
+
+        result = runner.invoke(config, ["-m", str(onnx_file), "--dynamic-axes", str(dynamic_axes)])
+
+        assert result.exit_code != 0
+        assert "pre-exported ONNX" in result.output

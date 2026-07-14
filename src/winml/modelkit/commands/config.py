@@ -59,6 +59,27 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
         cfg.compile = None
 
 
+def _merge_export_overrides(cfg: Any, export_overrides: dict[str, Any]) -> Any:
+    """Apply --export-config/--dynamic-axes/--input-specs onto a generated config.
+
+    Returns ``cfg`` unchanged when no export overrides were supplied. Mirrors the
+    ``build`` command: ``--input-specs`` patches the auto-resolved input tensors
+    by name (preserving unlisted inputs and their dtype/value_range) and any
+    symbolic dims re-derive dynamic axes via ``WinMLExportConfig.__post_init__``.
+    """
+    if not export_overrides:
+        return cfg
+    if cfg.export is None:
+        raise click.UsageError(
+            "--input-specs, --export-config, and --dynamic-axes require a "
+            "HuggingFace export config; they are not supported when the "
+            "generated build config has export=null."
+        )
+    from ..config import merge_export_overrides
+
+    return merge_export_overrides(cfg, export_overrides)
+
+
 @click.command("config")
 @cli_utils.model_option(required=False, optional_message="Optional when --model-type is provided.")
 @click.option(
@@ -98,6 +119,14 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
     "Valid keys — text: sequence_length; "
     "vision: height, width, num_channels; "
     "audio: feature_size, nb_max_frames, audio_sequence_length.",
+)
+@cli_utils.input_specs_option()
+@cli_utils.export_config_option()
+@cli_utils.dynamic_axes_option(
+    help_text=(
+        "JSON dynamic axes mapping for HuggingFace ONNX export "
+        '(e.g., {"input_ids": {"0": "batch", "1": "sequence"}}).'
+    )
 )
 @cli_utils.device_option(
     required=False,
@@ -140,6 +169,9 @@ def config(
     module: str | None,
     config_file: str | None,
     shape_config_file: str | None,
+    input_specs: Path | None,
+    export_config: Path | None,
+    dynamic_axes: Path | None,
     device: str,
     ep: EPNameOrAlias | None,
     precision: str,
@@ -189,6 +221,10 @@ def config(
 
         # Vision model with shape overrides ({"height": 224, "width": 224})
         winml config --model-type resnet -t image-classification --shape-config shapes.json
+
+        # Dynamic export controls (mirrors ``winml build`` / ``winml export``)
+        winml config -m bert-base-uncased --dynamic-axes dynamic_axes.json
+        winml config -m bert-base-uncased --input-specs inputs.json --export-config export.json
 
         # Save to file
         winml config -m bert-base-uncased -o config.json
@@ -266,6 +302,15 @@ def config(
                 ) from e
             _shape_config_file = shape_config_path.name
 
+        # Load export CLI overrides (--input-specs/--export-config/--dynamic-axes).
+        # Returned sparse so unspecified fields don't clobber auto-detected values;
+        # applied per generated config via merge_export_overrides below.
+        export_overrides = cli_utils.load_export_overrides(
+            export_config=export_config,
+            input_specs=input_specs,
+            dynamic_axes=dynamic_axes,
+        )
+
         # ONNX file detection: generate simpler config without loader/export
         _model_input = classify_model_input(hf_model) if hf_model else None
         if _model_input is not None and _model_input.kind is ModelInputKind.INVALID:
@@ -275,6 +320,12 @@ def config(
             raise click.UsageError(
                 "--module is not supported with ONNX file input. "
                 "Module discovery requires a HuggingFace model."
+            )
+        if hf_model and _hf_is_onnx and export_overrides:
+            raise click.UsageError(
+                "--input-specs, --export-config, and --dynamic-axes are only "
+                "supported when generating a HuggingFace export config, not "
+                "pre-exported ONNX files."
             )
         config_obj: WinMLBuildConfig | None = None
         output_data: dict[str, Any] | list[Any]
@@ -314,6 +365,7 @@ def config(
                     model_type=model_type,
                     override=override,
                     shape_config=shape_config,
+                    export_overrides=export_overrides,
                     library_name=library_name,
                     device=device,
                     precision=precision,
@@ -345,7 +397,7 @@ def config(
                 ep=ep,
             )
             if isinstance(result, list):
-                configs = result
+                configs = [_merge_export_overrides(cfg, export_overrides) for cfg in result]
                 for cfg in configs:
                     _apply_stage_overrides(cfg, no_quant=not quant, no_compile=no_compile)
                 output_data = [cfg.to_dict() for cfg in configs]
@@ -353,7 +405,7 @@ def config(
                 # Use first config for display metadata
                 config_obj = configs[0] if configs else None
             else:
-                config_obj = result
+                config_obj = _merge_export_overrides(result, export_overrides)
                 configs = []
                 _apply_stage_overrides(config_obj, no_quant=not quant, no_compile=no_compile)
                 output_data = config_obj.to_dict()
@@ -406,6 +458,21 @@ def config(
             console.print(
                 f"   \U0001f4c1 [bold]Shape config:[/bold] "
                 f"{_shape_config_file}  [green]\u2713[/green]"
+            )
+        if input_specs:
+            console.print(
+                f"   \U0001f4c1 [bold]Input specs:[/bold]  "
+                f"{Path(input_specs).name}  [green]\u2713[/green]"
+            )
+        if export_config:
+            console.print(
+                f"   \U0001f4c1 [bold]Export config:[/bold] "
+                f"{Path(export_config).name}  [green]\u2713[/green]"
+            )
+        if dynamic_axes:
+            console.print(
+                f"   \U0001f4c1 [bold]Dynamic axes:[/bold] "
+                f"{Path(dynamic_axes).name}  [green]\u2713[/green]"
             )
 
         console.print()
@@ -509,6 +576,7 @@ def _generate_pipeline_configs(
     model_type: str | None,
     override: Any,
     shape_config: dict | None,
+    export_overrides: dict[str, Any],
     library_name: str,
     device: str,
     precision: str,
@@ -542,6 +610,7 @@ def _generate_pipeline_configs(
             trust_remote_code=trust_remote_code,
             ep=ep,
         )
+        cfg = _merge_export_overrides(cfg, export_overrides)
         _apply_stage_overrides(cfg, no_quant=no_quant, no_compile=no_compile)
 
         config_json = json.dumps(cfg.to_dict(), indent=2)
