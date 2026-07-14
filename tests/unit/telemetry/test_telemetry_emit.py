@@ -67,6 +67,35 @@ def test_log_action_drops_unknown_attrs(running_telemetry):
     assert "leaked_field" not in attrs
 
 
+def test_log_action_emits_model_id(running_telemetry):
+    logger = _with_mock_logger(running_telemetry)
+    running_telemetry.log_action(
+        action_name="perf",
+        device="NPU",
+        ep="QNNExecutionProvider",
+        duration_ms=10,
+        success=True,
+        model_id="microsoft/resnet-50",
+    )
+    log_record = logger.emit.call_args.args[0]
+    attrs = dict(log_record.attributes)
+    assert attrs["model_id"] == "microsoft/resnet-50"
+
+
+def test_log_action_model_id_defaults_none(running_telemetry):
+    logger = _with_mock_logger(running_telemetry)
+    running_telemetry.log_action(
+        action_name="perf",
+        device=None,
+        ep=None,
+        duration_ms=10,
+        success=True,
+    )
+    log_record = logger.emit.call_args.args[0]
+    attrs = dict(log_record.attributes)
+    assert attrs["model_id"] is None
+
+
 def test_log_error_scrubs_message_and_extracts_stack(running_telemetry):
     logger = _with_mock_logger(running_telemetry)
     try:
