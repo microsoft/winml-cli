@@ -318,8 +318,8 @@ class TestBuildArgValidation:
         assert result.exit_code != 0
         assert "compile" in result.output.lower()
 
-    def test_use_cache_allows_taskless_onnx_config(self, tmp_path: Path, mock_build_api: MagicMock):
-        """``--use-cache`` uses an unknown-task cache prefix when ``loader.task`` is absent."""
+    def test_use_cache_requires_loader_task(self, tmp_path: Path):
+        """``--use-cache`` without a ``loader.task`` in config errors out."""
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake-onnx-data")
         cfg_path = tmp_path / "no_task.json"
@@ -335,8 +335,8 @@ class TestBuildArgValidation:
             )
         )
         result = _invoke(["-c", str(cfg_path), "-m", str(onnx_file), "--use-cache"])
-        assert result.exit_code == 0, result.output
-        assert mock_build_api.call_args.kwargs["cache_key"].startswith("unknown-task_")
+        assert result.exit_code != 0
+        assert "loader.task" in result.output
 
     def test_module_mode_rejects_use_cache(self, tmp_path: Path):
         """``--use-cache`` on an array config hits the module-mode-specific error."""

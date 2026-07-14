@@ -78,14 +78,6 @@ class ONNXModel(BaseModel):
         "arbitrary_types_allowed": True,
     }
 
-    @field_validator("opset_version")
-    @classmethod
-    def validate_opset_version(cls, v: int) -> int:
-        """Validate opset version is >= 11 per assumption."""
-        if v < 11:
-            raise ValueError(f"Opset version {v} < 11 (minimum supported version)")
-        return v
-
     @field_validator("node_count")
     @classmethod
     def validate_non_empty_graph(cls, v: int) -> int:

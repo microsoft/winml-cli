@@ -1054,9 +1054,13 @@ def build(
                     model or "random-init",
                     cache_dir=get_cache_dir(),
                 )
-                task_abbrev = get_task_abbrev(task) if task else "unknown-task"
+                if not task:
+                    raise click.UsageError(
+                        "--use-cache requires loader.task in config. "
+                        "The cache key is prefixed by the task abbreviation."
+                    )
                 cache_key = get_cache_key(
-                    task_abbrev,
+                    get_task_abbrev(task),
                     config.generate_cache_key(),
                     extra_kwargs,
                 )
