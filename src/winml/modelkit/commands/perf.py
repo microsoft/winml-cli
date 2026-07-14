@@ -1754,26 +1754,40 @@ _GENAI_IGNORED_FLAGS: dict[str, str] = {
     "batch_size": "--batch-size",
 }
 
-# Subset of the above that the model-id auto-build path *does* honor (they drive
-# the on-the-fly build). Excluded from the ignored-flags warning when a bundle
-# was auto-built; a prebuilt bundle still ignores them all.
-_GENAI_AUTOBUILD_FLAGS: frozenset[str] = frozenset({"task", "precision", "rebuild", "ignore_cache"})
+# Subsets of the above that the model-id auto-build path honors, so they are
+# excluded from the ignored-flags warning when a bundle is auto-built. A prebuilt
+# bundle still ignores them all.
+#
+# * Cache-behavior flags force the build path (the reuse fast-path is never taken
+#   when they are set), so they are honored whenever an auto-build runs.
+# * Artifact-shaping flags only take effect when a build actually runs; a cache
+#   hit reuses a bundle keyed by the model id alone and silently drops them, so
+#   they are still reported as ignored in that case.
+_GENAI_BUILD_CONTROL_FLAGS: frozenset[str] = frozenset({"rebuild", "ignore_cache"})
+_GENAI_BUILD_INPUT_FLAGS: frozenset[str] = frozenset({"task", "precision"})
 
 
 def _warn_ignored_genai_flags(
-    ctx: click.Context, console: Console, *, autobuilt: bool = False
+    ctx: click.Context, console: Console, *, autobuilt: bool = False, built_fresh: bool = False
 ) -> None:
     """Warn about WinML-only flags the user passed that genai ignores.
 
     When the bundle was auto-built from a model id (``autobuilt``), the
-    build-driving flags (task/precision/rebuild/ignore-cache) are honored by the
-    build, so they are not reported as ignored. A prebuilt bundle ignores them.
+    cache-behavior flags (rebuild/ignore-cache) are always honored by the build.
+    The artifact-shaping flags (task/precision) are honored only when a fresh
+    build actually ran (``built_fresh``); on a cache hit the model-id-keyed bundle
+    is reused as-is, so those flags are reported as ignored. A prebuilt bundle
+    ignores them all.
     """
+    honored: set[str] = set()
+    if autobuilt:
+        honored |= _GENAI_BUILD_CONTROL_FLAGS
+        if built_fresh:
+            honored |= _GENAI_BUILD_INPUT_FLAGS
     ignored = [
         flag
         for param, flag in _GENAI_IGNORED_FLAGS.items()
-        if cli_utils.is_cli_provided(ctx, param)
-        and not (autobuilt and param in _GENAI_AUTOBUILD_FLAGS)
+        if cli_utils.is_cli_provided(ctx, param) and param not in honored
     ]
     if ignored:
         console.print(
@@ -1784,7 +1798,7 @@ def _warn_ignored_genai_flags(
 
 def _autobuild_genai_bundle(
     ctx: click.Context, *, model: str, console: Console, stack: contextlib.ExitStack
-) -> Path:
+) -> tuple[Path, bool]:
     """Build (or reuse) a genai bundle for a HuggingFace model id.
 
     Mirrors the winml runtime's on-the-fly build: when ``-m`` is a model id
@@ -1804,6 +1818,10 @@ def _autobuild_genai_bundle(
 
     The imports are function-local so ``winml perf --help`` does not pay their
     cost and so a bundle-directory run never imports the build stack.
+
+    Returns a ``(bundle_dir, built_fresh)`` pair. ``built_fresh`` is ``True`` when
+    a build actually ran and ``False`` when the managed-cache fast-path reused an
+    existing bundle (in which case task/precision were not applied to it).
     """
     import tempfile
 
@@ -1835,7 +1853,7 @@ def _autobuild_genai_bundle(
         force_rebuild = bool(p.get("rebuild"))
         if (bundle_dir / "genai_config.json").exists() and not force_rebuild:
             console.print(f"[dim]Reusing cached genai bundle:[/dim] {bundle_dir}")
-            return bundle_dir
+            return bundle_dir, False
 
     # Cache miss (or forced rebuild): resolve the model family so its
     # genai-bundle recipe can drive the build.
@@ -1876,7 +1894,7 @@ def _autobuild_genai_bundle(
         cache_dir=build_cache_dir,
         emit=lambda msg: console.print(msg, markup=False),
     )
-    return bundle_dir
+    return bundle_dir, True
 
 
 def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool) -> None:
@@ -1911,6 +1929,7 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
         # the same way the winml runtime auto-builds an ONNX from a model id.
         bundle_dir = Path(model)
         autobuilt_from: str | None = None
+        built_fresh = False
         if bundle_dir.is_dir():
             if not (bundle_dir / "genai_config.json").exists():
                 raise click.UsageError(
@@ -1922,10 +1941,14 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
                 f"--runtime winml-genai requires a genai bundle *directory*, got '{model}'."
             )
         else:
-            bundle_dir = _autobuild_genai_bundle(ctx, model=model, console=console, stack=stack)
+            bundle_dir, built_fresh = _autobuild_genai_bundle(
+                ctx, model=model, console=console, stack=stack
+            )
             autobuilt_from = model
 
-        _warn_ignored_genai_flags(ctx, console, autobuilt=autobuilt_from is not None)
+        _warn_ignored_genai_flags(
+            ctx, console, autobuilt=autobuilt_from is not None, built_fresh=built_fresh
+        )
 
         # A full generation is far costlier than one session.run(): default to
         # fewer iterations/warmup unless the user set them explicitly.

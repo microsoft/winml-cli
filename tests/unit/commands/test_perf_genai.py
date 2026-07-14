@@ -1041,6 +1041,47 @@ class TestCliDispatch:
         assert result.exit_code == 0, result.output
         assert "--rebuild" in result.output
 
+    def test_cache_hit_warns_dropped_build_input_flags(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
+    ) -> None:
+        # On a cache hit the model-id-keyed bundle is reused as-is, so the
+        # artifact-shaping flags (--precision/--task) were NOT applied to it and
+        # must be reported as ignored -- unlike a fresh build, which honors them.
+        # (--rebuild/--ignore-cache always force a build, so they never reach here.)
+        import winml.modelkit.models.winml as winml_models
+        from winml.modelkit.cache import get_model_dir
+
+        monkeypatch.setenv("WINML_CACHE_DIR", str(tmp_path))
+        cached = get_model_dir("Qwen/Qwen3-0.6B", cache_dir=tmp_path) / "genai-bundle"
+        cached.mkdir(parents=True)
+        (cached / "genai_config.json").write_text("{}", encoding="utf-8")
+
+        build_calls: dict = {}
+        monkeypatch.setattr(
+            winml_models, "build_genai_bundle", _fake_build_genai_bundle(build_calls)
+        )
+
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                "Qwen/Qwen3-0.6B",
+                "--runtime",
+                "winml-genai",
+                "--precision",
+                "w8a16",
+                "--task",
+                "text-generation",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "build" not in build_calls  # cache hit: reused, never built
+        assert capture_run["config"].bundle_dir == cached
+        # The reused bundle did not honor the build-input flags -> warned.
+        assert "--precision" in result.output
+        assert "--task" in result.output
+
     def test_autobuild_without_recipe_rejected(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
     ) -> None:
