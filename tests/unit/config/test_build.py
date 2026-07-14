@@ -33,6 +33,8 @@ from winml.modelkit.config import (
 from winml.modelkit.config.build import (
     SubmoduleInfo,
     _build_submodule_config,
+    _patch_input_tensors,
+    merge_export_overrides,
     resolve_quant_compile_config,
 )
 from winml.modelkit.export import (
@@ -129,6 +131,143 @@ def mock_io_specs() -> dict:
 # =============================================================================
 # TestGetIoSpecsFromConfig - Unit tests for resolve_io_specs()
 # =============================================================================
+
+
+class TestPatchInputTensors:
+    """_patch_input_tensors patches --input-specs onto auto-resolved specs by name."""
+
+    def test_matched_name_patches_only_specified_fields(self) -> None:
+        resolved = [
+            InputTensorSpec(name="input_ids", dtype="int64", shape=(2, 16), value_range=(0, 30522)),
+        ]
+        # User only overrides shape; dtype and value_range must be preserved.
+        patches = [InputTensorSpec(name="input_ids", dtype=None, shape=("batch", "seq"))]
+
+        result = _patch_input_tensors(resolved, patches)
+
+        assert len(result) == 1
+        assert result[0].shape == ("batch", "seq")
+        assert result[0].dtype == "int64"
+        assert result[0].value_range == (0, 30522)
+
+    def test_unlisted_inputs_are_preserved(self) -> None:
+        resolved = [
+            InputTensorSpec(name="input_ids", dtype="int64", shape=(2, 16)),
+            InputTensorSpec(name="attention_mask", dtype="int64", shape=(2, 16)),
+        ]
+        patches = [InputTensorSpec(name="input_ids", shape=("batch", "seq"))]
+
+        result = _patch_input_tensors(resolved, patches)
+
+        names = {t.name for t in result}
+        assert names == {"input_ids", "attention_mask"}
+        mask = next(t for t in result if t.name == "attention_mask")
+        assert mask.dtype == "int64"
+
+    def test_unknown_name_is_appended(self) -> None:
+        resolved = [InputTensorSpec(name="input_ids", dtype="int64", shape=(2, 16))]
+        patches = [InputTensorSpec(name="extra", dtype="float32", shape=(1, 4))]
+
+        result = _patch_input_tensors(resolved, patches)
+
+        assert [t.name for t in result] == ["input_ids", "extra"]
+        assert result[1].dtype == "float32"
+
+    def test_does_not_mutate_resolved_input(self) -> None:
+        resolved = [InputTensorSpec(name="input_ids", dtype="int64", shape=(2, 16))]
+        patches = [InputTensorSpec(name="input_ids", shape=("batch", "seq"))]
+
+        _patch_input_tensors(resolved, patches)
+
+        assert resolved[0].shape == (2, 16)
+
+    def test_none_resolved_uses_patches(self) -> None:
+        patches = [InputTensorSpec(name="input_ids", dtype="int64", shape=(1, 8))]
+
+        result = _patch_input_tensors(None, patches)
+
+        assert [t.name for t in result] == ["input_ids"]
+
+
+class TestMergeExportOverrides:
+    """merge_export_overrides patches input-specs and re-derives dynamic axes."""
+
+    def _base(self) -> WinMLBuildConfig:
+        return WinMLBuildConfig(
+            export=WinMLExportConfig(
+                input_tensors=[
+                    InputTensorSpec(
+                        name="input_ids", dtype="int64", shape=(1, 16), value_range=(0, 30522)
+                    ),
+                    InputTensorSpec(name="attention_mask", dtype="int64", shape=(1, 16)),
+                ],
+            )
+        )
+
+    def test_symbolic_dims_derive_dynamic_axes(self) -> None:
+        # Regression: symbolic --input-specs dims must produce dynamic_axes even
+        # without --dynamic-axes, matching WinMLExportConfig.__post_init__.
+        base = self._base()
+        patches = [InputTensorSpec(name="input_ids", dtype=None, shape=("batch", "seq"))]
+
+        merged = merge_export_overrides(base, {"input_tensors": patches})
+
+        assert merged.export.dynamic_axes == {"input_ids": {0: "batch", 1: "seq"}}
+
+    def test_preserves_unlisted_inputs_and_fields(self) -> None:
+        base = self._base()
+        patches = [InputTensorSpec(name="input_ids", shape=("batch", "seq"))]
+
+        merged = merge_export_overrides(base, {"input_tensors": patches})
+
+        names = {t.name for t in merged.export.input_tensors}
+        assert names == {"input_ids", "attention_mask"}
+        ids = next(t for t in merged.export.input_tensors if t.name == "input_ids")
+        assert ids.dtype == "int64"  # preserved, not forced to float32
+        assert ids.value_range == (0, 30522)
+
+    def test_does_not_mutate_base(self) -> None:
+        base = self._base()
+        patches = [InputTensorSpec(name="input_ids", shape=("batch", "seq"))]
+
+        merge_export_overrides(base, {"input_tensors": patches})
+
+        assert base.export.input_tensors[0].shape == (1, 16)
+        assert base.export.dynamic_axes is None
+
+    def test_explicit_dynamic_axes_merged_with_symbolic(self) -> None:
+        base = self._base()
+        merged = merge_export_overrides(
+            base,
+            {
+                "dynamic_axes": {"attention_mask": {"0": "batch"}},
+                "input_tensors": [InputTensorSpec(name="input_ids", shape=(1, "seq"))],
+            },
+        )
+
+        assert merged.export.dynamic_axes == {
+            "attention_mask": {0: "batch"},
+            "input_ids": {1: "seq"},
+        }
+
+    def test_conflicting_dynamic_axes_raises(self) -> None:
+        base = self._base()
+        with pytest.raises(ValueError, match="Conflicting dynamic axis"):
+            merge_export_overrides(
+                base,
+                {
+                    "dynamic_axes": {"input_ids": {"0": "batch"}},
+                    "input_tensors": [InputTensorSpec(name="input_ids", shape=("other", "seq"))],
+                },
+            )
+
+    def test_non_input_overrides_merged(self) -> None:
+        base = self._base()
+        merged = merge_export_overrides(base, {"opset_version": 18})
+
+        assert merged.export.opset_version == 18
+        # input_tensors untouched when not patched
+        assert [t.name for t in merged.export.input_tensors] == ["input_ids", "attention_mask"]
 
 
 class TestGetIoSpecsFromConfig:
@@ -332,6 +471,121 @@ class TestGenerateBuildConfigFast:
         mock_merge.assert_called_once()
         call_args = mock_merge.call_args
         assert call_args[0][1] is override
+
+
+# =============================================================================
+# TestStep45PreservesModelType - STEP 4.5 precision policy must keep model_type
+# =============================================================================
+
+
+class TestStep45PreservesModelType:
+    """STEP 4.5's precision policy must preserve the quant ``model_type``.
+
+    ``_assemble_config`` stamps ``quant.model_type`` (plus ``task`` / ``model_id``)
+    so ``quantize_onnx`` can dispatch a registered model-type quant finalizer.
+    The weight-only (RTN) and FP16 policy branches historically *replaced* the
+    quant config with a fresh object, silently dropping those identity fields —
+    so the finalizer never ran and weight-only builds fell back to the default
+    RTN block size instead of the finalizer's pinned scheme. These are the
+    regression guards; they use a synthetic ``model_type`` (no real arch names).
+    """
+
+    def _run(
+        self,
+        policy: PrecisionPolicy,  # noqa: F821 - imported inside test
+        loader_config: WinMLLoaderConfig,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_export_config: WinMLExportConfig,
+    ) -> WinMLBuildConfig:
+        with (
+            patch(
+                "winml.modelkit.config.build.resolve_loader_config",
+                return_value=(loader_config, mock_hf_config, mock_model_class, MagicMock()),
+            ),
+            patch(
+                "winml.modelkit.config.build._resolve_export_config_from_specs",
+                return_value=mock_export_config,
+            ),
+            patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+            patch(
+                "winml.modelkit.config.precision.resolve_precision",
+                return_value=policy,
+            ),
+        ):
+            return generate_build_config(
+                "some/model",
+                task="feature-extraction",
+                precision=policy.precision,
+                device=policy.device,
+            )
+
+    def test_weight_only_policy_preserves_model_type(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        """Weight-only (RTN) precision keeps model_type/task/model_id."""
+        from winml.modelkit.config.precision import PrecisionPolicy
+
+        loader_config = WinMLLoaderConfig(
+            task="feature-extraction",
+            model_class="SomeModelClass",
+            model_type="some_variant_only",
+        )
+        policy = PrecisionPolicy(
+            device="cpu",
+            precision="w4a32",
+            weight_type=None,
+            activation_type=None,
+            compile_provider=None,
+        )
+
+        result = self._run(
+            policy, loader_config, mock_hf_config, mock_model_class, mock_export_config
+        )
+
+        assert result.quant is not None
+        assert result.quant.mode == "rtn"
+        assert result.quant.rtn_bits == 4
+        # The regression: identity fields must survive the policy replacement so
+        # quantize_onnx can resolve the registered model-type quant finalizer.
+        assert result.quant.model_type == "some_variant_only"
+        assert result.quant.task == "feature-extraction"
+        assert result.quant.model_id == "some/model"
+
+    def test_fp16_policy_preserves_model_type(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        """FP16 precision keeps model_type/task/model_id."""
+        from winml.modelkit.config.precision import PrecisionPolicy
+
+        loader_config = WinMLLoaderConfig(
+            task="feature-extraction",
+            model_class="SomeModelClass",
+            model_type="some_variant_only",
+        )
+        policy = PrecisionPolicy(
+            device="gpu",
+            precision="fp16",
+            weight_type=None,
+            activation_type=None,
+            compile_provider=None,
+        )
+
+        result = self._run(
+            policy, loader_config, mock_hf_config, mock_model_class, mock_export_config
+        )
+
+        assert result.quant is not None
+        assert result.quant.mode == "fp16"
+        assert result.quant.model_type == "some_variant_only"
+        assert result.quant.task == "feature-extraction"
+        assert result.quant.model_id == "some/model"
 
 
 # =============================================================================

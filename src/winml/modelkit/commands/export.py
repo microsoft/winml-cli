@@ -24,7 +24,6 @@ Examples:
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 
@@ -33,6 +32,7 @@ from rich.console import Console
 
 from ..utils import cli as cli_utils
 from ..utils.logging import configure_logging
+from ..utils.model_input import ModelInputKind, classify_model_input
 
 
 logger = logging.getLogger(__name__)
@@ -85,23 +85,6 @@ def _warn_partial_composite(completed: list[Path]) -> None:
     )
 
 
-def _load_json_object(path: Path, option_name: str) -> dict:
-    """Load a JSON object from a CLI option path."""
-    try:
-        with path.open() as f:
-            data = json.load(f)
-    except json.JSONDecodeError as e:
-        raise click.ClickException(f"Invalid JSON in {option_name}: {path}: {e}") from e
-    except Exception as e:
-        raise click.ClickException(f"Failed to load {option_name}: {e}") from e
-
-    if not isinstance(data, dict):
-        raise click.ClickException(
-            f"{option_name} must contain a JSON object, got {type(data).__name__}"
-        )
-    return data
-
-
 @click.command()
 @cli_utils.model_option(
     required=True,
@@ -143,11 +126,8 @@ def _load_json_object(path: Path, option_name: str) -> dict:
     default=None,
     help="Include torch.nn modules in hierarchy (comma-separated, e.g., LayerNorm,Embedding)",
 )
-@click.option(
-    "--input-specs",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help="JSON file with input specifications (auto-generates if not provided)",
+@cli_utils.input_specs_option(
+    help_text="JSON file with input specifications (auto-generates if not provided)",
 )
 @click.option(
     "--task",
@@ -156,27 +136,11 @@ def _load_json_object(path: Path, option_name: str) -> dict:
     default=None,
     help="Override auto-detected task (e.g., image-feature-extraction, feature-extraction)",
 )
-@click.option(
-    "--export-config",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help="ONNX export configuration JSON (opset_version, do_constant_folding, etc.)",
+@cli_utils.export_config_option()
+@cli_utils.shape_config_option(
+    help_text='JSON with shape overrides (e.g., {"sequence_length": 2048, "height": 640}).',
 )
-@click.option(
-    "--shape-config",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help='JSON with shape overrides (e.g., {"sequence_length": 2048, "height": 640}).',
-)
-@click.option(
-    "--dynamic-axes",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help=(
-        "JSON dynamic axes mapping for ONNX export "
-        '(e.g., {"input_ids": {"0": "batch", "1": "sequence"}}).'
-    ),
-)
+@cli_utils.dynamic_axes_option()
 @click.option(
     "--submodel",
     type=str,
@@ -266,13 +230,15 @@ def export(
     # Classify the -m value once (existence-first). Export only works with
     # HuggingFace model IDs — reject ONNX files and folders early.
     if model:
-        model_input = cli_utils.classify_model_input(model)
-        if model_input.kind is cli_utils.ModelInputKind.ONNX_FILE:
+        model_input = classify_model_input(model)
+        if model_input.kind is ModelInputKind.INVALID:
+            raise click.UsageError(model_input.error or f"Invalid model input: {model}")
+        if model_input.kind is ModelInputKind.ONNX_FILE:
             raise click.UsageError(
                 "export requires a HuggingFace model ID, not an ONNX file. "
                 "Use 'winml inspect -m model.onnx' to inspect an existing ONNX model."
             )
-        if model_input.kind is cli_utils.ModelInputKind.FOLDER:
+        if model_input.kind is ModelInputKind.FOLDER:
             raise click.UsageError(
                 "export requires a HuggingFace model ID, not a directory. "
                 "Provide a HuggingFace model ID (e.g., prajjwal1/bert-tiny)."
@@ -332,18 +298,18 @@ def export(
     # Load export configuration from JSON file if provided (task-independent).
     export_config_dict: dict = {}
     if export_config:
-        export_config_dict = _load_json_object(export_config, "--export-config")
+        export_config_dict = cli_utils.load_json_object(export_config, "--export-config")
         console.print(f"[dim]Loaded export config: {list(export_config_dict.keys())}[/dim]")
 
     # Load shape overrides from JSON (task-independent).
     shape_overrides = None
     if shape_config:
-        shape_overrides = _load_json_object(shape_config, "--shape-config")
+        shape_overrides = cli_utils.load_json_object(shape_config, "--shape-config")
         console.print(f"[dim]Shape overrides: {shape_overrides}[/dim]")
 
     dynamic_axes_dict = None
     if dynamic_axes:
-        dynamic_axes_dict = _load_json_object(dynamic_axes, "--dynamic-axes")
+        dynamic_axes_dict = cli_utils.load_json_object(dynamic_axes, "--dynamic-axes")
         console.print(f"[dim]Dynamic axes: {dynamic_axes_dict}[/dim]")
 
     # One-time warnings (apply to every sub-model in a composite export).
@@ -421,12 +387,7 @@ def export(
         # Names matched against auto-resolve get their dtype/shape patched; unknown
         # names are appended. output_tensors are left untouched.
         if input_specs:
-            try:
-                with input_specs.open() as f:
-                    input_specs_dict = json.load(f)
-            except Exception as e:
-                console.print(f"[bold red]Failed to load input specs:[/bold red] {e}")
-                raise click.ClickException(f"Failed to load input specs: {e}") from e
+            input_specs_dict = cli_utils.load_json_object(input_specs, "--input-specs")
 
             if input_tensors is None:
                 input_tensors = []

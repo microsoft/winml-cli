@@ -8,9 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
-from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
@@ -31,96 +28,6 @@ F = TypeVar("F", bound="Callable[..., Any]")
 
 # Allowed values for ``--format`` / ``-f``.
 OutputFormat: TypeAlias = Literal["text", "json", "table", "compact"]
-
-
-class ModelInputKind(Enum):
-    """Back-compat kind enum for CLI call sites.
-
-    Canonical classifier values now live in ``utils.model_input`` as string
-    literals. Command modules still compare against enum members, so this enum
-    preserves the old API surface while delegating classification to the
-    canonical implementation.
-    """
-
-    ONNX_FILE = "local_onnx"
-    FOLDER = "build_dir"
-    HUB_ONNX = "hub_onnx"
-    HF_ID = "hf_id"
-    INVALID = "invalid"
-
-
-@dataclass(frozen=True)
-class ModelInput:
-    """Back-compat model-input classification result used by CLI commands/tests."""
-
-    kind: ModelInputKind
-    raw: str
-    local_path: str | None = None
-    hf_id: str | None = None
-    is_hf_folder: bool = False
-    folder_has_onnx: bool = False
-    is_winml_cli_folder: bool = False
-
-
-def classify_model_input(value: str) -> ModelInput:
-    """Classify CLI model input with legacy semantics and error messages.
-
-    Returns a back-compat ``ModelInput`` object and raises ``click.UsageError``
-    for invalid/missing local-path-like values.
-    """
-    if value is None or not str(value).strip():
-        raise click.UsageError("Model input cannot be empty.")
-
-    raw = value
-    path = Path(value).expanduser()
-
-    if path.exists():
-        if path.is_file():
-            if path.suffix.lower() != ".onnx":
-                raise click.UsageError(
-                    f"Unsupported model file: '{value}'. Only .onnx files are supported."
-                )
-            return ModelInput(
-                kind=ModelInputKind.ONNX_FILE,
-                raw=raw,
-                local_path=str(path),
-            )
-
-        if path.is_dir():
-            onnx_files = list(path.glob("*.onnx"))
-            manifest_files = list(path.glob("build_manifest.json")) + list(
-                path.glob("*_build_manifest.json")
-            )
-            has_onnx = bool(onnx_files)
-            is_hf_folder = (path / "config.json").exists()
-            is_winml_folder = has_onnx and bool(manifest_files)
-            return ModelInput(
-                kind=ModelInputKind.FOLDER,
-                raw=raw,
-                local_path=str(path),
-                is_hf_folder=is_hf_folder,
-                folder_has_onnx=has_onnx,
-                is_winml_cli_folder=is_winml_folder,
-            )
-
-    if value.lower().endswith(".onnx"):
-        raise click.UsageError(f"ONNX file not found: {value}")
-
-    if (
-        value.startswith(("./", "../", "/", "~"))
-        or "\\" in value
-        or re.match(r"^[A-Za-z]:[\\/]", value)
-        or value.count("/") >= 2
-    ):
-        raise click.UsageError(f"Model path does not exist: {value}")
-
-    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)?$", value):
-        raise click.UsageError(
-            f"'{value}' is not a valid HuggingFace model identifier "
-            "(expected 'name' or 'org/name')."
-        )
-
-    return ModelInput(kind=ModelInputKind.HF_ID, raw=raw, hf_id=value)
 
 
 class ModelLoadError(click.ClickException):
@@ -340,6 +247,65 @@ def output_option(help_text: str, required: bool = False) -> Callable[[F], F]:
     else:
         kwargs["default"] = None
     return click.option("--output", "-o", **kwargs)
+
+
+def input_specs_option(
+    *,
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add the shared ``--input-specs`` JSON file option."""
+    return click.option(
+        "--input-specs",
+        type=click.Path(exists=True, dir_okay=False, path_type=Path),
+        default=None,
+        help=help_text or "JSON file with input specifications for HuggingFace export.",
+    )
+
+
+def export_config_option(
+    *,
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add the shared ``--export-config`` JSON file option."""
+    return click.option(
+        "--export-config",
+        type=click.Path(exists=True, dir_okay=False, path_type=Path),
+        default=None,
+        help=help_text
+        or "ONNX export configuration JSON (opset_version, do_constant_folding, etc.).",
+    )
+
+
+def shape_config_option(
+    *,
+    param_name: str = "shape_config",
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add the shared ``--shape-config`` JSON file option."""
+    return click.option(
+        "--shape-config",
+        param_name,
+        type=click.Path(exists=True, dir_okay=False, path_type=Path),
+        default=None,
+        help=help_text or 'JSON file with shape overrides (e.g., {"height": 480, "width": 480}).',
+    )
+
+
+def dynamic_axes_option(
+    *,
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add the shared ``--dynamic-axes`` JSON file option."""
+    return click.option(
+        "--dynamic-axes",
+        type=click.Path(exists=True, dir_okay=False, path_type=Path),
+        default=None,
+        help=help_text
+        or (
+            "JSON dynamic axes mapping for ONNX export "
+            '(e.g., {"input_ids": {"0": "batch", "1": "sequence"}}).'
+        ),
+    )
 
 
 def overwrite_option(optional_message: str | None = None) -> Callable[[F], F]:
@@ -1126,19 +1092,97 @@ def load_build_config(config_path: Path) -> tuple[WinMLBuildConfig, dict]:
     return WinMLBuildConfig.from_dict(data), data
 
 
+def load_json_object(path: Path, option_name: str) -> dict[str, Any]:
+    """Load a JSON object from a CLI option path."""
+    try:
+        with path.open() as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        raise click.ClickException(f"Invalid JSON in {option_name}: {path}: {e}") from e
+    except Exception as e:
+        raise click.ClickException(f"Failed to load {option_name}: {e}") from e
+
+    if not isinstance(data, dict):
+        raise click.ClickException(
+            f"{option_name} must contain a JSON object, got {type(data).__name__}"
+        )
+    return data
+
+
+def load_input_tensor_specs(path: Path, option_name: str = "--input-specs") -> list[Any]:
+    """Load input tensor specs from the export-style CLI mapping format."""
+    from ..onnx import InputTensorSpec
+
+    data = load_json_object(path, option_name)
+    specs: list[Any] = []
+    for name, spec in data.items():
+        if not isinstance(name, str) or not name:
+            raise click.ClickException(f"{option_name} tensor names must be non-empty strings")
+        if not isinstance(spec, dict):
+            raise click.ClickException(
+                f"{option_name}['{name}'] must be a JSON object, got {type(spec).__name__}"
+            )
+
+        shape = spec.get("shape")
+        if shape is not None:
+            if not isinstance(shape, list):
+                raise click.ClickException(f"{option_name}['{name}'].shape must be a list")
+            shape = tuple(shape)
+
+        dtype = spec.get("dtype")
+        if dtype is not None and not isinstance(dtype, str):
+            raise click.ClickException(f"{option_name}['{name}'].dtype must be a string")
+
+        value_range = spec.get("value_range")
+        if value_range is not None:
+            if not isinstance(value_range, list) or len(value_range) != 2:
+                raise click.ClickException(
+                    f"{option_name}['{name}'].value_range must be a [min, max] list"
+                )
+            value_range = tuple(value_range)
+
+        # Preserve unspecified fields as None so build/perf can patch these specs
+        # onto the auto-resolved input_tensors (keeping the resolved dtype/shape/
+        # value_range for anything the user did not explicitly set) instead of
+        # forcing defaults that would replace correct values.
+        specs.append(InputTensorSpec(name=name, dtype=dtype, shape=shape, value_range=value_range))
+
+    return specs
+
+
+def load_export_overrides(
+    *,
+    export_config: Path | None = None,
+    input_specs: Path | None = None,
+    dynamic_axes: Path | None = None,
+) -> dict[str, Any]:
+    """Load export-related CLI overrides without filling unspecified defaults."""
+    from ..export import WinMLExportConfig
+
+    overrides: dict[str, Any] = {}
+    if export_config is not None:
+        overrides.update(load_json_object(export_config, "--export-config"))
+    if input_specs is not None:
+        overrides["input_tensors"] = load_input_tensor_specs(input_specs)
+    if dynamic_axes is not None:
+        overrides["dynamic_axes"] = load_json_object(dynamic_axes, "--dynamic-axes")
+
+    if overrides:
+        # Validate field names/types and dynamic-axis conflicts early, but return
+        # the sparse mapping so build config merges do not clobber unrelated fields.
+        # from_dict can raise raw ValueError/TypeError for realistic bad input
+        # (non-integer axis keys, conflicting axes, batch_size <= 0); surface these
+        # as friendly CLI errors instead of a traceback.
+        try:
+            WinMLExportConfig.from_dict(overrides)
+        except (ValueError, TypeError) as e:
+            raise click.UsageError(f"Invalid export configuration: {e}") from e
+    return overrides
+
+
 # ---------------------------------------------------------------------------
 # ``-m/--model`` input classification
 # ---------------------------------------------------------------------------
-
-
-def is_onnx_file_path(model_input: str) -> bool:
-    """Return True when *model_input* resolves to a local ONNX file path.
-
-    Thin wrapper kept for backwards-compatible callers; new code should
-    use :func:`~winml.modelkit.utils.model_input.classify_model_input`
-    directly and inspect the returned ``ModelInput.kind``.
-    """
-    return classify_model_input(model_input).kind is ModelInputKind.ONNX_FILE
 
 
 def normalize_model_arg(value: str | None) -> str | None:

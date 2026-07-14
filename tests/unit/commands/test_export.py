@@ -1316,3 +1316,10 @@ class TestExportSubmodel:
         assert mock_export_onnx.call_count == 1
         exported_path = Path(mock_export_onnx.call_args.kwargs["output_path"])
         assert exported_path == output_path.with_stem(f"{output_path.stem}_decoder_prefill")
+
+        # The spec must actually reach the selected sub-model's export_config,
+        # not just be accepted without error (guards against a refactor silently
+        # dropping --input-specs on the single-sub-model path).
+        export_config = mock_export_onnx.call_args.kwargs["export_config"]
+        spec_names = [t.name for t in (export_config.input_tensors or [])]
+        assert "input_ids" in spec_names

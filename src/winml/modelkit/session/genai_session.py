@@ -1281,6 +1281,17 @@ class GenaiSession:
             compile_opts,
         )
 
+        # Snapshot the mtimes of any EPContext artifacts that already exist
+        # before spawning the compiler. A teardown-crash salvage then accepts
+        # only files this subprocess actually created or rewrote — never a stale
+        # leftover from an earlier compile (e.g. one built with different
+        # provider options), which merely *looks* like a valid EPContext.
+        pre_compile_mtimes = {
+            str(p): p.stat().st_mtime_ns
+            for p in self._epcontext_candidate_paths(src_onnx, ctx_out)
+            if p.exists()
+        }
+
         ctx = multiprocessing.get_context("spawn")
         proc = ctx.Process(
             target=_compile_stage_worker,
@@ -1301,12 +1312,162 @@ class GenaiSession:
             return False
 
         if proc.exitcode != 0:
+            if self._salvage_epcontext(src_onnx, ctx_out, pre_compile_mtimes):
+                logger.warning(
+                    "Stage %r compile subprocess exited %d, but a valid EPContext "
+                    "was already written to disk (crash during teardown); salvaging %s",
+                    stage_key,
+                    proc.exitcode,
+                    ctx_out.name,
+                )
+                return True
             logger.warning("Stage %r compilation failed (exit %d)", stage_key, proc.exitcode)
             self._discard_compiled_stage(ctx_out)
             return False
 
         logger.info("Stage %r compiled successfully → %s", stage_key, ctx_out)
         return True
+
+    def _salvage_epcontext(
+        self, src_onnx: Path, ctx_out: Path, pre_compile_mtimes: dict[str, int]
+    ) -> bool:
+        """Recover a valid EPContext written by a crashed compile subprocess.
+
+        Some accelerator runtimes (notably QNN on the Hexagon NPU) fault during
+        interpreter / driver teardown — i.e. *after* the EPContext ``.onnx`` and
+        its weights ``.bin`` have already been flushed to disk. Judging success
+        by exit code alone would then discard fully valid compiled work and fall
+        back to a JIT compile of the original graph, which just repeats the same
+        crashing native path at model-load time.
+
+        The shared compiler first writes the EPContext under Onnx Runtime's auto
+        name ``{src_stem}_<device>_ctx.onnx`` *next to the source model*, then
+        copies it to *ctx_out*. A teardown crash can leave the artifact in either
+        directory, so both are searched. On the first *fresh* and *valid* match,
+        the graph (and any external-weights ``.bin`` sidecar) is moved to
+        *ctx_out* so the caller can treat it exactly like a cleanly compiled
+        stage. The ``.bin`` keeps its name, so the graph's ``ep_cache_context``
+        reference still resolves once both files sit in the compiled directory.
+
+        A candidate is *fresh* only if this compile actually produced it: a path
+        already present before the subprocess started (``pre_compile_mtimes``)
+        must have advanced its modification time, otherwise it is a stale
+        leftover from an earlier compile and is ignored. Validity additionally
+        requires an ``embed_mode=0`` context's external weights file to exist —
+        see :meth:`_epcontext_is_valid`.
+
+        The provider / device token in the auto name is matched with a wildcard,
+        so no execution provider is hardcoded.
+
+        Returns ``True`` when a valid EPContext is now present at *ctx_out*.
+        """
+        for candidate in self._epcontext_candidate_paths(src_onnx, ctx_out):
+            if not candidate.exists():
+                continue
+            prior = pre_compile_mtimes.get(str(candidate))
+            if prior is not None and candidate.stat().st_mtime_ns <= prior:
+                # Pre-existing and untouched by this compile — a stale artifact
+                # (e.g. built with different provider options). Never salvage it.
+                continue
+            if not self._epcontext_is_valid(candidate):
+                continue
+            if candidate != ctx_out:
+                self._promote_epcontext(candidate, ctx_out)
+            return True
+        return False
+
+    @staticmethod
+    def _epcontext_candidate_paths(src_onnx: Path, ctx_out: Path) -> list[Path]:
+        """Ordered EPContext locations a crashed compile may have left behind.
+
+        The canonical output *ctx_out* first, then Onnx Runtime's auto-named
+        ``{src_stem}_<device>_ctx.onnx`` beside the canonical output and beside
+        the source model (the device token is a wildcard, so no EP is
+        hardcoded). ``dict.fromkeys`` dedups the directories, preserving order,
+        in case they coincide.
+        """
+        candidates: list[Path] = [ctx_out]
+        for directory in dict.fromkeys([ctx_out.parent, src_onnx.parent]):
+            candidates.extend(sorted(directory.glob(f"{src_onnx.stem}_*_ctx.onnx")))
+        return candidates
+
+    @staticmethod
+    def _epcontext_is_valid(candidate: Path) -> bool:
+        """True if *candidate* is an EPContext graph with its weights present.
+
+        Beyond the structural check (an ``EPContext`` node exists), the *main
+        context* node (``main_context=1``, the default) with ``embed_mode=0``
+        stores its compiled blob in an external file named by
+        ``ep_cache_context``; that file must exist and be non-empty next to the
+        graph, otherwise the salvaged stage would reference a missing binary and
+        crash at load time. ``embed_mode=1`` (or an absent attribute) embeds the
+        blob inline, so only the structural check applies — the
+        ``ep_cache_context`` bytes are the raw blob, not a path, and must not be
+        treated as a filename.
+
+        Secondary partition nodes (``main_context=0``) legitimately omit
+        ``ep_cache_context`` per the EPContext schema — a single QNN context can
+        hold all partitions, with only the ``main_context=1`` node carrying the
+        external reference — so they are skipped here, mirroring the compiler's
+        own ``main_context`` handling.
+        """
+        from ..onnx import is_compiled_onnx, load_onnx
+
+        # Structural gate. ``is_compiled_onnx`` normalises a corrupt / unreadable
+        # file to ValueError (missing → OSError), so a garbage leftover from a
+        # crashed compile is rejected here rather than propagating.
+        try:
+            if not is_compiled_onnx(candidate):
+                return False
+        except (ValueError, OSError):
+            return False
+
+        # Parseable and structurally an EPContext; verify the main context's
+        # external weights file is present (the load below cannot raise a parse
+        # error now that the structural gate has passed).
+        model = load_onnx(str(candidate), load_weights=False, validate=False)
+        for node in model.graph.node:
+            if node.op_type != "EPContext":
+                continue
+            embed_mode = 1
+            main_context = 1
+            cache_ref = ""
+            for attr in node.attribute:
+                if attr.name == "embed_mode":
+                    embed_mode = attr.i
+                elif attr.name == "main_context":
+                    main_context = attr.i
+                elif attr.name == "ep_cache_context":
+                    cache_ref = attr.s.decode("utf-8", "ignore")
+            # Secondary partitions share the main context's blob and carry no
+            # external reference of their own — nothing to validate.
+            if main_context == 0:
+                continue
+            if embed_mode == 0:
+                if not cache_ref:
+                    return False
+                ref_path = candidate.parent / cache_ref
+                try:
+                    if not ref_path.is_file() or ref_path.stat().st_size == 0:
+                        return False
+                except OSError:
+                    return False
+        return True
+
+    @staticmethod
+    def _promote_epcontext(src_ctx: Path, ctx_out: Path) -> None:
+        """Move a salvaged EPContext graph and its ``.bin`` sidecars to *ctx_out*.
+
+        External-weights sidecars are moved first, keeping their original names
+        so the graph's ``ep_cache_context`` reference resolves once everything
+        lives in *ctx_out*'s directory.
+        """
+        compiled_dir = ctx_out.parent
+        for sidecar in sorted(src_ctx.parent.glob(f"{src_ctx.stem}*.bin")):
+            dst_bin = compiled_dir / sidecar.name
+            if sidecar != dst_bin:
+                sidecar.replace(dst_bin)
+        src_ctx.replace(ctx_out)
 
     @classmethod
     def _discard_compiled_stage(cls, ctx_out: Path) -> None:

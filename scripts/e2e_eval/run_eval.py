@@ -593,6 +593,7 @@ def _run_build(
         device,
         "-o",
         str(config_path),
+        "--overwrite",
     ]
     if precision:
         config_args += ["--precision", precision]
@@ -1911,7 +1912,7 @@ def _run_winml_eval(
             args += ["--label-mapping", ds_config["label_mapping_file"]]
         if ds_config.get("streaming"):
             args += ["--streaming"]
-    args += ["--output", str(output_path)]
+    args += ["--output", str(output_path), "--overwrite"]
     args += entry.eval_args
 
     proc = _run_subprocess(args, timeout)
@@ -2269,7 +2270,9 @@ def _should_skip_existing(existing: dict, retry_types: set[str] | None, eval_typ
     # Check accuracy status (coarse, baseline-free)
     if acc is not None and not acc.get("skipped"):
         status = accuracy_status(acc)
-        if not retry_types or status in retry_types:
+        # Empty retry_types = "retry all non-PASS": a PASS accuracy is a completed
+        # job and stays skipped (--retry-failed implies --continue for passers).
+        if (status in retry_types) or (not retry_types and status != "PASS"):
             return False  # Should retry
 
     return True  # No retry criteria matched — skip

@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..cache import get_cache_dir, get_cache_key, get_model_dir
+from ..config import WinMLBuildConfig
 from ..loader.task import get_task_abbrev
 
 # Import task mapping from winml/ subpackage
@@ -38,7 +39,6 @@ from .winml import get_supported_tasks, get_winml_class
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
-    from ..config import WinMLBuildConfig
     from ..utils.constants import EPNameOrAlias
     from .winml.base import WinMLPreTrainedModel
     from .winml.composite_model import WinMLCompositeModel
@@ -262,7 +262,7 @@ class WinMLAutoModel:
         model_id_or_path: str | Path,
         *,
         task: str | None = None,
-        config: WinMLBuildConfig | None = None,
+        config: WinMLBuildConfig | dict[str, Any] | None = None,
         device: str = "auto",
         precision: str = "auto",
         provider_options: dict[str, str] | None = None,
@@ -343,6 +343,8 @@ class WinMLAutoModel:
         # =====================================================================
         onnx_file = Path(model_id)
         if onnx_file.suffix == ".onnx" and onnx_file.exists():
+            if config is not None and not isinstance(config, WinMLBuildConfig):
+                raise TypeError("ONNX builds require config to be a WinMLBuildConfig.")
             return cls.from_onnx(
                 onnx_path=onnx_file,
                 task=task,
@@ -387,9 +389,15 @@ class WinMLAutoModel:
                     _model_type = None
 
             if _model_type is not None and (_model_type, task) in COMPOSITE_MODEL_REGISTRY:
-                from .winml.composite_model import WinMLCompositeModel
+                # Resolve the concrete composite class for the (possibly
+                # overridden) model_type so an explicit ``model_type`` (e.g.
+                # "qwen3_transformer_only") selects its variant composite.  The
+                # base ``WinMLCompositeModel.from_pretrained`` re-derives the
+                # native model_type from the HF config, which would silently drop
+                # the override and build the stock composite instead.
+                composite_cls = COMPOSITE_MODEL_REGISTRY[(_model_type, task)]
 
-                return WinMLCompositeModel.from_pretrained(
+                return composite_cls.from_pretrained(
                     model_id,
                     task,
                     device=device,
