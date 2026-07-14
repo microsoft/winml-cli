@@ -2689,7 +2689,14 @@
 <td><code>-m</code></td>
 <td><code>TEXT</code></td>
 <td>—</td>
-<td>HuggingFace model ID or path to a local <code>.onnx</code> file. Required.</td>
+<td>HuggingFace model ID or path to a local <code>.onnx</code> file. Required. With <code>--runtime winml-genai</code>, also accepts a prebuilt genai <strong>bundle directory</strong>, or a HuggingFace model ID that is auto-built into a bundle on demand.</td>
+</tr>
+<tr>
+<td><code>--runtime</code></td>
+<td></td>
+<td><code>winml\|winml-genai</code></td>
+<td><code>winml</code></td>
+<td>Inference runtime. <code>winml</code> benchmarks single-shot ONNX inference; <code>winml-genai</code> benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec). With <code>winml-genai</code>, a model ID that is not a bundle directory is auto-built into one (cached under <code>~/.cache/winml/</code>, targeting the NPU HTP via QNN) before benchmarking. Cache handling matches the <code>winml</code> runtime: <code>--rebuild</code> overwrites the cached bundle, and <code>--ignore-cache</code> builds a throwaway bundle in a temp folder and leaves the cache untouched.</td>
 </tr>
 <tr>
 <td><code>--task</code></td>
@@ -2823,6 +2830,41 @@
 <td>flag</td>
 <td><code>false</code></td>
 <td>Show a live NPU/CPU utilization chart while the benchmark runs and include hardware metrics in the JSON report.</td>
+</tr>
+<tr>
+<td><code>--compile</code> / <code>--no-compile</code></td>
+<td></td>
+<td>flag</td>
+<td><code>false</code></td>
+<td>Compile the model to EPContext binaries during build. For <code>--runtime winml-genai</code> on the NPU, <code>--compile</code> pre-compiles each QNN stage (in an isolated subprocess) before generation.</td>
+</tr>
+<tr>
+<td><code>--compile-timeout</code></td>
+<td></td>
+<td><code>INTEGER</code></td>
+<td><code>300</code></td>
+<td><em>(winml-genai)</em> Max seconds to compile each EPContext stage before falling back to the original ONNX. Requires <code>--compile</code>.</td>
+</tr>
+<tr>
+<td><code>--prompt</code></td>
+<td></td>
+<td><code>TEXT</code></td>
+<td><code>Explain the theory of relativity in simple terms.</code></td>
+<td><em>(winml-genai)</em> Prompt text to generate from. Wrapped in the bundle's chat template unless <code>--no-apply-template</code>.</td>
+</tr>
+<tr>
+<td><code>--apply-template/--no-apply-template</code></td>
+<td></td>
+<td>flag</td>
+<td><code>true</code></td>
+<td><em>(winml-genai)</em> Wrap <code>--prompt</code> in the bundle's chat template before timing.</td>
+</tr>
+<tr>
+<td><code>--max-new-tokens</code></td>
+<td></td>
+<td><code>INTEGER</code></td>
+<td><code>128</code></td>
+<td><em>(winml-genai)</em> Number of new tokens to generate per iteration.</td>
 </tr>
 </tbody>
 </table>
