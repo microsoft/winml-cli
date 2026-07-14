@@ -24,7 +24,12 @@ from typing import TYPE_CHECKING, Any
 from . import consent as consent_mod
 from . import constants
 from .deviceid import get_or_create_device_id
-from .utils import _extract_exception_stack, _format_exception_message
+from .utils import (
+    _ROOT_CAUSE_MESSAGE_CAP,
+    _extract_exception_stack,
+    _format_exception_message,
+    _root_cause,
+)
 
 
 if TYPE_CHECKING:
@@ -57,6 +62,8 @@ _ALLOWED_KEYS: dict[str, set[str]] = {
         "exception_type",
         "exception_message",
         "exception_stack",
+        "root_cause_type",
+        "root_cause_message",
     },
 }
 
@@ -211,10 +218,18 @@ class Telemetry:
         try:
             if self._logger is None:
                 return
+            root = _root_cause(exc)
+            has_root = root is not exc
             attrs = {
                 "exception_type": type(exc).__name__,
                 "exception_message": _format_exception_message(str(exc)),
                 "exception_stack": _extract_exception_stack(exc.__traceback__),
+                "root_cause_type": type(root).__name__ if has_root else None,
+                "root_cause_message": (
+                    _format_exception_message(str(root), cap=_ROOT_CAUSE_MESSAGE_CAP)
+                    if has_root
+                    else None
+                ),
             }
             self._emit(_ERROR_EVENT, attrs)
         except Exception:
