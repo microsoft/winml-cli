@@ -105,6 +105,7 @@ def _csv_operator_metrics(
                 onnx_op_type=op_data.get("onnx_op_type"),
                 onnx_attributes=op_data.get("onnx_attributes"),
                 onnx_inputs=op_data.get("onnx_inputs"),
+                onnx_outputs=op_data.get("onnx_outputs"),
             )
         )
     # duration is the headline metric; percent breaks ties when US timing is
@@ -136,6 +137,7 @@ def _load_onnx_operator_data(onnx_path: Path) -> dict[str, dict[str, Any]]:
             "onnx_op_type": node.op_type,
             "onnx_attributes": {attr.name: _serialize_attribute(attr) for attr in node.attribute},
             "onnx_inputs": _node_input_metadata(node, opset_versions, value_info, initializers),
+            "onnx_outputs": _node_output_metadata(node, opset_versions, value_info, initializers),
         }
     return operator_data
 
@@ -160,30 +162,60 @@ def _node_input_metadata(
     initializers: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
     """Return input metadata keyed by ONNX schema formal input name."""
+    return _node_value_metadata(node, node.input, "input", opset_versions, value_info, initializers)
+
+
+def _node_output_metadata(
+    node: Any,
+    opset_versions: dict[str, int],
+    value_info: dict[str, Any],
+    initializers: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Return output metadata keyed by ONNX schema formal output name."""
+    return _node_value_metadata(
+        node, node.output, "output", opset_versions, value_info, initializers
+    )
+
+
+def _node_value_metadata(
+    node: Any,
+    value_names: Any,
+    value_kind: str,
+    opset_versions: dict[str, int],
+    value_info: dict[str, Any],
+    initializers: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Return input/output metadata keyed by ONNX schema formal parameter name."""
     metadata: dict[str, dict[str, Any]] = {}
-    for index, value_name in enumerate(node.input):
+    for index, value_name in enumerate(value_names):
         if not value_name:
             continue
-        schema_name = _schema_input_name(node, index, opset_versions)
-        key = _unique_input_key(schema_name, index, metadata)
+        schema_name = _schema_value_name(node, index, value_kind, opset_versions)
+        key = _unique_value_key(schema_name, index, metadata)
         metadata[key] = _input_tensor_metadata(value_name, value_info, initializers)
     return metadata
 
 
-def _schema_input_name(node: Any, input_index: int, opset_versions: dict[str, int]) -> str:
-    """Resolve a node input index to its ONNX schema formal parameter name."""
+def _schema_value_name(
+    node: Any,
+    value_index: int,
+    value_kind: str,
+    opset_versions: dict[str, int],
+) -> str:
+    """Resolve a node input/output index to its ONNX schema formal parameter name."""
     from onnx import defs
 
     domain = node.domain
     opset_version = opset_versions.get(domain)
     if opset_version is None:
         logger.debug(
-            "Could not resolve ONNX opset version for %s domain=%r input=%d",
+            "Could not resolve ONNX opset version for %s domain=%r %s=%d",
             node.op_type,
             domain,
-            input_index,
+            value_kind,
+            value_index,
         )
-        return f"input_{input_index}"
+        return f"{value_kind}_{value_index}"
 
     try:
         schema = defs.get_schema(
@@ -193,30 +225,32 @@ def _schema_input_name(node: Any, input_index: int, opset_versions: dict[str, in
         )
     except defs.SchemaError:
         logger.debug(
-            "Could not resolve ONNX schema for %s domain=%r input=%d",
+            "Could not resolve ONNX schema for %s domain=%r %s=%d",
             node.op_type,
             domain,
-            input_index,
+            value_kind,
+            value_index,
             exc_info=True,
         )
-        return f"input_{input_index}"
+        return f"{value_kind}_{value_index}"
 
-    if input_index < len(schema.inputs):
-        return schema.inputs[input_index].name
-    if schema.inputs:
-        return schema.inputs[-1].name
-    return f"input_{input_index}"
+    schema_values = schema.inputs if value_kind == "input" else schema.outputs
+    if value_index < len(schema_values):
+        return schema_values[value_index].name
+    if schema_values:
+        return schema_values[-1].name
+    return f"{value_kind}_{value_index}"
 
 
-def _unique_input_key(
+def _unique_value_key(
     schema_name: str,
-    input_index: int,
+    value_index: int,
     existing: dict[str, dict[str, Any]],
 ) -> str:
     """Keep schema names as keys while disambiguating repeated variadic inputs."""
     if schema_name not in existing:
         return schema_name
-    return f"{schema_name}[{input_index}]"
+    return f"{schema_name}[{value_index}]"
 
 
 def _input_tensor_metadata(
@@ -283,7 +317,37 @@ def _serialize_attribute(attr: Any) -> Any:
         return _sparse_tensor_attribute_metadata(value)
     if attr_type == AttributeProto.SPARSE_TENSORS:
         return [_sparse_tensor_attribute_metadata(tensor) for tensor in value]
-    return value
+    if attr_type == AttributeProto.TYPE_PROTO:
+        return _protobuf_attribute_metadata(value)
+    if attr_type == AttributeProto.TYPE_PROTOS:
+        return [_protobuf_attribute_metadata(type_proto) for type_proto in value]
+    return _json_safe_attribute_value(value)
+
+
+def _protobuf_attribute_metadata(value: Any) -> dict[str, Any] | str:
+    """Convert protobuf attribute payloads to JSON-safe metadata."""
+    from google.protobuf import json_format
+
+    try:
+        return json_format.MessageToDict(value, preserving_proto_field_name=True)
+    except Exception:
+        logger.debug("Could not convert protobuf attribute payload to JSON", exc_info=True)
+        return str(value)
+
+
+def _json_safe_attribute_value(value: Any) -> Any:
+    """Return a JSON-safe fallback for unsupported ONNX attribute payloads."""
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, list | tuple):
+        return [_json_safe_attribute_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(k): _json_safe_attribute_value(v) for k, v in value.items()}
+    if hasattr(value, "DESCRIPTOR"):
+        return _protobuf_attribute_metadata(value)
+    return str(value)
 
 
 def _tensor_attribute_metadata(tensor: Any) -> dict[str, Any]:
@@ -628,9 +692,16 @@ class QNNProfiler(OpTracer):
                 f"warmup, got {len(measured)} from {len(samples)} total."
             )
 
-        onnx_operator_data = (
-            _load_onnx_operator_data(self.onnx_path) if _is_op_add_data_enabled() else None
-        )
+        onnx_operator_data = None
+        if _is_op_add_data_enabled():
+            try:
+                onnx_operator_data = _load_onnx_operator_data(self.onnx_path)
+            except Exception as error:
+                logger.warning(
+                    "Could not enrich QNN profiler metrics with ONNX metadata: %s",
+                    error,
+                    exc_info=True,
+                )
         operators = _csv_operator_metrics(measured, onnx_operator_data)
 
         return OpTraceResult(

@@ -6,17 +6,19 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
-from onnx import TensorProto, helper, load, save_model
+from onnx import AttributeProto, TensorProto, TypeProto, helper, load, save_model
 
 from winml.modelkit.optracing.qnn.profiler import (
     QNNProfiler,
     _ort_type_to_numpy,
     _resolve_shape,
+    _serialize_attribute,
 )
 from winml.modelkit.optracing.qnn.viewer import (
     _DEFAULT_CONFIG,
@@ -389,6 +391,7 @@ def test_qnn_profiler_from_csv_adds_onnx_data_when_env_is_set(tmp_path, monkeypa
     model = load(model_path)
     node = model.graph.node[0]
     graph_input = model.graph.input[0]
+    graph_output = model.graph.output[0]
     assert operator["onnx_op_type"] == node.op_type
     assert operator["onnx_attributes"] == {"perm": list(node.attribute[0].ints)}
     assert operator["onnx_inputs"] == {
@@ -401,6 +404,51 @@ def test_qnn_profiler_from_csv_adds_onnx_data_when_env_is_set(tmp_path, monkeypa
             ],
         }
     }
+    assert operator["onnx_outputs"] == {
+        "transposed": {
+            "name": graph_output.name,
+            "data_type": TensorProto.DataType.Name(graph_output.type.tensor_type.elem_type),
+            "dims": [
+                dim.dim_value if dim.HasField("dim_value") else dim.dim_param
+                for dim in graph_output.type.tensor_type.shape.dim
+            ],
+        }
+    }
+
+
+def test_qnn_profiler_from_csv_falls_back_when_onnx_metadata_fails(tmp_path, monkeypatch, caplog):
+    """ONNX enrichment failures do not discard otherwise valid profiling metrics."""
+    csv_path = tmp_path / "profiling_output.csv"
+    csv_path.write_text(
+        _CSV_HEADER + _make_node_csv_sample("transpose_node"),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("WINMLCLI_OP_ADD_DATA", "1")
+    profiler = QNNProfiler(tmp_path / "missing.onnx", output_dir=tmp_path, level="basic")
+    result = profiler._from_csv(csv_path, iterations=1, warmup=0, artifacts={})
+
+    operator = result.to_dict()["operators"][0]
+    assert operator["name"] == "transpose_node"
+    assert "onnx_op_type" not in operator
+    assert "onnx_inputs" not in operator
+    assert "onnx_outputs" not in operator
+    assert "Could not enrich QNN profiler metrics with ONNX metadata" in caplog.text
+
+
+def test_serialize_type_proto_attribute_is_json_safe():
+    """Unsupported protobuf-valued attributes are converted to JSON-safe metadata."""
+    type_proto = TypeProto()
+    type_proto.tensor_type.elem_type = TensorProto.FLOAT
+    attr = AttributeProto()
+    attr.name = "type_proto"
+    attr.type = AttributeProto.TYPE_PROTO
+    attr.tp.CopyFrom(type_proto)
+
+    value = _serialize_attribute(attr)
+
+    json.dumps(value)
+    assert value == {"tensor_type": {"elem_type": TensorProto.FLOAT}}
 
 
 def test_qnn_profiler_empty_artifacts(tmp_path):
