@@ -667,6 +667,10 @@ def _maybe_build_genai_bundle(
 
     from ..models.winml import build_genai_bundle
 
+    # Both branches above guarantee a model id here: the explicit request rejects a
+    # missing --model, and the implicit shortcut only proceeds when a recipe was
+    # resolved (which requires a model). Narrow str | None -> str for the call.
+    assert model is not None
     bundle_dir = Path(output_dir)
     override_precision = precision if cli_utils.is_cli_provided(ctx, "precision") else None
     model_type = _genai_model_type(config_or_configs, preloaded_hf_config)
