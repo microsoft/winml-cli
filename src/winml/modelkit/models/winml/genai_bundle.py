@@ -197,15 +197,6 @@ def resolve_genai_bundle(model_type: str | None) -> GenaiBundleRecipe | None:
     return _genai_bundle_registry().get(model_type)
 
 
-def registered_genai_families() -> list[str]:
-    """Return the sorted ``model_type`` keys that have a genai-bundle recipe.
-
-    Triggers registry population, so it is safe to call for building a
-    user-facing error message that lists the optimized-export families.
-    """
-    return sorted(_genai_bundle_registry())
-
-
 # =========================================================================
 # Orchestrator
 # =========================================================================
@@ -387,6 +378,5 @@ __all__ = [
     "GenaiTransformerSpec",
     "build_genai_bundle",
     "register_genai_bundle",
-    "registered_genai_families",
     "resolve_genai_bundle",
 ]

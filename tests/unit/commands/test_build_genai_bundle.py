@@ -518,7 +518,7 @@ def test_export_type_generic_forces_stock_even_on_npu_qnn(tmp_path: Path):
 
 
 def test_export_type_optimized_unregistered_family_errors(tmp_path: Path):
-    """Optimized on a family with no recipe fails fast and lists the families."""
+    """Optimized on a family with no recipe fails fast."""
     with (
         patch(
             _GENERATE_TARGET,
@@ -540,8 +540,8 @@ def test_export_type_optimized_unregistered_family_errors(tmp_path: Path):
         )
 
     assert result.exit_code != 0
-    assert "no optimized (genai bundle) recipe" in result.output
-    assert "qwen3" in result.output
+    assert "no optimized recipe" in result.output
+    assert "resnet" in result.output
     bundle.assert_not_called()
     run_single.assert_not_called()
 

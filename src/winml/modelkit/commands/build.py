@@ -583,14 +583,10 @@ def _maybe_build_genai_bundle(
                 "--export-type optimized is not supported for module mode (array config)."
             )
         if recipe is None:
-            from ..models.winml import registered_genai_families
-
             model_type = _genai_model_type(config_or_configs, preloaded_hf_config)
-            families = ", ".join(registered_genai_families()) or "(none)"
             raise click.UsageError(
-                f"--export-type optimized: no optimized (genai bundle) recipe is "
-                f"registered for model type '{model_type}'. "
-                f"Families with a recipe: {families}."
+                f"--export-type optimized: no optimized recipe is "
+                f"registered for model type '{model_type}'."
             )
     else:
         # Implicit shortcut (backward-compatible with #1081): a registered family

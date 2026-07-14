@@ -20,7 +20,6 @@ from winml.modelkit.models.winml import (
     GenaiTarget,
     GenaiTransformerSpec,
     register_genai_bundle,
-    registered_genai_families,
     resolve_genai_bundle,
 )
 
@@ -72,10 +71,6 @@ def test_duplicate_registration_raises():
         register_genai_bundle(dup)
     # The guard precedes insertion, so the real recipe is left untouched.
     assert resolve_genai_bundle("qwen3") is existing
-
-
-def test_registered_genai_families_includes_qwen3():
-    assert "qwen3" in registered_genai_families()
 
 
 def test_register_rejects_empty_supported_targets():

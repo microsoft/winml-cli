@@ -196,7 +196,6 @@ from .genai_bundle import (
     GenaiTransformerSpec,
     build_genai_bundle,
     register_genai_bundle,
-    registered_genai_families,
     resolve_genai_bundle,
 )
 from .image_classification import WinMLModelForImageClassification
@@ -247,6 +246,5 @@ __all__ = [
     "register_composite_model",
     "register_genai_bundle",
     "register_specialization",
-    "registered_genai_families",
     "resolve_genai_bundle",
 ]
