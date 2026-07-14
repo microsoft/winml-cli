@@ -117,35 +117,6 @@ time-to-first-token (prefill) and decode throughput, and writes a results JSON u
     generated tokens and the saved perf metrics are unaffected — and originates in the
     native runtime below winml-cli, not in the bundle or the build.
 
-!!! tip "`--compile` compiles and generates in one command"
-    Earlier this could fault at model load: the EPContext stage compilation and the
-    `og.Model` generation load ran in the **same** process, and the compile's crash-prone
-    QNN teardown left that process in a fragile native state. `winml perf --compile` now runs
-    the stage compilation in an **isolated subprocess**, so the process that loads the model
-    for generation stays pristine — the single command above compiles every stage and then
-    generates tokens end-to-end. (This fixes
-    [issue #1087](https://github.com/microsoft/winml-cli/issues/1087).)
-
-    The `--compile` run still writes the compiled bundle to `out/qwen3-bundle/_compiled/`
-    (its `genai_config.json` points at the compiled `context_ctx.onnx` / `iterator_ctx.onnx`),
-    so you can optionally skip recompilation on later runs by pointing `-m` straight at that
-    directory — without `--compile`:
-
-    ```bash
-    # 1. Compile once (produces out/qwen3-bundle/_compiled/)
-    winml perf -m out/qwen3-bundle --runtime winml-genai --device npu --compile \
-      --compile-timeout 600 --max-new-tokens 20 --prompt "What is the capital of France?"
-
-    # 2. Re-run against the compiled bundle (loads EPContext directly, no re-compile)
-    winml perf -m out/qwen3-bundle/_compiled --runtime winml-genai --device npu \
-      --max-new-tokens 20 --prompt "What is the capital of France?"
-    ```
-
-    Dropping `--compile` is safe **only** because `-m` points at the already-compiled
-    `_compiled/` directory, whose stages are EPContext graphs loaded as-is — nothing is
-    JIT-compiled. (Dropping `--compile` on the original bundle would JIT-compile the source
-    ONNX and fault, per the warning above.)
-
 ## How it maps to the composite system
 
 The bundle reuses winml-cli's existing composite-model machinery — it does not add
