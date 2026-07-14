@@ -94,6 +94,12 @@ def test_log_error_scrubs_message_and_extracts_stack(running_telemetry):
         assert set(frame.keys()) == {"file", "line", "function"}
 
 
+def test_root_cause_message_cap_is_500():
+    from winml.modelkit.telemetry.telemetry import _ROOT_CAUSE_MESSAGE_CAP
+
+    assert _ROOT_CAUSE_MESSAGE_CAP == 500
+
+
 def test_log_error_records_root_cause_for_chained(running_telemetry):
     logger = _with_mock_logger(running_telemetry)
     try:

@@ -25,7 +25,6 @@ from . import consent as consent_mod
 from . import constants
 from .deviceid import get_or_create_device_id
 from .utils import (
-    _ROOT_CAUSE_MESSAGE_CAP,
     _extract_exception_stack,
     _format_exception_message,
     _root_cause,
@@ -47,6 +46,12 @@ _INSTANCE: Telemetry | None = None
 _HEARTBEAT_EVENT = "WinMLCLIHeartbeat"
 _ACTION_EVENT = "WinMLCLIAction"
 _ERROR_EVENT = "WinMLCLIError"
+
+# Root-cause messages get a larger cap than the outer exception message
+# (``_MESSAGE_CAP``): the root cause is the diagnostic payload, whereas the
+# outer message is often just a wrapper prefix. Initial value; tune from
+# real telemetry once truncation rates are known.
+_ROOT_CAUSE_MESSAGE_CAP = 500
 
 _ALLOWED_KEYS: dict[str, set[str]] = {
     _HEARTBEAT_EVENT: set(),

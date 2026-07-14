@@ -114,7 +114,6 @@ def _scrub_pii(text: str) -> str:
 
 
 _MESSAGE_CAP = 200
-_ROOT_CAUSE_MESSAGE_CAP = 500
 
 
 def _format_exception_message(message: str | None, cap: int = _MESSAGE_CAP) -> str:
