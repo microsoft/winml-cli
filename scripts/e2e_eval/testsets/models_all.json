@@ -5,10 +5,10 @@
     "model_type": "qwen2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 48014,
+    "downloads": 229,
     "last_update_time": "2025-11-18T17:46:48+00:00",
     "optimum_supported": true,
-    "order": 2
+    "order": 6
   },
   {
     "hf_id": "AdamCodd/vit-base-nsfw-detector",
@@ -16,13 +16,13 @@
     "model_type": "vit",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 1258716,
+    "downloads": 655180,
     "last_update_time": "2024-12-03T14:14:31+00:00",
     "optimum_supported": true,
-    "order": 5,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 10
   },
   {
     "hf_id": "Alexei1/imdb",
@@ -30,10 +30,10 @@
     "model_type": "extra_trees",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 173,
+    "downloads": 8,
     "last_update_time": "2022-09-22T09:10:57+00:00",
     "optimum_supported": false,
-    "order": 4
+    "order": 8
   },
   {
     "hf_id": "Alibaba-NLP/gte-reranker-modernbert-base",
@@ -41,10 +41,10 @@
     "model_type": "modernbert",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1129212,
+    "downloads": 3057912,
     "last_update_time": "2025-07-04T10:03:42+00:00",
     "optimum_supported": true,
-    "order": 5
+    "order": 3
   },
   {
     "hf_id": "ArnabPluxury/Qwen3.5-9B-Claude-4.6-Opus-Reasoning-Distilled-GGUF",
@@ -52,7 +52,7 @@
     "model_type": "qwen3_5",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 430,
+    "downloads": 122,
     "last_update_time": "2026-04-25T02:56:06+00:00",
     "optimum_supported": false,
     "order": 7
@@ -63,10 +63,10 @@
     "model_type": "Emu3",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 262,
+    "downloads": 2331,
     "last_update_time": "2025-12-25T03:35:54+00:00",
     "optimum_supported": false,
-    "order": 8
+    "order": 3
   },
   {
     "hf_id": "BAAI/bge-base-en-v1.5",
@@ -74,16 +74,16 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 7342365,
+    "downloads": 8705145,
     "last_update_time": "2024-02-21T03:00:19+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 8,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 11
   },
   {
     "hf_id": "BAAI/bge-base-en-v1.5",
@@ -91,16 +91,16 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 7342365,
+    "downloads": 8705145,
     "last_update_time": "2024-02-21T03:00:19+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 7,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 11
   },
   {
     "hf_id": "BAAI/bge-large-en-v1.5",
@@ -108,7 +108,7 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 12609997,
+    "downloads": 14922126,
     "last_update_time": "2024-02-21T02:51:44+00:00",
     "optimum_supported": true,
     "order": 7
@@ -119,7 +119,7 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 12609997,
+    "downloads": 14922126,
     "last_update_time": "2024-02-21T02:51:44+00:00",
     "optimum_supported": true,
     "tags": [
@@ -133,10 +133,13 @@
     "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 18410715,
+    "downloads": 34586436,
     "last_update_time": "2024-07-03T14:50:10+00:00",
     "optimum_supported": true,
-    "order": 6
+    "tags": [
+      "acc"
+    ],
+    "order": 4
   },
   {
     "hf_id": "BAAI/bge-m3",
@@ -144,10 +147,13 @@
     "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 18410715,
+    "downloads": 34586436,
     "last_update_time": "2024-07-03T14:50:10+00:00",
     "optimum_supported": true,
-    "order": 5
+    "tags": [
+      "acc"
+    ],
+    "order": 4
   },
   {
     "hf_id": "BAAI/bge-reranker-base",
@@ -155,10 +161,10 @@
     "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 2691448,
+    "downloads": 4671277,
     "last_update_time": "2024-06-24T14:10:03+00:00",
     "optimum_supported": true,
-    "order": 7
+    "order": 5
   },
   {
     "hf_id": "BAAI/bge-reranker-v2-m3",
@@ -166,7 +172,7 @@
     "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 8540235,
+    "downloads": 17429678,
     "last_update_time": "2024-06-24T14:08:45+00:00",
     "optimum_supported": true,
     "order": 2
@@ -177,13 +183,13 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 26387033,
+    "downloads": 66120897,
     "last_update_time": "2024-02-22T03:36:23+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 4
+    "order": 2
   },
   {
     "hf_id": "BAAI/bge-small-en-v1.5",
@@ -191,13 +197,13 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 26387033,
+    "downloads": 66120897,
     "last_update_time": "2024-02-22T03:36:23+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 4
+    "order": 2
   },
   {
     "hf_id": "Babelscape/wikineural-multilingual-ner",
@@ -205,13 +211,13 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 793568,
+    "downloads": 906744,
     "last_update_time": "2023-05-23T08:47:23+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 5
+    "order": 4
   },
   {
     "hf_id": "Chan-yeong/donut-sroie-company-sample-demo",
@@ -219,10 +225,10 @@
     "model_type": "vision-encoder-decoder",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 91,
+    "downloads": 3,
     "last_update_time": "2025-04-26T16:33:08+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 9
   },
   {
     "hf_id": "Charles40134679/Qwen3.5-9B-Claude-4.6-Opus-Reasoning-Distilled-GGUF",
@@ -230,10 +236,10 @@
     "model_type": "qwen3_5",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1058,
+    "downloads": 160,
     "last_update_time": "2026-04-07T06:17:16+00:00",
     "optimum_supported": false,
-    "order": 3
+    "order": 6
   },
   {
     "hf_id": "DAMO-NLP-SG/VideoLLaMA3-7B",
@@ -241,10 +247,10 @@
     "model_type": "videollama3_qwen2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 72953,
+    "downloads": 4692,
     "last_update_time": "2025-09-02T15:50:28+00:00",
     "optimum_supported": false,
-    "order": 10
+    "order": 9
   },
   {
     "hf_id": "Dani-3/Qwen3-VL-4B-Instruct-Unredacted-MAX-GGUF",
@@ -252,7 +258,7 @@
     "model_type": "qwen3_vl",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 737,
+    "downloads": 521,
     "last_update_time": "2026-04-05T13:45:04+00:00",
     "optimum_supported": false,
     "order": 5
@@ -263,10 +269,10 @@
     "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 551426,
+    "downloads": 715227,
     "last_update_time": "2023-08-14T19:35:59+00:00",
     "optimum_supported": true,
-    "order": 8
+    "order": 5
   },
   {
     "hf_id": "DmitrySpartak/layoutlm-invoices",
@@ -274,10 +280,10 @@
     "model_type": "layoutlm",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 149,
+    "downloads": 3,
     "last_update_time": "2026-02-23T08:43:45+00:00",
     "optimum_supported": true,
-    "order": 8
+    "order": 10
   },
   {
     "hf_id": "ETH-CVG/lightglue_superpoint",
@@ -285,10 +291,10 @@
     "model_type": "lightglue",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 42856,
+    "downloads": 21318,
     "last_update_time": "2025-07-17T09:34:38+00:00",
     "optimum_supported": false,
-    "order": 3
+    "order": 5
   },
   {
     "hf_id": "Eubiota/eubiota-planner-8b",
@@ -296,10 +302,10 @@
     "model_type": "qwen3",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 2701,
+    "downloads": 335,
     "last_update_time": "2026-03-03T19:37:03+00:00",
     "optimum_supported": true,
-    "order": 5
+    "order": 4
   },
   {
     "hf_id": "FacebookAI/roberta-base",
@@ -307,13 +313,13 @@
     "model_type": "roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 17571972,
+    "downloads": 9911359,
     "last_update_time": "2024-02-19T12:39:28+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 3
+    "order": 5
   },
   {
     "hf_id": "FacebookAI/roberta-large",
@@ -321,7 +327,7 @@
     "model_type": "roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 17561346,
+    "downloads": 13579454,
     "last_update_time": "2024-02-19T12:47:04+00:00",
     "optimum_supported": true,
     "tags": [
@@ -335,13 +341,13 @@
     "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 17415209,
+    "downloads": 22782183,
     "last_update_time": "2024-02-19T12:48:21+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 5
+    "order": 3
   },
   {
     "hf_id": "FacebookAI/xlm-roberta-large",
@@ -349,7 +355,7 @@
     "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 6396558,
+    "downloads": 7679221,
     "last_update_time": "2024-02-19T12:48:30+00:00",
     "optimum_supported": true,
     "tags": [
@@ -363,10 +369,10 @@
     "model_type": "vit",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 29187050,
+    "downloads": 9268559,
     "last_update_time": "2025-04-06T13:42:07+00:00",
     "optimum_supported": true,
-    "order": 1
+    "order": 2
   },
   {
     "hf_id": "FreedomIntelligence/BlenderLLM",
@@ -374,10 +380,10 @@
     "model_type": "qwen2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 244,
+    "downloads": 174,
     "last_update_time": "2024-12-23T12:48:19+00:00",
     "optimum_supported": true,
-    "order": 3
+    "order": 2
   },
   {
     "hf_id": "FreekyMeeky/autotrain-tm-pricepredictor-98386147082",
@@ -385,10 +391,10 @@
     "model_type": "xgboost",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 84,
+    "downloads": 0,
     "last_update_time": "2023-10-30T22:39:35+00:00",
     "optimum_supported": false,
-    "order": 1
+    "order": 10
   },
   {
     "hf_id": "GoodStartLabs/gin-rummy-hbc-qwen3.5-0.8b",
@@ -396,10 +402,10 @@
     "model_type": "qwen3_5_text",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 4238,
+    "downloads": 11,
     "last_update_time": "2026-03-26T19:39:32+00:00",
     "optimum_supported": false,
-    "order": 4
+    "order": 9
   },
   {
     "hf_id": "Gustking/wav2vec2-large-xlsr-deepfake-audio-classification",
@@ -407,10 +413,10 @@
     "model_type": "wav2vec2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 140463,
+    "downloads": 3045,
     "last_update_time": "2024-05-15T22:35:35+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 9
   },
   {
     "hf_id": "HKUSTAudio/xcodec2",
@@ -418,7 +424,7 @@
     "model_type": "xcodec2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 16886,
+    "downloads": 4656,
     "last_update_time": "2025-02-23T16:05:16+00:00",
     "optimum_supported": false,
     "order": 3
@@ -429,7 +435,7 @@
     "model_type": "marian",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 767949,
+    "downloads": 789599,
     "last_update_time": "2023-08-16T11:29:21+00:00",
     "optimum_supported": true,
     "order": 6
@@ -440,10 +446,10 @@
     "model_type": "marian",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 228363,
+    "downloads": 261986,
     "last_update_time": "2023-08-16T11:30:58+00:00",
     "optimum_supported": true,
-    "order": 13
+    "order": 11
   },
   {
     "hf_id": "Helsinki-NLP/opus-mt-es-en",
@@ -451,10 +457,10 @@
     "model_type": "marian",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 165846,
+    "downloads": 335989,
     "last_update_time": "2023-08-16T11:32:34+00:00",
     "optimum_supported": true,
-    "order": 14
+    "order": 9
   },
   {
     "hf_id": "Helsinki-NLP/opus-mt-fr-en",
@@ -462,10 +468,10 @@
     "model_type": "marian",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 655084,
+    "downloads": 748227,
     "last_update_time": "2025-11-15T22:57:50+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 7
   },
   {
     "hf_id": "Helsinki-NLP/opus-mt-ko-en",
@@ -473,10 +479,10 @@
     "model_type": "marian",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 467077,
+    "downloads": 205248,
     "last_update_time": "2023-08-16T11:59:39+00:00",
     "optimum_supported": true,
-    "order": 11
+    "order": 12
   },
   {
     "hf_id": "Helsinki-NLP/opus-mt-nl-en",
@@ -484,7 +490,7 @@
     "model_type": "marian",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 869651,
+    "downloads": 1242867,
     "last_update_time": "2023-08-16T12:01:39+00:00",
     "optimum_supported": true,
     "order": 5
@@ -495,10 +501,10 @@
     "model_type": "marian",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 678663,
+    "downloads": 179626,
     "last_update_time": "2023-08-16T12:07:23+00:00",
     "optimum_supported": true,
-    "order": 8
+    "order": 13
   },
   {
     "hf_id": "HuggingFaceTB/SmolVLM2-2.2B-Instruct",
@@ -506,10 +512,10 @@
     "model_type": "smolvlm",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 145918,
+    "downloads": 343422,
     "last_update_time": "2025-04-08T07:25:13+00:00",
     "optimum_supported": false,
-    "order": 5
+    "order": 1
   },
   {
     "hf_id": "HumeAI/tada-3b-ml",
@@ -517,7 +523,7 @@
     "model_type": "llama",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 137222,
+    "downloads": 11034,
     "last_update_time": "2026-03-17T18:09:08+00:00",
     "optimum_supported": true,
     "order": 9
@@ -528,7 +534,7 @@
     "model_type": "bert",
     "group": "Foundry Toolkit",
     "priority": "P0",
-    "downloads": 5662,
+    "downloads": 10706,
     "last_update_time": "2024-06-21T19:49:09+00:00",
     "optimum_supported": true,
     "tags": [
@@ -542,7 +548,7 @@
     "model_type": "bert",
     "group": "Foundry Toolkit",
     "priority": "P0",
-    "downloads": 5662,
+    "downloads": 10706,
     "last_update_time": "2024-06-21T19:49:09+00:00",
     "optimum_supported": true,
     "tags": [
@@ -556,13 +562,13 @@
     "model_type": "dpt",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 476558,
+    "downloads": 216512,
     "last_update_time": "2024-02-09T08:58:56+00:00",
     "optimum_supported": true,
-    "order": 2,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 3
   },
   {
     "hf_id": "Intel/dpt-large",
@@ -570,13 +576,13 @@
     "model_type": "dpt",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 66162,
+    "downloads": 74316,
     "last_update_time": "2024-02-24T11:22:17+00:00",
     "optimum_supported": true,
-    "order": 8,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 7
   },
   {
     "hf_id": "Intel/zoedepth-nyu-kitti",
@@ -584,13 +590,10 @@
     "model_type": "zoedepth",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 248162,
+    "downloads": 121430,
     "last_update_time": "2024-05-20T15:06:27+00:00",
     "optimum_supported": false,
-    "order": 4,
-    "tags": [
-      "acc"
-    ]
+    "order": 6
   },
   {
     "hf_id": "Isotonic/distilbert_finetuned_ai4privacy_v2",
@@ -598,7 +601,7 @@
     "model_type": "distilbert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 19897,
+    "downloads": 5106,
     "last_update_time": "2025-11-14T09:28:25+00:00",
     "optimum_supported": true,
     "tags": [
@@ -612,7 +615,7 @@
     "model_type": "qwen3_5",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 700288,
+    "downloads": 62061,
     "last_update_time": "2026-04-06T02:11:58+00:00",
     "optimum_supported": false,
     "order": 1
@@ -623,7 +626,7 @@
     "model_type": "camembert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 163288,
+    "downloads": 36825,
     "last_update_time": "2023-06-16T01:31:43+00:00",
     "optimum_supported": true,
     "order": 11
@@ -634,7 +637,7 @@
     "model_type": "flashvsr",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 4001,
+    "downloads": 2833,
     "last_update_time": "2026-04-01T07:11:50+00:00",
     "optimum_supported": false,
     "order": 2
@@ -645,7 +648,7 @@
     "model_type": "flashvsr",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 9752,
+    "downloads": 10643,
     "last_update_time": "2026-04-01T07:11:28+00:00",
     "optimum_supported": false,
     "order": 1
@@ -656,10 +659,10 @@
     "model_type": "videomae",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 741998,
+    "downloads": 163,
     "last_update_time": "2025-11-05T00:08:09+00:00",
     "optimum_supported": false,
-    "order": 2
+    "order": 10
   },
   {
     "hf_id": "Kluuking/autotrain-flight-delay-3621096840",
@@ -667,10 +670,10 @@
     "model_type": "xgboost",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 50,
+    "downloads": 5,
     "last_update_time": "2023-02-21T02:34:58+00:00",
     "optimum_supported": false,
-    "order": 7
+    "order": 10
   },
   {
     "hf_id": "Kwai-Keye/Keye-VL-1_5-8B",
@@ -678,10 +681,10 @@
     "model_type": "KeyeVL1_5",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 86105,
+    "downloads": 221788,
     "last_update_time": "2026-02-05T06:11:58+00:00",
     "optimum_supported": false,
-    "order": 9
+    "order": 3
   },
   {
     "hf_id": "Kwai-Keye/Keye-VL-8B-Preview",
@@ -689,10 +692,10 @@
     "model_type": "Keye",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 94720,
+    "downloads": 237326,
     "last_update_time": "2026-02-10T07:22:56+00:00",
     "optimum_supported": false,
-    "order": 8
+    "order": 2
   },
   {
     "hf_id": "LiheYoung/depth-anything-base-hf",
@@ -700,13 +703,13 @@
     "model_type": "depth_anything",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 64593,
+    "downloads": 56317,
     "last_update_time": "2024-01-25T08:13:34+00:00",
     "optimum_supported": false,
-    "order": 9,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 8
   },
   {
     "hf_id": "LiheYoung/depth-anything-large-hf",
@@ -714,13 +717,13 @@
     "model_type": "depth_anything",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 356918,
+    "downloads": 407794,
     "last_update_time": "2024-01-25T08:13:11+00:00",
     "optimum_supported": false,
-    "order": 3,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 2
   },
   {
     "hf_id": "LiheYoung/depth-anything-small-hf",
@@ -728,13 +731,13 @@
     "model_type": "depth_anything",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 115724,
+    "downloads": 21251,
     "last_update_time": "2024-01-25T08:12:14+00:00",
     "optimum_supported": false,
-    "order": 7,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 10
   },
   {
     "hf_id": "MCG-NJU/videomae-base",
@@ -742,10 +745,10 @@
     "model_type": "videomae",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 61516,
+    "downloads": 211533,
     "last_update_time": "2024-03-29T08:02:16+00:00",
     "optimum_supported": false,
-    "order": 6
+    "order": 1
   },
   {
     "hf_id": "MCG-NJU/videomae-base-finetuned-kinetics",
@@ -753,10 +756,10 @@
     "model_type": "videomae",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 37731,
+    "downloads": 40685,
     "last_update_time": "2024-03-29T08:01:51+00:00",
     "optimum_supported": false,
-    "order": 8
+    "order": 5
   },
   {
     "hf_id": "MCG-NJU/videomae-large",
@@ -764,10 +767,10 @@
     "model_type": "videomae",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 59723,
+    "downloads": 4193,
     "last_update_time": "2024-04-01T07:22:51+00:00",
     "optimum_supported": false,
-    "order": 7
+    "order": 8
   },
   {
     "hf_id": "MIT/ast-finetuned-audioset-10-10-0.4593",
@@ -775,10 +778,10 @@
     "model_type": "audio-spectrogram-transformer",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 521053,
+    "downloads": 554296,
     "last_update_time": "2023-09-06T14:49:15+00:00",
     "optimum_supported": true,
-    "order": 3
+    "order": 2
   },
   {
     "hf_id": "MahmoudAshraf/mms-300m-1130-forced-aligner",
@@ -786,10 +789,10 @@
     "model_type": "wav2vec2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 3614216,
+    "downloads": 2974765,
     "last_update_time": "2026-04-15T14:57:12+00:00",
     "optimum_supported": true,
-    "order": 4
+    "order": 7
   },
   {
     "hf_id": "Marqo/marqo-fashionSigLIP",
@@ -797,10 +800,10 @@
     "model_type": "siglip",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 909965,
+    "downloads": 525316,
     "last_update_time": "2026-02-18T03:34:31+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 10
   },
   {
     "hf_id": "MasumBhuiyan/linear-regression",
@@ -808,10 +811,10 @@
     "model_type": "AlbertConfig",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 25,
+    "downloads": 1,
     "last_update_time": "2023-10-07T17:55:43+00:00",
     "optimum_supported": false,
-    "order": 4
+    "order": 9
   },
   {
     "hf_id": "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli",
@@ -819,13 +822,13 @@
     "model_type": "deberta-v2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 207466,
+    "downloads": 81456,
     "last_update_time": "2024-04-11T13:49:10+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 12
+    "order": 14
   },
   {
     "hf_id": "MoritzLaurer/deberta-v3-large-zeroshot-v2.0",
@@ -833,13 +836,13 @@
     "model_type": "deberta-v2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 319987,
+    "downloads": 122064,
     "last_update_time": "2024-04-11T13:42:28+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 8
+    "order": 13
   },
   {
     "hf_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
@@ -847,13 +850,13 @@
     "model_type": "deberta-v2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 237721,
+    "downloads": 192712,
     "last_update_time": "2024-01-08T12:37:16+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 10
+    "order": 11
   },
   {
     "hf_id": "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
@@ -861,7 +864,7 @@
     "model_type": "deberta-v2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 326447,
+    "downloads": 593727,
     "last_update_time": "2024-04-11T13:49:19+00:00",
     "optimum_supported": true,
     "tags": [
@@ -875,7 +878,7 @@
     "model_type": "qwen2_vl",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 28078,
+    "downloads": 28766,
     "last_update_time": "2025-02-26T15:32:23+00:00",
     "optimum_supported": false,
     "order": 9
@@ -886,10 +889,10 @@
     "model_type": "qwen3_vl",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 2539527,
+    "downloads": 162,
     "last_update_time": "2025-12-05T04:52:23+00:00",
     "optimum_supported": false,
-    "order": 3
+    "order": 10
   },
   {
     "hf_id": "Open-Reasoner-Zero/Open-Reasoner-Zero-7B",
@@ -897,10 +900,10 @@
     "model_type": "qwen2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 2671,
+    "downloads": 300,
     "last_update_time": "2025-04-07T09:09:29+00:00",
     "optimum_supported": true,
-    "order": 6
+    "order": 5
   },
   {
     "hf_id": "OpenSearch-AI/Ops-Colqwen3-4B",
@@ -908,10 +911,10 @@
     "model_type": "ops_colqwen3",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 53925,
+    "downloads": 49847,
     "last_update_time": "2026-01-26T09:11:52+00:00",
     "optimum_supported": false,
-    "order": 7
+    "order": 8
   },
   {
     "hf_id": "PKU-Alignment/beaver-7b-v1.0-cost",
@@ -919,32 +922,32 @@
     "model_type": "llama",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1770,
+    "downloads": 4046,
     "last_update_time": "2024-04-20T18:03:39+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 1
   },
   {
-    "hf_id": "PaddlePaddle/PP-OCRv5_server_det",
+    "hf_id": "PaddlePaddle/PP-OCRv6_medium_det_onnx/inference.onnx",
     "task": "image-to-text",
     "model_type": "unknown",
     "group": "ISV",
     "priority": "P1",
-    "downloads": 623512,
-    "last_update_time": "2025-07-22T10:03:07+00:00",
+    "downloads": 5430,
+    "last_update_time": "2026-06-18T10:55:30+00:00",
     "optimum_supported": false,
-    "order": 4
+    "order": 13
   },
   {
-    "hf_id": "PaddlePaddle/PP-OCRv5_server_rec",
+    "hf_id": "PaddlePaddle/PP-OCRv6_medium_rec_onnx/inference.onnx",
     "task": "image-to-text",
     "model_type": "unknown",
     "group": "ISV",
     "priority": "P1",
-    "downloads": 196930,
-    "last_update_time": "2025-07-22T10:04:11+00:00",
+    "downloads": 5242,
+    "last_update_time": "2026-06-18T11:07:56+00:00",
     "optimum_supported": false,
-    "order": 9
+    "order": 14
   },
   {
     "hf_id": "PekingU/rtdetr_r101vd_coco_o365",
@@ -952,13 +955,13 @@
     "model_type": "rt_detr",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 102144,
+    "downloads": 185698,
     "last_update_time": "2024-07-01T14:17:49+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 11
+    "order": 8
   },
   {
     "hf_id": "PekingU/rtdetr_r18vd_coco_o365",
@@ -966,10 +969,10 @@
     "model_type": "rt_detr",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 144894,
+    "downloads": 1963,
     "last_update_time": "2024-07-01T14:17:56+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 12
   },
   {
     "hf_id": "PekingU/rtdetr_r50vd_coco_o365",
@@ -977,13 +980,13 @@
     "model_type": "rt_detr",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 85821,
+    "downloads": 254418,
     "last_update_time": "2024-07-01T14:17:52+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 12
+    "order": 6
   },
   {
     "hf_id": "PekingU/rtdetr_v2_r18vd",
@@ -991,13 +994,13 @@
     "model_type": "rt_detr_v2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 111922,
+    "downloads": 109467,
     "last_update_time": "2025-02-06T18:21:53+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 10
+    "order": 9
   },
   {
     "hf_id": "ProsusAI/finbert",
@@ -1005,7 +1008,7 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 5842265,
+    "downloads": 8101772,
     "last_update_time": "2023-05-23T12:43:35+00:00",
     "optimum_supported": true,
     "tags": [
@@ -1019,10 +1022,10 @@
     "model_type": "qwen2_audio",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 318262,
+    "downloads": 602178,
     "last_update_time": "2025-01-12T02:05:48+00:00",
     "optimum_supported": false,
-    "order": 5
+    "order": 2
   },
   {
     "hf_id": "Qwen/Qwen2-VL-2B-Instruct",
@@ -1030,10 +1033,10 @@
     "model_type": "qwen2_vl",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 3793054,
+    "downloads": 3591968,
     "last_update_time": "2025-01-12T01:59:29+00:00",
     "optimum_supported": false,
-    "order": 9
+    "order": 6
   },
   {
     "hf_id": "Qwen/Qwen2.5-0.5B-Instruct",
@@ -1041,10 +1044,10 @@
     "model_type": "qwen2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 5976585,
+    "downloads": 4962342,
     "last_update_time": "2024-09-25T12:32:56+00:00",
     "optimum_supported": true,
-    "order": 13
+    "order": 12
   },
   {
     "hf_id": "Qwen/Qwen2.5-1.5B-Instruct",
@@ -1052,10 +1055,10 @@
     "model_type": "qwen2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 9877186,
+    "downloads": 11980246,
     "last_update_time": "2024-09-25T12:32:50+00:00",
     "optimum_supported": true,
-    "order": 4
+    "order": 7
   },
   {
     "hf_id": "Qwen/Qwen2.5-3B-Instruct",
@@ -1063,10 +1066,10 @@
     "model_type": "qwen2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 9080325,
+    "downloads": 6522019,
     "last_update_time": "2024-09-25T12:33:00+00:00",
     "optimum_supported": true,
-    "order": 7
+    "order": 10
   },
   {
     "hf_id": "Qwen/Qwen2.5-7B-Instruct",
@@ -1074,10 +1077,10 @@
     "model_type": "qwen2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 12261701,
+    "downloads": 12737053,
     "last_update_time": "2025-01-12T02:10:10+00:00",
     "optimum_supported": true,
-    "order": 3
+    "order": 6
   },
   {
     "hf_id": "Qwen/Qwen2.5-Omni-3B",
@@ -1085,7 +1088,7 @@
     "model_type": "qwen2_5_omni",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 603215,
+    "downloads": 1916024,
     "last_update_time": "2025-04-30T04:01:19+00:00",
     "optimum_supported": false,
     "order": 4
@@ -1096,10 +1099,10 @@
     "model_type": "qwen2_5_omni",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 486670,
+    "downloads": 567475,
     "last_update_time": "2025-04-30T13:48:45+00:00",
     "optimum_supported": false,
-    "order": 5
+    "order": 8
   },
   {
     "hf_id": "Qwen/Qwen2.5-VL-7B-Instruct",
@@ -1107,10 +1110,10 @@
     "model_type": "qwen2_5_vl",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 8888481,
+    "downloads": 10321791,
     "last_update_time": "2025-04-06T16:23:01+00:00",
     "optimum_supported": false,
-    "order": 2
+    "order": 3
   },
   {
     "hf_id": "Qwen/Qwen3-0.6B",
@@ -1118,7 +1121,7 @@
     "model_type": "qwen3",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 18190697,
+    "downloads": 28970803,
     "last_update_time": "2025-07-26T03:46:27+00:00",
     "optimum_supported": true,
     "order": 1
@@ -1129,10 +1132,10 @@
     "model_type": "qwen3",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 6357420,
+    "downloads": 5799211,
     "last_update_time": "2025-07-26T03:46:32+00:00",
     "optimum_supported": true,
-    "order": 12
+    "order": 11
   },
   {
     "hf_id": "Qwen/Qwen3-4B-Instruct-2507",
@@ -1140,10 +1143,10 @@
     "model_type": "qwen3",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 9810369,
+    "downloads": 4771633,
     "last_update_time": "2025-09-17T06:56:53+00:00",
     "optimum_supported": true,
-    "order": 5
+    "order": 13
   },
   {
     "hf_id": "Qwen/Qwen3-8B",
@@ -1151,10 +1154,10 @@
     "model_type": "qwen3",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 8854331,
+    "downloads": 18345744,
     "last_update_time": "2025-07-26T03:49:13+00:00",
     "optimum_supported": true,
-    "order": 8
+    "order": 2
   },
   {
     "hf_id": "Qwen/Qwen3-Embedding-0.6B",
@@ -1162,10 +1165,10 @@
     "model_type": "qwen3",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 5780341,
+    "downloads": 11074155,
     "last_update_time": "2026-04-20T02:45:58+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 9
   },
   {
     "hf_id": "Qwen/Qwen3-Embedding-0.6B",
@@ -1173,7 +1176,7 @@
     "model_type": "qwen3",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 5780341,
+    "downloads": 11074155,
     "last_update_time": "2026-04-20T02:45:58+00:00",
     "optimum_supported": true,
     "order": 9
@@ -1184,10 +1187,10 @@
     "model_type": "qwen3_omni_moe",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 452758,
+    "downloads": 1931351,
     "last_update_time": "2025-09-22T14:17:52+00:00",
     "optimum_supported": false,
-    "order": 6
+    "order": 3
   },
   {
     "hf_id": "Qwen/Qwen3-Reranker-0.6B",
@@ -1195,7 +1198,7 @@
     "model_type": "qwen3",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1457557,
+    "downloads": 2535793,
     "last_update_time": "2026-04-16T08:55:59+00:00",
     "optimum_supported": true,
     "order": 4
@@ -1206,10 +1209,10 @@
     "model_type": "qwen3",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 867354,
+    "downloads": 2137747,
     "last_update_time": "2026-04-16T08:56:07+00:00",
     "optimum_supported": true,
-    "order": 8
+    "order": 6
   },
   {
     "hf_id": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
@@ -1217,10 +1220,10 @@
     "model_type": "qwen3_tts",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 694204,
+    "downloads": 485513,
     "last_update_time": "2026-01-29T08:01:19+00:00",
     "optimum_supported": false,
-    "order": 4
+    "order": 6
   },
   {
     "hf_id": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
@@ -1228,10 +1231,10 @@
     "model_type": "qwen3_tts",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 276612,
+    "downloads": 1430701,
     "last_update_time": "2026-01-29T08:01:51+00:00",
     "optimum_supported": false,
-    "order": 7
+    "order": 2
   },
   {
     "hf_id": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
@@ -1239,7 +1242,7 @@
     "model_type": "qwen3_tts",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1647407,
+    "downloads": 2262916,
     "last_update_time": "2026-01-29T08:00:54+00:00",
     "optimum_supported": false,
     "order": 1
@@ -1250,10 +1253,10 @@
     "model_type": "qwen3_tts",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 495663,
+    "downloads": 713119,
     "last_update_time": "2026-01-29T08:04:19+00:00",
     "optimum_supported": false,
-    "order": 5
+    "order": 4
   },
   {
     "hf_id": "Qwen/Qwen3-TTS-Tokenizer-12Hz",
@@ -1261,10 +1264,10 @@
     "model_type": "qwen3_tts_tokenizer_12hz",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 59167,
+    "downloads": 86499,
     "last_update_time": "2026-01-29T08:01:28+00:00",
     "optimum_supported": false,
-    "order": 2
+    "order": 1
   },
   {
     "hf_id": "Qwen/Qwen3-VL-2B-Instruct",
@@ -1272,10 +1275,10 @@
     "model_type": "qwen3_vl",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 141074575,
+    "downloads": 2112817,
     "last_update_time": "2025-10-23T11:30:44+00:00",
     "optimum_supported": false,
-    "order": 1
+    "order": 9
   },
   {
     "hf_id": "Qwen/Qwen3-VL-8B-Instruct",
@@ -1283,10 +1286,10 @@
     "model_type": "qwen3_vl",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 3973789,
+    "downloads": 5351797,
     "last_update_time": "2025-10-15T16:16:59+00:00",
     "optimum_supported": false,
-    "order": 8
+    "order": 5
   },
   {
     "hf_id": "Qwen/Qwen3.5-35B-A3B",
@@ -1294,10 +1297,10 @@
     "model_type": "qwen3_5_moe",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 3773001,
+    "downloads": 2302891,
     "last_update_time": "2026-04-24T02:38:38+00:00",
     "optimum_supported": false,
-    "order": 10
+    "order": 8
   },
   {
     "hf_id": "Qwen/Qwen3.5-9B",
@@ -1305,7 +1308,7 @@
     "model_type": "qwen3_5",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 7163295,
+    "downloads": 8769956,
     "last_update_time": "2026-03-02T00:51:43+00:00",
     "optimum_supported": false,
     "order": 4
@@ -1316,7 +1319,7 @@
     "model_type": "svm",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 16,
+    "downloads": 6,
     "last_update_time": "2022-11-09T12:09:36+00:00",
     "optimum_supported": false,
     "order": 7
@@ -1327,10 +1330,10 @@
     "model_type": "i2v",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 20371,
+    "downloads": 419,
     "last_update_time": "2026-01-05T09:24:16+00:00",
     "optimum_supported": false,
-    "order": 2
+    "order": 3
   },
   {
     "hf_id": "Salesforce/blip-image-captioning-base",
@@ -1338,13 +1341,13 @@
     "model_type": "blip",
     "group": "Benchmark",
     "priority": "P0",
-    "downloads": 2142214,
+    "downloads": 1702947,
     "last_update_time": "2025-02-03T06:45:16+00:00",
     "optimum_supported": false,
-    "order": 1,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 1
   },
   {
     "hf_id": "Salesforce/blip-vqa-base",
@@ -1352,10 +1355,10 @@
     "model_type": "blip",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 187871,
+    "downloads": 383973,
     "last_update_time": "2025-02-03T06:44:34+00:00",
     "optimum_supported": false,
-    "order": 4
+    "order": 3
   },
   {
     "hf_id": "Salesforce/blip2-flan-t5-xl",
@@ -1363,10 +1366,10 @@
     "model_type": "blip-2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 62090,
+    "downloads": 63803,
     "last_update_time": "2025-02-03T06:36:28+00:00",
     "optimum_supported": false,
-    "order": 6
+    "order": 5
   },
   {
     "hf_id": "Salesforce/blip2-opt-2.7b",
@@ -1374,10 +1377,10 @@
     "model_type": "blip-2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 467499,
+    "downloads": 635765,
     "last_update_time": "2025-02-03T06:27:50+00:00",
     "optimum_supported": false,
-    "order": 2
+    "order": 1
   },
   {
     "hf_id": "Salesforce/blip2-opt-2.7b-coco",
@@ -1385,10 +1388,10 @@
     "model_type": "blip-2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 602522,
+    "downloads": 818,
     "last_update_time": "2025-02-03T06:40:11+00:00",
     "optimum_supported": false,
-    "order": 1
+    "order": 10
   },
   {
     "hf_id": "SnowFlash383935/DigitalEduTransformers",
@@ -1396,10 +1399,10 @@
     "model_type": "transformer",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 38,
+    "downloads": 18,
     "last_update_time": "2025-05-17T15:12:39+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 6
   },
   {
     "hf_id": "StanfordAIMI/dinov2-base-xray-224",
@@ -1407,7 +1410,7 @@
     "model_type": "dinov2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 6078,
+    "downloads": 5475,
     "last_update_time": "2024-02-11T07:53:39+00:00",
     "optimum_supported": true,
     "tags": [
@@ -1421,7 +1424,7 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 1407767,
+    "downloads": 1307227,
     "last_update_time": "2024-10-09T17:55:36+00:00",
     "optimum_supported": true,
     "order": 3
@@ -1432,13 +1435,13 @@
     "model_type": "detr",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 208877,
+    "downloads": 187934,
     "last_update_time": "2025-11-10T05:52:21+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 8
+    "order": 7
   },
   {
     "hf_id": "TianheWu/VisualQuality-R1-7B",
@@ -1446,10 +1449,10 @@
     "model_type": "qwen2_5_vl",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 51311,
+    "downloads": 2647,
     "last_update_time": "2025-09-19T09:46:22+00:00",
     "optimum_supported": false,
-    "order": 1
+    "order": 2
   },
   {
     "hf_id": "TomoroAI/tomoro-colqwen3-embed-4b",
@@ -1457,10 +1460,10 @@
     "model_type": "colqwen3",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 166570,
+    "downloads": 86742,
     "last_update_time": "2025-12-07T05:46:42+00:00",
     "optimum_supported": false,
-    "order": 1
+    "order": 5
   },
   {
     "hf_id": "Wan-AI/Wan2.1-I2V-14B-480P",
@@ -1468,7 +1471,7 @@
     "model_type": "i2v",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 86973,
+    "downloads": 77302,
     "last_update_time": "2025-02-26T14:34:56+00:00",
     "optimum_supported": false,
     "order": 1
@@ -1479,7 +1482,7 @@
     "model_type": "t2v",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 18183,
+    "downloads": 49106,
     "last_update_time": "2025-03-01T09:31:33+00:00",
     "optimum_supported": false,
     "order": 2
@@ -1490,7 +1493,7 @@
     "model_type": "t2v",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 72416,
+    "downloads": 60747,
     "last_update_time": "2025-03-12T03:08:09+00:00",
     "optimum_supported": false,
     "order": 1
@@ -1501,10 +1504,10 @@
     "model_type": "xgboost",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 133,
+    "downloads": 8,
     "last_update_time": "2023-05-02T21:47:26+00:00",
     "optimum_supported": false,
-    "order": 5
+    "order": 9
   },
   {
     "hf_id": "Xenova/donut-base-finetuned-docvqa",
@@ -1512,7 +1515,7 @@
     "model_type": "vision-encoder-decoder",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 204,
+    "downloads": 309,
     "last_update_time": "2025-04-25T01:11:30+00:00",
     "optimum_supported": true,
     "order": 6
@@ -1523,10 +1526,10 @@
     "model_type": "owlvit",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1659,
+    "downloads": 1073,
     "last_update_time": "2025-07-08T14:38:40+00:00",
     "optimum_supported": true,
-    "order": 7
+    "order": 8
   },
   {
     "hf_id": "Xenova/paraphrase-multilingual-MiniLM-L12-v2",
@@ -1534,7 +1537,7 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 115830,
+    "downloads": 141540,
     "last_update_time": "2025-07-22T00:07:45+00:00",
     "optimum_supported": true,
     "order": 17
@@ -1545,10 +1548,10 @@
     "model_type": "segformer",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 562121,
+    "downloads": 182505,
     "last_update_time": "2025-07-01T15:39:50+00:00",
     "optimum_supported": true,
-    "order": 1
+    "order": 4
   },
   {
     "hf_id": "Xenova/slimsam-77-uniform",
@@ -1556,10 +1559,10 @@
     "model_type": "sam",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 13944,
+    "downloads": 44463,
     "last_update_time": "2026-03-18T23:10:20+00:00",
     "optimum_supported": true,
-    "order": 8
+    "order": 4
   },
   {
     "hf_id": "XiaomiMiMo/MiMo-Audio-7B-Instruct",
@@ -1567,10 +1570,10 @@
     "model_type": "qwen2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 56950,
+    "downloads": 16397,
     "last_update_time": "2025-09-23T11:28:06+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 9
   },
   {
     "hf_id": "Yiwen-ntu/MeshAnythingV2",
@@ -1578,7 +1581,7 @@
     "model_type": "shape_opt",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 8026,
+    "downloads": 896,
     "last_update_time": "2024-08-11T11:49:40+00:00",
     "optimum_supported": false,
     "order": 1
@@ -1589,10 +1592,10 @@
     "model_type": "llama",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 382,
+    "downloads": 441,
     "last_update_time": "2024-12-07T01:51:26+00:00",
     "optimum_supported": true,
-    "order": 2
+    "order": 1
   },
   {
     "hf_id": "Zigeng/SlimSAM-uniform-77",
@@ -1600,10 +1603,10 @@
     "model_type": "sam",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 5164,
+    "downloads": 9051,
     "last_update_time": "2024-11-08T07:55:33+00:00",
     "optimum_supported": true,
-    "order": 12
+    "order": 9
   },
   {
     "hf_id": "ahotrod/electra_large_discriminator_squad2_512",
@@ -1611,7 +1614,7 @@
     "model_type": "electra",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 868846,
+    "downloads": 911684,
     "last_update_time": "2020-12-11T21:31:42+00:00",
     "optimum_supported": true,
     "tags": [
@@ -1636,10 +1639,10 @@
     "model_type": "videomae",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1514338,
+    "downloads": 270,
     "last_update_time": "2025-07-23T15:55:45+00:00",
     "optimum_supported": false,
-    "order": 1
+    "order": 9
   },
   {
     "hf_id": "alana89/TabSTAR",
@@ -1647,7 +1650,7 @@
     "model_type": "tabstar",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 26888,
+    "downloads": 11833,
     "last_update_time": "2025-06-11T13:03:13+00:00",
     "optimum_supported": false,
     "order": 2
@@ -1658,10 +1661,10 @@
     "model_type": "mgp-str",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 89372,
+    "downloads": 108149,
     "last_update_time": "2023-12-11T14:31:20+00:00",
     "optimum_supported": true,
-    "order": 13
+    "order": 9
   },
   {
     "hf_id": "alibaba-pai/Wan2.1-Fun-14B-Control",
@@ -1669,7 +1672,7 @@
     "model_type": "i2v",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 11635,
+    "downloads": 253,
     "last_update_time": "2025-12-11T02:24:19+00:00",
     "optimum_supported": false,
     "order": 3
@@ -1680,10 +1683,10 @@
     "model_type": "molmo_point",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 119105,
+    "downloads": 1151,
     "last_update_time": "2026-03-30T18:30:40+00:00",
     "optimum_supported": false,
-    "order": 6
+    "order": 10
   },
   {
     "hf_id": "amunchet/rorshark-vit-base",
@@ -1691,13 +1694,13 @@
     "model_type": "vit",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 629050,
+    "downloads": 1365781,
     "last_update_time": "2023-11-18T20:58:42+00:00",
     "optimum_supported": true,
-    "order": 8,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 6
   },
   {
     "hf_id": "apple/DepthPro-hf",
@@ -1705,13 +1708,10 @@
     "model_type": "depth_pro",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 25173,
+    "downloads": 19883,
     "last_update_time": "2025-02-28T18:31:40+00:00",
     "optimum_supported": false,
-    "order": 11,
-    "tags": [
-      "acc"
-    ]
+    "order": 11
   },
   {
     "hf_id": "apple/mobilevit-small",
@@ -1719,16 +1719,16 @@
     "model_type": "mobilevit",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 2388215,
+    "downloads": 946937,
     "last_update_time": "2025-02-24T21:25:21+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 4,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 7
   },
   {
     "hf_id": "athrael-soju/colqwen3.5-4.5B-v3",
@@ -1736,10 +1736,10 @@
     "model_type": "qwen3_5",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 67662,
+    "downloads": 137211,
     "last_update_time": "2026-04-21T21:13:04+00:00",
     "optimum_supported": false,
-    "order": 5
+    "order": 3
   },
   {
     "hf_id": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim",
@@ -1747,7 +1747,7 @@
     "model_type": "wav2vec2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 886783,
+    "downloads": 577733,
     "last_update_time": "2024-09-19T08:07:19+00:00",
     "optimum_supported": true,
     "order": 1
@@ -1758,10 +1758,10 @@
     "model_type": "wav2vec2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 448188,
+    "downloads": 220215,
     "last_update_time": "2025-03-24T10:02:24+00:00",
     "optimum_supported": true,
-    "order": 4
+    "order": 6
   },
   {
     "hf_id": "bibekbehera/autotrain-numeric_prediction-40376105019",
@@ -1769,10 +1769,10 @@
     "model_type": "xgboost",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 15,
+    "downloads": 6,
     "last_update_time": "2023-03-11T11:40:14+00:00",
     "optimum_supported": false,
-    "order": 9
+    "order": 8
   },
   {
     "hf_id": "breezedeus/pix2text-mfr",
@@ -1780,10 +1780,10 @@
     "model_type": "vision-encoder-decoder",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 627991,
+    "downloads": 6129,
     "last_update_time": "2024-05-05T14:23:13+00:00",
     "optimum_supported": true,
-    "order": 3
+    "order": 12
   },
   {
     "hf_id": "buildborderless/CommunityForensics-DeepfakeDet-ViT",
@@ -1791,10 +1791,10 @@
     "model_type": "vit",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 768413,
+    "downloads": 667716,
     "last_update_time": "2025-06-11T17:19:56+00:00",
     "optimum_supported": true,
-    "order": 7
+    "order": 9
   },
   {
     "hf_id": "caidas/swin2SR-classical-sr-x2-64",
@@ -1802,7 +1802,7 @@
     "model_type": "swin2sr",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 40793,
+    "downloads": 22077,
     "last_update_time": "2024-03-27T10:32:24+00:00",
     "optimum_supported": true,
     "order": 1
@@ -1813,13 +1813,13 @@
     "model_type": "roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 3382610,
+    "downloads": 3261390,
     "last_update_time": "2025-08-04T07:58:29+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 4
+    "order": 8
   },
   {
     "hf_id": "commaai/commavq-gpt2m",
@@ -1827,10 +1827,10 @@
     "model_type": "gpt2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 144,
+    "downloads": 464,
     "last_update_time": "2024-05-28T23:01:39+00:00",
     "optimum_supported": true,
-    "order": 3
+    "order": 2
   },
   {
     "hf_id": "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1",
@@ -1838,10 +1838,10 @@
     "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 710804,
+    "downloads": 2119955,
     "last_update_time": "2025-04-15T08:03:02+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 7
   },
   {
     "hf_id": "cross-encoder/ms-marco-MiniLM-L12-v2",
@@ -1849,10 +1849,10 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1551960,
+    "downloads": 2374711,
     "last_update_time": "2025-08-29T14:37:04+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 9
   },
   {
     "hf_id": "cross-encoder/ms-marco-MiniLM-L12-v2",
@@ -1860,10 +1860,10 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1551960,
+    "downloads": 2374711,
     "last_update_time": "2025-08-29T14:37:04+00:00",
     "optimum_supported": true,
-    "order": 3
+    "order": 5
   },
   {
     "hf_id": "cross-encoder/ms-marco-MiniLM-L2-v2",
@@ -1871,10 +1871,10 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1049326,
+    "downloads": 1255398,
     "last_update_time": "2025-08-29T14:36:35+00:00",
     "optimum_supported": true,
-    "order": 6
+    "order": 8
   },
   {
     "hf_id": "cross-encoder/ms-marco-MiniLM-L4-v2",
@@ -1882,13 +1882,13 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 2220115,
+    "downloads": 7937366,
     "last_update_time": "2025-08-29T14:36:22+00:00",
     "optimum_supported": true,
-    "order": 9,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 4
   },
   {
     "hf_id": "cross-encoder/ms-marco-MiniLM-L4-v2",
@@ -1896,13 +1896,13 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 2220115,
+    "downloads": 7937366,
     "last_update_time": "2025-08-29T14:36:22+00:00",
     "optimum_supported": true,
-    "order": 2,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 2
   },
   {
     "hf_id": "cross-encoder/ms-marco-MiniLM-L6-v2",
@@ -1910,7 +1910,7 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 29648527,
+    "downloads": 85091967,
     "last_update_time": "2025-08-29T14:36:10+00:00",
     "optimum_supported": true,
     "order": 1
@@ -1921,7 +1921,7 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 29648527,
+    "downloads": 85091967,
     "last_update_time": "2025-08-29T14:36:10+00:00",
     "optimum_supported": true,
     "order": 1
@@ -1932,10 +1932,10 @@
     "model_type": "roberta",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 251369,
+    "downloads": 154108,
     "last_update_time": "2025-04-15T08:00:19+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 12
   },
   {
     "hf_id": "cross-encoder/nli-deberta-v3-base",
@@ -1943,10 +1943,10 @@
     "model_type": "deberta-v2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 178119,
+    "downloads": 355677,
     "last_update_time": "2025-04-11T09:56:48+00:00",
     "optimum_supported": true,
-    "order": 13
+    "order": 8
   },
   {
     "hf_id": "cross-encoder/nli-deberta-v3-small",
@@ -1954,13 +1954,13 @@
     "model_type": "deberta-v2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 226114,
+    "downloads": 618857,
     "last_update_time": "2025-04-15T08:18:25+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 11
+    "order": 6
   },
   {
     "hf_id": "daekeun-ml/koelectra-small-v3-nsmc",
@@ -1968,10 +1968,10 @@
     "model_type": "electra",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 2802122,
+    "downloads": 898303,
     "last_update_time": "2025-03-09T21:39:03+00:00",
     "optimum_supported": true,
-    "order": 6
+    "order": 10
   },
   {
     "hf_id": "dandelin/vilt-b32-finetuned-vqa",
@@ -1979,10 +1979,10 @@
     "model_type": "vilt",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 176687,
+    "downloads": 93617,
     "last_update_time": "2022-08-02T13:03:04+00:00",
     "optimum_supported": false,
-    "order": 5
+    "order": 4
   },
   {
     "hf_id": "dbmdz/bert-large-cased-finetuned-conll03-english",
@@ -1990,13 +1990,13 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 1129528,
+    "downloads": 679467,
     "last_update_time": "2023-09-06T22:17:56+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 4
+    "order": 7
   },
   {
     "hf_id": "deepset/bert-large-uncased-whole-word-masking-squad2",
@@ -2004,13 +2004,13 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 186554,
+    "downloads": 199391,
     "last_update_time": "2024-09-24T15:54:10+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 6
+    "order": 5
   },
   {
     "hf_id": "deepset/roberta-base-squad2",
@@ -2018,16 +2018,16 @@
     "model_type": "roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 594783,
+    "downloads": 515464,
     "last_update_time": "2024-09-24T15:48:47+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 2,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 2
   },
   {
     "hf_id": "deepset/roberta-large-squad2",
@@ -2035,10 +2035,10 @@
     "model_type": "roberta",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 299409,
+    "downloads": 7263,
     "last_update_time": "2024-09-26T08:05:59+00:00",
     "optimum_supported": true,
-    "order": 4
+    "order": 11
   },
   {
     "hf_id": "deepset/tinyroberta-squad2",
@@ -2046,16 +2046,16 @@
     "model_type": "roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 137508,
+    "downloads": 187384,
     "last_update_time": "2024-09-26T09:12:41+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 9,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 6
   },
   {
     "hf_id": "dell-research-harvard/lt-un-data-fine-fine-es",
@@ -2063,10 +2063,10 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 35,
+    "downloads": 15,
     "last_update_time": "2024-03-20T01:19:48+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 7
   },
   {
     "hf_id": "dell-research-harvard/lt-wikidata-comp-en",
@@ -2074,7 +2074,7 @@
     "model_type": "mpnet",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 275178,
+    "downloads": 18337,
     "last_update_time": "2024-03-20T00:27:30+00:00",
     "optimum_supported": true,
     "order": 1
@@ -2085,7 +2085,7 @@
     "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 254,
+    "downloads": 444,
     "last_update_time": "2024-03-20T01:06:09+00:00",
     "optimum_supported": true,
     "order": 3
@@ -2096,10 +2096,10 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 92,
+    "downloads": 115,
     "last_update_time": "2024-03-20T00:54:46+00:00",
     "optimum_supported": true,
-    "order": 6
+    "order": 4
   },
   {
     "hf_id": "dell-research-harvard/names-linking-model",
@@ -2107,10 +2107,10 @@
     "model_type": "mpnet",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 45,
+    "downloads": 24,
     "last_update_time": "2026-02-21T00:11:31+00:00",
     "optimum_supported": true,
-    "order": 8
+    "order": 5
   },
   {
     "hf_id": "depth-anything/Depth-Anything-V2-Base-hf",
@@ -2118,13 +2118,13 @@
     "model_type": "depth_anything",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 54287,
+    "downloads": 50468,
     "last_update_time": "2024-07-05T11:29:09+00:00",
     "optimum_supported": false,
-    "order": 10,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 9
   },
   {
     "hf_id": "depth-anything/Depth-Anything-V2-Large-hf",
@@ -2132,13 +2132,13 @@
     "model_type": "depth_anything",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 201936,
+    "downloads": 204187,
     "last_update_time": "2024-07-05T11:30:29+00:00",
     "optimum_supported": false,
-    "order": 5,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 4
   },
   {
     "hf_id": "depth-anything/Depth-Anything-V2-Small-hf",
@@ -2146,13 +2146,13 @@
     "model_type": "depth_anything",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 1921591,
+    "downloads": 1676992,
     "last_update_time": "2024-07-05T11:38:31+00:00",
     "optimum_supported": false,
-    "order": 1,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 1
   },
   {
     "hf_id": "dima806/fairface_age_image_detection",
@@ -2160,13 +2160,13 @@
     "model_type": "vit",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 6641645,
+    "downloads": 6696471,
     "last_update_time": "2024-12-15T19:54:53+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 2
+    "order": 3
   },
   {
     "hf_id": "dima806/music_genres_classification",
@@ -2174,10 +2174,10 @@
     "model_type": "wav2vec2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 320839,
+    "downloads": 2056,
     "last_update_time": "2024-10-19T10:57:45+00:00",
     "optimum_supported": true,
-    "order": 5
+    "order": 10
   },
   {
     "hf_id": "distil-whisper/distil-large-v3",
@@ -2185,10 +2185,10 @@
     "model_type": "whisper",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1353749,
+    "downloads": 998084,
     "last_update_time": "2026-04-21T08:00:18+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 9
   },
   {
     "hf_id": "distilbert/distilbert-base-cased-distilled-squad",
@@ -2196,13 +2196,13 @@
     "model_type": "distilbert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 231521,
+    "downloads": 218492,
     "last_update_time": "2024-05-06T13:46:31+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 5
+    "order": 3
   },
   {
     "hf_id": "distilbert/distilbert-base-uncased",
@@ -2210,7 +2210,7 @@
     "model_type": "distilbert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 11141157,
+    "downloads": 9476741,
     "last_update_time": "2024-05-06T13:44:53+00:00",
     "optimum_supported": true,
     "tags": [
@@ -2224,7 +2224,7 @@
     "model_type": "distilbert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 117679,
+    "downloads": 49593,
     "last_update_time": "2024-05-06T13:46:39+00:00",
     "optimum_supported": true,
     "tags": [
@@ -2238,13 +2238,13 @@
     "model_type": "distilbert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 3222550,
+    "downloads": 3774050,
     "last_update_time": "2023-12-19T16:29:37+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 5
+    "order": 6
   },
   {
     "hf_id": "dslim/bert-base-NER",
@@ -2252,13 +2252,13 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 1799281,
+    "downloads": 1919366,
     "last_update_time": "2024-10-08T07:51:39+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 1
+    "order": 2
   },
   {
     "hf_id": "edbeeching/decision-transformer-gym-hopper-medium",
@@ -2266,10 +2266,10 @@
     "model_type": "decision_transformer",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1932,
+    "downloads": 1442,
     "last_update_time": "2022-06-29T19:15:16+00:00",
     "optimum_supported": true,
-    "order": 7
+    "order": 3
   },
   {
     "hf_id": "facebook/bart-large-cnn",
@@ -2277,10 +2277,10 @@
     "model_type": "bart",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 1919003,
+    "downloads": 1550716,
     "last_update_time": "2024-02-13T18:02:05+00:00",
     "optimum_supported": true,
-    "order": 2
+    "order": 4
   },
   {
     "hf_id": "facebook/bart-large-mnli",
@@ -2288,13 +2288,13 @@
     "model_type": "bart",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 2644949,
+    "downloads": 3351419,
     "last_update_time": "2023-09-05T14:49:34+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 8
+    "order": 7
   },
   {
     "hf_id": "facebook/bart-large-mnli",
@@ -2302,7 +2302,7 @@
     "model_type": "bart",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 2644949,
+    "downloads": 3351419,
     "last_update_time": "2023-09-05T14:49:34+00:00",
     "optimum_supported": true,
     "order": 3
@@ -2313,16 +2313,16 @@
     "model_type": "convnext",
     "group": "Benchmark",
     "priority": "P0",
-    "downloads": 34211,
+    "downloads": 17639,
     "last_update_time": "2023-06-13T19:40:31+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 12,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 13
   },
   {
     "hf_id": "facebook/detr-resnet-50",
@@ -2330,10 +2330,10 @@
     "model_type": "detr",
     "group": "Benchmark",
     "priority": "P0",
-    "downloads": 222458,
+    "downloads": 2078433,
     "last_update_time": "2024-04-10T13:56:31+00:00",
     "optimum_supported": true,
-    "order": 16
+    "order": 15
   },
   {
     "hf_id": "facebook/detr-resnet-50",
@@ -2341,13 +2341,13 @@
     "model_type": "detr",
     "group": "Benchmark",
     "priority": "P0",
-    "downloads": 222458,
+    "downloads": 2078433,
     "last_update_time": "2024-04-10T13:56:31+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 7
+    "order": 1
   },
   {
     "hf_id": "facebook/dino-vitb16",
@@ -2355,13 +2355,13 @@
     "model_type": "vit",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 433457,
+    "downloads": 475987,
     "last_update_time": "2023-05-22T07:04:00+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 5
+    "order": 6
   },
   {
     "hf_id": "facebook/dino-vits16",
@@ -2369,16 +2369,16 @@
     "model_type": "vit",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 88794,
+    "downloads": 87484,
     "last_update_time": "2023-05-22T07:05:10+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 9,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 9
   },
   {
     "hf_id": "facebook/dinov2-base",
@@ -2386,13 +2386,13 @@
     "model_type": "dinov2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 2270912,
+    "downloads": 1624873,
     "last_update_time": "2024-01-17T08:27:01+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 3
+    "order": 2
   },
   {
     "hf_id": "facebook/dinov2-giant",
@@ -2400,7 +2400,7 @@
     "model_type": "dinov2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 216749,
+    "downloads": 198624,
     "last_update_time": "2023-09-06T11:23:25+00:00",
     "optimum_supported": true,
     "order": 7
@@ -2411,13 +2411,13 @@
     "model_type": "dinov2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 1731647,
+    "downloads": 996275,
     "last_update_time": "2023-09-06T11:23:50+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 4
+    "order": 5
   },
   {
     "hf_id": "facebook/dinov2-small",
@@ -2425,13 +2425,13 @@
     "model_type": "dinov2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 2417886,
+    "downloads": 2281672,
     "last_update_time": "2023-09-06T11:24:10+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 2
+    "order": 1
   },
   {
     "hf_id": "facebook/dinov2-with-registers-base",
@@ -2439,10 +2439,10 @@
     "model_type": "dinov2_with_registers",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 341417,
+    "downloads": 75404,
     "last_update_time": "2024-12-23T09:39:33+00:00",
     "optimum_supported": false,
-    "order": 6
+    "order": 10
   },
   {
     "hf_id": "facebook/mms-1b-all",
@@ -2450,10 +2450,10 @@
     "model_type": "wav2vec2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1733296,
+    "downloads": 324444,
     "last_update_time": "2023-06-15T10:45:44+00:00",
     "optimum_supported": true,
-    "order": 7
+    "order": 10
   },
   {
     "hf_id": "facebook/mms-lid-256",
@@ -2461,10 +2461,10 @@
     "model_type": "wav2vec2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 208720,
+    "downloads": 357554,
     "last_update_time": "2023-06-13T10:16:04+00:00",
     "optimum_supported": true,
-    "order": 7
+    "order": 3
   },
   {
     "hf_id": "facebook/mms-tts-eng",
@@ -2472,10 +2472,10 @@
     "model_type": "vits",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 118025,
+    "downloads": 134250,
     "last_update_time": "2023-09-06T13:32:25+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 7
   },
   {
     "hf_id": "facebook/mms-tts-hat",
@@ -2483,10 +2483,10 @@
     "model_type": "vits",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 423352,
+    "downloads": 8691,
     "last_update_time": "2023-09-01T10:13:11+00:00",
     "optimum_supported": true,
-    "order": 6
+    "order": 10
   },
   {
     "hf_id": "facebook/nllb-200-distilled-600M",
@@ -2494,10 +2494,10 @@
     "model_type": "m2m_100",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 1226033,
+    "downloads": 2200148,
     "last_update_time": "2024-02-14T17:18:36+00:00",
     "optimum_supported": true,
-    "order": 4
+    "order": 2
   },
   {
     "hf_id": "facebook/nougat-base",
@@ -2505,10 +2505,10 @@
     "model_type": "vision-encoder-decoder",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 324203,
+    "downloads": 135458,
     "last_update_time": "2023-11-20T09:26:49+00:00",
     "optimum_supported": true,
-    "order": 5
+    "order": 8
   },
   {
     "hf_id": "facebook/opt-125m",
@@ -2516,10 +2516,10 @@
     "model_type": "opt",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 7225164,
+    "downloads": 15423078,
     "last_update_time": "2023-09-15T13:10:03+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 3
   },
   {
     "hf_id": "facebook/sam-vit-base",
@@ -2527,7 +2527,7 @@
     "model_type": "sam",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 314914,
+    "downloads": 2093439,
     "last_update_time": "2024-01-11T19:23:17+00:00",
     "optimum_supported": true,
     "order": 1
@@ -2538,10 +2538,10 @@
     "model_type": "sam",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 213030,
+    "downloads": 494263,
     "last_update_time": "2024-01-11T19:23:32+00:00",
     "optimum_supported": true,
-    "order": 3
+    "order": 2
   },
   {
     "hf_id": "facebook/sam-vit-large",
@@ -2549,10 +2549,10 @@
     "model_type": "sam",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 35397,
+    "downloads": 9481,
     "last_update_time": "2024-01-11T19:23:46+00:00",
     "optimum_supported": true,
-    "order": 6
+    "order": 8
   },
   {
     "hf_id": "facebook/sam2-hiera-large",
@@ -2560,10 +2560,10 @@
     "model_type": "sam2_video",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 36200,
+    "downloads": 17581,
     "last_update_time": "2025-08-15T21:22:23+00:00",
     "optimum_supported": false,
-    "order": 5
+    "order": 7
   },
   {
     "hf_id": "facebook/sam2.1-hiera-base-plus",
@@ -2571,10 +2571,10 @@
     "model_type": "sam2_video",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 232739,
+    "downloads": 7717,
     "last_update_time": "2025-08-15T21:19:27+00:00",
     "optimum_supported": false,
-    "order": 2
+    "order": 10
   },
   {
     "hf_id": "facebook/sam2.1-hiera-large",
@@ -2582,10 +2582,10 @@
     "model_type": "sam2_video",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 72226,
+    "downloads": 56105,
     "last_update_time": "2025-08-15T21:19:57+00:00",
     "optimum_supported": false,
-    "order": 4
+    "order": 3
   },
   {
     "hf_id": "facebook/sam2.1-hiera-small",
@@ -2593,10 +2593,10 @@
     "model_type": "sam2_video",
     "group": "Benchmark",
     "priority": "P0",
-    "downloads": 11313,
+    "downloads": 20377,
     "last_update_time": "2025-08-15T21:18:57+00:00",
     "optimum_supported": false,
-    "order": 9
+    "order": 6
   },
   {
     "hf_id": "facebook/sam2.1-hiera-tiny",
@@ -2604,10 +2604,10 @@
     "model_type": "sam2_video",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 26796,
+    "downloads": 21885,
     "last_update_time": "2025-08-15T21:18:13+00:00",
     "optimum_supported": false,
-    "order": 7
+    "order": 5
   },
   {
     "hf_id": "facebook/seamless-m4t-v2-large",
@@ -2615,10 +2615,10 @@
     "model_type": "seamless_m4t_v2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 72752,
+    "downloads": 81886,
     "last_update_time": "2024-01-04T12:48:26+00:00",
     "optimum_supported": false,
-    "order": 1
+    "order": 2
   },
   {
     "hf_id": "facebook/timesformer-base-finetuned-k400",
@@ -2626,10 +2626,10 @@
     "model_type": "timesformer",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 19051,
+    "downloads": 12780,
     "last_update_time": "2023-01-02T11:43:07+00:00",
     "optimum_supported": false,
-    "order": 10
+    "order": 7
   },
   {
     "hf_id": "facebook/vjepa2-vitg-fpc64-256",
@@ -2637,7 +2637,7 @@
     "model_type": "vjepa2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 700054,
+    "downloads": 136474,
     "last_update_time": "2025-08-11T13:47:31+00:00",
     "optimum_supported": false,
     "order": 3
@@ -2648,10 +2648,10 @@
     "model_type": "vjepa2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 100294,
+    "downloads": 206537,
     "last_update_time": "2025-08-11T13:46:52+00:00",
     "optimum_supported": false,
-    "order": 5
+    "order": 2
   },
   {
     "hf_id": "fashn-ai/fashn-human-parser",
@@ -2659,7 +2659,7 @@
     "model_type": "segformer",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 45279,
+    "downloads": 43026,
     "last_update_time": "2026-01-10T20:50:06+00:00",
     "optimum_supported": true,
     "order": 9
@@ -2670,7 +2670,7 @@
     "model_type": "ultravox",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 782665,
+    "downloads": 1242547,
     "last_update_time": "2026-03-11T11:03:46+00:00",
     "optimum_supported": false,
     "order": 1
@@ -2681,7 +2681,7 @@
     "model_type": "ultravox",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 60774,
+    "downloads": 2150,
     "last_update_time": "2025-09-12T04:38:40+00:00",
     "optimum_supported": false,
     "order": 10
@@ -2692,10 +2692,10 @@
     "model_type": "sam",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 8492,
+    "downloads": 2592,
     "last_update_time": "2023-07-13T15:43:56+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 12
   },
   {
     "hf_id": "fxmarty/tiny-doc-qa-vision-encoder-decoder",
@@ -2703,10 +2703,10 @@
     "model_type": "vision-encoder-decoder",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 2594,
+    "downloads": 3023,
     "last_update_time": "2023-10-17T09:09:37+00:00",
     "optimum_supported": true,
-    "order": 3
+    "order": 4
   },
   {
     "hf_id": "google-bert/bert-base-cased",
@@ -2714,10 +2714,10 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 4195939,
+    "downloads": 3256705,
     "last_update_time": "2024-02-19T11:02:26+00:00",
     "optimum_supported": true,
-    "order": 8
+    "order": 9
   },
   {
     "hf_id": "google-bert/bert-base-multilingual-cased",
@@ -2725,13 +2725,13 @@
     "model_type": "bert",
     "group": "Foundry Toolkit",
     "priority": "P0",
-    "downloads": 2957354,
+    "downloads": 2869278,
     "last_update_time": "2024-02-19T11:05:41+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 12
+    "order": 13
   },
   {
     "hf_id": "google-bert/bert-base-multilingual-cased",
@@ -2739,7 +2739,7 @@
     "model_type": "bert",
     "group": "Foundry Toolkit",
     "priority": "P0",
-    "downloads": 2957354,
+    "downloads": 2869278,
     "last_update_time": "2024-02-19T11:05:41+00:00",
     "optimum_supported": true,
     "tags": [
@@ -2753,7 +2753,7 @@
     "model_type": "bert",
     "group": "Foundry Toolkit",
     "priority": "P0",
-    "downloads": 2957354,
+    "downloads": 2869278,
     "last_update_time": "2024-02-19T11:05:41+00:00",
     "optimum_supported": true,
     "order": 1
@@ -2764,13 +2764,13 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 3980957,
+    "downloads": 4916177,
     "last_update_time": "2024-02-19T11:06:00+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 9
+    "order": 8
   },
   {
     "hf_id": "google-bert/bert-base-uncased",
@@ -2778,7 +2778,7 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 58864524,
+    "downloads": 70056549,
     "last_update_time": "2024-02-19T11:06:12+00:00",
     "optimum_supported": true,
     "tags": [
@@ -2792,13 +2792,13 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 363720,
+    "downloads": 52412,
     "last_update_time": "2024-02-19T11:08:45+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 3
+    "order": 9
   },
   {
     "hf_id": "google-t5/t5-3b",
@@ -2806,32 +2806,32 @@
     "model_type": "t5",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 739767,
-    "last_update_time": "2024-01-29T15:44:49+00:00",
-    "optimum_supported": true,
-    "order": 6
-  },
-  {
-    "hf_id": "google-t5/t5-3b",
-    "task": "translation",
-    "model_type": "t5",
-    "group": "Top200",
-    "priority": "P2",
-    "downloads": 739767,
+    "downloads": 284048,
     "last_update_time": "2024-01-29T15:44:49+00:00",
     "optimum_supported": true,
     "order": 7
   },
   {
+    "hf_id": "google-t5/t5-3b",
+    "task": "translation",
+    "model_type": "t5",
+    "group": "Top200",
+    "priority": "P2",
+    "downloads": 284048,
+    "last_update_time": "2024-01-29T15:44:49+00:00",
+    "optimum_supported": true,
+    "order": 10
+  },
+  {
     "hf_id": "google-t5/t5-base",
     "task": "summarization",
     "model_type": "t5",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 1665833,
+    "downloads": 1909065,
     "last_update_time": "2024-02-14T17:21:55+00:00",
     "optimum_supported": true,
-    "order": 3
+    "order": 2
   },
   {
     "hf_id": "google-t5/t5-base",
@@ -2839,10 +2839,10 @@
     "model_type": "t5",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 1665833,
+    "downloads": 1909065,
     "last_update_time": "2024-02-14T17:21:55+00:00",
     "optimum_supported": true,
-    "order": 2
+    "order": 3
   },
   {
     "hf_id": "google-t5/t5-large",
@@ -2850,10 +2850,10 @@
     "model_type": "t5",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 576759,
+    "downloads": 355769,
     "last_update_time": "2023-04-06T13:42:27+00:00",
     "optimum_supported": true,
-    "order": 7
+    "order": 6
   },
   {
     "hf_id": "google-t5/t5-large",
@@ -2861,10 +2861,10 @@
     "model_type": "t5",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 576759,
+    "downloads": 355769,
     "last_update_time": "2023-04-06T13:42:27+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 8
   },
   {
     "hf_id": "google-t5/t5-small",
@@ -2872,7 +2872,7 @@
     "model_type": "t5",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 2322249,
+    "downloads": 25567987,
     "last_update_time": "2023-06-30T02:31:26+00:00",
     "optimum_supported": true,
     "order": 1
@@ -2883,7 +2883,7 @@
     "model_type": "t5",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 2322249,
+    "downloads": 25567987,
     "last_update_time": "2023-06-30T02:31:26+00:00",
     "optimum_supported": true,
     "order": 1
@@ -2894,10 +2894,10 @@
     "model_type": "pix2struct",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 23228,
+    "downloads": 35592,
     "last_update_time": "2023-09-06T19:53:17+00:00",
     "optimum_supported": true,
-    "order": 8
+    "order": 6
   },
   {
     "hf_id": "google/flan-t5-base",
@@ -2905,7 +2905,7 @@
     "model_type": "t5",
     "group": "ISV",
     "priority": "P1",
-    "downloads": 1603363,
+    "downloads": 1657077,
     "last_update_time": "2023-07-17T12:48:39+00:00",
     "optimum_supported": true,
     "order": 1
@@ -2916,10 +2916,10 @@
     "model_type": "t5",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 1603363,
+    "downloads": 1657077,
     "last_update_time": "2023-07-17T12:48:39+00:00",
     "optimum_supported": true,
-    "order": 4
+    "order": 3
   },
   {
     "hf_id": "google/flan-t5-base",
@@ -2927,10 +2927,10 @@
     "model_type": "t5",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 1603363,
+    "downloads": 1657077,
     "last_update_time": "2023-07-17T12:48:39+00:00",
     "optimum_supported": true,
-    "order": 3
+    "order": 4
   },
   {
     "hf_id": "google/gemma-4-26B-A4B-it",
@@ -2938,10 +2938,10 @@
     "model_type": "gemma4",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 4502579,
+    "downloads": 14443799,
     "last_update_time": "2026-04-10T16:35:25+00:00",
     "optimum_supported": false,
-    "order": 6
+    "order": 1
   },
   {
     "hf_id": "google/gemma-4-31B-it",
@@ -2949,10 +2949,10 @@
     "model_type": "gemma4",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 6042134,
+    "downloads": 12001879,
     "last_update_time": "2026-04-10T16:35:21+00:00",
     "optimum_supported": false,
-    "order": 5
+    "order": 2
   },
   {
     "hf_id": "google/gemma-4-E2B-it",
@@ -2960,7 +2960,7 @@
     "model_type": "gemma4",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 2565564,
+    "downloads": 2606090,
     "last_update_time": "2026-04-10T16:35:43+00:00",
     "optimum_supported": false,
     "order": 2
@@ -2971,7 +2971,7 @@
     "model_type": "gemma4",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 3687101,
+    "downloads": 5897050,
     "last_update_time": "2026-04-10T16:35:38+00:00",
     "optimum_supported": false,
     "order": 1
@@ -2982,10 +2982,10 @@
     "model_type": "t5",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 443461,
+    "downloads": 147470,
     "last_update_time": "2023-11-27T15:58:35+00:00",
     "optimum_supported": true,
-    "order": 12
+    "order": 14
   },
   {
     "hf_id": "google/owlv2-base-patch16",
@@ -2993,7 +2993,7 @@
     "model_type": "owlv2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 20155,
+    "downloads": 17252,
     "last_update_time": "2024-04-15T16:59:02+00:00",
     "optimum_supported": true,
     "order": 4
@@ -3004,7 +3004,7 @@
     "model_type": "owlv2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 960413,
+    "downloads": 1681997,
     "last_update_time": "2024-10-31T14:55:13+00:00",
     "optimum_supported": true,
     "order": 1
@@ -3015,10 +3015,10 @@
     "model_type": "owlv2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 887,
+    "downloads": 514,
     "last_update_time": "2024-10-31T14:56:18+00:00",
     "optimum_supported": true,
-    "order": 8
+    "order": 9
   },
   {
     "hf_id": "google/owlv2-large-patch14",
@@ -3026,10 +3026,10 @@
     "model_type": "owlv2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 732,
+    "downloads": 1284,
     "last_update_time": "2024-10-31T14:56:11+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 7
   },
   {
     "hf_id": "google/owlv2-large-patch14-ensemble",
@@ -3037,7 +3037,7 @@
     "model_type": "owlv2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 42197,
+    "downloads": 198110,
     "last_update_time": "2024-10-31T14:56:27+00:00",
     "optimum_supported": true,
     "order": 3
@@ -3048,7 +3048,7 @@
     "model_type": "owlv2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 626,
+    "downloads": 468,
     "last_update_time": "2023-12-12T13:40:36+00:00",
     "optimum_supported": true,
     "order": 10
@@ -3059,7 +3059,7 @@
     "model_type": "owlvit",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 10451,
+    "downloads": 4503,
     "last_update_time": "2023-12-12T13:41:12+00:00",
     "optimum_supported": true,
     "order": 6
@@ -3070,7 +3070,7 @@
     "model_type": "owlvit",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 184410,
+    "downloads": 324342,
     "last_update_time": "2023-12-12T13:47:41+00:00",
     "optimum_supported": true,
     "order": 2
@@ -3081,7 +3081,7 @@
     "model_type": "owlvit",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 12174,
+    "downloads": 6185,
     "last_update_time": "2023-12-12T13:41:07+00:00",
     "optimum_supported": true,
     "order": 5
@@ -3092,7 +3092,7 @@
     "model_type": "pegasus",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 258345,
+    "downloads": 232343,
     "last_update_time": "2023-01-24T16:42:49+00:00",
     "optimum_supported": true,
     "order": 8
@@ -3103,10 +3103,10 @@
     "model_type": "pix2struct",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 1346,
+    "downloads": 843,
     "last_update_time": "2023-12-24T21:14:49+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 9
   },
   {
     "hf_id": "google/pix2struct-docvqa-base",
@@ -3114,10 +3114,10 @@
     "model_type": "pix2struct",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 1861,
+    "downloads": 2832,
     "last_update_time": "2023-12-24T21:14:26+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 8
   },
   {
     "hf_id": "google/siglip-base-patch16-224",
@@ -3125,13 +3125,13 @@
     "model_type": "siglip",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 1683914,
+    "downloads": 1507160,
     "last_update_time": "2024-09-26T08:20:18+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 7
+    "order": 8
   },
   {
     "hf_id": "google/siglip-so400m-patch14-384",
@@ -3139,7 +3139,7 @@
     "model_type": "siglip",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 2047348,
+    "downloads": 1831470,
     "last_update_time": "2024-09-26T08:21:46+00:00",
     "optimum_supported": true,
     "tags": [
@@ -3153,10 +3153,10 @@
     "model_type": "siglip",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 634281,
+    "downloads": 741729,
     "last_update_time": "2025-02-21T04:03:58+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 9
   },
   {
     "hf_id": "google/vit-base-patch16-224",
@@ -3164,13 +3164,13 @@
     "model_type": "vit",
     "group": "Foundry Toolkit",
     "priority": "P0",
-    "downloads": 4599960,
+    "downloads": 5459411,
     "last_update_time": "2023-09-05T15:27:12+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 3
+    "order": 4
   },
   {
     "hf_id": "google/vit-base-patch16-224-in21k",
@@ -3178,13 +3178,13 @@
     "model_type": "vit",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 4050315,
+    "downloads": 1310696,
     "last_update_time": "2024-02-05T16:37:39+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 1
+    "order": 4
   },
   {
     "hf_id": "google/vivit-b-16x2",
@@ -3192,10 +3192,10 @@
     "model_type": "vivit",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 19646,
+    "downloads": 20535,
     "last_update_time": "2023-08-03T10:01:21+00:00",
     "optimum_supported": false,
-    "order": 9
+    "order": 6
   },
   {
     "hf_id": "gradient-spaces/respace-sg-llm-1.5b",
@@ -3203,10 +3203,10 @@
     "model_type": "qwen2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 487,
+    "downloads": 90,
     "last_update_time": "2026-03-30T17:17:07+00:00",
     "optimum_supported": true,
-    "order": 1
+    "order": 3
   },
   {
     "hf_id": "hi-wesley/gemma3-vision-encoder",
@@ -3214,7 +3214,7 @@
     "model_type": "siglip_vision_model",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 67,
+    "downloads": 101,
     "last_update_time": "2025-08-17T21:52:26+00:00",
     "optimum_supported": true,
     "order": 12
@@ -3225,10 +3225,10 @@
     "model_type": "pegasus",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 129995,
+    "downloads": 158440,
     "last_update_time": "2024-04-26T18:26:40+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 9
   },
   {
     "hf_id": "hustvl/yolos-small",
@@ -3236,7 +3236,7 @@
     "model_type": "yolos",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 704691,
+    "downloads": 744348,
     "last_update_time": "2024-05-08T07:49:12+00:00",
     "optimum_supported": true,
     "tags": [
@@ -3250,10 +3250,10 @@
     "model_type": "layoutlm",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 85174,
+    "downloads": 26351,
     "last_update_time": "2023-03-18T00:54:24+00:00",
     "optimum_supported": true,
-    "order": 1
+    "order": 2
   },
   {
     "hf_id": "impira/layoutlm-invoices",
@@ -3261,10 +3261,10 @@
     "model_type": "layoutlm",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1052,
+    "downloads": 43913,
     "last_update_time": "2023-03-25T20:21:25+00:00",
     "optimum_supported": true,
-    "order": 4
+    "order": 1
   },
   {
     "hf_id": "infly/inf-retriever-v1-pro",
@@ -3272,10 +3272,10 @@
     "model_type": "qwen2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 6654,
+    "downloads": 173,
     "last_update_time": "2026-02-02T03:05:43+00:00",
     "optimum_supported": true,
-    "order": 3
+    "order": 7
   },
   {
     "hf_id": "internlm/internlm-xcomposer2d5-7b",
@@ -3283,7 +3283,7 @@
     "model_type": "internlm2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 535,
+    "downloads": 635,
     "last_update_time": "2024-07-22T06:01:33+00:00",
     "optimum_supported": true,
     "order": 11
@@ -3294,10 +3294,10 @@
     "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 6927003,
+    "downloads": 12857950,
     "last_update_time": "2026-04-02T02:16:59+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 8
   },
   {
     "hf_id": "intfloat/multilingual-e5-large",
@@ -3305,10 +3305,10 @@
     "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 6927003,
+    "downloads": 12857950,
     "last_update_time": "2026-04-02T02:16:59+00:00",
     "optimum_supported": true,
-    "order": 8
+    "order": 7
   },
   {
     "hf_id": "intfloat/multilingual-e5-small",
@@ -3316,10 +3316,10 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 5637924,
+    "downloads": 11773667,
     "last_update_time": "2026-04-02T02:16:05+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 8
   },
   {
     "hf_id": "jakeBland/wav2vec-vm-finetune",
@@ -3327,10 +3327,10 @@
     "model_type": "wav2vec2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 882881,
+    "downloads": 18732,
     "last_update_time": "2025-02-16T22:42:28+00:00",
     "optimum_supported": true,
-    "order": 2
+    "order": 8
   },
   {
     "hf_id": "jc-builds/stockprediction-ai",
@@ -3338,10 +3338,10 @@
     "model_type": "v4_regime_threshold",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 38,
+    "downloads": 169,
     "last_update_time": "2026-04-24T21:58:48+00:00",
     "optimum_supported": false,
-    "order": 3
+    "order": 1
   },
   {
     "hf_id": "jinaai/jina-embeddings-v4-vllm-retrieval",
@@ -3349,10 +3349,10 @@
     "model_type": "qwen2_5_vl",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 47944,
+    "downloads": 158280,
     "last_update_time": "2025-09-17T12:22:20+00:00",
     "optimum_supported": false,
-    "order": 8
+    "order": 2
   },
   {
     "hf_id": "joeddav/bart-large-mnli-yahoo-answers",
@@ -3360,10 +3360,10 @@
     "model_type": "bart",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 67459,
+    "downloads": 62071,
     "last_update_time": "2025-09-15T16:35:19+00:00",
     "optimum_supported": true,
-    "order": 16
+    "order": 15
   },
   {
     "hf_id": "joeddav/xlm-roberta-large-xnli",
@@ -3371,13 +3371,13 @@
     "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 156356,
+    "downloads": 329615,
     "last_update_time": "2024-10-16T21:59:20+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 14
+    "order": 9
   },
   {
     "hf_id": "jonatasgrosman/wav2vec2-large-xlsr-53-polish",
@@ -3385,10 +3385,10 @@
     "model_type": "wav2vec2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1412025,
+    "downloads": 4137055,
     "last_update_time": "2022-12-14T01:57:56+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 4
   },
   {
     "hf_id": "jonatasgrosman/wav2vec2-large-xlsr-53-portuguese",
@@ -3396,10 +3396,10 @@
     "model_type": "wav2vec2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 3537434,
+    "downloads": 3240516,
     "last_update_time": "2022-12-14T01:59:47+00:00",
     "optimum_supported": true,
-    "order": 5
+    "order": 6
   },
   {
     "hf_id": "jonatasgrosman/wav2vec2-large-xlsr-53-russian",
@@ -3407,10 +3407,10 @@
     "model_type": "wav2vec2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 4695653,
+    "downloads": 2967598,
     "last_update_time": "2022-12-14T01:58:43+00:00",
     "optimum_supported": true,
-    "order": 3
+    "order": 8
   },
   {
     "hf_id": "jonathandinu/face-parsing",
@@ -3418,10 +3418,10 @@
     "model_type": "segformer",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 211563,
+    "downloads": 209016,
     "last_update_time": "2026-02-18T22:38:54+00:00",
     "optimum_supported": true,
-    "order": 3
+    "order": 2
   },
   {
     "hf_id": "jwan2021/autotrain-us-housing-prices-1771761513",
@@ -3429,10 +3429,10 @@
     "model_type": "linear_regression",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 16,
+    "downloads": 9,
     "last_update_time": "2022-10-15T20:52:10+00:00",
     "optimum_supported": false,
-    "order": 8
+    "order": 5
   },
   {
     "hf_id": "jwan2021/autotrain-us-housing-prices-1771761514",
@@ -3440,10 +3440,10 @@
     "model_type": "svm",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 17,
+    "downloads": 15,
     "last_update_time": "2022-10-15T20:52:15+00:00",
     "optimum_supported": false,
-    "order": 5
+    "order": 3
   },
   {
     "hf_id": "k2-fsa/OmniVoice",
@@ -3451,10 +3451,10 @@
     "model_type": "omnivoice",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1574556,
+    "downloads": 990038,
     "last_update_time": "2026-04-22T02:40:56+00:00",
     "optimum_supported": false,
-    "order": 2
+    "order": 3
   },
   {
     "hf_id": "kha-white/manga-ocr-base",
@@ -3462,10 +3462,10 @@
     "model_type": "vision-encoder-decoder",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 293788,
+    "downloads": 481366,
     "last_update_time": "2022-06-22T15:34:05+00:00",
     "optimum_supported": true,
-    "order": 6
+    "order": 2
   },
   {
     "hf_id": "knkarthick/MEETING_SUMMARY",
@@ -3473,7 +3473,7 @@
     "model_type": "bart",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 69375,
+    "downloads": 40873,
     "last_update_time": "2023-03-27T15:08:14+00:00",
     "optimum_supported": true,
     "order": 12
@@ -3484,10 +3484,10 @@
     "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 575700,
+    "downloads": 561002,
     "last_update_time": "2024-04-26T05:37:58+00:00",
     "optimum_supported": true,
-    "order": 6
+    "order": 8
   },
   {
     "hf_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
@@ -3495,13 +3495,13 @@
     "model_type": "clip",
     "group": "Foundry Toolkit",
     "priority": "P0",
-    "downloads": 2763004,
+    "downloads": 4582872,
     "last_update_time": "2025-01-22T04:41:33+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 13
+    "order": 12
   },
   {
     "hf_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
@@ -3509,7 +3509,7 @@
     "model_type": "clip",
     "group": "Foundry Toolkit",
     "priority": "P0",
-    "downloads": 2763004,
+    "downloads": 4582872,
     "last_update_time": "2025-01-22T04:41:33+00:00",
     "optimum_supported": true,
     "order": 2
@@ -3520,13 +3520,13 @@
     "model_type": "clip",
     "group": "Foundry Toolkit",
     "priority": "P0",
-    "downloads": 2763004,
+    "downloads": 4582872,
     "last_update_time": "2025-01-22T04:41:33+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 4
+    "order": 3
   },
   {
     "hf_id": "laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
@@ -3534,7 +3534,7 @@
     "model_type": "clip",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 404428,
+    "downloads": 452361,
     "last_update_time": "2025-01-22T04:38:44+00:00",
     "optimum_supported": true,
     "tags": [
@@ -3548,10 +3548,10 @@
     "model_type": "llava_next_video",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 115901,
+    "downloads": 188474,
     "last_update_time": "2025-11-11T12:37:05+00:00",
     "optimum_supported": false,
-    "order": 7
+    "order": 4
   },
   {
     "hf_id": "lmstudio-community/gemma-3n-E4B-it-MLX-4bit",
@@ -3559,43 +3559,43 @@
     "model_type": "gemma3n",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 335144,
+    "downloads": 45029,
     "last_update_time": "2025-07-21T15:52:20+00:00",
-    "optimum_supported": false,
-    "order": 2
-  },
-  {
-    "hf_id": "lmstudio-community/gemma-3n-E4B-it-MLX-4bit",
-    "task": "video-text-to-text",
-    "model_type": "gemma3n",
-    "group": "Top200",
-    "priority": "P3",
-    "downloads": 335144,
-    "last_update_time": "2025-07-21T15:52:20+00:00",
-    "optimum_supported": false,
-    "order": 1
-  },
-  {
-    "hf_id": "lmstudio-community/gemma-3n-E4B-it-MLX-6bit",
-    "task": "audio-text-to-text",
-    "model_type": "gemma3n",
-    "group": "Top200",
-    "priority": "P3",
-    "downloads": 314949,
-    "last_update_time": "2025-07-14T22:41:50+00:00",
     "optimum_supported": false,
     "order": 6
   },
   {
+    "hf_id": "lmstudio-community/gemma-3n-E4B-it-MLX-4bit",
+    "task": "video-text-to-text",
+    "model_type": "gemma3n",
+    "group": "Top200",
+    "priority": "P3",
+    "downloads": 45029,
+    "last_update_time": "2025-07-21T15:52:20+00:00",
+    "optimum_supported": false,
+    "order": 5
+  },
+  {
+    "hf_id": "lmstudio-community/gemma-3n-E4B-it-MLX-6bit",
+    "task": "audio-text-to-text",
+    "model_type": "gemma3n",
+    "group": "Top200",
+    "priority": "P3",
+    "downloads": 44082,
+    "last_update_time": "2025-07-14T22:41:50+00:00",
+    "optimum_supported": false,
+    "order": 9
+  },
+  {
     "hf_id": "lmstudio-community/gemma-3n-E4B-it-MLX-6bit",
     "task": "video-text-to-text",
     "model_type": "gemma3n",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 314949,
+    "downloads": 44082,
     "last_update_time": "2025-07-14T22:41:50+00:00",
     "optimum_supported": false,
-    "order": 4
+    "order": 8
   },
   {
     "hf_id": "lmstudio-community/gemma-3n-E4B-it-MLX-8bit",
@@ -3603,10 +3603,10 @@
     "model_type": "gemma3n",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 318373,
+    "downloads": 44188,
     "last_update_time": "2025-07-14T22:42:40+00:00",
     "optimum_supported": false,
-    "order": 4
+    "order": 8
   },
   {
     "hf_id": "lmstudio-community/gemma-3n-E4B-it-MLX-8bit",
@@ -3614,10 +3614,10 @@
     "model_type": "gemma3n",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 318373,
+    "downloads": 44188,
     "last_update_time": "2025-07-14T22:42:40+00:00",
     "optimum_supported": false,
-    "order": 3
+    "order": 7
   },
   {
     "hf_id": "lmstudio-community/gemma-3n-E4B-it-MLX-bf16",
@@ -3625,10 +3625,10 @@
     "model_type": "gemma3n",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 319594,
+    "downloads": 44967,
     "last_update_time": "2025-07-14T22:40:30+00:00",
     "optimum_supported": false,
-    "order": 3
+    "order": 7
   },
   {
     "hf_id": "lmstudio-community/gemma-3n-E4B-it-MLX-bf16",
@@ -3636,10 +3636,10 @@
     "model_type": "gemma3n",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 319594,
+    "downloads": 44967,
     "last_update_time": "2025-07-14T22:40:30+00:00",
     "optimum_supported": false,
-    "order": 2
+    "order": 6
   },
   {
     "hf_id": "lmstudio-community/gemma-4-E4B-it-MLX-4bit",
@@ -3647,10 +3647,10 @@
     "model_type": "gemma4",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 336332,
+    "downloads": 1651662,
     "last_update_time": "2026-04-10T14:38:43+00:00",
     "optimum_supported": false,
-    "order": 7
+    "order": 5
   },
   {
     "hf_id": "lmstudio-community/gemma-4-E4B-it-MLX-6bit",
@@ -3658,10 +3658,10 @@
     "model_type": "gemma4",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 309937,
+    "downloads": 1590606,
     "last_update_time": "2026-04-10T14:40:44+00:00",
     "optimum_supported": false,
-    "order": 9
+    "order": 7
   },
   {
     "hf_id": "lmstudio-community/gemma-4-E4B-it-MLX-8bit",
@@ -3669,10 +3669,10 @@
     "model_type": "gemma4",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 319964,
+    "downloads": 1600158,
     "last_update_time": "2026-04-10T14:41:44+00:00",
     "optimum_supported": false,
-    "order": 8
+    "order": 6
   },
   {
     "hf_id": "lxyuan/distilbert-base-multilingual-cased-sentiments-student",
@@ -3680,7 +3680,7 @@
     "model_type": "distilbert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 678552,
+    "downloads": 731368,
     "last_update_time": "2025-03-03T02:06:53+00:00",
     "optimum_supported": true,
     "order": 5
@@ -3691,7 +3691,7 @@
     "model_type": "segformer",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 132507,
+    "downloads": 156992,
     "last_update_time": "2025-09-19T07:21:11+00:00",
     "optimum_supported": true,
     "tags": [
@@ -3705,10 +3705,10 @@
     "model_type": "llama",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 9217205,
+    "downloads": 8841328,
     "last_update_time": "2024-09-25T17:00:57+00:00",
     "optimum_supported": true,
-    "order": 6
+    "order": 8
   },
   {
     "hf_id": "microsoft/Phi-4-multimodal-instruct",
@@ -3716,10 +3716,10 @@
     "model_type": "phi4mm",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 364698,
+    "downloads": 543643,
     "last_update_time": "2025-12-10T20:18:10+00:00",
     "optimum_supported": false,
-    "order": 3
+    "order": 2
   },
   {
     "hf_id": "microsoft/VibeVoice-ASR-HF",
@@ -3727,10 +3727,10 @@
     "model_type": "vibevoice_asr",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 309933,
+    "downloads": 498247,
     "last_update_time": "2026-03-09T03:11:35+00:00",
     "optimum_supported": false,
-    "order": 7
+    "order": 3
   },
   {
     "hf_id": "microsoft/VibeVoice-Realtime-0.5B",
@@ -3738,10 +3738,10 @@
     "model_type": "vibevoice_streaming",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 1229199,
+    "downloads": 650513,
     "last_update_time": "2025-12-12T15:35:46+00:00",
     "optimum_supported": false,
-    "order": 3
+    "order": 5
   },
   {
     "hf_id": "microsoft/beit-base-patch16-224-pt22k-ft22k",
@@ -3749,10 +3749,10 @@
     "model_type": "beit",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 9923,
+    "downloads": 10969,
     "last_update_time": "2023-02-27T15:08:16+00:00",
     "optimum_supported": true,
-    "order": 13
+    "order": 14
   },
   {
     "hf_id": "microsoft/deberta-xlarge-mnli",
@@ -3760,7 +3760,7 @@
     "model_type": "deberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 443503,
+    "downloads": 153489,
     "last_update_time": "2022-06-27T15:47:33+00:00",
     "optimum_supported": true,
     "tags": [
@@ -3774,10 +3774,10 @@
     "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 487952,
+    "downloads": 87580,
     "last_update_time": "2025-01-08T02:12:15+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 10
   },
   {
     "hf_id": "microsoft/rad-dino",
@@ -3785,13 +3785,13 @@
     "model_type": "dinov2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 41052,
+    "downloads": 120152,
     "last_update_time": "2025-10-09T14:04:39+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 10
+    "order": 8
   },
   {
     "hf_id": "microsoft/resnet-18",
@@ -3799,10 +3799,13 @@
     "model_type": "resnet",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 527639,
+    "downloads": 64591,
     "last_update_time": "2024-04-08T11:06:50+00:00",
     "optimum_supported": true,
-    "order": 9
+    "tags": [
+      "acc"
+    ],
+    "order": 12
   },
   {
     "hf_id": "microsoft/resnet-50",
@@ -3810,16 +3813,16 @@
     "model_type": "resnet",
     "group": "Foundry Toolkit",
     "priority": "P0",
-    "downloads": 307737,
+    "downloads": 702319,
     "last_update_time": "2024-02-13T21:24:05+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 11,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 8
   },
   {
     "hf_id": "microsoft/speecht5_tts",
@@ -3827,7 +3830,7 @@
     "model_type": "speecht5",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 187324,
+    "downloads": 76515,
     "last_update_time": "2023-11-08T14:37:23+00:00",
     "optimum_supported": true,
     "order": 8
@@ -3838,13 +3841,13 @@
     "model_type": "swin",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 4514,
+    "downloads": 3311,
     "last_update_time": "2022-05-16T19:58:33+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 14
+    "order": 15
   },
   {
     "hf_id": "microsoft/swinv2-tiny-patch4-window16-256",
@@ -3852,10 +3855,13 @@
     "model_type": "swinv2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 388488,
+    "downloads": 425165,
     "last_update_time": "2022-12-10T10:09:55+00:00",
     "optimum_supported": true,
-    "order": 10
+    "tags": [
+      "acc"
+    ],
+    "order": 11
   },
   {
     "hf_id": "microsoft/table-transformer-detection",
@@ -3863,22 +3869,8 @@
     "model_type": "table-transformer",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 3506330,
+    "downloads": 1424672,
     "last_update_time": "2023-09-06T14:49:09+00:00",
-    "optimum_supported": true,
-    "tags": [
-      "acc"
-    ],
-    "order": 1
-  },
-  {
-    "hf_id": "microsoft/table-transformer-structure-recognition",
-    "task": "object-detection",
-    "model_type": "table-transformer",
-    "group": "Top200",
-    "priority": "P2",
-    "downloads": 1278248,
-    "last_update_time": "2023-09-06T14:50:49+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
@@ -3886,15 +3878,29 @@
     "order": 3
   },
   {
+    "hf_id": "microsoft/table-transformer-structure-recognition",
+    "task": "object-detection",
+    "model_type": "table-transformer",
+    "group": "Top200",
+    "priority": "P2",
+    "downloads": 1855460,
+    "last_update_time": "2023-09-06T14:50:49+00:00",
+    "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
+    "order": 2
+  },
+  {
     "hf_id": "microsoft/table-transformer-structure-recognition-v1.1-all",
     "task": "object-detection",
     "model_type": "table-transformer",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 1415671,
+    "downloads": 260928,
     "last_update_time": "2023-11-18T21:58:10+00:00",
     "optimum_supported": true,
-    "order": 2
+    "order": 5
   },
   {
     "hf_id": "microsoft/tapex-base",
@@ -3902,7 +3908,7 @@
     "model_type": "bart",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 742,
+    "downloads": 596,
     "last_update_time": "2023-05-03T03:48:52+00:00",
     "optimum_supported": true,
     "order": 3
@@ -3913,7 +3919,7 @@
     "model_type": "bart",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 910096,
+    "downloads": 951230,
     "last_update_time": "2023-01-24T16:57:17+00:00",
     "optimum_supported": true,
     "order": 1
@@ -3924,7 +3930,7 @@
     "model_type": "bart",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 479,
+    "downloads": 326,
     "last_update_time": "2023-06-26T19:49:37+00:00",
     "optimum_supported": true,
     "order": 5
@@ -3935,7 +3941,7 @@
     "model_type": "bart",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 627,
+    "downloads": 498,
     "last_update_time": "2023-05-03T03:48:31+00:00",
     "optimum_supported": true,
     "order": 4
@@ -3946,7 +3952,7 @@
     "model_type": "bart",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 124,
+    "downloads": 321,
     "last_update_time": "2022-07-14T10:10:10+00:00",
     "optimum_supported": true,
     "order": 6
@@ -3957,10 +3963,10 @@
     "model_type": "bart",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 56,
+    "downloads": 239,
     "last_update_time": "2023-06-26T19:50:22+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 8
   },
   {
     "hf_id": "microsoft/tapex-large-finetuned-wtq",
@@ -3968,7 +3974,7 @@
     "model_type": "bart",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 793,
+    "downloads": 726,
     "last_update_time": "2024-01-12T11:26:01+00:00",
     "optimum_supported": true,
     "order": 2
@@ -3979,7 +3985,7 @@
     "model_type": "bart",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 67,
+    "downloads": 264,
     "last_update_time": "2023-09-15T19:52:28+00:00",
     "optimum_supported": true,
     "order": 7
@@ -3990,13 +3996,13 @@
     "model_type": "vision-encoder-decoder",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 155321,
+    "downloads": 138988,
     "last_update_time": "2025-02-11T04:26:58+00:00",
     "optimum_supported": true,
-    "order": 11,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 6
   },
   {
     "hf_id": "microsoft/trocr-base-printed",
@@ -4004,13 +4010,13 @@
     "model_type": "vision-encoder-decoder",
     "group": "ISV",
     "priority": "P1",
-    "downloads": 719870,
+    "downloads": 293131,
     "last_update_time": "2024-05-27T20:11:53+00:00",
     "optimum_supported": true,
-    "order": 2,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 3
   },
   {
     "hf_id": "microsoft/trocr-large-handwritten",
@@ -4018,13 +4024,13 @@
     "model_type": "vision-encoder-decoder",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 204436,
+    "downloads": 219658,
     "last_update_time": "2024-05-27T20:10:58+00:00",
     "optimum_supported": true,
-    "order": 8,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 4
   },
   {
     "hf_id": "microsoft/trocr-large-printed",
@@ -4032,13 +4038,13 @@
     "model_type": "vision-encoder-decoder",
     "group": "ISV",
     "priority": "P1",
-    "downloads": 169946,
+    "downloads": 135986,
     "last_update_time": "2024-05-27T20:09:18+00:00",
     "optimum_supported": true,
-    "order": 10,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 7
   },
   {
     "hf_id": "microsoft/xclip-base-patch32",
@@ -4046,7 +4052,7 @@
     "model_type": "xclip",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 233439,
+    "downloads": 99821,
     "last_update_time": "2024-02-04T01:26:30+00:00",
     "optimum_supported": false,
     "order": 4
@@ -4057,7 +4063,7 @@
     "model_type": "deberta-v2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 690768,
+    "downloads": 66024,
     "last_update_time": "2025-04-02T14:40:30+00:00",
     "optimum_supported": true,
     "order": 10
@@ -4068,7 +4074,7 @@
     "model_type": "deberta-v2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 964555,
+    "downloads": 571583,
     "last_update_time": "2025-04-02T14:42:01+00:00",
     "optimum_supported": true,
     "order": 11
@@ -4079,10 +4085,10 @@
     "model_type": "deberta-v2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 964555,
+    "downloads": 571583,
     "last_update_time": "2025-04-02T14:42:01+00:00",
     "optimum_supported": true,
-    "order": 7
+    "order": 9
   },
   {
     "hf_id": "monologg/koelectra-small-v2-distilled-korquad-384",
@@ -4090,13 +4096,13 @@
     "model_type": "electra",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 155249,
+    "downloads": 163074,
     "last_update_time": "2023-06-12T12:30:35+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 8
+    "order": 7
   },
   {
     "hf_id": "moonshotai/Kimi-K2.5",
@@ -4104,10 +4110,10 @@
     "model_type": "kimi_k25",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 4402007,
+    "downloads": 1171312,
     "last_update_time": "2026-02-27T19:01:33+00:00",
     "optimum_supported": false,
-    "order": 7
+    "order": 10
   },
   {
     "hf_id": "moussaKam/mbarthez",
@@ -4115,7 +4121,7 @@
     "model_type": "mbart",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 84949,
+    "downloads": 103968,
     "last_update_time": "2024-02-20T14:35:26+00:00",
     "optimum_supported": true,
     "order": 11
@@ -4126,10 +4132,10 @@
     "model_type": "vision-encoder-decoder",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 152510,
+    "downloads": 154203,
     "last_update_time": "2022-08-13T08:27:12+00:00",
     "optimum_supported": true,
-    "order": 12
+    "order": 5
   },
   {
     "hf_id": "naver-clova-ix/donut-base-finetuned-cord-v2",
@@ -4137,10 +4143,10 @@
     "model_type": "vision-encoder-decoder",
     "group": "ISV",
     "priority": "P1",
-    "downloads": 19477,
+    "downloads": 23992,
     "last_update_time": "2022-08-13T08:28:13+00:00",
     "optimum_supported": true,
-    "order": 14
+    "order": 11
   },
   {
     "hf_id": "naver-clova-ix/donut-base-finetuned-docvqa",
@@ -4148,10 +4154,10 @@
     "model_type": "vision-encoder-decoder",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 14092,
+    "downloads": 18681,
     "last_update_time": "2024-03-09T13:01:37+00:00",
     "optimum_supported": true,
-    "order": 2
+    "order": 3
   },
   {
     "hf_id": "nielsr/vitpose-base-simple",
@@ -4159,10 +4165,10 @@
     "model_type": "vitpose",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 154,
+    "downloads": 203,
     "last_update_time": "2024-08-28T15:49:17+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 9
   },
   {
     "hf_id": "nlpconnect/vit-gpt2-image-captioning",
@@ -4170,10 +4176,10 @@
     "model_type": "vision-encoder-decoder",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 253548,
+    "downloads": 70059,
     "last_update_time": "2023-02-27T15:00:09+00:00",
     "optimum_supported": true,
-    "order": 7
+    "order": 10
   },
   {
     "hf_id": "nomic-ai/nomic-embed-vision-v1.5",
@@ -4181,10 +4187,10 @@
     "model_type": "nomic_bert",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 208524,
+    "downloads": 1331692,
     "last_update_time": "2025-03-31T17:40:39+00:00",
     "optimum_supported": false,
-    "order": 8
+    "order": 3
   },
   {
     "hf_id": "nvidia/Cosmos-H-Surgical",
@@ -4192,7 +4198,7 @@
     "model_type": "custom",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 6415,
+    "downloads": 15082,
     "last_update_time": "2026-04-15T19:47:00+00:00",
     "optimum_supported": false,
     "order": 1
@@ -4203,10 +4209,10 @@
     "model_type": "latent_diffusion",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 192,
+    "downloads": 513,
     "last_update_time": "2026-03-06T00:14:17+00:00",
     "optimum_supported": false,
-    "order": 2
+    "order": 1
   },
   {
     "hf_id": "nvidia/NV-Generate-MR-Brain",
@@ -4214,10 +4220,10 @@
     "model_type": "latent_diffusion",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 329,
+    "downloads": 368,
     "last_update_time": "2026-04-08T16:45:19+00:00",
     "optimum_supported": false,
-    "order": 1
+    "order": 3
   },
   {
     "hf_id": "nvidia/audio-flamingo-3-hf",
@@ -4225,10 +4231,10 @@
     "model_type": "audioflamingo3",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 180705,
+    "downloads": 298104,
     "last_update_time": "2026-04-13T08:08:11+00:00",
     "optimum_supported": false,
-    "order": 8
+    "order": 4
   },
   {
     "hf_id": "nvidia/llama-nemotron-rerank-vl-1b-v2",
@@ -4236,10 +4242,10 @@
     "model_type": "llama_nemotron_vl_rerank",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 145291,
+    "downloads": 99340,
     "last_update_time": "2026-04-09T15:54:11+00:00",
     "optimum_supported": false,
-    "order": 3
+    "order": 4
   },
   {
     "hf_id": "nvidia/music-flamingo-2601-hf",
@@ -4247,10 +4253,10 @@
     "model_type": "musicflamingo",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 101302,
+    "downloads": 192937,
     "last_update_time": "2026-04-09T15:20:00+00:00",
     "optimum_supported": false,
-    "order": 9
+    "order": 5
   },
   {
     "hf_id": "nvidia/nemotron-colembed-vl-4b-v2",
@@ -4258,10 +4264,10 @@
     "model_type": "qwen3_vl_nemotron_embed",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 55470,
+    "downloads": 73327,
     "last_update_time": "2026-02-21T01:02:24+00:00",
     "optimum_supported": false,
-    "order": 6
+    "order": 7
   },
   {
     "hf_id": "nvidia/segformer-b0-finetuned-ade-512-512",
@@ -4269,13 +4275,13 @@
     "model_type": "segformer",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 311622,
+    "downloads": 351905,
     "last_update_time": "2024-01-14T10:46:46+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 2
+    "order": 1
   },
   {
     "hf_id": "nvidia/segformer-b0-finetuned-cityscapes-1024-1024",
@@ -4283,7 +4289,7 @@
     "model_type": "segformer",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 8018,
+    "downloads": 15413,
     "last_update_time": "2022-08-08T13:43:30+00:00",
     "optimum_supported": true,
     "tags": [
@@ -4297,13 +4303,13 @@
     "model_type": "segformer",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 199427,
+    "downloads": 100297,
     "last_update_time": "2022-08-06T10:08:05+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 4
+    "order": 6
   },
   {
     "hf_id": "nvidia/segformer-b2-finetuned-ade-512-512",
@@ -4311,13 +4317,13 @@
     "model_type": "segformer",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 58980,
+    "downloads": 204396,
     "last_update_time": "2022-08-06T10:07:54+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 8
+    "order": 3
   },
   {
     "hf_id": "nvidia/segformer-b4-finetuned-ade-512-512",
@@ -4325,10 +4331,10 @@
     "model_type": "segformer",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 102809,
+    "downloads": 23667,
     "last_update_time": "2022-08-06T10:25:42+00:00",
     "optimum_supported": true,
-    "order": 6
+    "order": 10
   },
   {
     "hf_id": "nvidia/segformer-b5-finetuned-ade-640-640",
@@ -4336,13 +4342,13 @@
     "model_type": "segformer",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 62446,
+    "downloads": 46622,
     "last_update_time": "2022-08-06T10:25:55+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 7
+    "order": 8
   },
   {
     "hf_id": "nvidia/segformer-b5-finetuned-cityscapes-1024-1024",
@@ -4350,10 +4356,10 @@
     "model_type": "segformer",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 34047,
+    "downloads": 71557,
     "last_update_time": "2022-08-09T11:29:37+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 7
   },
   {
     "hf_id": "obi/deid_roberta_i2b2",
@@ -4361,10 +4367,10 @@
     "model_type": "roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 453082,
+    "downloads": 506494,
     "last_update_time": "2025-02-23T03:36:26+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 9
   },
   {
     "hf_id": "oliverguhr/fullstop-punctuation-multilang-large",
@@ -4372,10 +4378,10 @@
     "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 571714,
+    "downloads": 711810,
     "last_update_time": "2023-11-16T09:35:35+00:00",
     "optimum_supported": true,
-    "order": 7
+    "order": 6
   },
   {
     "hf_id": "onecxi/open-vakgyata",
@@ -4383,10 +4389,10 @@
     "model_type": "wav2vec2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 165055,
+    "downloads": 279700,
     "last_update_time": "2025-07-23T11:39:56+00:00",
     "optimum_supported": true,
-    "order": 8
+    "order": 5
   },
   {
     "hf_id": "onnx-community/BiRefNet_lite-ONNX",
@@ -4394,7 +4400,7 @@
     "model_type": "swin",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 8323,
+    "downloads": 4259,
     "last_update_time": "2025-10-26T21:36:18+00:00",
     "optimum_supported": true,
     "order": 11
@@ -4405,10 +4411,10 @@
     "model_type": "gpt2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 14968248,
+    "downloads": 13957192,
     "last_update_time": "2024-02-19T10:57:45+00:00",
     "optimum_supported": true,
-    "order": 2
+    "order": 4
   },
   {
     "hf_id": "openai/clip-vit-base-patch16",
@@ -4416,13 +4422,13 @@
     "model_type": "clip",
     "group": "Foundry Toolkit",
     "priority": "P0",
-    "downloads": 1667168,
+    "downloads": 1736857,
     "last_update_time": "2022-10-04T09:42:28+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 15
+    "order": 16
   },
   {
     "hf_id": "openai/clip-vit-base-patch16",
@@ -4430,7 +4436,7 @@
     "model_type": "clip",
     "group": "Foundry Toolkit",
     "priority": "P0",
-    "downloads": 1667168,
+    "downloads": 1736857,
     "last_update_time": "2022-10-04T09:42:28+00:00",
     "optimum_supported": true,
     "order": 4
@@ -4441,13 +4447,13 @@
     "model_type": "clip",
     "group": "Foundry Toolkit",
     "priority": "P0",
-    "downloads": 1667168,
+    "downloads": 1736857,
     "last_update_time": "2022-10-04T09:42:28+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 8
+    "order": 7
   },
   {
     "hf_id": "openai/clip-vit-base-patch32",
@@ -4455,13 +4461,13 @@
     "model_type": "clip",
     "group": "Foundry Toolkit",
     "priority": "P0",
-    "downloads": 20387212,
+    "downloads": 23912634,
     "last_update_time": "2024-02-29T09:45:55+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 5
+    "order": 6
   },
   {
     "hf_id": "openai/clip-vit-base-patch32",
@@ -4469,7 +4475,7 @@
     "model_type": "clip",
     "group": "Foundry Toolkit",
     "priority": "P0",
-    "downloads": 20387212,
+    "downloads": 23912634,
     "last_update_time": "2024-02-29T09:45:55+00:00",
     "optimum_supported": true,
     "order": 1
@@ -4480,22 +4486,8 @@
     "model_type": "clip",
     "group": "Foundry Toolkit",
     "priority": "P0",
-    "downloads": 20387212,
+    "downloads": 23912634,
     "last_update_time": "2024-02-29T09:45:55+00:00",
-    "optimum_supported": true,
-    "tags": [
-      "acc"
-    ],
-    "order": 2
-  },
-  {
-    "hf_id": "openai/clip-vit-large-patch14",
-    "task": "zero-shot-image-classification",
-    "model_type": "clip",
-    "group": "Top200",
-    "priority": "P2",
-    "downloads": 22249046,
-    "last_update_time": "2023-09-15T15:49:35+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
@@ -4503,18 +4495,32 @@
     "order": 1
   },
   {
+    "hf_id": "openai/clip-vit-large-patch14",
+    "task": "zero-shot-image-classification",
+    "model_type": "clip",
+    "group": "Top200",
+    "priority": "P2",
+    "downloads": 13141322,
+    "last_update_time": "2023-09-15T15:49:35+00:00",
+    "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
+    "order": 2
+  },
+  {
     "hf_id": "openai/clip-vit-large-patch14-336",
     "task": "zero-shot-image-classification",
     "model_type": "clip",
     "group": "ISV",
     "priority": "P1",
-    "downloads": 18919844,
+    "downloads": 4067139,
     "last_update_time": "2022-10-04T09:41:39+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 3
+    "order": 4
   },
   {
     "hf_id": "openai/gpt-oss-20b",
@@ -4522,10 +4528,10 @@
     "model_type": "gpt_oss",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 6541056,
+    "downloads": 7377506,
     "last_update_time": "2025-08-26T17:25:47+00:00",
     "optimum_supported": true,
-    "order": 11
+    "order": 9
   },
   {
     "hf_id": "openai/whisper-base",
@@ -4533,10 +4539,10 @@
     "model_type": "whisper",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1708308,
+    "downloads": 6722643,
     "last_update_time": "2024-02-29T10:26:57+00:00",
     "optimum_supported": true,
-    "order": 8
+    "order": 2
   },
   {
     "hf_id": "openai/whisper-large-v3",
@@ -4544,10 +4550,10 @@
     "model_type": "whisper",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 4853459,
+    "downloads": 6069917,
     "last_update_time": "2024-08-12T10:20:10+00:00",
     "optimum_supported": true,
-    "order": 2
+    "order": 3
   },
   {
     "hf_id": "openai/whisper-large-v3-turbo",
@@ -4555,7 +4561,7 @@
     "model_type": "whisper",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 6988650,
+    "downloads": 7778310,
     "last_update_time": "2024-10-04T14:51:11+00:00",
     "optimum_supported": true,
     "order": 1
@@ -4566,10 +4572,10 @@
     "model_type": "whisper",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 2020645,
+    "downloads": 3392109,
     "last_update_time": "2024-02-29T10:57:38+00:00",
     "optimum_supported": true,
-    "order": 6
+    "order": 5
   },
   {
     "hf_id": "openbmb/MiniCPM-V-2",
@@ -4577,7 +4583,7 @@
     "model_type": "minicpmv",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 57770,
+    "downloads": 28150,
     "last_update_time": "2025-01-15T10:35:33+00:00",
     "optimum_supported": false,
     "order": 7
@@ -4588,7 +4594,7 @@
     "model_type": "clip",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 2512449,
+    "downloads": 3162019,
     "last_update_time": "2024-09-17T15:19:43+00:00",
     "optimum_supported": true,
     "tags": [
@@ -4602,10 +4608,10 @@
     "model_type": "knn",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 17,
+    "downloads": 21,
     "last_update_time": "2022-10-24T10:03:18+00:00",
     "optimum_supported": false,
-    "order": 6
+    "order": 2
   },
   {
     "hf_id": "pcoloc/autotrain-mikrotik-7-7-1860563597",
@@ -4613,10 +4619,10 @@
     "model_type": "xgboost",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 15,
+    "downloads": 11,
     "last_update_time": "2022-10-24T09:59:02+00:00",
     "optimum_supported": false,
-    "order": 10
+    "order": 4
   },
   {
     "hf_id": "philschmid/bart-large-cnn-samsum",
@@ -4624,10 +4630,10 @@
     "model_type": "bart",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 172553,
+    "downloads": 141704,
     "last_update_time": "2022-12-23T19:48:57+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 10
   },
   {
     "hf_id": "prithivMLmods/Common-Voice-Gender-Detection",
@@ -4635,10 +4641,10 @@
     "model_type": "wav2vec2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 144758,
+    "downloads": 156387,
     "last_update_time": "2025-11-12T02:21:55+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 7
   },
   {
     "hf_id": "prithivMLmods/Qwen3-VL-4B-Instruct-Unredacted-MAX-GGUF",
@@ -4646,7 +4652,7 @@
     "model_type": "qwen3_vl",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 2229,
+    "downloads": 2629,
     "last_update_time": "2026-02-15T08:28:37+00:00",
     "optimum_supported": false,
     "order": 2
@@ -4657,7 +4663,7 @@
     "model_type": "qwen3_vl",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 793,
+    "downloads": 803,
     "last_update_time": "2026-02-21T18:00:32+00:00",
     "optimum_supported": false,
     "order": 4
@@ -4668,13 +4674,13 @@
     "model_type": "vit",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 1072249,
+    "downloads": 1500501,
     "last_update_time": "2023-05-18T11:16:33+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 6
+    "order": 5
   },
   {
     "hf_id": "robbyant/lingbot-world-fast",
@@ -4682,10 +4688,10 @@
     "model_type": "i2v",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 10586,
+    "downloads": 16412,
     "last_update_time": "2026-04-02T05:44:22+00:00",
     "optimum_supported": false,
-    "order": 3
+    "order": 2
   },
   {
     "hf_id": "rubentito/layoutlmv3-base-mpdocvqa",
@@ -4693,10 +4699,10 @@
     "model_type": "layoutlmv3",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 125,
+    "downloads": 243,
     "last_update_time": "2024-06-06T08:35:37+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 7
   },
   {
     "hf_id": "ryukkt62/Suncast",
@@ -4704,10 +4710,10 @@
     "model_type": "sklearn",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 55,
+    "downloads": 8,
     "last_update_time": "2026-03-31T02:34:34+00:00",
     "optimum_supported": false,
-    "order": 2
+    "order": 6
   },
   {
     "hf_id": "sentence-transformers/all-MiniLM-L6-v2",
@@ -4715,7 +4721,7 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 214292086,
+    "downloads": 255138800,
     "last_update_time": "2025-03-06T13:37:44+00:00",
     "optimum_supported": true,
     "tags": [
@@ -4729,7 +4735,7 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 214292086,
+    "downloads": 255138800,
     "last_update_time": "2025-03-06T13:37:44+00:00",
     "optimum_supported": true,
     "tags": [
@@ -4743,10 +4749,13 @@
     "model_type": "mpnet",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 34802154,
+    "downloads": 33669910,
     "last_update_time": "2025-08-19T10:14:25+00:00",
     "optimum_supported": true,
-    "order": 3
+    "tags": [
+      "acc"
+    ],
+    "order": 5
   },
   {
     "hf_id": "sentence-transformers/all-mpnet-base-v2",
@@ -4754,7 +4763,7 @@
     "model_type": "mpnet",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 34802154,
+    "downloads": 33669910,
     "last_update_time": "2025-08-19T10:14:25+00:00",
     "optimum_supported": true,
     "order": 2
@@ -4765,13 +4774,13 @@
     "model_type": "mpnet",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 34802154,
+    "downloads": 33669910,
     "last_update_time": "2025-08-19T10:14:25+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 3
+    "order": 5
   },
   {
     "hf_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
@@ -4779,9 +4788,12 @@
     "model_type": "mpnet",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 2299047,
+    "downloads": 2337441,
     "last_update_time": "2025-08-19T10:21:26+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 14
   },
   {
@@ -4790,7 +4802,7 @@
     "model_type": "mpnet",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 2299047,
+    "downloads": 2337441,
     "last_update_time": "2025-08-19T10:21:26+00:00",
     "optimum_supported": true,
     "order": 11
@@ -4801,7 +4813,7 @@
     "model_type": "mpnet",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 2299047,
+    "downloads": 2337441,
     "last_update_time": "2025-08-19T10:21:26+00:00",
     "optimum_supported": true,
     "tags": [
@@ -4815,13 +4827,13 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 38319425,
+    "downloads": 50245841,
     "last_update_time": "2026-01-28T10:02:26+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 2
+    "order": 3
   },
   {
     "hf_id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
@@ -4829,13 +4841,13 @@
     "model_type": "bert",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 38319425,
+    "downloads": 50245841,
     "last_update_time": "2026-01-28T10:02:26+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 2
+    "order": 3
   },
   {
     "hf_id": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
@@ -4843,10 +4855,10 @@
     "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 4320691,
+    "downloads": 10086240,
     "last_update_time": "2025-08-19T10:29:38+00:00",
     "optimum_supported": true,
-    "order": 11
+    "order": 10
   },
   {
     "hf_id": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
@@ -4854,13 +4866,13 @@
     "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 4320691,
+    "downloads": 10086240,
     "last_update_time": "2025-08-19T10:29:38+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 11
+    "order": 10
   },
   {
     "hf_id": "snap-stanford/humanlm-opinion",
@@ -4868,7 +4880,7 @@
     "model_type": "qwen3",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1854,
+    "downloads": 111,
     "last_update_time": "2026-02-13T13:04:28+00:00",
     "optimum_supported": true,
     "order": 8
@@ -4879,7 +4891,7 @@
     "model_type": "bart",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 970617,
+    "downloads": 797295,
     "last_update_time": "2021-06-14T07:51:12+00:00",
     "optimum_supported": true,
     "order": 5
@@ -4890,10 +4902,10 @@
     "model_type": "vitpose",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1323,
+    "downloads": 99,
     "last_update_time": "2025-03-23T00:38:18+00:00",
     "optimum_supported": true,
-    "order": 8
+    "order": 10
   },
   {
     "hf_id": "stanfordmimi/synthpose-vitpose-huge-hf",
@@ -4901,7 +4913,7 @@
     "model_type": "vitpose",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 2208,
+    "downloads": 2644,
     "last_update_time": "2025-03-23T00:36:55+00:00",
     "optimum_supported": true,
     "order": 7
@@ -4912,10 +4924,10 @@
     "model_type": "llama",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 59,
+    "downloads": 1,
     "last_update_time": "2024-05-30T00:49:52+00:00",
     "optimum_supported": true,
-    "order": 8
+    "order": 9
   },
   {
     "hf_id": "tau/splinter-base",
@@ -4923,10 +4935,10 @@
     "model_type": "splinter",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 85338,
+    "downloads": 102280,
     "last_update_time": "2021-08-17T14:09:19+00:00",
     "optimum_supported": true,
-    "order": 11
+    "order": 8
   },
   {
     "hf_id": "tencent/HY-WU",
@@ -4934,10 +4946,10 @@
     "model_type": "parameter_generator",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 523,
+    "downloads": 40,
     "last_update_time": "2026-03-05T19:06:22+00:00",
     "optimum_supported": false,
-    "order": 6
+    "order": 8
   },
   {
     "hf_id": "timm/mobilenetv3_small_100.lamb_in1k",
@@ -4945,10 +4957,10 @@
     "model_type": "timm_wrapper",
     "group": "ISV",
     "priority": "P1",
-    "downloads": 0,
+    "downloads": 29180132,
     "last_update_time": "2024-01-01T00:00:00+00:00",
     "optimum_supported": false,
-    "order": 15
+    "order": 1
   },
   {
     "hf_id": "timm/repghostnet_200.in1k",
@@ -4956,7 +4968,7 @@
     "model_type": "timm_wrapper",
     "group": "ISV",
     "priority": "P1",
-    "downloads": 0,
+    "downloads": 164,
     "last_update_time": "2024-01-01T00:00:00+00:00",
     "optimum_supported": false,
     "order": 16
@@ -4967,13 +4979,13 @@
     "model_type": "deberta-v2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 164403,
+    "downloads": 211513,
     "last_update_time": "2024-11-26T17:14:50+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 7
+    "order": 4
   },
   {
     "hf_id": "trl-internal-testing/tiny-Qwen2ForCausalLM-2.5",
@@ -4981,10 +4993,10 @@
     "model_type": "qwen2",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 6979851,
+    "downloads": 12820543,
     "last_update_time": "2025-12-19T19:10:57+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 5
   },
   {
     "hf_id": "typeform/distilbert-base-uncased-mnli",
@@ -4992,10 +5004,10 @@
     "model_type": "distilbert",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 369184,
+    "downloads": 243823,
     "last_update_time": "2023-03-22T08:49:00+00:00",
     "optimum_supported": true,
-    "order": 6
+    "order": 10
   },
   {
     "hf_id": "usyd-community/vitpose-base",
@@ -5003,10 +5015,10 @@
     "model_type": "vitpose",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 535,
+    "downloads": 1778,
     "last_update_time": "2025-01-08T12:28:56+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 8
   },
   {
     "hf_id": "usyd-community/vitpose-base-simple",
@@ -5014,9 +5026,12 @@
     "model_type": "vitpose",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 64947,
+    "downloads": 91106,
     "last_update_time": "2025-01-08T12:25:32+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 2
   },
   {
@@ -5025,9 +5040,12 @@
     "model_type": "vitpose",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 3149226,
+    "downloads": 1579244,
     "last_update_time": "2025-01-08T12:42:35+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 1
   },
   {
@@ -5036,10 +5054,13 @@
     "model_type": "vitpose",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 36145,
+    "downloads": 54031,
     "last_update_time": "2025-01-12T20:49:19+00:00",
     "optimum_supported": true,
-    "order": 4
+    "tags": [
+      "acc"
+    ],
+    "order": 3
   },
   {
     "hf_id": "usyd-community/vitpose-plus-large",
@@ -5047,9 +5068,12 @@
     "model_type": "vitpose",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 10483,
+    "downloads": 5824,
     "last_update_time": "2025-01-12T20:49:41+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 6
   },
   {
@@ -5058,10 +5082,13 @@
     "model_type": "vitpose",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 19011,
+    "downloads": 45555,
     "last_update_time": "2025-01-12T20:50:10+00:00",
     "optimum_supported": true,
-    "order": 5
+    "tags": [
+      "acc"
+    ],
+    "order": 4
   },
   {
     "hf_id": "vahrush/NTB_probe_sec",
@@ -5069,7 +5096,7 @@
     "model_type": "t5",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 52,
+    "downloads": 1,
     "last_update_time": "2026-03-03T13:37:01+00:00",
     "optimum_supported": true,
     "order": 10
@@ -5080,13 +5107,13 @@
     "model_type": "yolos",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 566398,
+    "downloads": 7390,
     "last_update_time": "2026-02-04T13:52:23+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 5
+    "order": 10
   },
   {
     "hf_id": "valentinafevu/yolos-fashionpedia",
@@ -5094,10 +5121,10 @@
     "model_type": "yolos",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 566398,
+    "downloads": 7390,
     "last_update_time": "2026-02-04T13:52:23+00:00",
     "optimum_supported": true,
-    "order": 6
+    "order": 11
   },
   {
     "hf_id": "valhalla/distilbart-mnli-12-3",
@@ -5105,10 +5132,10 @@
     "model_type": "bart",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 102047,
+    "downloads": 18208,
     "last_update_time": "2021-06-14T10:29:48+00:00",
     "optimum_supported": true,
-    "order": 15
+    "order": 16
   },
   {
     "hf_id": "vidore/colpali-v1.2-hf",
@@ -5116,7 +5143,7 @@
     "model_type": "colpali",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 1850,
+    "downloads": 980,
     "last_update_time": "2025-04-16T09:26:30+00:00",
     "optimum_supported": true,
     "order": 10
@@ -5127,10 +5154,10 @@
     "model_type": "colpali",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 161556,
+    "downloads": 288726,
     "last_update_time": "2025-04-16T09:26:56+00:00",
     "optimum_supported": true,
-    "order": 2
+    "order": 1
   },
   {
     "hf_id": "vidore/colqwen2-v1.0-hf",
@@ -5138,10 +5165,10 @@
     "model_type": "colqwen2",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 72944,
+    "downloads": 80246,
     "last_update_time": "2025-06-02T14:51:52+00:00",
     "optimum_supported": false,
-    "order": 4
+    "order": 6
   },
   {
     "hf_id": "w11wo/indonesian-roberta-base-posp-tagger",
@@ -5149,13 +5176,13 @@
     "model_type": "roberta",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 1663928,
+    "downloads": 2355074,
     "last_update_time": "2024-02-19T11:03:26+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
     ],
-    "order": 2
+    "order": 1
   },
   {
     "hf_id": "wanglab/medsam-vit-base",
@@ -5163,7 +5190,7 @@
     "model_type": "sam",
     "group": "Top200",
     "priority": "P2",
-    "downloads": 2581,
+    "downloads": 2033,
     "last_update_time": "2023-05-03T07:03:04+00:00",
     "optimum_supported": true,
     "order": 13
@@ -5174,10 +5201,10 @@
     "model_type": "hubert",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 284442,
+    "downloads": 316468,
     "last_update_time": "2024-04-26T20:07:32+00:00",
     "optimum_supported": true,
-    "order": 6
+    "order": 4
   },
   {
     "hf_id": "xhyi/layoutlmv3_docvqa_t11c5000",
@@ -5185,10 +5212,10 @@
     "model_type": "layoutlmv3",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 167,
+    "downloads": 58,
     "last_update_time": "2023-03-20T17:51:02+00:00",
     "optimum_supported": true,
-    "order": 7
+    "order": 8
   },
   {
     "hf_id": "xingyang1/Distill-Any-Depth-Large-hf",
@@ -5196,13 +5223,13 @@
     "model_type": "depth_anything",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 187273,
+    "downloads": 198070,
     "last_update_time": "2025-03-26T11:47:43+00:00",
     "optimum_supported": false,
-    "order": 6,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 5
   },
   {
     "hf_id": "zai-org/GLM-OCR",
@@ -5210,10 +5237,10 @@
     "model_type": "glm_ocr",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 8014577,
+    "downloads": 3176174,
     "last_update_time": "2026-04-14T14:46:47+00:00",
     "optimum_supported": false,
-    "order": 3
+    "order": 7
   },
   {
     "hf_id": "zpm/Llama-3.1-PersianQA",
@@ -5221,7 +5248,7 @@
     "model_type": "llama",
     "group": "Top200",
     "priority": "P3",
-    "downloads": 367,
+    "downloads": 525,
     "last_update_time": "2024-08-16T10:14:52+00:00",
     "optimum_supported": true,
     "order": 5
