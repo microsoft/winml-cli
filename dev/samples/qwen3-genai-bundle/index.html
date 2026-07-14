@@ -2781,29 +2781,6 @@ onnxruntime-genai / QNN-EP <strong>teardown</strong>. This fires after all work 
 generated tokens and the saved perf metrics are unaffected — and originates in the
 native runtime below winml-cli, not in the bundle or the build.</p>
 </div>
-<div class="admonition tip">
-<p class="admonition-title">More reliable on the NPU: compile once, then run the compiled bundle directly</p>
-<p>Doing the EPContext compilation and the generation load in the <strong>same</strong> <code>--compile</code>
-process can fault natively at model load (before the first token) on some setups — the
-stage compilation can leave the process in a fragile native state. The <code>--compile</code> run
-still writes the compiled bundle to <code>out/qwen3-bundle/_compiled/</code> (its <code>genai_config.json</code>
-points at the compiled <code>context_ctx.onnx</code> / <code>iterator_ctx.onnx</code>), so run generation as a
-<strong>second, fresh</strong> command pointed straight at that directory — without <code>--compile</code>:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># 1. Compile once (produces out/qwen3-bundle/_compiled/; re-run if a stage is still missing)</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--runtime<span class="w"> </span>winml-genai<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--compile<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">&quot;What is the capital of France?&quot;</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="c1"># 2. Run the compiled bundle in a fresh process (loads EPContext directly, no re-compile)</span>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>out/qwen3-bundle/_compiled<span class="w"> </span>--runtime<span class="w"> </span>winml-genai<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">&quot;What is the capital of France?&quot;</span>
-</span></code></pre></div>
-<p>Dropping <code>--compile</code> is safe <strong>only</strong> because <code>-m</code> points at the already-compiled
-<code>_compiled/</code> directory, whose stages are EPContext graphs loaded as-is — nothing is
-JIT-compiled. (Dropping <code>--compile</code> on the original bundle would JIT-compile the source
-ONNX and fault, per the warning above.) A root-cause fix that isolates model load into its
-own process is tracked in
-<a href="https://github.com/microsoft/winml-cli/issues/1087">issue #1087</a>.</p>
-</div>
 <h2 id="how-it-maps-to-the-composite-system">How it maps to the composite system<a class="headerlink" href="#how-it-maps-to-the-composite-system" title="Permanent link">&para;</a></h2>
 <p>The bundle reuses winml-cli's existing composite-model machinery — it does not add
 a parallel export path:</p>
