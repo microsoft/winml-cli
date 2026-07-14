@@ -168,7 +168,7 @@ def build_hf_model(
     def _name(base: str) -> str:
         return f"{cache_key}_{base}" if cache_key else base
 
-    from ..utils.manifest import MANIFEST_FILENAME
+    from ..utils import MANIFEST_FILENAME, ManifestStage, WinMLManifest
 
     export_path = output_dir / _name("export.onnx")
     optimized_path = output_dir / _name("optimized.onnx")
@@ -371,8 +371,6 @@ def build_hf_model(
     # =========================================================================
     # [7] BUILD MANIFEST — Machine-readable build provenance
     # =========================================================================
-    from ..utils import ManifestStage, WinMLManifest
-
     manifest_stages: list[ManifestStage] = []
     stage_filenames = {
         "export": export_path.name,

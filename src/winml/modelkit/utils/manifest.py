@@ -112,8 +112,8 @@ class WinMLManifest:
             of the code does not model explicitly.
     """
 
-    source: str
-    final_artifact: str
+    source: str | None = None
+    final_artifact: str | None = None
     stages: list[ManifestStage] = field(default_factory=list)
 
     model_id: str | None = None
@@ -213,6 +213,6 @@ class WinMLManifest:
         """Load a manifest, returning ``None`` on read/parse failure."""
         try:
             return cls.load(path)
-        except (json.JSONDecodeError, OSError) as exc:
+        except (json.JSONDecodeError, TypeError, ValueError, OSError) as exc:
             logger.warning("Skipping unreadable manifest %s: %s", path, exc)
             return None

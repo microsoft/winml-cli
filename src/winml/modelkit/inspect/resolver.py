@@ -546,7 +546,7 @@ def resolve_cache(model_id: str) -> CacheInfo:
                     total_cached=total_cached,
                     total_size_mb=round(total_size_mb, 2),
                 )
-            except (json.JSONDecodeError, KeyError, OSError) as exc:
+            except (json.JSONDecodeError, KeyError, TypeError, OSError) as exc:
                 logger.debug("Failed to read manifest %s: %s", manifest_paths[0], exc)
                 # Fall through to filename scanning
                 stages = []

@@ -110,7 +110,7 @@ def build_onnx_model(
     def _name(base: str) -> str:
         return f"{cache_key}_{base}" if cache_key else base
 
-    from ..utils.manifest import MANIFEST_FILENAME
+    from ..utils import MANIFEST_FILENAME, ManifestStage, WinMLManifest
 
     # Define output paths
     optimized_path = output_dir / _name("optimized.onnx")
@@ -278,8 +278,6 @@ def build_onnx_model(
     # =========================================================================
     # [5] BUILD MANIFEST — Machine-readable build provenance
     # =========================================================================
-    from ..utils import ManifestStage, WinMLManifest
-
     manifest_stages: list[ManifestStage] = []
     stage_filenames = {
         "optimize": optimized_path.name,
