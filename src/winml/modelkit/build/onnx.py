@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 from ..compiler import compile_onnx
 from ..onnx import copy_onnx_model
 from ..quant import quantize_onnx
+from ..utils import MANIFEST_FILENAME, ManifestStage, WinMLManifest
 from .common import ensure_pre_quantized_stamped, run_optimize_analyze_loop
 from .hf import BuildResult
 
@@ -109,8 +110,6 @@ def build_onnx_model(
     # multiple task/config variants can coexist in one directory.
     def _name(base: str) -> str:
         return f"{cache_key}_{base}" if cache_key else base
-
-    from ..utils import MANIFEST_FILENAME, ManifestStage, WinMLManifest
 
     # Define output paths
     optimized_path = output_dir / _name("optimized.onnx")

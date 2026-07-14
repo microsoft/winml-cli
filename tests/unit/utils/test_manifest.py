@@ -170,7 +170,8 @@ class TestWinMLManifestIO:
 
     def test_save_sanitizes_numpy_scalars(self, tmp_path: Path) -> None:
         """Numpy scalars in export_stats are coerced to native Python types."""
-        np = pytest.importorskip("numpy")
+        import numpy as np
+
         m = WinMLManifest(
             source="export",
             final_artifact="model.onnx",
@@ -187,14 +188,6 @@ class TestWinMLManifestIO:
         assert data["export_stats"]["count"] == 42
         assert isinstance(data["export_stats"]["count"], int)
         assert data["export_stats"]["flag"] is True
-
-    def test_manifest_path_for_plain(self, tmp_path: Path) -> None:
-        p = WinMLManifest.manifest_path_for(tmp_path)
-        assert p.name == MANIFEST_FILENAME
-
-    def test_manifest_path_for_prefixed(self, tmp_path: Path) -> None:
-        p = WinMLManifest.manifest_path_for(tmp_path, prefix="imgcls_abc123")
-        assert p.name == "imgcls_abc123_build_manifest.json"
 
     def test_find_discovers_multiple(self, tmp_path: Path) -> None:
         for name in ["build_manifest.json", "feat_aaa_build_manifest.json"]:

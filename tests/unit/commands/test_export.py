@@ -1118,9 +1118,6 @@ class TestExportComposite:
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_bytes(b"onnx")
 
-        default_export_cfg = WinMLExportConfig()
-        default_loader_cfg = WinMLLoaderConfig(task="text-generation")
-
         with (
             patch(
                 "winml.modelkit.loader.resolution.resolve_composite_components",
@@ -1131,7 +1128,10 @@ class TestExportComposite:
             patch("winml.modelkit.export.export_pytorch", side_effect=fake_export_onnx),
         ):
             mock_load.side_effect = lambda _model, task=None: (MagicMock(), None, task)
-            mock_resolve_cfg.return_value = (default_export_cfg, default_loader_cfg)
+            mock_resolve_cfg.return_value = (
+                WinMLExportConfig(),
+                WinMLLoaderConfig(task="text-generation"),
+            )
             result = runner.invoke(
                 export,
                 ["--model", "Qwen/Qwen3-0.6B", "--output", str(output_path)],

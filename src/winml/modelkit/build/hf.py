@@ -31,6 +31,7 @@ from ..compiler import compile_onnx
 from ..export import export_onnx
 from ..onnx import copy_onnx_model
 from ..quant import quantize_onnx
+from ..utils import MANIFEST_FILENAME, ManifestStage, WinMLManifest
 from .common import ensure_pre_quantized_stamped, run_optimize_analyze_loop
 
 
@@ -167,8 +168,6 @@ def build_hf_model(
     # multiple task/config variants can coexist in one directory.
     def _name(base: str) -> str:
         return f"{cache_key}_{base}" if cache_key else base
-
-    from ..utils import MANIFEST_FILENAME, ManifestStage, WinMLManifest
 
     export_path = output_dir / _name("export.onnx")
     optimized_path = output_dir / _name("optimized.onnx")

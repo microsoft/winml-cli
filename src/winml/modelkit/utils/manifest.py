@@ -23,6 +23,8 @@ import logging
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -51,9 +53,6 @@ def _sanitize_value(value: Any) -> Any:
         return {k: _sanitize_value(v) for k, v in value.items()}
     if isinstance(value, list):
         return [_sanitize_value(v) for v in value]
-    # numpy scalars → native Python types (int, float, bool, etc.)
-    import numpy as np
-
     if isinstance(value, np.generic):
         return value.item()
     return value
@@ -115,6 +114,7 @@ class WinMLManifest:
     source: str | None = None
     final_artifact: str | None = None
     stages: list[ManifestStage] = field(default_factory=list)
+    schema_version: int = SCHEMA_VERSION
 
     model_id: str | None = None
     task: str | None = None
@@ -140,9 +140,10 @@ class WinMLManifest:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise to a JSON-safe dict (``schema_version`` injected)."""
-        d: dict[str, Any] = {"schema_version": SCHEMA_VERSION}
+        d: dict[str, Any] = {"schema_version": self.schema_version}
         raw = asdict(self)
         extras = raw.pop("extras", {})
+        raw.pop("schema_version", None)
         # Drop None values for a compact JSON representation.
         d.update({k: _sanitize_value(v) for k, v in raw.items() if v is not None})
         # Stage entries: also drop None fields inside each stage, merge extras.
@@ -160,19 +161,6 @@ class WinMLManifest:
     # Factory helpers
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def manifest_path_for(
-        output_dir: Path,
-        prefix: str | None = None,
-    ) -> Path:
-        """Return the canonical manifest path in *output_dir*.
-
-        When *prefix* is given (e.g. a cache key or composite-component
-        stem), the filename becomes ``{prefix}_build_manifest.json``.
-        """
-        name = f"{prefix}_{MANIFEST_FILENAME}" if prefix else MANIFEST_FILENAME
-        return output_dir / name
-
     @classmethod
     def load(cls, path: Path) -> WinMLManifest:
         """Deserialise from a JSON file on disk."""
@@ -182,7 +170,6 @@ class WinMLManifest:
     def from_dict(cls, data: dict[str, Any]) -> WinMLManifest:
         """Construct from a raw JSON dict (as stored on disk)."""
         data = dict(data)  # shallow copy — don't mutate caller's dict
-        data.pop("schema_version", None)
 
         stages_raw = data.pop("stages", [])
         stage_known = set(ManifestStage.__dataclass_fields__) - {"extras"}

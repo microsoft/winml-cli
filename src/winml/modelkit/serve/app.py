@@ -747,7 +747,7 @@ def _manifest_from_engine(engine: InferenceEngine) -> dict[str, Any]:
         if manifest_file.exists():
             try:
                 return WinMLManifest.load(manifest_file).to_dict()
-            except (json.JSONDecodeError, TypeError, OSError) as e:
+            except (json.JSONDecodeError, TypeError, ValueError, OSError) as e:
                 logger.warning("Failed to load manifest: %s", e)
 
     return {
