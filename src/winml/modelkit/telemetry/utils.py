@@ -114,16 +114,18 @@ def _scrub_pii(text: str) -> str:
 
 
 _MESSAGE_CAP = 200
+_ROOT_CAUSE_MESSAGE_CAP = 500
 
 
-def _format_exception_message(message: str | None) -> str:
+def _format_exception_message(message: str | None, cap: int = _MESSAGE_CAP) -> str:
     """Run the scrubbing pipeline: path trim -> PII scrub -> length cap.
 
     Scrub runs *before* the length cap so PII straddling the cap boundary
     is still recognized by the regexes. Capping first would split a token
     or email mid-string and leak the surviving prefix (e.g. ``alice@exa…``
     leaves ``alice`` exposed because the cropped fragment no longer
-    matches the email pattern).
+    matches the email pattern). ``cap`` is parameterized so the root-cause
+    message can use a larger limit than the outer message.
     """
     if not message:
         return ""
@@ -134,8 +136,8 @@ def _format_exception_message(message: str | None) -> str:
     result = _scrub_pii(result)
     # Cap last - bounds final size even if scrub expanded the string
     # (each match becomes the 11-char ``<scrubbed>`` placeholder).
-    if len(result) > _MESSAGE_CAP:
-        result = result[: _MESSAGE_CAP - 1] + "…"
+    if len(result) > cap:
+        result = result[: cap - 1] + "…"
     return result
 
 
