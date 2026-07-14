@@ -118,6 +118,22 @@ urls.Repository = "https://github.com/microsoft/winml-cli.git"
 # ensures the namespace prefix is correctly applied to all subpackages.
 scripts.winml = "winml.modelkit.cli:main"
 
+# =============================================================================
+# UV - Supported resolution environments (x64 only)
+# =============================================================================
+# winml-cli is a Windows-only tool and its dependencies (PyTorch, the Windows ML
+# runtime packages, etc.) publish only x64/AMD64 wheels -- there are no
+# win_arm64 wheels. Restricting resolution to these environments keeps the
+# lockfile x64-only and makes `uv sync` fail fast with a clear
+# "unsupported environment" error on native Arm64 Python instead of an opaque
+# missing-wheel error. The linux/x86_64 entry is required for the docs CI job
+# that runs on ubuntu-latest.
+[tool.uv]
+environments = [
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
+  "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+
 [dependency-groups]
 dev = [
   "jupyter>=1.1.1",

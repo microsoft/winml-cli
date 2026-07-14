@@ -42,6 +42,13 @@ Purpose-built for Windows hardware diversity, the CLI handles conversion, graph 
 
 WinML CLI requires **Python 3.11** and is distributed as a Python wheel. We recommend [uv](https://docs.astral.sh/uv/) for fast, reproducible environment setup.
 
+> **Windows on Arm:** winml-cli supports **x64 (AMD64) Python only**. On an Arm64 device, install an x64 build of Python 3.11 so `uv` resolves the `win_amd64` wheels — PyTorch and the Windows ML runtime packages publish no `win_arm64` wheels, so native Arm64 Python fails during setup. The x64 interpreter runs under Windows emulation and works normally. Create the environment with an explicit x64 interpreter:
+>
+> ```powershell
+> uv python install cpython-3.11-windows-x86_64-none
+> uv venv --python cpython-3.11-windows-x86_64-none
+> ```
+
 **1. Create an environment**
 
 ```bash
