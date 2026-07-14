@@ -30,6 +30,7 @@ from typing import Any
 import click
 
 from .telemetry import Telemetry
+from .utils import _scrub_model_ref
 
 
 _INSTRUMENTED_ATTR = "_winmlcli_instrumented"
@@ -100,8 +101,12 @@ def _instrument(cmd: click.Command) -> click.Command:
             raise
         finally:
             duration_ms = int((time.perf_counter() - start) * 1000)
+            model_id = _param(ctx, "model_id")
+            if model_id is None:
+                model_id = _scrub_model_ref(_param(ctx, "model"))
             telemetry.log_action(
                 action_name=cmd.name or "",
+                model_id=model_id,
                 device=_param(ctx, "device"),
                 ep=_param(ctx, "ep"),
                 duration_ms=duration_ms,
