@@ -3,7 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-from winml.modelkit.telemetry.utils import _extract_exception_stack
+from winml.modelkit.telemetry.utils import _extract_exception_stack, _root_cause
 
 
 def _raise_chain():
@@ -58,3 +58,66 @@ def test_extract_exception_stack_contains_no_message_or_locals():
 
 def test_extract_exception_stack_on_none_returns_empty():
     assert _extract_exception_stack(None) == []
+
+
+def test_root_cause_no_chain_returns_self():
+    exc = ValueError("boom")
+    assert _root_cause(exc) is exc
+
+
+def test_root_cause_follows_explicit_cause():
+    root = ValueError("root")
+    try:
+        try:
+            raise root
+        except ValueError as e:
+            raise RuntimeError("wrapper") from e
+    except RuntimeError as outer:
+        assert _root_cause(outer) is root
+
+
+def test_root_cause_follows_implicit_context():
+    root = ValueError("root")
+    try:
+        try:
+            raise root
+        except ValueError:
+            # No `from` — Python sets __context__ implicitly. B904 is the
+            # exact pattern under test here, so the lint is suppressed.
+            raise RuntimeError("wrapper")  # noqa: B904
+    except RuntimeError as outer:
+        assert _root_cause(outer) is root
+
+
+def test_root_cause_walks_multiple_levels_to_innermost():
+    innermost = OSError("disk full")
+    try:
+        try:
+            try:
+                raise innermost
+            except OSError as e1:
+                raise RuntimeError("mid") from e1
+        except RuntimeError as e2:
+            raise ValueError("top") from e2
+    except ValueError as outer:
+        assert _root_cause(outer) is innermost
+
+
+def test_root_cause_prefers_cause_over_context():
+    cause = ValueError("the cause")
+    context = KeyError("the context")
+    outer = RuntimeError("outer")
+    # Simulate: raised inside handling `context`, but `from cause`.
+    outer.__context__ = context
+    outer.__cause__ = cause
+    assert _root_cause(outer) is cause
+
+
+def test_root_cause_cycle_guard_terminates():
+    a = ValueError("a")
+    b = RuntimeError("b")
+    a.__cause__ = b
+    b.__cause__ = a  # cycle
+    # Must terminate and return one of the two, not loop forever.
+    result = _root_cause(a)
+    assert result in (a, b)

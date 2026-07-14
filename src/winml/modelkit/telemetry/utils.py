@@ -242,3 +242,22 @@ def _extract_exception_stack(tb: Any) -> list[dict[str, Any]]:
         }
         for frame in frames
     ]
+
+
+def _root_cause(exc: BaseException) -> BaseException:
+    """Return the innermost cause of an exception chain.
+
+    Follows ``__cause__`` (explicit ``raise ... from e``) in preference to
+    ``__context__`` (implicit, set when raising inside an ``except`` block),
+    repeatedly, until neither is set. Returns ``exc`` itself when there is
+    no chain. Cycle-safe: a chain that loops back on itself terminates
+    rather than spinning forever.
+    """
+    seen: set[int] = {id(exc)}
+    current = exc
+    while True:
+        nxt = current.__cause__ or current.__context__
+        if nxt is None or id(nxt) in seen:
+            return current
+        seen.add(id(nxt))
+        current = nxt
