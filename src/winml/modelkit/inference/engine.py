@@ -36,6 +36,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from ..utils.manifest import MANIFEST_FILENAME, WinMLManifest
 from .tasks import BINARY_TYPES, TASK_REGISTRY, InputField, PipelineMapping
 from .types import Prediction, PredictionResult
 
@@ -150,7 +151,7 @@ def _find_build_artifacts(build_dir: Path, *, task: str | None = None) -> tuple[
     """
     # Try plain layout first (bare build output)
     plain_onnx = build_dir / "model.onnx"
-    plain_manifest = build_dir / "build_manifest.json"
+    plain_manifest = build_dir / MANIFEST_FILENAME
     if plain_onnx.exists():
         manifest = json.loads(plain_manifest.read_text()) if plain_manifest.exists() else None
         if task is None or manifest is None or manifest.get("task") == task:
@@ -161,7 +162,7 @@ def _find_build_artifacts(build_dir: Path, *, task: str | None = None) -> tuple[
     candidates: list[tuple[Path, dict | None]] = []
     for onnx_path in sorted(build_dir.glob("*_model.onnx")):
         prefix = onnx_path.name.rsplit("_model.onnx", 1)[0]
-        manifest_path = build_dir / f"{prefix}_build_manifest.json"
+        manifest_path = build_dir / f"{prefix}_{MANIFEST_FILENAME}"
         manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else None
         if task is not None:
             if manifest is None or manifest.get("task") == task:
@@ -977,11 +978,9 @@ class InferenceEngine:
     @staticmethod
     def _resolve_model_id_from_dir(build_dir: Path) -> str | None:
         """Extract model_id from any manifest in the directory (task-agnostic)."""
-        for manifest_path in build_dir.glob("*build_manifest.json"):
-            manifest: dict[str, Any] = json.loads(manifest_path.read_text())
-            model_id = manifest.get("model_id")
-            if model_id:
-                return str(model_id)
+        for m in WinMLManifest.find(build_dir):
+            if m.model_id:
+                return m.model_id
         return None
 
     def _load_from_onnx(

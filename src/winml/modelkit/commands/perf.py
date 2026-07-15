@@ -36,6 +36,8 @@ from ._live_chart import LiveMonitorDisplay
 
 
 if TYPE_CHECKING:
+    import contextlib
+
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
     from ..session.stats import PerfStats
@@ -1752,13 +1754,40 @@ _GENAI_IGNORED_FLAGS: dict[str, str] = {
     "batch_size": "--batch-size",
 }
 
+# Subsets of the above that the model-id auto-build path honors, so they are
+# excluded from the ignored-flags warning when a bundle is auto-built. A prebuilt
+# bundle still ignores them all.
+#
+# * Cache-behavior flags force the build path (the reuse fast-path is never taken
+#   when they are set), so they are honored whenever an auto-build runs.
+# * Artifact-shaping flags only take effect when a build actually runs; a cache
+#   hit reuses a bundle keyed by the model id alone and silently drops them, so
+#   they are still reported as ignored in that case.
+_GENAI_BUILD_CONTROL_FLAGS: frozenset[str] = frozenset({"rebuild", "ignore_cache"})
+_GENAI_BUILD_INPUT_FLAGS: frozenset[str] = frozenset({"task", "precision"})
 
-def _warn_ignored_genai_flags(ctx: click.Context, console: Console) -> None:
-    """Warn about WinML-only flags the user passed that genai ignores."""
+
+def _warn_ignored_genai_flags(
+    ctx: click.Context, console: Console, *, autobuilt: bool = False, built_fresh: bool = False
+) -> None:
+    """Warn about WinML-only flags the user passed that genai ignores.
+
+    When the bundle was auto-built from a model id (``autobuilt``), the
+    cache-behavior flags (rebuild/ignore-cache) are always honored by the build.
+    The artifact-shaping flags (task/precision) are honored only when a fresh
+    build actually ran (``built_fresh``); on a cache hit the model-id-keyed bundle
+    is reused as-is, so those flags are reported as ignored. A prebuilt bundle
+    ignores them all.
+    """
+    honored: set[str] = set()
+    if autobuilt:
+        honored |= _GENAI_BUILD_CONTROL_FLAGS
+        if built_fresh:
+            honored |= _GENAI_BUILD_INPUT_FLAGS
     ignored = [
         flag
         for param, flag in _GENAI_IGNORED_FLAGS.items()
-        if cli_utils.is_cli_provided(ctx, param)
+        if cli_utils.is_cli_provided(ctx, param) and param not in honored
     ]
     if ignored:
         console.print(
@@ -1767,12 +1796,115 @@ def _warn_ignored_genai_flags(ctx: click.Context, console: Console) -> None:
         )
 
 
+def _autobuild_genai_bundle(
+    ctx: click.Context, *, model: str, console: Console, stack: contextlib.ExitStack
+) -> tuple[Path, bool]:
+    """Build (or reuse) a genai bundle for a HuggingFace model id.
+
+    Mirrors the winml runtime's on-the-fly build: when ``-m`` is a model id
+    rather than a prebuilt bundle directory, emit a genai bundle and benchmark
+    it. Cache handling matches the single-model path:
+
+    * a plain run reuses a previously built bundle keyed by the model id;
+    * ``--rebuild`` overwrites that cached bundle in place;
+    * ``--ignore-cache`` builds fresh in a throwaway temp dir -- both the
+      assembled bundle and its component build cache -- and leaves the managed
+      cache untouched. The temp dir is entered on *stack* so it outlives the
+      benchmark and is removed afterwards.
+
+    genai bundles target the NPU HTP via QNN, so the build pins ``ep=qnn`` /
+    ``device=npu`` regardless of the benchmark's ``--device`` (which still
+    selects the runtime EP).
+
+    The imports are function-local so ``winml perf --help`` does not pay their
+    cost and so a bundle-directory run never imports the build stack.
+
+    Returns a ``(bundle_dir, built_fresh)`` pair. ``built_fresh`` is ``True`` when
+    a build actually ran and ``False`` when the managed-cache fast-path reused an
+    existing bundle (in which case task/precision were not applied to it).
+    """
+    import tempfile
+
+    from ..cache import get_cache_dir, get_model_dir
+    from ..loader import resolve_loader_config
+    from ..models.winml import build_genai_bundle, resolve_genai_bundle
+
+    p = ctx.params
+
+    if p.get("ignore_cache"):
+        # Mirror the winml runtime's use_cache=False path: build everything
+        # fresh in a throwaway temp dir and neither read from nor write to the
+        # managed cache. The assembled bundle and the component build cache both
+        # live under the temp root; the ExitStack removes it after benchmarking.
+        tmp_root = Path(
+            stack.enter_context(
+                tempfile.TemporaryDirectory(prefix="winml-genai-perf-", ignore_cleanup_errors=True)
+            )
+        )
+        bundle_dir = tmp_root / "genai-bundle"
+        build_cache_dir: Path = tmp_root / "cache"
+        force_rebuild = True
+    else:
+        cache_dir = get_cache_dir()
+        bundle_dir = get_model_dir(model, cache_dir=cache_dir) / "genai-bundle"
+        build_cache_dir = cache_dir
+        # --rebuild overwrites the cached bundle; a plain run reuses it. Checked
+        # before any model resolution so a cache hit never touches the network.
+        force_rebuild = bool(p.get("rebuild"))
+        if (bundle_dir / "genai_config.json").exists() and not force_rebuild:
+            console.print(f"[dim]Reusing cached genai bundle:[/dim] {bundle_dir}")
+            return bundle_dir, False
+
+    # Cache miss (or forced rebuild): resolve the model family so its
+    # genai-bundle recipe can drive the build.
+    try:
+        loader_cfg, hf_config, *_rest = resolve_loader_config(model_id=model, task=p.get("task"))
+    except click.ClickException:
+        raise
+    except Exception as exc:
+        raise click.UsageError(
+            f"Could not resolve '{model}' for a genai bundle build ({exc}). Pass a "
+            "prebuilt genai bundle *directory* produced by a winml-cli export instead."
+        ) from exc
+
+    model_type = getattr(hf_config, "model_type", None) or loader_cfg.model_type
+    recipe = resolve_genai_bundle(model_type)
+    if recipe is None:
+        raise click.UsageError(
+            f"--runtime winml-genai cannot auto-build '{model}': no genai bundle recipe "
+            f"is registered for model type '{model_type or 'unknown'}'. Pass a prebuilt "
+            "genai bundle *directory* (e.g. from "
+            f"'winml build -m {model} -o <dir> --device npu --ep qnn')."
+        )
+
+    precision = p["precision"] if cli_utils.is_cli_provided(ctx, "precision") else None
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    console.print(
+        f"[dim]Building genai bundle for[/dim] {model} "
+        f"[dim](model_type={model_type}) ->[/dim] {bundle_dir}"
+    )
+    build_genai_bundle(
+        model,
+        bundle_dir,
+        recipe,
+        ep="qnn",
+        device="npu",
+        precision=precision,
+        force_rebuild=force_rebuild,
+        cache_dir=build_cache_dir,
+        emit=lambda msg: console.print(msg, markup=False),
+    )
+    return bundle_dir, True
+
+
 def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool) -> None:
     """Validate folder input and dispatch to the winml-genai benchmark path.
 
     The genai imports are function-local so ``winml perf --help`` does not pay
     their import cost (see tests/cli/test_import_time.py).
     """
+    import contextlib
+
     from ._perf_genai import (
         GenaiPerfConfig,
         genai_output_path,
@@ -1787,52 +1919,77 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     if p.get("module_class"):
         raise click.UsageError("--module is not supported with --runtime winml-genai.")
 
-    bundle_dir = Path(model)
-    if bundle_dir.suffix.lower() == ".onnx" or not bundle_dir.is_dir():
-        raise click.UsageError(
-            f"--runtime winml-genai requires a genai bundle *directory*, got '{model}'."
+    # The ExitStack keeps an --ignore-cache auto-build's throwaway temp dir alive
+    # across the benchmark below, then removes it on exit. A bundle dir or a
+    # cached auto-build registers nothing, so it is a no-op.
+    with contextlib.ExitStack() as stack:
+        # Resolve the bundle. A local directory is used as-is (it must be a real
+        # genai bundle); an ``.onnx`` file is rejected; anything else is treated
+        # as a HuggingFace model id and a genai bundle is auto-built on demand --
+        # the same way the winml runtime auto-builds an ONNX from a model id.
+        bundle_dir = Path(model)
+        autobuilt_from: str | None = None
+        built_fresh = False
+        if bundle_dir.is_dir():
+            if not (bundle_dir / "genai_config.json").exists():
+                raise click.UsageError(
+                    f"No genai_config.json found in '{model}'. Point --model at a bundle "
+                    "folder produced by a winml-cli export."
+                )
+        elif bundle_dir.suffix.lower() == ".onnx":
+            raise click.UsageError(
+                f"--runtime winml-genai requires a genai bundle *directory*, got '{model}'."
+            )
+        else:
+            bundle_dir, built_fresh = _autobuild_genai_bundle(
+                ctx, model=model, console=console, stack=stack
+            )
+            autobuilt_from = model
+
+        _warn_ignored_genai_flags(
+            ctx, console, autobuilt=autobuilt_from is not None, built_fresh=built_fresh
         )
-    if not (bundle_dir / "genai_config.json").exists():
-        raise click.UsageError(
-            f"No genai_config.json found in '{model}'. Point --model at a bundle "
-            "folder produced by a winml-cli export."
+
+        # A full generation is far costlier than one session.run(): default to
+        # fewer iterations/warmup unless the user set them explicitly.
+        iterations = p["iterations"] if cli_utils.is_cli_provided(ctx, "iterations") else 10
+        warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
+
+        # genai defaults to "config" (respect the bundle's own per-stage routing).
+        # The shared --device default is "auto" (the ONNX default), so an omitted
+        # flag is treated as "config"; an explicit --device is a deliberate override.
+        device = p["device"].lower() if cli_utils.is_cli_provided(ctx, "device") else "config"
+        if p.get("output"):
+            output = p["output"]
+        elif autobuilt_from is not None:
+            # The auto-built bundle lives in a cache dir whose name is not a
+            # meaningful slug, so derive the report path from the model id instead.
+            output = generate_output_path(autobuilt_from)
+        else:
+            output = genai_output_path(bundle_dir)
+        cli_utils.guard_output(output, p["overwrite"])
+
+        # EP override precedence: an explicit ``--ep`` wins over the ``--device``
+        # resolution, which in turn wins over the default ("config" = respect the
+        # bundle's genai_config.json routing).  GenaiSession validates the value.
+        ep: EPNameOrAlias | None = (
+            p["ep"] if cli_utils.is_cli_provided(ctx, "ep") else resolve_genai_ep(device)
         )
 
-    _warn_ignored_genai_flags(ctx, console)
-
-    # A full generation is far costlier than one session.run(): default to
-    # fewer iterations/warmup unless the user set them explicitly.
-    iterations = p["iterations"] if cli_utils.is_cli_provided(ctx, "iterations") else 10
-    warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
-
-    # genai defaults to "config" (respect the bundle's own per-stage routing).
-    # The shared --device default is "auto" (the ONNX default), so an omitted
-    # flag is treated as "config"; an explicit --device is a deliberate override.
-    device = p["device"].lower() if cli_utils.is_cli_provided(ctx, "device") else "config"
-    output = p.get("output") or genai_output_path(bundle_dir)
-    cli_utils.guard_output(output, p["overwrite"])
-
-    # EP override precedence: an explicit ``--ep`` wins over the ``--device``
-    # resolution, which in turn wins over the default ("config" = respect the
-    # bundle's genai_config.json routing).  GenaiSession validates the value.
-    ep: EPNameOrAlias | None = (
-        p["ep"] if cli_utils.is_cli_provided(ctx, "ep") else resolve_genai_ep(device)
-    )
-
-    config = GenaiPerfConfig(
-        bundle_dir=bundle_dir,
-        ep=ep,
-        device=device,
-        prompt=p["prompt"],
-        apply_template=p["apply_template"],
-        max_new_tokens=p["max_new_tokens"],
-        iterations=iterations,
-        warmup=warmup,
-        compile=not p["no_compile"],
-        compile_timeout=p["compile_timeout"],
-        output_path=output,
-    )
-    run_genai_perf(config, console=console, json_mode=json_mode)
+        config = GenaiPerfConfig(
+            bundle_dir=bundle_dir,
+            ep=ep,
+            device=device,
+            prompt=p["prompt"],
+            apply_template=p["apply_template"],
+            max_new_tokens=p["max_new_tokens"],
+            iterations=iterations,
+            warmup=warmup,
+            compile=not p["no_compile"],
+            compile_timeout=p["compile_timeout"],
+            output_path=output,
+        )
+        run_genai_perf(config, console=console, json_mode=json_mode)
 
 
 @click.command("perf")

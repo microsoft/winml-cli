@@ -1927,7 +1927,11 @@ def _run_winml_eval(
         winml_key = ds_config.get("winml_metric_key") or ds_config.get("metric")
         if winml_key and metrics and winml_key in metrics:
             num_samples = (dataset or {}).get("samples", ds_config.get("num_samples"))
-            metric = {"metric": winml_key, "value": float(metrics[winml_key]), "num_samples": num_samples}
+            metric = {
+                "metric": winml_key,
+                "value": float(metrics[winml_key]),
+                "num_samples": num_samples,
+            }
 
     # PASS requires a non-empty metrics map: a model that exits 0 but emits no
     # measured metrics ({}) is treated as FAIL, not PASS (an empty dict is
@@ -2309,9 +2313,7 @@ class EvalJob:
         return self.variant.precision if self.variant is not None else None
 
 
-def _build_jobs(
-    entries: list[ModelEntry], recipes_dir: Path | None
-) -> list[EvalJob]:
+def _build_jobs(entries: list[ModelEntry], recipes_dir: Path | None) -> list[EvalJob]:
     """Expand entries into jobs, one per recipe precision variant.
 
     For each entry, if ``recipes_dir`` is set and the model has recipe variants
@@ -2833,9 +2835,7 @@ def main() -> None:
                     # Perf already recorded (and passed); only (re)build + run
                     # accuracy, then merge it into the existing result.
                     backfill_existing = existing
-                    safe_print(
-                        f"\n[{i}/{total_jobs}] {label}  (BACKFILL accuracy - perf cached)"
-                    )
+                    safe_print(f"\n[{i}/{total_jobs}] {label}  (BACKFILL accuracy - perf cached)")
                 else:
                     retry_label = classify_result(existing) or (
                         accuracy_status(existing.get("accuracy"))
