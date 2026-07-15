@@ -58,6 +58,7 @@ _ALLOWED_KEYS: dict[str, set[str]] = {
     _ACTION_EVENT: {
         "invoked_from",
         "action_name",
+        "model_id",
         "device",
         "ep",
         "duration_ms",
@@ -200,6 +201,7 @@ class Telemetry:
         ep: EPNameOrAlias | None,
         duration_ms: int,
         success: bool,
+        model_id: str | None = None,
         **_unused: Any,
     ) -> None:
         """Emit a ``WinMLCLIAction`` event for a completed CLI command."""
@@ -209,6 +211,7 @@ class Telemetry:
             attrs = {
                 "invoked_from": self._invoked_from,
                 "action_name": action_name,
+                "model_id": model_id,
                 "device": device,
                 "ep": ep,
                 "duration_ms": duration_ms,

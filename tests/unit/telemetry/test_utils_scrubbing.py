@@ -7,6 +7,7 @@ import pytest
 
 from winml.modelkit.telemetry.utils import (
     _format_exception_message,
+    _scrub_model_ref,
     _scrub_pii,
     _trim_path,
 )
@@ -184,3 +185,65 @@ def test_format_exception_message_custom_cap_scrubs_pii_before_cap():
     assert "alice" not in result
     assert "@" not in result
     assert len(result) <= 500
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Clean HF ID — passthrough
+        ("microsoft/resnet-50", "microsoft/resnet-50"),
+        ("google-bert/bert-base-uncased", "google-bert/bert-base-uncased"),
+        # Single-segment canonical Hub ids (no org prefix) pass through too —
+        # these are real, commonly-used ids and are the documented `perf -m`
+        # form. Regression for PR #1108 review.
+        ("bert-base-uncased", "bert-base-uncased"),
+        ("gpt2", "gpt2"),
+        ("mymodel", "mymodel"),
+        # Two-segment id with a dot in the name segment is still an id, not a
+        # file (the dot is part of the id, not a file extension).
+        ("org/model.v2", "org/model.v2"),
+        # Windows absolute path with .onnx file
+        (r"C:\Users\alice\models\resnet50-int8.onnx", "<local:.onnx>"),
+        # POSIX-style absolute path (defensive; leading slash)
+        ("/home/x/model.onnx", "<local:.onnx>"),
+        # Backslash-relative path with extension
+        (r".\output\model.onnx", "<local:.onnx>"),
+        # Directory-style reference (no extension) via backslash separator
+        (r".\output\qwen3-bundle", "<local:dir>"),
+        # Single-segment name carrying a file extension is a local file ref,
+        # not a Hub id (Hub ids don't carry file extensions).
+        ("model.onnx", "<local:.onnx>"),
+        # eval's `role=path` composite: the `=` makes it non-Hub, so the
+        # `sub/model.onnx` fragment is never emitted verbatim. Regression for
+        # PR #1108 review.
+        ("encoder=sub/model.onnx", "<local:.onnx>"),
+        # Tuple (multiple=True) — first element classified
+        (("microsoft/resnet-50", "other/model"), "microsoft/resnet-50"),
+        (("model.onnx",), "<local:.onnx>"),
+        # None / empty / empty tuple
+        (None, None),
+        ("", None),
+        ((), None),
+    ],
+)
+def test_scrub_model_ref(value, expected):
+    assert _scrub_model_ref(value) == expected
+
+
+def test_scrub_model_ref_existing_path_is_local(tmp_path, monkeypatch):
+    """A single-token relative name that exists on disk is treated as a
+    local path, not an HF id — even without a separator."""
+    f = tmp_path / "on_disk.onnx"
+    f.write_text("x")
+    monkeypatch.chdir(tmp_path)
+    assert _scrub_model_ref("on_disk.onnx") == "<local:.onnx>"
+
+
+def test_scrub_model_ref_org_name_that_exists_is_local(tmp_path, monkeypatch):
+    """If an `org/name` string happens to exist on disk, prefer the local
+    marker — existence wins over the HF-id shape."""
+    d = tmp_path / "org"
+    d.mkdir()
+    (d / "name").mkdir()
+    monkeypatch.chdir(tmp_path)
+    assert _scrub_model_ref("org/name") == "<local:dir>"

@@ -103,6 +103,22 @@ CPU companions handle the embedding lookup and vocab projection. The command rep
 time-to-first-token (prefill) and decode throughput, and writes a results JSON under
 `~/.cache/winml/perf/`.
 
+!!! tip "One command from a model id (auto-build)"
+    `winml perf --runtime winml-genai` also accepts a HuggingFace **model id** directly.
+    When `-m` is not a prebuilt bundle directory, it builds the genai bundle on demand
+    (into `~/.cache/winml/`, reused on later runs) and then benchmarks it — no separate
+    `winml build` step:
+
+    ```bash
+    winml perf -m Qwen/Qwen3-0.6B --runtime winml-genai --compile \
+      --compile-timeout 600 --max-new-tokens 20 --prompt "What is the capital of France?"
+    ```
+
+    The auto-build always targets the NPU HTP via QNN (the only supported genai bundle
+    target today). `-o/--output` stays the results-JSON path, and `--rebuild` forces a
+    fresh bundle. To persist the bundle at a specific directory instead, run `winml build`
+    (Step 1) and point `perf -m` at that folder.
+
 !!! warning "`--compile` is required on the NPU"
     The genai NPU path needs `--compile` (EPContext pre-compilation): each QNN stage is
     compiled once to a context binary before generation. Without `--compile`,
@@ -116,31 +132,6 @@ time-to-first-token (prefill) and decode throughput, and writes a results JSON u
     onnxruntime-genai / QNN-EP **teardown**. This fires after all work is done — the
     generated tokens and the saved perf metrics are unaffected — and originates in the
     native runtime below winml-cli, not in the bundle or the build.
-
-!!! tip "More reliable on the NPU: compile once, then run the compiled bundle directly"
-    Doing the EPContext compilation and the generation load in the **same** `--compile`
-    process can fault natively at model load (before the first token) on some setups — the
-    stage compilation can leave the process in a fragile native state. The `--compile` run
-    still writes the compiled bundle to `out/qwen3-bundle/_compiled/` (its `genai_config.json`
-    points at the compiled `context_ctx.onnx` / `iterator_ctx.onnx`), so run generation as a
-    **second, fresh** command pointed straight at that directory — without `--compile`:
-
-    ```bash
-    # 1. Compile once (produces out/qwen3-bundle/_compiled/; re-run if a stage is still missing)
-    winml perf -m out/qwen3-bundle --runtime winml-genai --device npu --compile \
-      --compile-timeout 600 --max-new-tokens 20 --prompt "What is the capital of France?"
-
-    # 2. Run the compiled bundle in a fresh process (loads EPContext directly, no re-compile)
-    winml perf -m out/qwen3-bundle/_compiled --runtime winml-genai --device npu \
-      --max-new-tokens 20 --prompt "What is the capital of France?"
-    ```
-
-    Dropping `--compile` is safe **only** because `-m` points at the already-compiled
-    `_compiled/` directory, whose stages are EPContext graphs loaded as-is — nothing is
-    JIT-compiled. (Dropping `--compile` on the original bundle would JIT-compile the source
-    ONNX and fault, per the warning above.) A root-cause fix that isolates model load into its
-    own process is tracked in
-    [issue #1087](https://github.com/microsoft/winml-cli/issues/1087).
 
 ## How it maps to the composite system
 
