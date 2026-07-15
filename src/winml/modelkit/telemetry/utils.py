@@ -151,6 +151,14 @@ def _looks_like_path(token: str) -> bool:
     return "\\" in token and _PACKAGE_ROOT in token.replace("\\", "/")
 
 
+# A clean HuggingFace Hub id: one or two segments of the Hub charset, with
+# at most one slash (``bert-base-uncased`` or ``org/name``). Anything with a
+# path separator beyond a single ``/``, a drive letter, an ``=`` (eval's
+# ``role=path`` form), or any other character falls through to the local
+# marker.
+_HUB_ID_RE = re.compile(r"^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)?$")
+
+
 def _model_ref_local_marker(value: str) -> str:
     """Anonymized marker for a local model reference.
 
@@ -165,10 +173,12 @@ def _model_ref_local_marker(value: str) -> str:
 def _scrub_model_ref(value: str | tuple[str, ...] | None) -> str | None:
     """Classify a ``-m/--model`` reference for telemetry.
 
-    Clean HuggingFace ids (``org/name``, single slash, not present on
-    disk) pass through verbatim. Everything else — drive-letter paths,
-    absolute paths, on-disk paths, and bare names — collapses to a
-    ``<local:...>`` marker that carries no path content.
+    Clean HuggingFace Hub ids — one or two Hub-charset segments with at most
+    one slash, not present on disk (``bert-base-uncased``, ``org/name``) —
+    pass through verbatim. Everything else — drive-letter paths, absolute
+    paths, on-disk paths, ``role=path`` composites, and names with unexpected
+    characters — collapses to a ``<local:...>`` marker that carries no path
+    content.
     """
     if isinstance(value, tuple):
         value = value[0] if value else None
@@ -179,8 +189,14 @@ def _scrub_model_ref(value: str | tuple[str, ...] | None) -> str | None:
         return _model_ref_local_marker(value)
     if Path(value).exists():
         return _model_ref_local_marker(value)
-    parts = normalized.split("/")
-    if len(parts) == 2 and parts[0] and parts[1]:
+    # A single-segment name that carries a file extension (e.g. ``model.onnx``)
+    # is treated as a local file reference, not a Hub id — Hub ids don't carry
+    # file extensions, and this is far more likely a path the user typed for a
+    # file that isn't on *this* disk. Two-segment ``org/name`` is exempt: a dot
+    # there is part of the id (e.g. ``org/model.v2``), not a file extension.
+    if "/" not in normalized and Path(value).suffix:
+        return _model_ref_local_marker(value)
+    if _HUB_ID_RE.match(value):
         return value
     return _model_ref_local_marker(value)
 

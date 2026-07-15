@@ -314,3 +314,27 @@ def test_action_prefers_model_id_param(enabled_telemetry):
     runner.invoke(cli, ["eval-", "-m", "x.onnx", "--model-id", "microsoft/resnet-50"])
     action_record = mock_logger.emit.call_args_list[1].args[0]
     assert dict(action_record.attributes)["model_id"] == "microsoft/resnet-50"
+
+
+def test_action_scrubs_path_in_model_id_param(enabled_telemetry):
+    """Defense-in-depth: --model-id is trusted to be a clean HF id but is not
+    validated. A path passed there is still anonymized, never emitted verbatim.
+    Regression for PR #1108 review."""
+
+    @click.group(cls=ActionGroup)
+    def cli():
+        pass
+
+    @cli.command()
+    @click.option("-m", "--model", default=None)
+    @click.option("--model-id", "model_id", default=None)
+    def eval_(model, model_id):
+        pass
+
+    telemetry = Telemetry.get_or_init()
+    mock_logger = _with_mock_logger(telemetry)
+
+    runner = CliRunner()
+    runner.invoke(cli, ["eval-", "--model-id", r"C:\Users\alice\secret.onnx"])
+    action_record = mock_logger.emit.call_args_list[1].args[0]
+    assert dict(action_record.attributes)["model_id"] == "<local:.onnx>"

@@ -162,6 +162,15 @@ def test_format_exception_message_scrubs_long_token_at_cap_boundary():
         # Clean HF ID — passthrough
         ("microsoft/resnet-50", "microsoft/resnet-50"),
         ("google-bert/bert-base-uncased", "google-bert/bert-base-uncased"),
+        # Single-segment canonical Hub ids (no org prefix) pass through too —
+        # these are real, commonly-used ids and are the documented `perf -m`
+        # form. Regression for PR #1108 review.
+        ("bert-base-uncased", "bert-base-uncased"),
+        ("gpt2", "gpt2"),
+        ("mymodel", "mymodel"),
+        # Two-segment id with a dot in the name segment is still an id, not a
+        # file (the dot is part of the id, not a file extension).
+        ("org/model.v2", "org/model.v2"),
         # Windows absolute path with .onnx file
         (r"C:\Users\alice\models\resnet50-int8.onnx", "<local:.onnx>"),
         # POSIX-style absolute path (defensive; leading slash)
@@ -170,10 +179,13 @@ def test_format_exception_message_scrubs_long_token_at_cap_boundary():
         (r".\output\model.onnx", "<local:.onnx>"),
         # Directory-style reference (no extension) via backslash separator
         (r".\output\qwen3-bundle", "<local:dir>"),
-        # Bare filename with extension, no separator
+        # Single-segment name carrying a file extension is a local file ref,
+        # not a Hub id (Hub ids don't carry file extensions).
         ("model.onnx", "<local:.onnx>"),
-        # Bare name, no separator, no extension
-        ("mymodel", "<local:dir>"),
+        # eval's `role=path` composite: the `=` makes it non-Hub, so the
+        # `sub/model.onnx` fragment is never emitted verbatim. Regression for
+        # PR #1108 review.
+        ("encoder=sub/model.onnx", "<local:.onnx>"),
         # Tuple (multiple=True) — first element classified
         (("microsoft/resnet-50", "other/model"), "microsoft/resnet-50"),
         (("model.onnx",), "<local:.onnx>"),

@@ -101,9 +101,13 @@ def _instrument(cmd: click.Command) -> click.Command:
             raise
         finally:
             duration_ms = int((time.perf_counter() - start) * 1000)
-            model_id = _param(ctx, "model_id")
-            if model_id is None:
-                model_id = _scrub_model_ref(_param(ctx, "model"))
+            # Both inputs go through the scrubber: --model-id is trusted to be
+            # a clean HF id but isn't validated, so a stray path there is
+            # anonymized too. --model-id wins when present (eval/quantize);
+            # otherwise fall back to the scrubbed -m value.
+            model_id = _scrub_model_ref(_param(ctx, "model_id")) or _scrub_model_ref(
+                _param(ctx, "model")
+            )
             telemetry.log_action(
                 action_name=cmd.name or "",
                 model_id=model_id,
