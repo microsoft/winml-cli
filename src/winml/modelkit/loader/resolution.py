@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, cast
 
 from .task import (
     HF_TASK_DEFAULTS,
+    KNOWN_TASKS,
     get_default_task_for_model_id,
     get_supported_tasks,
     normalize_task,
@@ -253,6 +254,7 @@ class TaskSource(str, Enum):
     SENTINEL_DEFAULT = "sentinel-default"  # (model_type, None) sentinel
     TASKS_MANAGER = "tasks-manager"  # Optimum inference (incl. fill-mask upgrade)
     WRAPPED_LIBRARY = "wrapped-library"  # no architectures -> first supported task
+    PIPELINE_TAG = "pipeline-tag"  # Hub pipeline_tag fallback
     HF_TASK_DEFAULT = "hf-task-default"  # last-resort default
 
 
@@ -571,6 +573,23 @@ def resolve_task(
             source = TaskSource.TASKS_MANAGER
         except ValueError:
             opt_task = None
+
+    # 1e. Hub pipeline_tag fallback
+    if opt_task is None and model_id:
+        try:
+            from ..utils.hub_utils import _is_local_path
+
+            if not _is_local_path(model_id):
+                from huggingface_hub import HfApi
+
+                tag = HfApi().model_info(model_id).pipeline_tag
+                if tag:
+                    normalized_tag = normalize_task(tag)
+                    if normalized_tag in KNOWN_TASKS:
+                        opt_task = normalized_tag
+                        source = TaskSource.PIPELINE_TAG
+        except Exception:
+            pass
 
     # 1d. last-resort default
     if opt_task is None:
