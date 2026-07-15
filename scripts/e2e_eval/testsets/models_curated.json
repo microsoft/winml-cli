@@ -30,6 +30,6 @@
   {"hf_id": "timm/repghostnet_200.in1k", "group": "ISV", "priority": "P1"},
   {"hf_id": "openai/clip-vit-large-patch14-336", "group": "ISV", "priority": "P1"},
   {"hf_id": "timm/mobilenetv3_small_100.lamb_in1k", "group": "ISV", "priority": "P1"},
-  {"hf_id": "PaddlePaddle/PP-OCRv5_server_det", "group": "ISV", "priority": "P1"},
-  {"hf_id": "PaddlePaddle/PP-OCRv5_server_rec", "group": "ISV", "priority": "P1"}
+  {"hf_id": "PaddlePaddle/PP-OCRv6_medium_det_onnx/inference.onnx", "task": "image-to-text", "group": "ISV", "priority": "P1"},
+  {"hf_id": "PaddlePaddle/PP-OCRv6_medium_rec_onnx/inference.onnx", "task": "image-to-text", "group": "ISV", "priority": "P1"}
 ]

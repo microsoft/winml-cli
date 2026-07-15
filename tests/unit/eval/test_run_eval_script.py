@@ -793,9 +793,7 @@ class TestBuildJobs:
         assert jobs[0].precision is None
 
     def test_recipes_disabled_yields_fallback_jobs(self, run_eval, tmp_path):
-        self._make_single_recipe(
-            tmp_path, "microsoft_resnet-50", "image-classification", ["fp16"]
-        )
+        self._make_single_recipe(tmp_path, "microsoft_resnet-50", "image-classification", ["fp16"])
         entry = _entry()
         # recipes_dir=None disables recipe discovery entirely.
         jobs = run_eval._build_jobs([entry], None)
@@ -942,9 +940,7 @@ class TestRunWinmlEvalRecipePath:
         cfg = tmp_path / "recipe.json"
         cfg.write_text("{}", encoding="utf-8")
         captured: list[list[str]] = []
-        fake = self._fake_subprocess_writing_output(
-            captured, {"accuracy": 0.9}, {"samples": 100}
-        )
+        fake = self._fake_subprocess_writing_output(captured, {"accuracy": 0.9}, {"samples": 100})
         with patch.object(run_eval, "_run_subprocess", side_effect=fake):
             res = run_eval._run_winml_eval(
                 _entry(),

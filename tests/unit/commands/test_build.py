@@ -320,19 +320,21 @@ class TestBuildArgValidation:
 
     def test_use_cache_requires_loader_task(self, tmp_path: Path):
         """``--use-cache`` without a ``loader.task`` in config errors out."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake-onnx-data")
         cfg_path = tmp_path / "no_task.json"
         cfg_path.write_text(
             json.dumps(
                 {
                     "loader": {},
-                    "export": {"opset_version": 17, "batch_size": 1},
+                    "export": None,
                     "optim": {},
                     "quant": None,
                     "compile": None,
                 }
             )
         )
-        result = _invoke(["-c", str(cfg_path), "-m", "microsoft/resnet-50", "--use-cache"])
+        result = _invoke(["-c", str(cfg_path), "-m", str(onnx_file), "--use-cache"])
         assert result.exit_code != 0
         assert "loader.task" in result.output
 
