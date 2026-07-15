@@ -36,7 +36,10 @@ ONNX graph.
 from __future__ import annotations
 
 import types
+from types import TracebackType
+from typing import Any
 
+import torch
 from optimum.exporters.onnx import OnnxConfig
 from optimum.exporters.onnx.model_patcher import ModelPatcher
 from optimum.utils import NormalizedTextConfig
@@ -67,9 +70,13 @@ from ...export import MaxLengthTextInputGenerator, register_onnx_overwrite
 #   * skips ``multinomial`` / nonzero / Python-level batch loops
 #   * returns an all-ones token mask of length ``H*W + 1`` (patches + CLS)
 #
-def _patched_visual_embed(self, pixel_values, pixel_mask, max_image_length=200):
+def _patched_visual_embed(
+    self: Any,
+    pixel_values: torch.Tensor,
+    pixel_mask: torch.Tensor | None,
+    max_image_length: int = 200,
+) -> tuple[torch.Tensor, torch.Tensor, None]:
     """Static-shape, ONNX-traceable replacement for ``ViltEmbeddings.visual_embed``."""
-    import torch
     from torch import nn
 
     x = self.patch_embeddings(pixel_values)
@@ -98,10 +105,10 @@ def _patched_visual_embed(self, pixel_values, pixel_mask, max_image_length=200):
     return x, x_mask, None
 
 
-class _ViltVisualEmbedPatcher(ModelPatcher):
+class _ViltVisualEmbedPatcher(ModelPatcher):  # type: ignore[misc]  # untyped Optimum base
     """Swaps ``ViltEmbeddings.visual_embed`` for the duration of ONNX export."""
 
-    def __enter__(self):
+    def __enter__(self) -> _ViltVisualEmbedPatcher:
         super().__enter__()
         emb = (
             self._model.vilt.embeddings
@@ -113,7 +120,12 @@ class _ViltVisualEmbedPatcher(ModelPatcher):
         emb.visual_embed = types.MethodType(_patched_visual_embed, emb)
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
         self._emb_ref.visual_embed = self._orig_visual_embed
         super().__exit__(exc_type, exc_value, traceback)
 
@@ -122,7 +134,7 @@ class _ViltVisualEmbedPatcher(ModelPatcher):
 # Optimum ONNX Export Config Registration
 # =============================================================================
 @register_onnx_overwrite("vilt", "visual-question-answering", library_name="transformers")
-class ViltVqaOnnxConfig(OnnxConfig):
+class ViltVqaOnnxConfig(OnnxConfig):  # type: ignore[misc]  # untyped Optimum base
     """ONNX export config for ``ViltForQuestionAnswering``.
 
     Declares 4 multi-modal inputs (text triple + pixel_values) and the single
@@ -212,7 +224,11 @@ class ViltVqaOnnxConfig(OnnxConfig):
             "logits": {0: "batch_size"},
         }
 
-    def generate_dummy_inputs(self, framework: str = "pt", **kwargs):  # type: ignore[override]
+    def generate_dummy_inputs(
+        self,
+        framework: str = "pt",
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         """Generate the 4 declared inputs via the chained vendor generators.
 
         ``pixel_mask`` is intentionally NOT generated — see ``inputs`` docstring.
@@ -227,7 +243,11 @@ class ViltVqaOnnxConfig(OnnxConfig):
         dummy.pop("pixel_mask", None)
         return dummy
 
-    def patch_model_for_export(self, model, model_kwargs=None):  # type: ignore[override]
+    def patch_model_for_export(
+        self,
+        model: Any,
+        model_kwargs: dict[str, Any] | None = None,
+    ) -> _ViltVisualEmbedPatcher:
         """Install the ``visual_embed`` patcher for the export context."""
         return _ViltVisualEmbedPatcher(self, model, model_kwargs=model_kwargs)
 
