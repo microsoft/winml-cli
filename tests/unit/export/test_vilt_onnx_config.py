@@ -30,9 +30,9 @@ from __future__ import annotations
 import pytest
 from optimum.exporters.tasks import TasksManager
 
-# Trigger OnnxConfig registration with TasksManager
-import winml.modelkit.models  # noqa: F401
 from winml.modelkit.export import resolve_io_specs
+from winml.modelkit.models import HF_MODEL_CLASS_MAPPING
+from winml.modelkit.models.hf.vilt import ViltVqaOnnxConfig
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +82,15 @@ class TestViltRegistration:
         assert actual_class_name == "ViltVqaOnnxConfig", (
             f"Expected ViltVqaOnnxConfig for vilt/visual-question-answering, "
             f"got {actual_class_name}. Registration may have failed."
+        )
+
+    def test_aggregate_mapping_binds_vqa_head(self) -> None:
+        """The imported architecture mapping must reach the aggregate registry."""
+        from transformers import ViltForQuestionAnswering
+
+        assert (
+            HF_MODEL_CLASS_MAPPING[("vilt", "visual-question-answering")]
+            is ViltForQuestionAnswering
         )
 
 
@@ -142,3 +151,24 @@ class TestViltModelClassMapping:
             MODEL_CLASS_MAPPING[("vilt", "visual-question-answering")]
             is ViltForQuestionAnswering
         )
+
+
+class TestViltVisualEmbedPatcher:
+    """Verify the export patch is installed only for the export context."""
+
+    def test_patcher_replaces_and_restores_visual_embed(self, vilt_config) -> None:
+        """The patcher must not leave a mutated model after export."""
+        from transformers import ViltForQuestionAnswering
+
+        model = ViltForQuestionAnswering(vilt_config)
+        onnx_config = ViltVqaOnnxConfig(
+            vilt_config,
+            task="visual-question-answering",
+        )
+        embeddings = model.vilt.embeddings
+        original = embeddings.visual_embed.__func__
+
+        with onnx_config.patch_model_for_export(model):
+            assert embeddings.visual_embed.__func__.__name__ == "_patched_visual_embed"
+
+        assert embeddings.visual_embed.__func__ is original

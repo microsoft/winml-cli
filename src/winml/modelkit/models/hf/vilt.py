@@ -6,8 +6,7 @@
 
 ViLT is a single-stream multi-modal transformer that processes text + image
 in a unified attention stack. The ``ViltForQuestionAnswering`` head produces
-classification logits over a fixed VQAv2 answer vocabulary (3129 labels for
-``dandelin/vilt-b32-finetuned-vqa``).
+classification logits over the answer vocabulary configured by the checkpoint.
 
 Optimum has NO vendor ``ViltOnnxConfig`` (verified 2026-06-24: ``vilt`` is
 absent from ``TasksManager._SUPPORTED_MODEL_TYPE`` for the transformers
@@ -32,11 +31,6 @@ that assumes an all-ones ``pixel_mask`` — which is what ``ViltProcessor`` emit
 for a square 384x384 input (see ``inputs`` for the square-only constraint).
 Because the patched path ignores ``pixel_mask``, we drop it from the exported
 ONNX graph.
-Verified numerically equivalent: ``cos=1.000000``, same argmax,
-max_abs_diff≈1.2e-5.
-
-This is an Effort-L1 contribution per the `adding-model-support` skill:
-new OnnxConfig from scratch + custom model patcher.
 """
 
 from __future__ import annotations
@@ -73,11 +67,6 @@ from ...export import MaxLengthTextInputGenerator, register_onnx_overwrite
 #   * skips ``multinomial`` / nonzero / Python-level batch loops
 #   * returns an all-ones token mask of length ``H*W + 1`` (patches + CLS)
 #
-# Verified numerically equivalent on ``dandelin/vilt-b32-finetuned-vqa`` with
-# fixed seed: ``cos=1.000000``, same ``argmax`` class, ``max_abs_diff≈1.2e-5``
-# (within fp tolerance from interpolation operation ordering).
-
-
 def _patched_visual_embed(self, pixel_values, pixel_mask, max_image_length=200):
     """Static-shape, ONNX-traceable replacement for ``ViltEmbeddings.visual_embed``."""
     import torch
@@ -148,11 +137,11 @@ class ViltVqaOnnxConfig(OnnxConfig):
         - ``pixel_values``: [B, 3, 384, 384] float32
 
     Outputs:
-        - ``logits``: [B, num_labels=3129] float32
+        - ``logits``: [B, num_labels] float32
 
     Notes:
-        - ``num_labels`` (3129 for VQAv2) is a config-time fact, not declared
-          dynamic in the symbolic axes — it's a static dim of ``logits``.
+                - ``num_labels`` is a config-time fact, not declared dynamic in the
+                    symbolic axes — it's a static dim of ``logits``.
         - ``sequence_length`` resolves to ``max_position_embeddings`` (40 for
           ViLT-B/32) via ``NORMALIZED_CONFIG_CLASS``; the
           ``MaxLengthTextInputGenerator`` reads this for dummy tokens.
