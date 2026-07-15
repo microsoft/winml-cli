@@ -265,3 +265,76 @@ def test_subcommand_help_does_not_emit(enabled_telemetry):
     if telemetry_mod._INSTANCE is not None:
         logger = telemetry_mod._INSTANCE._logger
         assert logger is None or not logger.emit.called
+
+
+@pytest.mark.parametrize(
+    ("model_arg", "expected_model_id"),
+    [
+        ("microsoft/resnet-50", "microsoft/resnet-50"),
+        (r"C:\Users\alice\x.onnx", "<local:.onnx>"),
+    ],
+)
+def test_action_records_scrubbed_model_id(enabled_telemetry, model_arg, expected_model_id):
+    @click.group(cls=ActionGroup)
+    def cli():
+        pass
+
+    @cli.command()
+    @click.option("-m", "--model", default=None)
+    def perf(model):
+        pass
+
+    telemetry = Telemetry.get_or_init()
+    mock_logger = _with_mock_logger(telemetry)
+
+    runner = CliRunner()
+    runner.invoke(cli, ["perf", "-m", model_arg])
+    action_record = mock_logger.emit.call_args_list[1].args[0]
+    assert dict(action_record.attributes)["model_id"] == expected_model_id
+
+
+def test_action_prefers_model_id_param(enabled_telemetry):
+    """When a command exposes ``--model-id`` (eval/quantize), that clean
+    HF id is recorded directly, bypassing the scrubbed ``-m`` value."""
+
+    @click.group(cls=ActionGroup)
+    def cli():
+        pass
+
+    @cli.command()
+    @click.option("-m", "--model", default=None)
+    @click.option("--model-id", "model_id", default=None)
+    def eval_(model, model_id):
+        pass
+
+    telemetry = Telemetry.get_or_init()
+    mock_logger = _with_mock_logger(telemetry)
+
+    runner = CliRunner()
+    runner.invoke(cli, ["eval-", "-m", "x.onnx", "--model-id", "microsoft/resnet-50"])
+    action_record = mock_logger.emit.call_args_list[1].args[0]
+    assert dict(action_record.attributes)["model_id"] == "microsoft/resnet-50"
+
+
+def test_action_scrubs_path_in_model_id_param(enabled_telemetry):
+    """Defense-in-depth: --model-id is trusted to be a clean HF id but is not
+    validated. A path passed there is still anonymized, never emitted verbatim.
+    Regression for PR #1108 review."""
+
+    @click.group(cls=ActionGroup)
+    def cli():
+        pass
+
+    @cli.command()
+    @click.option("-m", "--model", default=None)
+    @click.option("--model-id", "model_id", default=None)
+    def eval_(model, model_id):
+        pass
+
+    telemetry = Telemetry.get_or_init()
+    mock_logger = _with_mock_logger(telemetry)
+
+    runner = CliRunner()
+    runner.invoke(cli, ["eval-", "--model-id", r"C:\Users\alice\secret.onnx"])
+    action_record = mock_logger.emit.call_args_list[1].args[0]
+    assert dict(action_record.attributes)["model_id"] == "<local:.onnx>"
