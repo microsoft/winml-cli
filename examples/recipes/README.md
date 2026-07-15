@@ -6,17 +6,15 @@ Curated recipe configuration samples for **portable, high-performance, and high-
 
 DML/GPU, MLAS/CPU, OpenVINO (CPU/GPU/NPU), QNN (GPU/NPU), VitisAI/NPU, NVIDIA TensorRT RTX/GPU
 
-Each *(model, task)* includes one or more checked-in precision variants:
+Each *(model, task)* includes:
 
-- `fp32` or `fp16`
-- optional `w8a8`
-- optional `w8a16` quantized variants
+- `fp16`
+- `w8a8`
+- `w8a16` quantized variants
 
 ## Models
 
-Total: **76** indexed (model, task) tuples with built-in recipes.
-
-Precision note: `impira/layoutlm-document-qa` ships `cpu/cpu/question-answering_fp32_config.json` and `cpu/cpu/question-answering_fp16_config.json` (CPU float bucket, both `quant: null`; no CPU quantized variant).
+Total: **75** (model, task) tuples that pass fp16 eval on all 10 (EP, device) buckets.
 
 | Model | Task |
 |---|---|
@@ -63,7 +61,6 @@ Precision note: `impira/layoutlm-document-qa` ships `cpu/cpu/question-answering_
 | google-bert/bert-large-uncased-whole-word-masking-finetuned-squad | question-answering |
 | google/vit-base-patch16-224 | image-classification |
 | google/vit-base-patch16-224-in21k | image-feature-extraction |
-| impira/layoutlm-document-qa | question-answering |
 | joeddav/xlm-roberta-large-xnli | zero-shot-classification |
 | laion/CLIP-ViT-B-32-laion2B-s34B-b79K | feature-extraction |
 | mattmdjaga/segformer_b2_clothes | image-segmentation |
