@@ -2709,7 +2709,7 @@ memory-bound companions stay on CPU.</p>
 </ul>
 <h2 id="overall-workflow">Overall workflow<a class="headerlink" href="#overall-workflow" title="Permanent link">&para;</a></h2>
 <pre class="mermaid"><code>graph LR
-    A["winml build -m Qwen/Qwen3-0.6B --device npu --ep qnn"] --&gt; B[Genai bundle recipe]
+    A["winml build -m Qwen/Qwen3-0.6B --export-type optimized"] --&gt; B[Genai bundle recipe]
     B --&gt; C[ctx.onnx / iter.onnx — NPU]
     B --&gt; D[embeddings.onnx — CPU]
     B --&gt; E[lm_head.onnx — CPU]
@@ -2718,38 +2718,48 @@ memory-bound companions stay on CPU.</p>
     E --&gt; F
     F --&gt; G[onnxruntime-genai]</code></pre>
 <h2 id="step-1-build-the-bundle-one-command">Step 1: Build the bundle (one command)<a class="headerlink" href="#step-1-build-the-bundle-one-command" title="Permanent link">&para;</a></h2>
-<p>Targeting the NPU HTP with an explicit <code>--ep qnn</code> switches <code>winml build</code> from the
-stock per-model ONNX output to the full genai bundle. Pair it with <code>--device npu</code>,
-or <code>--device auto</code> when auto-detection resolves to the NPU:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>-o<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--ep<span class="w"> </span>qnn
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1"># or, letting device auto-detection pick the NPU:</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>-o<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--device<span class="w"> </span>auto<span class="w"> </span>--ep<span class="w"> </span>qnn
+<p><code>--export-type optimized</code> switches <code>winml build</code> from the stock per-model ONNX
+output to the full genai bundle. It resolves <code>--ep</code>/<code>--device</code> like a normal
+build — honoring an explicit value, otherwise probing the host — and builds the
+recipe for that resolved target, so on an NPU host no flags are needed:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>-o<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--export-type<span class="w"> </span>optimized
 </span></code></pre></div>
 <p>This builds (or reuses from cache) all four components and assembles them, writing
 <code>out/qwen3-bundle/genai_config.json</code> alongside the ONNX graphs and tokenizer.
 <code>--output-dir</code> is required — the bundle is a directory — and <code>--use-cache</code> is not
-supported for bundles.</p>
+supported for bundles. On a host without the NPU the resolved target has no recipe
+and the build fails fast; pin <code>--ep qnn --device npu</code> to build the bundle anywhere
+(e.g. CI), since an explicit target skips host detection.</p>
 <p>The Qwen3 transformer's quantization scheme is fixed by its recipe (<code>w8a16</code>, the
 scheme its QNN HTP export is tuned for), so it is not overridable — passing a
 <code>--precision</code> that differs from <code>w8a16</code> is rejected rather than silently reverted.
 The CPU companions likewise keep their bundle-standard precisions.</p>
 <p>Force a clean rebuild of every component with <code>--rebuild</code>.</p>
 <div class="admonition note">
-<p class="admonition-title">Opt-in, non-destructive</p>
-<p>The bundle path only triggers on an <strong>explicit <code>--ep qnn</code></strong> together with an
-NPU target — either <code>--device npu</code> or a <code>--device auto</code> that resolves to the
-NPU. Qwen3 on any other target — CPU, GPU, or an auto-detected NPU <em>without</em>
-an explicit <code>--ep qnn</code> — still produces the stock composite build, unchanged.</p>
+<p class="admonition-title">Backward-compatible shortcut</p>
+<p>When <code>--export-type</code> is omitted, an <strong>explicit <code>--ep qnn</code></strong> targeting the NPU
+still routes a registered family to its bundle. The NPU target may be
+explicit (<code>--device npu</code>) or resolved from <code>auto</code> — whether <code>--device auto</code>
+is typed or <code>--device</code> is omitted:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>-o<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--ep<span class="w"> </span>qnn
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="c1"># or, letting device auto-detection pick the NPU (--device may be omitted):</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>-o<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--ep<span class="w"> </span>qnn
+</span></code></pre></div>
+<p>Qwen3 on any other target — CPU, GPU, or an auto-detected NPU <em>without</em> an
+explicit <code>--ep qnn</code> — still produces the stock composite build. <code>--export-type
+generic</code> always forces the stock build, even on the NPU. A pinned
+<code>--ep</code>/<code>--device</code> that contradicts the recipe fails fast rather than silently
+reverting.</p>
 </div>
 <h2 id="step-2-tune-context-and-prefill-lengths-optional">Step 2: Tune context and prefill lengths (optional)<a class="headerlink" href="#step-2-tune-context-and-prefill-lengths-optional" title="Permanent link">&para;</a></h2>
 <p><code>winml build</code> uses the recipe defaults: context length (static KV cache) <code>2048</code>
 and prefill sequence length <code>64</code>. To change those, use the equivalent developer
 script, which exposes the extra knobs and delegates to the same builder:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/qwen3.py<span class="w"> </span><span class="nb">export</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>--device<span class="w"> </span>npu<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span>--output<span class="w"> </span>out/qwen3-bundle<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span>--max-cache-len<span class="w"> </span><span class="m">4096</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span>--prefill-seq-len<span class="w"> </span><span class="m">128</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/qwen3.py<span class="w"> </span><span class="nb">export</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>--device<span class="w"> </span>npu<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>--output<span class="w"> </span>out/qwen3-bundle<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>--max-cache-len<span class="w"> </span><span class="m">4096</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span>--prefill-seq-len<span class="w"> </span><span class="m">128</span>
 </span></code></pre></div>
 <p>The script also accepts <code>--embeddings &lt;onnx&gt;</code> and <code>--lm-head &lt;onnx&gt;</code> to reuse
 pre-built companions (skipping their builds), and <code>--force-rebuild</code> to rebuild
@@ -2757,8 +2767,8 @@ everything from scratch.</p>
 <h2 id="step-3-run-the-bundle-generate-text">Step 3: Run the bundle (generate text)<a class="headerlink" href="#step-3-run-the-bundle-generate-text" title="Permanent link">&para;</a></h2>
 <p>The assembled bundle runs through onnxruntime-genai. Benchmark prompt processing
 and token generation on the NPU with <code>winml perf</code>:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--runtime<span class="w"> </span>winml-genai<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--compile<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">&quot;What is the capital of France?&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--runtime<span class="w"> </span>winml-genai<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--compile<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">&quot;What is the capital of France?&quot;</span>
 </span></code></pre></div>
 <p><code>--device npu</code> selects the QNN execution provider: <code>winml perf</code> registers the WinML
 QNN EP and the bundle's <code>context</code> and <code>iterator</code> stages run on the NPU HTP, while the
@@ -2771,8 +2781,8 @@ time-to-first-token (prefill) and decode throughput, and writes a results JSON u
 When <code>-m</code> is not a prebuilt bundle directory, it builds the genai bundle on demand
 (into <code>~/.cache/winml/</code>, reused on later runs) and then benchmarks it — no separate
 <code>winml build</code> step:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>--runtime<span class="w"> </span>winml-genai<span class="w"> </span>--compile<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">&quot;What is the capital of France?&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>--runtime<span class="w"> </span>winml-genai<span class="w"> </span>--compile<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">&quot;What is the capital of France?&quot;</span>
 </span></code></pre></div>
 <p>The auto-build always targets the NPU HTP via QNN (the only supported genai bundle
 target today). <code>-o/--output</code> stays the results-JSON path, and <code>--rebuild</code> forces a
