@@ -106,6 +106,12 @@ class InputTensorSpec:
             lo, hi = self.value_range
             if torch_dtype.is_floating_point:
                 return torch.rand(concrete_shape, dtype=torch_dtype) * (hi - lo) + lo
+            # bbox uses the HF convention: a [..., 4] tensor of box corners
+            # (x0, y0, x1, y1). We key on the input name because "bbox" is the
+            # canonical HF/Optimum name for 2D box coordinates; a model using a
+            # different name (e.g. "bboxes") simply falls through to the generic
+            # randint path below. Reorder so x0<=x1 and y0<=y1 to keep each box
+            # well-formed for layout models.
             if self.name == "bbox" and len(concrete_shape) >= 1 and concrete_shape[-1] == 4:
                 coords = torch.randint(int(lo), int(hi), concrete_shape, dtype=torch_dtype)
                 x0 = torch.minimum(coords[..., 0], coords[..., 2])

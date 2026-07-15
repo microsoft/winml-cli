@@ -72,24 +72,7 @@
   "optim": {
     "clamp_constant_values": true
   },
-  "quant": {
-    "mode": "qdq",
-    "samples": 10,
-    "calibration_method": "minmax",
-    "weight_type": "uint8",
-    "activation_type": "uint16",
-    "per_channel": false,
-    "symmetric": false,
-    "save_calibration": false,
-    "distribution": "uniform",
-    "seed": null,
-    "calibration_load_path": null,
-    "calibration_save_path": null,
-    "op_types_to_quantize": null,
-    "nodes_to_exclude": null,
-    "task": "question-answering",
-    "model_id": "impira/layoutlm-document-qa"
-  },
+  "quant": null,
   "loader": {
     "task": "question-answering",
     "model_class": "LayoutLMForQuestionAnswering",

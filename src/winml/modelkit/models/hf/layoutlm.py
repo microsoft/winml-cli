@@ -48,10 +48,18 @@ class ZeroTokenTypeLayoutLMTextInputGenerator(MaxLengthTextInputGenerator):
 class LayoutLMQAIOConfig(LayoutLMOnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """LayoutLM question-answering OnnxConfig with bbox and safe token type IDs."""
 
+    # sequence_length is bound to the model's max_position_embeddings so
+    # MaxLengthTextInputGenerator emits full-length text inputs instead of
+    # Optimum's default of 16 (allow_new=True permits adding this mapping).
+    # We deliberately do NOT map max_2d_position_embeddings here: Optimum's
+    # DummyBboxInputGenerator hardcodes its coordinate range (its
+    # normalized_config.max_2d_position_embeddings read is commented out
+    # upstream), so such a mapping is inert and never becomes a sequence
+    # length. bbox coordinate bounds for the shipped recipe come from the
+    # recipe's `value_range` instead.
     NORMALIZED_CONFIG_CLASS = NormalizedTextConfig.with_args(
         sequence_length="max_position_embeddings",
         allow_new=True,
-        MAX_2D_POSITION_EMBEDDINGS="max_2d_position_embeddings",
     )
     DUMMY_INPUT_GENERATOR_CLASSES: tuple[type[Any], ...] = (
         ZeroTokenTypeLayoutLMTextInputGenerator,

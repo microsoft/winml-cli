@@ -16,7 +16,7 @@ Each *(model, task)* includes one or more checked-in precision variants:
 
 Total: **76** indexed (model, task) tuples with built-in recipes.
 
-Precision note: `impira/layoutlm-document-qa` currently ships `question-answering_fp32_config.json` and `question-answering_w8a16_config.json`.
+Precision note: `impira/layoutlm-document-qa` ships `cpu/cpu/question-answering_fp32_config.json` and `cpu/cpu/question-answering_fp16_config.json` (CPU float bucket, both `quant: null`; no CPU quantized variant).
 
 | Model | Task |
 |---|---|
