@@ -336,3 +336,17 @@ class TestValueRangesContent:
 
         assert ranges["input_ids"] == (0, gpt2_config.vocab_size)
         assert ranges["attention_mask"] == (0, 2)
+
+    def test_bart_classification_forces_eos_range(self) -> None:
+        """BART classification dummy IDs always contain the configured EOS token."""
+        from transformers import BartConfig
+
+        config = BartConfig(
+            architectures=["BartForSequenceClassification"],
+            vocab_size=100,
+            eos_token_id=7,
+        )
+
+        specs = resolve_io_specs("bart", "text-classification", config)
+
+        assert specs["value_ranges"]["input_ids"] == (7, 8)

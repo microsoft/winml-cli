@@ -20,8 +20,7 @@
         "value_range": [
           2,
           3
-        ],
-        "_note": "value_range pinned to [2,3] (half-open -> constant eos_token_id=2). BartForSequenceClassification pools the encoder hidden state at the LAST eos position via input_ids.eq(eos_token_id).nonzero()[-1]; the default random dummy input contains no eos ~98% of the time at seq_len=1024, which makes that index throw 'index -1 is out of bounds for dimension 1 with size 0' during export. Forcing every token to eos guarantees the pooling index is valid. Real inference is unaffected (this only shapes the export-time dummy)."
+        ]
       },
       {
         "name": "attention_mask",
@@ -31,7 +30,7 @@
           1024
         ],
         "value_range": [
-          1,
+          0,
           2
         ]
       }

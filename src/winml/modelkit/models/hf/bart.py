@@ -77,9 +77,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from optimum.exporters.onnx import OnnxConfig
+from optimum.exporters.onnx.model_configs import BartOnnxConfig
 from optimum.exporters.onnx.model_patcher import PatchingSpec
 from optimum.utils import NormalizedConfig
-from optimum.utils.input_generators import DummyTextInputGenerator
+from optimum.utils.input_generators import BartDummyTextInputGenerator, DummyTextInputGenerator
 from transformers import BartForConditionalGeneration
 from transformers.cache_utils import DynamicCache, EncoderDecoderCache
 
@@ -365,6 +366,51 @@ class BartDecoderWrapper(nn.Module):
 # =============================================================================
 # OnnxConfig Registrations
 # =============================================================================
+
+
+class BartSequenceClassificationInputGenerator(BartDummyTextInputGenerator):  # type: ignore[misc]
+    """Generate BART classification inputs with a guaranteed EOS token.
+
+    ``BartForSequenceClassification`` pools the hidden state at the last EOS
+    position. Optimum's generator inserts an EOS token *after* creating a
+    random ``[0, vocab_size)`` tensor, but WinML captures the generator's value
+    range and later recreates the export tensor from that range. Constraining
+    the original generator call to ``[eos_token_id, eos_token_id + 1)`` keeps
+    that captured range valid and makes export deterministic.
+    """
+
+    def generate(
+        self,
+        input_name: str,
+        framework: str = "pt",
+        int_dtype: str = "int64",
+        float_dtype: str = "fp32",
+    ) -> Any:
+        if input_name == "input_ids":
+            shape = [self.batch_size, self.sequence_length]
+            return self.random_int_tensor(
+                shape,
+                max_value=self.eos_token_id + 1,
+                min_value=self.eos_token_id,
+                framework=framework,
+                dtype=int_dtype,
+            )
+        return super().generate(
+            input_name,
+            framework=framework,
+            int_dtype=int_dtype,
+            float_dtype=float_dtype,
+        )
+
+
+@register_onnx_overwrite("bart", "text-classification", library_name="transformers")
+class BartSequenceClassificationIOConfig(BartOnnxConfig):  # type: ignore[misc]
+    """BART classification config with an export-safe EOS input range."""
+
+    DUMMY_INPUT_GENERATOR_CLASSES = (
+        BartSequenceClassificationInputGenerator,
+        *BartOnnxConfig.DUMMY_INPUT_GENERATOR_CLASSES[1:],
+    )
 
 
 @register_onnx_overwrite("bart", "feature-extraction", library_name="transformers")
