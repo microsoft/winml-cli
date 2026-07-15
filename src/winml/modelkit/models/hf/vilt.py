@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import types
 from types import TracebackType
-from typing import Any
+from typing import Any, cast
 
 import torch
 from optimum.exporters.onnx import OnnxConfig
@@ -236,7 +236,10 @@ class ViltVqaOnnxConfig(OnnxConfig):  # type: ignore[misc]  # untyped Optimum ba
         all-ones token mask internally, so the model can be called with the
         4 declared inputs.
         """
-        dummy = super().generate_dummy_inputs(framework=framework, **kwargs)
+        dummy = cast(
+            "dict[str, Any]",
+            super().generate_dummy_inputs(framework=framework, **kwargs),
+        )
         # Drop any pixel_mask the generators may have produced — the patched
         # visual_embed ignores it (and including it would error at sess.run
         # since it isn't in the exported ONNX graph).
