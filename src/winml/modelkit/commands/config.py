@@ -302,15 +302,6 @@ def config(
                 ) from e
             _shape_config_file = shape_config_path.name
 
-        # Load export CLI overrides (--input-specs/--export-config/--dynamic-axes).
-        # Returned sparse so unspecified fields don't clobber auto-detected values;
-        # applied per generated config via merge_export_overrides below.
-        export_overrides = cli_utils.load_export_overrides(
-            export_config=export_config,
-            input_specs=input_specs,
-            dynamic_axes=dynamic_axes,
-        )
-
         # ONNX file detection: generate simpler config without loader/export
         _model_input = classify_model_input(hf_model) if hf_model else None
         if _model_input is not None and _model_input.kind is ModelInputKind.INVALID:
@@ -321,12 +312,26 @@ def config(
                 "--module is not supported with ONNX file input. "
                 "Module discovery requires a HuggingFace model."
             )
-        if hf_model and _hf_is_onnx and export_overrides:
+        # Reject export controls for pre-exported ONNX up front — before loading
+        # and validating the JSON — so the error names the real problem (ONNX
+        # input, no export stage) instead of a downstream validation failure, and
+        # so we skip the needless file I/O.
+        if hf_model and _hf_is_onnx and (input_specs or export_config or dynamic_axes):
             raise click.UsageError(
                 "--input-specs, --export-config, and --dynamic-axes are only "
                 "supported when generating a HuggingFace export config, not "
                 "pre-exported ONNX files."
             )
+
+        # Load export CLI overrides (--input-specs/--export-config/--dynamic-axes).
+        # Returned sparse so unspecified fields don't clobber auto-detected values;
+        # applied per generated config via merge_export_overrides below.
+        export_overrides = cli_utils.load_export_overrides(
+            export_config=export_config,
+            input_specs=input_specs,
+            dynamic_axes=dynamic_axes,
+        )
+
         config_obj: WinMLBuildConfig | None = None
         output_data: dict[str, Any] | list[Any]
         if hf_model and _hf_is_onnx:
@@ -357,6 +362,20 @@ def config(
                 hf_model, model_type, task, trust_remote_code=trust_remote_code
             )
             if pipeline_components:
+                # Export controls target a single export graph; a composite model
+                # has one export per sub-component with distinct inputs. Applying a
+                # shared --input-specs/--dynamic-axes across them would append bogus
+                # inputs on components that lack the named input. Reject instead of
+                # emitting invalid per-component configs (unlike build, config never
+                # fans these overrides out).
+                if export_overrides:
+                    raise click.UsageError(
+                        "--input-specs, --export-config, and --dynamic-axes are not "
+                        "supported for composite (multi-component) models, whose "
+                        "sub-components each have their own export inputs. Generate "
+                        "the per-component configs first, then edit their export "
+                        "sections individually."
+                    )
                 # composite model: generate one config per sub-component
                 _generate_pipeline_configs(
                     pipeline_components,
@@ -365,7 +384,6 @@ def config(
                     model_type=model_type,
                     override=override,
                     shape_config=shape_config,
-                    export_overrides=export_overrides,
                     library_name=library_name,
                     device=device,
                     precision=precision,
@@ -576,7 +594,6 @@ def _generate_pipeline_configs(
     model_type: str | None,
     override: Any,
     shape_config: dict | None,
-    export_overrides: dict[str, Any],
     library_name: str,
     device: str,
     precision: str,
@@ -610,7 +627,6 @@ def _generate_pipeline_configs(
             trust_remote_code=trust_remote_code,
             ep=ep,
         )
-        cfg = _merge_export_overrides(cfg, export_overrides)
         _apply_stage_overrides(cfg, no_quant=no_quant, no_compile=no_compile)
 
         config_json = json.dumps(cfg.to_dict(), indent=2)

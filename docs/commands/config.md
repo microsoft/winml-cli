@@ -99,7 +99,7 @@ The `dynamic_axes.json` maps each input to its dynamic dimensions, e.g. `{"pixel
 - **`--module` changes the output shape** — with `--module` the JSON output is an array of configs, not a single object. Scripts that expect a single object will fail to parse this output.
 - **`--trust-remote-code` has security implications** — only use this flag with model repositories you own or explicitly trust; it allows arbitrary Python execution from the remote model card.
 - **Shape overrides in `--shape-config` are modality-specific** — passing a `sequence_length` key for a vision model has no effect. Check the `--help` description for valid keys per modality.
-- **Export controls require a HuggingFace export** — `--input-specs`, `--export-config`, and `--dynamic-axes` are rejected for pre-exported `.onnx` inputs (which set `export` to `null`); use them only when config generates the export section.
+- **Export controls require a HuggingFace export** — `--input-specs`, `--export-config`, and `--dynamic-axes` are rejected for pre-exported `.onnx` inputs (which set `export` to `null`); use them only when config generates the export section. They are also rejected for composite (multi-component) models, whose sub-components each have their own export inputs — generate the per-component configs first, then edit their export sections individually.
 
 ## See also
 

@@ -698,6 +698,27 @@ class TestConfigOnnxQdqDetection:
 class TestConfigExportControls:
     """Export CLI overrides (--input-specs/--export-config/--dynamic-axes) on config."""
 
+    @staticmethod
+    def _real_config():
+        """Build a real WinMLBuildConfig with an export section for integration tests."""
+        from winml.modelkit.config import WinMLBuildConfig
+        from winml.modelkit.export import InputTensorSpec, WinMLExportConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
+
+        return WinMLBuildConfig(
+            loader=WinMLLoaderConfig(
+                task="fill-mask", model_class="BertForMaskedLM", model_type="bert"
+            ),
+            export=WinMLExportConfig(
+                input_tensors=[
+                    InputTensorSpec(
+                        name="input_ids", dtype="int64", shape=(1, 16), value_range=(0, 30522)
+                    ),
+                    InputTensorSpec(name="attention_mask", dtype="int64", shape=(1, 16)),
+                ],
+            ),
+        )
+
     def test_help_shows_export_control_options(self, runner: CliRunner) -> None:
         from winml.modelkit.commands.config import config
 
@@ -706,66 +727,199 @@ class TestConfigExportControls:
         for opt in ("--input-specs", "--export-config", "--dynamic-axes"):
             assert opt in result.output, f"Expected '{opt}' in help output"
 
-    def test_export_overrides_forwarded_to_merge(
-        self,
-        runner: CliRunner,
-        tmp_path: Path,
-        mock_generate_config: MagicMock,
+    def test_input_specs_patch_by_name_and_derive_dynamic_axes(
+        self, runner: CliRunner, tmp_path: Path
     ) -> None:
-        """--input-specs/--export-config/--dynamic-axes are parsed and merged onto the config."""
+        """--input-specs patches by name; symbolic dims re-derive dynamic_axes.
+
+        Lets merge_export_overrides actually run and asserts on the emitted config:
+        the unlisted attention_mask is preserved (with its int64 dtype), and the
+        symbolic ["batch", "seq"] shape on input_ids produces dynamic_axes without
+        a separate --dynamic-axes file.
+        """
         from winml.modelkit.commands.config import config
 
         input_specs = tmp_path / "inputs.json"
-        input_specs.write_text(
-            json.dumps({"pixel_values": {"dtype": "float32", "shape": ["batch", 3, 224, 224]}})
-        )
+        input_specs.write_text(json.dumps({"input_ids": {"shape": ["batch", "seq"]}}))
+        out = tmp_path / "out.json"
+
+        with (
+            patch(
+                "winml.modelkit.commands.config._resolve_composite_model_components",
+                return_value=None,
+            ),
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=self._real_config(),
+            ),
+        ):
+            result = runner.invoke(
+                config,
+                ["-m", "bert-base-uncased", "--input-specs", str(input_specs), "-o", str(out)],
+            )
+
+        assert result.exit_code == 0, result.output
+        export = json.loads(out.read_text())["export"]
+        names = [t["name"] for t in export["input_tensors"]]
+        assert names == ["input_ids", "attention_mask"]  # unlisted input preserved
+        ids = next(t for t in export["input_tensors"] if t["name"] == "input_ids")
+        assert ids["dtype"] == "int64"  # preserved, not forced to float32
+        axes = export["dynamic_axes"]["input_ids"]  # symbolic dims derived dynamic axes
+        assert set(axes.values()) == {"batch", "seq"}
+
+    def test_export_config_and_dynamic_axes_applied(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """--export-config and --dynamic-axes are merged onto the generated config."""
+        from winml.modelkit.commands.config import config
+
         export_config = tmp_path / "export.json"
         export_config.write_text(json.dumps({"opset_version": 18}))
         dynamic_axes = tmp_path / "dynamic_axes.json"
-        dynamic_axes.write_text(json.dumps({"pixel_values": {"0": "batch"}}))
+        dynamic_axes.write_text(json.dumps({"input_ids": {"0": "batch"}}))
+        out = tmp_path / "out.json"
 
-        with patch(
-            "winml.modelkit.config.merge_export_overrides",
-            side_effect=lambda cfg, overrides: cfg,
-        ) as mock_merge:
+        with (
+            patch(
+                "winml.modelkit.commands.config._resolve_composite_model_components",
+                return_value=None,
+            ),
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=self._real_config(),
+            ),
+        ):
             result = runner.invoke(
                 config,
                 [
                     "-m",
-                    "microsoft/resnet-50",
-                    "--input-specs",
-                    str(input_specs),
+                    "bert-base-uncased",
                     "--export-config",
                     str(export_config),
                     "--dynamic-axes",
                     str(dynamic_axes),
+                    "-o",
+                    str(out),
                 ],
             )
 
         assert result.exit_code == 0, result.output
-        assert mock_merge.call_count == 1
-        overrides = mock_merge.call_args.args[1]
-        assert overrides["opset_version"] == 18
-        assert overrides["dynamic_axes"] == {"pixel_values": {"0": "batch"}}
-        assert overrides["input_tensors"][0].name == "pixel_values"
-        assert overrides["input_tensors"][0].shape == ("batch", 3, 224, 224)
+        export = json.loads(out.read_text())["export"]
+        assert export["opset_version"] == 18
+        assert export["dynamic_axes"]["input_ids"] == {"0": "batch"}
 
-    def test_no_export_overrides_skips_merge(
-        self,
-        runner: CliRunner,
-        mock_generate_config: MagicMock,
+    def test_no_export_overrides_leaves_export_unchanged(
+        self, runner: CliRunner, tmp_path: Path
     ) -> None:
-        """Without export flags, merge_export_overrides is not invoked."""
+        """Without export flags the generated export section is emitted as-is."""
         from winml.modelkit.commands.config import config
 
-        with patch(
-            "winml.modelkit.config.merge_export_overrides",
-            side_effect=lambda cfg, overrides: cfg,
-        ) as mock_merge:
-            result = runner.invoke(config, ["-m", "microsoft/resnet-50"])
+        out = tmp_path / "out.json"
+        with (
+            patch(
+                "winml.modelkit.commands.config._resolve_composite_model_components",
+                return_value=None,
+            ),
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=self._real_config(),
+            ),
+        ):
+            result = runner.invoke(config, ["-m", "bert-base-uncased", "-o", str(out)])
 
         assert result.exit_code == 0, result.output
-        assert mock_merge.call_count == 0
+        export = json.loads(out.read_text())["export"]
+        # Concrete auto-resolved shapes -> no dynamic axes are invented.
+        assert not export.get("dynamic_axes")
+
+    def test_module_path_applies_overrides_to_each_config(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """--module list path patches --input-specs onto every generated submodule config."""
+        from winml.modelkit.commands.config import config
+
+        input_specs = tmp_path / "inputs.json"
+        input_specs.write_text(json.dumps({"input_ids": {"shape": ["batch", "seq"]}}))
+        out = tmp_path / "out.json"
+
+        with (
+            patch(
+                "winml.modelkit.commands.config._resolve_composite_model_components",
+                return_value=None,
+            ),
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=[self._real_config(), self._real_config()],
+            ),
+        ):
+            result = runner.invoke(
+                config,
+                [
+                    "-m",
+                    "bert-base-uncased",
+                    "--module",
+                    "BertLayer",
+                    "--input-specs",
+                    str(input_specs),
+                    "-o",
+                    str(out),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        configs = json.loads(out.read_text())
+        assert isinstance(configs, list) and len(configs) == 2
+        for cfg in configs:
+            axes = cfg["export"]["dynamic_axes"]["input_ids"]
+            assert set(axes.values()) == {"batch", "seq"}
+
+    def test_composite_model_rejects_export_overrides(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """Composite models reject export overrides instead of fanning them out."""
+        from winml.modelkit.commands.config import config
+
+        dynamic_axes = tmp_path / "dynamic_axes.json"
+        dynamic_axes.write_text(json.dumps({"input_ids": {"0": "batch"}}))
+
+        with (
+            patch(
+                "winml.modelkit.commands.config._resolve_composite_model_components",
+                return_value={"encoder": "feature-extraction", "decoder": "text-generation"},
+            ),
+            patch(
+                "winml.modelkit.commands.config._generate_pipeline_configs",
+            ) as mock_pipeline,
+        ):
+            result = runner.invoke(
+                config, ["-m", "some/seq2seq", "--dynamic-axes", str(dynamic_axes)]
+            )
+
+        assert result.exit_code != 0
+        assert "composite" in result.output
+        mock_pipeline.assert_not_called()
+
+    def test_merge_export_overrides_rejects_export_null(self) -> None:
+        """_merge_export_overrides raises when the generated config has export=null."""
+        import click
+
+        from winml.modelkit.commands.config import _merge_export_overrides
+        from winml.modelkit.config import WinMLBuildConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
+
+        cfg = WinMLBuildConfig(
+            loader=WinMLLoaderConfig(task="fill-mask", model_class="X", model_type="bert"),
+            export=None,
+        )
+        with pytest.raises(click.UsageError, match="export=null"):
+            _merge_export_overrides(cfg, {"dynamic_axes": {"input_ids": {"0": "batch"}}})
+
+    def test_merge_export_overrides_noop_when_empty(self) -> None:
+        """_merge_export_overrides returns the config untouched when no overrides given."""
+        from winml.modelkit.commands.config import _merge_export_overrides
+
+        cfg = self._real_config()
+        assert _merge_export_overrides(cfg, {}) is cfg
 
     def test_export_overrides_rejected_for_onnx_input(
         self, runner: CliRunner, tmp_path: Path
@@ -782,3 +936,24 @@ class TestConfigExportControls:
 
         assert result.exit_code != 0
         assert "pre-exported ONNX" in result.output
+
+    def test_onnx_rejection_precedes_json_validation(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """ONNX inputs are rejected before the override JSON is loaded/validated.
+
+        A malformed --dynamic-axes on an ONNX input should surface the relevant
+        ONNX error, not a downstream "Invalid export configuration" from parsing.
+        """
+        from winml.modelkit.commands.config import config
+
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake-onnx")
+        dynamic_axes = tmp_path / "dynamic_axes.json"
+        dynamic_axes.write_text(json.dumps({"input_ids": {"not-an-int": "batch"}}))
+
+        result = runner.invoke(config, ["-m", str(onnx_file), "--dynamic-axes", str(dynamic_axes)])
+
+        assert result.exit_code != 0
+        assert "pre-exported ONNX" in result.output
+        assert "Invalid export configuration" not in result.output
