@@ -14,7 +14,7 @@ Each *(model, task)* includes:
 
 ## Models
 
-Total: **77** (model, task) tuples with curated recipes. 75 pass fp16 eval on all 10 (EP, device) buckets; dell-research-harvard/lt-wikidata-comp-en (feature-extraction, sentence-similarity) ships fp16 + w8a16 mpnet recipes verified via build and CPU perf, with full-bucket fp16 eval pending.
+Total: **75** (model, task) tuples that pass fp16 eval on all 10 (EP, device) buckets.
 
 | Model | Task |
 |---|---|
@@ -40,8 +40,6 @@ Total: **77** (model, task) tuples with curated recipes. 75 pass fp16 eval on al
 | cardiffnlp/twitter-roberta-base-sentiment-latest | text-classification |
 | dbmdz/bert-large-cased-finetuned-conll03-english | token-classification |
 | deepset/bert-large-uncased-whole-word-masking-squad2 | question-answering |
-| dell-research-harvard/lt-wikidata-comp-en | feature-extraction |
-| dell-research-harvard/lt-wikidata-comp-en | sentence-similarity |
 | deepset/roberta-base-squad2 | question-answering |
 | deepset/tinyroberta-squad2 | question-answering |
 | dima806/fairface_age_image_detection | image-classification |
