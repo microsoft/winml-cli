@@ -486,12 +486,12 @@ def test_use_cache_rejected_for_bundle(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_export_type_optimized_infers_target_and_builds(tmp_path: Path):
-    """``--export-type optimized`` builds the recipe, inferring its target.
+def test_export_type_optimized_resolves_target_and_builds(tmp_path: Path):
+    """``--export-type optimized`` resolves the host target, then builds its recipe.
 
-    No ``--device``/``--ep`` is pinned, so the recipe's first ``supported_targets``
-    entry (qwen3 -> qnn/npu) is inferred. Building a bundle is hardware-independent,
-    so this path does not probe hardware.
+    No ``--device``/``--ep`` is pinned, so the target is hardware-probed (here the
+    autouse fixture resolves the NPU); the qwen3 -> qnn/npu recipe supports it, so
+    the bundle is built for that resolved ``(ep, device)``.
     """
     out = tmp_path / "bundle"
     recorded: dict = {}
@@ -512,14 +512,42 @@ def test_export_type_optimized_infers_target_and_builds(tmp_path: Path):
     assert kwargs["device"] == "npu"
 
 
-def test_export_type_optimized_skips_hardware_probe(tmp_path: Path):
-    """``--export-type optimized`` must not probe local hardware (auto-EP).
+def test_export_type_optimized_errors_when_resolved_target_unsupported(tmp_path: Path):
+    """Optimized resolves the host target first; a host the recipe can't serve errors.
 
-    Its (ep, device) is inferred from the recipe, so a host without the target
-    accelerator -- modeled here by ``resolve_check_device_ep`` raising, as it
-    does when no compatible EP is available -- must still build the bundle
-    instead of failing in the auto-EP resolution before the recipe target is
-    inferred. Regression test for the reviewer note on PR #1104.
+    On a machine without the recipe's accelerator, auto-resolution lands on a
+    non-NPU device, so the optimized bundle (qwen3 -> qnn/npu) is unavailable and
+    the build fails fast naming the resolved ep/device. Regression test for the
+    reviewer note on PR #1104 (resolve first, then error -- not infer-from-recipe).
+    """
+    with (
+        patch(_GENERATE_TARGET, return_value=_fake_config("qwen3")),
+        patch(_BUNDLE_TARGET) as bundle,
+        patch(_RUN_SINGLE_TARGET) as run_single,
+        patch(_COMPOSITE_TARGET, return_value=None),
+        patch(
+            "winml.modelkit.sysinfo.resolve_check_device_ep",
+            return_value=("cpu", ["npu", "gpu", "cpu"], ["CPUExecutionProvider"]),
+        ) as probe,
+    ):
+        result = _invoke(
+            ["-m", "Qwen/Qwen3-0.6B", "-o", str(tmp_path / "o"), "--export-type", "optimized"]
+        )
+
+    assert result.exit_code != 0
+    probe.assert_called_once()
+    assert "not supported for" in result.output
+    assert "device=cpu" in result.output
+    bundle.assert_not_called()
+    run_single.assert_not_called()
+
+
+def test_export_type_optimized_explicit_target_builds_on_non_npu_host(tmp_path: Path):
+    """Explicit ``--ep qnn --device npu`` builds even when the host has no NPU.
+
+    Pinning the target means auto-resolution (modeled here as landing on CPU) is
+    never consulted for the optimized selection, so the bundle can be produced on
+    a machine that lacks the accelerator (e.g. CI).
     """
     out = tmp_path / "bundle"
     recorded: dict = {}
@@ -529,15 +557,24 @@ def test_export_type_optimized_skips_hardware_probe(tmp_path: Path):
         patch(_BUNDLE_TARGET, side_effect=_record_bundle(recorded)) as bundle,
         patch(_RUN_SINGLE_TARGET) as run_single,
         patch(_COMPOSITE_TARGET, return_value=None),
-        patch(
-            "winml.modelkit.sysinfo.resolve_check_device_ep",
-            side_effect=ValueError("no compatible EP for device"),
-        ) as probe,
+        patch("winml.modelkit.sysinfo.resolve_device", return_value=("cpu", ["cpu"])),
     ):
-        result = _invoke(["-m", "Qwen/Qwen3-0.6B", "-o", str(out), "--export-type", "optimized"])
+        result = _invoke(
+            [
+                "-m",
+                "Qwen/Qwen3-0.6B",
+                "-o",
+                str(out),
+                "--export-type",
+                "optimized",
+                "--ep",
+                "qnn",
+                "--device",
+                "npu",
+            ]
+        )
 
     assert result.exit_code == 0, result.output
-    probe.assert_not_called()
     assert bundle.call_count == 1
     run_single.assert_not_called()
     kwargs = recorded["kwargs"]
@@ -622,12 +659,23 @@ def test_export_type_optimized_unregistered_family_errors(tmp_path: Path):
     run_single.assert_not_called()
 
 
-def test_resolve_optimized_target_infers_first_when_unpinned():
+def test_resolve_optimized_target_matches_resolved_target():
     from winml.modelkit.commands.build import _resolve_optimized_target
     from winml.modelkit.models.winml import resolve_genai_bundle
 
     recipe = resolve_genai_bundle("qwen3")
-    ep, device = _resolve_optimized_target(_fake_ctx(set()), recipe, device="auto", ep=None)
+    ep, device = _resolve_optimized_target(recipe, device="npu", ep="QNNExecutionProvider")
+    assert (ep, device) == ("qnn", "npu")
+
+
+def test_resolve_optimized_target_resolves_auto_device_for_pinned_ep():
+    """A pinned ``--ep`` with ``--device auto`` resolves the device, then matches."""
+    from winml.modelkit.commands.build import _resolve_optimized_target
+    from winml.modelkit.models.winml import resolve_genai_bundle
+
+    recipe = resolve_genai_bundle("qwen3")
+    # The autouse hardware mock resolves auto -> npu.
+    ep, device = _resolve_optimized_target(recipe, device="auto", ep="qnn")
     assert (ep, device) == ("qnn", "npu")
 
 
@@ -636,8 +684,8 @@ def test_resolve_optimized_target_rejects_unsupported_ep():
     from winml.modelkit.models.winml import resolve_genai_bundle
 
     recipe = resolve_genai_bundle("qwen3")
-    with pytest.raises(click.UsageError, match="--ep dml is not supported"):
-        _resolve_optimized_target(_fake_ctx({"ep"}), recipe, device="auto", ep="dml")
+    with pytest.raises(click.UsageError, match="not supported for ep=dml, device=gpu"):
+        _resolve_optimized_target(recipe, device="gpu", ep="dml")
 
 
 def test_resolve_optimized_target_rejects_unsupported_device():
@@ -645,8 +693,8 @@ def test_resolve_optimized_target_rejects_unsupported_device():
     from winml.modelkit.models.winml import resolve_genai_bundle
 
     recipe = resolve_genai_bundle("qwen3")
-    with pytest.raises(click.UsageError, match="--device cpu is not supported"):
-        _resolve_optimized_target(_fake_ctx({"device"}), recipe, device="cpu", ep=None)
+    with pytest.raises(click.UsageError, match="not supported for ep=cpu, device=cpu"):
+        _resolve_optimized_target(recipe, device="cpu", ep="cpu")
 
 
 def test_optimized_rejects_onnx_input():

@@ -475,49 +475,47 @@ def _resolve_genai_recipe(
 
 
 def _resolve_optimized_target(
-    ctx: click.Context,
     recipe: Any,
     *,
     device: str,
     ep: EPNameOrAlias | None,
 ) -> tuple[str, str]:
-    """Resolve the ``(ep, device)`` an optimized bundle is built for.
+    """Match the resolved ``(ep, device)`` against the recipe's supported targets.
 
-    The recipe's ``supported_targets`` are the source of truth. An explicit
-    ``--ep``/``--device`` narrows the candidates; a value the recipe cannot serve
-    is a fail-fast error (an explicit contradiction). When the user pins neither
-    (or passes ``--device auto``), the recipe's first target is inferred --
-    building a bundle is hardware-independent, so no device probing happens here.
+    By the time this runs, ``ep``/``device`` already reflect the build target the
+    normal resolution produced -- an explicit ``--ep``/``--device`` or, when the
+    user pinned neither, the hardware-probed defaults (see the
+    ``resolve_check_device_ep`` call in :func:`build`). The optimized bundle is
+    therefore built for whatever the user is actually targeting: if the recipe
+    declares a matching ``supported_targets`` entry its tokens are returned;
+    otherwise the optimized export is unavailable for that ``(ep, device)`` and a
+    fail-fast error names it ("what you see is what you get").
     """
+    from .. import sysinfo
     from ..utils.constants import normalize_ep_name
 
-    def _fmt(targets: Any) -> str:
-        return ", ".join(f"--ep {t.ep} --device {t.device}" for t in targets)
+    resolved_device = device.lower()
+    if resolved_device == "auto":
+        # ``--ep`` was pinned but ``--device`` left at ``auto``: resolve it for
+        # that EP the same way the generic path would (a missing accelerator
+        # raises, surfaced as a UsageError).
+        try:
+            resolved_device, _ = sysinfo.resolve_device(device, ep=ep)
+        except ValueError as e:
+            raise click.UsageError(str(e)) from e
 
-    candidates = list(recipe.supported_targets)
+    want_ep = normalize_ep_name(ep)
+    for target in recipe.supported_targets:
+        if target.device.lower() == resolved_device and (
+            want_ep is None or normalize_ep_name(target.ep) == want_ep
+        ):
+            return target.ep, target.device
 
-    if cli_utils.is_cli_provided(ctx, "ep") and ep is not None:
-        want = normalize_ep_name(ep)
-        narrowed = [t for t in candidates if normalize_ep_name(t.ep) == want]
-        if not narrowed:
-            raise click.UsageError(
-                f"--export-type optimized: --ep {ep} is not supported by the "
-                f"'{recipe.family}' recipe (supported: {_fmt(recipe.supported_targets)})."
-            )
-        candidates = narrowed
-
-    if cli_utils.is_cli_provided(ctx, "device") and device.lower() != "auto":
-        want_device = device.lower()
-        narrowed = [t for t in candidates if t.device.lower() == want_device]
-        if not narrowed:
-            raise click.UsageError(
-                f"--export-type optimized: --device {device} is not supported by the "
-                f"'{recipe.family}' recipe (supported: {_fmt(recipe.supported_targets)})."
-            )
-        candidates = narrowed
-
-    target = candidates[0]
-    return target.ep, target.device
+    supported = ", ".join(f"--ep {t.ep} --device {t.device}" for t in recipe.supported_targets)
+    raise click.UsageError(
+        f"--export-type optimized is not supported for ep={ep}, device={resolved_device} "
+        f"(supported: {supported})."
+    )
 
 
 def _maybe_build_genai_bundle(
@@ -542,9 +540,11 @@ def _maybe_build_genai_bundle(
     normal single/composite (``generic``) pipeline.
 
     Selection:
-      * ``--export-type optimized`` builds the family's registered recipe;
-        every unmet precondition (no model, ``.onnx`` input, module mode, no
-        recipe, or a contradicting ``--ep``/``--device``) is a fail-fast error.
+      * ``--export-type optimized`` builds the family's registered recipe for the
+        *resolved* ``(ep, device)`` -- an explicit ``--ep``/``--device`` or the
+        hardware-probed defaults. Every unmet precondition (no model, ``.onnx``
+        input, module mode, no recipe, or an ``(ep, device)`` the recipe does not
+        support) is a fail-fast error.
       * ``--export-type generic`` never builds a bundle (returns ``False``).
       * omitted -> backward-compatible shortcut: a registered family with an
         explicit ``--ep qnn`` and an NPU target still routes to its optimized
@@ -614,9 +614,9 @@ def _maybe_build_genai_bundle(
             return False
 
     # An optimized bundle is being built (explicit request or the shortcut).
-    # Resolve the (ep, device) the recipe is built for -- an explicit
-    # contradiction raises here.
-    bundle_ep, bundle_device = _resolve_optimized_target(ctx, recipe, device=device, ep=ep)
+    # Match the resolved (ep, device) against the recipe -- a target the recipe
+    # does not support raises here.
+    bundle_ep, bundle_device = _resolve_optimized_target(recipe, device=device, ep=ep)
 
     # The bundle is fully recipe-driven: every component, shape, precision,
     # quantization and compile setting comes from the recipe, so a supplied
@@ -751,8 +751,9 @@ def _maybe_build_genai_bundle(
     show_default=True,
     help="Output selector. 'generic' builds the stock single/composite ONNX model. "
     "'optimized' builds the registered runtime-optimized recipe for the family "
-    "(today: the onnxruntime-genai NPU bundle); it infers the recipe's target and "
-    "errors if the family has no recipe or --ep/--device contradicts it. When omitted, "
+    "(today: the onnxruntime-genai NPU bundle) for the resolved --ep/--device; it "
+    "errors if the family has no recipe or the resolved target is not one the recipe "
+    "supports. When omitted, "
     "an explicit --ep qnn on an NPU target still routes a registered family to its "
     "optimized bundle (backward-compatible shortcut).",
 )
@@ -891,15 +892,11 @@ def build(
     # valid), or raises ValueError for an explicit device with no compatible EP.
     # So the following available_eps[0] is safe whenever it returns.
     #
-    # ``--export-type optimized`` is exempt: its (ep, device) is inferred from
-    # the registered recipe and the build is hardware-independent by contract
-    # (see _resolve_optimized_target), so probing the host here would make an
-    # optimized build fail on a machine without the recipe's accelerator (e.g.
-    # no NPU) before the recipe target is ever inferred.
-    optimized_requested = (
-        cli_utils.is_cli_provided(ctx, "export_type") and export_type.lower() == "optimized"
-    )
-    if ep is None and not optimized_requested:
+    # ``--export-type optimized`` resolves the target the same way the generic
+    # build does (explicit ``--ep``/``--device`` or the hardware probe below),
+    # then errors if the recipe has no matching target -- so the optimized bundle
+    # is built for the hardware the user is actually on.
+    if ep is None:
         from ..sysinfo import resolve_check_device_ep
 
         try:
@@ -1086,8 +1083,9 @@ def build(
         # ---- OPTIMIZED (GENAI BUNDLE) EXPORT ----
         # ``--export-type optimized`` builds the family's registered
         # runtime-optimized recipe (today: a full onnxruntime-genai bundle --
-        # ctx/iter/embeddings/lm_head + genai_config.json + tokenizer), inferring
-        # the recipe's target. When ``--export-type`` is omitted, a registered
+        # ctx/iter/embeddings/lm_head + genai_config.json + tokenizer) for the
+        # resolved (ep, device), erroring when the recipe has no matching target.
+        # When ``--export-type`` is omitted, a registered
         # family targeted at the NPU HTP via an explicit ``--ep qnn`` (with
         # ``--device npu`` or a ``--device auto`` resolving to the NPU) still
         # routes here as a backward-compatible shortcut. The switch is data-driven

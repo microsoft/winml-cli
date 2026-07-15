@@ -42,8 +42,9 @@ graph LR
 ## Step 1: Build the bundle (one command)
 
 `--export-type optimized` switches `winml build` from the stock per-model ONNX
-output to the full genai bundle. It **infers** the recipe's target (Qwen3 builds
-for the NPU HTP via QNN), so `--ep`/`--device` are optional:
+output to the full genai bundle. It resolves `--ep`/`--device` like a normal
+build — honoring an explicit value, otherwise probing the host — and builds the
+recipe for that resolved target, so on an NPU host no flags are needed:
 
 ```bash
 winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --export-type optimized
@@ -52,7 +53,9 @@ winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --export-type optimized
 This builds (or reuses from cache) all four components and assembles them, writing
 `out/qwen3-bundle/genai_config.json` alongside the ONNX graphs and tokenizer.
 `--output-dir` is required — the bundle is a directory — and `--use-cache` is not
-supported for bundles.
+supported for bundles. On a host without the NPU the resolved target has no recipe
+and the build fails fast; pin `--ep qnn --device npu` to build the bundle anywhere
+(e.g. CI), since an explicit target skips host detection.
 
 The Qwen3 transformer's quantization scheme is fixed by its recipe (`w8a16`, the
 scheme its QNN HTP export is tuned for), so it is not overridable — passing a

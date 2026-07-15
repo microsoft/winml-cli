@@ -47,11 +47,11 @@ if TYPE_CHECKING:
 class GenaiTarget:
     """A build target a genai-bundle recipe supports: an ``(ep, device)`` pair.
 
-    Declared on :class:`GenaiBundleRecipe` so ``winml build`` can validate an
-    explicit ``--export-type optimized`` request against the recipe and infer
-    the target when the user does not pin one.  Tokens are the short CLI forms
-    (e.g. ``ep="qnn"``, ``device="npu"``) so they forward straight to
-    :func:`build_genai_bundle`.
+    Declared on :class:`GenaiBundleRecipe` so ``winml build`` can check an
+    ``--export-type optimized`` request against the resolved ``(ep, device)`` and
+    build the bundle for a matching target (or fail fast when none matches). Tokens
+    are the short CLI forms (e.g. ``ep="qnn"``, ``device="npu"``) so they forward
+    straight to :func:`build_genai_bundle`.
 
     Attributes:
         ep: Short execution-provider token (e.g. ``"qnn"``).
