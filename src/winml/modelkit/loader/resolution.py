@@ -588,7 +588,7 @@ def resolve_task(
                     if normalized_tag in KNOWN_TASKS:
                         opt_task = normalized_tag
                         source = TaskSource.PIPELINE_TAG
-        except Exception:
+        except Exception:  # graceful fallthrough: network errors, invalid model_id, etc.
             pass
 
     # 1d. last-resort default
