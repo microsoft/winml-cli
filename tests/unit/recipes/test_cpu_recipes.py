@@ -27,10 +27,27 @@ recipes = [
         "loader_model_type": "wav2vec2_emotion_regression",
         "opset_version": 17,
     },
+    {
+        "path": REPO_ROOT
+        / "examples"
+        / "recipes"
+        / "audeering_wav2vec2-large-robust-12-ft-emotion-msp-dim"
+        / "cpu"
+        / "cpu"
+        / "audio-classification_fp16_config.json",
+        "loader_task": "audio-classification",
+        "loader_model_class": "EmotionModel",
+        "loader_model_type": "wav2vec2_emotion_regression",
+        "opset_version": 17,
+    },
 ]
 
 
-@pytest.mark.parametrize("rec", recipes, ids=["audeering-wav2vec2-emotion"])
+@pytest.mark.parametrize(
+    "rec",
+    recipes,
+    ids=["audeering-wav2vec2-emotion-fp32", "audeering-wav2vec2-emotion-fp16"],
+)
 def test_cpu_recipes(rec):
     path: Path = rec["path"]
     assert path.exists(), f"Recipe file missing: {path}"
@@ -53,5 +70,5 @@ def test_cpu_recipes(rec):
     assert config.loader.model_class == rec["loader_model_class"]
     assert config.loader.model_type == rec["loader_model_type"]
 
-    # fp32 CPU recipe: no quantization
+    # float CPU recipe (fp32/fp16): no quantization
     assert config.quant is None
