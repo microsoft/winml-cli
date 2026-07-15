@@ -132,6 +132,37 @@ def _resolve_model_class_from_config(config: PretrainedConfig) -> type:
         ) from e
 
 
+# Some pipeline tasks span incompatible model families whose AutoModel classes
+# cannot load one another. Keep the mapping architecture-driven: the checkpoint's
+# published ``architectures`` metadata selects the specialized AutoModel, never a
+# model-id allowlist.
+_ARCHITECTURE_AUTO_CLASS_OVERRIDES: dict[tuple[str, str], str] = {
+    ("automatic-speech-recognition", "ForCTC"): "AutoModelForCTC",
+}
+
+
+def _resolve_architecture_auto_class(config: PretrainedConfig, task: str) -> type | None:
+    """Return an architecture-specific AutoModel class when a task is ambiguous.
+
+    ``automatic-speech-recognition`` covers both encoder-only CTC models and
+    encoder-decoder speech models. Optimum's task-level default is
+    ``AutoModelForSpeechSeq2Seq``, which cannot load a ``Wav2Vec2Config``. A
+    published ``*ForCTC`` architecture is an architecture-wide signal that the
+    correct loader is ``AutoModelForCTC``; seq2seq architectures continue to the
+    existing TasksManager fallback.
+    """
+    architectures = getattr(config, "architectures", None)
+    if not architectures:
+        return None
+
+    architecture = architectures[0]
+    for (mapped_task, suffix), auto_class_name in _ARCHITECTURE_AUTO_CLASS_OVERRIDES.items():
+        if task == mapped_task and architecture.endswith(suffix):
+            transformers_module = importlib.import_module("transformers")
+            return cast("type", getattr(transformers_module, auto_class_name))
+    return None
+
+
 def _detect_task_from_model_class(model_class: type) -> str:
     """Detect task from a model class via TasksManager.
 
@@ -516,6 +547,8 @@ def resolve_task(
                 model_type_norm, original
             ) or _get_custom_model_class(model_type_norm, normalized)
         if resolved is None:
+            resolved = _resolve_architecture_auto_class(config, normalized)
+        if resolved is None:
             try:
                 resolved = TasksManager.get_model_class_for_task(normalized, framework="pt")
             except KeyError as e:
@@ -580,6 +613,8 @@ def resolve_task(
     # --- Stage 2: model class (if not already resolved in 1b) -------------
     if resolved is None:
         resolved = _get_custom_model_class(model_type_norm, opt_task)
+        if resolved is None:
+            resolved = _resolve_architecture_auto_class(config, opt_task)
         if resolved is None:
             try:
                 resolved = TasksManager.get_model_class_for_task(opt_task, framework="pt")
