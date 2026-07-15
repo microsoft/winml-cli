@@ -442,8 +442,8 @@ def resolve_task(
     """Resolve a single model's task + class from an HF config.
 
     Stages: 0 user override -> 1 detect (override / no-architectures /
-    TasksManager / default) -> 2 model class -> 3 modality upgrade
-    (detection path only) -> 4 composite tag.
+    TasksManager / pipeline-tag / default) -> 2 model class -> 3 modality
+    upgrade (detection path only) -> 4 composite tag.
 
     ``model_type_override`` lets a caller drive resolution with a build variant
     (e.g. ``qwen3_transformer_only``) without mutating the loaded HF config; when
@@ -576,20 +576,14 @@ def resolve_task(
 
     # 1e. Hub pipeline_tag fallback
     if opt_task is None and model_id:
-        try:
-            from ..utils.hub_utils import _is_local_path
+        from ..utils.hub_utils import get_pipeline_tag
 
-            if not _is_local_path(model_id):
-                from huggingface_hub import HfApi
-
-                tag = HfApi().model_info(model_id).pipeline_tag
-                if tag:
-                    normalized_tag = normalize_task(tag)
-                    if normalized_tag in KNOWN_TASKS:
-                        opt_task = normalized_tag
-                        source = TaskSource.PIPELINE_TAG
-        except Exception:  # graceful fallthrough: network errors, invalid model_id, etc.
-            pass
+        tag = get_pipeline_tag(model_id)
+        if tag:
+            normalized_tag = normalize_task(tag)
+            if normalized_tag in KNOWN_TASKS:
+                opt_task = normalized_tag
+                source = TaskSource.PIPELINE_TAG
 
     # 1d. last-resort default
     if opt_task is None:

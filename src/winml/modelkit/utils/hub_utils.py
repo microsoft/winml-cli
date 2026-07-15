@@ -144,6 +144,28 @@ def is_hub_model(model_name_or_path: str) -> tuple[bool, dict]:
         return False, {"type": "local", "path": model_name_or_path}
 
 
+_PIPELINE_TAG_TIMEOUT = 10  # seconds
+
+
+def get_pipeline_tag(model_id: str) -> str | None:
+    """Return the Hub ``pipeline_tag`` for *model_id*, or ``None``.
+
+    Lightweight helper that skips the full metadata extraction of
+    ``is_hub_model``. Returns ``None`` (never raises) when *model_id* is a
+    local path, the Hub is unreachable, or the model has no tag.
+    """
+    if _is_local_path(model_id):
+        return None
+    try:
+        from huggingface_hub import HfApi
+
+        info = HfApi().model_info(model_id, timeout=_PIPELINE_TAG_TIMEOUT)
+        return getattr(info, "pipeline_tag", None)
+    except Exception:
+        logger.debug("pipeline_tag lookup failed for '%s'", model_id, exc_info=True)
+        return None
+
+
 def inject_hub_metadata(onnx_model: Any, model_name_or_path: str, metadata: dict) -> None:
     """Inject HuggingFace Hub metadata into ONNX model.
 

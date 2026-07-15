@@ -234,28 +234,16 @@ def test_resolve_task_case1_surfaces_modality_aware_task() -> None:
 # Stage 1e — Hub pipeline_tag fallback
 # =============================================================================
 
-_IS_LOCAL = "winml.modelkit.utils.hub_utils._is_local_path"
-_HF_API = "huggingface_hub.HfApi"
-
-
-def _fake_model_info(pipeline_tag: str | None):
-    """Return a mock model_info object with a ``pipeline_tag`` attribute."""
-    return type("FakeModelInfo", (), {"pipeline_tag": pipeline_tag})()
+_GET_PIPELINE_TAG = "winml.modelkit.utils.hub_utils.get_pipeline_tag"
 
 
 def test_resolve_task_uses_pipeline_tag_when_architecture_fails() -> None:
     """When config.architectures contains a generic name (e.g. 'Model') that
     TasksManager cannot resolve, the Hub pipeline_tag is used as fallback."""
     cfg = _FakeConfig("faketype", name_or_path="audeering/wav2vec2-large-robust-24-ft-age-gender")
-    mock_api = type(
-        "MockApi",
-        (),
-        {"model_info": lambda self, _: _fake_model_info("audio-classification")},
-    )()
     with (
         patch(_INFER, side_effect=ValueError("unknown arch")),
-        patch(_IS_LOCAL, return_value=False),
-        patch(_HF_API, return_value=mock_api),
+        patch(_GET_PIPELINE_TAG, return_value="audio-classification"),
     ):
         r = resolve_task(cfg)
     assert r.task == "audio-classification"
@@ -265,44 +253,33 @@ def test_resolve_task_uses_pipeline_tag_when_architecture_fails() -> None:
 def test_resolve_task_pipeline_tag_skips_invalid_task() -> None:
     """When pipeline_tag is not a recognized task, falls through to last-resort default."""
     cfg = _FakeConfig("faketype", name_or_path="someone/some-model")
-    mock_api = type(
-        "MockApi",
-        (),
-        {"model_info": lambda self, _: _fake_model_info("not-a-real-task")},
-    )()
     with (
         patch(_INFER, side_effect=ValueError("unknown arch")),
-        patch(_IS_LOCAL, return_value=False),
-        patch(_HF_API, return_value=mock_api),
+        patch(_GET_PIPELINE_TAG, return_value="not-a-real-task"),
     ):
         r = resolve_task(cfg)
     assert r.source == TaskSource.HF_TASK_DEFAULT
 
 
 def test_resolve_task_pipeline_tag_handles_api_failure() -> None:
-    """When the Hub API call fails (network error, etc.), falls through gracefully."""
+    """When the Hub API call fails (network error, etc.), get_pipeline_tag returns None."""
     cfg = _FakeConfig("faketype", name_or_path="someone/some-model")
-    mock_api = type(
-        "MockApi",
-        (),
-        {"model_info": lambda self, _: (_ for _ in ()).throw(ConnectionError("offline"))},
-    )()
     with (
         patch(_INFER, side_effect=ValueError("unknown arch")),
-        patch(_IS_LOCAL, return_value=False),
-        patch(_HF_API, return_value=mock_api),
+        patch(_GET_PIPELINE_TAG, return_value=None),
     ):
         r = resolve_task(cfg)
     assert r.source == TaskSource.HF_TASK_DEFAULT
 
 
 def test_resolve_task_pipeline_tag_skips_local_path() -> None:
-    """When model_id is a local path, the Hub API is not called."""
+    """When model_id is a local path, get_pipeline_tag is still called but returns None
+    (local-path rejection is internal to get_pipeline_tag)."""
     cfg = _FakeConfig("faketype", name_or_path="./local-model")
     with (
         patch(_INFER, side_effect=ValueError("unknown arch")),
-        patch(_IS_LOCAL, return_value=True),
-        patch(_HF_API, side_effect=AssertionError("must not call HfApi for local paths")),
+        patch(_GET_PIPELINE_TAG, return_value=None) as mock_tag,
     ):
         r = resolve_task(cfg)
+    mock_tag.assert_called_once_with("./local-model")
     assert r.source == TaskSource.HF_TASK_DEFAULT
