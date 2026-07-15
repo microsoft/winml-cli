@@ -11,6 +11,18 @@
     "hierarchy_tag_format": "full",
     "input_tensors": [
       {
+        "name": "input_ids",
+        "dtype": "int32",
+        "shape": [
+          1,
+          16
+        ],
+        "value_range": [
+          0,
+          49408
+        ]
+      },
+      {
         "name": "pixel_values",
         "dtype": "float32",
         "shape": [
@@ -22,18 +34,6 @@
         "value_range": [
           0,
           1
-        ]
-      },
-      {
-        "name": "input_ids",
-        "dtype": "int32",
-        "shape": [
-          1,
-          16
-        ],
-        "value_range": [
-          0,
-          49408
         ]
       },
       {
