@@ -300,14 +300,19 @@ def _root_cause(exc: BaseException) -> BaseException:
 
     Follows ``__cause__`` (explicit ``raise ... from e``) in preference to
     ``__context__`` (implicit, set when raising inside an ``except`` block),
-    repeatedly, until neither is set. Returns ``exc`` itself when there is
-    no chain. Cycle-safe: a chain that loops back on itself terminates
-    rather than spinning forever.
+    repeatedly, until neither is set. A ``__context__`` explicitly suppressed
+    by ``raise ... from None`` (``__suppress_context__``) is honored — the
+    walk stops there, matching Python's own traceback printing and respecting
+    the developer's intent to hide that inner error. Returns ``exc`` itself
+    when there is no chain. Cycle-safe: a chain that loops back on itself
+    terminates rather than spinning forever.
     """
     seen: set[int] = {id(exc)}
     current = exc
     while True:
-        nxt = current.__cause__ or current.__context__
+        nxt = current.__cause__
+        if nxt is None and not current.__suppress_context__:
+            nxt = current.__context__
         if nxt is None or id(nxt) in seen:
             return current
         seen.add(id(nxt))

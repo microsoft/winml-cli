@@ -89,6 +89,20 @@ def test_root_cause_follows_implicit_context():
         assert _root_cause(outer) is root
 
 
+def test_root_cause_honors_suppressed_context():
+    # `raise ... from None` sets __suppress_context__=True and __cause__=None.
+    # The suppressed inner exception must NOT be walked into — matching
+    # Python's own traceback printing and the developer's intent to hide it.
+    try:
+        try:
+            raise ValueError("suppressed inner")
+        except ValueError:
+            raise RuntimeError("clean outer") from None
+    except RuntimeError as outer:
+        # No chain surfaces: the outer exception is its own root cause.
+        assert _root_cause(outer) is outer
+
+
 def test_root_cause_walks_multiple_levels_to_innermost():
     innermost = OSError("disk full")
     try:
