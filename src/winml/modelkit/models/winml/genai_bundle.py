@@ -119,9 +119,11 @@ class GenaiBundleRecipe:
             bundle directory and writing ``genai_config.json``; must accept the
             keywords the orchestrator passes (see :func:`build_genai_bundle`).
         supported_targets: The ``(ep, device)`` pairs this recipe can build for.
-            The first entry is the preferred/default target inferred when the
-            user selects ``--export-type optimized`` without pinning
-            ``--ep``/``--device``.  Must be non-empty (enforced at registration).
+            ``--export-type optimized`` resolves ``--ep``/``--device`` first and
+            these entries are matched against that resolved target; a target not
+            listed here is rejected. Pin ``--ep qnn --device npu`` to select this
+            recipe's target on any host.  Must be non-empty (enforced at
+            registration).
         transformer_onnx_passes: ONNX graph transforms applied to the
             transformer graphs during assembly.
         max_cache_len: Default static KV cache length (context_length).

@@ -844,7 +844,8 @@ def build(
         winml build -m microsoft/resnet-50 -o output/ --precision w8a8
 
         # Build the optimized onnxruntime-genai bundle for a decoder LLM
-        # (infers the recipe's NPU/QNN target; no --device/--ep needed)
+        # (resolves --ep/--device like a generic build; on an NPU host no flags
+        #  are needed, or pin --ep qnn --device npu to build it on any host)
         winml build -m Qwen/Qwen3-0.6B -o out/ --export-type optimized
     """
     # Merge top-level -v/-q with subcommand-level flags so either position works.
