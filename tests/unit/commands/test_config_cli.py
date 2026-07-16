@@ -832,26 +832,16 @@ class TestConfigExportControls:
         # Concrete auto-resolved shapes -> no dynamic axes are invented.
         assert not export.get("dynamic_axes")
 
-    def test_module_path_applies_overrides_to_each_config(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
-        """--module list path patches --input-specs onto every generated submodule config."""
+    def test_module_path_rejects_export_overrides(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--module rejects export overrides instead of fanning them onto each config."""
         from winml.modelkit.commands.config import config
 
         input_specs = tmp_path / "inputs.json"
         input_specs.write_text(json.dumps({"input_ids": {"shape": ["batch", "seq"]}}))
-        out = tmp_path / "out.json"
 
-        with (
-            patch(
-                "winml.modelkit.commands.config._resolve_composite_model_components",
-                return_value=None,
-            ),
-            patch(
-                "winml.modelkit.config.generate_hf_build_config",
-                return_value=[self._real_config(), self._real_config()],
-            ),
-        ):
+        with patch(
+            "winml.modelkit.config.generate_hf_build_config",
+        ) as mock_generate:
             result = runner.invoke(
                 config,
                 [
@@ -861,17 +851,13 @@ class TestConfigExportControls:
                     "BertLayer",
                     "--input-specs",
                     str(input_specs),
-                    "-o",
-                    str(out),
                 ],
             )
 
-        assert result.exit_code == 0, result.output
-        configs = json.loads(out.read_text())
-        assert isinstance(configs, list) and len(configs) == 2
-        for cfg in configs:
-            axes = cfg["export"]["dynamic_axes"]["input_ids"]
-            assert set(axes.values()) == {"batch", "seq"}
+        assert result.exit_code != 0
+        assert "--module" in result.output
+        # Rejected up front, before any config generation.
+        mock_generate.assert_not_called()
 
     def test_composite_model_rejects_export_overrides(
         self, runner: CliRunner, tmp_path: Path
@@ -899,7 +885,37 @@ class TestConfigExportControls:
         assert "composite" in result.output
         mock_pipeline.assert_not_called()
 
-    def test_merge_export_overrides_rejects_export_null(self) -> None:
+    def test_composite_rejection_precedes_json_validation(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """Composite models are rejected before the override JSON is loaded/validated.
+
+        A malformed --dynamic-axes on a composite model should surface the
+        composite-specific error, not a downstream "Invalid export configuration"
+        from parsing — mirroring the ONNX path.
+        """
+        from winml.modelkit.commands.config import config
+
+        dynamic_axes = tmp_path / "dynamic_axes.json"
+        dynamic_axes.write_text(json.dumps({"input_ids": {"not-an-int": "batch"}}))
+
+        with (
+            patch(
+                "winml.modelkit.commands.config._resolve_composite_model_components",
+                return_value={"encoder": "feature-extraction", "decoder": "text-generation"},
+            ),
+            patch(
+                "winml.modelkit.commands.config._generate_pipeline_configs",
+            ) as mock_pipeline,
+        ):
+            result = runner.invoke(
+                config, ["-m", "some/seq2seq", "--dynamic-axes", str(dynamic_axes)]
+            )
+
+        assert result.exit_code != 0
+        assert "composite" in result.output
+        assert "Invalid export configuration" not in result.output
+        mock_pipeline.assert_not_called()
         """_merge_export_overrides raises when the generated config has export=null."""
         import click
 

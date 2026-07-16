@@ -312,25 +312,26 @@ def config(
                 "--module is not supported with ONNX file input. "
                 "Module discovery requires a HuggingFace model."
             )
-        # Reject export controls for pre-exported ONNX up front — before loading
-        # and validating the JSON — so the error names the real problem (ONNX
-        # input, no export stage) instead of a downstream validation failure, and
-        # so we skip the needless file I/O.
-        if hf_model and _hf_is_onnx and (input_specs or export_config or dynamic_axes):
+        # Export controls (--input-specs/--export-config/--dynamic-axes) target a
+        # single export graph, so they only apply to the plain single-config
+        # HuggingFace path. Reject the multi-graph / no-export paths up front — on
+        # raw flag presence, before loading/validating the JSON — so the error
+        # names the real problem (ONNX input, --module fan-out, composite) instead
+        # of a downstream "Invalid export configuration", and we skip needless I/O.
+        _export_flags_given = bool(input_specs or export_config or dynamic_axes)
+        if hf_model and _hf_is_onnx and _export_flags_given:
             raise click.UsageError(
                 "--input-specs, --export-config, and --dynamic-axes are only "
                 "supported when generating a HuggingFace export config, not "
                 "pre-exported ONNX files."
             )
-
-        # Load export CLI overrides (--input-specs/--export-config/--dynamic-axes).
-        # Returned sparse so unspecified fields don't clobber auto-detected values;
-        # applied per generated config via merge_export_overrides below.
-        export_overrides = cli_utils.load_export_overrides(
-            export_config=export_config,
-            input_specs=input_specs,
-            dynamic_axes=dynamic_axes,
-        )
+        if module and _export_flags_given:
+            raise click.UsageError(
+                "--input-specs, --export-config, and --dynamic-axes are not "
+                "supported with --module, which generates one config per matched "
+                "submodule. Generate the per-module configs first, then edit their "
+                "export sections individually."
+            )
 
         config_obj: WinMLBuildConfig | None = None
         output_data: dict[str, Any] | list[Any]
@@ -363,12 +364,12 @@ def config(
             )
             if pipeline_components:
                 # Export controls target a single export graph; a composite model
-                # has one export per sub-component with distinct inputs. Applying a
-                # shared --input-specs/--dynamic-axes across them would append bogus
-                # inputs on components that lack the named input. Reject instead of
-                # emitting invalid per-component configs (unlike build, config never
-                # fans these overrides out).
-                if export_overrides:
+                # has one export per sub-component with distinct inputs. Reject on
+                # raw flag presence — before loading/validating the JSON — so the
+                # composite-specific error wins (mirroring the ONNX path) instead
+                # of a downstream "Invalid export configuration". config never fans
+                # these overrides out across heterogeneous components.
+                if _export_flags_given:
                     raise click.UsageError(
                         "--input-specs, --export-config, and --dynamic-axes are not "
                         "supported for composite (multi-component) models, whose "
@@ -397,6 +398,16 @@ def config(
                 )
                 return
 
+            # Load export CLI overrides now that the multi-graph paths (ONNX,
+            # --module, composite) have all been rejected — the single HF config
+            # path below is the only one that applies them. Returned sparse so
+            # unspecified fields don't clobber auto-detected values.
+            export_overrides = cli_utils.load_export_overrides(
+                export_config=export_config,
+                input_specs=input_specs,
+                dynamic_axes=dynamic_axes,
+            )
+
             # Generate config(s). The ``module: str | None`` overload of
             # generate_hf_build_config returns WinMLBuildConfig | list[...],
             # which isinstance(result, list) narrows for the branches below.
@@ -415,7 +426,10 @@ def config(
                 ep=ep,
             )
             if isinstance(result, list):
-                configs = [_merge_export_overrides(cfg, export_overrides) for cfg in result]
+                # --module + export overrides is rejected up front, so
+                # export_overrides is empty here; emit the submodule configs as
+                # generated without fanning any overrides across them.
+                configs = list(result)
                 for cfg in configs:
                     _apply_stage_overrides(cfg, no_quant=not quant, no_compile=no_compile)
                 output_data = [cfg.to_dict() for cfg in configs]
@@ -480,17 +494,17 @@ def config(
         if input_specs:
             console.print(
                 f"   \U0001f4c1 [bold]Input specs:[/bold]  "
-                f"{Path(input_specs).name}  [green]\u2713[/green]"
+                f"{input_specs.name}  [green]\u2713[/green]"
             )
         if export_config:
             console.print(
                 f"   \U0001f4c1 [bold]Export config:[/bold] "
-                f"{Path(export_config).name}  [green]\u2713[/green]"
+                f"{export_config.name}  [green]\u2713[/green]"
             )
         if dynamic_axes:
             console.print(
                 f"   \U0001f4c1 [bold]Dynamic axes:[/bold] "
-                f"{Path(dynamic_axes).name}  [green]\u2713[/green]"
+                f"{dynamic_axes.name}  [green]\u2713[/green]"
             )
 
         console.print()
