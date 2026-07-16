@@ -12,17 +12,23 @@ Pipeline execution (export/optimize/compile) is done by WinMLAutoModel factory.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from dataclasses import dataclass
+from typing import Any, cast
 
+import torch
 from transformers.modeling_outputs import DepthEstimatorOutput
 
 from .base import WinMLPreTrainedModel
 
 
-if TYPE_CHECKING:
-    import torch
-
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class WinMLDepthEstimatorOutput(DepthEstimatorOutput):
+    """Depth output with optional architecture-specific camera metadata."""
+
+    field_of_view: torch.FloatTensor | None = None
 
 
 class WinMLModelForDepthEstimation(WinMLPreTrainedModel):
@@ -33,7 +39,7 @@ class WinMLModelForDepthEstimation(WinMLPreTrainedModel):
     ``image_processor.post_process_depth_estimation()``.
     """
 
-    def forward(self, **kwargs: Any) -> DepthEstimatorOutput:
+    def forward(self, **kwargs: Any) -> WinMLDepthEstimatorOutput:
         """Run depth estimation inference.
 
         Accepts all processor outputs via ``**kwargs`` and passes them
@@ -41,7 +47,7 @@ class WinMLModelForDepthEstimation(WinMLPreTrainedModel):
         architecture-agnostic.
 
         Returns:
-            DepthEstimatorOutput with the ``predicted_depth`` tensor populated.
+            Depth output with ``predicted_depth`` and available camera metadata.
         """
         formatted = self._format_inputs(**kwargs)
         outputs = self._run_inference(formatted)
@@ -54,4 +60,10 @@ class WinMLModelForDepthEstimation(WinMLPreTrainedModel):
         # transformers' Output fields are annotated FloatTensor (legacy, over-narrow);
         # the ONNX session returns a real float Tensor.
         depth: torch.FloatTensor = cast("torch.FloatTensor", predicted_depth)
-        return DepthEstimatorOutput(predicted_depth=depth)
+        field_of_view: torch.FloatTensor | None = cast(
+            "torch.FloatTensor | None", outputs.get("field_of_view")
+        )
+        return WinMLDepthEstimatorOutput(
+            predicted_depth=depth,
+            field_of_view=field_of_view,
+        )

@@ -79,6 +79,29 @@ class TestForward:
         assert out.predicted_depth is depth
         assert out["predicted_depth"] is depth
 
+    def test_field_of_view_passthrough_when_available(self):
+        """DepthPro camera metadata remains available to its post-processor."""
+        depth = torch.zeros((1, 16, 16))
+        field_of_view = torch.full((1,), 55.0)
+        model = _make_model(
+            {"predicted_depth": depth, "field_of_view": field_of_view}
+        )
+
+        out = model.forward(pixel_values=torch.zeros((1, 3, 16, 16)))
+
+        assert isinstance(out, DepthEstimatorOutput)
+        assert out.field_of_view is field_of_view
+        assert out["field_of_view"] is field_of_view
+
+    def test_field_of_view_is_optional(self):
+        """Single-output depth architectures retain their existing behavior."""
+        model = _make_model({"predicted_depth": torch.zeros((1, 16, 16))})
+
+        out = model.forward(pixel_values=torch.zeros((1, 3, 16, 16)))
+
+        assert out.field_of_view is None
+        assert "field_of_view" not in out
+
     def test_falls_back_to_first_output_when_name_differs(self):
         """Non-standard output names use the first tensor (architecture-agnostic)."""
         depth = torch.full((1, 8, 8), 2.5)
