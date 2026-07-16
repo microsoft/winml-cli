@@ -64,10 +64,33 @@ def convert_to_fp16(
     if op_block_list:
         logger.info("  Keeping ops in FP32: %s", op_block_list)
 
+    # ORT's converter runs ONNX shape inference by default, which serializes the
+    # model to a single protobuf message. That serialization fails for models
+    # whose in-memory proto exceeds protobuf's hard 2 GB message limit
+    # (google.protobuf.message.EncodeError: Failed to serialize proto), e.g.
+    # ViT-Huge backbones. Disable shape inference for such models — the FP16
+    # cast itself does not require inferred shapes.
+    protobuf_limit = 2 * 1024**3
+    shape_infer_margin = int(protobuf_limit * 0.9)  # stay safely under 2 GB
+    try:
+        # ByteSize() itself raises once the proto exceeds the 2 GB limit; that
+        # is already a definitive "too large" signal.
+        approx_size = model.ByteSize()
+    except Exception:
+        approx_size = protobuf_limit
+    disable_shape_infer = approx_size >= shape_infer_margin
+    if disable_shape_infer:
+        logger.info(
+            "  Model is large (~%.2f GB); disabling shape inference during FP16 "
+            "conversion to avoid the 2 GB protobuf serialization limit.",
+            approx_size / 1024**3,
+        )
+
     converted: ModelProto = convert_float_to_float16(
         model,
         keep_io_types=keep_io_types,
         op_block_list=op_block_list,
+        disable_shape_infer=disable_shape_infer,
     )
 
     # ORT's converter appends Cast nodes at the end of the node list (for
