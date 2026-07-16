@@ -156,6 +156,37 @@ def test_format_exception_message_scrubs_long_token_at_cap_boundary():
     assert len(result) <= 200
 
 
+def test_format_exception_message_default_cap_is_200():
+    msg = "y" * 400
+    result = _format_exception_message(msg)
+    assert len(result) <= 200
+
+
+def test_format_exception_message_custom_cap_allows_longer():
+    msg = "y" * 400
+    result = _format_exception_message(msg, cap=500)
+    # 400 < 500, so nothing is truncated.
+    assert result == msg
+    assert not result.endswith("…")
+
+
+def test_format_exception_message_custom_cap_still_truncates_beyond():
+    msg = "y" * 600
+    result = _format_exception_message(msg, cap=500)
+    assert len(result) <= 500
+    assert result.endswith("…")
+
+
+def test_format_exception_message_custom_cap_scrubs_pii_before_cap():
+    # Email lands just before the 500 boundary; must be scrubbed, not split.
+    prefix = "y" * 495
+    msg = prefix + " alice@example.com"
+    result = _format_exception_message(msg, cap=500)
+    assert "alice" not in result
+    assert "@" not in result
+    assert len(result) <= 500
+
+
 @pytest.mark.parametrize(
     "value,expected",
     [

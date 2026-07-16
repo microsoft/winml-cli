@@ -123,6 +123,59 @@ def test_log_error_scrubs_message_and_extracts_stack(running_telemetry):
         assert set(frame.keys()) == {"file", "line", "function"}
 
 
+def test_root_cause_message_cap_is_500():
+    from winml.modelkit.telemetry.telemetry import _ROOT_CAUSE_MESSAGE_CAP
+
+    assert _ROOT_CAUSE_MESSAGE_CAP == 500
+
+
+def test_log_error_records_root_cause_for_chained(running_telemetry):
+    logger = _with_mock_logger(running_telemetry)
+    try:
+        try:
+            raise ValueError("qwen3_5 not recognized")
+        except ValueError as e:
+            raise RuntimeError("Inspection error") from e
+    except RuntimeError as outer:
+        running_telemetry.log_error(outer)
+
+    log_record = logger.emit.call_args.args[0]
+    attrs = dict(log_record.attributes)
+    assert attrs["exception_type"] == "RuntimeError"
+    assert attrs["root_cause_type"] == "ValueError"
+    assert "qwen3_5 not recognized" in attrs["root_cause_message"]
+
+
+def test_log_error_unchained_has_null_root_cause(running_telemetry):
+    logger = _with_mock_logger(running_telemetry)
+    try:
+        raise RuntimeError("Quantization failed")
+    except RuntimeError as exc:
+        running_telemetry.log_error(exc)
+
+    log_record = logger.emit.call_args.args[0]
+    attrs = dict(log_record.attributes)
+    assert attrs["exception_type"] == "RuntimeError"
+    assert attrs["root_cause_type"] is None
+    assert attrs["root_cause_message"] is None
+
+
+def test_log_error_scrubs_root_cause_message(running_telemetry):
+    logger = _with_mock_logger(running_telemetry)
+    try:
+        try:
+            raise ValueError("leaked alice@example.com in root")
+        except ValueError as e:
+            raise RuntimeError("wrapper") from e
+    except RuntimeError as outer:
+        running_telemetry.log_error(outer)
+
+    log_record = logger.emit.call_args.args[0]
+    attrs = dict(log_record.attributes)
+    assert "alice@example.com" not in attrs["root_cause_message"]
+    assert "<scrubbed>" in attrs["root_cause_message"]
+
+
 def test_disabled_telemetry_noops_all_emits(monkeypatch):
     monkeypatch.setattr("winml.modelkit.telemetry.constants.INSTRUMENTATION_KEY", "")
     t = Telemetry.get_or_init()

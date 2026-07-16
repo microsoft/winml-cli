@@ -116,14 +116,15 @@ def _scrub_pii(text: str) -> str:
 _MESSAGE_CAP = 200
 
 
-def _format_exception_message(message: str | None) -> str:
+def _format_exception_message(message: str | None, cap: int = _MESSAGE_CAP) -> str:
     """Run the scrubbing pipeline: path trim -> PII scrub -> length cap.
 
     Scrub runs *before* the length cap so PII straddling the cap boundary
     is still recognized by the regexes. Capping first would split a token
     or email mid-string and leak the surviving prefix (e.g. ``alice@exa…``
     leaves ``alice`` exposed because the cropped fragment no longer
-    matches the email pattern).
+    matches the email pattern). ``cap`` is parameterized so the root-cause
+    message can use a larger limit than the outer message.
     """
     if not message:
         return ""
@@ -134,8 +135,8 @@ def _format_exception_message(message: str | None) -> str:
     result = _scrub_pii(result)
     # Cap last - bounds final size even if scrub expanded the string
     # (each match becomes the 11-char ``<scrubbed>`` placeholder).
-    if len(result) > _MESSAGE_CAP:
-        result = result[: _MESSAGE_CAP - 1] + "…"
+    if len(result) > cap:
+        result = result[: cap - 1] + "…"
     return result
 
 
@@ -292,3 +293,27 @@ def _extract_exception_stack(tb: Any) -> list[dict[str, Any]]:
         }
         for frame in frames
     ]
+
+
+def _root_cause(exc: BaseException) -> BaseException:
+    """Return the innermost cause of an exception chain.
+
+    Follows ``__cause__`` (explicit ``raise ... from e``) in preference to
+    ``__context__`` (implicit, set when raising inside an ``except`` block),
+    repeatedly, until neither is set. A ``__context__`` explicitly suppressed
+    by ``raise ... from None`` (``__suppress_context__``) is honored — the
+    walk stops there, matching Python's own traceback printing and respecting
+    the developer's intent to hide that inner error. Returns ``exc`` itself
+    when there is no chain. Cycle-safe: a chain that loops back on itself
+    terminates rather than spinning forever.
+    """
+    seen: set[int] = {id(exc)}
+    current = exc
+    while True:
+        nxt = current.__cause__
+        if nxt is None and not current.__suppress_context__:
+            nxt = current.__context__
+        if nxt is None or id(nxt) in seen:
+            return current
+        seen.add(id(nxt))
+        current = nxt
