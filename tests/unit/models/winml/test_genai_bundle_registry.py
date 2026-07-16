@@ -17,6 +17,7 @@ import pytest
 from winml.modelkit.models.winml import (
     GENAI_BUNDLE_REGISTRY,
     GenaiBundleRecipe,
+    GenaiTarget,
     GenaiTransformerSpec,
     register_genai_bundle,
     resolve_genai_bundle,
@@ -64,8 +65,29 @@ def test_duplicate_registration_raises():
         ),
         companions=(),
         assemble=lambda *_a, **_k: None,
+        supported_targets=(GenaiTarget(ep="qnn", device="npu"),),
     )
     with pytest.raises(ValueError, match="already registered"):
         register_genai_bundle(dup)
     # The guard precedes insertion, so the real recipe is left untouched.
     assert resolve_genai_bundle("qwen3") is existing
+
+
+def test_register_rejects_empty_supported_targets():
+    """A recipe with no supported targets is a registration-time error."""
+    recipe = GenaiBundleRecipe(
+        family="no-targets-fam",
+        transformer=GenaiTransformerSpec(
+            model_type="x",
+            task="text-generation",
+            precision="w8a16",
+            context_sub_model="a",
+            iterator_sub_model="b",
+        ),
+        companions=(),
+        assemble=lambda *_a, **_k: None,
+        supported_targets=(),
+    )
+    with pytest.raises(ValueError, match="no supported_targets"):
+        register_genai_bundle(recipe)
+    assert "no-targets-fam" not in GENAI_BUNDLE_REGISTRY

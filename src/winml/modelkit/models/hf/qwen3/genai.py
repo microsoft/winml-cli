@@ -37,6 +37,7 @@ from ....utils.genai import (
 from ...winml.genai_bundle import (
     GenaiBundleRecipe,
     GenaiCompanionSpec,
+    GenaiTarget,
     GenaiTransformerSpec,
     register_genai_bundle,
 )
@@ -287,6 +288,7 @@ QWEN3_GENAI_BUNDLE_RECIPE = register_genai_bundle(
             ),
         ),
         assemble=write_genai_bundle,
+        supported_targets=(GenaiTarget(ep="qnn", device="npu"),),
         transformer_onnx_passes=(strip_gqa_default_attrs,),
         max_cache_len=2048,
         prefill_seq_len=64,
