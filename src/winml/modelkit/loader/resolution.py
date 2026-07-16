@@ -135,7 +135,8 @@ def _resolve_model_class_from_config(config: PretrainedConfig) -> type:
 # Some pipeline tasks span incompatible model families whose AutoModel classes
 # cannot load one another. Keep the mapping architecture-driven: the checkpoint's
 # published ``architectures`` metadata selects the specialized AutoModel, never a
-# model-id allowlist.
+# model-id allowlist. Add one entry for each future ambiguous task family rather
+# than broadening this into a global preference over TasksManager defaults.
 _ARCHITECTURE_AUTO_CLASS_OVERRIDES: dict[tuple[str, str], str] = {
     ("automatic-speech-recognition", "ForCTC"): "AutoModelForCTC",
 }
