@@ -916,6 +916,8 @@ class TestConfigExportControls:
         assert "composite" in result.output
         assert "Invalid export configuration" not in result.output
         mock_pipeline.assert_not_called()
+
+    def test_merge_export_overrides_rejects_export_null(self) -> None:
         """_merge_export_overrides raises when the generated config has export=null."""
         import click
 
