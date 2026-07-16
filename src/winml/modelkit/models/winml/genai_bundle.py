@@ -44,6 +44,25 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
+class GenaiTarget:
+    """A build target a genai-bundle recipe supports: an ``(ep, device)`` pair.
+
+    Declared on :class:`GenaiBundleRecipe` so ``winml build`` can check an
+    ``--export-type optimized`` request against the resolved ``(ep, device)`` and
+    build the bundle for a matching target (or fail fast when none matches). Tokens
+    are the short CLI forms (e.g. ``ep="qnn"``, ``device="npu"``) so they forward
+    straight to :func:`build_genai_bundle`.
+
+    Attributes:
+        ep: Short execution-provider token (e.g. ``"qnn"``).
+        device: Device token (e.g. ``"npu"``).
+    """
+
+    ep: str
+    device: str
+
+
+@dataclass(frozen=True)
 class GenaiTransformerSpec:
     """How to build the transformer half of a genai bundle.
 
@@ -99,6 +118,12 @@ class GenaiBundleRecipe:
         assemble: Callable assembling the copied/converted components into a
             bundle directory and writing ``genai_config.json``; must accept the
             keywords the orchestrator passes (see :func:`build_genai_bundle`).
+        supported_targets: The ``(ep, device)`` pairs this recipe can build for.
+            ``--export-type optimized`` resolves ``--ep``/``--device`` first and
+            these entries are matched against that resolved target; a target not
+            listed here is rejected. Pin ``--ep qnn --device npu`` to select this
+            recipe's target on any host.  Must be non-empty (enforced at
+            registration).
         transformer_onnx_passes: ONNX graph transforms applied to the
             transformer graphs during assembly.
         max_cache_len: Default static KV cache length (context_length).
@@ -110,6 +135,7 @@ class GenaiBundleRecipe:
     transformer: GenaiTransformerSpec
     companions: tuple[GenaiCompanionSpec, ...]
     assemble: Callable[..., Path]
+    supported_targets: tuple[GenaiTarget, ...]
     transformer_onnx_passes: tuple[Callable[[onnx.ModelProto], onnx.ModelProto], ...] = ()
     max_cache_len: int = 2048
     prefill_seq_len: int = 64
@@ -128,13 +154,19 @@ def register_genai_bundle(recipe: GenaiBundleRecipe) -> GenaiBundleRecipe:
     """Register *recipe* under ``recipe.family`` and return it.
 
     Raises:
-        ValueError: If a recipe is already registered for the family.
+        ValueError: If a recipe is already registered for the family, or if the
+            recipe declares no :attr:`~GenaiBundleRecipe.supported_targets`.
     """
     key = recipe.family
     if key in GENAI_BUNDLE_REGISTRY:
         raise ValueError(
             f"genai bundle recipe already registered for {key!r}: "
             f"{GENAI_BUNDLE_REGISTRY[key]!r}. Cannot register {recipe!r}."
+        )
+    if not recipe.supported_targets:
+        raise ValueError(
+            f"genai bundle recipe for {key!r} declares no supported_targets; "
+            "at least one (ep, device) target is required."
         )
     GENAI_BUNDLE_REGISTRY[key] = recipe
     return recipe
@@ -344,6 +376,7 @@ __all__ = [
     "GENAI_BUNDLE_REGISTRY",
     "GenaiBundleRecipe",
     "GenaiCompanionSpec",
+    "GenaiTarget",
     "GenaiTransformerSpec",
     "build_genai_bundle",
     "register_genai_bundle",

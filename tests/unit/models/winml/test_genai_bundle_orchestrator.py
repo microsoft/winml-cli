@@ -21,6 +21,7 @@ from winml.modelkit.models.auto import WinMLAutoModel
 from winml.modelkit.models.winml import (
     GenaiBundleRecipe,
     GenaiCompanionSpec,
+    GenaiTarget,
     GenaiTransformerSpec,
     build_genai_bundle,
 )
@@ -63,6 +64,7 @@ def _make_recipe(assemble) -> GenaiBundleRecipe:
             ),
         ),
         assemble=assemble,
+        supported_targets=(GenaiTarget(ep="qnn", device="npu"),),
         transformer_onnx_passes=(_dummy_pass,),
         max_cache_len=2048,
         prefill_seq_len=64,
