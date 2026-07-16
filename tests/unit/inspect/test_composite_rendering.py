@@ -17,12 +17,13 @@ import io
 import json
 
 from rich.console import Console
-from transformers import AutoConfig
+from transformers import AutoConfig, ViTConfig
 
 from winml.modelkit.inspect import (
     CompositeInfo,
     ExporterInfo,
     InspectResult,
+    IOConfigInfo,
     LoaderInfo,
     SupportLevel,
     WinMLInfo,
@@ -151,6 +152,16 @@ def test_non_composite_json_has_null_composite():
     assert data["task"] == "fill-mask"
     assert data["pipeline_tasks"] is None
     assert data["composite"] is None
+
+
+def test_json_serializes_nested_pretrained_config_in_io_extra():
+    result = _make_result(CompositeInfo(["image-to-text"], _BART_COMPONENTS))
+    result.io_config = IOConfigInfo(extra={"encoder": ViTConfig(hidden_size=768)})
+
+    data = json.loads(output_json(result))
+
+    assert data["io_config"]["extra"]["encoder"]["model_type"] == "vit"
+    assert data["io_config"]["extra"]["encoder"]["hidden_size"] == 768
 
 
 # --- resolver -> render seam (offline integration, real resolve_task) --------

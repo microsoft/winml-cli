@@ -10,6 +10,8 @@ Provides table and JSON output formatters using Rich library.
 from __future__ import annotations
 
 import json
+from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from rich.console import Console, Group
@@ -46,6 +48,20 @@ def _format_params(params: int) -> str:
     if params >= 1_000:
         return f"{params / 1_000:.1f}K"
     return str(params)
+
+
+def _json_default(value: Any) -> Any:
+    """Serialize structured config values that are not JSON primitives."""
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, Path):
+        return str(value)
+
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        return to_dict()
+
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 def _output_processor_table(console: Console, result: InspectResult) -> None:
@@ -571,7 +587,7 @@ def output_json(result: InspectResult, verbose: bool = False) -> str:
     if verbose and result.build_config:
         data["build_config"] = result.build_config
 
-    return json.dumps(data, indent=2)
+    return json.dumps(data, indent=2, default=_json_default)
 
 
 def _hierarchy_to_dict(hierarchy: HierarchyInfo) -> dict[str, Any]:
