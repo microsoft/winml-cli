@@ -774,6 +774,33 @@ class PerfBenchmark:
             # file" error from AutoConfig.
             raise FileNotFoundError(f"ONNX file not found: {model_path}")
 
+        # Composite auto-detection. A bare seq2seq model such as T5 auto-detects
+        # to a granular single-model task (text2text-generation) and would
+        # benchmark only the decoder.
+        #
+        # Why this differs from build/export: those commands *fan out* into one
+        # independent build per sub-model, so they use resolve_composite_components
+        # -> a {name: sub_model_task} map (encoder=feature-extraction,
+        # decoder=text2text-generation) and never construct a composite object.
+        # perf instead loads ONE live WinMLCompositeModel and benchmarks its
+        # sub-models, which requires a registered composite *pipeline* task
+        # (translation/summarization) to route WinMLAutoModel.from_pretrained --
+        # a different namespace from the sub-model tasks. resolve_composite_load_task
+        # bridges detection to that loadable pipeline task. Explicit --task and
+        # ONNX inputs keep their resolved task untouched.
+        resolved_task = self.config.task
+        if not is_onnx and resolved_task is None:
+            from ..loader.resolution import resolve_composite_load_task
+
+            try:
+                resolved_task = resolve_composite_load_task(model_id)
+            except OSError as e:
+                # Config not resolvable (e.g. invalid or unreachable model id).
+                # Fall back to single-model loading; from_pretrained re-attempts
+                # the config load and surfaces a clear error if the id is truly
+                # bad. Mirrors build's composite-detection guard.
+                logger.debug("Composite detection unavailable (config not resolvable): %s", e)
+
         # Only override config for explicitly requested build/export changes.
         override: WinMLBuildConfig | dict[str, Any] | None = None
         if self.config.export_overrides:
@@ -793,7 +820,7 @@ class PerfBenchmark:
         force_rebuild = self.config.rebuild or self.config.ignore_cache
 
         common_kwargs: dict[str, Any] = {
-            "task": self.config.task,
+            "task": resolved_task,
             "config": override,
             "device": self._resolved_device or self.config.device,
             "precision": self.config.precision,
