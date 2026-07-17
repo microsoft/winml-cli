@@ -15,6 +15,7 @@ from click.testing import CliRunner
 
 from winml.modelkit.cli import main
 from winml.modelkit.commands.perf import generate_output_path
+from winml.modelkit.session import EPDeviceTarget
 
 
 if TYPE_CHECKING:
@@ -32,11 +33,11 @@ def _mock_device_resolution():
     """
     with (
         patch(
-            "winml.modelkit.sysinfo.resolve_device",
-            return_value=("cpu", ["cpu"]),
+            "winml.modelkit.session.resolve_device",
+            return_value=EPDeviceTarget(ep="auto", device="cpu"),
         ),
         patch(
-            "winml.modelkit.sysinfo.resolve_eps",
+            "winml.modelkit.session.available_eps_for_device",
             return_value=["CPUExecutionProvider"],
         ),
     ):
@@ -89,8 +90,8 @@ class TestPerfModuleFlag:
         # so mock both to keep the test hermetic (no hardware probe in CI).
         with (
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("cpu", ["cpu"]),
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="auto", device="cpu"),
             ),
             patch(
                 "winml.modelkit.config.generate_hf_build_config",
@@ -112,8 +113,8 @@ class TestPerfModuleFlag:
 
         with (
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("cpu", ["cpu"]),
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="auto", device="cpu"),
             ),
             patch(
                 "winml.modelkit.config.generate_hf_build_config",
@@ -182,8 +183,8 @@ class TestPerfModuleParameterForwarding:
 
         with (
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("npu", "qnn"),
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="qnn", device="npu"),
             ),
             patch(
                 "winml.modelkit.config.generate_hf_build_config",
@@ -282,8 +283,8 @@ class TestPerfModuleParameterForwarding:
 
         with (
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("npu", "qnn"),
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="qnn", device="npu"),
             ),
             patch(
                 "winml.modelkit.config.generate_hf_build_config",
@@ -379,8 +380,8 @@ class TestPerfModuleMonitor:
 
         with (
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("cpu", ["cpu"]),
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="auto", device="cpu"),
             ),
             patch(
                 "winml.modelkit.config.generate_hf_build_config",
@@ -482,8 +483,8 @@ class TestPerfModuleQuantCompileToggles:
 
         with (
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("cpu", ["cpu"]),
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="auto", device="cpu"),
             ),
             patch(
                 "winml.modelkit.config.generate_hf_build_config",
@@ -581,8 +582,8 @@ class TestPerfModuleCache:
 
         with (
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("cpu", ["cpu"]),
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="auto", device="cpu"),
             ),
             patch(
                 "winml.modelkit.config.generate_hf_build_config",
@@ -686,8 +687,8 @@ class TestPerfModuleCache:
 
         with (
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("cpu", ["cpu"]),
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="auto", device="cpu"),
             ),
             patch(
                 "winml.modelkit.config.generate_hf_build_config",

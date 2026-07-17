@@ -17,13 +17,17 @@ import pytest
 from winml.modelkit.config import WinMLBuildConfig, generate_build_config
 from winml.modelkit.export import InputTensorSpec, OutputTensorSpec, WinMLExportConfig
 from winml.modelkit.loader import WinMLLoaderConfig
+from winml.modelkit.session import EPDeviceTarget
 
 
 @pytest.fixture(autouse=True)
 def mock_device_resolution() -> None:
     """Keep build-config integration tests independent of host EP discovery."""
     with (
-        patch("winml.modelkit.sysinfo.resolve_device", return_value=("cpu", ["cpu"])),
+        patch(
+            "winml.modelkit.session.resolve_device",
+            return_value=EPDeviceTarget(ep="auto", device="cpu"),
+        ),
         patch(
             "winml.modelkit.config.precision.resolve_eps",
             return_value=["CPUExecutionProvider"],

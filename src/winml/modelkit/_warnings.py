@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import warnings
 
 from ._env import env_flag_enabled
@@ -91,12 +92,15 @@ def _configure() -> None:
     for _cat in (FutureWarning, DeprecationWarning, UserWarning):
         warnings.filterwarnings("ignore", category=_cat, module=r"torch\..*")
 
-    # NOTE: TracerWarning (from torch.jit) is intentionally NOT filtered here.
-    # Importing torch.jit at startup would pull all of torch (~1.7s) into
-    # `winml --help` and violate the CLI import budget (tests/cli/test_import_time.py).
-    # During ONNX export, export_pytorch() wraps torch.onnx.export in
-    # `warnings.catch_warnings()` + `filterwarnings("ignore")`, which is strictly
-    # broader than a TracerWarning-only filter.
+    # TracerWarning (from torch.jit, inherits Warning not UserWarning)
+    # fires during ONNX export tracing — safe to suppress in both torch and
+    # transformers. Only register the filter if torch has ALREADY been
+    # imported; otherwise loading torch here would add ~2s to every
+    # lightweight command (``winml sys`` etc.) that never touches ONNX
+    # export. The export path re-triggers this by calling
+    # :func:`install_torch_tracer_filter` after loading torch.
+    if "torch" in sys.modules:
+        install_torch_tracer_filter()
 
     # Diffusers
     warnings.filterwarnings(
@@ -138,6 +142,19 @@ def _configure() -> None:
             return "were not used when initializing" not in record.getMessage()
 
     logging.getLogger("transformers.modeling_utils").addFilter(_TransformersWeightsFilter())
+
+
+def install_torch_tracer_filter() -> None:
+    """Register the ``TracerWarning`` filter — call after ``import torch``.
+
+    Idempotent — ``warnings.filterwarnings`` de-duplicates identical entries.
+    """
+    try:
+        # torch.jit exposes TracerWarning at runtime but its stubs don't export it.
+        from torch.jit import TracerWarning  # type: ignore[attr-defined]
+    except ImportError:
+        return  # torch not installed
+    warnings.filterwarnings("ignore", category=TracerWarning)
 
 
 # Auto-configure on import

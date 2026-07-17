@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -53,7 +53,7 @@ class MetadataWriter(StepAwareWriter):
         if epoch_time:
             self._steps_data[export_step.value] = {
                 "completed": True,
-                "timestamp": datetime.fromtimestamp(epoch_time, tz=timezone.utc)
+                "timestamp": datetime.fromtimestamp(epoch_time, tz=UTC)
                 .isoformat(timespec="milliseconds")
                 .replace("+00:00", "Z"),
             }

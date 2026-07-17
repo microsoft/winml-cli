@@ -19,7 +19,7 @@ Usage:
     result = compile_onnx("model.onnx")
 
     # Custom config
-    config = WinMLCompileConfig.for_qnn()
+    config = WinMLCompileConfig.for_provider("qnn")
     config.ep_config.provider_options["htp_performance_mode"] = "default"
     result = compile_onnx("model.onnx", config)
 """

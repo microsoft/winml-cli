@@ -2,7 +2,6 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-# ruff: noqa: PERF203
 # PERF203: try-except in loop is acceptable for writer error isolation
 
 """HTP Export Monitor - Restored IO/ABC Design.
@@ -117,7 +116,7 @@ class HTPExportMonitor:
         for writer in self.writers:
             try:
                 writer.write(step, self.data)
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203
                 print(f"Error in {writer.__class__.__name__}: {e}")
 
     def _update_step_data(self, step: ExportStep, kwargs: dict) -> None:
@@ -250,7 +249,7 @@ class HTPExportMonitor:
             for writer in self.writers:
                 try:
                     writer.close()
-                except Exception as e:
+                except Exception as e:  # noqa: PERF203
                     print(f"Error closing {writer.__class__.__name__}: {e}")
         else:
             # Error - still try to close writers

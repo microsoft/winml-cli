@@ -43,7 +43,6 @@ for _stream in (sys.stdout, sys.stderr):
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-
 def _preload_bundled_onnxruntime_dll() -> None:
     # Windows ships C:\Windows\System32\onnxruntime.dll (older API version)
     # as part of the system WindowsML component. When WinML EP plugin DLLs
@@ -74,7 +73,14 @@ def _preload_bundled_onnxruntime_dll() -> None:
 
 _preload_bundled_onnxruntime_dll()
 
-from . import _warnings  # Configure warning filters before importing subpackages
+# _warnings configures filters before any subpackage imports.
+# transformers_compat arms a sys.meta_path hook — the shim fires lazily
+# the first time anything imports optimum.*; lightweight commands
+# (``winml sys``, ``winml --help``) never pay the transformers cost.
+from . import _warnings  # noqa: I001
+from . import transformers_compat
+
+transformers_compat.arm()
 
 
 try:

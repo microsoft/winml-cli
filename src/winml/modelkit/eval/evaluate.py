@@ -19,6 +19,8 @@ from .config import WinMLEvaluationConfig
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
     from .base_evaluator import WinMLEvaluator
@@ -229,6 +231,7 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCo
     ONNX exports be evaluated today.
     """
     from ..models import WinMLAutoModel
+    from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
     from ..utils import cli as cli_utils
 
     quant_override: Any = None
@@ -251,6 +254,13 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCo
         # Evaluator-driven session loading; skip WinMLAutoModel entirely.
         return None
 
+    # Resolve EPDeviceTarget then bind a WinMLEPDevice at the boundary. Eval
+    # config carries an optional ep field; resolve_device deduces device/ep
+    # when either is 'auto'.
+    device = (config.device or "auto").lower()
+    target = resolve_device(EPDeviceTarget(ep=config.ep or "auto", device=device))
+    ep_device = WinMLEPRegistry.instance().auto_device(target)
+
     if config.model_path is not None:
         # Pre-built ONNX: precision is already baked into the model and is
         # ignored here (mirrors winml perf's ONNX path).
@@ -258,10 +268,11 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCo
 
         hf_config = AutoConfig.from_pretrained(config.model_id)
         model = WinMLAutoModel.from_onnx(
-            onnx_path=config.model_path,
+            # ``model_path`` is narrowed to ``str | dict[str, str]`` here;
+            # cast bridges dict value-type invariance (str vs str | Path).
+            onnx_path=cast("str | dict[str, str | Path]", config.model_path),
+            ep_device=ep_device,
             task=config.task,
-            device=config.device,
-            ep=config.ep,
             skip_build=config.skip_build,
             config=quant_override,
             hf_config=hf_config,
@@ -272,10 +283,9 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCo
 
     return WinMLAutoModel.from_pretrained(
         config.model_id,
+        ep_device,
         task=config.task,
-        device=config.device,
         precision=config.precision,
-        ep=config.ep,
         allow_unsupported_nodes=config.allow_unsupported_nodes,
         config=quant_override,
         **pipeline_kwargs,

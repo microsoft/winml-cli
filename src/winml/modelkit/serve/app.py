@@ -44,7 +44,7 @@ from ..inference.types import PredictionResult
 from .cli_api import CliRequest, CliResponse, _run_with_semaphore
 from .manager import ModelSlotManager, SingleModelManager
 from .schema import (
-    EpSwitchRequest,
+    EPSwitchRequest,
     HealthResponse,
     LatencyStats,
     ModelInfo,
@@ -489,7 +489,7 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
     # POST /v1/ep — switch EP
     # ------------------------------------------------------------------
     @app.post("/v1/ep", tags=["management"], summary="Switch execution provider")
-    async def switch_ep(request: EpSwitchRequest) -> dict[str, Any]:
+    async def switch_ep(request: EPSwitchRequest) -> dict[str, Any]:
         # Pydantic already validates ep against the EPNameOrAlias Literal (rejects
         # unknown values with a 422 at parse time), so no extra check needed.
         ep = request.ep

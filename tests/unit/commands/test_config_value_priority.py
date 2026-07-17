@@ -59,6 +59,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
+from winml.modelkit.session import EPDeviceTarget
+
 
 # =============================================================================
 # Shared helpers
@@ -252,10 +254,14 @@ def _run_compile(
         ),
         patch(
             "winml.modelkit.commands.compile.resolve_device",
-            return_value=("npu", None),
+            side_effect=lambda target: EPDeviceTarget(
+                ep=(target.ep if target.ep and target.ep != "auto" else "qnn"),
+                device=("npu" if target.device == "auto" else target.device),
+                source=target.source,
+            ),
         ),
         patch(
-            "winml.modelkit.commands.compile.resolve_eps",
+            "winml.modelkit.commands.compile.available_eps_for_device",
             return_value=["QNNExecutionProvider"],
         ),
         patch(

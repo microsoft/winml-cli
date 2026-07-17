@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
@@ -43,14 +43,14 @@ class RuntimeDebugDetails(TypedDict):
     error_message: NotRequired[str]
 
 
-class NodeTag(str, Enum):
+class NodeTag(StrEnum):
     """Node tag enum for classifying nodes based on their properties."""
 
     ALL_INPUTS_CONSTANT = "all_inputs_constant"
     MISSING_SHAPE_INFERENCE = "missing_shape_inference"
 
 
-class AlternativeType(str, Enum):
+class AlternativeType(StrEnum):
     """Alternative pattern relationship type enum."""
 
     EQUIVALENT = "equivalent"

@@ -373,13 +373,15 @@ def _resolve_device(cfg: WinMLEvaluationConfig) -> None:
     if cfg.device and cfg.device.lower() != "auto":
         return
 
-    from ..sysinfo import resolve_device
+    from ..session import EPDeviceTarget, resolve_device
 
     console = Console(stderr=True)
     console.print("[bold]Detecting available devices...[/bold]")
-    resolved, _ = resolve_device(cfg.device, ep=cfg.ep)
-    cfg.device = resolved
-    console.print(f"[dim]Using device:[/dim] {resolved}")
+    resolved_target = resolve_device(
+        EPDeviceTarget(ep=cfg.ep or "auto", device=cfg.device or "auto")
+    )
+    cfg.device = resolved_target.device
+    console.print(f"[dim]Using device:[/dim] {resolved_target.device}")
 
 
 def _resolve_label_mapping(cfg: WinMLEvaluationConfig) -> None:

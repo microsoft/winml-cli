@@ -6,17 +6,7 @@
 
 from __future__ import annotations
 
-import sys
 from typing import Literal, TypeAlias, cast, get_args
-
-
-if sys.platform == "win32":
-    from .native_stderr import suppress_native_stderr
-
-    with suppress_native_stderr():
-        import onnxruntime as ort
-else:
-    import onnxruntime as ort
 
 
 # Canonical ORT execution provider full names (the `*ExecutionProvider` symbols).
@@ -81,21 +71,6 @@ EP_ALIASES: dict[EPAlias, EPName] = {
     "nvtensorrtrtx": "NvTensorRTRTXExecutionProvider",
     "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
     "migraphx": "MIGraphXExecutionProvider",
-}
-
-# Reverse mapping: canonical EP name -> primary shorthand alias.
-# Every canonical name has exactly one primary alias (the "preferred" one when
-# multiple aliases share a canonical, e.g. ``openvino``/``ov`` -> ``openvino``).
-# Use this to convert a canonical name back to the alias domain without `cast`.
-EP_NAME_TO_ALIAS: dict[EPName, EPAlias] = {
-    "QNNExecutionProvider": "qnn",
-    "OpenVINOExecutionProvider": "openvino",
-    "VitisAIExecutionProvider": "vitisai",
-    "CPUExecutionProvider": "cpu",
-    "CUDAExecutionProvider": "cuda",
-    "DmlExecutionProvider": "dml",
-    "NvTensorRTRTXExecutionProvider": "nv_tensorrt_rtx",
-    "MIGraphXExecutionProvider": "migraphx",
 }
 
 # Runtime-iterable forms of the Literal types above (for membership checks, choice lists).
@@ -204,15 +179,3 @@ EP_SUPPORTED_DEVICES: dict[EPName, tuple[str, ...]] = {
     "VitisAIExecutionProvider": ("npu",),
 }
 
-# Device string to ORT device type mapping
-DEVICE_TO_DEVICE_TYPE = {
-    "CPU": ort.OrtHardwareDeviceType.CPU,
-    "GPU": ort.OrtHardwareDeviceType.GPU,
-    "NPU": ort.OrtHardwareDeviceType.NPU,
-}
-
-DEVICE_TYPE_TO_DEVICE = {
-    ort.OrtHardwareDeviceType.CPU: "CPU",
-    ort.OrtHardwareDeviceType.GPU: "GPU",
-    ort.OrtHardwareDeviceType.NPU: "NPU",
-}

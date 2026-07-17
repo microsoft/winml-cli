@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 
@@ -32,7 +33,9 @@ from ..utils import cli as cli_utils
 from ..utils.constants import EPName, EPNameOrAlias
 from ..utils.logging import configure_logging
 from ..utils.model_input import ModelInputKind, classify_model_input
+from ._ep_arg import EpAtSourceParamType
 from ._live_chart import LiveMonitorDisplay
+from ._pre_bench import print_pre_bench_block
 
 
 if TYPE_CHECKING:
@@ -40,6 +43,8 @@ if TYPE_CHECKING:
 
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
+    from ..session import WinMLEPDevice
+    from ..session.monitor.ep_monitor import WinMLEPMonitor
     from ..session.stats import PerfStats
 
 logger = logging.getLogger(__name__)
@@ -52,12 +57,61 @@ logger = logging.getLogger(__name__)
 # Hardware monitor polling interval (milliseconds)
 _HW_POLL_INTERVAL_MS = 200
 
+
 # Inference runtimes selectable via ``--runtime`` (closed set; mirrors the
 # ``--compiler`` / ``COMPILER_NAMES`` convention in utils.constants):
 #   "winml"       -> single-shot ONNX inference (default)
 #   "winml-genai" -> onnxruntime-genai decoder-pipeline generation
 RuntimeName = Literal["winml", "winml-genai"]
 RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
+
+
+# =============================================================================
+# Monitor JSON Dispatch (v2.4 — typed accessor + transitional to_dict)
+# =============================================================================
+
+
+def _monitor_to_json_dict(monitor: WinMLEPMonitor) -> dict[str, Any]:
+    """Extract JSON-serializable monitor data via typed accessors (v2.4).
+
+    Op-tracing monitors expose data via ``monitor.result`` (returns
+    :class:`OpTraceResult`).  Proof-of-execution monitors (VitisAI,
+    OpenVINO) still expose theirs via ``to_dict()`` transitionally — to be
+    replaced by a typed ``proof`` accessor in a follow-up PR (see PRD
+    OQ-6).  ``NullEPMonitor`` returns an empty dict (no monitor data to
+    surface).
+
+    Order matters:
+
+    1. ``monitor.result`` first — catches QNNMonitor (and any future
+       op-tracing monitor); ``result.to_dict()`` returns the
+       :class:`OpTraceResult` nested schema.
+    2. ``hasattr(monitor, "to_dict")`` — VitisAI / OpenVINO transitional
+       path until they expose a typed ``proof`` accessor.
+    3. ``{}`` — :class:`NullEPMonitor` (no data to surface).
+
+    Error containment (Bundle B): a regression in any monitor's serializer
+    must not crash ``wmk perf`` mid-output after the benchmark already ran.
+    Exceptions raised by either ``result.to_dict()`` or ``monitor.to_dict()``
+    are logged at WARNING (so the regression is diagnosable) and surfaced
+    as a sentinel ``{"error": "monitor_serialization_failed: ..."}`` dict
+    so the JSON report still serialises successfully.
+    """
+    try:
+        result = monitor.result
+        if result is not None:
+            return result.to_dict()
+        if hasattr(monitor, "to_dict"):
+            return cast("dict[str, Any]", monitor.to_dict())
+    except Exception as exc:
+        logger.warning(
+            "Monitor JSON serialization failed for %s: %s",
+            type(monitor).__name__,
+            exc,
+        )
+        return {"error": f"monitor_serialization_failed: {exc}"}
+    return {}
+
 
 # =============================================================================
 # Constants for Data Generation
@@ -70,6 +124,143 @@ DYNAMIC_DIM_DEFAULTS = {
     2: 224,  # Height
     3: 224,  # Width
 }
+
+
+# =============================================================================
+# EP Monitor Dispatch
+# =============================================================================
+
+
+def _resolve_ep_monitor(
+    ep: str | None,
+    op_tracing: str | None,
+    output_dir: Path,
+    device: str | None = None,
+) -> Any:
+    """Pick the WinMLEPMonitor for the requested EP and optional op-tracing level.
+
+    Explicit dispatch — no registry, no plugin loading. Case-insensitive EP
+    match. When ``op_tracing`` is set and ``ep`` is empty, ``device`` is
+    consulted to pick the first monitor whose ``is_available()`` returns True.
+
+    Returns NullEPMonitor when no monitor applies; raises RuntimeError when
+    op-tracing is requested but no supporting monitor is available on this
+    system.
+    """
+    from ..session.monitor.ep_monitor import NullEPMonitor
+
+    ep_norm = (ep or "").lower()
+    device_norm = (device or "").lower()
+
+    if op_tracing:
+        from ..session.monitor.qnn_monitor import QNNMonitor
+
+        if not ep_norm and device_norm in ("npu", "auto", "") and QNNMonitor.is_available():
+            ep_norm = "qnn"
+
+        if ep_norm == "qnn":
+            if not QNNMonitor.is_available():
+                raise RuntimeError(
+                    "Op-tracing --ep qnn requested but QNN is not available on "
+                    "this system. Install onnxruntime-qnn or onnxruntime-windowsml "
+                    "with QNN runtime, or run `wmk perf` without --op-tracing."
+                )
+            return QNNMonitor(
+                level=cast('Literal["basic", "detail"]', op_tracing),
+                output_dir=output_dir,
+            )
+
+        if ep_norm == "openvino":
+            if op_tracing == "detail":
+                raise RuntimeError(
+                    "Op-tracing --level detail is not supported for OpenVINO EP; "
+                    "use --op-tracing basic."
+                )
+            # Unconditional refusal for basic. The shipping OpenVINO EP
+            # wheels (Intel openvino-plugin-ep) don't implement the
+            # CSV-dump mechanism OpenVINOMonitor was written against, so
+            # returning the monitor would produce silent no-data JSON.
+            # ``OpenVINOMonitor.is_available()`` returns ``False`` for the
+            # same reason — this branch is the user-facing failure path.
+            raise RuntimeError(
+                "Op-tracing --ep openvino is not currently supported. The shipping "
+                "OpenVINO EP wheels (Intel openvino-plugin-ep) don't implement the "
+                "CSV-dump mechanism the monitor needs. Run `wmk perf` without "
+                "--op-tracing, or use --ep qnn if a QNN NPU is available."
+            )
+
+        raise RuntimeError(
+            f"Op-tracing not available for EP {ep!r} on device {device!r}. "
+            "Supported EPs: qnn, openvino."
+        )
+
+    # Proof-of-execution monitors (no op-tracing)
+    from ..session.monitor.vitisai_monitor import VitisAIMonitor
+
+    if ep_norm == "vitisai" and VitisAIMonitor.is_available():
+        return VitisAIMonitor()
+    return NullEPMonitor()
+
+
+def _pre_bench_kwargs_from_ep_device(
+    ep_device: WinMLEPDevice,
+    *,
+    model_id: str | None,
+    task: str | None,
+    opset: int | None,
+    inputs: list | None,
+    outputs: list | None,
+    cached_onnx_path: str | None,
+    onnx_file: str | None,
+) -> dict[str, Any]:
+    """Return the identity-block kwargs shared by both benchmark call sites.
+
+    The six ``ep_device``-derived fields (``device``, ``hardware_name``,
+    ``ep``, ``ep_source``, ``ep_version``, ``ep_dll_path``) are
+    identical in the HF and ONNX pre-benchmark blocks; extracting them
+    keeps the two callers in sync.
+    """
+    return {
+        "model_id": model_id,
+        "task": task,
+        "opset": opset,
+        "inputs": inputs,
+        "outputs": outputs,
+        "cached_onnx_path": cached_onnx_path,
+        "onnx_file": onnx_file,
+        "device": ep_device.device.device_type.lower(),
+        "hardware_name": ep_device.device.hardware_name or "",
+        "ep": ep_device.ep_short_name,
+        "ep_source": ep_device.source_tag,
+        "ep_version": ep_device.version,
+        "ep_dll_path": "" if ep_device.is_builtin else str(ep_device.dll_path),
+    }
+
+
+def _open_ep_monitor_or_exit(
+    *,
+    op_tracing: str | None,
+    ep: str | None,
+    device: str | None,
+    output_dir: Path,
+) -> Any:
+    """Resolve an EP monitor or exit the CLI on a RuntimeError.
+
+    Shared entry point for the HF and ONNX benchmark pipelines. Any
+    RuntimeError raised by :func:`_resolve_ep_monitor` is surfaced as a
+    red-tagged stderr line and terminates the process with exit code 1,
+    which is the intent at both call sites.
+    """
+    try:
+        return _resolve_ep_monitor(
+            ep=ep,
+            op_tracing=op_tracing,
+            output_dir=output_dir,
+            device=device,
+        )
+    except RuntimeError as e:
+        Console(stderr=True).print(f"[red]Error:[/red] {e}")
+        raise SystemExit(1) from None
 
 
 # =============================================================================
@@ -101,8 +292,10 @@ class BenchmarkConfig:
     monitor: bool = False
     memory: bool = True
     ep: EPNameOrAlias | None = None
+    ep_source: str | None = None  # parsed from '--ep <name>@<source>' syntax
     ep_options: dict[str, str] | None = None
     shape_config: dict | None = None
+    op_tracing: str | None = None
     export_overrides: dict[str, Any] | None = None
     # Path to a .npz file of real input tensors. When set, benchmarking uses
     # these instead of randomly generated inputs (single-model path only).
@@ -115,7 +308,7 @@ class BenchmarkResult:
 
     # Benchmark config
     config: BenchmarkConfig
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     # Model info
     input_names: list[str] = field(default_factory=list)
@@ -178,6 +371,7 @@ class BenchmarkResult:
                 "task": self.actual_task,
                 "device": self.actual_device,
                 "ep": self.actual_ep,
+                "ep_source": self.config.ep_source,
                 "ep_options": self.config.ep_options,
                 "precision": self.config.precision,
                 "iterations": self.config.iterations,
@@ -515,6 +709,7 @@ class PerfBenchmark:
         self.config = config
         self._model: WinMLPreTrainedModel | WinMLCompositeModel | None = None
         self._inputs: dict[str, np.ndarray] | None = None
+        self._ep_device: WinMLEPDevice | None = None
         self._effective_batch: int = config.batch_size
         self._memory: dict[str, float] | None = None
         # Concrete device + EP resolved from the config's request, populated by
@@ -542,21 +737,20 @@ class PerfBenchmark:
         if self._resolved_device is not None:
             return
 
-        from ..sysinfo import resolve_device, resolve_eps
+        from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
 
         # resolve_device() availability-checks even when --ep is explicit, so a
         # named-but-absent EP is caught here too.
-        resolved_device, _ = resolve_device(device=self.config.device, ep=self.config.ep)
-        if self.config.ep is not None:
-            # Keep the user's EP (alias or canonical) verbatim — downstream
-            # stages normalize it. Only derive one when the user gave none.
-            resolved_ep: EPNameOrAlias | None = self.config.ep
-        else:
-            device_eps = resolve_eps(resolved_device)
-            resolved_ep = device_eps[0] if device_eps else None
-
-        self._resolved_device = resolved_device
-        self._resolved_ep = resolved_ep
+        target = resolve_device(
+            EPDeviceTarget(
+                ep=self.config.ep or "auto",
+                device=self.config.device or "auto",
+                source=self.config.ep_source,
+            )
+        )
+        self._ep_device = WinMLEPRegistry.instance().auto_device(target)
+        self._resolved_device = target.device
+        self._resolved_ep = cast("EPNameOrAlias", target.ep)
 
     @property
     def resolved_device(self) -> str | None:
@@ -698,17 +892,25 @@ class PerfBenchmark:
             rss_after_compile = get_rss_mb()
             vram_local_compile, vram_shared_compile = get_vram_mb(adapter_luid)
 
-        # Print model info before benchmark starts
-        _print_model_info(
-            self._single.io_config,
-            task=self._single.task or self.config.task,
-            req_device=self.config.device,
-            act_device=self._single.device,
-            ep_name=self._single.ep_name,
-            actual_shapes=(
-                {name: tuple(arr.shape) for name, arr in self._inputs.items()}
-                if self._inputs
-                else None
+        # Pre-benchmark identity block (model + device sub-blocks).
+        # opset is not currently extracted on this path; pass None.
+        io_cfg = self._single.io_config
+        assert self._ep_device is not None  # populated by _load_model
+        print_pre_bench_block(
+            Console(stderr=True),
+            **_pre_bench_kwargs_from_ep_device(
+                self._ep_device,
+                model_id=self.config.model_id,
+                task=self._single.task or self.config.task,
+                opset=None,
+                inputs=_io_specs_from_config(io_cfg, prefix="input"),
+                outputs=_io_specs_from_config(io_cfg, prefix="output"),
+                cached_onnx_path=(
+                    str(self._single._onnx_path)
+                    if getattr(self._single, "_onnx_path", None)
+                    else None
+                ),
+                onnx_file=None,
             ),
         )
 
@@ -761,7 +963,9 @@ class PerfBenchmark:
 
         # Resolve the concrete device + EP first so a bad combo fails fast,
         # before from_pretrained/from_onnx kick off the build pipeline.
+        # This also binds ``self._ep_device`` via auto_device (loads the DLL).
         self._resolve_device_ep()
+        assert self._ep_device is not None
 
         model_id = self.config.model_id
         model_path = Path(model_id)
@@ -794,9 +998,8 @@ class PerfBenchmark:
         common_kwargs: dict[str, Any] = {
             "task": self.config.task,
             "config": override,
-            "device": self._resolved_device or self.config.device,
+            "ep_device": self._ep_device,
             "precision": self.config.precision,
-            "ep": self._resolved_ep,
             "provider_options": self.config.ep_options,
             "use_cache": use_cache,
             "force_rebuild": force_rebuild,
@@ -863,8 +1066,6 @@ class PerfBenchmark:
 
     def _resolve_adapter_luid(self) -> str | None:
         """Resolve adapter LUID for VRAM queries."""
-        import sys
-
         if sys.platform != "win32":
             return None
 
@@ -876,7 +1077,9 @@ class PerfBenchmark:
         try:
             from ..sysinfo.pdh_adapters import resolve_adapter_luid
 
-            ep_name = self._single.ep_name
+            # ep_name is the full ORT EP name (a member of EPName at runtime);
+            # WinMLPreTrainedModel types it loosely as ``str | None``.
+            ep_name = cast("EPName | None", self._single.ep_name)
             for kind in [device] if device in ("npu", "gpu") else ["npu", "gpu"]:
                 luid = resolve_adapter_luid(kind, ep_name=ep_name)
                 if luid:
@@ -887,8 +1090,14 @@ class PerfBenchmark:
             return None
 
     def _run_benchmark(self) -> PerfStats:
-        """Execute benchmark iterations with timing."""
-        if self.config.monitor:
+        """Execute benchmark iterations with timing.
+
+        Dispatches to the monitored path whenever ``--monitor`` was passed OR
+        ``--op-tracing`` was requested. Op-tracing requires the EP monitor to
+        wrap ``session.perf()``, so the simple no-monitor path cannot fulfill
+        it; routing both flags through the same code path guarantees parity.
+        """
+        if self.config.monitor or self.config.op_tracing:
             return self._run_benchmark_monitored()
         return self._run_benchmark_simple()
 
@@ -898,79 +1107,98 @@ class PerfBenchmark:
         total_iterations = self.config.warmup + self.config.iterations
 
         session = self._single._session
-        with session.perf(warmup=self.config.warmup) as stats:
+        with session.perf(warmup=self.config.warmup) as ctx:
             _run_simple_loop(session, self._inputs, total_iterations)
 
-        return stats
+        # Expose ctx for post-benchmark reporting (parity with monitored path).
+        self._perf_ctx = ctx
+        return ctx.stats
 
     def _run_benchmark_monitored(self) -> PerfStats:
-        """Execute benchmark with live hardware monitoring.
+        """Execute benchmark with live hardware monitoring and/or op-tracing.
 
-        Always runs HWMonitor for system-wide metrics (CPU, RAM, NPU/GPU).
-        Optionally runs an EP-specific monitor (e.g., VitisAIMonitor)
-        alongside for vendor proof-of-execution. Uses NullEPMonitor when
-        no vendor monitor is available, eliminating null checks.
+        Resolves the EP-specific monitor (e.g., QNNMonitor, VitisAIMonitor)
+        via :func:`_resolve_ep_monitor` (NullEPMonitor when nothing applies).
+        The EP monitor is integrated into ``session.perf()`` so op-tracing
+        observes the user's actual benchmark iterations.
+
+        HWMonitor (system-wide CPU/RAM/NPU metrics) is engaged when available
+        AND either ``--monitor`` was set or HW data is otherwise needed. When
+        HWMonitor is unavailable but op-tracing is still requested, the run
+        proceeds with the EP monitor only — op-tracing is the headline goal
+        and must not be blocked by missing HW telemetry.
         """
-        from ..session.monitor.ep_monitor import NullEPMonitor
         from ..session.monitor.hw_monitor import HWMonitor
-        from ..session.monitor.vitisai_monitor import VitisAIMonitor
 
         assert self._inputs is not None
         total_iterations = self.config.warmup + self.config.iterations
 
-        if not HWMonitor.is_available():
+        output_dir = self.config.output_path.parent if self.config.output_path else Path.cwd()
+        ep_monitor = _open_ep_monitor_or_exit(
+            op_tracing=self.config.op_tracing,
+            ep=self.config.ep,
+            device=self.config.device,
+            output_dir=output_dir,
+        )
+
+        # HWMonitor is best-effort: required only for the live-chart UI on
+        # --monitor. When it's unavailable but op-tracing is requested, run
+        # without HW telemetry rather than degrading op-tracing to a no-op.
+        hw_available = HWMonitor.is_available()
+        if self.config.monitor and not hw_available:
             Console(stderr=True).print(
                 "[yellow]Warning:[/yellow] HWMonitor unavailable on this system. "
                 "Running without hardware monitoring."
             )
-            return self._run_benchmark_simple()
 
         # Track the device actually being benchmarked so the monitor polls
         # GPU when --device gpu is specified, NPU when --device npu, etc.
         # ep_name lets the monitor resolve the exact LUID via ORT's autoEP
         # metadata so we follow the adapter the session actually binds to.
-        ep_name = self._single.ep_name
+        # Full ORT EP name; HWMonitor resolves the adapter LUID from it.
+        ep_name = cast("EPName | None", self._single.ep_name)
         monitor_device = self._single.device or self.config.device or "auto"
-        hw_monitor = HWMonitor(
-            poll_interval_ms=_HW_POLL_INTERVAL_MS,
-            device=monitor_device,
-            ep_name=ep_name,
-        )
-
-        # EP-specific proof-of-execution monitor.
-        # When QNN/OpenVINO monitors become real, add entries here.
-        _ep_monitors: dict[EPName, Any] = {"VitisAIExecutionProvider": VitisAIMonitor}
-        monitor_cls = _ep_monitors.get(ep_name) if ep_name else None
-        ep_monitor: Any
-        if monitor_cls and monitor_cls.is_available():
-            ep_monitor = monitor_cls()
-        else:
-            ep_monitor = NullEPMonitor()
 
         session = self._single._session
-        with (
-            session.perf(warmup=self.config.warmup) as stats,
-            hw_monitor as hw,
-            ep_monitor as ep_mon,
-        ):
-            _run_monitored_loop(
-                session,
-                self._inputs,
-                stats,
-                hw,
-                total_iterations=total_iterations,
-                warmup=self.config.warmup,
-                model_id=self.config.model_id,
+        if hw_available:
+            hw_monitor = HWMonitor(
+                poll_interval_ms=_HW_POLL_INTERVAL_MS,
                 device=monitor_device,
+                ep_name=ep_name,
             )
+            with (
+                session.perf(warmup=self.config.warmup, monitor=ep_monitor) as ctx,
+                hw_monitor as hw,
+            ):
+                _run_monitored_loop(
+                    session,
+                    self._inputs,
+                    ctx.stats,
+                    hw,
+                    total_iterations=total_iterations,
+                    warmup=self.config.warmup,
+                    model_id=self.config.model_id,
+                    device=monitor_device,
+                )
+                self._hw_metrics = hw.to_dict()
 
-            # Store hardware metrics
-            self._hw_metrics = hw.to_dict()
-            ep_dict = ep_mon.to_dict()
+            # EP proof / op-trace data — dispatch via typed accessor when
+            # available, falling through to to_dict() for transitional
+            # proof-of-execution monitors. See _monitor_to_json_dict.
+            ep_dict = _monitor_to_json_dict(ctx.monitor)
             if ep_dict:  # NullEPMonitor returns {}, real monitors return data
                 self._hw_metrics["ep_proof"] = ep_dict
+        else:
+            # HW unavailable: run with EP monitor only (op-tracing path).
+            with session.perf(warmup=self.config.warmup, monitor=ep_monitor) as ctx:
+                _run_simple_loop(session, self._inputs, total_iterations)
+            ep_dict = _monitor_to_json_dict(ctx.monitor)
+            if ep_dict:
+                self._hw_metrics = {"ep_proof": ep_dict}
 
-        return stats
+        # Store the op-trace context for post-benchmark reporting
+        self._perf_ctx = ctx
+        return ctx.stats
 
     def _collect_results(self, stats: PerfStats) -> BenchmarkResult:
         """Collect benchmark results from PerfStats."""
@@ -1018,7 +1246,7 @@ class PerfBenchmark:
             # Actual values (resolved after build + compile)
             actual_device=self._single.device,
             actual_task=self._single.task or self.config.task or "auto-detected",
-            actual_ep=self._single.ep_name,
+            actual_ep=cast("EPName | None", self._single.ep_name),
             running_model_path=str(self._single.running_model_path),
             # Hardware monitor metrics (only present when --monitor is used)
             hw_monitor=getattr(self, "_hw_metrics", None),
@@ -1103,17 +1331,20 @@ def _perf_modules(
     from ..cache import get_cache_dir, get_cache_key, get_model_dir
     from ..config import SubmoduleClassNotFoundError, generate_hf_build_config
     from ..loader.task import get_task_abbrev
-    from ..sysinfo import resolve_device, resolve_eps
+    from ..session import EPDeviceTarget, available_eps_for_device, resolve_device
     from .build import _instantiate_parent_model
 
-    resolved_device, _ = resolve_device(device=device, ep=ep)
+    resolved_device = resolve_device(
+        EPDeviceTarget(ep=ep or "auto", device=device or "auto")
+    ).device
     # Derive a concrete EP when none was given so each per-module build's static
     # analyzer targets one EP instead of ep=None (which aggregates across all
     # EPs and warns; see #931). An explicit EP is kept verbatim — downstream
     # stages normalize it.
     if ep is None:
-        device_eps = resolve_eps(resolved_device)
-        ep = device_eps[0] if device_eps else None
+        device_eps = available_eps_for_device(resolved_device)
+        # available_eps_for_device returns canonical (full) EP names.
+        ep = cast("EPName", device_eps[0]) if device_eps else None
 
     console.print(f"[dim]Generating module configs for {module_class}...[/dim]")
 
@@ -1242,13 +1473,14 @@ def _perf_modules(
                 )
 
                 # Benchmark using WinMLSession
-                from ..session import WinMLSession
+                from ..session import EPDeviceTarget, WinMLEPRegistry, WinMLSession, resolve_device
 
+                # CPU sniff — uses live resolve_device; future opt: cache
+                cpu_target = resolve_device(EPDeviceTarget(ep="cpu", device="cpu"))
+                cpu_ep_device = WinMLEPRegistry.instance().auto_device(cpu_target)
                 session = WinMLSession(
                     str(build_result.final_onnx_path),
-                    device=resolved_device,
-                    ep=ep,
-                    provider_options=ep_options,
+                    ep_device=cpu_ep_device,
                 )
                 io_cfg = session.io_config
                 inputs = generate_random_inputs(io_cfg, batch_size=batch_size)
@@ -1267,18 +1499,18 @@ def _perf_modules(
                         hw_ctx = HWMonitor(
                             poll_interval_ms=_HW_POLL_INTERVAL_MS,
                             device=resolved_device,
-                            ep_name=session.ep_name,
+                            ep_name=cast("EPName | None", session.ep_name),
                         )
 
                 if hw_ctx:
                     # Drive the same live chart single-model mode uses so
                     # --monitor renders a per-module HW utilization chart
                     # instead of silently dumping metrics to JSON (issue #654).
-                    with session.perf(warmup=warmup) as stats, hw_ctx as hw:
+                    with session.perf(warmup=warmup) as ctx, hw_ctx as hw:
                         _run_monitored_loop(
                             session,
                             inputs,
-                            stats,
+                            ctx.stats,
                             hw,
                             total_iterations=total_iters,
                             warmup=warmup,
@@ -1289,12 +1521,12 @@ def _perf_modules(
                         # stops the monitor, so to_dict() must read while it's
                         # still live (mirrors the single-model path).
                         hw_metrics = hw.to_dict()
+                    mod_stats = ctx.stats
                 else:
-                    with session.perf(warmup=warmup) as stats:
+                    with session.perf(warmup=warmup) as ctx:
                         for _ in range(total_iters):
                             session.run(inputs)
-
-                mod_stats = stats
+                    mod_stats = ctx.stats
                 result_entry: dict[str, Any] = {
                     "module_path": module_path,
                     "running_model_path": str(session.running_model_path),
@@ -1384,28 +1616,18 @@ def _device_string(req_device: str, act_device: str, ep_name: EPName | None) -> 
 
 
 def display_console_report(result: BenchmarkResult, console: Console) -> None:
-    """Display benchmark results in formatted console output."""
-    # Info section — show "requested (resolved)" when they differ
-    console.print()
+    """Display benchmark results in formatted console output.
 
-    req_device = result.config.device
-    act_device = result.actual_device
-    device_str = _device_string(req_device, act_device, result.actual_ep)
-    console.print(f"[dim]Device:[/dim]      {device_str}")
+    Device/EP/DLL/hardware and I/O tensor identity are rendered before
+    the benchmark by :func:`print_pre_bench_block`; this function starts
+    at the latency table and continues with throughput + hardware
+    summary + save-to footer.
 
-    # TODO: show resolved precision once WinMLPreTrainedModel.precision
-    # is implemented (derive from _build_config.quant.weight_type)
-
-    act_task = result.actual_task
-    if act_task.startswith("n/a"):
-        task_str = act_task
-    else:
-        req_task = result.config.task or "auto"
-        task_str = f"{req_task} ({act_task})" if req_task != act_task else act_task
-    console.print(f"[dim]Task:[/dim]        {task_str}")
-
-    # I/O tensor info is printed before the benchmark via _print_model_info()
-
+    ``BenchmarkResult.actual_device`` / ``actual_task`` remain in the
+    JSON report (see the ``config`` block in :meth:`BenchmarkResult.to_dict`)
+    even though they no longer render to stdout — the data model is
+    unchanged, only the console rendering was pruned.
+    """
     # Latency table
     console.print()
     console.print("[bold]Latency (ms)[/bold]")
@@ -1604,74 +1826,51 @@ def generate_output_path(model_id: str, *, module_class: str | None = None) -> P
 # =============================================================================
 
 
-def _format_input_shape(shape: list, actual: tuple | None) -> str:
-    """Render a declared input shape, marking dynamic dims as ``dynamic``.
+def _io_specs_from_config(
+    io_config: dict, *, prefix: str
+) -> list[tuple[str, str, tuple[int | str, ...]]] | None:
+    """Project io_config into (name, dtype, shape) triples for the pre-bench panel.
 
-    A dynamic dimension (declared as ``None``) is shown as ``dynamic(<n>)``
-    where ``<n>`` is the concrete size the generated input data actually used
-    for that axis, so the real batch/sequence sizes stay visible alongside the
-    fact that the model left them free.
+    ``prefix`` is ``"input"`` or ``"output"``; selects the matching name/
+    shape/type lists. Returns ``None`` when names are missing so the
+    pre-bench helper can omit the row entirely.
+
+    Dynamic dims (``None`` in shape) render as the string sentinel ``"?"``
+    rather than collapsing to integer ``0`` (which readers misinterpret
+    as a fixed batch=0).
     """
-    dims: list[str] = []
-    for i, dim in enumerate(shape):
-        if dim is None:
-            if actual is not None and i < len(actual):
-                dims.append(f"dynamic({actual[i]})")
-            else:
-                dims.append("dynamic")
-        else:
-            dims.append(str(dim))
-    return f"[{', '.join(dims)}]"
+    names = io_config.get(f"{prefix}_names") or []
+    if not names:
+        return None
+    shapes = io_config.get(f"{prefix}_shapes") or []
+    types = io_config.get(f"{prefix}_types") or []
+    specs: list[tuple[str, str, tuple[int | str, ...]]] = []
+    for i, name in enumerate(names):
+        shape = shapes[i] if i < len(shapes) else ()
+        dtype = str(types[i]) if i < len(types) else ""
+        shape_tuple: tuple[int | str, ...] = (
+            tuple(int(d) if d is not None else "?" for d in shape) if shape else ()
+        )
+        specs.append((str(name), dtype, shape_tuple))
+    return specs
 
 
-def _print_model_info(
-    io_config: dict,
+def _print_save_to_footer(
+    console: Console,
     *,
-    task: str | None = None,
-    req_device: str = "auto",
-    act_device: str = "auto",
-    ep_name: EPName | None = None,
-    actual_shapes: dict[str, tuple] | None = None,
+    trace_json: str | None,
+    profiling_csv: str | None,
 ) -> None:
-    """Print model I/O metadata before the benchmark starts."""
-    console = Console(stderr=True)
-    console.print()
-    device_line = _device_string(req_device, act_device, ep_name)
-    console.print(f"[dim]Device:[/dim]      {device_line}")
-    if task:
-        console.print(f"[dim]Task:[/dim]        {task}")
+    """Print save-to footer lines after the op-trace report.
 
-    precision = io_config.get("precision")
-    if precision:
-        console.print(f"[dim]Model Precision:[/dim]   {precision}")
-
-    names = io_config.get("input_names", [])
-    shapes = io_config.get("input_shapes", [])
-    types = io_config.get("input_types", [])
-    if names:
-        label = "[dim]Inputs:[/dim]      "
-        pad = "             "
-        for i, name in enumerate(names):
-            shape = shapes[i] if i < len(shapes) else []
-            dtype = str(types[i]) if i < len(types) else ""
-            actual = actual_shapes.get(name) if actual_shapes else None
-            shape_str = _format_input_shape(shape, actual)
-            # ``shape_str`` can start with a lowercase ``dynamic(...)`` which Rich
-            # would otherwise parse as a markup tag and swallow -- escape it.
-            line = f"{name:<20s} {escape(shape_str):<22s} {dtype}"
-            console.print(f"{label if i == 0 else pad}{line}")
-
-    out_names = io_config.get("output_names", [])
-    out_shapes = io_config.get("output_shapes", [])
-    if out_names:
-        label = "[dim]Outputs:[/dim]     "
-        pad = "             "
-        for i, name in enumerate(out_names):
-            shape = out_shapes[i] if i < len(out_shapes) else []
-            shape_str = escape(_format_input_shape(shape, None))
-            console.print(f"{label if i == 0 else pad}{name:<20s} {shape_str}")
-
-    console.print()
+    Each line is rendered only when its path is supplied; if both are
+    ``None`` the helper emits nothing. The ``[dim]...[/dim]`` markup
+    softens the label so the path itself is the visual anchor.
+    """
+    if trace_json:
+        console.print(f"[dim]Op-trace JSON:[/dim] {trace_json}")
+    if profiling_csv:
+        console.print(f"[dim]Profiling CSV:[/dim] {profiling_csv}")
 
 
 def _run_monitored_loop(
@@ -1707,6 +1906,8 @@ def _run_monitored_loop(
                 cpu_pct=hw.mean_cpu_pct,
                 ram_mb=hw.ram_used_mb,
                 cpu_samples=hw.cpu_samples,
+                gpu_samples=hw.gpu_samples,
+                gpu_pct=hw.mean_gpu_pct,
             )
 
 
@@ -1721,6 +1922,146 @@ def _run_simple_loop(
 
         if (i + 1) % max(1, total_iterations // 10) == 0:
             logger.debug("Progress: %d/%d", i + 1, total_iterations)
+
+
+# =============================================================================
+# ONNX Direct Benchmark
+# =============================================================================
+
+
+def _run_onnx_benchmark(
+    onnx_path: Path,
+    *,
+    ep_device: WinMLEPDevice,
+    iterations: int,
+    warmup: int,
+    batch_size: int,
+    config: BenchmarkConfig,
+) -> tuple[BenchmarkResult, Any]:
+    """Benchmark an ONNX file directly via WinMLSession (no HF build).
+
+    Creates a WinMLSession, reads io_config for input shapes,
+    generates random inputs, and runs the standard benchmark loop.
+
+    Returns ``(BenchmarkResult, perf_ctx)``. When ``config.op_tracing`` is set,
+    ``perf_ctx.monitor.result`` carries the :class:`OpTraceResult` for the
+    op-tracing post-benchmark report. When op-tracing is disabled the monitor
+    is :class:`NullEPMonitor` and ``perf_ctx.monitor.result`` is ``None``.
+    """
+    from ..session import WinMLSession
+
+    session = WinMLSession(onnx_path=onnx_path, ep_device=ep_device)
+
+    # Generate random inputs from session's I/O config
+    io_cfg = session.io_config
+    inputs = generate_random_inputs(io_config=io_cfg, batch_size=batch_size)
+
+    # Compile session early so session.device is resolved for display
+    session.compile()
+
+    # Pre-benchmark identity block (raw ONNX path + device sub-blocks).
+    print_pre_bench_block(
+        Console(stderr=True),
+        **_pre_bench_kwargs_from_ep_device(
+            ep_device,
+            model_id=None,
+            task=None,
+            opset=None,
+            inputs=None,
+            outputs=None,
+            cached_onnx_path=None,
+            onnx_file=str(Path(onnx_path).resolve()),
+        ),
+    )
+
+    # Resolve the EP monitor. When op-tracing is off this returns
+    # NullEPMonitor and the benchmark runs unmonitored (parity with the
+    # HF path). When op-tracing is requested but not supported for the
+    # resolved EP, _resolve_ep_monitor raises RuntimeError — surface it as
+    # a CLI-level error rather than an opaque traceback.
+    output_dir = config.output_path.parent if config.output_path else Path.cwd()
+    ep_monitor = _open_ep_monitor_or_exit(
+        op_tracing=config.op_tracing,
+        ep=ep_device.ep_short_name,
+        device=ep_device.device.device_type.lower(),
+        output_dir=output_dir,
+    )
+
+    # Run benchmark
+    total_iterations = warmup + iterations
+    hw_metrics = None
+    hw_ctx = None
+
+    # Determine if hardware monitoring is available
+    if config.monitor:
+        from ..session.monitor.hw_monitor import HWMonitor
+
+        if HWMonitor.is_available():
+            hw_ctx = HWMonitor(poll_interval_ms=_HW_POLL_INTERVAL_MS)
+        else:
+            Console(stderr=True).print(
+                "[yellow]Warning:[/yellow] HWMonitor unavailable. "
+                "Running ONNX benchmark without monitoring."
+            )
+
+    if hw_ctx:
+        with session.perf(warmup=warmup, monitor=ep_monitor) as ctx, hw_ctx as hw:
+            _run_monitored_loop(
+                session,
+                inputs,
+                ctx.stats,
+                hw,
+                total_iterations=total_iterations,
+                warmup=warmup,
+                model_id=str(onnx_path.name),
+                device=ep_device.device.device_type.lower(),
+            )
+            hw_metrics = hw.to_dict()
+        stats = ctx.stats
+    else:
+        with session.perf(warmup=warmup, monitor=ep_monitor) as ctx:
+            _run_simple_loop(session, inputs, total_iterations)
+        stats = ctx.stats
+
+    # Fold EP monitor JSON (op-trace / proof-of-execution) into hw_monitor
+    # so it lands in the perf JSON report alongside the HF path (see
+    # PerfBenchmark._run_benchmark_monitored).
+    ep_dict = _monitor_to_json_dict(ctx.monitor)
+    if ep_dict:
+        if hw_metrics is None:
+            hw_metrics = {}
+        hw_metrics["ep_proof"] = ep_dict
+
+    # Collect results
+    mean_latency_sec = stats.mean_ms / 1000.0
+    samples_per_sec = batch_size / mean_latency_sec if mean_latency_sec > 0 else 0
+    batches_per_sec = 1.0 / mean_latency_sec if mean_latency_sec > 0 else 0
+    samples = stats.samples_ms
+    std_ms = float(np.std(samples)) if samples else 0.0
+
+    result = BenchmarkResult(
+        config=config,
+        input_names=io_cfg["input_names"],
+        input_shapes=[list(s) if s else [] for s in io_cfg["input_shapes"]],
+        input_types=[str(t) for t in io_cfg["input_types"]],
+        output_names=io_cfg["output_names"],
+        output_shapes=[list(s) if s else [] for s in io_cfg["output_shapes"]],
+        mean_ms=stats.mean_ms,
+        min_ms=stats.min_ms,
+        max_ms=stats.max_ms,
+        p50_ms=stats.p50_ms,
+        p90_ms=stats.p90_ms,
+        p95_ms=stats.p95_ms,
+        p99_ms=stats.p99_ms,
+        std_ms=std_ms,
+        raw_samples_ms=stats.samples_ms,
+        samples_per_sec=samples_per_sec,
+        batches_per_sec=batches_per_sec,
+        actual_device=session.device,
+        actual_task="n/a (direct ONNX)",
+        hw_monitor=hw_metrics,
+    )
+    return result, ctx
 
 
 # =============================================================================
@@ -2044,7 +2385,12 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     type=click.IntRange(min=1),
     default=100,
     show_default=True,
-    help="Number of benchmark iterations (must be > 0)",
+    help=(
+        "Number of benchmark iterations. "
+        "When --op-tracing is set without an explicit --iterations, "
+        "defaults to 1 (a single inference produces a usable per-op trace; "
+        "more iterations just inflate the CSV)."
+    ),
 )
 @click.option(
     "--warmup",
@@ -2061,9 +2407,15 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     optional_message="'config' (winml-genai only) respects the bundle's genai_config.json routing.",
 )
 @cli_utils.precision_option()
-@cli_utils.ep_option(
-    required=False,
-    optional_message="Overrides device-to-provider mapping.",
+@click.option(
+    "--ep",
+    "ep",
+    type=EpAtSourceParamType(),
+    default=None,
+    help="Force specific execution provider "
+    "(qnn, dml, migraphx, nv_tensorrt_rtx, vitisai, openvino, cpu). "
+    "Optional ``@<source-tag>`` pins the source "
+    "(e.g. ``openvino@pypi``). Overrides device-to-provider mapping.",
 )
 @cli_utils.ep_options_option(
     optional_message="Applied to both HuggingFace model IDs and ONNX file inputs.",
@@ -2150,8 +2502,25 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     "op_tracing",
     type=click.Choice(["basic", "detail"], case_sensitive=False),
     default=None,
-    help="Enable operator-level profiling (requires onnxruntime-qnn)",
-    hidden=True,  # Not ready, so hide from --help for now
+    help="Enable operator-level profiling. Auto-selects the monitor for the "
+    "chosen EP; the level must be one it supports (e.g. 'detail' rejected "
+    "when the resolved EP has no detail surface). Works for HuggingFace "
+    "model IDs, built model directories, and direct .onnx file inputs.",
+)
+@click.option(
+    "--top-k",
+    "top_k",
+    type=int,
+    default=None,
+    help="Number of top operator instances to show in the op-tracing table "
+    "(default: 5, per mockup spec OP_TRACING_TOP_K_DEFAULT). "
+    "Requires --op-tracing.",
+)
+@click.option(
+    "--compare-devices",
+    type=str,
+    default=None,
+    help="Compare benchmark across devices (e.g., 'cpu,npu'). Not yet implemented.",
 )
 @cli_utils.format_option()
 @cli_utils.build_config_option()
@@ -2171,7 +2540,7 @@ def perf(
     warmup: int,
     device: str,
     precision: str,
-    ep: EPNameOrAlias | None,
+    ep: tuple[str, str | None] | None,
     ep_options: tuple[str, ...],
     output: Path | None,
     overwrite: bool,
@@ -2194,6 +2563,8 @@ def perf(
     monitor: bool,
     memory: bool,
     op_tracing: str | None,
+    top_k: int | None,
+    compare_devices: str | None,
     output_format: cli_utils.OutputFormat,
     verbose: int,
     quiet: bool,
@@ -2249,6 +2620,22 @@ def perf(
     except Exception as e:
         raise click.ClickException(f"Failed to resolve Hub-hosted ONNX path {model!r}: {e}") from e
     model = hf_model
+
+    # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
+    # op-tracing section the flag is meaningless, so reject it explicitly
+    # rather than silently ignoring a user's intent.
+    if top_k is not None and op_tracing is None:
+        raise click.UsageError("--top-k requires --op-tracing to be set.")
+    if top_k is not None and top_k < 1:
+        raise click.UsageError("--top-k must be >= 1.")
+
+    # Smart default: --op-tracing produces a usable per-op trace from a single
+    # inference; the default 100 iterations just inflates the profiling CSV
+    # without adding profiling value (operators are averaged across iterations).
+    # When the user did not explicitly pass --iterations alongside --op-tracing,
+    # collapse to 1.
+    if op_tracing and ctx.get_parameter_source("iterations") == click.core.ParameterSource.DEFAULT:
+        iterations = 1
 
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
@@ -2364,7 +2751,11 @@ def perf(
             console=console,
             monitor=monitor,
             device=device.lower(),
-            ep=ep,
+            # ``ep`` is the raw --ep value; forwarded unchanged (the module
+            # branch predates the ep/source-tuple unpack done for the single
+            # path below — see #939). Cast keeps the call type-checked without
+            # altering the value passed at runtime.
+            ep=cast("EPNameOrAlias | None", ep),
             ep_options=ep_provider_options,
             precision=precision.lower(),
             allow_unsupported_nodes=allow_unsupported_nodes,
@@ -2449,6 +2840,11 @@ def perf(
     # Refuse to clobber an existing report unless the user opted in.
     cli_utils.guard_output(output, overwrite)
 
+    # --ep is parsed by EpAtSourceParamType at click parse time:
+    # arrives as (ep, source) or None per 2_coreloop.md §6.2 Scenarios
+    # A.5/A.6.
+    ep_part, ep_source_part = ep if ep else (None, None)
+
     # Create config. The raw device/EP request is passed through unchanged;
     # PerfBenchmark resolves the concrete device + EP internally (failing fast
     # before the build), so the CLI does not pre-resolve here.
@@ -2472,18 +2868,40 @@ def perf(
         allow_unsupported_nodes=allow_unsupported_nodes,
         monitor=monitor,
         memory=memory,
-        ep=ep,
+        # case-preserved; expand_ep_name lowercases short-name lookups
+        ep=cast("EPNameOrAlias | None", ep_part),
+        ep_source=ep_source_part,
         ep_options=ep_provider_options,
         shape_config=shape_config,
+        op_tracing=op_tracing,
         export_overrides=export_overrides,
         input_data=input_data,
     )
 
-    try:
-        model_path = Path(hf_model)
+    model_path = Path(hf_model)
+    is_onnx = model_path.suffix.lower() == ".onnx"
 
+    # Sentinels so the op_tracing block at the end can pick the perf context
+    # from either branch. The HF path stores it on the benchmark instance
+    # (``benchmark._perf_ctx``); the ONNX path returns it as the second
+    # element of the tuple and we stash it in ``onnx_perf_ctx`` below.
+    benchmark = None
+    onnx_perf_ctx = None
+    # Composite models return a dict of per-sub-model results; single models
+    # return one BenchmarkResult. Both branches assign into ``result``.
+    result: BenchmarkResult | dict[str, BenchmarkResult]
+    try:
         if is_onnx:
-            # Existence already validated by classify_model_input above.
+            # ONNX direct path -- skip HF build, benchmark via WinMLSession
+            if shape_config:
+                console.print(
+                    "[yellow]Warning:[/yellow] --shape-config is ignored for "
+                    "pre-exported ONNX files (shapes are baked into the model)."
+                )
+                config.shape_config = None
+            if not model_path.exists():
+                raise FileNotFoundError(f"ONNX file not found: {model_path}")
+
             # Build-pipeline flags are forwarded to from_onnx but no-op when the
             # build is skipped (the default). Warn so the silent no-op is visible
             # — shared detection with eval via utils/cli.py.
@@ -2497,13 +2915,34 @@ def perf(
             if build_flags_warning:
                 console.print(f"[yellow]Warning:[/yellow] {build_flags_warning}")
             console.print(f"[dim]Benchmarking ONNX:[/dim] {model_path}")
+
+            from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
+
+            # Resolve to a EPDeviceTarget then bind via auto_device.
+            target = resolve_device(
+                EPDeviceTarget(
+                    ep=config.ep or "auto",
+                    device=config.device or "auto",
+                    source=config.ep_source,
+                )
+            )
+            ep_device = WinMLEPRegistry.instance().auto_device(target)
+
+            result, onnx_perf_ctx = _run_onnx_benchmark(
+                model_path,
+                ep_device=ep_device,
+                iterations=iterations,
+                warmup=warmup,
+                batch_size=batch_size,
+                config=config,
+            )
         else:
             if precision != "auto":
                 console.print(f"[dim]Precision: {precision} (applied during model build)[/dim]")
             console.print(f"[dim]Loading model:[/dim] {hf_model}")
 
-        benchmark = PerfBenchmark(config)
-        result = benchmark.run()
+            benchmark = PerfBenchmark(config)
+            result = benchmark.run()
 
         # Composite models (e.g. CLIP/SigLIP dual-encoders) have no single ORT
         # session; each sub-model is benchmarked individually and reported as
@@ -2531,79 +2970,78 @@ def perf(
         else:
             display_console_report(result, console)
 
-        # Write JSON report
-        write_json_report(result, output)
-        console.print(f"[green]Results saved to:[/green] {output}")
-
         # =================================================================
-        # Op-tracing (additive to existing benchmark)
+        # Op-tracing post-benchmark report
+        # Op-tracing is integrated into session.perf(monitor=...) via
+        # _resolve_ep_monitor; the monitor observes the actual benchmark
+        # iterations rather than a separate synthetic profiling pass.
+        #
+        # NFR-2: when op_tracing was requested, missing/failed profiling data
+        # is an ERROR (exit 4), NOT a soft warning. The only degraded-success
+        # status is "basic_fallback" (yellow notice, exit 0).
+        #
+        # A3: the JSON report write is intentionally deferred to AFTER this
+        # status check so that a failed op-trace (exit 4) does NOT leave a
+        # misleading JSON artifact on disk for CI consumers.
         # =================================================================
         if op_tracing:
-            from ..optracing import is_profiling_available
+            from ..session.monitor.report import display_op_trace_report, write_op_trace_json
 
-            if not is_profiling_available(
-                benchmark.resolved_ep, benchmark.resolved_device, op_tracing
-            ):
-                raise click.ClickException(
-                    "Op-tracing is only supported for the QNN EP "
-                    "on NPU at the 'basic' level "
-                    f"(resolved EP={benchmark.resolved_ep}, "
-                    f"device={benchmark.resolved_device}, level={op_tracing})."
+            # Both branches expose their perf context: the HF path stores it
+            # on the PerfBenchmark instance, the raw-.onnx path returns it as
+            # the second tuple element from _run_onnx_benchmark.
+            perf_ctx = onnx_perf_ctx if is_onnx else getattr(benchmark, "_perf_ctx", None)
+            trace_result = perf_ctx.monitor.result if perf_ctx is not None else None
+
+            if trace_result is None:
+                console.print(
+                    "[red]Error:[/red] Op-tracing requested but no profiling data was "
+                    "produced. Check that the EP is correctly installed and the model "
+                    "compiled successfully."
+                )
+                sys.exit(4)
+            if trace_result.status == "no_data":
+                detail = trace_result.error or "no CSV written"
+                console.print(
+                    f"[red]Error:[/red] Op-tracing produced no profiling data "
+                    f"({detail}). The EP may have silently fallen back to CPU."
+                )
+                sys.exit(4)
+            if trace_result.status == "parse_failed":
+                console.print(
+                    f"[red]Error:[/red] Op-tracing artifact parse failed: {trace_result.error}"
+                )
+                sys.exit(4)
+            if trace_result.status == "basic_fallback":
+                console.print(
+                    "[yellow]Notice:[/yellow] Detail mode degraded to basic CSV "
+                    "(QHAS unavailable; set QNN_SDK_ROOT to enable)."
                 )
 
-            from ..optracing import (
-                display_op_trace_report,
-                get_tracer,
-                write_op_trace_json,
-            )
+            # Op-trace status is valid (ok or basic_fallback) — safe to write
+            # the benchmark JSON now.  Writing after the guard means a failed
+            # op-trace (exit 4 above) leaves no JSON artifact on disk.
+            write_json_report(result, output)
+            console.print(f"[green]Results saved to:[/green] {output}")
 
-            # Determine the ONNX model path from the benchmark flow.
-            # For HF models the ONNX is built internally by PerfBenchmark.
-            try:
-                onnx_for_trace = (
-                    model_path if is_onnx else getattr(benchmark._model, "_onnx_path", None)
-                )
-                if onnx_for_trace is None:
-                    raise AttributeError("benchmark._model not initialized")
-            except AttributeError:
-                raise click.ClickException(
-                    "Could not determine ONNX model path for op-tracing"
-                ) from None
-
-            output_dir = output.parent if output else Path()
-
-            # Look up tracer via registry (EP-agnostic).
-            tracer_cls = get_tracer("QNNExecutionProvider", op_tracing)
-            if tracer_cls is None:
-                raise click.ClickException(
-                    f"No tracer registered for QNN EP at level '{op_tracing}'"
-                )
-
-            # When --input-data was supplied, trace on the same real tensors the
-            # benchmark used (benchmark._inputs), so the op trace isn't measured
-            # on random data. The profiler falls back to random inputs if these
-            # don't match the traced session's inputs.
-            trace_inputs = getattr(benchmark, "_inputs", None) if input_data else None
-
-            profiler = tracer_cls(
-                onnx_for_trace,
-                output_dir=output_dir,
-                level=op_tracing,
-                input_data=trace_inputs,
-            )
-            trace_result = profiler.run(
-                iterations=min(iterations, 10),
-                warmup=min(warmup, 3),
-            )
-
-            # Display and save
-            display_op_trace_report(trace_result, console)
-
-            # Mirror the benchmark report path so the two files sit side by side:
-            # a/b.json -> a/b_op_trace.json.
-            trace_output = output.with_name(f"{output.stem}_op_trace{output.suffix}")
+            if top_k is not None:
+                display_op_trace_report(trace_result, console, top_n=top_k)
+            else:
+                display_op_trace_report(trace_result, console)
+            model_slug = hf_model.replace("/", "_").replace("\\", "_")
+            output_dir = output.parent if output else Path.cwd()
+            trace_output = output_dir / f"{model_slug}_op_trace.json"
             write_op_trace_json(trace_result, trace_output)
-            console.print(f"[green]Op-trace saved to:[/green] {trace_output}")
+            profiling_csv = trace_result.artifacts.get("csv")
+            _print_save_to_footer(
+                console,
+                trace_json=str(trace_output),
+                profiling_csv=profiling_csv,
+            )
+        else:
+            # No op-tracing: write JSON immediately after the console report.
+            write_json_report(result, output)
+            console.print(f"[green]Results saved to:[/green] {output}")
 
     except FileNotFoundError as e:
         # User-error: bad model path. UsageError so the exit code (2) matches
@@ -2618,3 +3056,76 @@ def perf(
         if verbose:
             logger.exception("Benchmark failed")
         raise click.ClickException(f"Benchmark failed: {e}") from e
+
+
+# =============================================================================
+# Model-info helpers (restored from main; used by tests + optional callers)
+# =============================================================================
+
+
+def _format_input_shape(shape: list, actual: tuple | None) -> str:
+    """Render a declared input shape, marking dynamic dims as ``dynamic``.
+
+    A dynamic dimension (declared as ``None``) is shown as ``dynamic(<n>)``
+    where ``<n>`` is the concrete size the generated input data actually used
+    for that axis, so the real batch/sequence sizes stay visible alongside the
+    fact that the model left them free.
+    """
+    dims: list[str] = []
+    for i, dim in enumerate(shape):
+        if dim is None:
+            if actual is not None and i < len(actual):
+                dims.append(f"dynamic({actual[i]})")
+            else:
+                dims.append("dynamic")
+        else:
+            dims.append(str(dim))
+    return f"[{', '.join(dims)}]"
+
+
+def _print_model_info(
+    io_config: dict,
+    *,
+    task: str | None = None,
+    req_device: str = "auto",
+    act_device: str = "auto",
+    ep_name: EPName | None = None,
+    actual_shapes: dict[str, tuple] | None = None,
+) -> None:
+    """Print model I/O metadata before the benchmark starts."""
+    console = Console(stderr=True)
+    console.print()
+    device_line = _device_string(req_device, act_device, ep_name)
+    console.print(f"[dim]Device:[/dim]      {device_line}")
+    if task:
+        console.print(f"[dim]Task:[/dim]        {task}")
+
+    precision = io_config.get("precision")
+    if precision:
+        console.print(f"[dim]Model Precision:[/dim]   {precision}")
+
+    names = io_config.get("input_names", [])
+    shapes = io_config.get("input_shapes", [])
+    types = io_config.get("input_types", [])
+    if names:
+        label = "[dim]Inputs:[/dim]      "
+        pad = "             "
+        for i, name in enumerate(names):
+            shape = shapes[i] if i < len(shapes) else []
+            dtype = str(types[i]) if i < len(types) else ""
+            actual = actual_shapes.get(name) if actual_shapes else None
+            shape_str = _format_input_shape(shape, actual)
+            line = f"{name:<20s} {escape(shape_str):<22s} {dtype}"
+            console.print(f"{label if i == 0 else pad}{line}")
+
+    out_names = io_config.get("output_names", [])
+    out_shapes = io_config.get("output_shapes", [])
+    if out_names:
+        label = "[dim]Outputs:[/dim]     "
+        pad = "             "
+        for i, name in enumerate(out_names):
+            shape = out_shapes[i] if i < len(out_shapes) else []
+            shape_str = escape(_format_input_shape(shape, None))
+            console.print(f"{label if i == 0 else pad}{name:<20s} {shape_str}")
+
+    console.print()

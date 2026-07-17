@@ -30,7 +30,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import click
 
@@ -40,9 +40,9 @@ from ..session import (
     GenaiSession,
     GenaiSessionError,
     GenerationConfig,
+    short_ep_name,
 )
 from ..utils.constants import (
-    EP_NAME_TO_ALIAS,
     EP_SUPPORTED_DEVICES,
     EPNameOrAlias,
     normalize_ep_name,
@@ -94,14 +94,16 @@ def resolve_genai_ep(device: str) -> EPNameOrAlias | None:
         return None
 
     # Function-local import mirrors the ONNX path (perf.py) and avoids a
-    # module-level cycle: ``sysinfo`` pulls in heavier device-probing deps.
-    from ..sysinfo import resolve_device, resolve_eps
+    # module-level cycle.
+    from ..session import EPDeviceTarget, available_eps_for_device, resolve_device
 
-    resolved_device, _ = resolve_device(device=device, ep=None)
-    eps = resolve_eps(resolved_device)
+    resolved_device = resolve_device(EPDeviceTarget(ep="auto", device=device)).device
+    eps = available_eps_for_device(resolved_device)
     if not eps:
         return None
-    return EP_NAME_TO_ALIAS[eps[0]]
+    # short_ep_name returns a plain ``str``; the value is a canonical EP short
+    # alias (a member of EPAlias) that GenaiSession accepts as an override.
+    return cast("EPNameOrAlias", short_ep_name(eps[0]))
 
 
 def genai_output_path(bundle_dir: str | Path) -> Path:

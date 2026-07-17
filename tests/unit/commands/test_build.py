@@ -18,6 +18,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
+from winml.modelkit.session import EPDeviceTarget
+
 
 _DEVICE_TO_EPS = {
     "npu": ["QNNExecutionProvider"],
@@ -41,33 +43,37 @@ def _fake_resolve_check_device_ep(*, device: str = "auto", ep: str | None = None
 
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
-    """Mock device/EP resolution to avoid hardware detection.
+    """Mock device resolution helpers and WinMLEPRegistry to avoid hardware detection.
 
-    The build command calls ``resolve_device`` / ``resolve_eps`` to auto-select
-    an EP when ``--ep`` is not specified, and ``resolve_check_device_ep`` (via
-    ``resolve_quant_compile_config``) when ``--device`` is explicit. All three
-    must be mocked to avoid slow DLL scanning and WinML SDK discovery on CI
-    runners without WinML installed. ``WinMLEPRegistry.get_instance`` is also
-    patched defensively for any downstream code path that may touch it.
+    The build command calls auto_detect_device() / get_available_devices() for I/O
+    and resolve_device() for EP auto-selection (since #540). It also touches
+    WinMLEPRegistry.instance() when --ep is not specified. All must be
+    mocked to avoid slow DLL scanning and WinML SDK discovery on CI runners
+    without WinML installed.
     """
+    from winml.modelkit.session import EPDeviceTarget
+
     mock_registry = MagicMock()
-    mock_registry.is_ep_available.return_value = False
+    mock_registry._discovered = []
+    mock_registry._entries_for.return_value = []
+
+    fake_cpu_ep_device = EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
 
     with (
         patch(
-            "winml.modelkit.sysinfo.resolve_device",
-            return_value=("npu", ["npu", "gpu", "cpu"]),
+            "winml.modelkit.session.auto_detect_device",
+            return_value="npu",
         ),
         patch(
-            "winml.modelkit.sysinfo.resolve_eps",
-            side_effect=lambda device: list(_DEVICE_TO_EPS.get(device, [])),
+            "winml.modelkit.sysinfo.hardware.get_available_devices",
+            return_value=["npu", "gpu", "cpu"],
         ),
         patch(
-            "winml.modelkit.sysinfo.resolve_check_device_ep",
-            side_effect=_fake_resolve_check_device_ep,
+            "winml.modelkit.session.resolve_device",
+            return_value=fake_cpu_ep_device,
         ),
         patch(
-            "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",
+            "winml.modelkit.session.ep_registry.WinMLEPRegistry.instance",
             return_value=mock_registry,
         ),
     ):
@@ -1210,8 +1216,8 @@ class TestBuildEpAutoSelection:
         from winml.modelkit.commands.build import build
 
         with patch(
-            "winml.modelkit.sysinfo.resolve_device",
-            return_value=("gpu", ["gpu", "cpu"]),
+            "winml.modelkit.session.resolve_device",
+            return_value=EPDeviceTarget(ep="auto", device="gpu"),
         ):
             result = runner.invoke(
                 build,
@@ -1241,8 +1247,8 @@ class TestBuildEpAutoSelection:
         from winml.modelkit.commands.build import build
 
         with patch(
-            "winml.modelkit.sysinfo.resolve_device",
-            return_value=("cpu", ["cpu"]),
+            "winml.modelkit.session.resolve_device",
+            return_value=EPDeviceTarget(ep="auto", device="cpu"),
         ):
             result = runner.invoke(
                 build,
@@ -1274,10 +1280,10 @@ class TestBuildEpAutoSelection:
         # resolve_device would point at gpu -> Dml, but --ep wins.
         with (
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("gpu", ["gpu", "cpu"]),
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="auto", device="gpu"),
             ),
-            patch("winml.modelkit.sysinfo.resolve_eps") as mock_resolve_eps,
+            patch("winml.modelkit.session.available_eps_for_device") as mock_resolve_eps,
         ):
             result = runner.invoke(
                 build,
@@ -1295,16 +1301,19 @@ class TestBuildEpAutoSelection:
         mock_build_api: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """resolve_check_device_ep raising (explicit device w/ no compatible EP) -> UsageError.
+        """resolve_device raising (explicit device w/ no compatible EP) -> UsageError.
 
         Uses default ``--device auto`` (no CLI flag) so the downstream
         device-patch path isn't triggered; the only resolution call is the
-        ``resolve_check_device_ep`` inside the auto-select block.
+        ``resolve_device`` inside the auto-select block. Note: the patched
+        symbol was ``resolve_check_device_ep`` prior to 3b3aaa84 which
+        replaced it with ``resolve_device``; the test was left pinning the
+        old symbol and silently stopped exercising the failure path.
         """
         from winml.modelkit.commands.build import build
 
         with patch(
-            "winml.modelkit.sysinfo.resolve_check_device_ep",
+            "winml.modelkit.session.resolve_device",
             side_effect=ValueError("simulated resolve failure"),
         ):
             result = runner.invoke(
@@ -1327,7 +1336,7 @@ class TestBuildEpAutoSelection:
         from winml.modelkit.commands.build import build
 
         with patch(
-            "winml.modelkit.sysinfo.resolve_check_device_ep",
+            "winml.modelkit.session.resolve_device",
             return_value=(
                 "gpu",
                 ["gpu", "cpu"],

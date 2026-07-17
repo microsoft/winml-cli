@@ -536,6 +536,13 @@ module = [
   # Not a dependency of the main/CI environment, so it has no stubs here.
   "qairt",
   "qairt.*",
+  # WinUI3 / Windows App SDK bootstrap, WinRT projections, and pywin32 — Windows
+  # runtime packages imported in ep_path.py / ep_device.py. Installed and usable
+  # at runtime but ship no type stubs, so treat as untyped here.
+  "winui3",
+  "winui3.*",
+  "winrt.*",
+  "win32api",
 ]
 ignore_missing_imports = true
 

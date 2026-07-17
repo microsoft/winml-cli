@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for --device/--ep flags in compile and --precision in quantize."""
+"""Tests for --precision in quantize and device display label in compile."""
 
 from __future__ import annotations
 
@@ -12,6 +12,11 @@ import pytest
 
 from winml.modelkit.commands.compile import _resolve_compile_provider
 from winml.modelkit.commands.quantize import _resolve_quant_types
+from winml.modelkit.session import EPDeviceTarget
+
+
+def _fake_ep_device(ep: str, device: str) -> EPDeviceTarget:
+    return EPDeviceTarget(ep=ep, device=device)
 
 
 _DEVICE_TO_EPS = {
@@ -26,7 +31,7 @@ def mock_functions():
     """Mock ``resolve_eps`` + ``WinMLEPRegistry`` to avoid hardware detection.
 
     The compile CLI's ``_resolve_compile_provider`` calls
-    ``WinMLEPRegistry.get_instance().is_ep_available`` to reject EPs not
+    ``WinMLEPRegistry.instance().is_ep_available`` to reject EPs not
     registered on the host — for unit tests we stub it to ``True``. Tests
     that exercise the negative path patch the singleton locally.
     """
@@ -35,11 +40,11 @@ def mock_functions():
 
     with (
         patch(
-            "winml.modelkit.commands.compile.resolve_eps",
+            "winml.modelkit.commands.compile.available_eps_for_device",
             side_effect=lambda device: list(_DEVICE_TO_EPS.get(device, [])),
         ),
         patch(
-            "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",
+            "winml.modelkit.session.ep_registry.WinMLEPRegistry.instance",
             return_value=mock_registry,
         ),
     ):
@@ -141,7 +146,7 @@ class TestCompileAutoDeviceEndToEnd:
         with (
             patch(
                 "winml.modelkit.commands.compile.resolve_device",
-                return_value=("npu", ["npu", "gpu", "cpu"]),
+                return_value=EPDeviceTarget(ep="qnn", device="npu"),
             ),
             patch("winml.modelkit.commands.compile.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.compiler.compile_onnx", return_value=mock_result),
@@ -259,7 +264,7 @@ class TestResolveQuantTypes:
 
 
 class TestCompileDeviceDisplayLabel:
-    """Device label in compile summary must reflect the user-supplied --device flag."""
+    """Device label in compile summary must reflect the resolved EPDeviceTarget.device."""
 
     def test_device_flag_shown_in_output(self, tmp_path):
         """--device gpu must appear in the Device line regardless of the EP.
@@ -282,6 +287,10 @@ class TestCompileDeviceDisplayLabel:
         mock_result.total_time = None
 
         with (
+            patch(
+                "winml.modelkit.commands.compile.resolve_device",
+                return_value=_fake_ep_device("DmlExecutionProvider", "gpu"),
+            ),
             patch("winml.modelkit.commands.compile.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.compiler.compile_onnx", return_value=mock_result),
             patch("winml.modelkit.compiler.WinMLCompileConfig"),
@@ -683,7 +692,7 @@ class TestOverwriteGuard:
         with (
             patch(
                 "winml.modelkit.commands.compile.resolve_device",
-                return_value=("npu", ["npu", "gpu", "cpu"]),
+                return_value=EPDeviceTarget(ep="qnn", device="npu"),
             ),
             patch("winml.modelkit.commands.compile.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.compiler.compile_onnx", side_effect=fake_compile),

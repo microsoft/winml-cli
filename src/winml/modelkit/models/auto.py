@@ -24,13 +24,22 @@ Design Principles
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ..cache import get_cache_dir, get_cache_key, get_model_dir
 from ..config import WinMLBuildConfig
 from ..loader.task import get_task_abbrev
+from ..session import short_ep_name
+
+
+# ``..loader`` re-exports ``load_hf_model`` lazily via module ``__getattr__``
+# (typed as ``Any``), so import the concretely-typed function from the
+# submodule for type-checking while keeping the lazy re-export at runtime.
+if TYPE_CHECKING:
+    from ..loader.hf import load_hf_model
+else:
+    from ..loader import load_hf_model
 
 # Import task mapping from winml/ subpackage
 from .winml import get_supported_tasks, get_winml_class
@@ -39,7 +48,7 @@ from .winml import get_supported_tasks, get_winml_class
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
-    from ..utils.constants import EPNameOrAlias
+    from ..session import WinMLEPDevice
     from .winml.base import WinMLPreTrainedModel
     from .winml.composite_model import WinMLCompositeModel
 
@@ -100,22 +109,18 @@ class WinMLAutoModel:
     @classmethod
     def from_onnx(
         cls,
-        # Mapping (not dict) so dict[str, str] from configs is accepted
-        # without a cast — dict is invariant on value type, Mapping is covariant.
-        onnx_path: str | Path | Mapping[str, str | Path],
+        onnx_path: str | Path | dict[str, str | Path],
         *,
+        ep_device: WinMLEPDevice | None = None,
+        device: str | None = None,
+        ep: str | None = None,
         task: str | None = None,
         config: WinMLBuildConfig | None = None,
-        device: str = "auto",
         precision: str = "auto",
-        ep: EPNameOrAlias | None = None,
-        provider_options: dict[str, str] | None = None,
         cache_dir: str | Path | None = None,
         use_cache: bool = True,
         force_rebuild: bool = False,
         skip_build: bool = False,
-        no_compile: bool = False,
-        allow_unsupported_nodes: bool = False,
         session_options: Any | None = None,
         hf_config: PretrainedConfig | None = None,
         **kwargs: Any,
@@ -127,19 +132,14 @@ class WinMLAutoModel:
 
         Args:
             onnx_path: Path to existing ONNX model file.
+            ep_device: Resolved (EP, device) target. Use ``resolve_device(EPDeviceTarget(...))``
+                from ``session.ep_device`` to construct this.
             task: Task name. Optional for ONNX builds (not needed for build pipeline).
             config: Build config. If None, auto-generated with device/precision resolution.
-            device: Target device ("auto", "npu", "gpu", "cpu").
             precision: Target precision ("auto", "fp32", "fp16", "int8").
-            ep: Explicit execution provider.
-            provider_options: Runtime EP provider options (e.g. QNN
-                ``htp_performance_mode``) forwarded to the inference session.
             cache_dir: Override cache directory.
             use_cache: Whether to use persistent cache.
             force_rebuild: Force rebuild even if cached.
-            allow_unsupported_nodes: If True, warn instead of raising when the
-                analyzer reports unsupported nodes during the build. Has no
-                effect when ``skip_build=True`` (no analyze step runs).
             hf_config: HF ``PretrainedConfig`` for composite (dict) dispatch only.
                 Required when ``onnx_path`` is a dict so the composite registry
                 lookup can resolve ``(model_type, task)``. Ignored for single-file
@@ -149,22 +149,32 @@ class WinMLAutoModel:
         Returns:
             WinMLPreTrainedModel inference wrapper.
         """
-        if isinstance(onnx_path, Mapping):
+        # Ergonomic path: resolve ep_device from device/ep shortcuts.
+        if ep_device is None:
+            if device is None:
+                raise TypeError(
+                    "WinMLAutoModel.from_onnx requires either ep_device= or device="
+                )
+            from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
+
+            target = resolve_device(
+                EPDeviceTarget(ep=ep or "auto", device=device.lower())
+            )
+            ep_device = WinMLEPRegistry.instance().auto_device(target)
+
+        if isinstance(onnx_path, dict):
             from .winml.composite_model import WinMLCompositeModel
 
             return WinMLCompositeModel.from_onnx(
                 onnx_path,
                 task=task,
                 hf_config=hf_config,
-                device=device,
+                ep_device=ep_device,
                 precision=precision,
-                ep=ep,
-                provider_options=provider_options,
                 cache_dir=cache_dir,
                 use_cache=use_cache,
                 force_rebuild=force_rebuild,
                 skip_build=skip_build,
-                no_compile=no_compile,
                 session_options=session_options,
                 **kwargs,
             )
@@ -183,11 +193,10 @@ class WinMLAutoModel:
         config = generate_onnx_build_config(
             onnx_path,
             task=task,
-            device=device,
+            device=ep_device.device.device_type.lower(),
             precision=precision,
-            ep=ep,
+            ep=short_ep_name(ep_device.device.ep_name),
             override=config,
-            no_compile=no_compile,
         )
 
         # Resolve task from explicit arg or generated config
@@ -196,7 +205,7 @@ class WinMLAutoModel:
         # Skip build for compiled models or explicit skip.
         # Check is_compiled_onnx directly — don't rely on config shape alone
         # because auto+auto also produces quant=None, compile=None for raw models.
-        from ..onnx import get_onnx_model_hash, is_compiled_onnx
+        from ..onnx import is_compiled_onnx
 
         if skip_build or is_compiled_onnx(onnx_path):
             logger.info("Skipping build (compiled model or explicit skip). Using original ONNX.")
@@ -205,21 +214,13 @@ class WinMLAutoModel:
             return winml_class(
                 onnx_path=onnx_path,
                 config=None,
-                device=device,
-                session_options=session_options,
-                ep=ep,
-                provider_options=provider_options,
+                ep_device=ep_device,
             )
 
-        # Resolve output directory and cache key
-        task_abbrev = get_task_abbrev(resolved_task) if resolved_task else "onnx"
-        cache_key = get_cache_key(task_abbrev, config.generate_cache_key(), kwargs)
+        # Resolve output directory
         if use_cache:
             cache_dir_path = get_cache_dir(override=cache_dir)
-            output_dir = get_model_dir(
-                f"onnx-{get_onnx_model_hash(onnx_path)}",
-                cache_dir=cache_dir_path,
-            )
+            output_dir = get_model_dir(onnx_path.stem, cache_dir=cache_dir_path)
         else:
             import tempfile
 
@@ -236,10 +237,8 @@ class WinMLAutoModel:
             config=config,
             output_dir=output_dir,
             rebuild=force_rebuild,
-            ep=ep,
-            device=device,
-            cache_key=cache_key,
-            allow_unsupported_nodes=allow_unsupported_nodes,
+            ep=short_ep_name(ep_device.device.ep_name),
+            device=ep_device.device.device_type.lower(),
             **kwargs,
         )
 
@@ -250,30 +249,25 @@ class WinMLAutoModel:
         return winml_class(
             onnx_path=result.final_onnx_path,
             config=None,  # No HF PretrainedConfig for bare ONNX builds
-            device=device,
-            session_options=session_options,
-            ep=ep,
-            provider_options=provider_options,
+            ep_device=ep_device,
         )
 
     @classmethod
     def from_pretrained(
         cls,
         model_id_or_path: str | Path,
+        ep_device: WinMLEPDevice | None = None,
         *,
+        device: str | None = None,
+        ep: str | None = None,
         task: str | None = None,
         config: WinMLBuildConfig | dict[str, Any] | None = None,
-        device: str = "auto",
         precision: str = "auto",
-        provider_options: dict[str, str] | None = None,
         cache_dir: str | Path | None = None,
         use_cache: bool = True,
         force_rebuild: bool = False,
         trust_remote_code: bool = False,
         shape_config: dict | None = None,
-        no_compile: bool = False,
-        model_type: str | None = None,
-        allow_unsupported_nodes: bool = False,
         **kwargs: Any,
     ) -> WinMLPreTrainedModel | WinMLCompositeModel:
         """Load appropriate WinML model based on task detection.
@@ -290,15 +284,13 @@ class WinMLAutoModel:
 
         Args:
             model_id_or_path: HF model ID, local path, or path to .onnx file.
+            ep_device: Resolved (EP, device) target. Use ``resolve_device(EPDeviceTarget(...))``
+                from ``session.ep_device`` to construct this. Required.
             task: Explicit task name. If None, auto-detected from config.
             config: WinMLBuildConfig for pipeline configuration.
                 Required when model_id_or_path is an ONNX file.
-            device: Target device ("auto", "npu", "gpu", "cpu").
-                "auto" detects available hardware (NPU > GPU > CPU).
             precision: Target precision ("auto", "fp32", "fp16", "int8", "int16").
-                "auto" selects based on device (npu->w8a16, gpu->fp16, cpu->fp16).
-            provider_options: Runtime EP provider options (e.g. QNN
-                ``htp_performance_mode``) forwarded to the inference session.
+                "auto" selects based on device (npu->int8, gpu->fp16, cpu->fp16).
             cache_dir: Directory for caching. If None, uses default cache dir.
             use_cache: If True (default), use persistent cache directory.
                 If False, build in a temp directory and always rebuild.
@@ -307,13 +299,6 @@ class WinMLAutoModel:
             shape_config: Shape overrides passed to generate_build_config().
                 Valid keys -- text: sequence_length; vision: height, width;
                 audio: feature_size, nb_max_frames, audio_sequence_length.
-            model_type: Explicit model_type override. When provided alongside a
-                HF model_id, selects a registered build variant (e.g.
-                ``"qwen3_transformer_only"``) instead of the architecture's
-                native model_type. Leave ``None`` for normal auto-detection.
-            allow_unsupported_nodes: If True, warn instead of raising when the
-                analyzer reports unsupported nodes that persist; the build
-                proceeds and the EP may fall back to another device for them.
             **kwargs: Additional arguments
 
         Returns:
@@ -327,36 +312,40 @@ class WinMLAutoModel:
         model_id = str(model_id_or_path)  # Ensure string for Path inputs
         logger.info("Loading WinML model from: %s", model_id)
 
-        if trust_remote_code:
-            from ..utils.cli import warn_trust_remote_code
+        # Ergonomic path: resolve ep_device from device/ep shortcuts.
+        # The composite-dispatch branch below may not need an ep_device
+        # (it forwards to WinMLCompositeModel.from_pretrained which does
+        # its own resolution), so we only resolve if device is given.
+        if ep_device is None and device is not None:
+            from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
 
-            warn_trust_remote_code()
-
-        # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
-        # is downloaded once and treated as a local .onnx path thereafter.
-        from ..utils.model_input import resolve_model_input
-
-        model_id = resolve_model_input(model_id).local_path or model_id
+            target = resolve_device(
+                EPDeviceTarget(ep=ep or "auto", device=device.lower())
+            )
+            ep_device = WinMLEPRegistry.instance().auto_device(target)
 
         # =====================================================================
         # ONNX FAST PATH -- skip HF loading and export when given an .onnx file
         # =====================================================================
         onnx_file = Path(model_id)
         if onnx_file.suffix == ".onnx" and onnx_file.exists():
+            if ep_device is None:
+                raise TypeError(
+                    "WinMLAutoModel.from_pretrained(<.onnx>) requires either "
+                    "ep_device=<WinMLEPDevice> or device=<str>; got neither. "
+                    "Downstream .device/.ep_name access would raise AttributeError."
+                )
             if config is not None and not isinstance(config, WinMLBuildConfig):
                 raise TypeError("ONNX builds require config to be a WinMLBuildConfig.")
             return cls.from_onnx(
                 onnx_path=onnx_file,
+                ep_device=ep_device,
                 task=task,
                 config=config,
-                device=device,
                 precision=precision,
-                ep=kwargs.pop("ep", None),
-                provider_options=provider_options,
                 cache_dir=cache_dir,
                 use_cache=use_cache,
                 force_rebuild=force_rebuild,
-                allow_unsupported_nodes=allow_unsupported_nodes,
                 **kwargs,
             )
 
@@ -371,22 +360,14 @@ class WinMLAutoModel:
         if task is not None:
             from .winml.composite_model import COMPOSITE_MODEL_REGISTRY
 
-            # Explicit override wins so a variant composite (e.g.
-            # "qwen3_transformer_only") can be selected over the native type.
-            _model_type: str | None
-            if model_type is not None:
-                _model_type = model_type
-            else:
-                _known_composite_tasks = {t for (_, t) in COMPOSITE_MODEL_REGISTRY}
-                if task in _known_composite_tasks:
-                    from transformers import AutoConfig
+            _known_composite_tasks = {t for (_, t) in COMPOSITE_MODEL_REGISTRY}
+            if task in _known_composite_tasks:
+                from transformers import AutoConfig
 
-                    _hf_cfg = AutoConfig.from_pretrained(
-                        model_id, trust_remote_code=trust_remote_code
-                    )
-                    _model_type = getattr(_hf_cfg, "model_type", None)
-                else:
-                    _model_type = None
+                _hf_cfg = AutoConfig.from_pretrained(model_id, trust_remote_code=trust_remote_code)
+                _model_type = getattr(_hf_cfg, "model_type", None)
+            else:
+                _model_type = None
 
             if _model_type is not None and (_model_type, task) in COMPOSITE_MODEL_REGISTRY:
                 # Resolve the concrete composite class for the (possibly
@@ -397,20 +378,21 @@ class WinMLAutoModel:
                 # the override and build the stock composite instead.
                 composite_cls = COMPOSITE_MODEL_REGISTRY[(_model_type, task)]
 
+                # The composite dispatch path requires a resolved ep_device;
+                # downstream ``.device`` access assumes non-None (mirrors the
+                # ONNX fast-path guard above).
                 return composite_cls.from_pretrained(
                     model_id,
                     task,
-                    device=device,
+                    device=cast("WinMLEPDevice", ep_device).device.device_type.lower(),
+                    ep_device=ep_device,
                     use_cache=use_cache,
                     force_rebuild=force_rebuild,
                     trust_remote_code=trust_remote_code,
                     shape_config=shape_config,
                     precision=precision,
-                    provider_options=provider_options,
                     config=config,
                     cache_dir=cache_dir,
-                    allow_unsupported_nodes=allow_unsupported_nodes,
-                    no_compile=no_compile,
                     **kwargs,
                 )
 
@@ -419,6 +401,13 @@ class WinMLAutoModel:
         # =====================================================================
         from ..config import generate_hf_build_config
 
+        if ep_device is None:
+            raise TypeError(
+                "WinMLAutoModel.from_pretrained requires either ep_device=<WinMLEPDevice> "
+                "or device=<str>; got neither. Composite-model dispatch is the only path "
+                "that may skip ep_device, and this call did not match a composite."
+            )
+
         # Device/precision resolution is handled inside generate_hf_build_config().
         # When config is provided, it merges as Tier-1 override on top of defaults.
         build_config = generate_hf_build_config(
@@ -426,24 +415,33 @@ class WinMLAutoModel:
             task=task,
             override=config,
             shape_config=shape_config,
-            device=device,
+            device=ep_device.device.device_type.lower(),
             precision=precision,
-            trust_remote_code=trust_remote_code,
-            ep=kwargs.get("ep"),
-            no_compile=no_compile,
-            model_type=model_type,
+            ep=short_ep_name(ep_device.device.ep_name),
         )
 
         resolved_task = build_config.loader.task
         logger.debug("Generated config with task: %s", resolved_task)
-        if resolved_task is None:
-            raise ValueError(f"Could not resolve a task for model {model_id!r}.")
+
+        # =====================================================================
+        # [2] LOAD PHASE - Load HF model with weights (Heavyweight, ~30-60s)
+        # =====================================================================
+        effective_trust = trust_remote_code or (
+            build_config.loader.trust_remote_code if build_config.loader else False
+        )
+        pytorch_model, hf_config, _ = load_hf_model(
+            model_name_or_path=model_id,
+            task=resolved_task,
+            trust_remote_code=effective_trust,
+        )
+        model_type = getattr(hf_config, "model_type", "unknown")
+        logger.debug("Model type: %s, task: %s", model_type, resolved_task)
 
         config = build_config
         task = resolved_task
 
         # =====================================================================
-        # [2] CACHE SETUP - Compute paths before deciding whether to load
+        # [3] CACHE + BUILD PHASE -- delegate to build_hf_model()
         # =====================================================================
         if use_cache:
             cache_dir_path = get_cache_dir(override=cache_dir)
@@ -455,67 +453,31 @@ class WinMLAutoModel:
             force_rebuild = True
             logger.info("Cache disabled -- using temp directory: %s", cache_dir_path)
 
-        cache_key = get_cache_key(get_task_abbrev(task), config.generate_cache_key(), kwargs)
+        # Compute cache_key and output_dir via shared cache module
+        # ``task`` is the resolved task from ``build_config.loader.task`` at this
+        # point (never None after config generation), but is typed Optional.
+        cache_key = get_cache_key(get_task_abbrev(cast("str", task)), config.generate_cache_key())
         output_dir = get_model_dir(model_id, cache_dir=cache_dir_path)
 
-        # =====================================================================
-        # [3] CONFIG PROBE - Lightweight AutoConfig fetch for model_type only.
-        #     Model weights are loaded inside build_hf_model() when needed.
-        # =====================================================================
-        effective_trust = trust_remote_code or (
-            build_config.loader.trust_remote_code if build_config.loader else False
-        )
-        from transformers import AutoConfig
-
-        hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=effective_trust)
-        # Honor an explicit model_type override; otherwise probe from the config.
-        if model_type is None:
-            model_type = getattr(hf_config, "model_type", "unknown")
-        logger.debug("Model type: %s, task: %s", model_type, resolved_task)
-
-        # =====================================================================
-        # [4] BUILD PHASE -- delegate to build_hf_model()
-        # =====================================================================
         from ..build import build_hf_model
 
-        # Pass resolved EP so the static analyzer targets only this EP.
-        # Prefer the user-supplied EP; fall back to the compile-derived EP
-        # (compile is None on compile-less paths like CPU, so deriving from
-        # it alone would drop an explicit --ep cpu and analyze aggregates
-        # across all EPs).
-        user_ep = kwargs.get("ep")
-        resolved_ep = (
-            user_ep
-            if user_ep is not None
-            else (config.compile.ep_config.provider if config.compile is not None else None)
-        )
-        # Forward build-pipeline controls (skip_optimize / hack_max_optim_iterations)
-        # supplied by callers like winml perf and winml eval. Only the recognized
-        # build-control keys are forwarded so unrelated kwargs (e.g. ``ep``, read
-        # above) do not leak into build_hf_model's signature.
-        build_control_kwargs = {
-            key: kwargs[key]
-            for key in ("skip_optimize", "hack_max_optim_iterations")
-            if key in kwargs
-        }
+        # Pass resolved EP so the static analyzer targets only this EP
+        resolved_ep = config.compile.ep_config.provider if config.compile is not None else None
         result = build_hf_model(
             config=config,
             output_dir=output_dir,
             model_id=model_id,
-            pytorch_model=None,
+            pytorch_model=pytorch_model,
             rebuild=force_rebuild,
             trust_remote_code=trust_remote_code,
             cache_key=cache_key,
             ep=resolved_ep,
-            device=device,
-            model_type=model_type,
-            allow_unsupported_nodes=allow_unsupported_nodes,
-            **build_control_kwargs,
+            device=ep_device.device.device_type.lower(),
         )
         onnx_path = result.final_onnx_path
 
         # =====================================================================
-        # [5] RUNTIME PHASE - Return inference wrapper
+        # [4] RUNTIME PHASE - Return inference wrapper
         # =====================================================================
         winml_class = get_winml_class(model_type, task)
         logger.info("Creating inference wrapper: %s", winml_class.__name__)
@@ -523,9 +485,7 @@ class WinMLAutoModel:
         model = winml_class(
             onnx_path=onnx_path,
             config=hf_config,  # HF PretrainedConfig for pipeline compatibility
-            device=device,  # pass user's original device string; WinMLSession handles "auto"
-            ep=resolved_ep,
-            provider_options=provider_options,
+            ep_device=ep_device,
         )
         model._build_config = config  # resolved build config (task, quant, compile)
         return model

@@ -35,9 +35,9 @@ from rich.progress import (
 from rich.table import Table
 from rich.text import Text
 
+from ..session import DEVICE_TYPE_TO_DEVICE
 from ..utils import cli as cli_utils
 from ..utils.constants import (
-    DEVICE_TYPE_TO_DEVICE,
     EP_SUPPORTED_DEVICES,
     SUPPORTED_DEVICES,
     SUPPORTED_EPS,
@@ -813,7 +813,7 @@ def analyze(
     Examples:
     \b
         winml analyze --model model.onnx --ep qnn
-        winml analyze --model model.onnx --ep ov --device GPU
+        winml analyze --model model.onnx --ep openvino --device gpu
         winml analyze --model model.onnx --output results.json
     """
     # Apply build config defaults (CLI explicit options take precedence).
@@ -902,7 +902,7 @@ def analyze(
         # set (fan-out, unchanged). `auto` resolves to a single best target from
         # local availability via the shared sysinfo helpers — the same path
         # build/run/perf use. A concrete value is used as-is.
-        from ..sysinfo import resolve_device, resolve_eps
+        from ..session import EPDeviceTarget, available_eps_for_device, resolve_device
 
         # Only a pinned (concrete) EP can constrain device auto-resolution.
         # ``ep`` is a concrete EP/alias here unless it is the "auto"/"all"
@@ -916,7 +916,9 @@ def analyze(
             devices = list(SUPPORTED_DEVICES)
         elif device == "auto":
             try:
-                resolved_device, _ = resolve_device(device="auto", ep=ep_hint)
+                resolved_device = resolve_device(
+                    EPDeviceTarget(ep=ep_hint or "auto", device="auto")
+                ).device
             except (ValueError, RuntimeError) as e:
                 raise click.UsageError(f"Could not auto-select a device: {e}") from e
             devices = [resolved_device]
@@ -930,14 +932,16 @@ def analyze(
         if ep == "auto" and device == "all":
             # auto + all: resolve the best available EP per device rather than
             # picking a single EP from one ref device and fanning it across
-            # unrelated devices. resolve_eps() already returns only EPs that are
-            # valid and locally available for the given device, so the resulting
-            # pairs need no further EP_SUPPORTED_DEVICES filtering.
+            # unrelated devices. available_eps_for_device() already returns only
+            # EPs that are valid and locally available for the given device, so
+            # the resulting pairs need no further EP_SUPPORTED_DEVICES filtering.
             execution_pairs = _sort_ep_device_pairs(
                 [
-                    (device_eps[0], target_device)
+                    # available_eps_for_device yields EP full names as ``str``;
+                    # they are ``EPName`` members by construction.
+                    (cast("EPName", device_eps[0]), target_device)
                     for target_device in devices
-                    if (device_eps := resolve_eps(target_device))
+                    if (device_eps := available_eps_for_device(target_device))
                 ]
             )
         else:
@@ -953,12 +957,12 @@ def analyze(
                 ref_device = devices[0] if devices else None
                 if not ref_device:
                     raise click.UsageError("No device context available for EP auto-resolution.")
-                compatible_eps = resolve_eps(ref_device)
+                compatible_eps = available_eps_for_device(ref_device)
                 if not compatible_eps:
                     raise click.UsageError(
                         f"No execution provider is available for device '{ref_device}'."
                     )
-                eps = [compatible_eps[0]]
+                eps = [cast("EPName", compatible_eps[0])]
             else:
                 # ep is a specific EP or alias
                 eps = [normalize_ep_name(ep)]

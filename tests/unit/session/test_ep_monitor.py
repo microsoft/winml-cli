@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for EPMonitor, VitisAIMonitor, and internal helpers."""
+"""Tests for WinMLEPMonitor, VitisAIMonitor, and internal helpers."""
 
 from __future__ import annotations
 
@@ -15,26 +15,30 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from winml.modelkit.session import EPMonitor, PerfStats, VitisAIMonitor
+from winml.modelkit.session import PerfStats, VitisAIMonitor, WinMLEPMonitor
 
 
 # ============================================================================
-# EPMonitor (ABC) tests
+# WinMLEPMonitor (ABC) tests
 # ============================================================================
 
 
 class TestEPMonitor:
-    """Test EPMonitor abstract base class."""
+    """Test WinMLEPMonitor abstract base class."""
 
     def test_cannot_instantiate(self):
-        """EPMonitor is abstract and cannot be instantiated directly."""
+        """WinMLEPMonitor is abstract and cannot be instantiated directly."""
         with pytest.raises(TypeError):
-            EPMonitor()
+            WinMLEPMonitor()
 
     def test_subclass_must_implement_all_methods(self):
-        """Concrete subclass missing methods raises TypeError."""
+        """Concrete subclass missing the remaining abstract methods raises TypeError.
 
-        class IncompleteMonitor(EPMonitor):
+        Post-v2.4 the ABC's abstract surface is ``__enter__``, ``__exit__``,
+        and ``is_available`` — ``to_dict`` is no longer in the contract.
+        """
+
+        class IncompleteMonitor(WinMLEPMonitor):
             pass
 
         with pytest.raises(TypeError):
@@ -43,23 +47,22 @@ class TestEPMonitor:
     def test_concrete_subclass_works(self):
         """A fully-implemented subclass can be instantiated."""
 
-        class DummyMonitor(EPMonitor):
+        class DummyMonitor(WinMLEPMonitor):
             def __enter__(self):
                 return self
 
             def __exit__(self, *exc):
                 pass
 
-            def to_dict(self):
-                return {"test": True}
-
             @classmethod
             def is_available(cls):
                 return True
 
         mon = DummyMonitor()
-        assert mon.to_dict() == {"test": True}
+        assert isinstance(mon, WinMLEPMonitor)
         assert DummyMonitor.is_available() is True
+        # Default v2.4 typed-accessor contract — None unless populated.
+        assert mon.result is None
 
     def test_null_ep_monitor(self):
         """NullEPMonitor implements Null Object Pattern correctly."""
@@ -67,15 +70,12 @@ class TestEPMonitor:
 
         mon = NullEPMonitor()
         assert NullEPMonitor.is_available() is True
-        assert mon.to_dict() == {}
+        # v2.4: NullEPMonitor exposes no data via the typed accessor.
+        assert mon.result is None
 
         # Context manager works
         with mon as m:
             assert m is mon
-
-        # JSON-serializable
-        serialized = json.dumps(mon.to_dict())
-        assert serialized == "{}"
 
 
 # ============================================================================
@@ -633,69 +633,9 @@ class TestHWMonitor:
 
 
 # ============================================================================
-# QNNMonitor tests (placeholder)
+# QNNMonitor tests — moved to tests/unit/session/monitor/test_qnn_monitor.py
+# (QNNMonitor is no longer a placeholder; it is a full implementation).
 # ============================================================================
-
-
-class TestQNNMonitor:
-    """Test QNNMonitor placeholder."""
-
-    def test_is_available_returns_false(self):
-        from winml.modelkit.session import QNNMonitor
-
-        assert QNNMonitor.is_available() is False
-
-    def test_context_manager_noop(self):
-        from winml.modelkit.session import QNNMonitor
-
-        with QNNMonitor() as hw:
-            pass
-
-        assert hw.to_dict()["ep"] == "QNN"
-
-    def test_to_dict_returns_stub(self):
-        from winml.modelkit.session import QNNMonitor
-
-        with QNNMonitor() as hw:
-            pass
-
-        d = hw.to_dict()
-        assert d["ep"] == "QNN"
-        assert d["device"] == "NPU"
-        assert d["status"] == "not_implemented"
-
-
-# ============================================================================
-# OpenVinoMonitor tests (placeholder)
-# ============================================================================
-
-
-class TestOpenVinoMonitor:
-    """Test OpenVinoMonitor placeholder."""
-
-    def test_is_available_returns_false(self):
-        from winml.modelkit.session import OpenVinoMonitor
-
-        assert OpenVinoMonitor.is_available() is False
-
-    def test_context_manager_noop(self):
-        from winml.modelkit.session import OpenVinoMonitor
-
-        with OpenVinoMonitor() as hw:
-            pass
-
-        assert hw.to_dict()["ep"] == "OpenVINO"
-
-    def test_to_dict_returns_stub(self):
-        from winml.modelkit.session import OpenVinoMonitor
-
-        with OpenVinoMonitor() as hw:
-            pass
-
-        d = hw.to_dict()
-        assert d["ep"] == "OpenVINO"
-        assert d["device"] == "NPU"
-        assert d["status"] == "not_implemented"
 
 
 # ============================================================================
@@ -716,11 +656,6 @@ class TestMonitorImports:
 
         assert QNNMonitor is not None
 
-    def test_import_openvino_monitor_from_submodule(self):
-        from winml.modelkit.session import OpenVinoMonitor
-
-        assert OpenVinoMonitor is not None
-
     def test_import_hw_monitor_from_session(self):
         from winml.modelkit.session import HWMonitor
 
@@ -730,12 +665,6 @@ class TestMonitorImports:
         from winml.modelkit.session import QNNMonitor
 
         assert QNNMonitor is not None
-
-    def test_import_openvino_monitor_from_session(self):
-        from winml.modelkit.session import OpenVinoMonitor
-
-        assert OpenVinoMonitor is not None
-
 
 # ============================================================================
 # PdhPoller graceful degradation tests
@@ -1368,24 +1297,25 @@ class TestToDictJsonSerializable:
         serialized = json.dumps(d)
         assert isinstance(serialized, str)
 
-    def test_qnn_monitor_to_dict_json(self):
+    def test_qnn_monitor_result_dict_json(self):
+        """v2.4: QNN exposes its data via the typed result accessor.
+
+        ``to_dict()`` was removed from the WinMLEPMonitor contract; consumers
+        access ``OpTraceResult`` via ``monitor.result`` and serialize via
+        ``result.to_dict()``.
+        """
         from winml.modelkit.session import QNNMonitor
 
         with QNNMonitor() as hw:
             pass
-        d = hw.to_dict()
+        # Post-exit: the monitor populated _result with a failure-shape
+        # OpTraceResult (status="no_data" — no CSV produced in this unit
+        # test). The typed accessor returns it; to_dict() on the result
+        # must be JSON-serializable.
+        assert hw.result is not None
+        d = hw.result.to_dict()
         serialized = json.dumps(d)
         assert isinstance(serialized, str)
-
-    def test_openvino_monitor_to_dict_json(self):
-        from winml.modelkit.session import OpenVinoMonitor
-
-        with OpenVinoMonitor() as hw:
-            pass
-        d = hw.to_dict()
-        serialized = json.dumps(d)
-        assert isinstance(serialized, str)
-
 
 # ============================================================================
 # Exception safety tests
@@ -1418,6 +1348,45 @@ class TestMonitorExceptionSafety:
 # ============================================================================
 # LiveMonitorDisplay tests
 # ============================================================================
+
+
+class TestAvgNow:
+    """Contract tests for the ``_avg_now`` helper in ``_live_chart``.
+
+    Pins the ``(avg, now)`` semantics that :meth:`_render_status` relies
+    on for the unified ``now%/avg%`` display across NPU / CPU / GPU.
+    """
+
+    def test_returns_mean_and_last_for_multi_sample_list(self):
+        from winml.modelkit.commands._live_chart import _avg_now
+
+        assert _avg_now([10.0, 20.0]) == (15.0, 20.0)
+
+    def test_returns_single_value_as_both_when_list_has_one_sample(self):
+        from winml.modelkit.commands._live_chart import _avg_now
+
+        assert _avg_now([42.5]) == (42.5, 42.5)
+
+    def test_empty_list_returns_fallback_for_both(self):
+        from winml.modelkit.commands._live_chart import _avg_now
+
+        assert _avg_now([], fallback_now=42.0) == (42.0, 42.0)
+
+    def test_none_returns_fallback_for_both(self):
+        from winml.modelkit.commands._live_chart import _avg_now
+
+        assert _avg_now(None, fallback_now=5.0) == (5.0, 5.0)
+
+    def test_empty_list_defaults_to_zero_fallback(self):
+        from winml.modelkit.commands._live_chart import _avg_now
+
+        assert _avg_now([]) == (0.0, 0.0)
+
+    def test_all_zero_samples_return_zero_zero_regardless_of_fallback(self):
+        """Non-empty samples override ``fallback_now`` entirely."""
+        from winml.modelkit.commands._live_chart import _avg_now
+
+        assert _avg_now([0.0, 0.0, 0.0], fallback_now=99.0) == (0.0, 0.0)
 
 
 class TestLiveMonitorDisplay:
@@ -1502,56 +1471,163 @@ class TestLiveMonitorDisplay:
             hw_dict={},
         )
 
-    def test_cpu_only_status_omits_adapter_cell(self):
-        """device='cpu' → no adapter cell, no Device Mem cell — only CPU/RAM."""
+    def test_render_status_includes_gpu_cell(self):
         from winml.modelkit.commands._live_chart import LiveMonitorDisplay
 
-        display = LiveMonitorDisplay(total_iterations=10, warmup=0, model_id="test", device="cpu")
+        display = LiveMonitorDisplay(total_iterations=110, warmup=10, model_id="test", device="gpu")
         status = display._render_status(
+            iteration=50,
+            latency_ms=2.0,
+            util_samples=[80.0],
+            cpu_pct=15.0,
+            gpu_pct=42.5,
+        )
+        assert "GPU:" in status
+        assert "42.5" in status
+
+    def test_update_accepts_gpu_samples_noop_when_live_none(self):
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        display = LiveMonitorDisplay(total_iterations=10, warmup=0, model_id="test", device="gpu")
+        # _live is None — should accept gpu kwargs without crashing
+        display.update(
             iteration=1,
             latency_ms=1.0,
-            util_samples=[42.0],  # ignored: no adapter polled
-            cpu_pct=12.5,
-            ram_mb=8000.0,
+            util_samples=[50.0],
+            cpu_samples=[20.0],
+            gpu_samples=[33.0],
+            gpu_pct=33.0,
         )
-        # Adapter line / device-memory line gone; CPU + Mem remain.
-        assert "CPU: 12.5%" in status
-        assert "RAM: 8000 MB" in status
-        assert "NPU:" not in status
-        assert "GPU:" not in status
-        assert "Adapter:" not in status
-        assert "VRAM:" not in status
 
-    def test_cpu_only_chart_legend_omits_adapter_swatch(self):
-        """The chart legend should advertise only CPU when no adapter polled."""
-        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
 
-        display = LiveMonitorDisplay(total_iterations=10, warmup=0, model_id="test", device="cpu")
-        chart = display._render_chart(util_samples=[], cpu_samples=[10.0, 20.0])
-        # Renderable Group's first child is the legend Text.
-        legend_text = str(chart.renderables[0])
-        assert "CPU %" in legend_text
-        assert "NPU %" not in legend_text
-        assert "GPU %" not in legend_text
-        assert "Adapter %" not in legend_text
+# ============================================================================
+# GPU utilization aggregation (hardware-independent)
+# ============================================================================
 
-    def test_adapter_kind_status_keeps_adapter_cell(self):
-        """device_kind='gpu' → status row keeps the adapter cell + label."""
-        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
 
-        display = LiveMonitorDisplay(
-            total_iterations=10,
-            warmup=0,
-            model_id="test",
-            device="auto",
-            device_kind="gpu",
-        )
-        status = display._render_status(
-            iteration=1,
-            latency_ms=1.0,
-            util_samples=[42.0],
-            cpu_pct=12.5,
-            ram_mb=8000.0,
-        )
-        assert "GPU: 42.0% avg" in status
-        assert "VRAM:" in status
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only (_pdh import)")
+class TestGpuUtilizationAggregation:
+    """Test the pure GPU-engine utilization aggregation helper.
+
+    Matches Task Manager's "busiest engine" semantics: max across engine
+    utilization values, capped at 100. No hardware required.
+    """
+
+    def test_max_across_engines(self):
+        from winml.modelkit.session.monitor._pdh import aggregate_gpu_utilization
+
+        assert aggregate_gpu_utilization([10.0, 80.0, 5.0]) == 80.0
+
+    def test_caps_at_100(self):
+        from winml.modelkit.session.monitor._pdh import aggregate_gpu_utilization
+
+        assert aggregate_gpu_utilization([120.0, 50.0]) == 100.0
+
+    def test_ignores_none_values(self):
+        from winml.modelkit.session.monitor._pdh import aggregate_gpu_utilization
+
+        assert aggregate_gpu_utilization([None, 30.0, None]) == 30.0
+
+    def test_all_none_returns_none(self):
+        from winml.modelkit.session.monitor._pdh import aggregate_gpu_utilization
+
+        assert aggregate_gpu_utilization([None, None]) is None
+
+    def test_empty_returns_none(self):
+        from winml.modelkit.session.monitor._pdh import aggregate_gpu_utilization
+
+        assert aggregate_gpu_utilization([]) is None
+
+
+# ============================================================================
+# PdhPoller GPU monitoring
+# ============================================================================
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+class TestPdhPollerGpu:
+    """Test GPU monitoring in PdhPoller."""
+
+    def test_is_gpu_available_returns_bool(self):
+        from winml.modelkit.session.monitor._pdh import PdhPoller
+
+        assert isinstance(PdhPoller.is_gpu_available(), bool)
+
+    def test_gpu_properties_have_correct_types(self):
+        from winml.modelkit.session.monitor._pdh import PdhPoller
+
+        poller = PdhPoller(poll_interval_ms=50)
+        poller.start()
+        time.sleep(0.2)
+        poller.stop()
+
+        assert isinstance(poller.gpu_samples, list)
+        for val in poller.gpu_samples:
+            assert isinstance(val, float)
+        assert isinstance(poller.mean_gpu_pct, float)
+        assert isinstance(poller.peak_gpu_pct, float)
+        assert isinstance(poller.gpu_luids, list)
+
+    def test_no_gpu_returns_zero_metrics(self):
+        from winml.modelkit.session.monitor._pdh import PdhPoller
+
+        with patch(
+            "winml.modelkit.session.monitor._pdh.discover_gpu_luids", return_value=[]
+        ):
+            poller = PdhPoller(poll_interval_ms=50)
+            poller.start()
+            time.sleep(0.2)
+            poller.stop()
+
+        assert poller.gpu_samples == []
+        assert poller.gpu_luids == []
+        assert poller.mean_gpu_pct == 0.0
+        assert poller.peak_gpu_pct == 0.0
+
+    def test_no_gpu_still_collects_cpu(self):
+        """CPU collection unaffected when no GPU present."""
+        from winml.modelkit.session.monitor._pdh import PdhPoller
+
+        with patch(
+            "winml.modelkit.session.monitor._pdh.discover_gpu_luids", return_value=[]
+        ):
+            poller = PdhPoller(poll_interval_ms=50)
+            poller.start()
+            time.sleep(0.3)
+            poller.stop()
+
+        assert poller.cpu_sample_count >= 1
+
+
+# ============================================================================
+# HWMonitor GPU surface
+# ============================================================================
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+class TestHWMonitorGpu:
+    """Test GPU metrics exposed by HWMonitor."""
+
+    def test_gpu_properties_accessible(self):
+        from winml.modelkit.session import HWMonitor
+
+        with HWMonitor(poll_interval_ms=50) as hw:
+            time.sleep(0.2)
+
+        assert isinstance(hw.gpu_samples, list)
+        assert isinstance(hw.mean_gpu_pct, float)
+        assert isinstance(hw.peak_gpu_pct, float)
+
+    def test_to_dict_has_gpu_section(self):
+        from winml.modelkit.session import HWMonitor
+
+        with HWMonitor(poll_interval_ms=50) as hw:
+            time.sleep(0.1)
+
+        d = hw.to_dict()
+        assert "gpu" in d
+        assert "mean_pct" in d["gpu"]
+        assert "peak_pct" in d["gpu"]
+        assert "sample_count" in d["gpu"]
+        # Must remain JSON-serializable
+        json.dumps(d)

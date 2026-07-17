@@ -24,7 +24,6 @@ from .shape_inference_validator import ShapeInferenceValidator
 
 
 if TYPE_CHECKING:
-    from ....utils.constants import EPName
     from ...models.information import Information
     from ...models.onnx_model import ONNXModel
     from ...models.runtime_checks import PatternRuntime
@@ -78,8 +77,8 @@ class ModelValidatorManager:
         enabled_validators: list[str] | None = None,
         op_runtime_results: list[PatternRuntime] | None = None,
         *,
-        device: str,
-        ep: EPName,
+        device: str | None = None,
+        ep: str | None = None,
     ) -> None:
         """Initialize validator manager.
 
@@ -100,7 +99,7 @@ class ModelValidatorManager:
         self.model = model
         self.model_proto = model.get_model()
         self.op_runtime_results = op_runtime_results or []
-        self.device = device
+        self.device = device or "NPU"
         self.ep = ep
         self.enabled_validators = enabled_validators or list(self.VALIDATORS.keys())
 

@@ -31,21 +31,29 @@ from winml.modelkit.commands.perf import (
 
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
-    """Mock device/EP resolution to avoid hardware detection in all perf CLI tests.
+    """Mock device resolution helpers to avoid hardware detection in all perf CLI tests."""
+    from winml.modelkit.session import EPDeviceTarget
 
-    perf() resolves the device (and, when --ep is omitted, derives a concrete EP
-    via resolve_eps) up front, so both are stubbed to a deterministic CPU result.
-    """
+    fake_cpu_ep_device = EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
+    fake_winml_ep_device = MagicMock()
+    fake_winml_ep_device.device.ep_name = "CPUExecutionProvider"
+    fake_winml_ep_device.device.device_type = "CPU"
     with (
         patch(
-            "winml.modelkit.sysinfo.resolve_device",
-            return_value=("cpu", ["cpu"]),
+            "winml.modelkit.session.auto_detect_device",
+            return_value="cpu",
         ),
         patch(
-            "winml.modelkit.sysinfo.resolve_eps",
-            return_value=["CPUExecutionProvider"],
+            "winml.modelkit.sysinfo.hardware.get_available_devices",
+            return_value=["cpu"],
         ),
+        patch(
+            "winml.modelkit.session.resolve_device",
+            return_value=fake_cpu_ep_device,
+        ),
+        patch("winml.modelkit.session.WinMLEPRegistry") as mock_reg,
     ):
+        mock_reg.instance.return_value.auto_device.return_value = fake_winml_ep_device
         yield
 
 
@@ -197,7 +205,9 @@ class TestPerfUnifiedPipeline:
         mock_from_onnx.assert_called_once()
         kwargs = mock_from_onnx.call_args
         assert kwargs.kwargs["task"] == "image-classification"
-        assert kwargs.kwargs["device"] == "cpu"
+        # ep_device is now a WinMLEPDevice — its .device is a WinMLDevice whose
+        # .device_type holds the upper-cased class string.
+        assert kwargs.kwargs["ep_device"].device.device_type.lower() == "cpu"
         assert benchmark._model is mock_model
 
     def test_hf_load_model_calls_from_pretrained(self) -> None:
@@ -220,7 +230,7 @@ class TestPerfUnifiedPipeline:
         kwargs = mock_from_pretrained.call_args
         assert kwargs.args[0] == "microsoft/resnet-50"
         assert kwargs.kwargs["task"] == "image-classification"
-        assert kwargs.kwargs["device"] == "cpu"
+        assert kwargs.kwargs["ep_device"].device.device_type.lower() == "cpu"
         assert benchmark._model is mock_model
 
     def test_no_quantize_only_sets_quant_none(self, tmp_path: Path) -> None:
@@ -329,10 +339,9 @@ class TestPerfUnifiedPipeline:
         onnx_file.write_bytes(b"fake onnx")
 
         with (
-            patch.object(
-                PerfBenchmark,
-                "run",
-                return_value=MagicMock(),
+            patch(
+                "winml.modelkit.commands.perf._run_onnx_benchmark",
+                return_value=(MagicMock(), MagicMock()),
             ) as mock_run,
             patch(
                 "winml.modelkit.commands.perf.display_console_report",
@@ -580,7 +589,7 @@ class TestPerfUnifiedPipeline:
         assert Path(captured_configs[0].model_id) == local
 
     def test_onnx_load_model_passes_ep(self, tmp_path: Path) -> None:
-        """EP argument should be forwarded to from_onnx."""
+        """EP argument should be forwarded to from_onnx via ep_device."""
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake onnx")
 
@@ -599,7 +608,9 @@ class TestPerfUnifiedPipeline:
         ) as mock_from_onnx:
             benchmark._load_model()
 
-        assert mock_from_onnx.call_args.kwargs["ep"] == "qnn"
+        ep_device = mock_from_onnx.call_args.kwargs["ep_device"]
+        # ep_device is a WinMLEPDevice; .device.ep_name holds the canonical EP name.
+        assert ep_device.device.ep_name == "CPUExecutionProvider"
 
     def test_onnx_load_model_passes_ep_options(self, tmp_path: Path) -> None:
         """--ep-options should reach from_onnx as provider_options (ONNX path)."""
@@ -702,12 +713,10 @@ class TestPerfUnifiedPipeline:
     def test_load_model_no_ep_derives_concrete_ep(self, tmp_path: Path) -> None:
         """Without an EP, PerfBenchmark resolves a concrete one before building.
 
-        Regression guard: previously ep stayed None down to the build, so the
-        static analyzer ran with ep=None and aggregated across all EPs (and
-        logged a warning). PerfBenchmark now resolves the EP from the device
-        (autouse fixture stubs resolve_eps -> ["CPUExecutionProvider"]) and
-        passes it to from_onnx. The config keeps the raw request (ep=None);
-        the resolved value lives on the instance.
+        Regression guard: previously ep stayed None down to the build. Now
+        PerfBenchmark resolves via WinMLEPRegistry.auto_device and hands
+        WinMLAutoModel.from_onnx an ``ep_device`` whose ``.device.ep_name``
+        carries the concrete EP. The config keeps the raw request (ep=None).
         """
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake onnx")
@@ -721,15 +730,18 @@ class TestPerfUnifiedPipeline:
         ) as mock_from_onnx:
             benchmark._load_model()
 
-        assert mock_from_onnx.call_args.kwargs["ep"] == "CPUExecutionProvider"
-        assert benchmark._resolved_ep == "CPUExecutionProvider"
+        # New API: ep_device carries the resolved EP.
+        kwargs = mock_from_onnx.call_args.kwargs
+        assert kwargs.get("ep_device") is not None, "expected ep_device kwarg"
+        # The autouse fixture returns a fake WinMLEPDevice — its device.ep_name is a canonical EP.
+        assert kwargs["ep_device"].device.ep_name.endswith("ExecutionProvider")
         assert config.ep is None
 
     def test_load_model_explicit_ep_passed_through_verbatim(self, tmp_path: Path) -> None:
-        """An explicit EP reaches from_onnx unchanged (no normalization).
+        """An explicit EP reaches from_onnx via the resolved ep_device.
 
-        Downstream build/session stages normalize aliases themselves, so
-        PerfBenchmark must not rewrite the user's value (e.g. 'qnn' stays 'qnn').
+        Downstream build/session stages normalize aliases themselves; PerfBenchmark
+        threads the resolved (EP, device) target into ``ep_device.device.ep_name``.
         """
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake onnx")
@@ -745,8 +757,10 @@ class TestPerfUnifiedPipeline:
         ) as mock_from_onnx:
             benchmark._load_model()
 
-        assert mock_from_onnx.call_args.kwargs["ep"] == "qnn"
-        assert benchmark._resolved_ep == "qnn"
+        kwargs = mock_from_onnx.call_args.kwargs
+        assert kwargs.get("ep_device") is not None
+        # Fake resolver expands 'qnn' to canonical 'QNNExecutionProvider'.
+        assert kwargs["ep_device"].device.ep_name == "QNNExecutionProvider"
 
     def test_load_model_unavailable_device_ep_fails_before_build(self, tmp_path: Path) -> None:
         """An unavailable device/EP combo fails before the build pipeline runs.
@@ -764,7 +778,7 @@ class TestPerfUnifiedPipeline:
 
         with (
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
+                "winml.modelkit.session.resolve_device",
                 side_effect=ValueError("no compatible EP is available"),
             ),
             patch("winml.modelkit.models.auto.WinMLAutoModel.from_onnx") as mock_from_onnx,
@@ -783,7 +797,7 @@ class TestPerfUnifiedPipeline:
 
         with (
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
+                "winml.modelkit.session.resolve_device",
                 side_effect=ValueError("no compatible EP is available"),
             ),
             patch("winml.modelkit.models.auto.WinMLAutoModel.from_onnx") as mock_from_onnx,
