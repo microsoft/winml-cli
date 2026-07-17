@@ -532,6 +532,7 @@ def _maybe_build_genai_bundle(
     ep: EPNameOrAlias | None,
     precision: str | None,
     rebuild: bool,
+    submodel: str | None,
 ) -> bool:
     """Build an optimized (onnxruntime-genai) bundle when selected, else fall through.
 
@@ -617,6 +618,18 @@ def _maybe_build_genai_bundle(
     # Match the resolved (ep, device) against the recipe -- a target the recipe
     # does not support raises here.
     bundle_ep, bundle_device = _resolve_optimized_target(recipe, device=device, ep=ep)
+
+    # The recipe fixes every component, so narrowing to one sub-model is
+    # meaningless here; reject rather than silently building the whole bundle.
+    # This runs before the generic single/composite path where --submodel is
+    # honored, so the flag can no longer be silently ignored on this dispatch.
+    if submodel is not None:
+        raise click.BadParameter(
+            "--submodel is not supported for an optimized (genai bundle) build: the "
+            "bundle's components are fixed by its recipe. Re-run with "
+            "--export-type generic to build a single composite sub-model.",
+            param_hint="--submodel",
+        )
 
     # The bundle is fully recipe-driven: every component, shape, precision,
     # quantization and compile setting comes from the recipe, so a supplied
@@ -1117,11 +1130,21 @@ def build(
             ep=ep,
             precision=precision,
             rebuild=rebuild,
+            submodel=submodel,
         ):
             return
 
         if isinstance(config_or_configs, list):
             # ---- MODULE MODE: array config, one build per submodule ----
+            # --submodel selects one composite sub-component; module mode fans out
+            # over an array config's submodules instead, so the two are unrelated.
+            # Reject rather than silently building every module and ignoring it.
+            if submodel is not None:
+                raise click.BadParameter(
+                    "--submodel is not supported for module mode (array config): "
+                    "an array config already builds each of its submodules.",
+                    param_hint="--submodel",
+                )
             if use_cache:
                 raise click.UsageError(
                     "--use-cache is not supported for module mode (array config). "

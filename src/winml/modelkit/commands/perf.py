@@ -1925,6 +1925,13 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     if p.get("module_class"):
         raise click.UsageError("--module is not supported with --runtime winml-genai.")
 
+    # --submodel narrows a composite into a single sub-component benchmarked as a
+    # standalone session; a genai bundle is already the full composite generation
+    # pipeline, so selecting one sub-component is meaningless. Reject rather than
+    # silently ignore (this return runs before the winml-path --submodel handling).
+    if p.get("submodel"):
+        raise click.UsageError("--submodel is not supported with --runtime winml-genai.")
+
     # The ExitStack keeps an --ignore-cache auto-build's throwaway temp dir alive
     # across the benchmark below, then removes it on exit. A bundle dir or a
     # cached auto-build registers nothing, so it is a no-op.

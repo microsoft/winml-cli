@@ -2811,3 +2811,48 @@ class TestBuildSubmodel:
         assert result.exit_code != 0
         assert "not a composite model" in result.output
         mock_single_build.assert_not_called()
+
+    def test_submodel_rejected_in_module_mode(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """--submodel on an array (module-mode) config is rejected early.
+
+        Module mode fans out over an array config's submodules; --submodel selects
+        one composite sub-component, so the two are unrelated. The command must
+        reject rather than silently build every module and ignore the flag.
+        """
+        arr_path = tmp_path / "modules.json"
+        arr_path.write_text(
+            json.dumps(
+                [
+                    {
+                        "loader": {
+                            "task": "image-classification",
+                            "model_type": "resnet",
+                            "module_path": "layer1",
+                        },
+                        "export": {"opset_version": 17, "batch_size": 1},
+                        "optim": {},
+                        "quant": None,
+                        "compile": None,
+                    }
+                ]
+            )
+        )
+
+        with patch("winml.modelkit.commands.build._build_modules") as mock_build_modules:
+            result = _invoke(
+                [
+                    "-c",
+                    str(arr_path),
+                    "-o",
+                    str(tmp_path / "out"),
+                    "--submodel",
+                    "encoder",
+                ]
+            )
+
+        assert result.exit_code != 0
+        assert "--submodel is not supported for module mode" in result.output
+        mock_build_modules.assert_not_called()
