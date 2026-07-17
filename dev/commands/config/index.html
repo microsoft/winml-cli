@@ -2734,6 +2734,27 @@
 <td>JSON file with input shape overrides for dummy input generation. Valid keys by modality — text: <code>sequence_length</code>; vision: <code>height</code>, <code>width</code>, <code>num_channels</code>; audio: <code>feature_size</code>, <code>nb_max_frames</code>, <code>audio_sequence_length</code>.</td>
 </tr>
 <tr>
+<td><code>--input-specs</code></td>
+<td></td>
+<td><code>PATH</code></td>
+<td><em>(none)</em></td>
+<td>JSON file with input specifications for the HuggingFace export. Fields are patched onto the auto-resolved input tensors <em>by name</em> (unlisted inputs and their <code>dtype</code>/<code>value_range</code> are preserved); unknown names are appended. Only valid for a single HuggingFace export config (not <code>--module</code> or composite models).</td>
+</tr>
+<tr>
+<td><code>--export-config</code></td>
+<td></td>
+<td><code>PATH</code></td>
+<td><em>(none)</em></td>
+<td>ONNX export configuration JSON (<code>opset_version</code>, <code>do_constant_folding</code>, etc.) merged into the generated <code>export</code> section. Only valid for a single HuggingFace export config (not <code>--module</code> or composite models).</td>
+</tr>
+<tr>
+<td><code>--dynamic-axes</code></td>
+<td></td>
+<td><code>PATH</code></td>
+<td><em>(none)</em></td>
+<td>JSON dynamic axes mapping for the ONNX export (e.g., <code>{"input_ids": {"0": "batch", "1": "sequence"}}</code>). Symbolic string dimensions in <code>--input-specs</code> shapes also infer dynamic axes. Only valid for a single HuggingFace export config (not <code>--module</code> or composite models).</td>
+</tr>
+<tr>
 <td><code>--device</code></td>
 <td><code>-d</code></td>
 <td><code>auto\|npu\|gpu\|cpu</code></td>
@@ -2820,6 +2841,10 @@
 <p>Generate a config from an already-exported ONNX file, skipping quantization (compilation is already excluded by default):</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>$<span class="w"> </span>winml<span class="w"> </span>config<span class="w"> </span>-m<span class="w"> </span>facebook/convnext-tiny-224.onnx<span class="w"> </span>--no-quant<span class="w"> </span>-o<span class="w"> </span>convnext_optim_only.json
 </span></code></pre></div>
+<p>Generate a config with dynamic axes so the exported model accepts a variable batch dimension:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>$<span class="w"> </span>winml<span class="w"> </span>config<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--dynamic-axes<span class="w"> </span>dynamic_axes.json<span class="w"> </span>-o<span class="w"> </span>resnet_dyn.json
+</span></code></pre></div>
+<p>The <code>dynamic_axes.json</code> maps each input to its dynamic dimensions, e.g. <code>{"pixel_values": {"0": "batch"}}</code>. Symbolic string dimensions in <code>--input-specs</code> shapes (e.g. <code>{"input_ids": {"shape": ["batch", "sequence"]}}</code>) infer dynamic axes automatically without a separate <code>--dynamic-axes</code> file.</p>
 <h2 id="common-pitfalls">Common pitfalls<a class="headerlink" href="#common-pitfalls" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>At least one of <code>-m</code>, <code>--model-type</code>, or <code>--model-class</code> is required</strong> — calling <code>winml config</code> with none of these three flags raises a usage error immediately.</li>
@@ -2827,6 +2852,7 @@
 <li><strong><code>--module</code> changes the output shape</strong> — with <code>--module</code> the JSON output is an array of configs, not a single object. Scripts that expect a single object will fail to parse this output.</li>
 <li><strong><code>--trust-remote-code</code> has security implications</strong> — only use this flag with model repositories you own or explicitly trust; it allows arbitrary Python execution from the remote model card.</li>
 <li><strong>Shape overrides in <code>--shape-config</code> are modality-specific</strong> — passing a <code>sequence_length</code> key for a vision model has no effect. Check the <code>--help</code> description for valid keys per modality.</li>
+<li><strong>Export controls require a single HuggingFace export graph</strong> — <code>--input-specs</code>, <code>--export-config</code>, and <code>--dynamic-axes</code> are rejected for pre-exported <code>.onnx</code> inputs (which set <code>export</code> to <code>null</code>); use them only when config generates the export section. They are also rejected for composite (multi-component) models and for <code>--module</code> (which fan out one config per sub-component / submodule, each with their own export inputs) — generate those per-config outputs first, then edit their export sections individually.</li>
 </ul>
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
