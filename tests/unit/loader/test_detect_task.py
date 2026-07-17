@@ -228,3 +228,64 @@ def test_resolve_task_case1_surfaces_modality_aware_task() -> None:
         r = resolve_task(cfg)
     assert r.task == "image-feature-extraction"
     assert r.optimum_task == "feature-extraction"
+
+
+# =============================================================================
+# Stage 1d — Hub pipeline_tag fallback
+# =============================================================================
+
+_GET_PIPELINE_TAG = "winml.modelkit.utils.hub_utils.get_pipeline_tag"
+_GET_SUPPORTED = "winml.modelkit.loader.resolution.get_supported_tasks"
+
+
+def test_resolve_task_uses_pipeline_tag_when_architecture_fails() -> None:
+    """When config.architectures contains a generic name (e.g. 'Model') that
+    TasksManager cannot resolve, an exportable Hub pipeline_tag is used as fallback."""
+    cfg = _FakeConfig("faketype", name_or_path="audeering/wav2vec2-large-robust-24-ft-age-gender")
+    with (
+        patch(_INFER, side_effect=ValueError("unknown arch")),
+        patch(_GET_PIPELINE_TAG, return_value="audio-classification"),
+        patch(_GET_SUPPORTED, return_value=["feature-extraction", "audio-classification"]),
+    ):
+        r = resolve_task(cfg)
+    assert r.task == "audio-classification"
+    assert r.source == TaskSource.PIPELINE_TAG
+
+
+def test_resolve_task_pipeline_tag_skips_non_exportable_task() -> None:
+    """A pipeline_tag that is not in the model-type's ONNX-exportable set (e.g. a
+    HuggingFace pipeline label like text-to-image with no export path) is rejected and
+    resolution falls through to the last-resort default rather than surfacing a task
+    Stage 2 can't build."""
+    cfg = _FakeConfig("faketype", name_or_path="someone/some-model")
+    with (
+        patch(_INFER, side_effect=ValueError("unknown arch")),
+        patch(_GET_PIPELINE_TAG, return_value="text-to-image"),
+        patch(_GET_SUPPORTED, return_value=["feature-extraction", "audio-classification"]),
+    ):
+        r = resolve_task(cfg)
+    assert r.source == TaskSource.HF_TASK_DEFAULT
+
+
+def test_resolve_task_pipeline_tag_handles_api_failure() -> None:
+    """When the Hub API call fails (network error, etc.), get_pipeline_tag returns None."""
+    cfg = _FakeConfig("faketype", name_or_path="someone/some-model")
+    with (
+        patch(_INFER, side_effect=ValueError("unknown arch")),
+        patch(_GET_PIPELINE_TAG, return_value=None),
+    ):
+        r = resolve_task(cfg)
+    assert r.source == TaskSource.HF_TASK_DEFAULT
+
+
+def test_resolve_task_pipeline_tag_skips_local_path() -> None:
+    """When model_id is a local path, get_pipeline_tag is still called but returns None
+    (local-path rejection is internal to get_pipeline_tag)."""
+    cfg = _FakeConfig("faketype", name_or_path="./local-model")
+    with (
+        patch(_INFER, side_effect=ValueError("unknown arch")),
+        patch(_GET_PIPELINE_TAG, return_value=None) as mock_tag,
+    ):
+        r = resolve_task(cfg)
+    mock_tag.assert_called_once_with("./local-model")
+    assert r.source == TaskSource.HF_TASK_DEFAULT

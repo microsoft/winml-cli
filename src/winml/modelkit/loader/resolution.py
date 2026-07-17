@@ -253,6 +253,7 @@ class TaskSource(str, Enum):
     SENTINEL_DEFAULT = "sentinel-default"  # (model_type, None) sentinel
     TASKS_MANAGER = "tasks-manager"  # Optimum inference (incl. fill-mask upgrade)
     WRAPPED_LIBRARY = "wrapped-library"  # no architectures -> first supported task
+    PIPELINE_TAG = "pipeline-tag"  # Hub pipeline_tag fallback
     HF_TASK_DEFAULT = "hf-task-default"  # last-resort default
 
 
@@ -440,8 +441,8 @@ def resolve_task(
     """Resolve a single model's task + class from an HF config.
 
     Stages: 0 user override -> 1 detect (override / no-architectures /
-    TasksManager / default) -> 2 model class -> 3 modality upgrade
-    (detection path only) -> 4 composite tag.
+    TasksManager / pipeline-tag / default) -> 2 model class -> 3 modality
+    upgrade (detection path only) -> 4 composite tag.
 
     ``model_type_override`` lets a caller drive resolution with a build variant
     (e.g. ``qwen3_transformer_only``) without mutating the loaded HF config; when
@@ -554,7 +555,7 @@ def resolve_task(
     if opt_task is None and not getattr(config, "architectures", None) and model_type:
         # Populate Optimum's ONNX export-config registry before querying it;
         # get_supported_tasks returns [] if this hasn't been imported.
-        import optimum.exporters.onnx.model_configs  # noqa: F401
+        import optimum.exporters.onnx.model_configs
 
         supported = get_supported_tasks(model_type, resolve_optimum_library(model_type))
         if supported:
@@ -572,7 +573,29 @@ def resolve_task(
         except ValueError:
             opt_task = None
 
-    # 1d. last-resort default
+    # 1d. Hub pipeline_tag fallback
+    if opt_task is None and model_id and model_type:
+        from ..utils.hub_utils import get_pipeline_tag
+
+        tag = get_pipeline_tag(model_id)
+        if tag:
+            normalized_tag = normalize_task(tag)
+            # Gate on the model-type's ONNX-exportable set, NOT the full KNOWN_TASKS
+            # display taxonomy. A Hub pipeline_tag is a HuggingFace *pipeline* label and
+            # may name a task with no export path (e.g. text-to-image,
+            # reinforcement-learning, time-series-forecasting). Admitting one would flow a
+            # non-exportable task into Stage 2 (model-class) / Stage 3 instead of degrading
+            # to the last-resort default. Populate Optimum's ONNX export-config registry
+            # first (as Stage 1b does) so get_supported_tasks doesn't return [].
+            import optimum.exporters.onnx.model_configs  # noqa: F401
+
+            if normalized_tag in get_supported_tasks(
+                model_type, resolve_optimum_library(model_type)
+            ):
+                opt_task = normalized_tag
+                source = TaskSource.PIPELINE_TAG
+
+    # 1e. last-resort default
     if opt_task is None:
         opt_task = next(iter(HF_TASK_DEFAULTS))
         source = TaskSource.HF_TASK_DEFAULT
