@@ -144,7 +144,7 @@ def is_hub_model(model_name_or_path: str) -> tuple[bool, dict]:
         return False, {"type": "local", "path": model_name_or_path}
 
 
-_PIPELINE_TAG_TIMEOUT = 10  # seconds
+_PIPELINE_TAG_TIMEOUT = 5  # seconds
 
 
 def get_pipeline_tag(model_id: str) -> str | None:

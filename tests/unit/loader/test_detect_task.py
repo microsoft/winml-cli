@@ -231,31 +231,37 @@ def test_resolve_task_case1_surfaces_modality_aware_task() -> None:
 
 
 # =============================================================================
-# Stage 1e — Hub pipeline_tag fallback
+# Stage 1d — Hub pipeline_tag fallback
 # =============================================================================
 
 _GET_PIPELINE_TAG = "winml.modelkit.utils.hub_utils.get_pipeline_tag"
+_GET_SUPPORTED = "winml.modelkit.loader.resolution.get_supported_tasks"
 
 
 def test_resolve_task_uses_pipeline_tag_when_architecture_fails() -> None:
     """When config.architectures contains a generic name (e.g. 'Model') that
-    TasksManager cannot resolve, the Hub pipeline_tag is used as fallback."""
+    TasksManager cannot resolve, an exportable Hub pipeline_tag is used as fallback."""
     cfg = _FakeConfig("faketype", name_or_path="audeering/wav2vec2-large-robust-24-ft-age-gender")
     with (
         patch(_INFER, side_effect=ValueError("unknown arch")),
         patch(_GET_PIPELINE_TAG, return_value="audio-classification"),
+        patch(_GET_SUPPORTED, return_value=["feature-extraction", "audio-classification"]),
     ):
         r = resolve_task(cfg)
     assert r.task == "audio-classification"
     assert r.source == TaskSource.PIPELINE_TAG
 
 
-def test_resolve_task_pipeline_tag_skips_invalid_task() -> None:
-    """When pipeline_tag is not a recognized task, falls through to last-resort default."""
+def test_resolve_task_pipeline_tag_skips_non_exportable_task() -> None:
+    """A pipeline_tag that is not in the model-type's ONNX-exportable set (e.g. a
+    HuggingFace pipeline label like text-to-image with no export path) is rejected and
+    resolution falls through to the last-resort default rather than surfacing a task
+    Stage 2 can't build."""
     cfg = _FakeConfig("faketype", name_or_path="someone/some-model")
     with (
         patch(_INFER, side_effect=ValueError("unknown arch")),
-        patch(_GET_PIPELINE_TAG, return_value="not-a-real-task"),
+        patch(_GET_PIPELINE_TAG, return_value="text-to-image"),
+        patch(_GET_SUPPORTED, return_value=["feature-extraction", "audio-classification"]),
     ):
         r = resolve_task(cfg)
     assert r.source == TaskSource.HF_TASK_DEFAULT

@@ -7,6 +7,7 @@
 from .config_utils import merge_config
 from .constants import normalize_ep_name
 from .hub_utils import (
+    get_pipeline_tag,
     inject_hub_metadata,
     is_hub_model,
     load_hf_components_from_onnx,
@@ -28,6 +29,7 @@ __all__ = [
     "ModelInputKind",
     "WinMLManifest",
     "classify_model_input",
+    "get_pipeline_tag",
     "inject_hub_metadata",
     "is_hub_model",
     "load_hf_components_from_onnx",

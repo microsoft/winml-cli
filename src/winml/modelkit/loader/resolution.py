@@ -24,7 +24,6 @@ from typing import TYPE_CHECKING, cast
 
 from .task import (
     HF_TASK_DEFAULTS,
-    KNOWN_TASKS,
     get_default_task_for_model_id,
     get_supported_tasks,
     normalize_task,
@@ -556,7 +555,7 @@ def resolve_task(
     if opt_task is None and not getattr(config, "architectures", None) and model_type:
         # Populate Optimum's ONNX export-config registry before querying it;
         # get_supported_tasks returns [] if this hasn't been imported.
-        import optimum.exporters.onnx.model_configs  # noqa: F401
+        import optimum.exporters.onnx.model_configs
 
         supported = get_supported_tasks(model_type, resolve_optimum_library(model_type))
         if supported:
@@ -574,18 +573,29 @@ def resolve_task(
         except ValueError:
             opt_task = None
 
-    # 1e. Hub pipeline_tag fallback
-    if opt_task is None and model_id:
+    # 1d. Hub pipeline_tag fallback
+    if opt_task is None and model_id and model_type:
         from ..utils.hub_utils import get_pipeline_tag
 
         tag = get_pipeline_tag(model_id)
         if tag:
             normalized_tag = normalize_task(tag)
-            if normalized_tag in KNOWN_TASKS:
+            # Gate on the model-type's ONNX-exportable set, NOT the full KNOWN_TASKS
+            # display taxonomy. A Hub pipeline_tag is a HuggingFace *pipeline* label and
+            # may name a task with no export path (e.g. text-to-image,
+            # reinforcement-learning, time-series-forecasting). Admitting one would flow a
+            # non-exportable task into Stage 2 (model-class) / Stage 3 instead of degrading
+            # to the last-resort default. Populate Optimum's ONNX export-config registry
+            # first (as Stage 1b does) so get_supported_tasks doesn't return [].
+            import optimum.exporters.onnx.model_configs  # noqa: F401
+
+            if normalized_tag in get_supported_tasks(
+                model_type, resolve_optimum_library(model_type)
+            ):
                 opt_task = normalized_tag
                 source = TaskSource.PIPELINE_TAG
 
-    # 1d. last-resort default
+    # 1e. last-resort default
     if opt_task is None:
         opt_task = next(iter(HF_TASK_DEFAULTS))
         source = TaskSource.HF_TASK_DEFAULT
