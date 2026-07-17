@@ -88,6 +88,25 @@ def mock_task_model_compatibility_validator():
         yield
 
 
+@pytest.fixture(autouse=True)
+def mock_composite_resolution():
+    """Default composite detection to "not composite" without any network call.
+
+    ``build`` calls ``resolve_composite_components`` before dispatching, which
+    resolves the model config from HuggingFace Hub (``AutoConfig.from_pretrained``)
+    over the network. Left live in these CLI plumbing tests, repeated metadata
+    requests get throttled and ``huggingface_hub``'s retry backoff sleeps — making
+    a later, unrelated test appear to hang. Returning ``None`` keeps the plain
+    single-build path. Composite-specific tests override this with their own
+    ``patch(...)``, which nests inside and wins for the duration of that test.
+    """
+    with patch(
+        "winml.modelkit.loader.resolution.resolve_composite_components",
+        return_value=None,
+    ):
+        yield
+
+
 @pytest.fixture
 def runner() -> CliRunner:
     """Create a CLI test runner."""
