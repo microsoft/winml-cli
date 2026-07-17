@@ -13,7 +13,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import queue
 import sys
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -1147,7 +1149,7 @@ class TestCompileTimeout:
             patch("multiprocessing.get_context", return_value=ctx_mock),
             _patch_og(mock_og),
         ):
-            session._prepare_compiled_bundle()
+            session._prepare_derived_bundle()
 
         # proc.join was called with timeout=42 for each stage
         for call in proc_mock.join.call_args_list:
@@ -1163,8 +1165,378 @@ class TestCompileTimeout:
 
 
 # ---------------------------------------------------------------------------
-# Tests: _compile_stage_worker (delegation to the shared compiler)
+# Tests: _compile_stage EPContext salvage (crash-during-teardown recovery)
 # ---------------------------------------------------------------------------
+
+
+class TestCompileStageSalvage:
+    """When a compile subprocess writes a valid EPContext then exits non-zero
+    (e.g. an accelerator faulting during teardown), the good artifact is
+    salvaged instead of discarded + JIT-recompiled."""
+
+    # A native access violation / heap-corruption style non-zero exit code.
+    _CRASH_EXIT = 3221225477
+
+    @staticmethod
+    def _make_epcontext(path: Path, bin_name: str) -> None:
+        """Code-generate a minimal, structurally valid EPContext ONNX model."""
+        import onnx
+        from onnx import TensorProto, helper
+
+        node = helper.make_node(
+            "EPContext",
+            inputs=[],
+            outputs=["output"],
+            name="ep_context_0",
+            domain="com.microsoft",
+            embed_mode=0,
+            ep_cache_context=bin_name,
+            main_context=1,
+        )
+        output_info = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 4])
+        graph = helper.make_graph([node], "epcontext_model", [], [output_info])
+        model = helper.make_model(
+            graph,
+            opset_imports=[
+                helper.make_opsetid("", 17),
+                helper.make_opsetid("com.microsoft", 1),
+            ],
+        )
+        model.ir_version = 9
+        path.parent.mkdir(parents=True, exist_ok=True)
+        onnx.save(model, str(path))
+
+    @staticmethod
+    def _make_multipartition_epcontext(path: Path, bin_name: str) -> None:
+        """Code-generate a QNN-style multi-partition EPContext model.
+
+        One ``main_context=1`` node carries the external ``.bin`` reference for
+        all partitions; a secondary ``main_context=0`` node legitimately omits
+        ``ep_cache_context`` (per the EPContext schema). Salvage validation must
+        accept this artifact, not reject it at the secondary node.
+        """
+        import onnx
+        from onnx import TensorProto, helper
+
+        main = helper.make_node(
+            "EPContext",
+            inputs=[],
+            outputs=["main_out"],
+            name="ep_context_main",
+            domain="com.microsoft",
+            embed_mode=0,
+            ep_cache_context=bin_name,
+            main_context=1,
+        )
+        secondary = helper.make_node(
+            "EPContext",
+            inputs=[],
+            outputs=["secondary_out"],
+            name="ep_context_secondary",
+            domain="com.microsoft",
+            embed_mode=0,
+            main_context=0,
+        )
+        main_info = helper.make_tensor_value_info("main_out", TensorProto.FLOAT, [1, 4])
+        secondary_info = helper.make_tensor_value_info("secondary_out", TensorProto.FLOAT, [1, 4])
+        graph = helper.make_graph(
+            [main, secondary], "epcontext_multipartition", [], [main_info, secondary_info]
+        )
+        model = helper.make_model(
+            graph,
+            opset_imports=[
+                helper.make_opsetid("", 17),
+                helper.make_opsetid("com.microsoft", 1),
+            ],
+        )
+        model.ir_version = 9
+        path.parent.mkdir(parents=True, exist_ok=True)
+        onnx.save(model, str(path))
+
+    def _crash_context(self, on_start: object = None) -> MagicMock:
+        """A multiprocessing context whose Process reports a non-zero exit.
+
+        ``on_start`` (if given) runs as the ``Process.start`` side effect,
+        modelling the real compile subprocess: it writes the EPContext artifact
+        to disk and *then* the native runtime faults during teardown, so the
+        artifact appears only after ``_compile_stage`` has snapshotted the
+        pre-existing files. A salvage therefore sees it as freshly produced.
+        """
+        proc = MagicMock()
+        proc.is_alive.return_value = False
+        proc.exitcode = self._CRASH_EXIT
+        if on_start is not None:
+            proc.start.side_effect = on_start
+        ctx = MagicMock()
+        ctx.Process.return_value = proc
+        return ctx
+
+    def test_salvages_source_dir_auto_epcontext_on_teardown_crash(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """ORT writes the auto EPContext next to the *source* model; a teardown
+        crash leaves it there before it is copied into _compiled/. The salvage
+        must find it in the source dir, move it to the canonical output, and
+        bring its .bin sidecar along so ep_cache_context still resolves."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+
+        # Auto-named EPContext + weights sidecar sit next to the source ctx.onnx.
+        auto_onnx = bundle_dir_with_pipeline / "ctx_auto_ctx.onnx"
+        auto_bin = bundle_dir_with_pipeline / "ctx_auto_ctx_qnn.bin"
+
+        def _write() -> None:
+            auto_bin.write_bytes(b"weights")
+            self._make_epcontext(auto_onnx, "ctx_auto_ctx_qnn.bin")
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
+
+        with patch(
+            "multiprocessing.get_context", return_value=self._crash_context(on_start=_write)
+        ):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is True
+        assert ctx_out.exists()
+        # The graph and its weights sidecar were moved into the compiled dir...
+        assert (compiled_dir / "ctx_auto_ctx_qnn.bin").exists()
+        # ...and removed from the source dir.
+        assert not auto_onnx.exists()
+        assert not auto_bin.exists()
+
+        # ep_cache_context is unchanged and now resolves next to ctx_out.
+        import onnx
+
+        model = onnx.load(str(ctx_out), load_external_data=False)
+        ref = next(
+            a.s.decode()
+            for n in model.graph.node
+            if n.op_type == "EPContext"
+            for a in n.attribute
+            if a.name == "ep_cache_context"
+        )
+        assert ref == "ctx_auto_ctx_qnn.bin"
+        assert (compiled_dir / ref).exists()
+
+    def test_salvages_compiled_dir_auto_epcontext(self, bundle_dir_with_pipeline: Path) -> None:
+        """If the auto EPContext was already copied into _compiled/ before the
+        crash, it is promoted to the canonical output from there."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+
+        auto_onnx = compiled_dir / "ctx_auto_ctx.onnx"
+
+        def _write() -> None:
+            (compiled_dir / "ctx_auto_ctx_qnn.bin").write_bytes(b"weights")
+            self._make_epcontext(auto_onnx, "ctx_auto_ctx_qnn.bin")
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
+
+        with patch(
+            "multiprocessing.get_context", return_value=self._crash_context(on_start=_write)
+        ):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is True
+        assert ctx_out.exists()
+        assert not auto_onnx.exists()
+        # The .bin already lived in compiled_dir and is left in place.
+        assert (compiled_dir / "ctx_auto_ctx_qnn.bin").exists()
+
+    def test_salvages_canonical_output_written_before_crash(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """If the compiler already copied a valid EPContext to the canonical
+        output before crashing, it is used as-is (no auto file needed)."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
+
+        def _write() -> None:
+            (compiled_dir / "context_ctx_qnn.bin").write_bytes(b"weights")
+            self._make_epcontext(ctx_out, "context_ctx_qnn.bin")
+
+        with patch(
+            "multiprocessing.get_context", return_value=self._crash_context(on_start=_write)
+        ):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is True
+        assert ctx_out.exists()
+
+    def test_discards_when_no_valid_epcontext_after_crash(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """A crash with no salvageable EPContext still fails (discard + fallback)."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
+        # The subprocess writes a leftover that matches the auto-name glob but is
+        # not a valid ONNX model -> nothing to salvage.
+        auto_onnx = bundle_dir_with_pipeline / "ctx_auto_ctx.onnx"
+
+        def _write() -> None:
+            auto_onnx.write_bytes(b"not an onnx model")
+
+        with patch(
+            "multiprocessing.get_context", return_value=self._crash_context(on_start=_write)
+        ):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is False
+        assert not ctx_out.exists()
+
+    def test_non_epcontext_leftover_is_not_salvaged(self, bundle_dir_with_pipeline: Path) -> None:
+        """A structurally valid ONNX that is *not* an EPContext model is rejected."""
+        import onnx
+        from onnx import TensorProto, helper
+
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+
+        auto_onnx = bundle_dir_with_pipeline / "ctx_auto_ctx.onnx"
+
+        def _write() -> None:
+            # A plain Identity graph (valid ONNX, no EPContext node) next to source.
+            node = helper.make_node("Identity", inputs=["x"], outputs=["y"], name="id0")
+            x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 4])
+            y = helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 4])
+            model = helper.make_model(
+                helper.make_graph([node], "plain", [x], [y]),
+                opset_imports=[helper.make_opsetid("", 17)],
+            )
+            model.ir_version = 9
+            onnx.save(model, str(auto_onnx))
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
+
+        with patch(
+            "multiprocessing.get_context", return_value=self._crash_context(on_start=_write)
+        ):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is False
+        assert not ctx_out.exists()
+
+    def test_stale_pre_existing_epcontext_is_not_salvaged(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """An EPContext that predates the compile (unchanged mtime after the
+        crash) is a stale leftover — e.g. from an earlier compile with different
+        provider options — and must never be salvaged as this run's output."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
+        # A fully valid EPContext already sits at the canonical output, produced
+        # by an earlier compile and left untouched by the (crashing) subprocess.
+        (compiled_dir / "context_ctx_qnn.bin").write_bytes(b"weights")
+        self._make_epcontext(ctx_out, "context_ctx_qnn.bin")
+        stale = time.time() - 3600
+        os.utime(ctx_out, (stale, stale))
+
+        # Subprocess writes nothing (on_start=None): the artifact's mtime is
+        # unchanged from the pre-compile snapshot -> rejected as stale.
+        with patch("multiprocessing.get_context", return_value=self._crash_context()):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is False
+        assert not ctx_out.exists()
+
+    def test_embed_mode_zero_missing_bin_is_not_salvaged(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """An embed_mode=0 EPContext whose external ep_cache_context .bin is
+        absent references a missing binary and must not be salvaged."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
+        auto_onnx = bundle_dir_with_pipeline / "ctx_auto_ctx.onnx"
+
+        def _write() -> None:
+            # Fresh EPContext referencing a .bin that is never written.
+            self._make_epcontext(auto_onnx, "ctx_auto_ctx_qnn.bin")
+
+        with patch(
+            "multiprocessing.get_context", return_value=self._crash_context(on_start=_write)
+        ):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is False
+        assert not ctx_out.exists()
+
+    def test_salvages_multipartition_qnn_epcontext_with_secondary_nodes(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """A QNN artifact can pack all partitions into one main_context=1 node
+        while secondary main_context=0 nodes omit ep_cache_context. Validation
+        must accept it (only the main context's external .bin is required), not
+        reject it at the first secondary node."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+
+        auto_onnx = bundle_dir_with_pipeline / "ctx_auto_ctx.onnx"
+        auto_bin = bundle_dir_with_pipeline / "ctx_auto_ctx_qnn.bin"
+
+        def _write() -> None:
+            auto_bin.write_bytes(b"weights")
+            self._make_multipartition_epcontext(auto_onnx, "ctx_auto_ctx_qnn.bin")
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
+
+        with patch(
+            "multiprocessing.get_context", return_value=self._crash_context(on_start=_write)
+        ):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is True
+        assert ctx_out.exists()
+        # The main context's external weights sidecar came along with the graph.
+        assert (compiled_dir / "ctx_auto_ctx_qnn.bin").exists()
+
+    def test_multipartition_epcontext_missing_main_bin_is_not_salvaged(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """Even for a multi-partition artifact, the main_context=1 node's
+        external .bin must exist — a missing main-context binary is rejected."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
+        auto_onnx = bundle_dir_with_pipeline / "ctx_auto_ctx.onnx"
+
+        def _write() -> None:
+            # Multi-partition graph, but the main context's .bin is never written.
+            self._make_multipartition_epcontext(auto_onnx, "ctx_auto_ctx_qnn.bin")
+
+        with patch(
+            "multiprocessing.get_context", return_value=self._crash_context(on_start=_write)
+        ):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is False
+        assert not ctx_out.exists()
 
 
 class TestCompileStageWorker:
@@ -1240,15 +1612,354 @@ class TestCompileStageWorker:
 
 
 # ---------------------------------------------------------------------------
-# Tests: _prepare_compiled_bundle
+# Tests: _prepare_derived_bundle_worker (isolated compile subprocess target)
 # ---------------------------------------------------------------------------
 
 
-class TestPrepareCompiledBundle:
+class TestPrepareDerivedBundleWorker:
+    """The module-level target executed inside the isolated compile subprocess."""
+
+    def test_posts_ok_with_resolved_load_dir(
+        self, bundle_dir_with_pipeline: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """On success the worker posts ("ok", <load_dir>) to the result queue."""
+        from winml.modelkit.session.genai_session import _prepare_derived_bundle_worker
+
+        expected = bundle_dir_with_pipeline / "_compiled"
+        monkeypatch.setattr(
+            GenaiSession,
+            "_prepare_derived_bundle",
+            lambda self, cfg, *, overridden: expected,
+        )
+        result_queue = MagicMock()
+        _prepare_derived_bundle_worker(
+            result_queue, str(bundle_dir_with_pipeline), 42, {"model": {}}, False
+        )
+        result_queue.put.assert_called_once_with(("ok", str(expected)))
+
+    def test_forwards_effective_cfg_and_overridden(
+        self, bundle_dir_with_pipeline: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The worker passes the effective config and overridden flag through."""
+        from winml.modelkit.session.genai_session import _prepare_derived_bundle_worker
+
+        seen: dict = {}
+
+        def _capture(self, cfg, *, overridden):
+            seen["cfg"] = cfg
+            seen["overridden"] = overridden
+            return bundle_dir_with_pipeline
+
+        monkeypatch.setattr(GenaiSession, "_prepare_derived_bundle", _capture)
+        _prepare_derived_bundle_worker(
+            MagicMock(), str(bundle_dir_with_pipeline), 7, {"model": {"x": 1}}, True
+        )
+        assert seen == {"cfg": {"model": {"x": 1}}, "overridden": True}
+
+    def test_reconstructs_compile_enabled_session_with_timeout(
+        self, bundle_dir_with_pipeline: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The reconstructed session enables compile and preserves the timeout."""
+        from winml.modelkit.session.genai_session import _prepare_derived_bundle_worker
+
+        captured: dict = {}
+
+        def _capture(self, cfg, *, overridden):
+            captured["compile"] = self._compile
+            captured["timeout"] = self._compile_timeout
+            return bundle_dir_with_pipeline
+
+        monkeypatch.setattr(GenaiSession, "_prepare_derived_bundle", _capture)
+        _prepare_derived_bundle_worker(
+            MagicMock(), str(bundle_dir_with_pipeline), 123, {"model": {}}, False
+        )
+        assert captured == {"compile": True, "timeout": 123}
+
+    def test_posts_error_when_orchestration_raises(
+        self, bundle_dir_with_pipeline: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failure inside the orchestration is reported as ("error", <repr>)."""
+        from winml.modelkit.session.genai_session import _prepare_derived_bundle_worker
+
+        def _boom(self, cfg, *, overridden):
+            raise RuntimeError("compile blew up")
+
+        monkeypatch.setattr(GenaiSession, "_prepare_derived_bundle", _boom)
+        result_queue = MagicMock()
+        _prepare_derived_bundle_worker(
+            result_queue, str(bundle_dir_with_pipeline), 42, {"model": {}}, False
+        )
+        status, payload = result_queue.put.call_args.args[0]
+        assert status == "error"
+        assert "compile blew up" in payload
+
+
+# ---------------------------------------------------------------------------
+# Tests: _prepare_derived_bundle_isolated (spawns + drains the worker)
+# ---------------------------------------------------------------------------
+
+
+class TestPrepareDerivedBundleIsolated:
+    """Isolation wrapper: spawn the compile worker, drain its single result."""
+
+    @staticmethod
+    def _mock_ctx(proc: MagicMock, result_queue: MagicMock) -> MagicMock:
+        ctx = MagicMock()
+        ctx.Queue.return_value = result_queue
+        ctx.Process.return_value = proc
+        return ctx
+
+    def test_returns_load_dir_reported_by_worker(self, bundle_dir_with_pipeline: Path) -> None:
+        """The path the worker posts becomes the og.Model load dir."""
+        compiled = bundle_dir_with_pipeline / "_compiled"
+        proc = MagicMock()
+        # Alive during the drain (get() breaks the loop), exited by the post-join
+        # liveness check so the hang-kill path is not taken.
+        proc.is_alive.side_effect = [True, False]
+        result_queue = MagicMock()
+        result_queue.get.return_value = ("ok", str(compiled))
+        ctx = self._mock_ctx(proc, result_queue)
+
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        with patch("multiprocessing.get_context", return_value=ctx):
+            result = session._prepare_derived_bundle_isolated({"model": {}}, overridden=False)
+
+        assert result == compiled
+        proc.start.assert_called_once()
+        proc.join.assert_called_once()
+        proc.kill.assert_not_called()
+        # The load itself never happens in this (parent) process's subprocess call.
+        ctx.Process.assert_called_once()
+
+    def test_drains_result_posted_as_worker_exits(self, bundle_dir_with_pipeline: Path) -> None:
+        """A result posted just as the worker exits is still drained via get_nowait."""
+        compiled = bundle_dir_with_pipeline / "_compiled"
+        proc = MagicMock()
+        proc.is_alive.return_value = False  # already exited when first polled
+        result_queue = MagicMock()
+        result_queue.get_nowait.return_value = ("ok", str(compiled))
+        ctx = self._mock_ctx(proc, result_queue)
+
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        with patch("multiprocessing.get_context", return_value=ctx):
+            result = session._prepare_derived_bundle_isolated({"model": {}}, overridden=False)
+
+        assert result == compiled
+
+    def test_reuses_compiled_dir_when_marker_proves_current_run(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """A silent crash after the child wrote _compiled/ + its marker still reuses it.
+
+        Models a child that finished compiling (leaving a complete, current-run
+        _compiled/ and its completion marker) but died before its "ok" result was
+        drained; the fallback safely reuses the freshly written bundle.
+        """
+        compiled = bundle_dir_with_pipeline / "_compiled"
+        compiled.mkdir()
+        (compiled / "genai_config.json").write_text("{}", encoding="utf-8")
+        marker = compiled / GenaiSession._BUNDLE_COMPLETE_MARKER
+
+        proc = MagicMock()
+        proc.is_alive.return_value = False
+        # The parent clears any stale marker before spawning; simulate the child
+        # writing a fresh one as it completes the compile, just before dying.
+        proc.start.side_effect = lambda: marker.write_text("done", encoding="utf-8")
+        result_queue = MagicMock()
+        result_queue.get_nowait.side_effect = queue.Empty
+        ctx = self._mock_ctx(proc, result_queue)
+
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        with patch("multiprocessing.get_context", return_value=ctx):
+            result = session._prepare_derived_bundle_isolated({"model": {}}, overridden=False)
+
+        assert result == compiled
+
+    def test_ignores_compiled_dir_without_completion_marker(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """A _compiled/ with no current-run marker is refused after a silent failure.
+
+        Guards issue #1087: the parent must not load stale EPContext artifacts/config
+        from an earlier run that may predate a config or stage-input change; it
+        surfaces the failure by loading the original bundle instead.
+        """
+        compiled = bundle_dir_with_pipeline / "_compiled"
+        compiled.mkdir()
+        (compiled / "genai_config.json").write_text("{}", encoding="utf-8")
+        # No completion marker, and the mocked child never writes one.
+
+        proc = MagicMock()
+        proc.is_alive.return_value = False
+        result_queue = MagicMock()
+        result_queue.get_nowait.side_effect = queue.Empty
+        ctx = self._mock_ctx(proc, result_queue)
+
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        with patch("multiprocessing.get_context", return_value=ctx):
+            result = session._prepare_derived_bundle_isolated({"model": {}}, overridden=False)
+
+        assert result == bundle_dir_with_pipeline
+
+    def test_clears_stale_marker_before_spawning_child(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """A marker left by a previous run is removed before spawn so it can't be trusted.
+
+        The mocked child never re-writes the marker, so after a silent failure the
+        stale marker must be gone and the fallback must decline the stale _compiled/
+        (issue #1087 stale-bundle guard).
+        """
+        compiled = bundle_dir_with_pipeline / "_compiled"
+        compiled.mkdir()
+        (compiled / "genai_config.json").write_text("{}", encoding="utf-8")
+        stale_marker = compiled / GenaiSession._BUNDLE_COMPLETE_MARKER
+        stale_marker.write_text("from a previous run", encoding="utf-8")
+
+        proc = MagicMock()
+        proc.is_alive.return_value = False
+        result_queue = MagicMock()
+        result_queue.get_nowait.side_effect = queue.Empty
+        ctx = self._mock_ctx(proc, result_queue)
+
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        with patch("multiprocessing.get_context", return_value=ctx):
+            result = session._prepare_derived_bundle_isolated({"model": {}}, overridden=False)
+
+        assert not stale_marker.exists()
+        assert result == bundle_dir_with_pipeline
+
+    def test_falls_back_to_bundle_dir_without_compiled_output(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """With neither a reported path nor a _compiled/ on disk, use the bundle dir."""
+        proc = MagicMock()
+        proc.is_alive.return_value = False
+        result_queue = MagicMock()
+        result_queue.get_nowait.side_effect = queue.Empty
+        ctx = self._mock_ctx(proc, result_queue)
+
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        with patch("multiprocessing.get_context", return_value=ctx):
+            result = session._prepare_derived_bundle_isolated({"model": {}}, overridden=False)
+
+        assert result == bundle_dir_with_pipeline
+
+    def test_error_status_never_reused_as_load_dir(
+        self, bundle_dir_with_pipeline: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An ("error", ...) result is not treated as a load dir; it warns and falls back."""
+        proc = MagicMock()
+        # Alive during the drain (get() returns the error), exited by the post-join
+        # check so the hang-kill path is not taken.
+        proc.is_alive.side_effect = [True, False]
+        result_queue = MagicMock()
+        result_queue.get.return_value = ("error", "RuntimeError('boom')")
+        ctx = self._mock_ctx(proc, result_queue)
+
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        with (
+            patch("multiprocessing.get_context", return_value=ctx),
+            caplog.at_level(logging.WARNING),
+        ):
+            result = session._prepare_derived_bundle_isolated({"model": {}}, overridden=False)
+
+        assert result == bundle_dir_with_pipeline
+        assert "did not report success" in caplog.text
+
+    def test_kills_child_that_hangs_after_reporting(self, bundle_dir_with_pipeline: Path) -> None:
+        """A child that reports its result but then hangs in teardown is killed, not awaited."""
+        compiled = bundle_dir_with_pipeline / "_compiled"
+        proc = MagicMock()
+        # Always alive: the drain loop still breaks because get() returns a result,
+        # and the post-join check then sees it stuck (teardown hang) and kills it.
+        proc.is_alive.return_value = True
+        result_queue = MagicMock()
+        result_queue.get.return_value = ("ok", str(compiled))
+        ctx = self._mock_ctx(proc, result_queue)
+
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        with patch("multiprocessing.get_context", return_value=ctx):
+            result = session._prepare_derived_bundle_isolated({"model": {}}, overridden=False)
+
+        assert result == compiled  # the already-reported result is still returned
+        proc.kill.assert_called_once()
+        assert proc.join.call_count == 2  # bounded join, then join after kill
+
+
+# ---------------------------------------------------------------------------
+# Tests: load() routes compilation through the isolated subprocess (issue #1087)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadCompileIsolation:
+    """``load()`` must never run the compile orchestration in the model-load process."""
+
+    def test_compile_load_uses_isolated_subprocess(
+        self, bundle_dir_with_pipeline: Path, mock_og: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """compile=True loads from the isolated compile dir, never the in-process one."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled = bundle_dir_with_pipeline / "_compiled"
+        isolated = MagicMock(return_value=compiled)
+        in_process = MagicMock()
+        monkeypatch.setattr(session, "_prepare_derived_bundle_isolated", isolated)
+        monkeypatch.setattr(session, "_prepare_derived_bundle", in_process)
+        monkeypatch.setattr(session, "_register_eps", lambda: None)
+
+        with _patch_og(mock_og):
+            session.load()
+
+        isolated.assert_called_once()
+        in_process.assert_not_called()
+        mock_og.Config.assert_called_once_with(str(compiled))
+
+    def test_override_only_load_stays_in_process(
+        self, bundle_dir_with_pipeline: Path, mock_og: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An ep override without --compile keeps the cheap in-process derived bundle."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="cpu")  # compile=False
+        compiled = bundle_dir_with_pipeline / "_compiled"
+        isolated = MagicMock()
+        in_process = MagicMock(return_value=compiled)
+        monkeypatch.setattr(session, "_prepare_derived_bundle_isolated", isolated)
+        monkeypatch.setattr(session, "_prepare_derived_bundle", in_process)
+        monkeypatch.setattr(session, "_register_eps", lambda: None)
+
+        with _patch_og(mock_og):
+            session.load()
+
+        in_process.assert_called_once()
+        isolated.assert_not_called()
+
+    def test_plain_load_prepares_nothing(
+        self, bundle_dir: Path, mock_og: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No compile and no override loads the bundle dir directly (no derived bundle)."""
+        session = GenaiSession(bundle_dir)  # compile=False, no override
+        isolated = MagicMock()
+        in_process = MagicMock()
+        monkeypatch.setattr(session, "_prepare_derived_bundle_isolated", isolated)
+        monkeypatch.setattr(session, "_prepare_derived_bundle", in_process)
+
+        with _patch_og(mock_og):
+            session.load()
+
+        isolated.assert_not_called()
+        in_process.assert_not_called()
+        mock_og.Config.assert_called_once_with(str(bundle_dir))
+
+
+# ---------------------------------------------------------------------------
+# Tests: _prepare_derived_bundle
+# ---------------------------------------------------------------------------
+
+
+class TestPrepareDerivedBundle:
     def test_no_compilable_stages_returns_original_bundle_dir(self, bundle_dir: Path) -> None:
         """When no EPContext-capable stages exist, bundle_dir is returned unchanged."""
         session = GenaiSession(bundle_dir, ep="qnn", compile=True)
-        result = session._prepare_compiled_bundle()
+        result = session._prepare_derived_bundle()
         assert result == bundle_dir
         assert not (bundle_dir / "_compiled").exists()
 
@@ -1275,7 +1986,7 @@ class TestPrepareCompiledBundle:
         (tmp_path / "ctx.onnx").write_bytes(b"fake")
 
         session = GenaiSession(tmp_path, ep="dml", compile=True)
-        result = session._prepare_compiled_bundle()
+        result = session._prepare_derived_bundle()
 
         assert result == tmp_path
         assert not (tmp_path / "_compiled").exists()
@@ -1296,7 +2007,7 @@ class TestPrepareCompiledBundle:
         compiled_dir = bundle_dir_with_pipeline / "_compiled"
 
         with patch("multiprocessing.get_context", return_value=ctx_mock):
-            result = session._prepare_compiled_bundle()
+            result = session._prepare_derived_bundle()
 
         assert result == compiled_dir
         config_out = compiled_dir / "genai_config.json"
@@ -1320,7 +2031,7 @@ class TestPrepareCompiledBundle:
         assert overridden is True
 
         compiled_dir = bundle_dir_with_pipeline / "_compiled"
-        result = session._prepare_compiled_bundle(effective, overridden=True)
+        result = session._prepare_derived_bundle(effective, overridden=True)
 
         assert result == compiled_dir
         written = json.loads((compiled_dir / "genai_config.json").read_text(encoding="utf-8"))
@@ -1351,7 +2062,7 @@ class TestPrepareCompiledBundle:
 
         spy = MagicMock(return_value=True)
         monkeypatch.setattr(session, "_compile_stage", spy)
-        result = session._prepare_compiled_bundle()
+        result = session._prepare_derived_bundle()
 
         spy.assert_not_called()
         assert result == compiled_dir
@@ -1367,7 +2078,7 @@ class TestPrepareCompiledBundle:
 
         spy = MagicMock(return_value=True)
         monkeypatch.setattr(session, "_compile_stage", spy)
-        session._prepare_compiled_bundle()
+        session._prepare_derived_bundle()
 
         assert spy.call_count == 2
 
@@ -1387,7 +2098,7 @@ class TestPrepareCompiledBundle:
 
         spy = MagicMock(return_value=True)
         monkeypatch.setattr(session, "_compile_stage", spy)
-        session._prepare_compiled_bundle()
+        session._prepare_derived_bundle()
 
         # Only the context stage (whose .data changed) is recompiled.
         assert spy.call_count == 1
@@ -1415,7 +2126,7 @@ class TestPrepareCompiledBundle:
                 return True
 
             monkeypatch.setattr(session, "_compile_stage", _fake_compile)
-            session._prepare_compiled_bundle(effective, overridden=overridden)
+            session._prepare_derived_bundle(effective, overridden=overridden)
             return next(p for p in captured if p.name.startswith("context"))
 
         ov_ctx = _context_ctx_path_for("openvino")
@@ -1449,7 +2160,7 @@ class TestPrepareCompiledBundle:
         effective, overridden = session._apply_ep_override(session._read_genai_config())
         spy = MagicMock(return_value=True)
         monkeypatch.setattr(session, "_compile_stage", spy)
-        session._prepare_compiled_bundle(effective, overridden=overridden)
+        session._prepare_derived_bundle(effective, overridden=overridden)
 
         # Both stages recompiled for VitisAI; the OpenVINO cache is untouched.
         assert spy.call_count == 2
@@ -1486,7 +2197,7 @@ class TestPrepareCompiledBundle:
         monkeypatch.setattr(session, "_compile_stage", fake_compile)
 
         compiled_dir = bundle_dir_with_pipeline / "_compiled"
-        result = session._prepare_compiled_bundle()
+        result = session._prepare_derived_bundle()
         assert result == compiled_dir
 
         written = json.loads((compiled_dir / "genai_config.json").read_text(encoding="utf-8"))
@@ -1527,7 +2238,7 @@ class TestPrepareCompiledBundle:
         monkeypatch.setattr(session, "_compile_stage", fake_compile)
 
         compiled_dir = bundle_dir_with_pipeline / "_compiled"
-        result = session._prepare_compiled_bundle()
+        result = session._prepare_derived_bundle()
         assert result == compiled_dir
 
         written = json.loads((compiled_dir / "genai_config.json").read_text(encoding="utf-8"))

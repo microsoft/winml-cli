@@ -12,6 +12,7 @@ from .hub_utils import (
     load_hf_components_from_onnx,
     save_local_model_configs,
 )
+from .manifest import MANIFEST_FILENAME, ManifestStage, WinMLManifest
 from .model_input import (
     ModelInput,
     ModelInputKind,
@@ -21,8 +22,11 @@ from .model_input import (
 
 
 __all__ = [
+    "MANIFEST_FILENAME",
+    "ManifestStage",
     "ModelInput",
     "ModelInputKind",
+    "WinMLManifest",
     "classify_model_input",
     "inject_hub_metadata",
     "is_hub_model",

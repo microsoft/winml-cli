@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ....onnx import strip_node_attrs
 from ....utils.genai import (
     DEFAULT_CONTEXT_FILENAME,
     DEFAULT_EMBEDDINGS_FILENAME,
@@ -32,6 +33,13 @@ from ....utils.genai import (
 )
 from ....utils.genai import (
     write_genai_bundle as _write_genai_bundle,
+)
+from ...winml.genai_bundle import (
+    GenaiBundleRecipe,
+    GenaiCompanionSpec,
+    GenaiTarget,
+    GenaiTransformerSpec,
+    register_genai_bundle,
 )
 
 
@@ -90,6 +98,30 @@ def _stage_session_options(ep: str, soc_model: str) -> tuple[dict | None, dict |
             qnn_stage_session_options("onnxruntime-genai.iterator", soc_model=soc_model),
         )
     return None, None
+
+
+# ---------------------------------------------------------------------------
+# Qwen3-specific ONNX graph passes
+# ---------------------------------------------------------------------------
+
+# Attributes that com.microsoft::GroupQueryAttention requires for Qwen3.
+# Any other attributes (e.g. k_quant_type, local_window_size, qk_output,
+# smooth_softmax, v_quant_type) are default-valued extras injected by the
+# TorchScript exporter from the ORT op schema; strip them so the bundle
+# matches the expected minimal attribute set.
+_GQA_KEEP_ATTRS = frozenset({"do_rotary", "kv_num_heads", "num_heads"})
+
+
+def strip_gqa_default_attrs(model: onnx.ModelProto) -> onnx.ModelProto:
+    """Remove exporter-injected default attributes from Qwen3 GQA nodes.
+
+    A ``transformer_onnx_pass`` for :func:`write_genai_bundle`: strips every
+    attribute from ``com.microsoft::GroupQueryAttention`` nodes except the ones
+    Qwen3 actually needs (:data:`_GQA_KEEP_ATTRS`), removing the default-valued
+    extras the TorchScript exporter injects from the ORT op schema.  Mutates
+    *model* in-place and returns it for convenient chaining.
+    """
+    return strip_node_attrs(model, "GroupQueryAttention", _GQA_KEEP_ATTRS, domain="com.microsoft")
 
 
 # ---------------------------------------------------------------------------
@@ -210,11 +242,56 @@ __all__ = [
     "DEFAULT_EMBEDDINGS_FILENAME",
     "DEFAULT_ITERATOR_FILENAME",
     "DEFAULT_LM_HEAD_FILENAME",
+    "QWEN3_GENAI_BUNDLE_RECIPE",
     "DecoderIOMapping",
     "PipelineStage",
     "build_decoder_pipeline_stages",
     "build_genai_config",
     "build_qwen3_transformer_only_stages",
     "qnn_stage_session_options",
+    "strip_gqa_default_attrs",
     "write_genai_bundle",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Genai-bundle recipe registration
+# ---------------------------------------------------------------------------
+#
+# Register Qwen3 as a genai-bundle family so ``winml build`` can assemble the
+# full onnxruntime-genai bundle in one command (see
+# ``winml.modelkit.models.winml.genai_bundle``).  Registered at import time so
+# merely importing ``winml.modelkit.models.hf`` populates the registry,
+# mirroring the composite-model registration pattern.
+QWEN3_GENAI_BUNDLE_RECIPE = register_genai_bundle(
+    GenaiBundleRecipe(
+        family="qwen3",
+        transformer=GenaiTransformerSpec(
+            model_type="qwen3_transformer_only",
+            task="text-generation",
+            precision="w8a16",
+            context_sub_model="decoder_prefill",
+            iterator_sub_model="decoder_gen",
+        ),
+        companions=(
+            GenaiCompanionSpec(
+                role="embeddings",
+                model_type="qwen3_embeddings_only",
+                task="feature-extraction",
+                precision="fp32",
+            ),
+            GenaiCompanionSpec(
+                role="lm_head",
+                model_type="qwen3_lm_head_only",
+                task="feature-extraction",
+                precision="w4a32",
+            ),
+        ),
+        assemble=write_genai_bundle,
+        supported_targets=(GenaiTarget(ep="qnn", device="npu"),),
+        transformer_onnx_passes=(strip_gqa_default_attrs,),
+        max_cache_len=2048,
+        prefill_seq_len=64,
+        soc_model="60",
+    )
+)

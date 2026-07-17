@@ -77,6 +77,9 @@ class TestPerfCliInterface:
             "--output",
             "-o",
             "--batch-size",
+            "--input-specs",
+            "--export-config",
+            "--dynamic-axes",
             "--no-quantize",
             "--verbose",
             "-v",
@@ -293,6 +296,26 @@ class TestPerfUnifiedPipeline:
         override = mock_from_pretrained.call_args.kwargs["config"]
         assert override is None
 
+    def test_export_overrides_hf_passed_as_sparse_build_override(self) -> None:
+        """Export overrides should not construct a full default build config."""
+        config = BenchmarkConfig(
+            model_id="microsoft/resnet-50",
+            task="image-classification",
+            device="cpu",
+            export_overrides={"dynamic_axes": {"pixel_values": {"0": "batch"}}},
+        )
+        benchmark = PerfBenchmark(config)
+
+        mock_model = MagicMock()
+        with patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
+            return_value=mock_model,
+        ) as mock_from_pretrained:
+            benchmark._load_model()
+
+        override = mock_from_pretrained.call_args.kwargs["config"]
+        assert override == {"export": {"dynamic_axes": {"pixel_values": {"0": "batch"}}}}
+
     def test_cli_onnx_routes_through_perf_benchmark(
         self, runner: CliRunner, tmp_path: Path
     ) -> None:
@@ -373,6 +396,58 @@ class TestPerfUnifiedPipeline:
         assert "shape-config is ignored" not in result.output
         assert "Benchmarking ONNX" in result.output
         assert captured["config"].shape_config == {"input_ids": [1, 128]}
+
+    def test_cli_hf_forwards_export_overrides(self, runner: CliRunner, tmp_path: Path) -> None:
+        """HF perf builds should pass export-related CLI overrides into BenchmarkConfig."""
+        input_specs = tmp_path / "inputs.json"
+        input_specs.write_text(
+            json.dumps({"pixel_values": {"dtype": "float32", "shape": ["batch", 3, 224, 224]}})
+        )
+        export_config = tmp_path / "export.json"
+        export_config.write_text(json.dumps({"opset_version": 18}))
+        dynamic_axes = tmp_path / "dynamic_axes.json"
+        dynamic_axes.write_text(json.dumps({"pixel_values": {"0": "batch"}}))
+
+        captured: dict[str, BenchmarkConfig] = {}
+
+        def capture_config(config: BenchmarkConfig) -> MagicMock:
+            captured["config"] = config
+            mock = MagicMock()
+            mock.run.return_value = MagicMock()
+            return mock
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf.PerfBenchmark",
+                side_effect=capture_config,
+            ),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                [
+                    "-m",
+                    "microsoft/resnet-50",
+                    "--input-specs",
+                    str(input_specs),
+                    "--export-config",
+                    str(export_config),
+                    "--dynamic-axes",
+                    str(dynamic_axes),
+                    "-o",
+                    str(tmp_path / "out.json"),
+                ],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert captured["config"].export_overrides is not None
+        export_override = captured["config"].export_overrides
+        assert export_override["opset_version"] == 18
+        assert export_override["dynamic_axes"] == {"pixel_values": {"0": "batch"}}
+        assert export_override["input_tensors"][0].name == "pixel_values"
+        assert export_override["input_tensors"][0].shape == ("batch", 3, 224, 224)
 
     def test_cli_onnx_warns_ignored_build_flags(self, runner: CliRunner, tmp_path: Path) -> None:
         """Build-pipeline flags are no-ops for a pre-built ONNX with skip_build,

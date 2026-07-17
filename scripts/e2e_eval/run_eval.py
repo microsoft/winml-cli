@@ -593,6 +593,7 @@ def _run_build(
         device,
         "-o",
         str(config_path),
+        "--overwrite",
     ]
     if precision:
         config_args += ["--precision", precision]
@@ -1911,7 +1912,7 @@ def _run_winml_eval(
             args += ["--label-mapping", ds_config["label_mapping_file"]]
         if ds_config.get("streaming"):
             args += ["--streaming"]
-    args += ["--output", str(output_path)]
+    args += ["--output", str(output_path), "--overwrite"]
     args += entry.eval_args
 
     proc = _run_subprocess(args, timeout)
@@ -1926,7 +1927,11 @@ def _run_winml_eval(
         winml_key = ds_config.get("winml_metric_key") or ds_config.get("metric")
         if winml_key and metrics and winml_key in metrics:
             num_samples = (dataset or {}).get("samples", ds_config.get("num_samples"))
-            metric = {"metric": winml_key, "value": float(metrics[winml_key]), "num_samples": num_samples}
+            metric = {
+                "metric": winml_key,
+                "value": float(metrics[winml_key]),
+                "num_samples": num_samples,
+            }
 
     # PASS requires a non-empty metrics map: a model that exits 0 but emits no
     # measured metrics ({}) is treated as FAIL, not PASS (an empty dict is
@@ -2265,7 +2270,9 @@ def _should_skip_existing(existing: dict, retry_types: set[str] | None, eval_typ
     # Check accuracy status (coarse, baseline-free)
     if acc is not None and not acc.get("skipped"):
         status = accuracy_status(acc)
-        if not retry_types or status in retry_types:
+        # Empty retry_types = "retry all non-PASS": a PASS accuracy is a completed
+        # job and stays skipped (--retry-failed implies --continue for passers).
+        if (status in retry_types) or (not retry_types and status != "PASS"):
             return False  # Should retry
 
     return True  # No retry criteria matched — skip
@@ -2306,9 +2313,7 @@ class EvalJob:
         return self.variant.precision if self.variant is not None else None
 
 
-def _build_jobs(
-    entries: list[ModelEntry], recipes_dir: Path | None
-) -> list[EvalJob]:
+def _build_jobs(entries: list[ModelEntry], recipes_dir: Path | None) -> list[EvalJob]:
     """Expand entries into jobs, one per recipe precision variant.
 
     For each entry, if ``recipes_dir`` is set and the model has recipe variants
@@ -2830,9 +2835,7 @@ def main() -> None:
                     # Perf already recorded (and passed); only (re)build + run
                     # accuracy, then merge it into the existing result.
                     backfill_existing = existing
-                    safe_print(
-                        f"\n[{i}/{total_jobs}] {label}  (BACKFILL accuracy - perf cached)"
-                    )
+                    safe_print(f"\n[{i}/{total_jobs}] {label}  (BACKFILL accuracy - perf cached)")
                 else:
                     retry_label = classify_result(existing) or (
                         accuracy_status(existing.get("accuracy"))

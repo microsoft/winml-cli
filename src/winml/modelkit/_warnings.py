@@ -12,7 +12,8 @@ Usage:
     from . import _warnings  # Filters are configured automatically
 
 Environment Variables:
-    WINMLCLI_SHOW_ALL_WARNINGS: Set to "1" or "true" to disable warning suppression
+    WINMLCLI_SHOW_ALL_WARNINGS: Set to "1", "true", "yes", or "on" to disable
+        warning suppression.
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ from __future__ import annotations
 import logging
 import os
 import warnings
+
+from ._env import env_flag_enabled
 
 
 def _configure() -> None:
@@ -34,7 +37,7 @@ def _configure() -> None:
     os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
     # Allow users to see all warnings if they want
-    if os.environ.get("WINMLCLI_SHOW_ALL_WARNINGS", "").lower() in ("1", "true", "yes"):
+    if env_flag_enabled("WINMLCLI_SHOW_ALL_WARNINGS"):
         return
 
     # =========================================================================

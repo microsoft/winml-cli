@@ -32,6 +32,10 @@ from .bart import BART_CONFIG
 from .bart import MODEL_CLASS_MAPPING as _BART_CLASS_MAPPING
 from .bart import BartDecoderIOConfig as _BartDecoderIOConfig  # triggers registration
 from .bart import BartEncoderIOConfig as _BartEncoderIOConfig  # triggers registration
+from .bart import (
+    # triggers registration
+    BartSequenceClassificationIOConfig as _BartSequenceClassificationIOConfig,
+)
 from .bert import BERT_CONFIG
 from .blip import BLIP_CONFIG
 from .blip import MODEL_CLASS_MAPPING as _BLIP_CLASS_MAPPING

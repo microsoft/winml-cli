@@ -59,6 +59,27 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
         cfg.compile = None
 
 
+def _merge_export_overrides(cfg: Any, export_overrides: dict[str, Any]) -> Any:
+    """Apply --export-config/--dynamic-axes/--input-specs onto a generated config.
+
+    Returns ``cfg`` unchanged when no export overrides were supplied. Mirrors the
+    ``build`` command: ``--input-specs`` patches the auto-resolved input tensors
+    by name (preserving unlisted inputs and their dtype/value_range) and any
+    symbolic dims re-derive dynamic axes via ``WinMLExportConfig.__post_init__``.
+    """
+    if not export_overrides:
+        return cfg
+    if cfg.export is None:
+        raise click.UsageError(
+            "--input-specs, --export-config, and --dynamic-axes require a "
+            "HuggingFace export config; they are not supported when the "
+            "generated build config has export=null."
+        )
+    from ..config import merge_export_overrides
+
+    return merge_export_overrides(cfg, export_overrides)
+
+
 @click.command("config")
 @cli_utils.model_option(required=False, optional_message="Optional when --model-type is provided.")
 @click.option(
@@ -98,6 +119,14 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
     "Valid keys — text: sequence_length; "
     "vision: height, width, num_channels; "
     "audio: feature_size, nb_max_frames, audio_sequence_length.",
+)
+@cli_utils.input_specs_option()
+@cli_utils.export_config_option()
+@cli_utils.dynamic_axes_option(
+    help_text=(
+        "JSON dynamic axes mapping for HuggingFace ONNX export "
+        '(e.g., {"input_ids": {"0": "batch", "1": "sequence"}}).'
+    )
 )
 @cli_utils.device_option(
     required=False,
@@ -140,6 +169,9 @@ def config(
     module: str | None,
     config_file: str | None,
     shape_config_file: str | None,
+    input_specs: Path | None,
+    export_config: Path | None,
+    dynamic_axes: Path | None,
     device: str,
     ep: EPNameOrAlias | None,
     precision: str,
@@ -189,6 +221,10 @@ def config(
 
         # Vision model with shape overrides ({"height": 224, "width": 224})
         winml config --model-type resnet -t image-classification --shape-config shapes.json
+
+        # Dynamic export controls (mirrors ``winml build`` / ``winml export``)
+        winml config -m bert-base-uncased --dynamic-axes dynamic_axes.json
+        winml config -m bert-base-uncased --input-specs inputs.json --export-config export.json
 
         # Save to file
         winml config -m bert-base-uncased -o config.json
@@ -276,6 +312,27 @@ def config(
                 "--module is not supported with ONNX file input. "
                 "Module discovery requires a HuggingFace model."
             )
+        # Export controls (--input-specs/--export-config/--dynamic-axes) target a
+        # single export graph, so they only apply to the plain single-config
+        # HuggingFace path. Reject the multi-graph / no-export paths up front — on
+        # raw flag presence, before loading/validating the JSON — so the error
+        # names the real problem (ONNX input, --module fan-out, composite) instead
+        # of a downstream "Invalid export configuration", and we skip needless I/O.
+        _export_flags_given = bool(input_specs or export_config or dynamic_axes)
+        if hf_model and _hf_is_onnx and _export_flags_given:
+            raise click.UsageError(
+                "--input-specs, --export-config, and --dynamic-axes are only "
+                "supported when generating a HuggingFace export config, not "
+                "pre-exported ONNX files."
+            )
+        if module and _export_flags_given:
+            raise click.UsageError(
+                "--input-specs, --export-config, and --dynamic-axes are not "
+                "supported with --module, which generates one config per matched "
+                "submodule. Generate the per-module configs first, then edit their "
+                "export sections individually."
+            )
+
         config_obj: WinMLBuildConfig | None = None
         output_data: dict[str, Any] | list[Any]
         if hf_model and _hf_is_onnx:
@@ -306,6 +363,20 @@ def config(
                 hf_model, model_type, task, trust_remote_code=trust_remote_code
             )
             if pipeline_components:
+                # Export controls target a single export graph; a composite model
+                # has one export per sub-component with distinct inputs. Reject on
+                # raw flag presence — before loading/validating the JSON — so the
+                # composite-specific error wins (mirroring the ONNX path) instead
+                # of a downstream "Invalid export configuration". config never fans
+                # these overrides out across heterogeneous components.
+                if _export_flags_given:
+                    raise click.UsageError(
+                        "--input-specs, --export-config, and --dynamic-axes are not "
+                        "supported for composite (multi-component) models, whose "
+                        "sub-components each have their own export inputs. Generate "
+                        "the per-component configs first, then edit their export "
+                        "sections individually."
+                    )
                 # composite model: generate one config per sub-component
                 _generate_pipeline_configs(
                     pipeline_components,
@@ -327,6 +398,16 @@ def config(
                 )
                 return
 
+            # Load export CLI overrides now that the multi-graph paths (ONNX,
+            # --module, composite) have all been rejected — the single HF config
+            # path below is the only one that applies them. Returned sparse so
+            # unspecified fields don't clobber auto-detected values.
+            export_overrides = cli_utils.load_export_overrides(
+                export_config=export_config,
+                input_specs=input_specs,
+                dynamic_axes=dynamic_axes,
+            )
+
             # Generate config(s). The ``module: str | None`` overload of
             # generate_hf_build_config returns WinMLBuildConfig | list[...],
             # which isinstance(result, list) narrows for the branches below.
@@ -345,7 +426,10 @@ def config(
                 ep=ep,
             )
             if isinstance(result, list):
-                configs = result
+                # --module + export overrides is rejected up front, so
+                # export_overrides is empty here; emit the submodule configs as
+                # generated without fanning any overrides across them.
+                configs = list(result)
                 for cfg in configs:
                     _apply_stage_overrides(cfg, no_quant=not quant, no_compile=no_compile)
                 output_data = [cfg.to_dict() for cfg in configs]
@@ -353,7 +437,7 @@ def config(
                 # Use first config for display metadata
                 config_obj = configs[0] if configs else None
             else:
-                config_obj = result
+                config_obj = _merge_export_overrides(result, export_overrides)
                 configs = []
                 _apply_stage_overrides(config_obj, no_quant=not quant, no_compile=no_compile)
                 output_data = config_obj.to_dict()
@@ -406,6 +490,21 @@ def config(
             console.print(
                 f"   \U0001f4c1 [bold]Shape config:[/bold] "
                 f"{_shape_config_file}  [green]\u2713[/green]"
+            )
+        if input_specs:
+            console.print(
+                f"   \U0001f4c1 [bold]Input specs:[/bold]  "
+                f"{input_specs.name}  [green]\u2713[/green]"
+            )
+        if export_config:
+            console.print(
+                f"   \U0001f4c1 [bold]Export config:[/bold] "
+                f"{export_config.name}  [green]\u2713[/green]"
+            )
+        if dynamic_axes:
+            console.print(
+                f"   \U0001f4c1 [bold]Dynamic axes:[/bold] "
+                f"{dynamic_axes.name}  [green]\u2713[/green]"
             )
 
         console.print()

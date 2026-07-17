@@ -6,16 +6,19 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+from onnx import AttributeProto, TensorProto, TypeProto, helper, load, save_model
 
 from winml.modelkit.optracing.qnn.profiler import (
     QNNProfiler,
     _ort_type_to_numpy,
     _resolve_shape,
+    _serialize_attribute,
 )
 from winml.modelkit.optracing.qnn.viewer import (
     _DEFAULT_CONFIG,
@@ -288,6 +291,35 @@ def _make_csv_sample(cycles: int, us: int, conv_cycles: int, add_cycles: int) ->
     )
 
 
+def _write_transpose_model(path: Path) -> None:
+    """Write a generated ONNX model with node input and attribute metadata."""
+    input_info = helper.make_tensor_value_info(
+        "input", TensorProto.FLOAT, [1, 3, "height", "width"]
+    )
+    output_info = helper.make_tensor_value_info(
+        "output", TensorProto.FLOAT, [1, "height", "width", 3]
+    )
+    node = helper.make_node(
+        "Transpose",
+        ["input"],
+        ["output"],
+        name="transpose_node",
+        perm=[0, 2, 3, 1],
+    )
+    graph = helper.make_graph([node], "transpose_graph", [input_info], [output_info])
+    save_model(helper.make_model(graph), path)
+
+
+def _make_node_csv_sample(node_name: str) -> str:
+    """Build one inference sample block for a named ONNX node."""
+    return (
+        '0,ROOT,4,COUNT,HW,ROOT,"Number of HVX threads used"\n'
+        '1,ROOT,100,CYCLES,HW,ROOT,"Accelerator (execute) time (cycles)"\n'
+        f'2,NODE,25,CYCLES,HW,SUB-EVENT,"{node_name}:OpId_7 (cycles)"\n'
+        '3,ROOT,10,US,HW,ROOT,"Accelerator (execute) time"\n'
+    )
+
+
 def test_qnn_profiler_from_csv_skips_warmup(tmp_path):
     """The first ``warmup`` samples are dropped before computing metrics."""
     # One warmup sample with outlier timing, then two measured samples.
@@ -319,6 +351,104 @@ def test_qnn_profiler_from_csv_sample_count_mismatch(tmp_path):
     profiler = QNNProfiler(tmp_path / "model.onnx", output_dir=tmp_path, level="basic")
     with pytest.raises(ValueError):
         profiler._from_csv(csv_path, iterations=5, warmup=0, artifacts={})
+
+
+def test_qnn_profiler_from_csv_omits_onnx_data_without_env(tmp_path, monkeypatch):
+    """Basic profiling output is unchanged unless WINMLCLI_OP_ADD_DATA is set."""
+    model_path = tmp_path / "model.onnx"
+    csv_path = tmp_path / "profiling_output.csv"
+    _write_transpose_model(model_path)
+    csv_path.write_text(
+        _CSV_HEADER + _make_node_csv_sample("transpose_node"),
+        encoding="utf-8",
+    )
+
+    monkeypatch.delenv("WINMLCLI_OP_ADD_DATA", raising=False)
+    profiler = QNNProfiler(model_path, output_dir=tmp_path, level="basic")
+    result = profiler._from_csv(csv_path, iterations=1, warmup=0, artifacts={})
+
+    operator = result.to_dict()["operators"][0]
+    assert "onnx_op_type" not in operator
+    assert "onnx_attributes" not in operator
+    assert "onnx_inputs" not in operator
+
+
+def test_qnn_profiler_from_csv_adds_onnx_data_when_env_is_set(tmp_path, monkeypatch):
+    """Basic profiling can include ONNX node type, attributes, and input specs."""
+    model_path = tmp_path / "model.onnx"
+    csv_path = tmp_path / "profiling_output.csv"
+    _write_transpose_model(model_path)
+    csv_path.write_text(
+        _CSV_HEADER + _make_node_csv_sample("transpose_node"),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("WINMLCLI_OP_ADD_DATA", "1")
+    profiler = QNNProfiler(model_path, output_dir=tmp_path, level="basic")
+    result = profiler._from_csv(csv_path, iterations=1, warmup=0, artifacts={})
+
+    operator = result.to_dict()["operators"][0]
+    model = load(model_path)
+    node = model.graph.node[0]
+    graph_input = model.graph.input[0]
+    graph_output = model.graph.output[0]
+    assert operator["onnx_op_type"] == node.op_type
+    assert operator["onnx_attributes"] == {"perm": list(node.attribute[0].ints)}
+    assert operator["onnx_inputs"] == {
+        "data": {
+            "name": graph_input.name,
+            "data_type": TensorProto.DataType.Name(graph_input.type.tensor_type.elem_type),
+            "dims": [
+                dim.dim_value if dim.HasField("dim_value") else dim.dim_param
+                for dim in graph_input.type.tensor_type.shape.dim
+            ],
+        }
+    }
+    assert operator["onnx_outputs"] == {
+        "transposed": {
+            "name": graph_output.name,
+            "data_type": TensorProto.DataType.Name(graph_output.type.tensor_type.elem_type),
+            "dims": [
+                dim.dim_value if dim.HasField("dim_value") else dim.dim_param
+                for dim in graph_output.type.tensor_type.shape.dim
+            ],
+        }
+    }
+
+
+def test_qnn_profiler_from_csv_falls_back_when_onnx_metadata_fails(tmp_path, monkeypatch, caplog):
+    """ONNX enrichment failures do not discard otherwise valid profiling metrics."""
+    csv_path = tmp_path / "profiling_output.csv"
+    csv_path.write_text(
+        _CSV_HEADER + _make_node_csv_sample("transpose_node"),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("WINMLCLI_OP_ADD_DATA", "1")
+    profiler = QNNProfiler(tmp_path / "missing.onnx", output_dir=tmp_path, level="basic")
+    result = profiler._from_csv(csv_path, iterations=1, warmup=0, artifacts={})
+
+    operator = result.to_dict()["operators"][0]
+    assert operator["name"] == "transpose_node"
+    assert "onnx_op_type" not in operator
+    assert "onnx_inputs" not in operator
+    assert "onnx_outputs" not in operator
+    assert "Could not enrich QNN profiler metrics with ONNX metadata" in caplog.text
+
+
+def test_serialize_type_proto_attribute_is_json_safe():
+    """Unsupported protobuf-valued attributes are converted to JSON-safe metadata."""
+    type_proto = TypeProto()
+    type_proto.tensor_type.elem_type = TensorProto.FLOAT
+    attr = AttributeProto()
+    attr.name = "type_proto"
+    attr.type = AttributeProto.TYPE_PROTO
+    attr.tp.CopyFrom(type_proto)
+
+    value = _serialize_attribute(attr)
+
+    json.dumps(value)
+    assert value == {"tensor_type": {"elem_type": TensorProto.FLOAT}}
 
 
 def test_qnn_profiler_empty_artifacts(tmp_path):

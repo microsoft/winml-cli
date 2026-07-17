@@ -22,6 +22,16 @@ uv pip install winml-cli
 
 `uv python install 3.11` downloads and pins the exact Python version the project requires. `uv pip install winml-cli` installs the latest release from PyPI into a managed environment. No separate venv activation is needed.
 
+!!! warning "Windows on Arm requires x64 Python"
+    winml-cli supports **x64 (AMD64) Python only**. On an Arm64 device, native Arm64 Python cannot install the dependencies because PyTorch and the Windows ML runtime packages publish no `win_arm64` wheels — `uv sync` fails with an unsupported-platform error. Install an x64 build of Python 3.11 and point `uv` at it:
+
+    ```powershell
+    uv python install cpython-3.11-windows-x86_64-none
+    uv sync --extra dev --python cpython-3.11-windows-x86_64-none
+    ```
+
+    The x64 interpreter runs under Windows emulation on Arm64 hardware; `winml sys` still reports the Arm64 machine, and the NPU/GPU/CPU providers work normally.
+
 !!! tip "Install from source (for development)"
     If you want to contribute or run the latest unreleased code:
 

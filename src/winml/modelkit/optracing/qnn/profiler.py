@@ -20,10 +20,11 @@ import contextlib
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
+from ..._env import env_flag_enabled
 from ...winml import add_ep_for_device
 from ..base import OpTracer
 from ..result import OperatorMetrics, OpTraceResult
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+_OP_ADD_DATA_ENV = "WINMLCLI_OP_ADD_DATA"
 
 
 def _ort_type_to_numpy(ort_type: str) -> np.dtype:
@@ -58,7 +60,10 @@ def _resolve_shape(shape: list, default_dim: int = 1) -> list[int]:
     return [default_dim if not isinstance(d, int) or d <= 0 else d for d in shape]
 
 
-def _csv_operator_metrics(samples: list[dict[str, Any]]) -> list[OperatorMetrics]:
+def _csv_operator_metrics(
+    samples: list[dict[str, Any]],
+    onnx_operator_data: dict[str, dict[str, Any]] | None = None,
+) -> list[OperatorMetrics]:
     """Aggregate per-sample CSV operator records into ``OperatorMetrics``.
 
     Each operator's duration and percentage are computed against the metadata
@@ -86,20 +91,285 @@ def _csv_operator_metrics(samples: list[dict[str, Any]]) -> list[OperatorMetrics
             entry["percent"] += op["cycles"] / total_cycles * 100 if total_cycles > 0 else 0.0
             entry["count"] += 1
 
-    metrics = [
-        OperatorMetrics(
-            name=entry["name"],
-            op_path=entry["name"],
-            op_id=entry["op_id"],
-            duration_us=entry["duration_us"] / entry["count"],
-            percent_of_total=entry["percent"] / entry["count"],
+    metrics: list[OperatorMetrics] = []
+    onnx_operator_data = onnx_operator_data or {}
+    for entry in acc.values():
+        op_data = onnx_operator_data.get(entry["name"], {})
+        metrics.append(
+            OperatorMetrics(
+                name=entry["name"],
+                op_path=entry["name"],
+                op_id=entry["op_id"],
+                duration_us=entry["duration_us"] / entry["count"],
+                percent_of_total=entry["percent"] / entry["count"],
+                onnx_op_type=op_data.get("onnx_op_type"),
+                onnx_attributes=op_data.get("onnx_attributes"),
+                onnx_inputs=op_data.get("onnx_inputs"),
+                onnx_outputs=op_data.get("onnx_outputs"),
+            )
         )
-        for entry in acc.values()
-    ]
     # duration is the headline metric; percent breaks ties when US timing is
     # absent (so durations collapse to 0 but cycle shares still differ).
     metrics.sort(key=lambda m: (m.duration_us, m.percent_of_total), reverse=True)
     return metrics
+
+
+def _is_op_add_data_enabled() -> bool:
+    """Return whether basic QNN op metrics should include ONNX node metadata."""
+    return env_flag_enabled(_OP_ADD_DATA_ENV)
+
+
+def _load_onnx_operator_data(onnx_path: Path) -> dict[str, dict[str, Any]]:
+    """Load ONNX node metadata keyed by node name for profiler enrichment."""
+    from ...onnx import infer_shapes, load_onnx
+
+    model = load_onnx(onnx_path, load_weights=False, validate=False)
+    model = infer_shapes(model)
+    value_info = _collect_value_info(model)
+    initializers = {init.name: init for init in model.graph.initializer}
+    opset_versions = _collect_opset_versions(model)
+
+    operator_data: dict[str, dict[str, Any]] = {}
+    for node in model.graph.node:
+        if not node.name:
+            continue
+        operator_data[node.name] = {
+            "onnx_op_type": node.op_type,
+            "onnx_attributes": {attr.name: _serialize_attribute(attr) for attr in node.attribute},
+            "onnx_inputs": _node_input_metadata(node, opset_versions, value_info, initializers),
+            "onnx_outputs": _node_output_metadata(node, opset_versions, value_info, initializers),
+        }
+    return operator_data
+
+
+def _collect_opset_versions(model: Any) -> dict[str, int]:
+    """Collect imported ONNX opset versions by domain."""
+    return {opset.domain: opset.version for opset in model.opset_import}
+
+
+def _collect_value_info(model: Any) -> dict[str, Any]:
+    """Collect graph tensor type/shape entries by tensor name."""
+    return {
+        vi.name: vi
+        for vi in list(model.graph.input) + list(model.graph.output) + list(model.graph.value_info)
+    }
+
+
+def _node_input_metadata(
+    node: Any,
+    opset_versions: dict[str, int],
+    value_info: dict[str, Any],
+    initializers: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Return input metadata keyed by ONNX schema formal input name."""
+    return _node_value_metadata(node, node.input, "input", opset_versions, value_info, initializers)
+
+
+def _node_output_metadata(
+    node: Any,
+    opset_versions: dict[str, int],
+    value_info: dict[str, Any],
+    initializers: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Return output metadata keyed by ONNX schema formal output name."""
+    return _node_value_metadata(
+        node, node.output, "output", opset_versions, value_info, initializers
+    )
+
+
+def _node_value_metadata(
+    node: Any,
+    value_names: Any,
+    value_kind: str,
+    opset_versions: dict[str, int],
+    value_info: dict[str, Any],
+    initializers: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Return input/output metadata keyed by ONNX schema formal parameter name."""
+    metadata: dict[str, dict[str, Any]] = {}
+    for index, value_name in enumerate(value_names):
+        if not value_name:
+            continue
+        schema_name = _schema_value_name(node, index, value_kind, opset_versions)
+        key = _unique_value_key(schema_name, index, metadata)
+        metadata[key] = _input_tensor_metadata(value_name, value_info, initializers)
+    return metadata
+
+
+def _schema_value_name(
+    node: Any,
+    value_index: int,
+    value_kind: str,
+    opset_versions: dict[str, int],
+) -> str:
+    """Resolve a node input/output index to its ONNX schema formal parameter name."""
+    from onnx import defs
+
+    domain = node.domain
+    opset_version = opset_versions.get(domain)
+    if opset_version is None:
+        logger.debug(
+            "Could not resolve ONNX opset version for %s domain=%r %s=%d",
+            node.op_type,
+            domain,
+            value_kind,
+            value_index,
+        )
+        return f"{value_kind}_{value_index}"
+
+    try:
+        schema = defs.get_schema(
+            node.op_type,
+            max_inclusive_version=opset_version,
+            domain=domain,
+        )
+    except defs.SchemaError:
+        logger.debug(
+            "Could not resolve ONNX schema for %s domain=%r %s=%d",
+            node.op_type,
+            domain,
+            value_kind,
+            value_index,
+            exc_info=True,
+        )
+        return f"{value_kind}_{value_index}"
+
+    schema_values = schema.inputs if value_kind == "input" else schema.outputs
+    if value_index < len(schema_values):
+        return schema_values[value_index].name
+    if schema_values:
+        return schema_values[-1].name
+    return f"{value_kind}_{value_index}"
+
+
+def _unique_value_key(
+    schema_name: str,
+    value_index: int,
+    existing: dict[str, dict[str, Any]],
+) -> str:
+    """Keep schema names as keys while disambiguating repeated variadic inputs."""
+    if schema_name not in existing:
+        return schema_name
+    return f"{schema_name}[{value_index}]"
+
+
+def _input_tensor_metadata(
+    name: str,
+    value_info: dict[str, Any],
+    initializers: dict[str, Any],
+) -> dict[str, Any]:
+    """Return JSON-safe shape and type metadata for a node input tensor."""
+    metadata: dict[str, Any] = {"name": name}
+    if name in initializers:
+        initializer = initializers[name]
+        metadata["dims"] = list(initializer.dims)
+        metadata["data_type"] = _tensor_data_type_name(initializer.data_type)
+        return metadata
+
+    vi = value_info.get(name)
+    if vi is None or not vi.type.HasField("tensor_type"):
+        return metadata
+
+    tensor_type = vi.type.tensor_type
+    metadata["data_type"] = _tensor_data_type_name(tensor_type.elem_type)
+    if tensor_type.HasField("shape"):
+        metadata["dims"] = [_shape_dim_to_value(dim) for dim in tensor_type.shape.dim]
+    return metadata
+
+
+def _shape_dim_to_value(dim: Any) -> int | str | None:
+    """Convert an ONNX TensorShapeProto dimension into a JSON-safe value."""
+    if dim.HasField("dim_value"):
+        return cast("int", dim.dim_value)
+    if dim.HasField("dim_param"):
+        return cast("str", dim.dim_param)
+    return None
+
+
+def _tensor_data_type_name(data_type: int) -> str:
+    """Return the ONNX TensorProto datatype name for an enum value."""
+    from onnx import TensorProto
+
+    return TensorProto.DataType.Name(data_type)
+
+
+def _serialize_attribute(attr: Any) -> Any:
+    """Convert an ONNX AttributeProto value into compact JSON-safe metadata."""
+    from onnx import AttributeProto, helper
+
+    value = helper.get_attribute_value(attr)
+    attr_type = attr.type
+    if attr_type == AttributeProto.STRING:
+        return value.decode("utf-8", errors="replace")
+    if attr_type == AttributeProto.STRINGS:
+        return [item.decode("utf-8", errors="replace") for item in value]
+    if attr_type == AttributeProto.TENSOR:
+        return _tensor_attribute_metadata(value)
+    if attr_type == AttributeProto.TENSORS:
+        return [_tensor_attribute_metadata(tensor) for tensor in value]
+    if attr_type in (AttributeProto.INTS, AttributeProto.FLOATS):
+        return list(value)
+    if attr_type == AttributeProto.GRAPH:
+        return _graph_attribute_metadata(value)
+    if attr_type == AttributeProto.GRAPHS:
+        return [_graph_attribute_metadata(graph) for graph in value]
+    if attr_type == AttributeProto.SPARSE_TENSOR:
+        return _sparse_tensor_attribute_metadata(value)
+    if attr_type == AttributeProto.SPARSE_TENSORS:
+        return [_sparse_tensor_attribute_metadata(tensor) for tensor in value]
+    if attr_type == AttributeProto.TYPE_PROTO:
+        return _protobuf_attribute_metadata(value)
+    if attr_type == AttributeProto.TYPE_PROTOS:
+        return [_protobuf_attribute_metadata(type_proto) for type_proto in value]
+    return _json_safe_attribute_value(value)
+
+
+def _protobuf_attribute_metadata(value: Any) -> dict[str, Any] | str:
+    """Convert protobuf attribute payloads to JSON-safe metadata."""
+    from google.protobuf import json_format
+
+    try:
+        return json_format.MessageToDict(value, preserving_proto_field_name=True)
+    except Exception:
+        logger.debug("Could not convert protobuf attribute payload to JSON", exc_info=True)
+        return str(value)
+
+
+def _json_safe_attribute_value(value: Any) -> Any:
+    """Return a JSON-safe fallback for unsupported ONNX attribute payloads."""
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, list | tuple):
+        return [_json_safe_attribute_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(k): _json_safe_attribute_value(v) for k, v in value.items()}
+    if hasattr(value, "DESCRIPTOR"):
+        return _protobuf_attribute_metadata(value)
+    return str(value)
+
+
+def _tensor_attribute_metadata(tensor: Any) -> dict[str, Any]:
+    """Summarize tensor attributes without embedding raw tensor data."""
+    return {
+        "name": tensor.name,
+        "dims": list(tensor.dims),
+        "data_type": _tensor_data_type_name(tensor.data_type),
+    }
+
+
+def _sparse_tensor_attribute_metadata(tensor: Any) -> dict[str, Any]:
+    """Summarize sparse tensor attributes without embedding raw tensor data."""
+    return {
+        "dims": list(tensor.dims),
+        "values": _tensor_attribute_metadata(tensor.values),
+    }
+
+
+def _graph_attribute_metadata(graph: Any) -> dict[str, Any]:
+    """Summarize graph attributes without recursively dumping subgraphs."""
+    return {"name": graph.name, "node_count": len(graph.node)}
 
 
 def _csv_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
@@ -422,7 +692,17 @@ class QNNProfiler(OpTracer):
                 f"warmup, got {len(measured)} from {len(samples)} total."
             )
 
-        operators = _csv_operator_metrics(measured)
+        onnx_operator_data = None
+        if _is_op_add_data_enabled():
+            try:
+                onnx_operator_data = _load_onnx_operator_data(self.onnx_path)
+            except Exception as error:
+                logger.warning(
+                    "Could not enrich QNN profiler metrics with ONNX metadata: %s",
+                    error,
+                    exc_info=True,
+                )
+        operators = _csv_operator_metrics(measured, onnx_operator_data)
 
         return OpTraceResult(
             model=self.onnx_path.name,

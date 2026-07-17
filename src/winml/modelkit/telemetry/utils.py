@@ -116,14 +116,15 @@ def _scrub_pii(text: str) -> str:
 _MESSAGE_CAP = 200
 
 
-def _format_exception_message(message: str | None) -> str:
+def _format_exception_message(message: str | None, cap: int = _MESSAGE_CAP) -> str:
     """Run the scrubbing pipeline: path trim -> PII scrub -> length cap.
 
     Scrub runs *before* the length cap so PII straddling the cap boundary
     is still recognized by the regexes. Capping first would split a token
     or email mid-string and leak the surviving prefix (e.g. ``alice@exa…``
     leaves ``alice`` exposed because the cropped fragment no longer
-    matches the email pattern).
+    matches the email pattern). ``cap`` is parameterized so the root-cause
+    message can use a larger limit than the outer message.
     """
     if not message:
         return ""
@@ -134,8 +135,8 @@ def _format_exception_message(message: str | None) -> str:
     result = _scrub_pii(result)
     # Cap last - bounds final size even if scrub expanded the string
     # (each match becomes the 11-char ``<scrubbed>`` placeholder).
-    if len(result) > _MESSAGE_CAP:
-        result = result[: _MESSAGE_CAP - 1] + "…"
+    if len(result) > cap:
+        result = result[: cap - 1] + "…"
     return result
 
 
@@ -149,6 +150,56 @@ def _looks_like_path(token: str) -> bool:
     if token.startswith("/"):
         return True
     return "\\" in token and _PACKAGE_ROOT in token.replace("\\", "/")
+
+
+# A clean HuggingFace Hub id: one or two segments of the Hub charset, with
+# at most one slash (``bert-base-uncased`` or ``org/name``). Anything with a
+# path separator beyond a single ``/``, a drive letter, an ``=`` (eval's
+# ``role=path`` form), or any other character falls through to the local
+# marker.
+_HUB_ID_RE = re.compile(r"^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)?$")
+
+
+def _model_ref_local_marker(value: str) -> str:
+    """Anonymized marker for a local model reference.
+
+    Emits only the file extension or the literal ``dir`` — never any path
+    fragment (no basename, no directory names, no username).
+    """
+    tail = value.replace("\\", "/").rsplit("/", 1)[-1]
+    ext = Path(tail).suffix
+    return f"<local:{ext}>" if ext else "<local:dir>"
+
+
+def _scrub_model_ref(value: str | tuple[str, ...] | None) -> str | None:
+    """Classify a ``-m/--model`` reference for telemetry.
+
+    Clean HuggingFace Hub ids — one or two Hub-charset segments with at most
+    one slash, not present on disk (``bert-base-uncased``, ``org/name``) —
+    pass through verbatim. Everything else — drive-letter paths, absolute
+    paths, on-disk paths, ``role=path`` composites, and names with unexpected
+    characters — collapses to a ``<local:...>`` marker that carries no path
+    content.
+    """
+    if isinstance(value, tuple):
+        value = value[0] if value else None
+    if not value:
+        return None
+    normalized = value.replace("\\", "/")
+    if re.match(r"^[A-Za-z]:[\\/]", value) or normalized.startswith("/"):
+        return _model_ref_local_marker(value)
+    if Path(value).exists():
+        return _model_ref_local_marker(value)
+    # A single-segment name that carries a file extension (e.g. ``model.onnx``)
+    # is treated as a local file reference, not a Hub id — Hub ids don't carry
+    # file extensions, and this is far more likely a path the user typed for a
+    # file that isn't on *this* disk. Two-segment ``org/name`` is exempt: a dot
+    # there is part of the id (e.g. ``org/model.v2``), not a file extension.
+    if "/" not in normalized and Path(value).suffix:
+        return _model_ref_local_marker(value)
+    if _HUB_ID_RE.match(value):
+        return value
+    return _model_ref_local_marker(value)
 
 
 def _encode_cache_entry(entry: dict[str, Any]) -> str:
@@ -242,3 +293,27 @@ def _extract_exception_stack(tb: Any) -> list[dict[str, Any]]:
         }
         for frame in frames
     ]
+
+
+def _root_cause(exc: BaseException) -> BaseException:
+    """Return the innermost cause of an exception chain.
+
+    Follows ``__cause__`` (explicit ``raise ... from e``) in preference to
+    ``__context__`` (implicit, set when raising inside an ``except`` block),
+    repeatedly, until neither is set. A ``__context__`` explicitly suppressed
+    by ``raise ... from None`` (``__suppress_context__``) is honored — the
+    walk stops there, matching Python's own traceback printing and respecting
+    the developer's intent to hide that inner error. Returns ``exc`` itself
+    when there is no chain. Cycle-safe: a chain that loops back on itself
+    terminates rather than spinning forever.
+    """
+    seen: set[int] = {id(exc)}
+    current = exc
+    while True:
+        nxt = current.__cause__
+        if nxt is None and not current.__suppress_context__:
+            nxt = current.__context__
+        if nxt is None or id(nxt) in seen:
+            return current
+        seen.add(id(nxt))
+        current = nxt
