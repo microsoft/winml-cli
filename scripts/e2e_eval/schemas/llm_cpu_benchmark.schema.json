@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LLM CPU Benchmark Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "model",
+    "runtime",
+    "precision",
+    "device",
+    "bundle",
+    "benchmark",
+    "environment",
+    "run_timestamp",
+    "run",
+    "context_sweep"
+  ],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "model": { "type": "string", "minLength": 1 },
+    "runtime": { "const": "onnxruntime-genai" },
+    "precision": { "type": "string", "minLength": 1 },
+    "device": { "const": "cpu" },
+    "bundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "genai_config_sha256", "provider_names"],
+      "properties": {
+        "path": { "type": "string" },
+        "genai_config_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "provider_names": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "benchmark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "context_lengths",
+        "max_new_tokens",
+        "iterations",
+        "warmup",
+        "prompt_kind"
+      ],
+      "properties": {
+        "context_lengths": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "integer", "minimum": 1 }
+        },
+        "max_new_tokens": { "type": "integer", "minimum": 1 },
+        "iterations": { "type": "integer", "minimum": 1 },
+        "warmup": { "type": "integer", "minimum": 0 },
+        "prompt_kind": { "type": "string" }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["os", "cpu", "logical_cores", "total_ram_mb", "python"],
+      "properties": {
+        "os": { "type": "string" },
+        "cpu": { "type": "string" },
+        "logical_cores": { "type": ["integer", "null"] },
+        "total_ram_mb": { "type": "number", "minimum": 0 },
+        "python": { "type": "string" }
+      }
+    },
+    "run_timestamp": { "type": "string", "format": "date-time" },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "elapsed_s", "errors"],
+      "properties": {
+        "passed": { "type": "boolean" },
+        "elapsed_s": { "type": "number", "minimum": 0 },
+        "errors": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "context_sweep": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/contextPoint" }
+    }
+  },
+  "$defs": {
+    "distribution": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["mean", "p50", "p90", "min", "max", "std"],
+      "properties": {
+        "mean": { "type": "number", "minimum": 0 },
+        "p50": { "type": "number", "minimum": 0 },
+        "p90": { "type": "number", "minimum": 0 },
+        "min": { "type": "number", "minimum": 0 },
+        "max": { "type": "number", "minimum": 0 },
+        "std": { "type": "number", "minimum": 0 }
+      }
+    },
+    "rawSamples": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ttft_ms",
+        "prefill_ms",
+        "decode_tokens_per_second",
+        "tpot_ms",
+        "generation_compute_ms"
+      ],
+      "properties": {
+        "ttft_ms": { "type": "array", "items": { "type": "number", "minimum": 0 } },
+        "prefill_ms": { "type": "array", "items": { "type": "number", "minimum": 0 } },
+        "decode_tokens_per_second": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 0 }
+        },
+        "tpot_ms": { "type": "array", "items": { "type": "number", "minimum": 0 } },
+        "generation_compute_ms": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "contextPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "context_length_tokens",
+        "prompt_tokens",
+        "generated_tokens",
+        "decode_tokens_per_second",
+        "prefill_tokens_per_second",
+        "ttft_s",
+        "generation_compute_s",
+        "tpot_ms",
+        "raw",
+        "process_cpu_avg_pct",
+        "process_memory_avg_mb",
+        "process_memory_avg_pct",
+        "resource_sample_count"
+      ],
+      "properties": {
+        "context_length_tokens": { "type": "integer", "minimum": 1 },
+        "prompt_tokens": { "type": "integer", "minimum": 1 },
+        "generated_tokens": { "type": "integer", "minimum": 1 },
+        "decode_tokens_per_second": { "type": "number", "minimum": 0 },
+        "prefill_tokens_per_second": { "type": ["number", "null"], "minimum": 0 },
+        "ttft_s": { "type": "number", "minimum": 0 },
+        "generation_compute_s": { "type": "number", "minimum": 0 },
+        "tpot_ms": { "$ref": "#/$defs/distribution" },
+        "raw": { "$ref": "#/$defs/rawSamples" },
+        "process_cpu_avg_pct": { "type": ["number", "null"], "minimum": 0 },
+        "process_memory_avg_mb": { "type": ["number", "null"], "minimum": 0 },
+        "process_memory_avg_pct": { "type": ["number", "null"], "minimum": 0 },
+        "resource_sample_count": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
