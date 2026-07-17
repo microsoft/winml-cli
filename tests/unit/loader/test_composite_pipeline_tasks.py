@@ -4,7 +4,7 @@
 # --------------------------------------------------------------------------
 """Unit tests for ``composite_pipeline_tasks`` — registry-driven, offline."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -77,3 +77,23 @@ class TestResolveCompositeLoadTask:
         config = make_mock_config("resnet", ["ResNetForImageClassification"])
         with patch("transformers.AutoConfig.from_pretrained", return_value=config):
             assert resolve_composite_load_task("some/resnet-checkpoint") is None
+
+    def test_model_type_is_normalized_before_registry_lookup(self, make_mock_config) -> None:
+        # Registry keys are lower/hyphenated; a raw model_type with underscores or
+        # mixed case must still map to its pipeline task. resolve_task is stubbed to
+        # report "composite" so this isolates the normalization step (without it,
+        # composite_pipeline_tasks("Vision_Encoder_Decoder") is [] -> None).
+        registered = "vision-encoder-decoder"
+        expected = composite_pipeline_tasks(registered)
+        assert expected, f"{registered!r} should be a registered composite"
+
+        config = make_mock_config("Vision_Encoder_Decoder", ["VisionEncoderDecoderModel"])
+        detected = MagicMock()
+        detected.composite = {"encoder": "feature-extraction", "decoder": "image-to-text"}
+        with (
+            patch("winml.modelkit.loader.resolution.resolve_task", return_value=detected),
+            patch("transformers.AutoConfig.from_pretrained", return_value=config),
+        ):
+            result = resolve_composite_load_task("some/vision-encoder-decoder-checkpoint")
+
+        assert result == expected[0]

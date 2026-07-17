@@ -394,7 +394,14 @@ def resolve_composite_load_task(
     config = AutoConfig.from_pretrained(hf_model, trust_remote_code=trust_remote_code)
     if resolve_task(config).composite is None:
         return None
-    tasks = composite_pipeline_tasks(config.model_type)
+    model_type = getattr(config, "model_type", None)
+    if model_type is None:
+        return None
+    # Normalize before the registry lookup -- registry keys are lower/hyphenated
+    # (e.g. "vision-encoder-decoder"), and this mirrors the other composite call
+    # sites (_get_custom_model_class / resolve_task), so a model_type carrying
+    # underscores or mixed case still maps to its pipeline tasks.
+    tasks = composite_pipeline_tasks(model_type.lower().replace("_", "-"))
     return tasks[0] if tasks else None
 
 

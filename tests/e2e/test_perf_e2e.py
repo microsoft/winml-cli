@@ -808,6 +808,9 @@ class TestPerfDynamicAxes:
 # ===========================================================================
 
 
+@pytest.mark.slow
+@pytest.mark.network
+@pytest.mark.timeout(1800)
 class TestPerfT5Composite:
     """A composite pipeline benchmarks each sub-model and reports them together.
 
