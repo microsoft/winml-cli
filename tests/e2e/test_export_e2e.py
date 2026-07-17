@@ -186,6 +186,30 @@ def _write_json(path: Path, payload: dict) -> Path:
     return path
 
 
+def _symbolic_dims(tensors, name: str) -> dict[int, str]:
+    """Return ``{axis: dim_param}`` for the symbolic dims of the named tensor."""
+    for tensor in tensors:
+        if tensor.name == name:
+            return {
+                i: d.dim_param
+                for i, d in enumerate(tensor.type.tensor_type.shape.dim)
+                if d.dim_param
+            }
+    raise AssertionError(f"tensor {name!r} not found in {[t.name for t in tensors]}")
+
+
+def _static_dims(tensors, name: str) -> dict[int, int]:
+    """Return ``{axis: dim_value}`` for the static (non-symbolic) dims of the tensor."""
+    for tensor in tensors:
+        if tensor.name == name:
+            return {
+                i: d.dim_value
+                for i, d in enumerate(tensor.type.tensor_type.shape.dim)
+                if not d.dim_param
+            }
+    raise AssertionError(f"tensor {name!r} not found in {[t.name for t in tensors]}")
+
+
 # ===========================================================================
 # --help
 # ===========================================================================
@@ -220,17 +244,13 @@ class TestExportHappyPath:
 
 
 class TestExportDinoV2:
-
     MODEL = "facebook/dinov2-base"
 
     def test_image_feature_extraction(self, tmp_path: Path):
         """``-t image-feature-extraction`` must produce a valid ONNX export."""
         onnx_path = tmp_path / "model.onnx"
-        result = _invoke(["-m", self.MODEL, "-o", str(onnx_path),
-                          "-t", "image-feature-extraction"])
-        assert result.exit_code == 0, (
-            f"export failed (exit {result.exit_code}):\n{result.output}"
-        )
+        result = _invoke(["-m", self.MODEL, "-o", str(onnx_path), "-t", "image-feature-extraction"])
+        assert result.exit_code == 0, f"export failed (exit {result.exit_code}):\n{result.output}"
         assert onnx_path.exists(), f"ONNX model not found at {onnx_path}"
 
         model = onnx.load(str(onnx_path))
@@ -430,3 +450,56 @@ class TestExportConfigFiles:
             f"expected opset 18 with -c + --dynamo, got {_opset_version(model)}"
         )
         _assert_some_node_has(model, "pkg.onnxscript.rewriter.rule_name")
+
+
+# ===========================================================================
+# Dynamic axes: --dynamic-axes
+# ===========================================================================
+
+
+class TestExportDynamicAxes:
+    """``--dynamic-axes`` marks the named tensor axes symbolic in the ONNX graph.
+
+    ResNet-50 has a single input ``pixel_values`` of shape [1, 3, 224, 224] and
+    a ``logits`` output. Making axis 0 dynamic turns the static batch dim into a
+    symbolic ``dim_param`` that also propagates to the output.
+    """
+
+    def test_batch_axis_symbolic(self, tmp_path: Path):
+        onnx_path = tmp_path / "model.onnx"
+        axes = _write_json(tmp_path / "axes.json", {"pixel_values": {"0": "batch"}})
+        model = _assert_succeeds(_happy_args(onnx_path, "--dynamic-axes", str(axes)), onnx_path)
+        # Axis 0 of pixel_values becomes symbolic; channel/spatial dims stay static.
+        assert _symbolic_dims(model.graph.input, "pixel_values") == {0: "batch"}
+        assert _static_dims(model.graph.input, "pixel_values") == {1: 3, 2: 224, 3: 224}
+        # The symbolic batch dim propagates to the logits output.
+        assert _symbolic_dims(model.graph.output, "logits") == {0: "batch"}
+
+    def test_static_batch_without_flag(self, tmp_path: Path):
+        # Baseline contrast: absent the flag, every input dim is a fixed integer.
+        onnx_path = tmp_path / "model.onnx"
+        model = _assert_succeeds(_happy_args(onnx_path), onnx_path)
+        assert _symbolic_dims(model.graph.input, "pixel_values") == {}
+        assert _input_shape_dims(model) == [1, 3, 224, 224]
+
+    def test_multiple_axes_symbolic(self, tmp_path: Path):
+        onnx_path = tmp_path / "model.onnx"
+        axes = _write_json(
+            tmp_path / "axes.json",
+            {"pixel_values": {"0": "batch", "2": "height", "3": "width"}},
+        )
+        model = _assert_succeeds(_happy_args(onnx_path, "--dynamic-axes", str(axes)), onnx_path)
+        assert _symbolic_dims(model.graph.input, "pixel_values") == {
+            0: "batch",
+            2: "height",
+            3: "width",
+        }
+        # Only the channel dim remains static.
+        assert _static_dims(model.graph.input, "pixel_values") == {1: 3}
+
+    def test_invalid_dynamic_axes_fails(self, tmp_path: Path):
+        # An empty symbolic dim name is rejected by WinMLExportConfig validation,
+        # so the command must fail cleanly without writing an ONNX file.
+        onnx_path = tmp_path / "model.onnx"
+        bad = _write_json(tmp_path / "axes.json", {"pixel_values": {"0": ""}})
+        _assert_fails(_happy_args(onnx_path, "--dynamic-axes", str(bad)), onnx_path)
