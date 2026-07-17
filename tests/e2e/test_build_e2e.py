@@ -30,6 +30,7 @@ import json
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
+import onnx
 import pytest
 from click.testing import CliRunner
 
@@ -293,3 +294,67 @@ class TestBuildONNXHappyPath:
         )
         assert result.exit_code == 0, f"build failed (exit {result.exit_code}):\n{result.output}"
         assert output_dir.exists()
+
+
+# ===========================================================================
+# Dynamic axes: --dynamic-axes survives the full build pipeline.
+# ===========================================================================
+
+
+@pytest.mark.slow
+@pytest.mark.network
+class TestBuildDynamicAxes:
+    """``--dynamic-axes`` is applied during export and survives optimization."""
+
+    def test_dynamic_batch_survives_build(self, tmp_path: Path):
+        """A dynamic batch axis stays symbolic in the built ONNX artifact."""
+        config_path = _generate_config_file(
+            tmp_path,
+            "microsoft/resnet-50",
+            task="image-classification",
+        )
+        axes = tmp_path / "axes.json"
+        axes.write_text(json.dumps({"pixel_values": {"0": "batch"}}))
+        output_dir = tmp_path / "output"
+
+        result = CliRunner().invoke(
+            build,
+            [
+                "-c",
+                config_path,
+                "-m",
+                "microsoft/resnet-50",
+                "-o",
+                str(output_dir),
+                "--no-quant",
+                "--no-compile",
+                "--no-analyze",
+                "--dynamic-axes",
+                str(axes),
+            ],
+            obj={"debug": True},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"build failed (exit {result.exit_code}):\n{result.output}"
+
+        onnx_files = list(output_dir.rglob("*.onnx"))
+        assert onnx_files, (
+            f"No ONNX files found in {output_dir}. Contents: "
+            f"{[str(p) for p in output_dir.rglob('*')]}"
+        )
+
+        # Locate the graph carrying the model input (skip any auxiliary files).
+        model = None
+        for path in onnx_files:
+            candidate = onnx.load(str(path))
+            if any(i.name == "pixel_values" for i in candidate.graph.input):
+                model = candidate
+                break
+        assert model is not None, (
+            f"no ONNX with a 'pixel_values' input among {[str(p) for p in onnx_files]}"
+        )
+
+        pixel_values = next(i for i in model.graph.input if i.name == "pixel_values")
+        dims = pixel_values.type.tensor_type.shape.dim
+        assert dims[0].dim_param == "batch", f"expected a symbolic batch dim, got {list(dims)}"
+        assert [d.dim_value for d in dims[1:]] == [3, 224, 224]

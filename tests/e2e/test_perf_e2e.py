@@ -35,6 +35,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import onnx
 import pytest
 from click.testing import CliRunner
 
@@ -739,6 +740,67 @@ class TestPerfModule:
         # The real ResNetStage class should appear in the available list.
         assert "ResNetStage" in result.output
         assert not output_file.exists(), "Output file should not be written on failure"
+
+
+# ===========================================================================
+# Dynamic axes: --dynamic-axes re-exports with a symbolic batch dim.
+# ===========================================================================
+
+
+class TestPerfDynamicAxes:
+    """``--dynamic-axes`` feeds the HF export so the benchmarked model is dynamic.
+
+    ``--ignore-cache`` forces a fresh build in a throwaway folder so the cached
+    static export isn't reused, and ``--no-skip-build`` guarantees the export
+    actually runs. The benchmarked ResNet-50 then exposes a dynamic (``None``)
+    batch axis instead of the static ``1``.
+    """
+
+    def test_dynamic_axes_cpu(self, tmp_path: Path):
+        axes = tmp_path / "axes.json"
+        axes.write_text(json.dumps({"pixel_values": {"0": "batch"}}))
+        output_file = tmp_path / "perf_dynamic_axes.json"
+
+        result = CliRunner().invoke(
+            perf,
+            [
+                "-m",
+                "microsoft/resnet-50",
+                "--iterations",
+                "3",
+                "--warmup",
+                "1",
+                "-o",
+                str(output_file),
+                "--device",
+                "cpu",
+                "--dynamic-axes",
+                str(axes),
+                "--ignore-cache",
+                "--no-skip-build",
+                "--no-optimize",
+                "--no-quant",
+                "--no-memory",
+            ],
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        assert "Dynamic axes:" in result.output
+        assert output_file.exists()
+        data = json.loads(output_file.read_text())
+
+        # The benchmarked model exposes a dynamic (None) batch axis; the
+        # remaining channel/spatial dims stay static.
+        input_shapes = data["model_info"]["input_shapes"]
+        assert input_shapes[0][0] is None, f"expected dynamic batch, got {input_shapes}"
+        assert input_shapes[0][1:] == [3, 224, 224]
+        assert data["latency_ms"]["mean"] > 0
+
+        # The ONNX graph ORT actually loaded carries the symbolic batch dim.
+        running = onnx.load(data["benchmark_info"]["running_model_path"])
+        pixel_values = next(i for i in running.graph.input if i.name == "pixel_values")
+        assert pixel_values.type.tensor_type.shape.dim[0].dim_param == "batch"
 
 
 # ===========================================================================

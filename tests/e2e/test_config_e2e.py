@@ -539,3 +539,38 @@ class TestConfigFlagVariations:
         quant = data.get("quant")
         assert quant is not None, "Explicit --precision fp16 should produce a quant config"
         assert quant.get("mode") == "fp16"
+
+
+# ===========================================================================
+# Dynamic axes: --dynamic-axes
+# ===========================================================================
+
+
+class TestConfigDynamicAxes:
+    """``--dynamic-axes`` is recorded in the generated ``export`` config section.
+
+    JSON serialization keeps axis keys as strings, so the round-tripped mapping
+    is ``{"pixel_values": {"0": "batch"}}``.
+    """
+
+    MODEL = "microsoft/resnet-50"
+
+    def test_dynamic_axes_recorded(self, tmp_path: Path) -> None:
+        axes = tmp_path / "axes.json"
+        axes.write_text(json.dumps({"pixel_values": {"0": "batch"}}))
+        data = _run_config("-m", self.MODEL, "--dynamic-axes", str(axes))
+        _assert_hf_config_structure(data)
+        assert data["export"]["dynamic_axes"] == {"pixel_values": {"0": "batch"}}
+
+    def test_dynamic_axes_absent_by_default(self) -> None:
+        data = _run_config("-m", self.MODEL)
+        _assert_hf_config_structure(data)
+        assert data["export"].get("dynamic_axes") is None
+
+    def test_multiple_axes_recorded(self, tmp_path: Path) -> None:
+        mapping = {"pixel_values": {"0": "batch", "2": "height", "3": "width"}}
+        axes = tmp_path / "axes.json"
+        axes.write_text(json.dumps(mapping))
+        data = _run_config("-m", self.MODEL, "--dynamic-axes", str(axes))
+        _assert_hf_config_structure(data)
+        assert data["export"]["dynamic_axes"] == mapping
