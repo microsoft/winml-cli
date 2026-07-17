@@ -83,6 +83,7 @@ class BenchmarkConfig:
 
     model_id: str
     task: str | None = None
+    submodel: str | None = None
     device: str = "auto"
     precision: str = "auto"
     iterations: int = 100
@@ -1575,10 +1576,12 @@ def report_composite_results(
         json.dump(combined, f, indent=2)
 
 
-def generate_output_path(model_id: str, *, module_class: str | None = None) -> Path:
+def generate_output_path(
+    model_id: str, *, module_class: str | None = None, submodel: str | None = None
+) -> Path:
     r"""Generate default output path under the user's cache directory.
 
-    Returns ``~/.cache/winml/perf/<slug>[/<module_class>]/<timestamp>.json``
+    Returns ``~/.cache/winml/perf/<slug>[/<module_class>][/<submodel>]/<timestamp>.json``
     so repeated runs accumulate under a stable per-model directory without
     polluting CWD (see #551). The timestamp is generated at call time using
     local time, format ``YYYYMMDD-HHMMSS``.
@@ -1586,7 +1589,8 @@ def generate_output_path(model_id: str, *, module_class: str | None = None) -> P
     For ONNX inputs, the file stem is used as the slug
     (e.g., ``model.onnx`` -> ``model``). For HF model IDs, ``/`` and ``\``
     are replaced with ``_`` (e.g., ``microsoft/resnet-50`` ->
-    ``microsoft_resnet-50``).
+    ``microsoft_resnet-50``). A ``submodel`` (composite sub-component) is nested
+    under its own directory so per-sub-model reports don't collide.
     """
     p = Path(model_id)
     slug = p.stem if p.suffix.lower() == ".onnx" else model_id.replace("/", "_").replace("\\", "_")
@@ -1594,6 +1598,8 @@ def generate_output_path(model_id: str, *, module_class: str | None = None) -> P
     out_dir = Path.home() / ".cache" / "winml" / "perf" / slug
     if module_class:
         out_dir = out_dir / module_class
+    if submodel:
+        out_dir = out_dir / submodel
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     return out_dir / f"{timestamp}.json"
@@ -1919,6 +1925,13 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     if p.get("module_class"):
         raise click.UsageError("--module is not supported with --runtime winml-genai.")
 
+    # --submodel narrows a composite into a single sub-component benchmarked as a
+    # standalone session; a genai bundle is already the full composite generation
+    # pipeline, so selecting one sub-component is meaningless. Reject rather than
+    # silently ignore (this return runs before the winml-path --submodel handling).
+    if p.get("submodel"):
+        raise click.UsageError("--submodel is not supported with --runtime winml-genai.")
+
     # The ExitStack keeps an --ignore-cache auto-build's throwaway temp dir alive
     # across the benchmark below, then removes it on exit. A bundle dir or a
     # cached auto-build registers nothing, so it is a no-op.
@@ -1992,6 +2005,33 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
         run_genai_perf(config, console=console, json_mode=json_mode)
 
 
+def _resolve_composite_components_for_perf(model: str, task: str | None) -> dict[str, str] | None:
+    """Detect a composite model's sub-components (name -> component task), else None.
+
+    Mirrors the registry-driven detection in ``winml export`` / ``winml build``
+    so ``--submodel`` resolves the same components (and the same seq2seq bridge
+    when ``--task`` is omitted). Only the "not a resolvable HF config" case
+    (``OSError``) is suppressed (fall through to "not composite"); intentional
+    loud guards (empty registry, model-task incompatibility) and any unexpected
+    failure are surfaced rather than masked.
+    """
+    from ..loader.resolution import resolve_composite_components
+
+    try:
+        return resolve_composite_components(model, task=task)
+    except click.ClickException:
+        raise
+    except ValueError as e:
+        raise click.UsageError(str(e)) from e
+    except RuntimeError:
+        raise
+    except OSError as e:
+        logger.debug("Composite detection unavailable (config not resolvable): %s", e)
+        return None
+    except Exception as e:
+        raise click.ClickException(f"Composite model detection failed unexpectedly: {e}") from e
+
+
 @click.command("perf")
 @cli_utils.model_option(required=False)
 @click.option(
@@ -2038,6 +2078,15 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     type=str,
     default=None,
     help="Explicit task (e.g., 'image-classification'). Auto-detected if not specified.",
+)
+@click.option(
+    "--submodel",
+    type=str,
+    default=None,
+    help=(
+        "Benchmark a specific sub-model of a composite model "
+        "(e.g., 'text_model', 'vision_model'). Omit to benchmark all sub-models."
+    ),
 )
 @click.option(
     "--iterations",
@@ -2167,6 +2216,7 @@ def perf(
     max_new_tokens: int,
     compile_timeout: int,
     task: str | None,
+    submodel: str | None,
     iterations: int,
     warmup: int,
     device: str,
@@ -2304,6 +2354,46 @@ def perf(
     is_onnx = model_input.kind is ModelInputKind.ONNX_FILE
     if is_onnx and model_input.local_path and not Path(model_input.local_path).exists():
         raise click.UsageError(f"ONNX file not found: {hf_model}")
+
+    # =========================================================================
+    # --submodel: narrow a composite model to one sub-component, benchmarked as
+    # a standalone single-session model. The composite is detected the same way
+    # `winml export` / `winml build` / `winml inspect` do (registry-driven, via
+    # the seq2seq bridge), so it works even when --task is omitted. The selected
+    # component is then loaded through the normal single-model path using its own
+    # component task — exactly how the composite builds that sub-model — which
+    # sidesteps the config-ambiguous pipeline task (e.g. t5 translation vs
+    # summarization) and avoids building the other sub-models just to discard.
+    # =========================================================================
+    if submodel is not None:
+        if is_onnx:
+            raise click.BadParameter(
+                "--submodel is not supported for ONNX files; a .onnx file is "
+                "already a single model.",
+                param_hint="--submodel",
+            )
+        if module_class:
+            raise click.BadParameter(
+                "--submodel cannot be combined with --module.",
+                param_hint="--submodel",
+            )
+        components = _resolve_composite_components_for_perf(hf_model, task)
+        if components is None:
+            raise click.BadParameter(
+                f"'{submodel}' was specified, but '{hf_model}' is not a "
+                f"composite model (no sub-models detected).",
+                param_hint="--submodel",
+            )
+        if submodel not in components:
+            raise click.BadParameter(
+                f"Unknown sub-model '{submodel}'. Available: {', '.join(components)}",
+                param_hint="--submodel",
+            )
+        # Load only this component, using its own task, via the single-model path.
+        task = components[submodel]
+        console.print(
+            f"[dim]Composite sub-model:[/dim] {submodel} (task={task}) [dim]from[/dim] {hf_model}"
+        )
 
     # =========================================================================
     # MODULE MODE: per-module build + benchmark
@@ -2444,7 +2534,7 @@ def perf(
 
     # Resolve output path
     if output is None:
-        output = generate_output_path(hf_model)
+        output = generate_output_path(hf_model, submodel=submodel)
 
     # Refuse to clobber an existing report unless the user opted in.
     cli_utils.guard_output(output, overwrite)
@@ -2455,6 +2545,7 @@ def perf(
     config = BenchmarkConfig(
         model_id=hf_model,
         task=task,
+        submodel=submodel,
         device=device.lower(),
         precision=precision.lower(),
         iterations=iterations,

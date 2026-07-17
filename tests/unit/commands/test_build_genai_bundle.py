@@ -254,7 +254,66 @@ def test_explicit_no_quant_is_rejected_not_silently_ignored(tmp_path: Path):
     run_single.assert_not_called()
 
 
-def test_rebuild_flag_maps_to_force_rebuild(tmp_path: Path):
+def test_submodel_is_rejected_not_silently_ignored(tmp_path: Path):
+    """--submodel must error on the bundle path, not silently build the whole bundle.
+
+    The genai bundle fixes every component via its recipe, so narrowing to one
+    sub-model cannot be honored.  The fast path must reject it before reaching the
+    orchestrator or the single-model pipeline (the later generic-path --submodel
+    handling is never reached on this dispatch).
+    """
+    with (
+        patch(_GENERATE_TARGET, return_value=_fake_config("qwen3")),
+        patch(_BUNDLE_TARGET, side_effect=_record_bundle({})) as bundle,
+        patch(_RUN_SINGLE_TARGET) as run_single,
+        patch(_COMPOSITE_TARGET, return_value=None),
+    ):
+        result = _invoke(
+            [
+                "-m",
+                "Qwen/Qwen3-0.6B",
+                "-o",
+                str(tmp_path / "b"),
+                "--device",
+                "npu",
+                "--ep",
+                "qnn",
+                "--submodel",
+                "decoder",
+            ]
+        )
+
+    assert result.exit_code != 0
+    assert "--submodel" in result.output
+    bundle.assert_not_called()
+    run_single.assert_not_called()
+
+
+def test_submodel_rejected_for_explicit_optimized_export_type(tmp_path: Path):
+    """--submodel + --export-type optimized errors before building the bundle."""
+    with (
+        patch(_GENERATE_TARGET, return_value=_fake_config("qwen3")),
+        patch(_BUNDLE_TARGET, side_effect=_record_bundle({})) as bundle,
+        patch(_RUN_SINGLE_TARGET) as run_single,
+        patch(_COMPOSITE_TARGET, return_value=None),
+    ):
+        result = _invoke(
+            [
+                "-m",
+                "Qwen/Qwen3-0.6B",
+                "-o",
+                str(tmp_path / "b"),
+                "--export-type",
+                "optimized",
+                "--submodel",
+                "decoder",
+            ]
+        )
+
+    assert result.exit_code != 0
+    assert "--submodel" in result.output
+    bundle.assert_not_called()
+    run_single.assert_not_called()
     recorded: dict = {}
 
     with (
@@ -714,6 +773,7 @@ def test_optimized_rejects_onnx_input():
             ep=None,
             precision=None,
             rebuild=False,
+            submodel=None,
         )
 
 
@@ -734,6 +794,7 @@ def test_optimized_rejects_module_mode():
             ep=None,
             precision=None,
             rebuild=False,
+            submodel=None,
         )
 
 
@@ -754,4 +815,5 @@ def test_optimized_requires_model():
             ep=None,
             precision=None,
             rebuild=False,
+            submodel=None,
         )

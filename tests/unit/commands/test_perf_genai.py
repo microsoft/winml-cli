@@ -841,6 +841,20 @@ class TestCliDispatch:
         assert "--module" in result.output
         assert "config" not in capture_run
 
+    def test_submodel_rejected(self, runner: CliRunner, tmp_path: Path, capture_run: dict) -> None:
+        # --submodel narrows a composite to one standalone sub-session; a genai
+        # bundle is already the full composite generation pipeline, so it must be
+        # rejected rather than silently ignored (the winml-genai return runs before
+        # the winml-path --submodel handling).
+        bundle = _make_bundle(tmp_path)
+        result = runner.invoke(
+            perf,
+            ["-m", str(bundle), "--runtime", "winml-genai", "--submodel", "decoder"],
+        )
+        assert result.exit_code != 0
+        assert "--submodel" in result.output
+        assert "config" not in capture_run
+
     def test_onnx_file_rejected(self, runner: CliRunner, tmp_path: Path, capture_run: dict) -> None:
         onnx = tmp_path / "model.onnx"
         onnx.write_bytes(b"fake")
