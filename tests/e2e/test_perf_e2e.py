@@ -804,6 +804,66 @@ class TestPerfDynamicAxes:
 
 
 # ===========================================================================
+# Composite model: per-sub-model benchmarking.
+# ===========================================================================
+
+
+class TestPerfT5Composite:
+    """A composite pipeline benchmarks each sub-model and reports them together.
+
+    ``google-t5/t5-small`` is a composite (encoder + decoder). Like ``build`` and
+    ``export``, perf auto-detects the composite from a bare ``-m`` (no explicit
+    task) and builds the whole pipeline; it then benchmarks each sub-model
+    individually and writes a combined report keyed by component name. An
+    explicit pipeline task (``--task translation``) selects the same composite.
+    Component names/tasks are read from the registry to keep the assertions
+    architecture-agnostic.
+    """
+
+    @pytest.mark.parametrize("extra_args", [[], ["--task", "translation"]], ids=["auto", "task"])
+    def test_composite_report_cpu(self, extra_args: list[str], tmp_path: Path):
+        from winml.modelkit.loader.resolution import resolve_composite_components
+
+        components = resolve_composite_components("google-t5/t5-small")
+        assert components, "google-t5/t5-small did not resolve to a composite model"
+
+        output_file = tmp_path / "perf_t5_composite.json"
+        result = CliRunner().invoke(
+            perf,
+            [
+                "-m",
+                "google-t5/t5-small",
+                "--device",
+                "cpu",
+                "--iterations",
+                "3",
+                "--warmup",
+                "1",
+                "-o",
+                str(output_file),
+                "--no-memory",
+                *extra_args,
+            ],
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        assert output_file.exists()
+
+        data = json.loads(output_file.read_text())
+        assert data["model_id"] == "google-t5/t5-small"
+        assert data["component_count"] == len(components)
+        assert set(data["components"]) == set(components)
+
+        # Every sub-model was benchmarked individually: it carries its own task
+        # and a positive mean latency.
+        for name, component_task in components.items():
+            component = data["components"][name]
+            assert component["benchmark_info"]["task"] == component_task
+            assert component["latency_ms"]["mean"] > 0, f"sub-model {name!r} has no latency"
+
+
+# ===========================================================================
 # GenAI runtime (winml-genai): --device / --ep override
 # ===========================================================================
 
