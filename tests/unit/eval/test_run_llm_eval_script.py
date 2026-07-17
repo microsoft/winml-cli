@@ -14,9 +14,7 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-SCHEMA_PATH = (
-    REPO_ROOT / "scripts" / "e2e_eval" / "schemas" / "llm_cpu_benchmark.schema.json"
-)
+SCHEMA_PATH = REPO_ROOT / "scripts" / "e2e_eval" / "schemas" / "llm_benchmark.schema.json"
 
 
 def _load_script(name: str, relative_path: str):

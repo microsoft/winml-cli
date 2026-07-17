@@ -35,7 +35,7 @@ RUNTIME = "onnxruntime-genai"
 RESULT_FILENAME = "llm_cpu_benchmark.json"
 DEFAULT_FILLER = "The quick brown fox jumps over the lazy dog. "
 WINML_CLI = [sys.executable, "-m", "winml.modelkit.cli"]
-SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "llm_cpu_benchmark.schema.json"
+SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "llm_benchmark.schema.json"
 
 
 def _utc_now() -> str:

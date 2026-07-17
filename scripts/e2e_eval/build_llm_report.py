@@ -14,7 +14,7 @@ import jsonschema
 
 
 RESULT_LABEL = "llm_cpu_benchmark.json"
-SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "llm_cpu_benchmark.schema.json"
+SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "llm_benchmark.schema.json"
 
 
 def _escape(value: Any) -> str:
