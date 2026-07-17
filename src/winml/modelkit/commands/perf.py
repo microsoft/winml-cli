@@ -773,12 +773,20 @@ class PerfBenchmark:
             # file" error from AutoConfig.
             raise FileNotFoundError(f"ONNX file not found: {model_path}")
 
-        # Composite auto-detection (mirror build / export). A bare seq2seq model
-        # such as T5 auto-detects to a granular single-model task
-        # (text2text-generation) and would benchmark only the decoder. Resolve
-        # the composite via the shared registry bridge and load the whole
-        # pipeline so every sub-model is built and benchmarked. Explicit --task
-        # and ONNX inputs keep their resolved task untouched.
+        # Composite auto-detection. A bare seq2seq model such as T5 auto-detects
+        # to a granular single-model task (text2text-generation) and would
+        # benchmark only the decoder.
+        #
+        # Why this differs from build/export: those commands *fan out* into one
+        # independent build per sub-model, so they use resolve_composite_components
+        # -> a {name: sub_model_task} map (encoder=feature-extraction,
+        # decoder=text2text-generation) and never construct a composite object.
+        # perf instead loads ONE live WinMLCompositeModel and benchmarks its
+        # sub-models, which requires a registered composite *pipeline* task
+        # (translation/summarization) to route WinMLAutoModel.from_pretrained --
+        # a different namespace from the sub-model tasks. resolve_composite_load_task
+        # bridges detection to that loadable pipeline task. Explicit --task and
+        # ONNX inputs keep their resolved task untouched.
         resolved_task = self.config.task
         if not is_onnx and resolved_task is None:
             from ..loader.resolution import resolve_composite_load_task

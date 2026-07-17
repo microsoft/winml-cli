@@ -825,7 +825,8 @@ class TestPerfT5Composite:
         from winml.modelkit.loader.resolution import resolve_composite_components
 
         components = resolve_composite_components("google-t5/t5-small")
-        assert components, "google-t5/t5-small did not resolve to a composite model"
+        # t5-small is an encoder-decoder pipeline: exactly two sub-models.
+        assert set(components) == {"encoder", "decoder"}
 
         output_file = tmp_path / "perf_t5_composite.json"
         result = CliRunner().invoke(
@@ -852,8 +853,8 @@ class TestPerfT5Composite:
 
         data = json.loads(output_file.read_text())
         assert data["model_id"] == "google-t5/t5-small"
-        assert data["component_count"] == len(components)
-        assert set(data["components"]) == set(components)
+        assert data["component_count"] == 2
+        assert set(data["components"]) == {"encoder", "decoder"}
 
         # Every sub-model was benchmarked individually: it carries its own task
         # and a positive mean latency.
