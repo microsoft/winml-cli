@@ -165,7 +165,13 @@ class WinMLSession:
                 (``add_provider_for_devices`` mutates the options and cannot
                 be replayed). Defaults to ``ort.SessionOptions``.
         """
-        WinMLSession._init_winml_eps_once()
+        # The built-in CPU EP needs no optional WindowsML plugin discovery.
+        # Avoid loading the WindowsML catalog for an explicitly requested CPU
+        # session: besides unnecessary startup work, mixing catalog/plugin
+        # lifetime with a CPU-only ORT session can crash native teardown on
+        # Windows after otherwise successful inference.
+        if ep not in ("cpu", "CPUExecutionProvider"):
+            WinMLSession._init_winml_eps_once()
 
         self._onnx_path = Path(onnx_path)
         if not self._onnx_path.exists():
@@ -355,9 +361,7 @@ class WinMLSession:
             # Run inference (with optional perf tracking)
             output_names = [o.name for o in session.get_outputs()]
             if self._perf_stats:
-                outputs = self._perf_stats.record(
-                    lambda: session.run(output_names, ort_inputs)
-                )
+                outputs = self._perf_stats.record(lambda: session.run(output_names, ort_inputs))
             else:
                 outputs = session.run(output_names, ort_inputs)
 

@@ -16,6 +16,7 @@ Following Cardinal Rules:
 from __future__ import annotations
 
 import numpy as np
+import onnx
 from onnx import ModelProto, TensorProto, helper, numpy_helper
 
 from winml.modelkit.quant.fp16 import convert_to_fp16
@@ -62,6 +63,23 @@ class TestConvertToFP16:
 
         has_fp16 = any(init.data_type == TensorProto.FLOAT16 for init in result.graph.initializer)
         assert has_fp16, "Expected at least one FP16 initializer after conversion"
+
+    def test_path_conversion_uses_external_data_safe_shape_inference(self, tmp_path) -> None:
+        """Path input converts external-data models without in-memory shape serialization."""
+        model_path = tmp_path / "model.onnx"
+        model = _build_simple_fp32_model()
+        onnx.save_model(
+            model,
+            str(model_path),
+            save_as_external_data=True,
+            all_tensors_to_one_file=True,
+            location="model.onnx.data",
+            size_threshold=0,
+        )
+
+        result = convert_to_fp16(model_path)
+
+        assert any(init.data_type == TensorProto.FLOAT16 for init in result.graph.initializer)
 
     def test_default_keeps_io_types(self) -> None:
         """Default keep_io_types=True preserves FP32 model I/O."""

@@ -359,6 +359,14 @@ class TestResolveDeviceWithEp:
         assert device == "npu"
         assert available == ["npu", "gpu"]
 
+    def test_explicit_cpu_ep_bypasses_optional_provider_discovery(self) -> None:
+        """Built-in CPU resolution must not initialize the WindowsML plugin catalog."""
+        with patch("winml.modelkit.sysinfo.device._get_device_ep_map_from_ort") as device_map:
+            device, available = resolve_device("cpu", ep="cpu")
+
+        assert (device, available) == ("cpu", ["cpu"])
+        device_map.assert_not_called()
+
     def test_ep_qnn_auto_picks_gpu_when_no_npu(self) -> None:
         """ep='qnn' on a GPU-only system auto-selects gpu."""
         with _patch_device_ep_map(
