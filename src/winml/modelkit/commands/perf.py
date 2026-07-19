@@ -262,6 +262,7 @@ def generate_random_inputs(
     symbolic_shapes = io_config.get("input_symbolic_shapes") or [
         [None] * len(s) for s in io_config["input_shapes"]
     ]
+    value_ranges = io_config.get("input_value_ranges") or {}
     overrides = shape_config or {}
 
     specs: dict[str, dict[str, Any]] = {}
@@ -290,6 +291,11 @@ def generate_random_inputs(
             "dtype": gen_dtype,
             "shape": list(resolved_shape),
         }
+        if name in value_ranges:
+            low, high = value_ranges[name]
+            # Persisted InputTensorSpec ranges are [low, high), while the
+            # legacy NumPy generator treats integer maxima as inclusive.
+            specs[name]["range"] = [int(low), int(high) - 1] if gen_dtype == "int" else [low, high]
 
     return generate_dummy_inputs_from_specs(specs)
 
