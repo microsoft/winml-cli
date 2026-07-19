@@ -34,6 +34,7 @@ class _GraphContract:
     inputs: tuple[tuple[str, str, int], ...]
     outputs: tuple[tuple[str, str, int], ...]
     precision: str
+    has_quantized_weights: bool = False
 
 
 def _inspect_runnable_graph(path: Path) -> _GraphContract | None:
@@ -58,6 +59,9 @@ def _inspect_runnable_graph(path: Path) -> _GraphContract | None:
     fp16 = type_counts[onnx.TensorProto.FLOAT16]
     fp32 = type_counts[onnx.TensorProto.FLOAT]
     precision = "fp16" if fp16 > fp32 else "fp32"
+    has_quantized_weights = bool(
+        type_counts[onnx.TensorProto.INT8] or type_counts[onnx.TensorProto.UINT8]
+    )
 
     def contract(nodes: list[Any]) -> tuple[tuple[str, str, int], ...]:
         return tuple((node.name, node.type, len(node.shape)) for node in nodes)
@@ -67,6 +71,7 @@ def _inspect_runnable_graph(path: Path) -> _GraphContract | None:
         inputs=contract(session.get_inputs()),
         outputs=contract(session.get_outputs()),
         precision=precision,
+        has_quantized_weights=has_quantized_weights,
     )
 
 
@@ -109,14 +114,18 @@ def resolve_hf_onnx_encoder_decoder(
             graphs.append(graph)
 
     preferred_precisions = ("fp16", "fp32") if precision == "fp16" else ("fp32",)
-    candidates: list[tuple[int, int, str, _GraphContract, _GraphContract]] = []
+    candidates: list[tuple[int, int, _GraphContract, _GraphContract, tuple[str, ...]]] = []
     for encoder in graphs:
         encoder_inputs = encoder.inputs
         if len(encoder_inputs) != 1 or encoder_inputs[0][2] != 4:
             continue
         encoder_outputs = {name for name, _dtype, _rank in encoder.outputs}
         for decoder in graphs:
-            if decoder.path == encoder.path or decoder.precision != encoder.precision:
+            if (
+                decoder.path == encoder.path
+                or decoder.precision != encoder.precision
+                or decoder.has_quantized_weights != encoder.has_quantized_weights
+            ):
                 continue
             decoder_inputs = {name for name, _dtype, _rank in decoder.inputs}
             shared = encoder_outputs & decoder_inputs
@@ -129,7 +138,10 @@ def resolve_hf_onnx_encoder_decoder(
                 precision_rank = preferred_precisions.index(encoder.precision)
             except ValueError:
                 continue
-            candidates.append((precision_rank, -len(shared), str(encoder.path), encoder, decoder))
+            quantization_rank = int(encoder.has_quantized_weights)
+            candidates.append(
+                (precision_rank, quantization_rank, encoder, decoder, tuple(sorted(shared)))
+            )
 
     if not candidates:
         contracts = [
@@ -146,7 +158,34 @@ def resolve_hf_onnx_encoder_decoder(
             f"for precision {precision!r}: {contracts}"
         )
 
-    _rank, _shared, _path, encoder, decoder = min(candidates, key=lambda row: row[:3])
+    best_source_rank = min(candidate[:2] for candidate in candidates)
+    preferred_candidates = sorted(
+        (candidate for candidate in candidates if candidate[:2] == best_source_rank),
+        key=lambda candidate: (str(candidate[2].path), str(candidate[3].path)),
+    )
+    if len(preferred_candidates) != 1:
+        pairs = [
+            {
+                "image-encoder": encoder.path.name,
+                "prompt-decoder": decoder.path.name,
+                "precision": encoder.precision,
+                "shared_outputs": list(shared),
+            }
+            for (
+                _precision_rank,
+                _quantization_rank,
+                encoder,
+                decoder,
+                shared,
+            ) in preferred_candidates
+        ]
+        raise ValueError(
+            "Published ONNX graphs contain multiple valid encoder/decoder pairs "
+            f"for precision {precision!r}; unable to select one unambiguously. "
+            f"Candidate pairs: {pairs}"
+        )
+
+    _precision_rank, _quantization_rank, encoder, decoder, _shared = preferred_candidates[0]
     return {"image-encoder": encoder.path, "prompt-decoder": decoder.path}
 
 
