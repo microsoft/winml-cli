@@ -604,6 +604,13 @@ class Pattern(ABC):
                         cast("tuple[int, ...]", info.shape)
                     ).get_value(type_annotation)
 
+        # Pattern validation must fail closed when shape/value metadata is
+        # unavailable. Pattern implementations use these arrays to derive
+        # dtype-dependent constants; allowing a partial mapping through turns
+        # an incomplete shape-inference result into an analyzer-wide KeyError.
+        if any(name not in inputs for name in input_infos):
+            return None
+
         # Build is_constant_map from input_infos
         is_constant_map = {name: info.is_constant for name, info in input_infos.items()}
 
