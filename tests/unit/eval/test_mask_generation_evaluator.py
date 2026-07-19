@@ -171,6 +171,33 @@ class TestBuildDecoderInputsPoint:
         # boxes empty
         assert feed["input_boxes"].shape == (1, 0, 4)
 
+    def test_point_only_decoder_omits_unsupported_box_tensor(self) -> None:
+        feed = _build_decoder_inputs(
+            prompt={"point": [15, 25], "label": 1},
+            prompt_mode="point",
+            scale_x=2.0,
+            scale_y=3.0,
+            emb={
+                "image_embeddings": np.zeros((1, 256, 64, 64), dtype=np.float32),
+                "image_positional_embeddings": np.zeros((1, 256, 64, 64), dtype=np.float32),
+            },
+            required_embed_names=("image_embeddings", "image_positional_embeddings"),
+            required_input_names=(
+                "input_points",
+                "input_labels",
+                "image_embeddings",
+                "image_positional_embeddings",
+            ),
+        )
+
+        assert "input_boxes" not in feed
+        assert set(feed) == {
+            "input_points",
+            "input_labels",
+            "image_embeddings",
+            "image_positional_embeddings",
+        }
+
 
 class TestBuildDecoderInputsInvalidMode:
     def test_text_mode_rejected_with_helpful_message(self) -> None:

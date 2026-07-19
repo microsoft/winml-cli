@@ -363,13 +363,13 @@ def config(
                 hf_model, model_type, task, trust_remote_code=trust_remote_code
             )
             if pipeline_components:
-                # Export controls target a single export graph; a composite model
-                # has one export per sub-component with distinct inputs. Reject on
-                # raw flag presence — before loading/validating the JSON — so the
-                # composite-specific error wins (mirroring the ONNX path) instead
-                # of a downstream "Invalid export configuration". config never fans
-                # these overrides out across heterogeneous components.
-                if _export_flags_given:
+                from ..loader.resolution import (
+                    composite_requires_pretrained_onnx,
+                    resolve_composite_onnx_sources,
+                )
+
+                published_only = composite_requires_pretrained_onnx(pipeline_components)
+                if not published_only and _export_flags_given:
                     raise click.UsageError(
                         "--input-specs, --export-config, and --dynamic-axes are not "
                         "supported for composite (multi-component) models, whose "
@@ -377,26 +377,56 @@ def config(
                         "the per-component configs first, then edit their export "
                         "sections individually."
                     )
-                # composite model: generate one config per sub-component
-                _generate_pipeline_configs(
-                    pipeline_components,
-                    hf_model=hf_model,
-                    model_class=model_class,
-                    model_type=model_type,
-                    override=override,
-                    shape_config=shape_config,
-                    library_name=library_name,
-                    device=device,
-                    precision=precision,
-                    trust_remote_code=trust_remote_code,
-                    ep=ep,
-                    no_quant=not quant,
-                    no_compile=no_compile,
-                    output=output,
-                    overwrite=overwrite,
-                    console=console,
+                component_sources = (
+                    resolve_composite_onnx_sources(
+                        hf_model,
+                        task=task,
+                        precision=precision,
+                        trust_remote_code=trust_remote_code,
+                    )
+                    if hf_model
+                    else None
                 )
-                return
+                use_composite = component_sources is not None or not published_only
+
+                # Export controls target a single export graph; a composite model
+                # has one export per sub-component with distinct inputs. Reject on
+                # raw flag presence — before loading/validating the JSON — so the
+                # composite-specific error wins (mirroring the ONNX path) instead
+                # of a downstream "Invalid export configuration". config never fans
+                # these overrides out across heterogeneous components.
+                if use_composite and _export_flags_given:
+                    raise click.UsageError(
+                        "--input-specs, --export-config, and --dynamic-axes are not "
+                        "supported for composite (multi-component) models, whose "
+                        "sub-components each have their own export inputs. Generate "
+                        "the per-component configs first, then edit their export "
+                        "sections individually."
+                    )
+                # Composite model: generate one config per sub-component. An
+                # optional published-ONNX registration with no sources falls
+                # through to the pre-existing single PyTorch export path.
+                if use_composite:
+                    _generate_pipeline_configs(
+                        pipeline_components,
+                        component_sources=component_sources,
+                        hf_model=hf_model,
+                        model_class=model_class,
+                        model_type=model_type,
+                        override=override,
+                        shape_config=shape_config,
+                        library_name=library_name,
+                        device=device,
+                        precision=precision,
+                        trust_remote_code=trust_remote_code,
+                        ep=ep,
+                        no_quant=not quant,
+                        no_compile=no_compile,
+                        output=output,
+                        overwrite=overwrite,
+                        console=console,
+                    )
+                    return
 
             # Load export CLI overrides now that the multi-graph paths (ONNX,
             # --module, composite) have all been rejected — the single HF config
@@ -603,6 +633,7 @@ def _resolve_composite_model_components(
 def _generate_pipeline_configs(
     components: dict[str, str],
     *,
+    component_sources: dict[str, str] | None,
     hf_model: str | None,
     model_class: str | None,
     model_type: str | None,
@@ -620,7 +651,7 @@ def _generate_pipeline_configs(
     console: Any,
 ) -> None:
     """Generate and save one config file per pipeline sub-component."""
-    from ..config import generate_hf_build_config
+    from ..config import generate_hf_build_config, generate_onnx_build_config
 
     for component_name, component_task in components.items():
         console.print(
@@ -628,19 +659,32 @@ def _generate_pipeline_configs(
             f"(task={component_task})...[/dim]"
         )
 
-        cfg = generate_hf_build_config(
-            model_id=hf_model,
-            task=component_task,
-            model_class=model_class,
-            model_type=model_type,
-            override=override,
-            shape_config=shape_config,
-            library_name=library_name,
-            device=device,
-            precision=precision,
-            trust_remote_code=trust_remote_code,
-            ep=ep,
-        )
+        source = component_sources.get(component_name) if component_sources else None
+        if source is not None:
+            cfg = generate_onnx_build_config(
+                source,
+                task=component_task,
+                override=override,
+                device=device,
+                precision=precision,
+                ep=ep,
+            )
+            cfg.loader.component_name = component_name
+            cfg.loader.model_type = model_type
+        else:
+            cfg = generate_hf_build_config(
+                model_id=hf_model,
+                task=component_task,
+                model_class=model_class,
+                model_type=model_type,
+                override=override,
+                shape_config=shape_config,
+                library_name=library_name,
+                device=device,
+                precision=precision,
+                trust_remote_code=trust_remote_code,
+                ep=ep,
+            )
         _apply_stage_overrides(cfg, no_quant=no_quant, no_compile=no_compile)
 
         config_json = json.dumps(cfg.to_dict(), indent=2)

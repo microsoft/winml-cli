@@ -49,6 +49,14 @@ class TestCompositeTasksSync:
             "Update COMPOSITE_TASKS in src/winml/modelkit/loader/task.py."
         )
 
+    def test_sam_mask_generation_has_published_graph_roles(self) -> None:
+        from winml.modelkit.loader.resolution import resolve_composite
+
+        assert resolve_composite("sam", "mask-generation") == {
+            "image-encoder": "image-feature-extraction",
+            "prompt-decoder": "mask-generation",
+        }
+
 
 class TestCompositeTasksVsKnownTasks:
     def test_summarization_translation_excluded_from_known_tasks(self) -> None:

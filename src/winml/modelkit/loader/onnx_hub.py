@@ -19,10 +19,135 @@ The function exposed here, :func:`resolve_hf_onnx_path`, is called by
 from __future__ import annotations
 
 import logging
+from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _GraphContract:
+    path: Path
+    inputs: tuple[tuple[str, str, int], ...]
+    outputs: tuple[tuple[str, str, int], ...]
+    precision: str
+
+
+def _inspect_runnable_graph(path: Path) -> _GraphContract | None:
+    """Return a runnable graph's I/O contract, or ``None`` when ORT rejects it."""
+    import onnx
+    import onnxruntime as ort
+
+    try:
+        options = ort.SessionOptions()
+        options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+        session = ort.InferenceSession(
+            str(path),
+            sess_options=options,
+            providers=["CPUExecutionProvider"],
+        )
+        model = onnx.load(path, load_external_data=False)
+    except Exception as error:
+        logger.warning("Ignoring unusable published ONNX graph %s: %s", path.name, error)
+        return None
+
+    type_counts = Counter(initializer.data_type for initializer in model.graph.initializer)
+    fp16 = type_counts[onnx.TensorProto.FLOAT16]
+    fp32 = type_counts[onnx.TensorProto.FLOAT]
+    precision = "fp16" if fp16 > fp32 else "fp32"
+
+    def contract(nodes: list[Any]) -> tuple[tuple[str, str, int], ...]:
+        return tuple((node.name, node.type, len(node.shape)) for node in nodes)
+
+    return _GraphContract(
+        path=path,
+        inputs=contract(session.get_inputs()),
+        outputs=contract(session.get_outputs()),
+        precision=precision,
+    )
+
+
+def resolve_hf_onnx_encoder_decoder(
+    model_id: str,
+    *,
+    revision: str | None = None,
+    precision: str = "fp32",
+    cache_dir: str | Path | None = None,
+    token: str | bool | None = None,
+) -> dict[str, Path]:
+    """Discover a runnable image-encoder/prompt-decoder pair in a Hub repo.
+
+    Selection is graph-contract driven rather than filename driven. The encoder
+    has one rank-4 tensor input; the decoder consumes one or more encoder outputs
+    plus a rank-3 integer prompt tensor. Invalid published variants are ignored
+    after an ORT CPU session probe. An fp16 build may safely fall back to fp32
+    source graphs because the normal build pipeline performs fp16 conversion.
+    """
+    from huggingface_hub import list_repo_files
+
+    files = sorted(
+        name
+        for name in list_repo_files(model_id, revision=revision, token=token)
+        if name.lower().endswith(".onnx")
+    )
+    if not files:
+        raise FileNotFoundError(f"No published ONNX graphs found in Hub repo {model_id!r}.")
+
+    graphs: list[_GraphContract] = []
+    for filename in files:
+        path = resolve_hf_onnx_path(
+            f"{model_id}/{filename}",
+            revision=revision,
+            cache_dir=cache_dir,
+            token=token,
+        )
+        graph = _inspect_runnable_graph(path)
+        if graph is not None:
+            graphs.append(graph)
+
+    preferred_precisions = ("fp16", "fp32") if precision == "fp16" else ("fp32",)
+    candidates: list[tuple[int, int, str, _GraphContract, _GraphContract]] = []
+    for encoder in graphs:
+        encoder_inputs = encoder.inputs
+        if len(encoder_inputs) != 1 or encoder_inputs[0][2] != 4:
+            continue
+        encoder_outputs = {name for name, _dtype, _rank in encoder.outputs}
+        for decoder in graphs:
+            if decoder.path == encoder.path or decoder.precision != encoder.precision:
+                continue
+            decoder_inputs = {name for name, _dtype, _rank in decoder.inputs}
+            shared = encoder_outputs & decoder_inputs
+            has_integer_prompt = any(
+                rank == 3 and "int" in dtype.lower() for _name, dtype, rank in decoder.inputs
+            )
+            if not shared or not has_integer_prompt:
+                continue
+            try:
+                precision_rank = preferred_precisions.index(encoder.precision)
+            except ValueError:
+                continue
+            candidates.append((precision_rank, -len(shared), str(encoder.path), encoder, decoder))
+
+    if not candidates:
+        contracts = [
+            {
+                "file": graph.path.name,
+                "precision": graph.precision,
+                "inputs": [name for name, _dtype, _rank in graph.inputs],
+                "outputs": [name for name, _dtype, _rank in graph.outputs],
+            }
+            for graph in graphs
+        ]
+        raise ValueError(
+            "Published ONNX graphs do not contain a runnable encoder/decoder pair "
+            f"for precision {precision!r}: {contracts}"
+        )
+
+    _rank, _shared, _path, encoder, decoder = min(candidates, key=lambda row: row[:3])
+    return {"image-encoder": encoder.path, "prompt-decoder": decoder.path}
 
 
 def resolve_hf_onnx_path(
@@ -79,9 +204,7 @@ def resolve_hf_onnx_path(
         # ``.onnx`` files so the user can pick the right one without leaving
         # the terminal. Re-raise as ``FileNotFoundError`` so callers that
         # already handle local-file-missing errors get a consistent type.
-        hint = _format_available_onnx_files(
-            repo_id, revision=revision, token=token
-        )
+        hint = _format_available_onnx_files(repo_id, revision=revision, token=token)
         raise FileNotFoundError(
             f"ONNX file '{filename}' not found in Hub repo '{repo_id}'.\n{hint}"
         ) from e
@@ -171,5 +294,6 @@ def _format_available_onnx_files(
 
 
 __all__ = [
+    "resolve_hf_onnx_encoder_decoder",
     "resolve_hf_onnx_path",
 ]

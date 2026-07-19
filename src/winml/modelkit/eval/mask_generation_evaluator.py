@@ -167,6 +167,13 @@ class WinMLMaskGenerationEvaluator(WinMLEvaluator):
                 "Use prompt_mode='bbox' or 'point'."
             )
         self._enc_sess, self._dec_sess = self._load_sessions()
+        self._decoder_input_names = _node_names(self._dec_sess.get_inputs())
+        if "input_boxes" not in self._decoder_input_names:
+            if "prompt_mode" in mapping and self._prompt_mode == "bbox":
+                raise ValueError(
+                    "The decoder does not accept box prompts; use prompt_mode='point'."
+                )
+            self._prompt_mode = "point"
         self._encoder_input_name = _resolve_encoder_input_name(self._enc_sess)
         self._encoder_output_names = _node_names(self._enc_sess.get_outputs())
         self._embedding_input_names = _resolve_embedding_input_names(
@@ -330,6 +337,7 @@ class WinMLMaskGenerationEvaluator(WinMLEvaluator):
             scale_y=scale_y,
             emb=emb,
             required_embed_names=self._embedding_input_names,
+            required_input_names=self._decoder_input_names,
         )
         dec_out = self._dec_sess.run(
             list(self._decoder_output_names),
@@ -427,7 +435,7 @@ def _resolve_embedding_input_names(
 ) -> tuple[str, ...]:
     """Match decoder embedding inputs to encoder output names."""
     decoder_inputs = _node_names(dec_sess.get_inputs())
-    required_prompt_inputs = ("input_points", "input_labels", "input_boxes")
+    required_prompt_inputs = ("input_points", "input_labels")
     missing_prompt = [name for name in required_prompt_inputs if name not in decoder_inputs]
     if missing_prompt:
         raise ValueError(
@@ -599,6 +607,11 @@ def _build_decoder_inputs(
         "image_embeddings.1",
         "image_embeddings.2",
     ),
+    required_input_names: tuple[str, ...] = (
+        "input_points",
+        "input_labels",
+        "input_boxes",
+    ),
 ) -> dict[str, np.ndarray]:
     """Assemble the decoder feed dict for bbox or point prompts.
 
@@ -648,11 +661,12 @@ def _build_decoder_inputs(
             f"Encoder output missing required keys {missing_embeds}. Got: {list(emb.keys())}"
         )
 
-    feed = {
+    prompt_feed = {
         "input_points": points,
         "input_labels": labels,
         "input_boxes": box,
     }
+    feed = {name: value for name, value in prompt_feed.items() if name in required_input_names}
     feed.update({name: emb[name] for name in required_embed_names})
     return feed
 

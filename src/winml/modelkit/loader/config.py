@@ -71,6 +71,7 @@ class WinMLLoaderConfig:
     model_class: str | None = None
     model_type: str | None = None
     module_path: str | None = None
+    component_name: str | None = None
     user_script: str | None = None
     trust_remote_code: bool = False
 
@@ -89,6 +90,8 @@ class WinMLLoaderConfig:
             result["model_type"] = self.model_type
         if self.module_path is not None:
             result["module_path"] = self.module_path
+        if self.component_name is not None:
+            result["component_name"] = self.component_name
         if self.user_script is not None:
             result["user_script"] = self.user_script
         if self.trust_remote_code:
@@ -110,6 +113,7 @@ class WinMLLoaderConfig:
             model_class=data.get("model_class"),
             model_type=data.get("model_type"),
             module_path=data.get("module_path"),
+            component_name=data.get("component_name"),
             user_script=data.get("user_script"),
             trust_remote_code=data.get("trust_remote_code", False),
         )
