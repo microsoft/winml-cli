@@ -1,0 +1,80 @@
+{
+  "export": {
+    "opset_version": 17,
+    "batch_size": 1,
+    "export_params": true,
+    "do_constant_folding": true,
+    "verbose": false,
+    "dynamo": false,
+    "enable_hierarchy_tags": true,
+    "clean_onnx": false,
+    "hierarchy_tag_format": "full",
+    "input_tensors": [
+      {
+        "name": "input_ids",
+        "dtype": "int32",
+        "shape": [
+          1,
+          512
+        ],
+        "value_range": [
+          0,
+          50265
+        ]
+      },
+      {
+        "name": "bbox",
+        "dtype": "int32",
+        "shape": [
+          1,
+          512,
+          4
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      },
+      {
+        "name": "attention_mask",
+        "dtype": "int32",
+        "shape": [
+          1,
+          512
+        ],
+        "value_range": [
+          0,
+          2
+        ]
+      },
+      {
+        "name": "token_type_ids",
+        "dtype": "int32",
+        "shape": [
+          1,
+          512
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      }
+    ],
+    "output_tensors": [
+      {
+        "name": "start_logits"
+      },
+      {
+        "name": "end_logits"
+      }
+    ]
+  },
+  "optim": {},
+  "quant": null,
+  "compile": null,
+  "loader": {
+    "task": "document-question-answering",
+    "model_class": "AutoModelForDocumentQuestionAnswering",
+    "model_type": "layoutlm"
+  }
+}
