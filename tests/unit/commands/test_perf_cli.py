@@ -849,6 +849,55 @@ class TestResolveShape:
             )
 
 
+class TestGenerateRandomInputs:
+    @pytest.mark.parametrize("input_name", ["token_type_ids", "arbitrary_integer_input"])
+    def test_honors_exclusive_integer_value_range(self, input_name: str) -> None:
+        """Configured [0, 1) ranges produce only legal zero-valued indices."""
+        import numpy as np
+
+        from winml.modelkit.commands.perf import generate_random_inputs
+
+        inputs = generate_random_inputs(
+            {
+                "input_names": [input_name],
+                "input_shapes": [[1, 512]],
+                "input_types": ["int32"],
+                "input_value_ranges": {input_name: [0, 1]},
+            }
+        )
+
+        assert inputs[input_name].shape == (1, 512)
+        assert inputs[input_name].dtype == np.int64
+        assert np.all(inputs[input_name] == 0)
+
+    def test_ranges_and_unspecified_defaults_preserve_existing_generation(self) -> None:
+        """Ranges are per input; unspecified inputs retain legacy defaults."""
+        import numpy as np
+
+        from winml.modelkit.commands.perf import generate_random_inputs
+
+        inputs = generate_random_inputs(
+            {
+                "input_names": ["category_ids", "ranged_values", "default_values"],
+                "input_shapes": [[2, 3], [2, 3], [2, 3]],
+                "input_types": ["int64", "float16", "float32"],
+                "input_value_ranges": {
+                    "category_ids": [7, 8],
+                    "ranged_values": [-2.0, -1.0],
+                },
+            }
+        )
+
+        assert inputs["category_ids"].shape == (2, 3)
+        assert np.all(inputs["category_ids"] == 7)
+        assert inputs["ranged_values"].dtype == np.float32
+        assert np.all(inputs["ranged_values"] >= -2.0)
+        assert np.all(inputs["ranged_values"] < -1.0)
+        assert inputs["default_values"].dtype == np.float32
+        assert np.all(inputs["default_values"] >= 0.0)
+        assert np.all(inputs["default_values"] < 1.0)
+
+
 class TestEffectiveBatchSize:
     """Throughput must scale by the batch the session actually ran.
 
