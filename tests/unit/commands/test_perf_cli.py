@@ -849,6 +849,118 @@ class TestResolveShape:
             )
 
 
+class TestGenerateRandomInputs:
+    def test_honors_negative_float_value_range(self) -> None:
+        """A configured range outside [0, 1) must replace the float fallback."""
+        import numpy as np
+
+        from winml.modelkit.commands.perf import generate_random_inputs
+
+        inputs = generate_random_inputs(
+            {
+                "input_names": ["features"],
+                "input_shapes": [[4, 32]],
+                "input_types": ["float32"],
+                "input_value_ranges": {"features": [-9.0, -8.0]},
+            }
+        )
+
+        assert np.all(inputs["features"] >= -9.0)
+        assert np.all(inputs["features"] < -8.0)
+
+    def test_honors_singleton_exclusive_integer_value_range(self) -> None:
+        """The canonical [7, 8) range must generate only the value seven."""
+        import numpy as np
+
+        from winml.modelkit.commands.perf import generate_random_inputs
+
+        inputs = generate_random_inputs(
+            {
+                "input_names": ["category_ids"],
+                "input_shapes": [[2, 512]],
+                "input_types": ["int64"],
+                "input_value_ranges": {"category_ids": [7, 8]},
+            }
+        )
+
+        assert inputs["category_ids"].dtype == np.int64
+        assert np.all(inputs["category_ids"] == 7)
+
+    def test_adapts_integer_high_exclusive_for_legacy_generator(self) -> None:
+        """The persisted exclusive high must not become a legal integer value."""
+        from winml.modelkit.commands.perf import generate_random_inputs
+
+        with patch(
+            "winml.modelkit.core.generate_dummy_inputs_from_specs",
+            return_value={"category_ids": MagicMock()},
+        ) as mock_generate:
+            generate_random_inputs(
+                {
+                    "input_names": ["category_ids"],
+                    "input_shapes": [[1, 8]],
+                    "input_types": ["int32"],
+                    "input_value_ranges": {"category_ids": [3, 7]},
+                }
+            )
+
+        assert mock_generate.call_args.args[0]["category_ids"]["range"] == [3, 6]
+
+    def test_unspecified_float_input_keeps_legacy_fallback(self) -> None:
+        """Ranges are per input; unspecified floats remain in [0, 1)."""
+        import numpy as np
+
+        from winml.modelkit.commands.perf import generate_random_inputs
+
+        inputs = generate_random_inputs(
+            {
+                "input_names": ["ranged", "default"],
+                "input_shapes": [[4, 32], [4, 32]],
+                "input_types": ["float32", "float32"],
+                "input_value_ranges": {"ranged": [-2.0, -1.0]},
+            }
+        )
+
+        assert np.all(inputs["ranged"] >= -2.0)
+        assert np.all(inputs["ranged"] < -1.0)
+        assert np.all(inputs["default"] >= 0.0)
+        assert np.all(inputs["default"] < 1.0)
+
+    def test_persisted_build_config_range_reaches_perf_generation(self, tmp_path: Path) -> None:
+        """WinMLSession must carry a co-located build range into perf inputs."""
+        import numpy as np
+        import onnx
+        from onnx import TensorProto, helper
+
+        from winml.modelkit.commands.perf import generate_random_inputs
+        from winml.modelkit.session import WinMLSession
+
+        input_info = helper.make_tensor_value_info("features", TensorProto.FLOAT, [1, 16])
+        output_info = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 16])
+        graph = helper.make_graph(
+            [helper.make_node("Identity", ["features"], ["output"])],
+            "range_forwarding",
+            [input_info],
+            [output_info],
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        model.ir_version = 9
+        model_path = tmp_path / "model.onnx"
+        onnx.save(model, model_path)
+        (tmp_path / "winml_build_config.json").write_text(
+            json.dumps(
+                {"export": {"input_tensors": [{"name": "features", "value_range": [-9.0, -8.0]}]}}
+            ),
+            encoding="utf-8",
+        )
+
+        session = WinMLSession(model_path, device="cpu")
+        assert session.io_config["input_value_ranges"] == {"features": [-9.0, -8.0]}
+
+        inputs = generate_random_inputs(session.io_config)
+        assert np.all(inputs["features"] >= -9.0)
+        assert np.all(inputs["features"] < -8.0)
+
+
 class TestEffectiveBatchSize:
     """Throughput must scale by the batch the session actually ran.
 
