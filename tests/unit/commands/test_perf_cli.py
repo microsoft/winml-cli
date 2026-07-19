@@ -928,8 +928,7 @@ class TestGenerateRandomInputs:
     def test_persisted_build_config_range_reaches_perf_generation(self, tmp_path: Path) -> None:
         """WinMLSession must carry a co-located build range into perf inputs."""
         import numpy as np
-        import onnx
-        from onnx import TensorProto, helper
+        from onnx import TensorProto, helper, save
 
         from winml.modelkit.commands.perf import generate_random_inputs
         from winml.modelkit.session import WinMLSession
@@ -945,7 +944,7 @@ class TestGenerateRandomInputs:
         model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
         model.ir_version = 9
         model_path = tmp_path / "model.onnx"
-        onnx.save(model, model_path)
+        save(model, model_path)
         (tmp_path / "winml_build_config.json").write_text(
             json.dumps(
                 {"export": {"input_tensors": [{"name": "features", "value_range": [-9.0, -8.0]}]}}
