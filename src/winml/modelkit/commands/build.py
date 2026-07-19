@@ -1322,6 +1322,8 @@ def build(
                 components = {submodel: components[submodel]}
 
             if components:
+                if model is None:
+                    raise RuntimeError("Composite components require a Hugging Face model ID.")
                 if use_cache:
                     raise click.UsageError(
                         "--use-cache is not supported for composite models. "
