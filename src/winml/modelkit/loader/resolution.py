@@ -251,6 +251,7 @@ class TaskSource(str, Enum):
     USER_CLASS = "user-class"  # user passed --model-class; task inferred
     MODEL_ID_DEFAULT = "model-id-default"  # MODEL_TASK_MAPPING model-id default
     SENTINEL_DEFAULT = "sentinel-default"  # (model_type, None) sentinel
+    ARCHITECTURE_MAPPING = "architecture-mapping"  # models/hf metadata override
     TASKS_MANAGER = "tasks-manager"  # Optimum inference (incl. fill-mask upgrade)
     WRAPPED_LIBRARY = "wrapped-library"  # no architectures -> first supported task
     PIPELINE_TAG = "pipeline-tag"  # Hub pipeline_tag fallback
@@ -421,6 +422,25 @@ def _infer_task_from_architecture(config: PretrainedConfig) -> str:
     )
 
 
+def _get_architecture_task_override(config: PretrainedConfig) -> str | None:
+    """Return a registered task derived from model type + architecture head.
+
+    This is the data-driven escape hatch for concrete HuggingFace heads that
+    Optimum cannot infer (or infers incorrectly). Registrations live beside the
+    architecture's ONNX config under ``models/hf/``; no checkpoint IDs or
+    architecture branches belong in this shared resolver.
+    """
+    architectures = getattr(config, "architectures", None)
+    model_type = getattr(config, "model_type", None)
+    if not architectures or not model_type:
+        return None
+
+    from ..models.hf import ARCHITECTURE_TASK_MAPPING
+
+    model_type_norm = model_type.lower().replace("_", "-")
+    return ARCHITECTURE_TASK_MAPPING.get((model_type_norm, architectures[0]))
+
+
 def _composite_components_for_task(model_type: str, task: str) -> CompositeComponents | None:
     """Composite components serving a *detected* task, else None.
 
@@ -513,7 +533,9 @@ def resolve_task(
             # Task inferred from the architecture: surface it modality-aware, consistent
             # with the detection path (Stage 3), so e.g. a ViT backbone is
             # image-feature-extraction rather than the modality-blind feature-extraction.
-            opt_task = _infer_task_from_architecture(config)
+            opt_task = _get_architecture_task_override(config) or _infer_task_from_architecture(
+                config
+            )
             surfaced = _resolve_task_modality(config, opt_task)
         # A WinML build variant (model_type_override) may name a custom wrapper
         # registered in MODEL_CLASS_MAPPING rather than a transformers class —
@@ -604,13 +626,18 @@ def resolve_task(
             # lookup failure here — e.g. a wrapped library whose classes aren't registered
             # under framework="pt" — can't escape as a raw KeyError.
 
-    # 1c. TasksManager (reads config.architectures)
+    # 1c. Architecture metadata override, then TasksManager (both read
+    #     config.architectures). The override handles heads Optimum does not map.
     if opt_task is None:
-        try:
-            opt_task = _infer_task_from_architecture(config)
-            source = TaskSource.TASKS_MANAGER
-        except ValueError:
-            opt_task = None
+        opt_task = _get_architecture_task_override(config)
+        if opt_task is not None:
+            source = TaskSource.ARCHITECTURE_MAPPING
+        else:
+            try:
+                opt_task = _infer_task_from_architecture(config)
+                source = TaskSource.TASKS_MANAGER
+            except ValueError:
+                opt_task = None
 
     # 1d. Hub pipeline_tag fallback
     if opt_task is None and model_id and model_type:
