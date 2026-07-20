@@ -576,3 +576,18 @@ class TestExportT5Composite:
         assert not list(tmp_path.glob("*.onnx")), (
             "no ONNX should be written on an invalid --submodel"
         )
+
+    def test_submodel_on_non_composite_fails(self, tmp_path: Path):
+        # --submodel only makes sense for a composite model; a plain single
+        # model (resnet-50) resolves to no sub-components, so the option is
+        # rejected up front and nothing is exported.
+        onnx_path = tmp_path / "model.onnx"
+        result = _invoke(
+            ["-m", _MODEL, "-o", str(onnx_path), "--submodel", "encoder"],
+            catch=True,
+        )
+        assert result.exit_code != 0, f"expected failure, got exit=0:\n{result.output}"
+        assert "not a composite model" in result.output
+        assert not list(tmp_path.glob("*.onnx")), (
+            "no ONNX should be written when --submodel targets a non-composite model"
+        )
