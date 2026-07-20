@@ -315,15 +315,19 @@ class TestFP16PassConfig:
         output_path = tmp_path / "out.onnx"
 
         calls: list[dict] = []
-        fake_model = SimpleNamespace()
 
         def fake_convert(model, *, keep_io_types, op_block_list):
-            calls.append({"keep_io_types": keep_io_types, "op_block_list": op_block_list})
+            calls.append(
+                {
+                    "model": model,
+                    "keep_io_types": keep_io_types,
+                    "op_block_list": op_block_list,
+                }
+            )
             return model
 
         # Patch the source modules that are lazily imported inside run()
         fake_onnx_mod = ModuleType("winml.modelkit.onnx")
-        fake_onnx_mod.load_onnx = lambda *a, **k: fake_model  # type: ignore[attr-defined]
         fake_onnx_mod.save_onnx = lambda *a, **k: None  # type: ignore[attr-defined]
         monkeypatch.setitem(sys.modules, "winml.modelkit.onnx", fake_onnx_mod)
 
@@ -334,7 +338,13 @@ class TestFP16PassConfig:
         result = FP16Pass(config).run(model_path, output_path)
 
         assert result.success
-        assert calls == [{"keep_io_types": False, "op_block_list": ["Gather"]}]
+        assert calls == [
+            {
+                "model": model_path,
+                "keep_io_types": False,
+                "op_block_list": ["Gather"],
+            }
+        ]
 
 
 # ---------------------------------------------------------------------------

@@ -979,10 +979,11 @@ def analyze(
                 )
             execution_pairs = _sort_ep_device_pairs(execution_pairs)
 
-        # Local pairs are still needed to gate --run-unknown-op probing
-        # (_resolve_run_unknown_op). Single-target `auto` selection is already
-        # local by construction, so no extra intersection/warning is required.
-        local_pairs = set(_get_local_ep_device_pairs())
+        # Local pairs are only needed to gate runtime unknown-op probing.
+        # Static rule analysis (the default) must not load optional provider
+        # plugins merely to print an informational list: on Windows that can
+        # leave native plugin/catalog state alive until interpreter teardown.
+        local_pairs = set(_get_local_ep_device_pairs()) if run_unknown_op else set()
 
         if not execution_pairs:
             raise click.UsageError("No EP/device combination matched the current selection.")

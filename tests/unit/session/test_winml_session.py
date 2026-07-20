@@ -18,6 +18,7 @@ Key Principle:
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
 
 import numpy as np
 
@@ -104,6 +105,17 @@ class TestWinMLSessionInstantiation:
         session.compile()
         assert session.ep_name == "CPUExecutionProvider"
         assert session._session.get_providers()[0] == "CPUExecutionProvider"
+
+    def test_explicit_cpu_does_not_initialize_optional_winml_eps(
+        self, simple_matmul_onnx: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CPU-only sessions must not acquire unrelated WindowsML plugin handles."""
+        init_eps = MagicMock()
+        monkeypatch.setattr(WinMLSession, "_init_winml_eps_once", init_eps)
+
+        WinMLSession(onnx_path=simple_matmul_onnx, device="cpu", ep="cpu")
+
+        init_eps.assert_not_called()
 
 
 class TestWinMLSessionCompilation:

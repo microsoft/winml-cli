@@ -213,10 +213,21 @@ def resolve_device(
     if device != "auto" and device not in _VALID_DEVICES:
         raise ValueError(f"Unknown device '{device}'. Expected 'auto', 'npu', 'gpu', or 'cpu'.")
 
+    # CPUExecutionProvider is built into ORT and does not require WindowsML's
+    # optional provider catalog. Keep explicit --ep cpu resolution on this
+    # direct path so CPU-only commands do not load unrelated plugin handles
+    # whose native teardown may outlive an ORT session on Windows.
+    ep_full = normalize_ep_name(ep)
+    if device == "cpu" and ep_full == "CPUExecutionProvider":
+        import onnxruntime as ort
+
+        if "CPUExecutionProvider" not in ort.get_available_providers():
+            raise ValueError("Requested EP 'cpu' is not available on this system.")
+        return "cpu", ["cpu"]
+
     device_ep_map = dict(_get_device_ep_map_from_ort())
 
     if ep is not None:
-        ep_full = normalize_ep_name(ep)
         if ep_full not in EP_SUPPORTED_DEVICES:
             raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SUPPORTED_DEVICES)}")
         # Static policy gate (see issue #860): reject EP/device combos the EP
