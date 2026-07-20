@@ -82,3 +82,26 @@ FUSE_RMSNORM = BoolCapability(
     category=CapabilityCategory.LAYER_NORM,
     default=False,
 )
+
+# GroupNorm fusion - fuses decomposed GroupNormalization patterns into the
+# fused com.microsoft.GroupNorm op. Heavily used by Stable Diffusion's UNet
+# and VAE (every ResNet block applies group normalization).
+GROUP_NORM_FUSION = BoolCapability(
+    name="group-norm-fusion",
+    ort_name="GroupNormFusion",  # FusionOptions attr: enable_group_norm
+    description="Fuse decomposed GroupNorm patterns (Reshape+InstanceNorm+Reshape+Mul+Add)",
+    category=CapabilityCategory.LAYER_NORM,
+    default=False,
+)
+
+# Skip + GroupNorm fusion - fuses residual Add with GroupNorm, mirroring
+# SkipLayerNorm. Used by Stable Diffusion ResNet blocks where each block ends
+# with `Add(residual) -> GroupNorm`. Requires group-norm-fusion.
+SKIP_GROUP_NORM_FUSION = BoolCapability(
+    name="skip-group-norm-fusion",
+    ort_name="SkipGroupNormFusion",  # FusionOptions attr: enable_skip_group_norm
+    description="Fuse Add(residual)+GroupNorm into SkipGroupNorm (SD UNet/VAE)",
+    category=CapabilityCategory.LAYER_NORM,
+    default=False,
+    depends_on=("group-norm-fusion",),
+)

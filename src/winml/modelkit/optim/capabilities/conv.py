@@ -54,3 +54,16 @@ CONV_ACTIVATION_FUSION = BoolCapability(
     category=CapabilityCategory.CONVOLUTION,
     default=False,
 )
+
+# NHWC Conv - rewrite Conv (NCHW) -> Transpose + NhwcConv + Transpose so the
+# heavy convolution kernel runs in NHWC layout. The surrounding Transpose pair
+# is typically eliminated by the transpose optimizer (or cancels across
+# adjacent NhwcConvs). Used by Stable Diffusion UNet/VAE on EPs that prefer
+# NHWC convolutions (CUDA TensorRT, DirectML, some NPUs).
+NHWC_CONV = BoolCapability(
+    name="nhwc-conv",
+    ort_name="NhwcConv",  # FusionOptions attr: enable_nhwc_conv
+    description="Rewrite Conv to run on NHWC layout (SD UNet/VAE; GPU/NPU-friendly)",
+    category=CapabilityCategory.CONVOLUTION,
+    default=False,
+)

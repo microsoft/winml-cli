@@ -27,6 +27,34 @@ ATTENTION_FUSION = BoolCapability(
     default=False,
 )
 
+# Packed QKV fusion - packs the Q, K, V projections of self-attention into a
+# single MatMul, producing a packed-QKV input to the fused Attention op.
+# Primarily used by Stable Diffusion's UNet self-attention blocks. Requires the
+# base attention-fusion to be enabled (it modifies the shape of the produced
+# Attention/MultiHeadAttention node).
+PACKED_QKV_FUSION = BoolCapability(
+    name="packed-qkv-fusion",
+    ort_name="PackedQKVFusion",  # FusionOptions attr: enable_packed_qkv
+    description="Pack Q/K/V projections into a single MatMul for self-attention (SD UNet)",
+    category=CapabilityCategory.ATTENTION,
+    default=False,
+    depends_on=("attention-fusion",),
+)
+
+# Packed KV fusion - packs the K, V projections of cross-attention into a
+# single MatMul (Q comes from a different source — image latents — and is left
+# as a separate MatMul). Primarily used by Stable Diffusion's UNet
+# cross-attention blocks that consume text embeddings. Requires the base
+# attention-fusion to be enabled.
+PACKED_KV_FUSION = BoolCapability(
+    name="packed-kv-fusion",
+    ort_name="PackedKVFusion",  # FusionOptions attr: enable_packed_kv
+    description="Pack K/V projections into a single MatMul for cross-attention (SD UNet)",
+    category=CapabilityCategory.ATTENTION,
+    default=False,
+    depends_on=("attention-fusion",),
+)
+
 # NOTE: MultiHeadAttention was removed - this is an OUTPUT NODE TYPE, not an optimizer.
 # AttentionFusion (above) creates MultiHeadAttention or Attention nodes as output.
 # Verified against ort_optimizer_inventory.md - no "MultiHeadAttention" optimizer exists.

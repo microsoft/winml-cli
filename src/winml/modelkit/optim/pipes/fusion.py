@@ -24,7 +24,7 @@ from ...onnx import save_onnx
 
 # Import capability modules for FusionPipe
 # Note: gelu import removed - GELU capabilities disabled due to ORT bundling issue
-from ..capabilities import attention, layernorm
+from ..capabilities import attention, conv, layernorm, misc
 from .base import BasePipe, OptimizationError, PipeConfig, caps_dict
 
 
@@ -91,6 +91,8 @@ class ORTFusionPipe(BasePipe[ORTFusionPipeConfig]):
         # gelu.GELU_APPROXIMATION,
         # Attention capabilities
         attention.ATTENTION_FUSION,
+        attention.PACKED_QKV_FUSION,  # SD UNet self-attention
+        attention.PACKED_KV_FUSION,  # SD UNet cross-attention
         # Layer normalization capabilities
         layernorm.LAYER_NORM_FUSION,
         layernorm.SKIP_LAYER_NORM_FUSION,
@@ -98,6 +100,12 @@ class ORTFusionPipe(BasePipe[ORTFusionPipeConfig]):
         layernorm.FUSE_RMSNORM,
         layernorm.EMBED_LAYER_NORM_FUSION,
         layernorm.BIAS_SKIP_LAYER_NORM_FUSION,
+        layernorm.GROUP_NORM_FUSION,  # SD UNet/VAE ResNet blocks
+        layernorm.SKIP_GROUP_NORM_FUSION,  # SD UNet/VAE ResNet blocks
+        # Convolution capabilities (SD UNet/VAE)
+        conv.NHWC_CONV,
+        # Misc capabilities (SD UNet)
+        misc.BIAS_ADD_FUSION,
     )
 
     # Mapping from capability name to FusionOptions attribute name

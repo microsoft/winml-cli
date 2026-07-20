@@ -53,3 +53,15 @@ NOT_WHERE_FUSION = BoolCapability(
     category=CapabilityCategory.MISC,
     default=False,
 )
+
+# BiasAdd fusion - fuses the residual bias-add pattern that appears in
+# Stable Diffusion UNet (Add(bias) -> Add(residual) -> LayerNorm) into the
+# fused com.microsoft.BiasAdd op. This is an SD-specific FusionOptions toggle
+# that complements SkipLayerNorm by absorbing the extra bias-Add.
+BIAS_ADD_FUSION = BoolCapability(
+    name="bias-add-fusion",
+    ort_name="BiasAddFusion",  # FusionOptions attr: enable_bias_add
+    description="Fuse Add(bias)+Add(residual) into BiasAdd (SD UNet)",
+    category=CapabilityCategory.MISC,
+    default=False,
+)
