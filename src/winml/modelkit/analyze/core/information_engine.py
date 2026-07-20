@@ -21,14 +21,12 @@ from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     import onnx
 
     from ...utils.constants import EPName
     from ..models.information import Action, Information
     from ..models.onnx_model import ONNXModel
-    from ..models.runtime_checks import PatternAlternative, PatternRuntime
+    from ..models.runtime_checks import PatternRuntime
 
 from ..models.information import ActionLevel
 from ..models.support_level import SupportLevel
@@ -75,7 +73,6 @@ class InformationEngine:
         ep: EPName,
         model: ONNXModel,
         device: str,
-        rules_dir: Path | None = None,
         shape_inferred_model_proto: onnx.ModelProto | None = None,
     ) -> None:
         """Initialize information engine.
@@ -84,7 +81,6 @@ class InformationEngine:
             op_runtime_results: List of PatternRuntime for operator-level patterns
             subgraph_runtime_results: List of PatternRuntime for subgraph-level patterns
             ep: Target execution provider (e.g., "QNNExecutionProvider")
-            rules_dir: Path to rules directory (optional, defaults to package rules/)
             model: Optional ONNX model for model-level validation.
                         If provided, model-level validation checks will be run.
             device: Device type (e.g., "NPU", "GPU", "CPU") for device-specific validation.
@@ -95,7 +91,7 @@ class InformationEngine:
             - Stores operator and subgraph runtime results separately
             - Each PatternRuntime contains pattern info via pattern_id
             - Stores EP for context in information generation
-            - Loads predefined information rules from JSON files
+            - Uses skeleton alternatives and metadata from runtime results
             - If model provided, will run model-level validators
 
         Raises:
@@ -115,36 +111,6 @@ class InformationEngine:
         self._ep: EPName = ep
         self._model = model
         self._device = device
-
-        # Load predefined information rules
-        from ..models.ihv_type import IHVType
-        from ..utils import infer_ihv_from_ep_name
-        from ..utils.rule_loader import RuleLoader
-
-        self._rule_loader = RuleLoader(rules_dir=rules_dir)
-
-        # Infer IHV from EP name for per-IHV rule loading. An unrecognized EP
-        # resolves to IHVType.UNKNOWN, which we treat as "no IHV filter" so the
-        # loader falls back to loading all rules.
-        infer_ihv_start = time.perf_counter()
-        inferred_ihv = infer_ihv_from_ep_name(self._ep)
-        ihv_type: IHVType | None
-        if inferred_ihv is IHVType.UNKNOWN:
-            logger.warning("Could not infer IHV from EP %s. Loading all rules.", self._ep)
-            ihv_type = None
-        else:
-            logger.info("Inferred IHV type %s from EP %s", inferred_ihv.value, self._ep)
-            ihv_type = inferred_ihv
-        infer_ihv_ms = int((time.perf_counter() - infer_ihv_start) * 1000)
-
-        load_predefined_start = time.perf_counter()
-        self._predefined_info = self._rule_loader.load_information_rules(ihv_type=ihv_type)
-        load_predefined_ms = int((time.perf_counter() - load_predefined_start) * 1000)
-
-        # Build pattern_id -> Information lookup for quick matching
-        self._info_by_pattern: dict[str, Information] = {
-            info.pattern_id: info for info in self._predefined_info if info.pattern_id
-        }
 
         # Initialize Doc Constraint Checker
         self._doc_checker = None
@@ -183,17 +149,13 @@ class InformationEngine:
             len(op_runtime_results),
             len(subgraph_runtime_results),
         )
-        logger.info("Loaded %d predefined information rules", len(self._predefined_info))
         _log_timing(
             "information_engine.init",
             ep=self._ep,
             device=self._device,
             op_runtime_results=len(op_runtime_results),
             subgraph_runtime_results=len(subgraph_runtime_results),
-            predefined_rules=len(self._predefined_info),
             doc_checker_initialized=doc_checker_initialized,
-            infer_ihv_ms=infer_ihv_ms,
-            load_predefined_rules_ms=load_predefined_ms,
             init_doc_checker_ms=init_doc_checker_ms,
             total_ms=int((time.perf_counter() - total_start) * 1000),
         )
@@ -218,7 +180,7 @@ class InformationEngine:
             1. Run model-level validation checks via _check_model()
             2. Process operator-level patterns via _check_single_ops()
             3. Process operator and subgraph-level patterns via _check_patterns()
-               - _check_patterns() prioritizes predefined information rules
+               - _check_patterns() derives actions from skeleton alternatives
             4. Combine results into Information objects
             5. Return complete list of Information
         """
@@ -893,71 +855,25 @@ class InformationEngine:
             List[Information]: Information objects for patterns with alternatives
 
         Process:
-            1. First pass: Match predefined information rules by pattern_id
-            2. Second pass: Generate information dynamically for unmatched patterns:
+            1. Generate information for operator-level patterns with alternatives:
                - Iterate through op_runtime_results and subgraph_runtime_results
                - For each runtime result, check result.classification:
                  * UNSUPPORTED: Required action for unsupported pattern
                  * PARTIAL: Optional action to enable fusion/optimization
                  * SUPPORTED: No action needed
                - Include alternative patterns from runtime_result.alternatives
-            3. Return combined results (predefined first, then generated)
-            4. Deduplicate information by Information_id
+            2. Aggregate subgraph-level results by (pattern_id, classification, reason)
+            3. Build Information entries from representative alternatives
         """
         logger.debug("Checking patterns with alternatives")
         total_start = time.perf_counter()
 
         info_list: list[Information] = []
-        matched_pattern_ids: set[str] = set()
-        seen_info_ids: set[str] = set()
 
-        # Collect all runtime results by pattern_id for aggregation
-        from collections import defaultdict
-
-        pattern_to_runtime_results: dict[str, list[PatternRuntime]] = defaultdict(list)
-
-        # Collect all runtime results for potential predefined information matching
-        collect_runtime_start = time.perf_counter()
-        for runtime_result in self._op_runtime_results + self._subgraph_runtime_results:
-            pattern_id = runtime_result.pattern_id
-            pattern_to_runtime_results[pattern_id].append(runtime_result)
-        collect_runtime_ms = int((time.perf_counter() - collect_runtime_start) * 1000)
-
-        # First pass: Match predefined information rules with aggregated runtime results
-        predefined_start = time.perf_counter()
-        for pattern_id, runtime_results in pattern_to_runtime_results.items():
-            if pattern_id in self._info_by_pattern:
-                predefined_info = self._info_by_pattern[pattern_id]
-                matched_pattern_ids.add(pattern_id)
-
-                # Deduplicate by Information_id
-                if predefined_info.Information_id not in seen_info_ids:
-                    # Process predefined information with all runtime results for this pattern
-                    processed_info = self._process_predefined_information(
-                        predefined_info, runtime_results
-                    )
-                    info_list.append(processed_info)
-                    seen_info_ids.add(predefined_info.Information_id)
-                    logger.debug(
-                        "Matched predefined information for pattern: %s (%d instances)",
-                        pattern_id,
-                        len(runtime_results),
-                    )
-                else:
-                    logger.debug(
-                        "Skipped duplicate predefined information for pattern: %s (ID: %s)",
-                        pattern_id,
-                        predefined_info.Information_id,
-                    )
-        predefined_ms = int((time.perf_counter() - predefined_start) * 1000)
-
-        # Second pass: Generate information dynamically for unmatched patterns
         # Process operator patterns with alternatives
         op_alternatives_start = time.perf_counter()
         generated_op_alt_info = 0
         for runtime_result in self._op_runtime_results:
-            if runtime_result.pattern_id in matched_pattern_ids:
-                continue
             if not runtime_result.alternatives:
                 continue
 
@@ -978,9 +894,6 @@ class InformationEngine:
 
         group_subgraph_start = time.perf_counter()
         for runtime_result in self._subgraph_runtime_results:
-            if runtime_result.pattern_id in matched_pattern_ids:
-                continue
-
             pattern_id = runtime_result.pattern_id
             classification = runtime_result.result.classification
             reason = runtime_result.result.reason
@@ -1009,7 +922,23 @@ class InformationEngine:
                 continue
 
             # Generate explanation with count
-            if count == 1:
+            if representative.explanation:
+                if count == 1:
+                    explanation = representative.explanation
+                else:
+                    if classification == SupportLevel.SUPPORTED:
+                        support_phrase = "are fully supported"
+                    elif classification == SupportLevel.PARTIAL:
+                        support_phrase = "have partial support"
+                    elif classification == SupportLevel.UNSUPPORTED:
+                        support_phrase = "are not supported"
+                    else:  # UNKNOWN
+                        support_phrase = "have unknown support status"
+                    explanation = (
+                        f"{count} instances of pattern '{pattern_id}' {support_phrase}. "
+                        f"{representative.explanation}"
+                    )
+            elif count == 1:
                 if classification == SupportLevel.SUPPORTED:
                     explanation = f"Pattern '{pattern_id}' is fully supported"
                 elif classification == SupportLevel.PARTIAL:
@@ -1058,11 +987,10 @@ class InformationEngine:
 
         logger.debug(
             "Generated %d pattern information items "
-            "(%d predefined, %d generated, "
+            "(%d generated op-alt info, "
             "%d aggregated subgraphs)",
             len(info_list),
-            len(matched_pattern_ids),
-            len(info_list) - len(seen_info_ids) - len(grouped_subgraph_results),
+            generated_op_alt_info,
             len(grouped_subgraph_results),
         )
 
@@ -1070,14 +998,9 @@ class InformationEngine:
             "information_engine.check_patterns",
             ep=self._ep,
             device=self._device,
-            unique_patterns=len(pattern_to_runtime_results),
-            matched_predefined_patterns=len(matched_pattern_ids),
-            predefined_info_ids=len(seen_info_ids),
             generated_op_alt_info=generated_op_alt_info,
             grouped_subgraph_keys=len(grouped_subgraph_results),
             generated_subgraph_info=generated_subgraph_info,
-            collect_runtime_ms=collect_runtime_ms,
-            predefined_ms=predefined_ms,
             op_alternatives_ms=op_alternatives_ms,
             group_subgraph_ms=group_subgraph_ms,
             process_subgraph_ms=process_subgraph_ms,
@@ -1085,122 +1008,6 @@ class InformationEngine:
         )
 
         return info_list
-
-    def _process_predefined_information(
-        self, predefined_info: Information, runtime_results: list[PatternRuntime]
-    ) -> Information:
-        """Process predefined information by filling in action level and status.
-
-        Args:
-            predefined_info: Predefined Information object from JSON rules
-            runtime_results: List of PatternRuntime objects for all instances of this pattern
-
-        Returns:
-            Information: Processed information with updated action level and status
-
-        Process:
-            1. Use first runtime_result as representative for classification and alternatives
-            2. Check runtime_result.result.classification
-            3. Check runtime_result.alternatives for each action
-            4. Fill in action.level and action.status based on classifications
-            5. Include all runtime_results in pattern_list
-        """
-        from copy import deepcopy
-
-        from ..models.information import Action, Information
-
-        # Deep copy to avoid modifying the original predefined info
-        processed_info = deepcopy(predefined_info)
-
-        if not processed_info.actions:
-            return Information(
-                Information_id=processed_info.Information_id,
-                explanation=processed_info.explanation,
-                actions=None,
-                pattern_id=processed_info.pattern_id,
-                enabled=processed_info.enabled,
-                status=runtime_results[0].result.classification if runtime_results else None,
-                pattern_list=runtime_results,
-            )
-
-        # Use first runtime_result as representative
-        # (all should have same classification/alternatives)
-        runtime_result = runtime_results[0]
-        pattern_id = runtime_result.pattern_id
-        classification = runtime_result.result.classification
-
-        # Build a lookup map for alternatives by pattern_id
-        alternatives_map: dict[str, PatternAlternative] = {
-            alt.pattern_id: alt for alt in runtime_result.alternatives
-        }
-
-        # Process each action in predefined information
-        updated_actions: list[Action] = []
-        for action in processed_info.actions:
-            # Create a new action with updated level and status
-            pattern_to_id = action.pattern_to_id
-
-            # If action has no target pattern (general recommendation), keep as-is
-            if not pattern_to_id:
-                updated_actions.append(action)
-                continue
-
-            # Check if this action's target pattern exists in alternatives
-            if pattern_to_id not in alternatives_map:
-                logger.warning(
-                    "Action target pattern '%s' not found in alternatives for '%s'",
-                    pattern_to_id,
-                    pattern_id,
-                )
-                updated_actions.append(action)
-                continue
-
-            # Get alternative runtime result
-            alternative = alternatives_map[pattern_to_id]
-            alt_classification = alternative.result.classification
-
-            # Validate alternative data
-            if alt_classification is None:
-                logger.warning(
-                    "Alternative %s has None classification, keeping original action",
-                    pattern_to_id,
-                )
-                updated_actions.append(action)
-                continue
-
-            # Determine level and status based on classifications
-            level, status = self._determine_action_level_and_status(
-                classification, alt_classification
-            )
-
-            # If no improvement, keep original action
-            if level is None:
-                updated_actions.append(action)
-                continue
-
-            # Create updated action with filled level and status
-            updated_action = Action(
-                action_id=action.action_id,
-                pattern_from_id=action.pattern_from_id,
-                pattern_to_id=action.pattern_to_id,
-                level=level,
-                status=status,
-                action_items=action.action_items,
-                enabled=action.enabled,
-                details=action.details,
-            )
-            updated_actions.append(updated_action)
-
-        # Create new Information with updated actions and status
-        return Information(
-            Information_id=processed_info.Information_id,
-            explanation=processed_info.explanation,
-            actions=updated_actions if updated_actions else None,
-            pattern_id=processed_info.pattern_id,
-            enabled=processed_info.enabled,
-            status=classification,  # Set information status from runtime result
-            pattern_list=runtime_results,  # All aggregated runtime results
-        )
 
     def _process_pattern_with_alternatives(
         self, pattern_runtime: PatternRuntime
@@ -1226,8 +1033,9 @@ class InformationEngine:
         if classification == SupportLevel.SUPPORTED and not pattern_runtime.alternatives:
             return None
 
-        # Generate explanation based on classification
-        if classification == SupportLevel.SUPPORTED:
+        if pattern_runtime.explanation:
+            explanation = pattern_runtime.explanation
+        elif classification == SupportLevel.SUPPORTED:
             explanation = f"Pattern '{pattern_id}' is fully supported"
         elif classification == SupportLevel.PARTIAL:
             explanation = f"Pattern '{pattern_id}' has partial support (compiles but not optimized)"
@@ -1265,15 +1073,20 @@ class InformationEngine:
         Process:
             1. Check pattern_runtime.result.classification
             2. For each alternative, determine if it's better
-            3. Create actions using helper method
-            4. Handle case with no alternatives for unsupported patterns
+            3. Keep optimization-only suggestions with action_items as fallback
+            4. Deduplicate generated actions by (pattern_from_id, pattern_to_id)
+            5. Handle case with no alternatives for unsupported patterns
         """
         actions: list[Action] = []
         pattern_id = pattern_runtime.pattern_id
         classification = pattern_runtime.result.classification
+        seen_pairs: set[tuple[str, str]] = set()
 
         # Process alternatives
         for alternative in pattern_runtime.alternatives:
+            if not alternative.enabled:
+                continue
+
             alt_pattern_id = alternative.pattern_id
             alt_classification = alternative.result.classification
 
@@ -1286,15 +1099,29 @@ class InformationEngine:
                 continue
 
             alt_type = alternative.alternative_type.value
+            pair_key = (pattern_id, alt_pattern_id)
+
+            # Deduplicate repeated from->to alternatives.
+            if pair_key in seen_pairs:
+                logger.debug(
+                    "Skipping duplicate alternative %s -> %s",
+                    pattern_id,
+                    alt_pattern_id,
+                )
+                continue
 
             # Determine action level and status
             level, status = self._determine_action_level_and_status(
                 classification, alt_classification
             )
 
-            # Skip if no improvement (None level)
+            # Fallback: keep optimization suggestions that carry action_items
+            # even when support-level transition has no improvement.
             if level is None:
-                continue
+                if not alternative.action_items:
+                    continue
+                level = ActionLevel.OPTIONAL
+                status = alt_classification
 
             # Create action using helper
             action = self._create_action(
@@ -1303,8 +1130,18 @@ class InformationEngine:
                 level=level,
                 status=status,
                 alt_type=alt_type,
+                action_items=alternative.action_items,
+                enabled=alternative.enabled,
             )
+            if alternative.details:
+                action.details = alternative.details
+            elif level == ActionLevel.OPTIONAL and alternative.action_items:
+                action.details = (
+                    f"Pattern '{pattern_id}' is already {classification.value}. "
+                    f"Alternative '{alt_pattern_id}' can still provide graph optimization benefits."
+                )
             actions.append(action)
+            seen_pairs.add(pair_key)
 
         # If no alternatives found but pattern is UNSUPPORTED, add warning
         if classification == SupportLevel.UNSUPPORTED and not actions:
