@@ -79,6 +79,25 @@ class DatasetConfig:
         return result
 
 
+def _serialize_export_overrides(overrides: dict[str, Any]) -> dict[str, Any]:
+    """Render export overrides JSON-safe for :meth:`WinMLEvaluationConfig.to_dict`.
+
+    ``--input-specs`` is parsed into ``InputTensorSpec`` objects (via
+    ``load_export_overrides``), which are not JSON serializable; convert them to
+    plain dicts. Every other override key (``dynamic_axes`` mapping, opset ints,
+    bool flags) is already JSON-safe and passed through unchanged.
+    """
+    serialized: dict[str, Any] = {}
+    for key, value in overrides.items():
+        if key == "input_tensors" and isinstance(value, list):
+            serialized[key] = [
+                spec.to_dict() if hasattr(spec, "to_dict") else spec for spec in value
+            ]
+        else:
+            serialized[key] = value
+    return serialized
+
+
 @dataclass
 class WinMLEvaluationConfig:
     """Configuration for model evaluation.
@@ -92,6 +111,13 @@ class WinMLEvaluationConfig:
         device: Target device for inference.
         ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides
             device-to-provider mapping when provided.
+        shape_config: Shape overrides for the auto-generated HuggingFace export
+            config. Only used when building from ``model_id`` (ignored for
+            pre-built ONNX inputs).
+        export_overrides: Sparse ONNX export overrides
+            (``--input-specs``/``--export-config``/``--dynamic-axes``) merged
+            under the build config's ``export`` section. Only used when building
+            from ``model_id`` (ignored for pre-built ONNX inputs).
         dataset: Dataset configuration.
         output_path: Path to write JSON results.
         mode: Evaluation mode (see :data:`EvalMode`).
@@ -122,6 +148,13 @@ class WinMLEvaluationConfig:
     optimize: bool = True
     analyze: bool = True
     max_optim_iterations: int | None = None
+    # HuggingFace export overrides, applied only when building from model_id
+    # (ignored for pre-built ONNX inputs). Shared semantics with winml
+    # build/perf: ``shape_config`` is passed straight to from_pretrained, while
+    # ``export_overrides`` (--input-specs/--export-config/--dynamic-axes) is
+    # merged under the build config's ``export`` section.
+    shape_config: dict | None = None
+    export_overrides: dict[str, Any] | None = None
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     output_path: Path | None = field(default=None, metadata={"cli_name": "output"})
     mode: EvalMode = "onnx"
@@ -153,6 +186,10 @@ class WinMLEvaluationConfig:
             result["analyze"] = self.analyze
         if self.max_optim_iterations is not None:
             result["max_optim_iterations"] = self.max_optim_iterations
+        if self.shape_config:
+            result["shape_config"] = self.shape_config
+        if self.export_overrides:
+            result["export_overrides"] = _serialize_export_overrides(self.export_overrides)
         result["dataset"] = self.dataset.to_dict()
         if self.output_path is not None:
             result["output_path"] = str(self.output_path)
@@ -190,6 +227,8 @@ class WinMLEvaluationConfig:
             optimize=data.get("optimize", True),
             analyze=data.get("analyze", True),
             max_optim_iterations=data.get("max_optim_iterations"),
+            shape_config=data.get("shape_config"),
+            export_overrides=data.get("export_overrides"),
             dataset=dataset,
             output_path=(Path(data["output_path"]) if data.get("output_path") else None),
             mode=data.get("mode", "onnx"),

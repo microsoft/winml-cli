@@ -234,13 +234,8 @@ class TestComposite:
         enc_local.write_bytes(b"")
         dec_local = tmp_path / "prompt_encoder_mask_decoder_int8.onnx"
         dec_local.write_bytes(b"")
-        enc_ref = (
-            "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
-        )
-        dec_ref = (
-            "onnx-community/sam3-tracker-ONNX/onnx/"
-            "prompt_encoder_mask_decoder_int8.onnx"
-        )
+        enc_ref = "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
+        dec_ref = "onnx-community/sam3-tracker-ONNX/onnx/prompt_encoder_mask_decoder_int8.onnx"
 
         # Map each Hub ref to its (different) local cache location.
         def fake_resolve(ref, **kwargs):
@@ -271,9 +266,7 @@ class TestComposite:
         """One role is a Hub ref, the other is a local path -- both work."""
         dec_local = tmp_path / "decoder.onnx"
         dec_local.write_bytes(b"")
-        enc_ref = (
-            "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
-        )
+        enc_ref = "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
 
         # ``resolve_hf_onnx_path`` is the underlying downloader; the
         # unified classifier+resolver only calls it for hub_onnx inputs.
@@ -1015,3 +1008,272 @@ class TestEvalFormatJson:
 
         result = runner.invoke(eval_cmd, ["-m", "test", "--format", "xml"])
         assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# HuggingFace export overrides (--shape-config/--input-specs/--export-config/
+# --dynamic-axes) — parity with winml build/perf.
+# ---------------------------------------------------------------------------
+
+
+class TestEvalExportOverrides:
+    """Export/shape overrides only affect the HF-build path; ignored for ONNX."""
+
+    def _write(self, path, payload):
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return path
+
+    def test_help_shows_export_options(self, runner: CliRunner):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(eval_cmd, ["--help"])
+        assert result.exit_code == 0
+        for flag in ("--shape-config", "--input-specs", "--export-config", "--dynamic-axes"):
+            assert flag in result.output
+
+    def test_apply_export_overrides_hf_sets_fields(self, tmp_path):
+        """HF input: overrides are parsed onto the config."""
+        from winml.modelkit.commands.eval import _apply_export_overrides
+        from winml.modelkit.eval.config import WinMLEvaluationConfig
+
+        input_specs = self._write(
+            tmp_path / "inputs.json",
+            {"pixel_values": {"dtype": "float32", "shape": ["batch", 3, 224, 224]}},
+        )
+        export_config = self._write(tmp_path / "export.json", {"opset_version": 18})
+        dynamic_axes = self._write(tmp_path / "da.json", {"pixel_values": {"0": "batch"}})
+        shape_config = self._write(tmp_path / "shape.json", {"height": 224, "width": 224})
+
+        cfg = WinMLEvaluationConfig(model_id="microsoft/resnet-50", model_path=None)
+        _apply_export_overrides(cfg, shape_config, input_specs, export_config, dynamic_axes)
+
+        assert cfg.shape_config == {"height": 224, "width": 224}
+        assert cfg.export_overrides is not None
+        assert cfg.export_overrides["opset_version"] == 18
+        assert cfg.export_overrides["dynamic_axes"] == {"pixel_values": {"0": "batch"}}
+        assert cfg.export_overrides["input_tensors"][0].name == "pixel_values"
+        assert cfg.export_overrides["input_tensors"][0].shape == ("batch", 3, 224, 224)
+
+    def test_apply_export_overrides_onnx_warns_and_skips(self, tmp_path, caplog):
+        """Pre-built ONNX input: overrides are dropped with a warning."""
+        from winml.modelkit.commands.eval import _apply_export_overrides
+        from winml.modelkit.eval.config import WinMLEvaluationConfig
+
+        dynamic_axes = self._write(tmp_path / "da.json", {"input_ids": {"0": "batch"}})
+        shape_config = self._write(tmp_path / "shape.json", {"height": 224})
+
+        cfg = WinMLEvaluationConfig(model_id="microsoft/resnet-50", model_path="model.onnx")
+        with caplog.at_level("WARNING"):
+            _apply_export_overrides(cfg, shape_config, None, None, dynamic_axes)
+
+        assert cfg.export_overrides is None
+        assert cfg.shape_config is None
+        assert "ignored for pre-built ONNX" in caplog.text
+        assert "--shape-config" in caplog.text
+        assert "--dynamic-axes" in caplog.text
+
+    def test_apply_export_overrides_none_is_noop(self):
+        """No flags provided: config stays untouched, no parsing/warnings."""
+        from winml.modelkit.commands.eval import _apply_export_overrides
+        from winml.modelkit.eval.config import WinMLEvaluationConfig
+
+        cfg = WinMLEvaluationConfig(model_id="m", model_path="model.onnx")
+        _apply_export_overrides(cfg, None, None, None, None)
+        assert cfg.shape_config is None
+        assert cfg.export_overrides is None
+
+    def test_load_model_hf_threads_export_overrides(self):
+        """_load_model forwards export overrides as a sparse {"export": ...} dict."""
+        from unittest.mock import MagicMock
+
+        from winml.modelkit.eval.config import WinMLEvaluationConfig
+        from winml.modelkit.eval.evaluate import _load_model
+
+        cfg = WinMLEvaluationConfig(
+            model_id="microsoft/resnet-50",
+            task="image-classification",
+            device="cpu",
+            shape_config={"height": 480, "width": 480},
+            export_overrides={"dynamic_axes": {"pixel_values": {"0": "batch"}}},
+        )
+        with patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
+            return_value=MagicMock(),
+        ) as mock_fp:
+            _load_model(cfg)
+
+        kwargs = mock_fp.call_args.kwargs
+        assert kwargs["config"] == {"export": {"dynamic_axes": {"pixel_values": {"0": "batch"}}}}
+        assert kwargs["shape_config"] == {"height": 480, "width": 480}
+
+    def test_load_model_hf_export_overrides_with_no_quant(self):
+        """--no-quant + export overrides fold quant:None into the sparse override."""
+        from unittest.mock import MagicMock
+
+        from winml.modelkit.eval.config import WinMLEvaluationConfig
+        from winml.modelkit.eval.evaluate import _load_model
+
+        cfg = WinMLEvaluationConfig(
+            model_id="microsoft/resnet-50",
+            task="image-classification",
+            device="cpu",
+            quant=False,
+            export_overrides={"opset_version": 18},
+        )
+        with patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
+            return_value=MagicMock(),
+        ) as mock_fp:
+            _load_model(cfg)
+
+        assert mock_fp.call_args.kwargs["config"] == {
+            "export": {"opset_version": 18},
+            "quant": None,
+        }
+
+    def test_load_model_hf_no_overrides_passes_none(self):
+        """No overrides (quant default): from_pretrained gets config=None, shape_config=None."""
+        from unittest.mock import MagicMock
+
+        from winml.modelkit.eval.config import WinMLEvaluationConfig
+        from winml.modelkit.eval.evaluate import _load_model
+
+        cfg = WinMLEvaluationConfig(
+            model_id="microsoft/resnet-50",
+            task="image-classification",
+            device="cpu",
+        )
+        with patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
+            return_value=MagicMock(),
+        ) as mock_fp:
+            _load_model(cfg)
+
+        assert mock_fp.call_args.kwargs["config"] is None
+        assert mock_fp.call_args.kwargs["shape_config"] is None
+
+    def test_cli_hf_forwards_export_overrides(self, runner: CliRunner, tmp_path):
+        """End-to-end: CLI export flags land on the evaluated config (HF path)."""
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        input_specs = self._write(
+            tmp_path / "inputs.json",
+            {"pixel_values": {"dtype": "float32", "shape": ["batch", 3, 224, 224]}},
+        )
+        export_config = self._write(tmp_path / "export.json", {"opset_version": 18})
+        dynamic_axes = self._write(tmp_path / "da.json", {"pixel_values": {"0": "batch"}})
+        shape_config = self._write(tmp_path / "shape.json", {"height": 224, "width": 224})
+
+        captured: dict = {}
+
+        def _fake_evaluate(cfg):
+            captured["cfg"] = cfg
+
+            class _R:
+                config = cfg
+                metrics = {"accuracy": 1.0}  # noqa: RUF012
+
+                def to_dict(self):
+                    return {"metrics": self.metrics, "config": cfg.to_dict()}
+
+            return _R()
+
+        with (
+            patch("winml.modelkit.eval.evaluate", side_effect=_fake_evaluate),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
+            patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
+        ):
+            result = runner.invoke(
+                eval_cmd,
+                [
+                    "-m",
+                    "microsoft/resnet-50",
+                    "--task",
+                    "image-classification",
+                    "--shape-config",
+                    str(shape_config),
+                    "--input-specs",
+                    str(input_specs),
+                    "--export-config",
+                    str(export_config),
+                    "--dynamic-axes",
+                    str(dynamic_axes),
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        cfg = captured["cfg"]
+        assert cfg.shape_config == {"height": 224, "width": 224}
+        assert cfg.export_overrides["opset_version"] == 18
+        assert cfg.export_overrides["dynamic_axes"] == {"pixel_values": {"0": "batch"}}
+        assert cfg.export_overrides["input_tensors"][0].name == "pixel_values"
+
+    def test_cli_onnx_ignores_export_overrides(self, runner: CliRunner, tmp_path, onnx_file):
+        """End-to-end: CLI export flags are dropped for a pre-built ONNX input."""
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        dynamic_axes = self._write(tmp_path / "da.json", {"pixel_values": {"0": "batch"}})
+
+        captured: dict = {}
+
+        def _fake_evaluate(cfg):
+            captured["cfg"] = cfg
+
+            class _R:
+                config = cfg
+                metrics = {"accuracy": 1.0}  # noqa: RUF012
+
+                def to_dict(self):
+                    return {"metrics": self.metrics, "config": cfg.to_dict()}
+
+            return _R()
+
+        with (
+            patch("winml.modelkit.eval.evaluate", side_effect=_fake_evaluate),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
+            patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
+        ):
+            result = runner.invoke(
+                eval_cmd,
+                [
+                    "-m",
+                    str(onnx_file),
+                    "--model-id",
+                    "microsoft/resnet-50",
+                    "--task",
+                    "image-classification",
+                    "--dynamic-axes",
+                    str(dynamic_axes),
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        cfg = captured["cfg"]
+        assert cfg.export_overrides is None
+        assert cfg.shape_config is None
+
+    def test_to_dict_export_overrides_json_safe(self):
+        """to_dict serializes InputTensorSpec-bearing overrides to JSON-safe dicts."""
+        from winml.modelkit.eval.config import WinMLEvaluationConfig
+        from winml.modelkit.onnx import InputTensorSpec
+
+        cfg = WinMLEvaluationConfig(
+            model_id="m",
+            shape_config={"height": 480},
+            export_overrides={
+                "opset_version": 18,
+                "dynamic_axes": {"input_ids": {"0": "batch"}},
+                "input_tensors": [
+                    InputTensorSpec(name="input_ids", dtype="int64", shape=("batch", "seq"))
+                ],
+            },
+        )
+        d = cfg.to_dict()
+        assert d["shape_config"] == {"height": 480}
+        # Must round-trip through json.dumps without a TypeError.
+        dumped = json.loads(json.dumps(d["export_overrides"]))
+        assert dumped["opset_version"] == 18
+        assert dumped["input_tensors"][0]["name"] == "input_ids"
+        assert dumped["input_tensors"][0]["shape"] == ["batch", "seq"]

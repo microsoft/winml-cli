@@ -1341,7 +1341,8 @@ class TestLoadModel:
 
         # quant defaults to True -> no quant override (config=None); optimize/
         # analyze default True with max_optim_iterations=None -> no extra build
-        # kwargs (build_pipeline_extra_kwargs returns {}).
+        # kwargs (build_pipeline_extra_kwargs returns {}). shape_config defaults
+        # to None (no --shape-config given).
         mock_auto.from_pretrained.assert_called_once_with(
             "test/model",
             task="image-classification",
@@ -1350,6 +1351,7 @@ class TestLoadModel:
             ep=None,
             allow_unsupported_nodes=False,
             config=None,
+            shape_config=None,
         )
         assert result is mock_model
 
