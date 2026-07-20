@@ -14,7 +14,8 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from winml.modelkit.commands.eval import _resolve_model_path
+from winml.modelkit.commands.eval import _resolve_model_path, _resolve_reference
+from winml.modelkit.eval import WinMLEvaluationConfig
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +101,14 @@ class TestSinglePlain:
     def test_plain_onnx_without_model_id_raises(self, onnx_file):
         with pytest.raises(click.UsageError, match="--model-id is required"):
             _resolve_model_path(model=(str(onnx_file),), model_id=None)
+
+    def test_plain_onnx_without_model_id_allowed_for_compare(self, onnx_file):
+        """allow_missing_model_id (two-ONNX compare) accepts a bare ONNX path."""
+        path, mid = _resolve_model_path(
+            model=(str(onnx_file),), model_id=None, allow_missing_model_id=True
+        )
+        assert path == str(onnx_file)
+        assert mid is None
 
     def test_plain_onnx_missing_file_raises(self, tmp_path):
         missing = tmp_path / "does-not-exist.onnx"
@@ -234,13 +243,8 @@ class TestComposite:
         enc_local.write_bytes(b"")
         dec_local = tmp_path / "prompt_encoder_mask_decoder_int8.onnx"
         dec_local.write_bytes(b"")
-        enc_ref = (
-            "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
-        )
-        dec_ref = (
-            "onnx-community/sam3-tracker-ONNX/onnx/"
-            "prompt_encoder_mask_decoder_int8.onnx"
-        )
+        enc_ref = "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
+        dec_ref = "onnx-community/sam3-tracker-ONNX/onnx/prompt_encoder_mask_decoder_int8.onnx"
 
         # Map each Hub ref to its (different) local cache location.
         def fake_resolve(ref, **kwargs):
@@ -271,9 +275,7 @@ class TestComposite:
         """One role is a Hub ref, the other is a local path -- both work."""
         dec_local = tmp_path / "decoder.onnx"
         dec_local.write_bytes(b"")
-        enc_ref = (
-            "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
-        )
+        enc_ref = "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
 
         # ``resolve_hf_onnx_path`` is the underlying downloader; the
         # unified classifier+resolver only calls it for hub_onnx inputs.
@@ -333,6 +335,82 @@ class TestEvalHelp:
         assert result.exit_code == 0, result.output
         assert "requires --model-id" in result.output
         assert "role=path" in result.output
+
+    def test_help_mentions_reference(self, runner: CliRunner):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(eval_cmd, ["--help"])
+
+        assert result.exit_code == 0, result.output
+        assert "--reference" in result.output
+
+
+class TestResolveReference:
+    def test_none_is_noop(self):
+        cfg = WinMLEvaluationConfig(model_path="m.onnx", mode="compare")
+        _resolve_reference(cfg)
+        assert cfg.reference_path is None
+
+    def test_happy_path(self, onnx_file, onnx_vision):
+        cfg = WinMLEvaluationConfig(
+            model_path=str(onnx_file),
+            reference_path=str(onnx_vision),
+            mode="compare",
+        )
+        _resolve_reference(cfg)
+        assert cfg.reference_path == str(onnx_vision)
+
+    def test_requires_onnx_candidate(self):
+        cfg = WinMLEvaluationConfig(
+            model_path=None,
+            reference_path="ref.onnx",
+            mode="compare",
+        )
+        with pytest.raises(click.UsageError, match="single ONNX file"):
+            _resolve_reference(cfg)
+
+    def test_composite_candidate_rejected(self, onnx_vision):
+        cfg = WinMLEvaluationConfig(
+            model_path={"encoder": "a.onnx"},
+            reference_path=str(onnx_vision),
+            mode="compare",
+        )
+        with pytest.raises(click.UsageError, match="single ONNX file"):
+            _resolve_reference(cfg)
+
+    def test_non_onnx_suffix_raises(self, onnx_file, tmp_path):
+        bad = tmp_path / "ref.txt"
+        bad.write_bytes(b"")
+        cfg = WinMLEvaluationConfig(
+            model_path=str(onnx_file),
+            reference_path=str(bad),
+            mode="compare",
+        )
+        with pytest.raises(click.BadParameter, match=r"must be an \.onnx file"):
+            _resolve_reference(cfg)
+
+    def test_missing_file_raises(self, onnx_file, tmp_path):
+        missing = tmp_path / "missing.onnx"
+        cfg = WinMLEvaluationConfig(
+            model_path=str(onnx_file),
+            reference_path=str(missing),
+            mode="compare",
+        )
+        with pytest.raises(click.BadParameter, match="not found"):
+            _resolve_reference(cfg)
+
+
+class TestReferenceModeGuard:
+    def test_reference_requires_compare_mode(self, runner: CliRunner, onnx_file):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(
+            eval_cmd,
+            ["-m", str(onnx_file), "--reference", str(onnx_file)],
+            obj={"debug": False},
+        )
+        assert result.exit_code != 0
+        assert "--reference is only valid with --mode compare" in result.output
 
 
 @pytest.fixture

@@ -35,7 +35,8 @@ $ winml eval [options]
 | `--label-mapping` | | `PATH` | — | Path to a JSON file mapping dataset label names to the integer class IDs the model emits: `{"label_name": id}`. |
 | `--output` | `-o` | `PATH` | — | Output JSON file path for the evaluation results. |
 | `--schema` | | flag | `false` | Print the expected dataset schema for the given `--task` and exit. Does not run evaluation. |
-| `--mode` | | `onnx\|compare` | `onnx` | Evaluation mode. `onnx` evaluates the ONNX candidate on a dataset. `compare` runs the ONNX candidate and the HuggingFace reference on identical random inputs and reports per-tensor similarity metrics — no dataset required. |
+| `--mode` | | `onnx\|compare` | `onnx` | Evaluation mode. `onnx` evaluates the ONNX candidate on a dataset. `compare` runs the ONNX candidate and a reference on identical random inputs and reports per-tensor similarity metrics — no dataset required. The reference is the HuggingFace model from `--model-id` by default, or a second ONNX file when `--reference` is given. |
+| `--reference` | | `TEXT` | — | Reference `.onnx` file to compare the candidate against (used with `--mode compare`). Compares two ONNX models on identical random inputs; `--model-id` and `--task` are not required in this mode. Both models run on the same `--device` / `--ep`. |
 
 ## How it works
 
@@ -69,6 +70,12 @@ Evaluate a BERT model on the MRPC paraphrase task with column remapping:
 
 ```bash
 $ winml eval -m Intel/bert-base-uncased-mrpc --dataset nyu-mll/glue --dataset-name mrpc --column input_column=sentence1 --column second_input_column=sentence2 --samples 500
+```
+
+Compare two ONNX files directly (e.g. an fp32 baseline vs a quantized build), reporting per-output tensor-similarity metrics on identical random inputs — no `--model-id` or dataset needed:
+
+```bash
+$ winml eval --mode compare -m quantized.onnx --reference baseline.onnx
 ```
 
 Check what dataset columns are expected before running, then remap them to match your dataset:

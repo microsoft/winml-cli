@@ -55,6 +55,23 @@ class TestEvaluationConfig:
         assert ds.revision is None
         assert "revision" not in ds.to_dict()
 
+    def test_reference_path_default_is_none(self):
+        """reference_path defaults to None and is omitted from to_dict."""
+        config = WinMLEvaluationConfig(model_id="test/model")
+        assert config.reference_path is None
+        assert "reference_path" not in config.to_dict()
+
+    def test_config_roundtrip_preserves_reference_path(self):
+        """reference_path survives to_dict/from_dict roundtrip."""
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            reference_path="ref.onnx",
+            mode="compare",
+        )
+        restored = WinMLEvaluationConfig.from_dict(config.to_dict())
+        assert restored.reference_path == "ref.onnx"
+        assert restored.mode == "compare"
+
     def test_eval_result_to_dict(self):
         config = WinMLEvaluationConfig(
             model_id="test/model",
@@ -220,6 +237,50 @@ class TestEvaluate:
         ):
             result = eval_mod.evaluate(config)
         assert result.config.mode == "onnx"
+
+    def test_onnx_compare_skips_task_resolution_and_dataset(self):
+        """Two-ONNX compare skips HF task resolution and default-dataset lookup."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            reference_path="ref.onnx",
+            mode="compare",
+        )
+
+        evaluator = MagicMock()
+        evaluator.compute.return_value = {"cosine_mean": {"logits": 1.0}}
+        with (
+            patch.object(
+                eval_mod,
+                "_resolve_task",
+                side_effect=AssertionError("task resolution must be skipped"),
+            ),
+            patch.object(eval_mod, "_load_model", return_value=None) as load_model,
+            patch.object(eval_mod, "get_evaluator_class", return_value=lambda *_a, **_k: evaluator),
+        ):
+            result = eval_mod.evaluate(config)
+
+        assert result.config.mode == "compare"
+        assert result.config.task is None
+        assert result.metrics == {"cosine_mean": {"logits": 1.0}}
+        load_model.assert_called_once()
+
+    def test_load_model_returns_none_for_onnx_compare(self):
+        """_load_model short-circuits (no model_id needed) for two-ONNX compare."""
+        from winml.modelkit.eval.evaluate import _load_model
+
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            reference_path="ref.onnx",
+            mode="compare",
+        )
+        assert _load_model(config) is None
 
     def test_no_dataset_no_default_raises(self):
         """Tasks without a default dataset raise ValueError."""

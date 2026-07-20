@@ -5,10 +5,14 @@
 
 """Tensor-similarity evaluator.
 
-Runs an ONNX candidate and an HF PyTorch reference on identical random
-inputs (drawn from :class:`RandomDataset` over the candidate's ONNX I/O)
-and reports per-output tensor-parity metrics (SQNR, PSNR, cosine, MSE,
-max absolute diff) via :class:`TensorSimilarityMetric`.
+Runs an ONNX candidate and a reference on identical random inputs (drawn
+from :class:`RandomDataset` over the candidate's ONNX I/O) and reports
+per-output tensor-parity metrics (SQNR, PSNR, cosine, MSE, max absolute
+diff) via :class:`TensorSimilarityMetric`.
+
+The reference is an HF PyTorch model resolved from ``model_id`` by default.
+When ``config.reference_path`` is set, the reference is instead a second
+ONNX file and both sides run as raw ORT sessions (no HF config / task).
 
 No labeled dataset, no HF pipeline, no preprocessor — any divergence
 reflects the build pipeline (optimize / quantize / compile) only.
@@ -29,6 +33,37 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class _ONNXSessionModel:
+    """Minimal raw-ORT wrapper for two-ONNX ``--mode compare``.
+
+    Exposes just the slice of the :class:`WinMLPreTrainedModel` surface that
+    the tensor-similarity loop needs — ``onnx_path``, ``io_config`` and a
+    callable returning named ``torch`` tensors — without any HF config or
+    task-specific output renaming, so both sides compare on their raw ONNX
+    output names.
+    """
+
+    def __init__(self, onnx_path: str, device: str = "auto", ep: Any | None = None) -> None:
+        from pathlib import Path
+
+        from ..session.session import WinMLSession
+
+        self.onnx_path = Path(onnx_path)
+        self._session = WinMLSession(onnx_path=self.onnx_path, device=device, ep=ep)
+
+    @property
+    def io_config(self) -> dict:
+        """ONNX I/O metadata (delegated to the session)."""
+        return self._session.io_config
+
+    def __call__(self, **inputs: Any) -> dict[str, Any]:
+        """Run one sample and return raw outputs as named ``torch`` tensors."""
+        import torch
+
+        outputs = self._session.run(inputs)
+        return {name: torch.from_numpy(arr) for name, arr in outputs.items()}
+
+
 class TensorSimilarityEvaluator:
     """Per-output tensor parity between an ONNX candidate and an HF reference."""
 
@@ -38,6 +73,20 @@ class TensorSimilarityEvaluator:
         model: WinMLPreTrainedModel | WinMLCompositeModel,
     ) -> None:
         from ..models.winml.composite_model import WinMLCompositeModel
+
+        self.config = config
+
+        # Two-ONNX compare: build both raw ORT sessions directly, bypassing the
+        # HF PyTorch reference. ``model`` is None here (see evaluate._load_model).
+        if config.reference_path is not None:
+            self.model = _ONNXSessionModel(
+                str(config.model_path), device=config.device, ep=config.ep
+            )
+            self.reference_model = _ONNXSessionModel(
+                str(config.reference_path), device=config.device, ep=config.ep
+            )
+            self.data = self.prepare_data()
+            return
 
         # Composite models must be split into their sub-components before
         # tensor-similarity comparison — the union param keeps this runtime
@@ -50,7 +99,6 @@ class TensorSimilarityEvaluator:
                 "Example: winml eval --mode compare --task <sub_task> "
                 f"--model <sub_onnx_path> --model-id {config.model_id}"
             )
-        self.config = config
         self.model = model
         self.reference_model = self._load_reference_model()
         self.data = self.prepare_data()

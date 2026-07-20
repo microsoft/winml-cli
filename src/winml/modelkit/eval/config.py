@@ -88,6 +88,10 @@ class WinMLEvaluationConfig:
         model_path: Path to .onnx model file, or a ``{role: path}`` dict for
             composite models (e.g. ``{"image-encoder": "...", "text-encoder": "..."}``).
             None = build from model_id.
+        reference_path: Path to a second ``.onnx`` file used as the reference in
+            ``--mode compare``. When set, both ``model_path`` and ``reference_path``
+            run as raw ORT sessions and their output tensors are compared directly,
+            so no ``model_id`` / ``task`` / HF reference is needed.
         task: HF pipeline task. Auto-detected from model_id if omitted.
         device: Target device for inference.
         ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides
@@ -100,7 +104,8 @@ class WinMLEvaluationConfig:
               labeled dataset.
             - ``"compare"``: compare ONNX vs HF reference output tensors
               on identical random inputs and report tensor-similarity
-              metrics per output tensor.
+              metrics per output tensor. When ``reference_path`` is set,
+              the reference is a second ONNX file instead of the HF model.
 
     Usage:
         config = WinMLEvaluationConfig(
@@ -111,6 +116,7 @@ class WinMLEvaluationConfig:
 
     model_id: str | None = None
     model_path: str | dict[str, str] | None = None
+    reference_path: str | None = field(default=None, metadata={"cli_name": "reference"})
     task: str | None = None
     device: str = "auto"
     precision: str = "auto"
@@ -134,6 +140,8 @@ class WinMLEvaluationConfig:
             result["model_id"] = self.model_id
         if self.model_path is not None:
             result["model_path"] = self.model_path
+        if self.reference_path is not None:
+            result["reference_path"] = self.reference_path
         if self.task is not None:
             result["task"] = self.task
         result["device"] = self.device
@@ -181,6 +189,7 @@ class WinMLEvaluationConfig:
         return cls(
             model_id=data.get("model_id"),
             model_path=data.get("model_path"),
+            reference_path=data.get("reference_path"),
             task=data.get("task"),
             device=data.get("device", "auto"),
             precision=data.get("precision", "auto"),
