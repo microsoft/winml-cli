@@ -179,8 +179,8 @@ logger = logging.getLogger(__name__)
     help=(
         "Path to a .npz file of real input tensors to compare with instead of "
         "randomly generated ones (use with --mode compare). Keys must match the "
-        "candidate model's input names; the whole archive is one sample, so "
-        "--samples / --seed are ignored."
+        "candidate model's input names; the leading axis of each array is the "
+        "sample axis (N samples), and all inputs must share the same N."
     ),
 )
 @cli_utils.skip_build_option()
@@ -662,14 +662,10 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
     if cfg.reference_path:
         console.print(f"[dim]Reference:[/dim]  {cfg.reference_path}")
     if cfg.input_data:
-        # A .npz archive is a single sample (one batch); the dataset sample
-        # count does not apply on this path.
         console.print(f"[dim]Input data:[/dim] {cfg.input_data}")
-        console.print("[dim]Samples:[/dim]    1")
-    else:
-        if ds.path:
-            console.print(f"[dim]Dataset:[/dim]    {ds.path}")
-        console.print(f"[dim]Samples:[/dim]    {ds.samples}")
+    elif ds.path:
+        console.print(f"[dim]Dataset:[/dim]    {ds.path}")
+    console.print(f"[dim]Samples:[/dim]    {ds.samples}")
     if cfg.model_path:
         console.print(f"[dim]ONNX:[/dim]       {cfg.model_path}")
 

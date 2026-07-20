@@ -218,8 +218,11 @@ class TestInputDataCompare:
         evaluator = TensorSimilarityEvaluator(config, None)  # type: ignore[arg-type]
 
         assert isinstance(evaluator.data, InputDataDataset)
-        assert len(evaluator.data) == 1
+        # Leading axis is the sample axis: (2, 3) -> 2 samples of shape (1, 3).
+        assert len(evaluator.data) == 2
         sample = evaluator.data[0]
         assert set(sample) == {"input"}
         assert isinstance(sample["input"], torch.Tensor)
-        assert sample["input"].shape == (2, 3)
+        assert sample["input"].shape == (1, 3)
+        # The effective config reflects the real sample count for the report/JSON.
+        assert evaluator.config.dataset.samples == 2

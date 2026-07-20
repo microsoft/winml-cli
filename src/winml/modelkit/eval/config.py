@@ -95,7 +95,9 @@ class WinMLEvaluationConfig:
         input_data: Path to a ``.npz`` archive of real input tensors for
             ``--mode compare``. When set, the candidate and reference are compared
             on these tensors (validated against the candidate's inputs) instead of
-            randomly generated ones. The whole archive is treated as a single sample.
+            randomly generated ones. The leading axis of each array is the sample
+            axis, so one archive can hold ``N`` samples; all inputs must share the
+            same leading length.
         task: HF pipeline task. Auto-detected from model_id if omitted.
         device: Target device for inference.
         ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides

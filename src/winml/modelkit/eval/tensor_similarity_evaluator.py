@@ -131,15 +131,20 @@ class TensorSimilarityEvaluator:
     def prepare_data(self) -> Any:
         """Build the compare dataset over the candidate ONNX's I/O spec.
 
-        Uses real tensors from ``config.input_data`` (wrapped as a
-        single-sample :class:`InputDataDataset`, validated against the
-        candidate's inputs) when provided, otherwise a :class:`RandomDataset`
-        of synthetic inputs sized by ``config.dataset``.
+        Uses real tensors from ``config.input_data`` (wrapped as a multi-sample
+        :class:`InputDataDataset` whose leading axis is the sample axis and
+        validated against the candidate's inputs) when provided, otherwise a
+        :class:`RandomDataset` of synthetic inputs sized by ``config.dataset``.
         """
         if self.config.input_data is not None:
             from ..datasets.input_data import InputDataDataset
 
-            return InputDataDataset(self.config.input_data, self.model.io_config)
+            dataset = InputDataDataset(self.config.input_data, self.model.io_config)
+            # Reflect the real sample count (leading axis of the .npz) in the
+            # effective config so the report header / JSON show N, not the
+            # unused dataset default.
+            self.config.dataset.samples = len(dataset)
+            return dataset
 
         from ..datasets.random_dataset import RandomDataset
 

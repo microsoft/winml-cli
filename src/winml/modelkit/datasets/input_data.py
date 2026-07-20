@@ -9,7 +9,8 @@ Shared by ``winml perf`` (benchmark on real tensors instead of random ones)
 and ``winml eval --mode compare`` (compare a candidate and reference on the
 same real inputs). :func:`load_input_data` validates and dtype-casts the
 archive against a model's I/O config; :class:`InputDataDataset` wraps the
-loaded archive as a single-sample torch dataset the compare loop can iterate.
+loaded archive as a torch dataset (leading axis = sample axis) the compare
+loop can iterate.
 """
 
 from __future__ import annotations
@@ -117,13 +118,20 @@ def load_input_data(
 
 
 class InputDataDataset:
-    """Single-sample dataset backed by a validated ``.npz`` of real tensors.
+    """Multi-sample dataset backed by a validated ``.npz`` of real tensors.
 
     Loads the archive once via :func:`load_input_data` (keys and dtypes
-    validated/cast against ``io_config``) and exposes it as a one-sample
-    torch dataset, so ``--mode compare`` can run the candidate and reference
-    on identical real inputs. The whole archive is treated as a single batch
-    (one sample), mirroring how ``winml perf`` consumes ``--input-data``.
+    validated/cast against ``io_config``), then treats the **leading axis of
+    each array as the sample axis**: an archive whose arrays have shape
+    ``(N, ...)`` yields ``N`` samples, so ``--mode compare`` can run the
+    candidate and reference on many real inputs and report a real
+    distribution (mean/std/min/max) instead of a single point.
+
+    Every input must share the same leading length ``N`` (a clear error is
+    raised otherwise). Each sample keeps a leading batch dim of 1
+    (``arr[i:i+1]``), so any dynamic-batch model accepts it and no assumption
+    is made about output layout — each run is compared independently, exactly
+    like :class:`RandomDataset`'s per-sample flow.
 
     Args:
         path: Path to the ``.npz`` file of real input tensors.
@@ -136,18 +144,44 @@ class InputDataDataset:
         import torch
 
         arrays = load_input_data(Path(path), io_config)
+
+        # Leading axis = sample axis. Reject scalars (no sample axis) and any
+        # disagreement on N so a silent mis-pairing can't produce bogus metrics.
+        leading: dict[str, int] = {}
+        for name, arr in arrays.items():
+            if arr.ndim == 0:
+                raise click.UsageError(
+                    f"--input-data array '{name}' is a scalar (0-d); the leading "
+                    "axis is the sample axis, so each input needs at least one dim."
+                )
+            leading[name] = int(arr.shape[0])
+
+        distinct = set(leading.values())
+        if len(distinct) != 1:
+            detail = ", ".join(f"{name}={leading[name]}" for name in arrays)
+            raise click.UsageError(
+                "--input-data arrays must share the same leading (sample) axis "
+                f"length; got {detail}."
+            )
+
+        self._num_samples = distinct.pop()
+        if self._num_samples == 0:
+            raise click.UsageError("--input-data arrays are empty (sample axis length 0).")
+
         # np.load arrays are owned/writable; ascontiguousarray avoids the
         # non-contiguous from_numpy warning without an extra copy when possible.
-        self._sample: dict[str, torch.Tensor] = {
+        self._arrays: dict[str, torch.Tensor] = {
             name: torch.from_numpy(np.ascontiguousarray(arr)) for name, arr in arrays.items()
         }
 
     def __len__(self) -> int:
-        """A ``.npz`` archive is a single sample (one batch)."""
-        return 1
+        """Number of samples (the shared leading-axis length of the inputs)."""
+        return self._num_samples
 
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        """Return the one sample; any index other than 0 is out of range."""
-        if idx != 0:
-            raise IndexError(f"InputDataDataset has a single sample; got index {idx}.")
-        return self._sample
+        """Return sample ``idx`` with each input sliced to a batch of 1."""
+        if not 0 <= idx < self._num_samples:
+            raise IndexError(
+                f"InputDataDataset index {idx} out of range for {self._num_samples} samples."
+            )
+        return {name: tensor[idx : idx + 1] for name, tensor in self._arrays.items()}

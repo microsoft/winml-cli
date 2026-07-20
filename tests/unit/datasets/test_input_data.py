@@ -6,7 +6,7 @@
 """Unit tests for winml.modelkit.datasets.input_data.
 
 Covers the shared ``.npz`` loader (also exercised via ``winml perf``) and the
-single-sample :class:`InputDataDataset` used by ``winml eval --mode compare``.
+multi-sample :class:`InputDataDataset` used by ``winml eval --mode compare``.
 """
 
 from __future__ import annotations
@@ -67,27 +67,63 @@ class TestInputDataDataset:
         "input_types": ["float32"],
     }
 
+    _IO2: ClassVar[dict] = {
+        "input_names": ["x", "y"],
+        "input_shapes": [[None, 4], [None, 2]],
+        "input_types": ["float32", "float32"],
+    }
+
     def _write_npz(self, tmp_path, **arrays):
         path = tmp_path / "inputs.npz"
         np.savez(path, **arrays)
         return path
 
-    def test_single_sample_as_torch_tensors(self, tmp_path) -> None:
-        path = self._write_npz(tmp_path, x=np.ones((2, 4), dtype=np.float32))
+    def test_leading_axis_is_sample_axis(self, tmp_path) -> None:
+        # (3, 4) -> 3 samples, each sliced to a batch of 1: (1, 4).
+        path = self._write_npz(tmp_path, x=np.arange(12, dtype=np.float32).reshape(3, 4))
         ds = InputDataDataset(path, self._IO)
 
-        assert len(ds) == 1
-        sample = ds[0]
-        assert set(sample) == {"x"}
-        assert isinstance(sample["x"], torch.Tensor)
-        assert sample["x"].shape == (2, 4)
-        assert sample["x"].dtype == torch.float32
+        assert len(ds) == 3
+        for i in range(3):
+            sample = ds[i]
+            assert set(sample) == {"x"}
+            assert isinstance(sample["x"], torch.Tensor)
+            assert sample["x"].shape == (1, 4)
+        # Rows are the original rows, in order.
+        assert ds[0]["x"].tolist() == [[0.0, 1.0, 2.0, 3.0]]
+        assert ds[2]["x"].tolist() == [[8.0, 9.0, 10.0, 11.0]]
 
-    def test_index_out_of_range(self, tmp_path) -> None:
+    def test_single_row_is_one_sample(self, tmp_path) -> None:
         path = self._write_npz(tmp_path, x=np.ones((1, 4), dtype=np.float32))
         ds = InputDataDataset(path, self._IO)
+        assert len(ds) == 1
+        assert ds[0]["x"].shape == (1, 4)
+
+    def test_multiple_inputs_share_leading_dim(self, tmp_path) -> None:
+        path = self._write_npz(
+            tmp_path,
+            x=np.zeros((2, 4), dtype=np.float32),
+            y=np.ones((2, 2), dtype=np.float32),
+        )
+        ds = InputDataDataset(path, self._IO2)
+        assert len(ds) == 2
+        assert ds[1]["x"].shape == (1, 4)
+        assert ds[1]["y"].shape == (1, 2)
+
+    def test_mismatched_leading_dims_error(self, tmp_path) -> None:
+        path = self._write_npz(
+            tmp_path,
+            x=np.zeros((3, 4), dtype=np.float32),
+            y=np.ones((2, 2), dtype=np.float32),
+        )
+        with pytest.raises(click.UsageError, match="same leading"):
+            InputDataDataset(path, self._IO2)
+
+    def test_index_out_of_range(self, tmp_path) -> None:
+        path = self._write_npz(tmp_path, x=np.ones((2, 4), dtype=np.float32))
+        ds = InputDataDataset(path, self._IO)
         with pytest.raises(IndexError):
-            _ = ds[1]
+            _ = ds[2]
 
     def test_validates_keys_against_io_config(self, tmp_path) -> None:
         path = self._write_npz(tmp_path, wrong=np.ones((1, 4), dtype=np.float32))
