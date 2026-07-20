@@ -866,6 +866,71 @@ class TestPerfT5Composite:
             assert component["benchmark_info"]["task"] == component_task
             assert component["latency_ms"]["mean"] > 0, f"sub-model {name!r} has no latency"
 
+    def test_submodel_benchmarks_single(self, tmp_path: Path):
+        from winml.modelkit.loader.resolution import resolve_composite_components
+
+        components = resolve_composite_components("google-t5/t5-small")
+        assert set(components) == {"encoder", "decoder"}
+        selected = next(iter(components))
+
+        output_file = tmp_path / "perf_t5_submodel.json"
+        result = CliRunner().invoke(
+            perf,
+            [
+                "-m",
+                "google-t5/t5-small",
+                "--submodel",
+                selected,
+                "--device",
+                "cpu",
+                "--iterations",
+                "3",
+                "--warmup",
+                "1",
+                "-o",
+                str(output_file),
+                "--no-memory",
+            ],
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        assert output_file.exists()
+
+        data = json.loads(output_file.read_text())
+        # --submodel benchmarks a single sub-model through the standalone path, so
+        # the report is the single-model schema -- not the composite fan-out one.
+        assert "component_count" not in data
+        assert "components" not in data
+        assert data["benchmark_info"]["task"] == components[selected]
+        assert data["latency_ms"]["mean"] > 0
+
+    def test_unknown_submodel_fails(self, tmp_path: Path):
+        # An unknown sub-model name is rejected before any benchmark runs.
+        output_file = tmp_path / "perf_t5_bad_submodel.json"
+        result = CliRunner().invoke(
+            perf,
+            [
+                "-m",
+                "google-t5/t5-small",
+                "--submodel",
+                "not_a_submodel",
+                "--device",
+                "cpu",
+                "--iterations",
+                "3",
+                "--warmup",
+                "1",
+                "-o",
+                str(output_file),
+                "--no-memory",
+            ],
+            obj={},
+            catch_exceptions=True,
+        )
+        assert result.exit_code != 0, f"expected failure, got exit=0:\n{result.output}"
+        assert not output_file.exists(), "no report should be written on an invalid --submodel"
+
 
 # ===========================================================================
 # GenAI runtime (winml-genai): --device / --ep override
