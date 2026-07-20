@@ -35,8 +35,9 @@ $ winml eval [options]
 | `--label-mapping` | | `PATH` | — | Path to a JSON file mapping dataset label names to the integer class IDs the model emits: `{"label_name": id}`. |
 | `--output` | `-o` | `PATH` | — | Output JSON file path for the evaluation results. |
 | `--schema` | | flag | `false` | Print the expected dataset schema for the given `--task` and exit. Does not run evaluation. |
-| `--mode` | | `onnx\|compare` | `onnx` | Evaluation mode. `onnx` evaluates the ONNX candidate on a dataset. `compare` runs the ONNX candidate and a reference on identical random inputs and reports per-tensor similarity metrics — no dataset required. The reference is the HuggingFace model from `--model-id` by default, or a second ONNX file when `--reference` is given. |
+| `--mode` | | `onnx\|compare` | `onnx` | Evaluation mode. `onnx` evaluates the ONNX candidate on a dataset. `compare` runs the ONNX candidate and a reference on identical inputs and reports per-tensor similarity metrics — no dataset required. The reference is the HuggingFace model from `--model-id` by default, or a second ONNX file when `--reference` is given. |
 | `--reference` | | `TEXT` | — | Reference `.onnx` file to compare the candidate against (used with `--mode compare`). Compares two ONNX models on identical random inputs; `--model-id` and `--task` are not required in this mode. Both models run on the same `--device` / `--ep`. |
+| `--input-data` | | `PATH` | — | Path to a `.npz` file of real input tensors to compare with instead of randomly generated ones (used with `--mode compare`). Keys must match the candidate model's input names; the whole archive is treated as a single sample, so `--samples` / `--seed` are ignored. |
 
 ## How it works
 
@@ -76,6 +77,12 @@ Compare two ONNX files directly (e.g. an fp32 baseline vs a quantized build), re
 
 ```bash
 $ winml eval --mode compare -m quantized.onnx --reference baseline.onnx
+```
+
+Compare on real input tensors instead of random ones by passing a `.npz` archive whose keys match the candidate's input names (the whole archive is one sample):
+
+```bash
+$ winml eval --mode compare -m quantized.onnx --reference baseline.onnx --input-data inputs.npz
 ```
 
 Check what dataset columns are expected before running, then remap them to match your dataset:

@@ -5,14 +5,16 @@
 
 """Tensor-similarity evaluator.
 
-Runs an ONNX candidate and a reference on identical random inputs (drawn
-from :class:`RandomDataset` over the candidate's ONNX I/O) and reports
-per-output tensor-parity metrics (SQNR, PSNR, cosine, MSE, max absolute
-diff) via :class:`TensorSimilarityMetric`.
+Runs an ONNX candidate and a reference on identical inputs (random by
+default, drawn from :class:`RandomDataset` over the candidate's ONNX I/O)
+and reports per-output tensor-parity metrics (SQNR, PSNR, cosine, MSE, max
+absolute diff) via :class:`TensorSimilarityMetric`.
 
 The reference is an HF PyTorch model resolved from ``model_id`` by default.
 When ``config.reference_path`` is set, the reference is instead a second
 ONNX file and both sides run as raw ORT sessions (no HF config / task).
+When ``config.input_data`` is set, both sides run on real tensors from a
+``.npz`` archive instead of random inputs.
 
 No labeled dataset, no HF pipeline, no preprocessor — any divergence
 reflects the build pipeline (optimize / quantize / compile) only.
@@ -127,7 +129,18 @@ class TensorSimilarityEvaluator:
         ).eval()
 
     def prepare_data(self) -> Any:
-        """Build a RandomDataset over the candidate ONNX's I/O spec."""
+        """Build the compare dataset over the candidate ONNX's I/O spec.
+
+        Uses real tensors from ``config.input_data`` (wrapped as a
+        single-sample :class:`InputDataDataset`, validated against the
+        candidate's inputs) when provided, otherwise a :class:`RandomDataset`
+        of synthetic inputs sized by ``config.dataset``.
+        """
+        if self.config.input_data is not None:
+            from ..datasets.input_data import InputDataDataset
+
+            return InputDataDataset(self.config.input_data, self.model.io_config)
+
         from ..datasets.random_dataset import RandomDataset
 
         ds = self.config.dataset

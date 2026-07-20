@@ -171,6 +171,18 @@ logger = logging.getLogger(__name__)
         "--model-id / --task are not required in this mode."
     ),
 )
+@click.option(
+    "--input-data",
+    "input_data",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help=(
+        "Path to a .npz file of real input tensors to compare with instead of "
+        "randomly generated ones (use with --mode compare). Keys must match the "
+        "candidate model's input names; the whole archive is one sample, so "
+        "--samples / --seed are ignored."
+    ),
+)
 @cli_utils.skip_build_option()
 @cli_utils.format_option()
 @cli_utils.build_config_option()
@@ -211,6 +223,7 @@ def eval(
     config_file: Path | None,
     skip_build: bool,
     reference: str | None,
+    input_data: str | None,
 ) -> None:
     r"""Evaluate a model for a task.
 
@@ -220,6 +233,8 @@ def eval(
         winml eval -m model.onnx --model-id microsoft/resnet-50
 
         winml eval --mode compare -m candidate.onnx --reference baseline.onnx
+
+        winml eval --mode compare -m cand.onnx --reference base.onnx --input-data inputs.npz
 
     Run `winml eval --schema --task <task>` to see the dataset columns
     and options expected by each task.
@@ -256,6 +271,8 @@ def eval(
     # ── 2. Resolve in place ──
     if cfg.reference_path is not None and cfg.mode != "compare":
         raise click.UsageError("--reference is only valid with --mode compare.")
+    if cfg.input_data is not None and cfg.mode != "compare":
+        raise click.UsageError("--input-data is only valid with --mode compare.")
     _resolve_model(cfg, model, model_id, allow_missing_model_id=cfg.reference_path is not None)
     _resolve_reference(cfg)
     _resolve_device(cfg)
@@ -642,9 +659,17 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
     console.print()
     console.print(f"[dim]Task:[/dim]       {cfg.task}")
     console.print(f"[dim]Device:[/dim]     {cfg.device}")
-    if ds.path:
-        console.print(f"[dim]Dataset:[/dim]    {ds.path}")
-    console.print(f"[dim]Samples:[/dim]    {ds.samples}")
+    if cfg.reference_path:
+        console.print(f"[dim]Reference:[/dim]  {cfg.reference_path}")
+    if cfg.input_data:
+        # A .npz archive is a single sample (one batch); the dataset sample
+        # count does not apply on this path.
+        console.print(f"[dim]Input data:[/dim] {cfg.input_data}")
+        console.print("[dim]Samples:[/dim]    1")
+    else:
+        if ds.path:
+            console.print(f"[dim]Dataset:[/dim]    {ds.path}")
+        console.print(f"[dim]Samples:[/dim]    {ds.samples}")
     if cfg.model_path:
         console.print(f"[dim]ONNX:[/dim]       {cfg.model_path}")
 

@@ -72,6 +72,23 @@ class TestEvaluationConfig:
         assert restored.reference_path == "ref.onnx"
         assert restored.mode == "compare"
 
+    def test_input_data_default_is_none(self):
+        """input_data defaults to None and is omitted from to_dict."""
+        config = WinMLEvaluationConfig(model_id="test/model")
+        assert config.input_data is None
+        assert "input_data" not in config.to_dict()
+
+    def test_config_roundtrip_preserves_input_data(self):
+        """input_data survives to_dict/from_dict roundtrip."""
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            reference_path="ref.onnx",
+            input_data="inputs.npz",
+            mode="compare",
+        )
+        restored = WinMLEvaluationConfig.from_dict(config.to_dict())
+        assert restored.input_data == "inputs.npz"
+
     def test_eval_result_to_dict(self):
         config = WinMLEvaluationConfig(
             model_id="test/model",

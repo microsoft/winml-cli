@@ -1052,7 +1052,7 @@ class TestLoadInputData:
         }
         path = self._write_npz(tmp_path, input_ids=np.zeros((1, 8), dtype=np.int64))
 
-        with caplog.at_level(logging.WARNING, logger="winml.modelkit.commands.perf"):
+        with caplog.at_level(logging.WARNING, logger="winml.modelkit.datasets.input_data"):
             inputs = load_input_data(path, io)
 
         assert inputs["input_ids"].dtype == np.int32

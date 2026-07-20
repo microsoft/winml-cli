@@ -119,7 +119,7 @@ class _FakeSession:
 
     def __init__(self, onnx_path, device="auto", ep=None):
         _FakeSession.created.append((str(onnx_path), device, ep))
-        self.io_config = {"input_names": ["input"]}
+        self.io_config = {"input_names": ["input"], "input_types": ["float32"]}
 
     def run(self, inputs):
         return {"logits": np.arange(3.0, dtype=np.float32).reshape(1, 3)}
@@ -189,3 +189,37 @@ class TestONNXSessionModel:
 
         model = _ONNXSessionModel("x.onnx")
         assert model.io_config["input_names"] == ["input"]
+
+
+# ---------------------------------------------------------------------------
+# Real-input compare (input_data set)
+# ---------------------------------------------------------------------------
+
+
+class TestInputDataCompare:
+    def test_prepare_data_uses_input_data_npz(self, monkeypatch, tmp_path):
+        import winml.modelkit.session.session as session_mod
+        from winml.modelkit.datasets.input_data import InputDataDataset
+
+        _FakeSession.created = []
+        monkeypatch.setattr(session_mod, "WinMLSession", _FakeSession)
+
+        npz = tmp_path / "inputs.npz"
+        np.savez(npz, input=np.ones((2, 3), dtype=np.float32))
+
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            reference_path="ref.onnx",
+            mode="compare",
+            input_data=str(npz),
+        )
+
+        # ``model`` is None in this path (evaluate._load_model returns None).
+        evaluator = TensorSimilarityEvaluator(config, None)  # type: ignore[arg-type]
+
+        assert isinstance(evaluator.data, InputDataDataset)
+        assert len(evaluator.data) == 1
+        sample = evaluator.data[0]
+        assert set(sample) == {"input"}
+        assert isinstance(sample["input"], torch.Tensor)
+        assert sample["input"].shape == (2, 3)
