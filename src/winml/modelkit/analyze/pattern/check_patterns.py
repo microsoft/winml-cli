@@ -27,7 +27,6 @@ from ...pattern.base import (
     get_pattern_input_generator,
     get_registered_pattern_input_generators,
 )
-from ...sysinfo import SysInfo
 
 
 if TYPE_CHECKING:
@@ -38,6 +37,7 @@ if TYPE_CHECKING:
 
     from ...utils.constants import EPName
 from ...utils import constants
+from ..core.rules_prefilter import RuntimeCheckerRulesPrefilter
 from ..runtime_checker.ep_checker import EPChecker
 from ..utils import CheckResultWriter, load_case_indices_from_conflict_file
 
@@ -84,8 +84,8 @@ def check_patterns(
     Returns:
         Dictionary mapping pattern names to their test results:
         {
-            "Gelu": {"check_results": [...], "sys_info": {...}, "output_path": "..."},
-            "MatMulAdd": {"check_results": [...], "sys_info": {...}, "output_path": "..."},
+            "Gelu": {"check_results": [...], "output_path": "..."},
+            "MatMulAdd": {"check_results": [...], "output_path": "..."},
             ...
         }
     """
@@ -94,8 +94,6 @@ def check_patterns(
             raise ValueError("--case_index and --conflict_file cannot be used together")
         case_index = load_case_indices_from_conflict_file(conflict_file)
         print(f"Loaded {len(case_index)} case_index values from conflict file: {conflict_file}")
-
-    sys_info = SysInfo().to_dict()
 
     # Create output directory if it doesn't exist
     output_dir = Path(output_dir)
@@ -111,6 +109,13 @@ def check_patterns(
     domain_versions = {
         ONNXDomain.from_str(domain): version for domain, version in opset_mapping.items()
     }
+
+    ep_checker.set_rules_prefilter(
+        RuntimeCheckerRulesPrefilter(
+            ep_name=ep_checker.ep_name,
+            device_type=ep_checker.device_type.name,
+        )
+    )
 
     # Test each pattern
     for pattern_name in patterns:
@@ -151,7 +156,6 @@ def check_patterns(
         # Use writer as context manager (auto-flushes on exit)
         with CheckResultWriter(
             output_path,
-            sys_info,
             save_per_cases=None if dry_run else 20,
             rerun_failed=rerun_failed,
             delta_only=delta_only,
@@ -162,6 +166,11 @@ def check_patterns(
             print(f"Running {pattern_name} tests on {ep_checker.ep_name}...")
             if n_cases is not None:
                 print(f"Limiting to first {n_cases} test cases")
+            if not dry_run:
+                print(
+                    "Rules-first mode: check node support via parquet rules before ep_checker; "
+                    "only fallback to real compile/run when any node is unsupported/no_data."
+                )
 
             check_results_iter = gen.check_on_ep(
                 ep_checker,
@@ -170,7 +179,6 @@ def check_patterns(
                 skip_cases=0,
                 save_failed_model=save_failed_model,
                 skip_signature_fn=writer.should_skip_case,
-                yield_skipped=True,
                 dry_run=dry_run,
             )
 
@@ -209,7 +217,6 @@ def check_patterns(
         # Store results for return
         all_results[pattern_name] = {
             "check_results": check_results,
-            "sys_info": sys_info,
             "output_path": str(output_path),
         }
 
@@ -234,6 +241,19 @@ class QNNNPUChecker(EPChecker):
         super().__init__(ep_name="QNNExecutionProvider", device_type=device_type)
 
 
+class RTXChecker(EPChecker):
+    """NVIDIA TensorRT RTX execution provider checker wrapper for pytest compatibility."""
+
+    def __init__(self, device_type: ort.OrtHardwareDeviceType) -> None:
+        """Initialize RTX checker."""
+        if device_type != constants.DEVICE_TO_DEVICE_TYPE["GPU"]:
+            raise ValueError("NvTensorRTRTXExecutionProvider only supports GPU device type")
+        super().__init__(
+            ep_name="NvTensorRTRTXExecutionProvider",
+            device_type=constants.DEVICE_TO_DEVICE_TYPE["GPU"],
+        )
+
+
 def get_ep_checker(ep_name: EPName, device: str) -> EPChecker:
     """Get EPChecker for given execution provider name.
 
@@ -251,13 +271,15 @@ def get_ep_checker(ep_name: EPName, device: str) -> EPChecker:
     ep_name_to_checker: dict[str, Callable[..., EPChecker]] = {
         "QNNExecutionProvider": QNNNPUChecker,
         "OpenVINOExecutionProvider": OpenVINONPUChecker,
+        "NvTensorRTRTXExecutionProvider": RTXChecker,
         # Add other EPChecker subclasses here as needed
     }
     if ep_name not in ep_name_to_checker:
         raise ValueError(
             f"Unsupported execution provider: {ep_name}. "
             f"Available: QNNExecutionProvider, "
-            f"OpenVINOExecutionProvider"
+            f"OpenVINOExecutionProvider, "
+            f"NvTensorRTRTXExecutionProvider"
         )
     return ep_name_to_checker[ep_name](device_type=device_type)
 
@@ -292,10 +314,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--ep",
         type=str,
         required=True,
-        choices=["QNNExecutionProvider", "OpenVINOExecutionProvider"],
+        choices=[
+            "QNNExecutionProvider",
+            "OpenVINOExecutionProvider",
+            "NvTensorRTRTXExecutionProvider",
+        ],
         help=(
             "Execution Provider names to test. "
-            "Available: QNNExecutionProvider, OpenVINOExecutionProvider"
+            "Available: QNNExecutionProvider, OpenVINOExecutionProvider, "
+            "NvTensorRTRTXExecutionProvider"
         ),
     )
     parser.add_argument(

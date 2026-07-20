@@ -213,7 +213,7 @@ class TestReuseExistingResultInputConstraints:
         """Create a CheckResultWriter with pre-loaded existing_signatures from cases."""
         output_file = tmp_path / "Abs_QNNExecutionProvider_NPU_ai.onnx_opset13.json"
         output_file.write_text(json.dumps({"check_results": existing_cases}), encoding="utf-8")
-        return CheckResultWriter(output_file, sys_info={}, delta_only=True)
+        return CheckResultWriter(output_file, delta_only=True)
 
     def test_reuse_upgrades_value_array_to_same_value(self, tmp_path) -> None:
         """When an existing case has the old value-array format, reuse_existing_result
@@ -341,10 +341,10 @@ class TestReuseExistingResultInputConstraints:
         qnn_output = tmp_path / "Abs_QNNExecutionProvider_NPU_ai.onnx_opset13.json"
         ov_output = tmp_path / "Abs_OpenVINOExecutionProvider_CPU_ai.onnx_opset13.json"
 
-        with CheckResultWriter(qnn_output, sys_info={}) as writer_qnn:
+        with CheckResultWriter(qnn_output) as writer_qnn:
             writer_qnn.append_result(dict(case_template))
 
-        with CheckResultWriter(ov_output, sys_info={}) as writer_ov:
+        with CheckResultWriter(ov_output) as writer_ov:
             writer_ov.append_result(dict(case_template))
 
         qnn_case = writer_qnn.results[0]
