@@ -87,10 +87,20 @@ class MismatchedInputOrderModel(nn.Module):
         self.vision_conv = nn.Conv2d(3, 8, kernel_size=3, padding=1)
         self.pool = nn.AdaptiveAvgPool2d(1)
 
-    def forward(self, text_input, pixel_values):
-        text_out = self.text_fc(text_input)
+    def forward(self, input_ids, pixel_values, attention_mask):
+        text_out = self.text_fc(input_ids.float() * attention_mask.float())
         vis_out = self.pool(self.vision_conv(pixel_values)).squeeze(-1).squeeze(-1)
         return text_out + vis_out
+
+
+class PositionalExportOrderModel(nn.Module):
+    """Model whose explicit positional export protocol owns input ordering."""
+
+    def get_export_args(self, inputs):
+        return inputs["narrow"], inputs["wide"]
+
+    def forward(self, wide, narrow):
+        return torch.cat((wide, narrow), dim=1)
 
 
 # =============================================================================
@@ -350,20 +360,21 @@ class TestExportPytorch:
         assert not _all_value_info_have_shape(onnx_model)
 
     def test_mismatched_input_order_exports_successfully(self, tmp_path) -> None:
-        """Export succeeds when InputTensorSpec order differs from forward() param order.
+        """ONNX names bind correctly when specs differ from forward() order.
 
         Regression test for CLIP bug: OnnxConfig listed pixel_values before input_ids,
-        but CLIPModel.forward() expected input_ids first. With positional args this
-        caused 'not enough values to unpack (expected 4, got 2)'. The fix uses
-        kwargs= in torch.onnx.export so name-based binding makes order irrelevant.
+        but a multimodal forward expects text inputs first. Keyword arguments make
+        invocation order-independent; ONNX input names must separately follow the
+        forward signature because torch.onnx.export assigns them positionally.
         """
         model = MismatchedInputOrderModel()
 
-        # Intentionally list pixel_values FIRST — opposite of forward(text_input, pixel_values)
+        # Intentionally list pixel_values FIRST — opposite of forward().
         config = WinMLExportConfig(
             input_tensors=[
                 InputTensorSpec(name="pixel_values", dtype="float32", shape=(1, 3, 8, 8)),
-                InputTensorSpec(name="text_input", dtype="float32", shape=(1, 16)),
+                InputTensorSpec(name="input_ids", dtype="int32", shape=(1, 16)),
+                InputTensorSpec(name="attention_mask", dtype="int32", shape=(1, 16)),
             ],
         )
 
@@ -374,9 +385,37 @@ class TestExportPytorch:
 
         onnx_model = onnx.load(str(tmp_path / "model.onnx"))
         onnx.checker.check_model(onnx_model)
-        input_names = {i.name for i in onnx_model.graph.input}
-        assert "pixel_values" in input_names
-        assert "text_input" in input_names
+        input_bindings = {
+            tensor.name: (
+                onnx.TensorProto.DataType.Name(tensor.type.tensor_type.elem_type),
+                tuple(dim.dim_value for dim in tensor.type.tensor_type.shape.dim),
+            )
+            for tensor in onnx_model.graph.input
+        }
+        assert input_bindings == {
+            "input_ids": ("INT32", (1, 16)),
+            "pixel_values": ("FLOAT", (1, 3, 8, 8)),
+            "attention_mask": ("INT32", (1, 16)),
+        }
+
+    def test_get_export_args_preserves_configured_positional_names(self, tmp_path) -> None:
+        """An explicit get_export_args protocol keeps config order authoritative."""
+        model = PositionalExportOrderModel()
+        config = WinMLExportConfig(
+            input_tensors=[
+                InputTensorSpec(name="narrow", dtype="float32", shape=(1, 3)),
+                InputTensorSpec(name="wide", dtype="float32", shape=(1, 5)),
+            ],
+        )
+
+        export_pytorch(model, tmp_path / "model.onnx", config)
+
+        onnx_model = onnx.load(str(tmp_path / "model.onnx"))
+        input_shapes = {
+            tensor.name: tuple(dim.dim_value for dim in tensor.type.tensor_type.shape.dim)
+            for tensor in onnx_model.graph.input
+        }
+        assert input_shapes == {"narrow": (1, 3), "wide": (1, 5)}
 
 
 class TestStaleExternalDataCleanup:
