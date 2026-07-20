@@ -12,7 +12,6 @@ import numpy as np
 import onnx
 import onnxruntime as ort
 from click.testing import CliRunner
-from onnx import TensorProto, helper, numpy_helper
 
 from winml.modelkit.commands.optimize import optimize
 from winml.modelkit.optim import get_all_capabilities, optimize_onnx
@@ -28,7 +27,7 @@ if TYPE_CHECKING:
 
 
 def _tensor(name: str, values: np.ndarray) -> onnx.TensorProto:
-    return numpy_helper.from_array(np.asarray(values), name)
+    return onnx.numpy_helper.from_array(np.asarray(values), name)
 
 
 def _model(
@@ -38,7 +37,7 @@ def _model(
     initializers: Sequence[onnx.TensorProto],
     value_info: Sequence[onnx.ValueInfoProto] = (),
 ) -> onnx.ModelProto:
-    graph = helper.make_graph(
+    graph = onnx.helper.make_graph(
         list(nodes),
         "generated_algebraic_graph",
         list(inputs),
@@ -46,13 +45,13 @@ def _model(
         initializer=list(initializers),
         value_info=list(value_info),
     )
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
     model.ir_version = 8
     return model
 
 
 def _info(name: str, shape: Sequence[int | None]) -> onnx.ValueInfoProto:
-    return helper.make_tensor_value_info(name, TensorProto.FLOAT, list(shape))
+    return onnx.helper.make_tensor_value_info(name, onnx.TensorProto.FLOAT, list(shape))
 
 
 def _run(model: onnx.ModelProto, values: dict[str, np.ndarray]) -> list[np.ndarray]:
@@ -101,9 +100,9 @@ class TestStaticSplitToSlice:
 
     def test_positive_equivalence_and_preserved_outputs(self) -> None:
         rng = np.random.default_rng(10)
-        x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 6, 2])
+        x = onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [1, 6, 2])
         outputs = [_info("left", [1, 2, 2]), _info("right", [1, 4, 2])]
-        split = helper.make_node(
+        split = onnx.helper.make_node(
             "Split",
             ["x", "split_sizes"],
             ["left", "right"],
@@ -133,16 +132,16 @@ class TestStaticSplitToSlice:
             np.testing.assert_allclose(original, rewritten, rtol=0, atol=0)
 
     def test_equal_split_and_name_collisions_are_safe(self) -> None:
-        x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 4, 2])
+        x = onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [1, 4, 2])
         keep = _info("keep", [1, 2, 2])
-        split = helper.make_node(
+        split = onnx.helper.make_node(
             "Split",
             ["x"],
             ["part_a", "part_b"],
             name="",
             axis=1,
         )
-        identity = helper.make_node(
+        identity = onnx.helper.make_node(
             "Identity",
             ["part_b"],
             ["keep"],
@@ -167,9 +166,9 @@ class TestStaticSplitToSlice:
         _assert_valid_with_inferred_shapes(transformed)
 
     def test_dynamic_equal_split_and_malformed_split_are_unchanged(self) -> None:
-        x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, None, 2])
-        dynamic_equal = helper.make_node("Split", ["x"], ["a", "b"], axis=1)
-        malformed = helper.make_node(
+        x = onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [1, None, 2])
+        dynamic_equal = onnx.helper.make_node("Split", ["x"], ["a", "b"], axis=1)
+        malformed = onnx.helper.make_node(
             "Split",
             ["x", "bad_sizes"],
             ["c", "d"],
@@ -188,9 +187,9 @@ class TestStaticSplitToSlice:
         assert [node.op_type for node in transformed.graph.node] == ["Split", "Split"]
 
     def test_dead_generated_slice_and_constants_are_pruned(self) -> None:
-        x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 4, 2])
+        x = onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [1, 4, 2])
         model = _model(
-            [helper.make_node("Split", ["x"], ["left", "unused"], axis=1)],
+            [onnx.helper.make_node("Split", ["x"], ["left", "unused"], axis=1)],
             [x],
             [_info("left", [1, 2, 2])],
             [],
@@ -204,23 +203,23 @@ class TestStaticSplitToSlice:
         assert len(transformed.graph.initializer) == 4
 
     def test_nested_subgraph_captures_keep_generated_slices_live(self) -> None:
-        x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 4, 2])
-        then_branch = helper.make_graph(
-            [helper.make_node("Identity", ["left"], ["then_output"])],
+        x = onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [1, 4, 2])
+        then_branch = onnx.helper.make_graph(
+            [onnx.helper.make_node("Identity", ["left"], ["then_output"])],
             "then_branch",
             [],
             [_info("then_output", [1, 2, 2])],
         )
-        else_branch = helper.make_graph(
-            [helper.make_node("Identity", ["right"], ["else_output"])],
+        else_branch = onnx.helper.make_graph(
+            [onnx.helper.make_node("Identity", ["right"], ["else_output"])],
             "else_branch",
             [],
             [_info("else_output", [1, 2, 2])],
         )
         model = _model(
             [
-                helper.make_node("Split", ["x"], ["left", "right"], axis=1),
-                helper.make_node(
+                onnx.helper.make_node("Split", ["x"], ["left", "right"], axis=1),
+                onnx.helper.make_node(
                     "If",
                     ["condition"],
                     ["y"],
@@ -247,9 +246,9 @@ class TestStaticSplitToSlice:
         np.testing.assert_array_equal(_run(model, values), _run(transformed, values))
 
     def test_public_optimize_path_is_idempotent(self) -> None:
-        x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 4, 2])
+        x = onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [1, 4, 2])
         model = _model(
-            [helper.make_node("Split", ["x"], ["a", "b"], name="", axis=1)],
+            [onnx.helper.make_node("Split", ["x"], ["a", "b"], name="", axis=1)],
             [x],
             [_info("a", [1, 2, 2]), _info("b", [1, 2, 2])],
             [],

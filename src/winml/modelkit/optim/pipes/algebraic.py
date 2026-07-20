@@ -38,8 +38,6 @@ class _GraphIndex:
 
     @classmethod
     def build(cls, model: onnx.ModelProto) -> _GraphIndex:
-        from onnx import numpy_helper
-
         graph = model.graph
         producers: dict[str, onnx.NodeProto] = {}
         consumers: dict[str, list[onnx.NodeProto]] = {}
@@ -67,7 +65,7 @@ class _GraphIndex:
             shapes.setdefault(name, tuple(int(dim) for dim in initializer.dims))
 
         for initializer in initializers.values():
-            numpy_helper.to_array(initializer)
+            onnx.numpy_helper.to_array(initializer)
 
         return cls(
             producers=producers,
@@ -121,23 +119,19 @@ def _value_info_shape(value_info: onnx.ValueInfoProto) -> tuple[int | None, ...]
 
 
 def _attribute(node: onnx.NodeProto, name: str, default: Any = None) -> Any:
-    from onnx import helper
-
     for attribute in node.attribute:
         if attribute.name == name:
-            return helper.get_attribute_value(attribute)
+            return onnx.helper.get_attribute_value(attribute)
     return default
 
 
 def _constant_array(index: _GraphIndex, name: str) -> np.ndarray | None:
     """Read an initializer or a regular ONNX Constant value."""
-    from onnx import numpy_helper
-
     if not name:
         return None
     initializer = index.initializers.get(name)
     if initializer is not None:
-        return np.asarray(numpy_helper.to_array(initializer))
+        return np.asarray(onnx.numpy_helper.to_array(initializer))
 
     producer = index.producers.get(name)
     if producer is None or producer.op_type != "Constant":
@@ -145,7 +139,7 @@ def _constant_array(index: _GraphIndex, name: str) -> np.ndarray | None:
     value = _attribute(producer, "value")
     if value is not None:
         try:
-            return np.asarray(numpy_helper.to_array(value))
+            return np.asarray(onnx.numpy_helper.to_array(value))
         except (TypeError, ValueError):
             return None
     for attribute_name in ("value_float", "value_floats", "value_int", "value_ints"):
@@ -197,10 +191,8 @@ def _new_initializer(
     values: np.ndarray,
     prefix: str,
 ) -> str:
-    from onnx import numpy_helper
-
     name = allocator.new(prefix)
-    model.graph.initializer.append(numpy_helper.from_array(np.asarray(values), name))
+    model.graph.initializer.append(onnx.numpy_helper.from_array(np.asarray(values), name))
     return name
 
 
@@ -333,8 +325,6 @@ def _rewrite_static_splits(
     introduced_nodes: set[str],
 ) -> None:
     """Replace statically bounded Split nodes with input-form Slice nodes."""
-    from onnx import helper
-
     index = _GraphIndex.build(model)
     opset = next(
         (int(opset.version) for opset in model.opset_import if opset.domain in ("", "ai.onnx")),
@@ -367,7 +357,7 @@ def _rewrite_static_splits(
             steps_name = _new_initializer(
                 model, allocator, np.asarray([1], dtype=np.int64), "algebraic_slice_steps"
             )
-            replacement_node = helper.make_node(
+            replacement_node = onnx.helper.make_node(
                 "Slice",
                 [split.input[0], starts_name, ends_name, axes_name, steps_name],
                 [split.output[output_index]],
