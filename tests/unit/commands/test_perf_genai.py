@@ -178,9 +178,13 @@ class TestResolveGenaiEp:
             ("npu", "npu", ["QNNExecutionProvider", "OpenVINOExecutionProvider"], "qnn"),
             ("npu", "npu", ["VitisAIExecutionProvider"], "vitisai"),
             ("gpu", "gpu", ["DmlExecutionProvider"], "dml"),
-            # cpu matches ONNX: OpenVINO-on-CPU when available, else plain CPU.
-            ("cpu", "cpu", ["OpenVINOExecutionProvider", "CPUExecutionProvider"], "openvino"),
+            # gpu: prefer native GPU EPs over cross-device accelerators.
+            ("gpu", "gpu", ["OpenVINOExecutionProvider", "DmlExecutionProvider"], "dml"),
+            # cpu: prefer CPUExecutionProvider over cross-device accelerators.
+            ("cpu", "cpu", ["OpenVINOExecutionProvider", "CPUExecutionProvider"], "cpu"),
             ("cpu", "cpu", ["CPUExecutionProvider"], "cpu"),
+            # Edge case: only a cross-device EP available for this device.
+            ("cpu", "cpu", ["OpenVINOExecutionProvider"], "openvino"),
         ],
     )
     def test_resolves_best_available_ep_alias(

@@ -101,7 +101,15 @@ def resolve_genai_ep(device: str) -> EPNameOrAlias | None:
     eps = resolve_eps(resolved_device)
     if not eps:
         return None
-    return EP_NAME_TO_ALIAS[eps[0]]
+
+    # Prefer EPs whose *primary* device (first entry in EP_SUPPORTED_DEVICES)
+    # matches the resolved device.  Multi-device EPs like OpenVINO advertise
+    # cpu/gpu support but their primary target is npu — when the user says
+    # ``--device cpu`` or ``--device gpu`` they expect the native EP for that
+    # device, not a cross-device accelerator that also happens to support it.
+    native = [ep for ep in eps if EP_SUPPORTED_DEVICES[ep][0] == resolved_device]
+    best = native[0] if native else eps[0]
+    return EP_NAME_TO_ALIAS[best]
 
 
 def genai_output_path(bundle_dir: str | Path) -> Path:
