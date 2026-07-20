@@ -1,0 +1,97 @@
+{
+  "export": {
+    "opset_version": 17,
+    "batch_size": 1,
+    "export_params": true,
+    "do_constant_folding": true,
+    "verbose": false,
+    "dynamo": false,
+    "enable_hierarchy_tags": true,
+    "clean_onnx": false,
+    "hierarchy_tag_format": "full",
+    "input_tensors": [
+      {
+        "name": "input_ids",
+        "dtype": "int32",
+        "shape": [
+          1,
+          16
+        ],
+        "value_range": [
+          0,
+          49408
+        ]
+      },
+      {
+        "name": "pixel_values",
+        "dtype": "float32",
+        "shape": [
+          1,
+          3,
+          960,
+          960
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      },
+      {
+        "name": "attention_mask",
+        "dtype": "int32",
+        "shape": [
+          1,
+          16
+        ],
+        "value_range": [
+          0,
+          2
+        ]
+      }
+    ],
+    "output_tensors": [
+      {
+        "name": "logits"
+      },
+      {
+        "name": "pred_boxes"
+      },
+      {
+        "name": "text_embeds"
+      },
+      {
+        "name": "image_embeds"
+      }
+    ]
+  },
+  "optim": {},
+  "quant": {
+    "mode": "fp16",
+    "samples": 10,
+    "calibration_method": "minmax",
+    "weight_type": "uint8",
+    "activation_type": "uint8",
+    "per_channel": false,
+    "symmetric": false,
+    "weight_symmetric": null,
+    "activation_symmetric": null,
+    "save_calibration": false,
+    "distribution": "uniform",
+    "seed": null,
+    "calibration_load_path": null,
+    "calibration_save_path": null,
+    "op_types_to_quantize": null,
+    "nodes_to_exclude": null,
+    "task": "zero-shot-object-detection",
+    "model_id": "google/owlv2-base-patch16-finetuned",
+    "model_type": "owlv2",
+    "fp16_keep_io_types": true,
+    "fp16_op_block_list": null
+  },
+  "compile": null,
+  "loader": {
+    "task": "zero-shot-object-detection",
+    "model_class": "AutoModelForZeroShotObjectDetection",
+    "model_type": "owlv2"
+  }
+}
