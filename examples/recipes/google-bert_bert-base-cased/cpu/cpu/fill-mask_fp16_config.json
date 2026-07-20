@@ -19,7 +19,7 @@
         ],
         "value_range": [
           0,
-          30522
+          28996
         ]
       },
       {
@@ -57,13 +57,15 @@
     "clamp_constant_values": true
   },
   "quant": {
-    "mode": "qdq",
+    "mode": "fp16",
     "samples": 10,
     "calibration_method": "minmax",
     "weight_type": "uint8",
-    "activation_type": "uint16",
+    "activation_type": "uint8",
     "per_channel": false,
     "symmetric": false,
+    "weight_symmetric": null,
+    "activation_symmetric": null,
     "save_calibration": false,
     "distribution": "uniform",
     "seed": null,
@@ -71,13 +73,16 @@
     "calibration_save_path": null,
     "op_types_to_quantize": null,
     "nodes_to_exclude": null,
-    "task": "text-classification",
-    "model_id": "cross-encoder/ms-marco-MiniLM-L6-v2"
+    "task": "fill-mask",
+    "model_id": "google-bert/bert-base-cased",
+    "model_type": "bert",
+    "fp16_keep_io_types": true,
+    "fp16_op_block_list": null
   },
   "compile": null,
   "loader": {
-    "task": "text-classification",
-    "model_class": "AutoModelForSequenceClassification",
+    "task": "fill-mask",
+    "model_class": "AutoModelForMaskedLM",
     "model_type": "bert"
   }
 }
