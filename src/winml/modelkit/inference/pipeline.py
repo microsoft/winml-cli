@@ -38,6 +38,18 @@ _HF_PIPELINE_TASK_MAP: dict[str, str] = {
 }
 
 
+def _create_inpainting_pipeline(model: WinMLPreTrainedModel) -> Any:
+    """Create the built-in direct-ONNX inpainting adapter."""
+    from .inpainting import WinMLInpaintingPipeline
+
+    return WinMLInpaintingPipeline(model)
+
+
+_CUSTOM_PIPELINE_FACTORIES = {
+    "inpainting": _create_inpainting_pipeline,
+}
+
+
 def create_pipeline(
     task: str,
     model: WinMLPreTrainedModel | WinMLCompositeModel,
@@ -57,6 +69,12 @@ def create_pipeline(
     Returns:
         A configured ``transformers.Pipeline`` ready for inference.
     """
+    custom_factory = _CUSTOM_PIPELINE_FACTORIES.get(task)
+    if custom_factory is not None:
+        pipe = custom_factory(model)
+        logger.info("Created WinML pipeline: task=%s model=%s", task, model_id)
+        return pipe
+
     from transformers import pipeline
 
     kwargs: dict[str, Any] = {

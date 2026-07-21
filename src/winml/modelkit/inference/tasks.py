@@ -150,6 +150,16 @@ def _encode_mask_png(mask: Any) -> str:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+def _postprocess_inpainting(raw: Any, **_kwargs: Any) -> dict[str, Any]:
+    """Encode an inpainted PIL image as a JSON-safe PNG payload."""
+    return {
+        "image": _encode_mask_png(raw),
+        "format": "png",
+        "width": raw.width,
+        "height": raw.height,
+    }
+
+
 def _postprocess_segmentation(raw: Any, **_kwargs: Any) -> Any:
     """Convert segmentation masks to predictions with coverage score and mask.
 
@@ -286,6 +296,19 @@ TASK_REGISTRY: dict[str, TaskInputSpec] = {
             InputField(name="image", type="image", required=True, description="Input image"),
         ],
         mapping=PipelineMapping(pipe_input="image"),
+    ),
+    "inpainting": TaskInputSpec(
+        user_inputs=[
+            InputField(name="image", type="image", required=True, description="Input image"),
+            InputField(
+                name="mask",
+                type="image",
+                required=True,
+                description="Binary mask; non-zero pixels are replaced",
+            ),
+        ],
+        mapping=PipelineMapping(pipe_input=["image", "mask"]),
+        postprocess=_postprocess_inpainting,
     ),
     # -- Single text --------------------------------------------------------
     "text-classification": TaskInputSpec(

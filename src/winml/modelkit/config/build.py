@@ -459,10 +459,15 @@ def generate_onnx_build_config(
         )
 
         if is_quantized_onnx(onnx_path_resolved):
-            # Skip optimize+quantize, compile with resolved policy.
+            # Skip graph optimization and incompatible re-quantization, but
+            # preserve explicit FP16 conversion of the graph's float tensors.
             # ``skip_optimize`` is the single source of truth — downstream
             # pipelines must read this flag and not re-detect.
-            config.quant = None
+            config.quant = (
+                resolved_quant
+                if resolved_quant is not None and resolved_quant.mode == "fp16"
+                else None
+            )
             config.skip_optimize = True
             config.compile = resolved_compile
             logger.info("Quantized model (QDQ) detected")

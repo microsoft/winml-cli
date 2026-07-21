@@ -19,10 +19,93 @@ The function exposed here, :func:`resolve_hf_onnx_path`, is called by
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ResolvedHubOnnx:
+    """A downloaded Hub ONNX artifact and its immutable provenance."""
+
+    local_path: Path
+    repo_id: str
+    filename: str
+    revision: str
+
+
+def resolve_hf_repo_onnx(
+    repo_id: str,
+    *,
+    revision: str | None = None,
+    cache_dir: str | Path | None = None,
+    token: str | bool | None = None,
+) -> ResolvedHubOnnx | None:
+    """Resolve a non-Transformers Hub repository containing one ONNX graph.
+
+    Repositories with a usable Transformers ``model_type`` remain normal HF
+    model IDs. A repository without that metadata is routed to direct ONNX only
+    when exactly one ``.onnx`` sibling exists. Multiple graphs are deliberately
+    rejected because selecting one by filename or ordering would be a hidden,
+    model-specific policy.
+
+    The repository listing resolves the requested branch/tag to a commit SHA,
+    and that SHA is used for the artifact download. This prevents a moving Hub
+    revision from changing between discovery and download.
+    """
+    from huggingface_hub import HfApi
+    from huggingface_hub.errors import HfHubHTTPError
+
+    try:
+        info = HfApi().model_info(
+            repo_id=repo_id,
+            revision=revision,
+            files_metadata=False,
+            token=token,
+        )
+    except HfHubHTTPError as exc:
+        # Discovery is an optional preflight before the existing Transformers
+        # path. Auth, gated-repo, missing-repo, and transient Hub HTTP errors
+        # must therefore fall through so the authoritative downstream loader
+        # can preserve its established diagnostics and mocked/offline behavior.
+        logger.debug("Could not inspect %s for a direct ONNX artifact: %s", repo_id, exc)
+        return None
+    config = info.config if isinstance(info.config, dict) else {}
+    if config.get("model_type"):
+        return None
+
+    onnx_files = sorted(
+        sibling.rfilename
+        for sibling in (info.siblings or [])
+        if sibling.rfilename.lower().endswith(".onnx")
+    )
+    if not onnx_files:
+        return None
+    if len(onnx_files) > 1:
+        listing = "\n".join(f"  - {repo_id}/{filename}" for filename in onnx_files)
+        raise ValueError(
+            f"Hub repo '{repo_id}' has no usable Transformers model_type and contains "
+            f"multiple ONNX files. Pass an explicit artifact path:\n{listing}"
+        )
+
+    resolved_revision = info.sha or revision
+    if not resolved_revision:
+        raise ValueError(f"Could not resolve an immutable revision for Hub repo '{repo_id}'.")
+    filename = onnx_files[0]
+    local_path = resolve_hf_onnx_path(
+        f"{repo_id}/{filename}",
+        revision=resolved_revision,
+        cache_dir=cache_dir,
+        token=token,
+    )
+    return ResolvedHubOnnx(
+        local_path=local_path,
+        repo_id=repo_id,
+        filename=filename,
+        revision=resolved_revision,
+    )
 
 
 def resolve_hf_onnx_path(
@@ -79,9 +162,7 @@ def resolve_hf_onnx_path(
         # ``.onnx`` files so the user can pick the right one without leaving
         # the terminal. Re-raise as ``FileNotFoundError`` so callers that
         # already handle local-file-missing errors get a consistent type.
-        hint = _format_available_onnx_files(
-            repo_id, revision=revision, token=token
-        )
+        hint = _format_available_onnx_files(repo_id, revision=revision, token=token)
         raise FileNotFoundError(
             f"ONNX file '{filename}' not found in Hub repo '{repo_id}'.\n{hint}"
         ) from e
@@ -171,5 +252,7 @@ def _format_available_onnx_files(
 
 
 __all__ = [
+    "ResolvedHubOnnx",
     "resolve_hf_onnx_path",
+    "resolve_hf_repo_onnx",
 ]

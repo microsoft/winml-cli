@@ -76,6 +76,9 @@ class ModelInput:
             ``HF_ID``.
         hf_id: HuggingFace repo id (``org/name``) for ``HF_ID`` /
             ``HUB_ONNX``. ``None`` otherwise.
+        artifact_path: Path inside the Hub repository for ``HUB_ONNX``.
+        revision: Immutable Hub commit used to download a discovered repository
+            artifact, or the caller-provided revision for an explicit artifact.
         error: Human-readable reason the value is ``INVALID``. ``None`` for
             every valid kind.
     """
@@ -84,6 +87,8 @@ class ModelInput:
     raw: str
     local_path: str | None = None
     hf_id: str | None = None
+    artifact_path: str | None = None
+    revision: str | None = None
     error: str | None = None
 
 
@@ -194,6 +199,7 @@ def resolve_model_input(
     revision: str | None = None,
     cache_dir: str | Path | None = None,
     token: str | bool | None = None,
+    discover_repo_onnx: bool = False,
 ) -> ModelInput:
     """Classify + download Hub-hosted ONNX refs in one call.
 
@@ -213,6 +219,25 @@ def resolve_model_input(
         kind implies a filesystem path.
     """
     mi = classify_model_input(value)
+    if mi.kind is ModelInputKind.HF_ID and discover_repo_onnx:
+        from ..loader.onnx_hub import resolve_hf_repo_onnx
+
+        discovered = resolve_hf_repo_onnx(
+            value,
+            revision=revision,
+            cache_dir=cache_dir,
+            token=token,
+        )
+        if discovered is not None:
+            return ModelInput(
+                kind=ModelInputKind.HUB_ONNX,
+                raw=value,
+                local_path=str(discovered.local_path),
+                hf_id=discovered.repo_id,
+                artifact_path=discovered.filename,
+                revision=discovered.revision,
+            )
+        return mi
     if mi.kind is not ModelInputKind.HUB_ONNX:
         return mi
 
@@ -222,7 +247,13 @@ def resolve_model_input(
     from ..loader.onnx_hub import resolve_hf_onnx_path
 
     local = resolve_hf_onnx_path(value, revision=revision, cache_dir=cache_dir, token=token)
-    return replace(mi, local_path=str(local))
+    parts = [part for part in value.split("/") if part]
+    return replace(
+        mi,
+        local_path=str(local),
+        artifact_path="/".join(parts[2:]),
+        revision=revision,
+    )
 
 
 __all__ = [

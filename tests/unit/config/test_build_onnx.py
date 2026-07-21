@@ -255,6 +255,30 @@ class TestGenerateBuildConfigOnnxPath:
         assert config.quant is None
         assert config.compile is None
 
+    def test_quantized_onnx_preserves_explicit_fp16_conversion(self, tmp_path) -> None:
+        """Pre-quantized integer weights do not suppress requested FP16 float conversion."""
+        onnx_file = tmp_path / "quantized.onnx"
+        onnx_file.write_bytes(b"fake")
+
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+            patch("winml.modelkit.onnx.is_quantized_onnx", return_value=True),
+            patch(
+                "winml.modelkit.sysinfo.resolve_check_device_ep",
+                return_value=("cpu", ["cpu"], ["CPUExecutionProvider"]),
+            ),
+        ):
+            config = generate_onnx_build_config(
+                str(onnx_file),
+                device="cpu",
+                precision="fp16",
+            )
+
+        assert config.skip_optimize is True
+        assert config.quant is not None
+        assert config.quant.mode == "fp16"
+        assert config.compile is None
+
     def test_compiled_onnx_skips_all(self, tmp_path) -> None:
         """Compiled ONNX (EPContext) sets quant=None and compile=None."""
         onnx_file = tmp_path / "compiled.onnx"

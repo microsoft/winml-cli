@@ -22,6 +22,7 @@ from winml.modelkit.inference import TASK_REGISTRY
 # Private helpers under test
 from winml.modelkit.inference.tasks import (
     _masked_mean_pool,
+    _postprocess_inpainting,
     _postprocess_segmentation,
     _postprocess_sentence_similarity,
 )
@@ -177,3 +178,14 @@ class TestSegmentationRegistry:
 
     def test_semantic_alias(self) -> None:
         assert TASK_REGISTRY["semantic-segmentation"].postprocess is _postprocess_segmentation
+
+
+class TestInpaintingRegistry:
+    def test_requires_image_and_mask(self) -> None:
+        spec = TASK_REGISTRY["inpainting"]
+        assert [field.name for field in spec.user_inputs] == ["image", "mask"]
+        assert all(field.required for field in spec.user_inputs)
+        assert spec.mapping.pipe_input == ["image", "mask"]
+
+    def test_has_png_postprocess(self) -> None:
+        assert TASK_REGISTRY["inpainting"].postprocess is _postprocess_inpainting

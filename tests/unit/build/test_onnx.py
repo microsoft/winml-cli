@@ -363,6 +363,25 @@ class TestBuildOnnxPreQuantized:
         assert "quantize" in result.stages_completed
         mock_onnx_pipeline["quantize"].assert_called_once()
 
+    def test_pre_quantized_preserves_explicit_fp16_conversion(
+        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config, mock_onnx_pipeline
+    ) -> None:
+        """QDQ/QOperator graphs still convert their remaining float tensors to FP16."""
+        mock_onnx_pipeline["is_quantized_onnx"].return_value = True
+        sample_onnx_config.quant.mode = "fp16"
+
+        result = build_onnx_model(
+            fake_onnx,
+            config=sample_onnx_config,
+            output_dir=tmp_path / "output",
+        )
+
+        assert "optimize" in result.stages_skipped
+        assert "quantize" in result.stages_completed
+        assert "quantize" not in result.stages_skipped
+        mock_onnx_pipeline["optimize"].assert_not_called()
+        mock_onnx_pipeline["quantize"].assert_called_once()
+
     def test_pre_quantized_skips_optimize_and_quantize(
         self, tmp_path: Path, fake_onnx: Path, sample_onnx_config, mock_onnx_pipeline
     ) -> None:

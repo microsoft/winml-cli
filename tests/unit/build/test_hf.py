@@ -836,6 +836,25 @@ class TestBuildHfPreQuantized:
         mock_pipeline["optimize"].assert_not_called()
         mock_pipeline["quantize"].assert_not_called()
 
+    def test_post_export_qdq_preserves_explicit_fp16_conversion(
+        self, tmp_path: Path, sample_config, mock_pipeline
+    ) -> None:
+        """QDQ/QOperator exports still convert their remaining float tensors to FP16."""
+        mock_pipeline["is_quantized_onnx"].return_value = True
+        sample_config.quant.mode = "fp16"
+
+        result = build_hf_model(
+            config=sample_config,
+            output_dir=tmp_path / "output",
+            pytorch_model=mock_pipeline["model"],
+        )
+
+        assert "optimize" in result.stages_skipped
+        assert "quantize" in result.stages_completed
+        assert "quantize" not in result.stages_skipped
+        mock_pipeline["optimize"].assert_not_called()
+        mock_pipeline["quantize"].assert_called_once()
+
     def test_post_export_qdq_still_exports(
         self, tmp_path: Path, sample_config, mock_pipeline
     ) -> None:
