@@ -1,0 +1,44 @@
+{
+  "export": {
+    "opset_version": 17,
+    "batch_size": 1,
+    "export_params": true,
+    "do_constant_folding": true,
+    "verbose": false,
+    "dynamo": false,
+    "enable_hierarchy_tags": true,
+    "clean_onnx": false,
+    "hierarchy_tag_format": "full",
+    "input_tensors": [
+      {
+        "name": "input_values",
+        "dtype": "float32",
+        "shape": [
+          1,
+          16000
+        ],
+        "value_range": [
+          -1,
+          1
+        ]
+      }
+    ],
+    "output_tensors": [
+      {
+        "name": "logits"
+      }
+    ]
+  },
+  "optim": {},
+  "quant": {
+    "precision": "fp16",
+    "op_types_to_quantize": null,
+    "nodes_to_exclude": null
+  },
+  "compile": null,
+  "loader": {
+    "task": "automatic-speech-recognition",
+    "model_class": "AutoModelForCTC",
+    "model_type": "wav2vec2"
+  }
+}

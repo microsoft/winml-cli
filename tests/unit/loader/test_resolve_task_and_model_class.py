@@ -117,3 +117,44 @@ class TestUserModelClassEdgeCases:
         # Task is normalized (unlike the user-task path which preserves the original)
         assert r.task == "fill-mask"
         assert r.source == TaskSource.USER_CLASS
+
+
+class TestCTCModelClassResolution:
+    """CTC ASR models resolve to AutoModelForCTC, not AutoModelForSpeechSeq2Seq.
+
+    When automatic-speech-recognition maps to multiple candidate classes,
+    passing model_type enables Optimum to select the correct class per
+    architecture family.
+    """
+
+    @pytest.mark.parametrize(
+        "model_type,arch_name",
+        [
+            ("wav2vec2", "Wav2Vec2ForCTC"),
+            ("hubert", "HubertForCTC"),
+            ("data2vec-audio", "Data2VecAudioForCTC"),
+        ],
+    )
+    def test_ctc_architecture_resolves_to_auto_model_for_ctc(self, model_type, arch_name):
+        """ForCTC architectures resolve to AutoModelForCTC via model_type."""
+        config = MagicMock()
+        config.model_type = model_type
+        config.architectures = [arch_name]
+        config._name_or_path = ""
+
+        r = resolve_task(config)
+
+        assert r.task == "automatic-speech-recognition"
+        assert r.model_class.__name__ == "AutoModelForCTC"
+
+    def test_whisper_still_resolves_to_speech_seq2seq(self):
+        """Non-CTC ASR models (Whisper) still get AutoModelForSpeechSeq2Seq."""
+        config = MagicMock()
+        config.model_type = "whisper"
+        config.architectures = ["WhisperForConditionalGeneration"]
+        config._name_or_path = ""
+
+        r = resolve_task(config)
+
+        assert r.task == "automatic-speech-recognition"
+        assert r.model_class.__name__ == "AutoModelForSpeechSeq2Seq"
