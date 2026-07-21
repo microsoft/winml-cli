@@ -35,11 +35,13 @@ dependencies = [
   # winml.modelkit.__init__.)
   "pyarrow==23.0.1",
   "diffusers>=0.36",
+  "einops>=0.8",
   "evaluate>=0.4.6",
   "fastapi>=0.135.3",
   "hf_xet>=1.1.10",
   "httpx>=0.24.0",
   "jsonschema>=4.23",
+  "kornia>=0.8",
   "mcp>=0.1.0",
   "ml-dtypes>=0.5.3",
   "numpy>=2.2,<2.3",

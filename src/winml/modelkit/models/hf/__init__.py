@@ -37,6 +37,7 @@ from .bart import (
     BartSequenceClassificationIOConfig as _BartSequenceClassificationIOConfig,
 )
 from .bert import BERT_CONFIG
+from .birefnet import BiRefNetIOConfig as _BiRefNetIOConfig  # triggers registration
 from .blip import BLIP_CONFIG
 from .blip import MODEL_CLASS_MAPPING as _BLIP_CLASS_MAPPING
 from .blip import BlipCaptioningIOConfig as _BlipCaptioningIOConfig  # triggers registration

@@ -36,6 +36,22 @@ class _FakeModel(nn.Module):
         self.config = _FakeConfig()
 
 
+class _ArchitectureConfig:
+    """HF config declared by a trusted custom architecture."""
+
+    model_type = "custom-architecture"
+
+
+class _OverwritingConfigModel(nn.Module):
+    """Custom model that replaces its HF config with runtime settings."""
+
+    config_class = _ArchitectureConfig
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.config = object()
+
+
 class TestGetOptimumPatcherModelKwargs:
     """_get_optimum_patcher must pass an explicit mutable model_kwargs dict."""
 
@@ -71,3 +87,25 @@ class TestGetOptimumPatcherModelKwargs:
             f"to patch_model_for_export, got {captured.get('model_kwargs')!r}. "
             "MoE patchers (e.g. ViTPose dataset_index) need a mutable dict."
         )
+
+    def test_uses_architecture_config_class_when_instance_config_is_overwritten(self) -> None:
+        """A custom model's declared HF config still drives patcher lookup."""
+        captured: dict[str, object] = {}
+        fake_onnx_config = MagicMock()
+        fake_onnx_config.patch_model_for_export.return_value = MagicMock()
+
+        def fake_ctor(config: object):
+            captured["config"] = config
+            return fake_onnx_config
+
+        with patch(
+            "optimum.exporters.tasks.TasksManager.get_exporter_config_constructor",
+            return_value=fake_ctor,
+        ) as constructor:
+            HTPExporter._get_optimum_patcher(
+                _OverwritingConfigModel(),
+                task="image-segmentation",
+            )
+
+        assert isinstance(captured["config"], _ArchitectureConfig)
+        assert constructor.call_args.kwargs["model_type"] == "custom-architecture"

@@ -513,6 +513,21 @@ class HTPExporter:
         model_config = getattr(model, "config", None)
         model_type = getattr(model_config, "model_type", None) if model_config else None
         if not model_type:
+            # Trusted custom-code models occasionally overwrite the
+            # PreTrainedModel config with an internal runtime settings object.
+            # Recover the Hugging Face config from the architecture-declared
+            # config_class so its registered export patcher still applies.
+            config_class = getattr(model.__class__, "config_class", None)
+            if callable(config_class):
+                try:
+                    model_config = config_class()
+                    model_type = getattr(model_config, "model_type", None)
+                except (TypeError, ValueError):
+                    logger.debug(
+                        "Could not instantiate %s.config_class for export patch resolution.",
+                        model.__class__.__name__,
+                    )
+        if not model_type:
             logger.debug("Model has no config.model_type; skipping Optimum patcher.")
             return contextlib.nullcontext()
         if task is None:

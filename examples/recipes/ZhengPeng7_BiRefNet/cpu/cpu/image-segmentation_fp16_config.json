@@ -1,0 +1,65 @@
+{
+  "export": {
+    "opset_version": 17,
+    "batch_size": 1,
+    "export_params": true,
+    "do_constant_folding": true,
+    "verbose": false,
+    "dynamo": false,
+    "enable_hierarchy_tags": true,
+    "clean_onnx": false,
+    "hierarchy_tag_format": "full",
+    "input_tensors": [
+      {
+        "name": "x",
+        "dtype": "float32",
+        "shape": [
+          1,
+          3,
+          1024,
+          1024
+        ],
+        "value_range": [
+          -2.1179039301310043,
+          2.64
+        ]
+      }
+    ],
+    "output_tensors": [
+      {
+        "name": "logits"
+      }
+    ]
+  },
+  "optim": {},
+  "quant": {
+    "mode": "fp16",
+    "samples": 10,
+    "calibration_method": "minmax",
+    "weight_type": "uint8",
+    "activation_type": "uint8",
+    "per_channel": false,
+    "symmetric": false,
+    "weight_symmetric": null,
+    "activation_symmetric": null,
+    "save_calibration": false,
+    "distribution": "uniform",
+    "seed": null,
+    "calibration_load_path": null,
+    "calibration_save_path": null,
+    "op_types_to_quantize": null,
+    "nodes_to_exclude": null,
+    "task": "image-segmentation",
+    "model_id": "ZhengPeng7/BiRefNet",
+    "model_type": "SegformerForSemanticSegmentation",
+    "fp16_keep_io_types": true,
+    "fp16_op_block_list": null
+  },
+  "compile": null,
+  "loader": {
+    "task": "image-segmentation",
+    "model_class": "AutoModelForImageSegmentation",
+    "model_type": "SegformerForSemanticSegmentation",
+    "trust_remote_code": true
+  }
+}

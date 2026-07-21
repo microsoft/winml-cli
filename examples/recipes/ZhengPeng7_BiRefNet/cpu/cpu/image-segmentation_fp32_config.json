@@ -1,0 +1,43 @@
+{
+  "export": {
+    "opset_version": 17,
+    "batch_size": 1,
+    "export_params": true,
+    "do_constant_folding": true,
+    "verbose": false,
+    "dynamo": false,
+    "enable_hierarchy_tags": true,
+    "clean_onnx": false,
+    "hierarchy_tag_format": "full",
+    "input_tensors": [
+      {
+        "name": "x",
+        "dtype": "float32",
+        "shape": [
+          1,
+          3,
+          1024,
+          1024
+        ],
+        "value_range": [
+          -2.1179039301310043,
+          2.64
+        ]
+      }
+    ],
+    "output_tensors": [
+      {
+        "name": "logits"
+      }
+    ]
+  },
+  "optim": {},
+  "quant": null,
+  "compile": null,
+  "loader": {
+    "task": "image-segmentation",
+    "model_class": "AutoModelForImageSegmentation",
+    "model_type": "SegformerForSemanticSegmentation",
+    "trust_remote_code": true
+  }
+}
