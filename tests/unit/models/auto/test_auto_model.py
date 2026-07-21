@@ -207,6 +207,16 @@ class TestWinMLAutoModelFactory:
             expected["wp_logits"],
         )
 
+    def test_mgp_str_wrapper_requires_pixel_values(self):
+        from winml.modelkit.models.winml.image_to_text import (
+            WinMLModelForMgpstrSceneTextRecognition,
+        )
+
+        model = object.__new__(WinMLModelForMgpstrSceneTextRecognition)
+
+        with pytest.raises(ValueError, match="requires 'pixel_values'"):
+            model.forward()
+
     @pytest.mark.parametrize(
         "task,model_type,expected_class_name",
         [

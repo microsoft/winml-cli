@@ -35,7 +35,7 @@ from ...export import register_onnx_overwrite
 
 
 @register_onnx_overwrite("mgp-str", "image-to-text", library_name="transformers")
-class MgpstrImage2TextOnnxConfig(MgpstrOnnxConfig):
+class MgpstrImage2TextOnnxConfig(MgpstrOnnxConfig):  # type: ignore[misc]
     """MGP-STR ONNX config bound to the ``image-to-text`` task.
 
     The 3-head ``(char_logits, bpe_logits, wp_logits)`` output contract and

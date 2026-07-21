@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from .base import WinMLPreTrainedModel
 
@@ -16,16 +16,27 @@ class WinMLModelForMgpstrSceneTextRecognition(WinMLPreTrainedModel):
 
     main_input_name = "pixel_values"
 
-    def forward(self, pixel_values: Any, **_kwargs: Any) -> Any:
+    def forward(self, **kwargs: Any) -> Any:
         """Run the ONNX graph and return its ordered three-head logits tuple."""
         from transformers.models.mgp_str.modeling_mgp_str import MgpstrModelOutput
 
+        try:
+            pixel_values = kwargs.pop("pixel_values")
+        except KeyError as exc:
+            raise ValueError("MGP-STR inference requires 'pixel_values'.") from exc
+
         outputs = self._run_inference(self._format_inputs(pixel_values=pixel_values))
         return MgpstrModelOutput(
-            logits=(
-                outputs["char_logits"],
-                outputs["bpe_logits"],
-                outputs["wp_logits"],
+            # Transformers types this heterogeneous three-head tuple as a
+            # one-item FloatTensor tuple even though that contradicts its
+            # runtime MGP-STR contract.
+            logits=cast(
+                "Any",
+                (
+                    outputs["char_logits"],
+                    outputs["bpe_logits"],
+                    outputs["wp_logits"],
+                ),
             )
         )
 
