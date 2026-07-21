@@ -77,9 +77,7 @@ def _require_npu() -> None:
         pytest.skip("No NPU detected via PDH")
 
 
-def _assert_hw_monitor_section(
-    data: dict, device_kind: str, *, require_utilization: bool = True
-) -> None:
+def _assert_hw_monitor_section(data: dict, device_kind: str) -> None:
     """Assert the ``hw_monitor`` section is present and well-formed.
 
     Checks the section emitted by HWMonitor when --monitor is passed:
@@ -95,8 +93,7 @@ def _assert_hw_monitor_section(
     else:
         assert hw["device_kind"] == device_kind
         assert hw["adapter_luid"] is not None
-        if require_utilization:
-            assert hw[device_kind]["mean_pct"] > 0
+        assert hw[device_kind]["mean_pct"] > 0
 
 
 def _build_perf_args(
@@ -153,7 +150,6 @@ def _assert_monitor_result(
     device: str,
     device_kind: str | None = None,
     ep: str | None = None,
-    require_utilization: bool = True,
 ) -> None:
     """Assert a monitored perf run produced the expected device + hw_monitor data.
 
@@ -161,7 +157,7 @@ def _assert_monitor_result(
     measured, and delegates the hw_monitor checks to
     :func:`_assert_hw_monitor_section`. ``device_kind`` defaults to ``device``
     when not given (only differs for cases like VitisAI where ``--device`` and
-    the monitored hardware diverge). ``require_utilization`` is forwarded.
+    the monitored hardware diverge).
     """
     if device_kind is None:
         device_kind = device
@@ -169,7 +165,7 @@ def _assert_monitor_result(
     assert data["latency_ms"]["mean"] > 0
     if ep is not None:
         assert data["benchmark_info"]["ep"] == ep
-    _assert_hw_monitor_section(data, device_kind, require_utilization=require_utilization)
+    _assert_hw_monitor_section(data, device_kind)
 
 
 # ===========================================================================
@@ -424,8 +420,7 @@ class _PerfBenchmarkSuite:
 
         assert output_file.exists(), f"Output file not created: {output_file}"
         data = json.loads(output_file.read_text())
-        # Tiny synthetic fixture: below PDH utilization-publish floor.
-        _assert_monitor_result(data, device="gpu", require_utilization=False)
+        _assert_monitor_result(data, device="gpu")
 
     def test_benchmark_npu_monitor(self, tmp_path: Path, model_arg: str):
         """Benchmark on NPU with --monitor.
@@ -450,8 +445,7 @@ class _PerfBenchmarkSuite:
 
         assert output_file.exists(), f"Output file not created: {output_file}"
         data = json.loads(output_file.read_text())
-        # Tiny synthetic fixture: below PDH utilization-publish floor.
-        _assert_monitor_result(data, device="npu", require_utilization=False)
+        _assert_monitor_result(data, device="npu")
 
     def test_benchmark_auto(self, tmp_path: Path, model_arg: str):
         """Benchmark with --device auto.
@@ -551,8 +545,7 @@ class _PerfBenchmarkSuite:
 
         assert output_file.exists()
         data = json.loads(output_file.read_text())
-        # Tiny synthetic fixture: below PDH utilization-publish floor.
-        _assert_monitor_result(data, device="gpu", ep=EP_ALIASES[ep], require_utilization=False)
+        _assert_monitor_result(data, device="gpu", ep=EP_ALIASES[ep])
 
     @pytest.mark.parametrize("ep", NPU_EPS)
     def test_benchmark_ep_device_npu(self, ep: str, tmp_path: Path, model_arg: str):
@@ -578,8 +571,7 @@ class _PerfBenchmarkSuite:
 
         assert output_file.exists()
         data = json.loads(output_file.read_text())
-        # Tiny synthetic fixture: below PDH utilization-publish floor.
-        _assert_monitor_result(data, device="npu", ep=EP_ALIASES[ep], require_utilization=False)
+        _assert_monitor_result(data, device="npu", ep=EP_ALIASES[ep])
 
 
 # ===========================================================================
@@ -647,9 +639,7 @@ class TestPerfHuggingFace:
         assert output_file.exists()
         data = json.loads(output_file.read_text())
         assert data["benchmark_info"]["ep"] == EP_ALIASES[ep]
-        # Not all EPs bump PDH GPU-engine counters (OpenVINO routes via its own
-        # compute path); validate structure only, not utilization magnitude.
-        _assert_monitor_result(data, device="gpu", require_utilization=False)
+        _assert_monitor_result(data, device="gpu")
 
     @pytest.mark.parametrize("ep", NPU_EPS)
     def test_benchmark_ep_npu(self, ep: str, tmp_path: Path, model_arg: str):
@@ -673,9 +663,7 @@ class TestPerfHuggingFace:
         assert output_file.exists()
         data = json.loads(output_file.read_text())
         assert data["benchmark_info"]["ep"] == EP_ALIASES[ep]
-        # Not all EPs bump PDH NPU-engine counters reliably for short runs;
-        # validate structure only, not utilization magnitude.
-        _assert_monitor_result(data, device="npu", require_utilization=False)
+        _assert_monitor_result(data, device="npu")
 
 
 # ===========================================================================
