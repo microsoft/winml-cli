@@ -64,9 +64,6 @@ class _GraphIndex:
         for name, initializer in initializers.items():
             shapes.setdefault(name, tuple(int(dim) for dim in initializer.dims))
 
-        for initializer in initializers.values():
-            onnx.numpy_helper.to_array(initializer)
-
         return cls(
             producers=producers,
             consumers=consumers,
@@ -285,13 +282,10 @@ def _split_boundaries(
     if input_shape is None or len(node.output) == 0:
         return None
 
-    axis_input_index = 2 if len(node.input) > 2 else None
-    axis_values, axis_conflict = _single_attribute_or_input_ints(
-        index, node, "axis", axis_input_index
-    )
-    if axis_conflict or (axis_values is not None and len(axis_values) != 1):
+    axis_value = _attribute(node, "axis", 0)
+    if not isinstance(axis_value, (int, np.integer)):
         return None
-    axis = axis_values[0] if axis_values is not None else 0
+    axis = int(axis_value)
     if axis < -len(input_shape) or axis >= len(input_shape):
         return None
     axis %= len(input_shape)
