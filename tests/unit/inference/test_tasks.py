@@ -187,14 +187,13 @@ class TestInpaintingRegistry:
         assert all(field.required for field in spec.user_inputs)
         assert spec.mapping.pipe_input == ["image", "mask"]
 
-    def test_mask_description_defers_polarity_to_runtime_contract(self) -> None:
+    def test_mask_description_defines_canonical_caller_polarity(self) -> None:
         mask = next(
             field for field in TASK_REGISTRY["inpainting"].user_inputs if field.name == "mask"
         )
 
-        assert "runtime contract" in mask.description
-        assert "non-zero pixels are replaced" not in mask.description
-        assert "zero pixels are replaced" not in mask.description
+        assert "nonzero pixels identify holes" in mask.description
+        assert "replaced region" in mask.description
 
     def test_has_png_postprocess(self) -> None:
         assert TASK_REGISTRY["inpainting"].postprocess is _postprocess_inpainting

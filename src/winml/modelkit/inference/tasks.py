@@ -304,7 +304,7 @@ TASK_REGISTRY: dict[str, TaskInputSpec] = {
                 name="mask",
                 type="image",
                 required=True,
-                description="Binary mask; hole polarity is defined by the runtime contract",
+                description="Binary mask; nonzero pixels identify holes (the replaced region)",
             ),
         ],
         mapping=PipelineMapping(pipe_input=["image", "mask"]),

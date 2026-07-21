@@ -76,6 +76,43 @@ class TestWinMLInpaintingPipeline:
         )
         np.testing.assert_array_equal(np.asarray(output), pixels)
 
+    @pytest.mark.parametrize(
+        ("mask_semantics", "model_hole_value", "model_background_value"),
+        [
+            pytest.param("nonzero-is-hole", 1.0, 0.0, id="model-nonzero-is-hole"),
+            pytest.param("zero-is-hole", 0.0, 1.0, id="model-zero-is-hole"),
+        ],
+    )
+    def test_maps_canonical_caller_hole_to_model_mask_semantics(
+        self,
+        mask_semantics: str,
+        model_hole_value: float,
+        model_background_value: float,
+    ) -> None:
+        runtime = {
+            **_LAMA_RUNTIME,
+            "options": {**_LAMA_RUNTIME["options"], "mask_semantics": mask_semantics},
+        }
+        model = _EchoInpaintingModel()
+        pipeline = WinMLInpaintingPipeline(model, runtime_config=runtime)  # type: ignore[arg-type]
+        caller_mask = np.array([[0, 255], [0, 0]], dtype=np.uint8)
+
+        pipeline(
+            {
+                "image": Image.new("RGB", (2, 2)),
+                "mask": Image.fromarray(caller_mask, mode="L"),
+            }
+        )
+
+        model_mask = model.inputs["edit_region"][0, 0]
+        assert model_mask[0, 1] == model_hole_value
+        np.testing.assert_array_equal(
+            model_mask[[0, 1, 1], [0, 0, 1]],
+            np.full(3, model_background_value, dtype=np.float32),
+        )
+        model_holes = model_mask > 0 if mask_semantics == "nonzero-is-hole" else model_mask == 0
+        np.testing.assert_array_equal(model_holes, caller_mask > 0)
+
     def test_requires_image_and_mask_tensor_roles(self) -> None:
         model = _EchoInpaintingModel()
         model.io_config = {

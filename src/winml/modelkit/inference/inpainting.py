@@ -20,6 +20,13 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class _InpaintingContract:
+    """Model-side ONNX tensor contract for the inpainting adapter.
+
+    Caller masks use the public canonical convention where nonzero pixels are
+    holes. ``mask_semantics`` declares how those same holes are encoded in the
+    model's ONNX mask input.
+    """
+
     image_input_name: str
     mask_input_name: str
     output_name: str
@@ -81,7 +88,8 @@ class _InpaintingContract:
         mask_semantics = options["mask_semantics"]
         if mask_semantics not in {"nonzero-is-hole", "zero-is-hole"}:
             raise ValueError(
-                "Inpainting mask_semantics must be 'nonzero-is-hole' or 'zero-is-hole'."
+                "Inpainting mask_semantics describes the model-side ONNX mask tensor and "
+                "must be 'nonzero-is-hole' or 'zero-is-hole'."
             )
         for name in ("image_input_name", "mask_input_name", "output_name"):
             if not isinstance(options[name], str) or not options[name].strip():
@@ -102,9 +110,11 @@ class _InpaintingContract:
 class WinMLInpaintingPipeline:
     """Prepare an image/mask pair and postprocess a direct ONNX result.
 
-    Tensor roles, color order, value ranges, mask polarity, and output semantics
-    come from a checked build/runtime contract. ONNX shape metadata is used only
-    to validate that explicit contract and determine spatial dimensions.
+    The public mask input always uses nonzero pixels for holes. Tensor roles,
+    color order, value ranges, model-side ONNX mask polarity, and output
+    semantics come from a checked build/runtime contract. ONNX shape metadata
+    is used only to validate that explicit contract and determine spatial
+    dimensions.
     """
 
     def __init__(
@@ -177,6 +187,7 @@ class WinMLInpaintingPipeline:
         return np.ascontiguousarray(pixels.transpose(2, 0, 1)[None, ...])
 
     def _prepare_mask(self, mask: Image.Image, size: tuple[int, int]) -> np.ndarray:
+        """Convert a canonical nonzero-is-hole caller mask to the ONNX contract."""
         grayscale = np.asarray(mask.convert("L").resize(size, Image.Resampling.NEAREST))
         binary = (grayscale > 0).astype(np.float32)
         if self._contract.mask_semantics == "zero-is-hole":
