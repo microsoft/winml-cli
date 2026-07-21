@@ -22,7 +22,7 @@ $ winml export [options]
 | `--output` | `-o` | path | *(required)* | Output ONNX file path (e.g., `model.onnx`). |
 | `--with-report/--no-with-report` | | flag | `false` | Generate full export reports: Markdown, JSON, and a console tree. |
 | `--hierarchy/--no-hierarchy` | | flag | `true` | Preserve `hierarchy_tag` metadata in ONNX nodes (use `--no-hierarchy` for a clean ONNX file). |
-| `--dynamo/--no-dynamo` | | flag | `false` | Enable PyTorch 2.9+ dynamo export for richer node metadata. (Experimental — currently logs a warning.) |
+| `--dynamo/--no-dynamo` | | flag | `true` | Use PyTorch's TorchDynamo ONNX exporter (default) for richer per-node module metadata. Pass `--no-dynamo` for the legacy TorchScript exporter (QNN-safe). |
 | `--torch-module` | | string | `None` | Comma-separated list of `torch.nn` module types to include in hierarchy (e.g., `LayerNorm,Embedding`). (Experimental — currently logs a warning.) |
 | `--input-specs` | | path | `None` | JSON file with explicit input tensor specifications. Auto-generated when omitted. |
 | `--task` | `-t` | string | `None` | Override auto-detected Hugging Face task (e.g., `image-feature-extraction`). |
@@ -114,9 +114,12 @@ winml export -m microsoft/resnet-50 -o resnet50_clean.onnx --no-hierarchy
 - **Dynamic dimensions can reduce QNN optimization coverage.** Static batch and
   static shapes remain the default because some QNN fusions require them. Use
   `--dynamic-axes` only when downstream runtime scenarios need variable sizes.
-- **`--dynamo` and `--torch-module` are experimental.** Both flags emit a
-  warning and have no effect in the current release. Do not rely on them in
-  automated pipelines yet.
+- **Dynamo is the default exporter.** `winml export` uses PyTorch's TorchDynamo
+  ONNX exporter, which records rich per-node module metadata that drives the
+  hierarchy tags. Pass `--no-dynamo` to select the legacy TorchScript exporter,
+  which remains the QNN-safe choice for hand exports targeting static shapes.
+- **`--torch-module` is experimental.** The flag emits a warning and has no
+  effect in the current release. Do not rely on it in automated pipelines yet.
 - **Output directory must be writable.** The command creates parent directories
   automatically, but will fail with a permission error on read-only paths.
 - **Model weights are downloaded to the Hugging Face cache.** Set `HF_HOME` or

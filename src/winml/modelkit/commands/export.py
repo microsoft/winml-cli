@@ -116,9 +116,10 @@ def _warn_partial_composite(completed: list[Path]) -> None:
 @click.option(
     "--dynamo/--no-dynamo",
     "dynamo",
-    default=False,
+    default=True,
     show_default=True,
-    help="Enable PyTorch 2.9+ dynamo export for rich node metadata",
+    help="Use PyTorch's TorchDynamo ONNX exporter (default). "
+    "Pass --no-dynamo for the legacy TorchScript exporter (QNN-safe).",
 )
 @click.option(
     "--torch-module",
@@ -206,8 +207,8 @@ def export(
         # Clean ONNX output (no hierarchy metadata, for optimization)
         winml export -m prajjwal1/bert-tiny -o model.onnx --clean-onnx
 
-        # Use PyTorch dynamo export (for rich node metadata)
-        winml export -m prajjwal1/bert-tiny -o model.onnx --dynamo
+        # Use the legacy TorchScript exporter (dynamo is the default)
+        winml export -m prajjwal1/bert-tiny -o model.onnx --no-dynamo
 
         # Include torch.nn modules in hierarchy
         winml export -m prajjwal1/bert-tiny -o model.onnx --torch-module LayerNorm,Embedding
@@ -322,15 +323,6 @@ def export(
             "torch_module parameter (%s) is not supported by export_onnx(). "
             "TODO: Add torch_module support to export_onnx() and WinMLExportConfig.",
             torch_module,
-        )
-    if dynamo:
-        console.print(
-            "[yellow]Warning:[/yellow] --dynamo is not yet supported in export_onnx(). "
-            "export_onnx() defaults to dynamo=False for QNN compatibility."
-        )
-        logger.warning(
-            "dynamo=True is not supported by export_onnx(). "
-            "TODO: Add dynamo support to WinMLExportConfig if needed."
         )
 
     def _run_component_export(component_task: str | None, out_path: Path) -> None:

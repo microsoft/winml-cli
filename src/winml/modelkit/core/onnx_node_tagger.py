@@ -18,6 +18,7 @@ CARDINAL RULES:
 
 from __future__ import annotations
 
+import ast
 from collections import defaultdict
 from typing import TYPE_CHECKING, ClassVar
 
@@ -311,3 +312,163 @@ def create_node_tagger_from_hierarchy(
         Configured ONNXNodeTagger instance
     """
     return ONNXNodeTagger(hierarchy_data, enable_operation_fallback)
+
+
+class DynamoMetadataTagger:
+    """ONNX node tagger that reads PyTorch dynamo-native module metadata.
+
+    The dynamo ONNX exporter (``torch.onnx.export(dynamo=True)``) records the
+    originating module hierarchy directly on each node's ``metadata_props``:
+
+    - ``pkg.torch.onnx.name_scopes``: ``repr()`` of a list of cumulative module
+      paths, e.g. ``['', 'blocks.0', 'blocks.0.lin', 'linear']``. The first
+      entry is the root (``""``); the last entry is the node's own name.
+    - ``pkg.torch.onnx.class_hierarchy``: ``repr()`` of a parallel list of
+      fully-qualified class names, e.g.
+      ``['pkg.Net', 'pkg.Blk', 'torch.nn.modules.linear.Linear',
+      'aten.linear.default']``. It is aligned element-for-element with
+      ``name_scopes``; the last entry is the aten op target.
+
+    This tagger converts that metadata into the same ``/Root/Child.N/Leaf`` tag
+    contract produced by :class:`ONNXNodeTagger`, so downstream consumers
+    (inspector, per-module benchmarking, optimizer scoping) are unchanged.
+
+    NO HARDCODED LOGIC: only generic dynamo metadata keys are read; no model,
+    architecture, or operator names are special-cased.
+    """
+
+    NAME_SCOPES_KEY: ClassVar[str] = "pkg.torch.onnx.name_scopes"
+    CLASS_HIERARCHY_KEY: ClassVar[str] = "pkg.torch.onnx.class_hierarchy"
+    UNKNOWN_ROOT_TAG: ClassVar[str] = "/UnknownModel"
+
+    def __init__(self) -> None:
+        """Initialize the dynamo metadata tagger."""
+        # Derived from node metadata during tag_all_nodes; kept for parity with
+        # ONNXNodeTagger and as the guaranteed non-empty fallback tag.
+        self.model_root_tag = self.UNKNOWN_ROOT_TAG
+
+    @staticmethod
+    def _node_metadata(node: onnx.NodeProto) -> dict[str, str]:
+        """Collect a node's metadata_props into a plain dict."""
+        return {prop.key: prop.value for prop in node.metadata_props}
+
+    @staticmethod
+    def _parse_list(raw: str | None) -> list[str]:
+        """Parse a ``repr(list)`` metadata value into a list of strings.
+
+        Returns an empty list when the value is missing or malformed so callers
+        degrade to the root fallback instead of raising.
+        """
+        if not raw:
+            return []
+        try:
+            value = ast.literal_eval(raw)
+        except (ValueError, SyntaxError):
+            return []
+        if not isinstance(value, (list, tuple)):
+            return []
+        return [str(item) for item in value]
+
+    @staticmethod
+    def _short_class(fq_class: str) -> str:
+        """Reduce a fully-qualified class name to its final component.
+
+        ``torch.nn.modules.linear.Linear`` -> ``Linear``.
+        """
+        return fq_class.rsplit(".", 1)[-1] if fq_class else ""
+
+    def _tag_from_metadata(self, class_hierarchy: list[str], name_scopes: list[str]) -> str | None:
+        """Build a ``/Root/Child.N/Leaf`` tag from aligned dynamo metadata lists.
+
+        The last element of each list is the node's own op target / node name
+        (not a module level) and is dropped. For every remaining level the
+        class supplies the segment name; when the cumulative scope's final
+        component is a pure index (a ``ModuleList``/``Sequential`` child) it is
+        folded in as ``Class.N`` to mirror the TorchScript tagger's indexed
+        module tags.
+        """
+        classes = class_hierarchy[:-1]
+        scopes = name_scopes[:-1]
+
+        segments: list[str] = []
+        for cls, scope in zip(classes, scopes, strict=False):
+            short = self._short_class(cls)
+            if not short:
+                continue
+            local = scope.rsplit(".", 1)[-1] if scope else ""
+            if local.isdigit():
+                segments.append(f"{short}.{local}")
+            else:
+                segments.append(short)
+
+        if not segments:
+            return None
+        return "/" + "/".join(segments)
+
+    def _extract_model_root_tag(self, onnx_model: onnx.ModelProto) -> str:
+        """Derive the model root tag from the first usable class hierarchy."""
+        for node in onnx_model.graph.node:
+            metadata = self._node_metadata(node)
+            classes = self._parse_list(metadata.get(self.CLASS_HIERARCHY_KEY))
+            if len(classes) >= 2:
+                root = self._short_class(classes[0])
+                if root:
+                    return f"/{root}"
+        return self.UNKNOWN_ROOT_TAG
+
+    def tag_all_nodes(self, onnx_model: onnx.ModelProto) -> dict[str, str]:
+        """Tag all ONNX nodes from dynamo metadata.
+
+        Returns:
+            Dictionary mapping node names to hierarchy tags (NO EMPTY TAGS).
+        """
+        self.model_root_tag = self._extract_model_root_tag(onnx_model)
+
+        tagged_nodes: dict[str, str] = {}
+        for node in onnx_model.graph.node:
+            node_name = node.name or f"{node.op_type}_{id(node)}"
+            metadata = self._node_metadata(node)
+            classes = self._parse_list(metadata.get(self.CLASS_HIERARCHY_KEY))
+            scopes = self._parse_list(metadata.get(self.NAME_SCOPES_KEY))
+            tag = self._tag_from_metadata(classes, scopes) if classes and scopes else None
+            tagged_nodes[node_name] = tag or self.model_root_tag
+
+        # Verify no empty tags (same contract as ONNXNodeTagger).
+        for node_name, tag in tagged_nodes.items():
+            assert tag, f"Empty tag generated for node {node_name}"
+            assert tag.strip(), f"Whitespace-only tag generated for node {node_name}"
+            assert tag.startswith("/"), f"Invalid tag format: {tag}"
+
+        return tagged_nodes
+
+    def get_tagging_statistics(self, onnx_model: onnx.ModelProto) -> dict[str, int]:
+        """Get statistics about the tagging process.
+
+        Keys mirror :meth:`ONNXNodeTagger.get_tagging_statistics` so the shared
+        console/report/metadata writers render consistent output regardless of
+        which tagger produced the tags.
+        """
+        total_nodes = len(onnx_model.graph.node)
+        metadata_matches = 0
+        unique_tags: set[str] = set()
+
+        for node in onnx_model.graph.node:
+            metadata = self._node_metadata(node)
+            classes = self._parse_list(metadata.get(self.CLASS_HIERARCHY_KEY))
+            scopes = self._parse_list(metadata.get(self.NAME_SCOPES_KEY))
+            tag = self._tag_from_metadata(classes, scopes) if classes and scopes else None
+            if tag:
+                metadata_matches += 1
+                unique_tags.add(tag)
+
+        root_fallbacks = total_nodes - metadata_matches
+        return {
+            "total_nodes": total_nodes,
+            "root_nodes": root_fallbacks,
+            "scoped_nodes": metadata_matches,
+            "unique_scopes": len(unique_tags),
+            "direct_matches": metadata_matches,
+            "parent_matches": 0,
+            "operation_matches": 0,
+            "root_fallbacks": root_fallbacks,
+        }

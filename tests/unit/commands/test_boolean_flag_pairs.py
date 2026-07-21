@@ -150,7 +150,6 @@ class TestDefaultValues:
             (compile, "embed", False),
             (eval_cmd, "streaming", False),
             (export, "with_report", False),
-            (export, "dynamo", False),
             (inspect, "hierarchy", False),
             (perf, "rebuild", False),
             (perf, "ignore_cache", False),
@@ -172,6 +171,7 @@ class TestDefaultValues:
             (eval_cmd, "optimize", True),
             (eval_cmd, "analyze", True),
             (export, "hierarchy", True),
+            (export, "dynamo", True),
         ],
     )
     def test_default_value(self, command, param_name: str, expected_default) -> None:
