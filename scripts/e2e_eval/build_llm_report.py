@@ -1,11 +1,10 @@
-"""Generate a self-contained HTML report for a CPU LLM benchmark result."""
+"""Generate a self-contained HTML report for an LLM evaluation result."""
 
 from __future__ import annotations
 
 import argparse
 import html
 import json
-import statistics
 import sys
 from pathlib import Path
 from typing import Any
@@ -13,8 +12,8 @@ from typing import Any
 import jsonschema
 
 
-RESULT_LABEL = "llm_cpu_benchmark.json"
-SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "llm_benchmark.schema.json"
+RESULT_LABEL = "llm_eval_result.json"
+SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "llm_eval_result.schema.json"
 
 
 def _escape(value: Any) -> str:
@@ -23,13 +22,6 @@ def _escape(value: Any) -> str:
 
 def _number(value: Any, digits: int = 2) -> str:
     return "N/A" if value is None else f"{float(value):,.{digits}f}"
-
-
-def _cv(values: list[float]) -> float | None:
-    if len(values) < 2:
-        return None
-    mean = statistics.fmean(values)
-    return statistics.pstdev(values) / mean * 100 if mean else None
 
 
 def _bar_rows(points: list[dict[str, Any]], key: str, digits: int) -> str:
@@ -49,54 +41,45 @@ def _bar_rows(points: list[dict[str, Any]], key: str, digits: int) -> str:
 
 
 def render_html(result: dict[str, Any], title: str | None = None) -> str:
-    """Render one CPU benchmark result as a standalone HTML document."""
+    """Render one benchmark result as a standalone HTML document."""
     points = result.get("context_sweep") or []
-    benchmark = result.get("benchmark") or {}
-    environment = result.get("environment") or {}
+    hardware = result.get("hardware") or {}
     run = result.get("run") or {}
-    heading = title or f'{result.get("model", "LLM")} CPU Benchmark'
+    device = str(result.get("device") or "unknown").upper()
+    ep = str(result.get("ep") or "config").upper()
+    heading = title or f'{result.get("model", "LLM")} {device} Benchmark'
 
     summary_rows = []
-    detail_sections = []
     for point in points:
-        raw = point.get("raw") or {}
-        decode_samples = [float(value) for value in raw.get("decode_tokens_per_second") or []]
+        inter_token = point.get("inter_token_latency_ms") or {}
+        vram = point.get("vram") or {}
+        process_mem = point.get("process_mem") or {}
         summary_rows.append(
             "<tr>"
             f'<td>{int(point["context_length_tokens"]):,}</td>'
             f'<td>{int(point["prompt_tokens"]):,}</td>'
             f'<td>{int(point["generated_tokens"]):,}</td>'
-            f'<td><strong>{_number(point.get("decode_tokens_per_second"), 2)}</strong></td>'
+            f'<td><strong>{_number(point.get("tokens_per_second"), 2)}</strong></td>'
             f'<td>{_number(point.get("prefill_tokens_per_second"), 2)}</td>'
             f'<td>{_number(point.get("ttft_s"), 3)}</td>'
-            f'<td>{_number(point.get("generation_compute_s"), 3)}</td>'
-            f'<td>{_number(_cv(decode_samples), 2)}</td>'
-            f'<td>{_number(point.get("process_cpu_avg_pct"), 1)}</td>'
-            f'<td>{_number(point.get("process_memory_avg_mb"), 0)}</td>'
+            f'<td>{_number(point.get("total_elapsed_s"), 3)}</td>'
+            f'<td>{_number(inter_token.get("avg"), 2)}</td>'
+            f'<td>{_number(point.get("gpu_util_avg_pct"), 1)}</td>'
+            f'<td>{_number(vram.get("used_avg_mb"), 0)}</td>'
+            f'<td>{_number(point.get("process_cpu_util_avg_pct"), 1)}</td>'
+            f'<td>{_number(process_mem.get("used_avg_mb"), 0)}</td>'
             "</tr>"
-        )
-        detail_sections.append(
-            '<article class="detail">'
-            f'<h3>{int(point["context_length_tokens"]):,}-token context</h3>'
-            '<div class="metrics">'
-            f'<div><span>Decode samples</span><strong>{_escape(", ".join(f"{value:.2f}" for value in decode_samples))}</strong></div>'
-            f'<div><span>TTFT samples (ms)</span><strong>{_escape(", ".join(f"{float(value):.1f}" for value in raw.get("ttft_ms") or []))}</strong></div>'
-            f'<div><span>Generation samples (ms)</span><strong>{_escape(", ".join(f"{float(value):.1f}" for value in raw.get("generation_compute_ms") or []))}</strong></div>'
-            f'<div><span>Resource samples</span><strong>{int(point.get("resource_sample_count") or 0):,}</strong></div>'
-            "</div></article>"
         )
 
     status = "PASS" if run.get("passed") else "FAIL"
-    errors = run.get("errors") or []
+    error = run.get("error")
     error_html = (
-        '<section class="notice fail"><strong>Errors</strong><ul>'
-        + "".join(f"<li>{_escape(error)}</li>" for error in errors)
-        + "</ul></section>"
-        if errors
+        f'<section class="notice fail"><strong>Error</strong><p>{_escape(error)}</p></section>'
+        if error
         else ""
     )
     total_ram_gb = (
-        float(environment["total_ram_mb"]) / 1024 if environment.get("total_ram_mb") else None
+        float(hardware["total_ram_mb"]) / 1024 if hardware.get("total_ram_mb") else None
     )
 
     css = """
@@ -143,22 +126,21 @@ footer { color:var(--muted); text-align:center; font-size:11px; }
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{_escape(heading)}</title><style>{css}</style></head>
 <body><main class="wrap">
-<header><h1>{_escape(heading)}</h1><div class="pills"><span class="pill">{_escape(result.get("model"))}</span><span class="pill">{_escape(result.get("runtime"))}</span><span class="pill">{_escape(result.get("precision"))}</span><span class="pill">CPU</span><span class="pill status{' fail' if status == 'FAIL' else ''}">{status}</span></div></header>
+<header><h1>{_escape(heading)}</h1><div class="pills"><span class="pill">{_escape(result.get("model"))}</span><span class="pill">{_escape(result.get("runtime"))}</span><span class="pill">{_escape(result.get("quantization"))}</span><span class="pill">{_escape(device)}</span><span class="pill">{_escape(ep)}</span><span class="pill status{' fail' if status == 'FAIL' else ''}">{status}</span></div></header>
 {error_html}
-<section class="grid"><div class="fact"><span>CPU</span><strong>{_escape(environment.get("cpu"))}</strong></div><div class="fact"><span>Logical cores</span><strong>{_escape(environment.get("logical_cores"))}</strong></div><div class="fact"><span>System RAM</span><strong>{_number(total_ram_gb, 1)} GB</strong></div><div class="fact"><span>Sampling</span><strong>{int(benchmark.get("iterations") or 0)} timed / {int(benchmark.get("warmup") or 0)} warmup</strong></div></section>
-<section class="section"><h2>Summary</h2><div class="table-wrap"><table><thead><tr><th>Context</th><th>Prompt tok</th><th>Generated</th><th>Decode tok/s</th><th>Prefill tok/s</th><th>TTFT s</th><th>Generation s</th><th>Decode CV %</th><th>Process CPU %</th><th>Process RAM MB</th></tr></thead><tbody>{''.join(summary_rows)}</tbody></table></div></section>
-<section class="section"><h2>Scaling</h2><div class="charts"><article class="chart"><h3>Decode throughput (higher is better)</h3>{_bar_rows(points, 'decode_tokens_per_second', 2)}</article><article class="chart"><h3>TTFT (lower is better)</h3>{_bar_rows(points, 'ttft_s', 3)}</article></div></section>
-<section class="section"><h2>Raw samples</h2><div class="details">{''.join(detail_sections)}</div></section>
-<section class="section"><h2>Method</h2><ul class="notes"><li>Each context uses deterministic repeated filler text tokenized to the exact target length.</li><li>Decode throughput excludes the first token. TTFT includes prefill and first-token compute.</li><li>Generation time excludes model loading, prompt encoding, warmup, detokenization, and report I/O.</li><li>Process CPU and RSS are full perf-process-tree averages. CPU percentage may exceed 100% on multicore systems.</li></ul></section>
+<section class="grid"><div class="fact"><span>CPU</span><strong>{_escape(hardware.get("cpu_name"))}</strong></div><div class="fact"><span>Logical cores</span><strong>{_escape(hardware.get("cpu_logical_cores"))}</strong></div><div class="fact"><span>System RAM</span><strong>{_number(total_ram_gb, 1)} GB</strong></div><div class="fact"><span>OS</span><strong>{_escape(result.get("os"))}</strong></div></section>
+<section class="section"><h2>Summary</h2><div class="table-wrap"><table><thead><tr><th>Context</th><th>Prompt tok</th><th>Generated</th><th>Decode tok/s</th><th>Prefill tok/s</th><th>TTFT s</th><th>Total s</th><th>Inter-token ms</th><th>Accelerator %</th><th>Device memory MB</th><th>Process CPU %</th><th>Process RAM MB</th></tr></thead><tbody>{''.join(summary_rows)}</tbody></table></div></section>
+<section class="section"><h2>Scaling</h2><div class="charts"><article class="chart"><h3>Decode throughput (higher is better)</h3>{_bar_rows(points, 'tokens_per_second', 2)}</article><article class="chart"><h3>TTFT (lower is better)</h3>{_bar_rows(points, 'ttft_s', 3)}</article></div></section>
+<section class="section"><h2>Method</h2><ul class="notes"><li>Each context uses deterministic repeated filler text tokenized to the exact target length.</li><li>Decode throughput excludes the first token. TTFT includes prefill and first-token compute.</li><li>Total time excludes model loading, prompt encoding, warmup, detokenization, and report I/O.</li><li>Resource metrics cover warmup and timed generations. Process CPU may exceed 100% on multicore systems.</li><li>The schema field gpu_util_avg_pct represents the selected accelerator for both GPU and NPU runs.</li></ul></section>
 <footer>Generated from {_escape(RESULT_LABEL)}</footer>
 </main></body></html>"""
 
 
 def _validate_result(result: dict[str, Any]) -> None:
-    import jsonschema
+    from jsonschema import Draft202012Validator, FormatChecker
 
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
-    jsonschema.validate(result, schema)
+    Draft202012Validator(schema, format_checker=FormatChecker()).validate(result)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

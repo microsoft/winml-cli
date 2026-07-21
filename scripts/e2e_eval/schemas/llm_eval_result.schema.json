@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/gim-home/ModelKitArtifacts/main/site/e2e_model_coverage_result/llm_eval_result.schema.json",
+  "title": "LLM Evaluation Result",
+  "description": "Structured benchmark result for a single large-language-model inference configuration swept across a range of context lengths.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "model",
+    "task",
+    "runtime",
+    "device",
+    "run_timestamp",
+    "context_sweep"
+  ],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "model": { "type": "string" },
+    "model_type": { "type": ["string", "null"] },
+    "task": { "type": "string" },
+    "runtime": { "type": "string" },
+    "quantization": { "type": ["string", "null"] },
+    "device": { "type": "string" },
+    "ep": { "type": ["string", "null"] },
+    "os": { "type": ["string", "null"] },
+    "gpu_memory_gb": { "type": ["number", "null"] },
+    "machine_label": { "type": ["string", "null"] },
+    "hardware": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "gpu_name": { "type": "string" },
+        "cpu_name": { "type": "string" },
+        "total_vram_mb": { "type": "number" },
+        "total_ram_mb": { "type": "number" },
+        "cpu_logical_cores": { "type": "integer" }
+      }
+    },
+    "group": { "type": ["string", "null"] },
+    "priority": { "type": ["string", "null"] },
+    "eval_types_run": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "run_timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed"],
+      "properties": {
+        "passed": { "type": "boolean" },
+        "elapsed_s": { "type": ["number", "null"], "minimum": 0 },
+        "exit_code": { "type": ["integer", "null"] },
+        "timeout": { "type": ["boolean", "null"] },
+        "error": { "type": ["string", "null"] },
+        "command": { "type": ["string", "null"] },
+        "stdout_output": { "type": ["string", "null"] },
+        "stderr_output": { "type": ["string", "null"] }
+      }
+    },
+    "context_sweep": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/contextPoint" }
+    }
+  },
+  "$defs": {
+    "contextPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "context_length_tokens",
+        "prompt_tokens",
+        "tokens_per_second",
+        "total_elapsed_s",
+        "ttft_s",
+        "gpu_util_avg_pct",
+        "vram",
+        "process_cpu_util_avg_pct",
+        "process_mem"
+      ],
+      "properties": {
+        "context_length_tokens": { "type": "integer", "minimum": 0 },
+        "context_length_label": { "type": ["string", "null"] },
+        "prompt_tokens": { "type": "integer", "minimum": 0 },
+        "generated_tokens": { "type": ["integer", "null"], "minimum": 0 },
+        "tokens_per_second": { "type": "number", "minimum": 0 },
+        "prefill_tokens_per_second": { "type": ["number", "null"], "minimum": 0 },
+        "total_elapsed_s": { "type": "number", "minimum": 0 },
+        "ttft_s": { "type": "number", "minimum": 0 },
+        "inter_token_latency_ms": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "avg": { "type": "number", "minimum": 0 },
+            "p50": { "type": "number", "minimum": 0 },
+            "p90": { "type": "number", "minimum": 0 },
+            "p95": { "type": "number", "minimum": 0 },
+            "p99": { "type": "number", "minimum": 0 },
+            "min": { "type": "number", "minimum": 0 },
+            "max": { "type": "number", "minimum": 0 },
+            "std": { "type": "number", "minimum": 0 }
+          }
+        },
+        "gpu_util_avg_pct": { "type": "number", "minimum": 0 },
+        "vram": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["util_avg_pct", "used_avg_mb"],
+          "properties": {
+            "util_avg_pct": { "type": "number", "minimum": 0 },
+            "used_avg_mb": { "type": "number", "minimum": 0 }
+          }
+        },
+        "process_cpu_util_avg_pct": { "type": "number", "minimum": 0 },
+        "process_mem": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["util_avg_pct", "used_avg_mb"],
+          "properties": {
+            "util_avg_pct": { "type": "number", "minimum": 0 },
+            "used_avg_mb": { "type": "number", "minimum": 0 }
+          }
+        }
+      }
+    }
+  }
+}

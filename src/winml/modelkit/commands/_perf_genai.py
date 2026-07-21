@@ -40,6 +40,7 @@ from ..session import (
     GenaiSession,
     GenaiSessionError,
     GenerationConfig,
+    HWMonitor,
 )
 from ..utils.constants import (
     EP_NAME_TO_ALIAS,
@@ -60,6 +61,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 RUNTIME_TYPE = "winml-genai"
+_HW_POLL_INTERVAL_MS = 200
 
 # Built-in benchmark prompt.  Mirrored by the ``--prompt`` CLI default and the
 # ``GenaiPerfConfig.prompt`` field default (a test asserts the two stay in sync).
@@ -159,6 +161,7 @@ class GenaiPerfConfig:
     warmup: int = 2
     compile: bool = False
     compile_timeout: int = 300
+    monitor: bool = False
     context_length: int | None = None
     output_path: Path | None = None
 
@@ -220,10 +223,11 @@ class GenaiBenchmarkResult:
     raw_decode_tokens_per_sec: list[float] = field(default_factory=list)
     raw_tpot_ms: list[float] = field(default_factory=list)
     raw_total_ms: list[float] = field(default_factory=list)
+    hw_monitor: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to a JSON-serializable dictionary."""
-        return {
+        result = {
             "benchmark_info": {
                 "runtime": RUNTIME_TYPE,
                 "bundle_dir": str(self.config.bundle_dir),
@@ -231,6 +235,7 @@ class GenaiBenchmarkResult:
                 "device": self.config.device,
                 "compile": self.config.compile,
                 "compile_timeout": self.config.compile_timeout,
+                "monitor": self.config.monitor,
                 "iterations": self.config.iterations,
                 "warmup": self.config.warmup,
                 "max_new_tokens": self.config.max_new_tokens,
@@ -265,6 +270,9 @@ class GenaiBenchmarkResult:
                 "total_ms": [round(v, 3) for v in self.raw_total_ms],
             },
         }
+        if self.hw_monitor is not None:
+            result["hw_monitor"] = self.hw_monitor
+        return result
 
 
 # =============================================================================
@@ -382,8 +390,34 @@ class GenaiPerfBenchmark:
             self._config.iterations,
             self._config.max_new_tokens,
         )
-        samples = [self._time_one_generation(session, gen_config) for _ in range(total_runs)]
-        return self._aggregate(samples)
+        hw_metrics: dict[str, Any] | None = None
+        if self._config.monitor and HWMonitor.is_available():
+            monitor_device = self._monitor_device()
+            ep_name = normalize_ep_name(self._config.ep) if self._config.ep is not None else None
+            with HWMonitor(
+                poll_interval_ms=_HW_POLL_INTERVAL_MS,
+                device=monitor_device,
+                ep_name=ep_name,
+            ) as hw:
+                samples = [
+                    self._time_one_generation(session, gen_config) for _ in range(total_runs)
+                ]
+            hw_metrics = hw.to_dict()
+        else:
+            if self._config.monitor:
+                logger.warning("HWMonitor is unavailable; generation resource metrics omitted")
+            samples = [self._time_one_generation(session, gen_config) for _ in range(total_runs)]
+
+        result = self._aggregate(samples)
+        result.hw_monitor = hw_metrics
+        return result
+
+    def _monitor_device(self) -> str:
+        """Return the concrete device whose adapter counters should be sampled."""
+        device = (self._config.device or "").lower()
+        if device in ("cpu", "gpu", "npu"):
+            return device
+        return self._session_device() or "auto"
 
     def _time_one_generation(
         self,

@@ -128,6 +128,16 @@ class HWMonitor:
         """Peak shared system memory used by device in MB."""
         return self._pdh.peak_memory_shared_mb
 
+    @property
+    def mean_memory_local_mb(self) -> float:
+        """Mean dedicated device memory in MB."""
+        return self._pdh.mean_memory_local_mb
+
+    @property
+    def mean_memory_shared_mb(self) -> float:
+        """Mean shared system memory used by device in MB."""
+        return self._pdh.mean_memory_shared_mb
+
     # --- CPU metrics ---
 
     @property
@@ -140,6 +150,11 @@ class HWMonitor:
         """Peak CPU utilization % during monitoring period."""
         return self._pdh.peak_cpu_pct
 
+    @property
+    def mean_process_cpu_pct(self) -> float:
+        """Mean process CPU utilization on a 0..N*100 multicore scale."""
+        return self._pdh.mean_process_cpu_pct
+
     # --- RAM metrics ---
 
     @property
@@ -151,6 +166,11 @@ class HWMonitor:
     def peak_ram_used_mb(self) -> float:
         """Peak committed RAM in MB during monitoring period."""
         return self._pdh.peak_ram_used_mb
+
+    @property
+    def mean_ram_used_mb(self) -> float:
+        """Mean committed RAM in MB during monitoring period."""
+        return self._pdh.mean_ram_used_mb
 
     # --- Availability ---
 
@@ -182,14 +202,18 @@ class HWMonitor:
             "adapter_luid": self._pdh.adapter_luid,
             "cpu": {
                 "mean_pct": round(self._pdh.mean_cpu_pct, 2),
+                "process_mean_pct": round(self._pdh.mean_process_cpu_pct, 2),
                 "peak_pct": round(self._pdh.peak_cpu_pct, 2),
                 "sample_count": self._pdh.cpu_sample_count,
             },
             "ram": {
+                "mean_mb": round(self._pdh.mean_ram_used_mb, 2),
                 "used_mb": round(self._pdh.ram_used_mb, 2),
                 "peak_mb": round(self._pdh.peak_ram_used_mb, 2),
             },
             "device_memory": {
+                "local_mean_mb": round(self._pdh.mean_memory_local_mb, 2),
+                "shared_mean_mb": round(self._pdh.mean_memory_shared_mb, 2),
                 "local_peak_mb": round(self._pdh.peak_memory_local_mb, 2),
                 "shared_peak_mb": round(self._pdh.peak_memory_shared_mb, 2),
             },

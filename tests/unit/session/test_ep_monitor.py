@@ -435,6 +435,23 @@ class TestPdhPoller:
         for val in result:
             assert isinstance(val, float)
 
+    def test_mean_resource_metrics(self, monkeypatch):
+        from winml.modelkit.session.monitor._pdh import PdhPoller
+
+        mib = 1024 * 1024
+        poller = PdhPoller.__new__(PdhPoller)
+        poller._lock = threading.Lock()
+        poller._memory_local_bytes = [100 * mib, 300 * mib]
+        poller._memory_shared_bytes = [200 * mib, 400 * mib]
+        poller._cpu_samples = [25.0, 75.0]
+        poller._ram_used_bytes = [1000 * mib, 3000 * mib]
+        monkeypatch.setattr("winml.modelkit.session.monitor._pdh.os.cpu_count", lambda: 8)
+
+        assert poller.mean_memory_local_mb == pytest.approx(200.0)
+        assert poller.mean_memory_shared_mb == pytest.approx(300.0)
+        assert poller.mean_process_cpu_pct == pytest.approx(400.0)
+        assert poller.mean_ram_used_mb == pytest.approx(2000.0)
+
     def test_poll_loop_takes_max_util_across_engines(self):
         """`_poll_loop` must reduce per-engine ``util_*`` samples with max.
 

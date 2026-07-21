@@ -643,6 +643,15 @@ class PdhPoller:
         return max(valid) / (1024 * 1024)
 
     @property
+    def mean_memory_local_mb(self) -> float:
+        """Mean dedicated device memory in MB during polling period."""
+        with self._lock:
+            valid = [s for s in self._memory_local_bytes if s is not None]
+        if not valid:
+            return 0.0
+        return statistics.mean(valid) / (1024 * 1024)
+
+    @property
     def peak_memory_shared_mb(self) -> float:
         """Peak shared system memory used by device in MB during polling period."""
         with self._lock:
@@ -650,6 +659,15 @@ class PdhPoller:
         if not valid:
             return 0.0
         return max(valid) / (1024 * 1024)
+
+    @property
+    def mean_memory_shared_mb(self) -> float:
+        """Mean shared system memory used by device in MB during polling period."""
+        with self._lock:
+            valid = [s for s in self._memory_shared_bytes if s is not None]
+        if not valid:
+            return 0.0
+        return statistics.mean(valid) / (1024 * 1024)
 
     @property
     def peak_memory_mb(self) -> float:
@@ -702,6 +720,11 @@ class PdhPoller:
         return statistics.mean(valid)
 
     @property
+    def mean_process_cpu_pct(self) -> float:
+        """Mean process CPU utilization on a 0..N*100 multicore scale."""
+        return self.mean_cpu_pct * float(os.cpu_count() or 1)
+
+    @property
     def peak_cpu_pct(self) -> float:
         """Peak CPU utilization % during polling period."""
         with self._lock:
@@ -717,6 +740,15 @@ class PdhPoller:
             if not self._ram_used_bytes:
                 return 0.0
             return self._ram_used_bytes[-1] / (1024 * 1024)
+
+    @property
+    def mean_ram_used_mb(self) -> float:
+        """Mean process working-set RAM in MB during polling period."""
+        with self._lock:
+            valid = [s for s in self._ram_used_bytes if s is not None]
+        if not valid:
+            return 0.0
+        return statistics.mean(valid) / (1024 * 1024)
 
     @property
     def peak_ram_used_mb(self) -> float:

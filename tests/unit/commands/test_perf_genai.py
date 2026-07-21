@@ -310,6 +310,48 @@ class TestMetricMath:
         assert result.ttft_min_ms == pytest.approx(1000.0)
         assert result.ttft_max_ms == pytest.approx(4000.0)
 
+    def test_monitor_wraps_generation_and_serializes_metrics(self, monkeypatch) -> None:
+        metrics = {
+            "device_kind": "npu",
+            "npu": {"mean_pct": 42.0, "sample_count": 5},
+        }
+        lifecycle: list[str] = []
+
+        class FakeHWMonitor:
+            @classmethod
+            def is_available(cls) -> bool:
+                return True
+
+            def __init__(self, **kwargs: object) -> None:
+                lifecycle.append(f"init:{kwargs['device']}")
+
+            def __enter__(self):
+                lifecycle.append("enter")
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                lifecycle.append("exit")
+
+            def to_dict(self) -> dict:
+                return metrics
+
+        monkeypatch.setattr(perf_genai, "HWMonitor", FakeHWMonitor)
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("x"),
+            ep="qnn",
+            device="npu",
+            warmup=0,
+            iterations=1,
+            max_new_tokens=2,
+            monitor=True,
+        )
+        session = _FakeSession([_timing(0.4, 0.6, [0.4])])
+
+        result = GenaiPerfBenchmark(cfg, session=session).run()
+
+        assert lifecycle == ["init:npu", "enter", "exit"]
+        assert result.to_dict()["hw_monitor"] == metrics
+
 
 # ---------------------------------------------------------------------------
 # GenaiBenchmarkResult.to_dict
@@ -401,6 +443,7 @@ class TestResultToDict:
         assert info["generated_tokens"] == 4
         assert info["compile"] is True
         assert info["compile_timeout"] == 120
+        assert info["monitor"] is False
         assert info["apply_template"] is True
         assert info["prompt"] == "Benchmark this exact prompt"
         assert set(d["ttft_ms"]) == {"mean", "min", "max", "p50", "p90", "p95", "p99"}
@@ -816,6 +859,18 @@ class TestCliDispatch:
         cfg = capture_run["config"]
         assert cfg.compile is True
         assert cfg.compile_timeout == 120
+
+    def test_monitor_flag_forwarded(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        bundle = _make_bundle(tmp_path)
+        result = runner.invoke(
+            perf,
+            ["-m", str(bundle), "--runtime", "winml-genai", "--monitor"],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].monitor is True
 
     def test_warns_and_ignores_winml_only_flags(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
