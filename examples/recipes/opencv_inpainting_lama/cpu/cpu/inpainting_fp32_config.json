@@ -6,5 +6,18 @@
   "compile": null,
   "loader": {
     "task": "inpainting"
+  },
+  "runtime": {
+    "pipeline": "inpainting",
+    "options": {
+      "image_input_name": "image",
+      "mask_input_name": "mask",
+      "output_name": "output",
+      "image_color_order": "bgr",
+      "image_value_range": [0, 1],
+      "mask_semantics": "nonzero-is-hole",
+      "output_color_order": "bgr",
+      "output_value_range": [0, 255]
+    }
   }
 }

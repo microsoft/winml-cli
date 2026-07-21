@@ -945,8 +945,9 @@ def build(
                 no_compile=no_compile,
             )
             if model:
-                is_single_config = not isinstance(config_or_configs, list)
-                direct_onnx = is_single_config and config_or_configs.export is None
+                direct_onnx = (
+                    not isinstance(config_or_configs, list) and config_or_configs.export is None
+                )
                 source_model_input = resolve_model_input(
                     model,
                     discover_repo_onnx=direct_onnx,
@@ -2237,6 +2238,7 @@ def _build_onnx_pipeline(
         source="onnx",
         model_id=source_model_id,
         task=config.loader.task,
+        runtime=config.runtime.to_dict() if config.runtime is not None else None,
         input_onnx=str(onnx_path),
         final_artifact=final_path.name,
         extras={

@@ -317,6 +317,26 @@ class TestResolveHfRepoOnnx:
         ):
             assert resolve_hf_repo_onnx("org/private") is None
 
+    def test_offline_mode_falls_back_to_existing_hf_loader(self) -> None:
+        """Optional discovery preserves the established cached/offline HF path."""
+        from huggingface_hub.errors import OfflineModeIsEnabled
+
+        with patch(
+            "huggingface_hub.HfApi.model_info",
+            side_effect=OfflineModeIsEnabled("offline"),
+        ):
+            assert resolve_hf_repo_onnx("microsoft/resnet-50") is None
+
+    def test_connection_failure_falls_back_to_existing_hf_loader(self) -> None:
+        """A connectivity-only preflight failure is deferred to the normal loader."""
+        from requests.exceptions import ConnectionError
+
+        with patch(
+            "huggingface_hub.HfApi.model_info",
+            side_effect=ConnectionError("network unavailable"),
+        ):
+            assert resolve_hf_repo_onnx("microsoft/resnet-50") is None
+
     def test_multiple_onnx_requires_explicit_path(self) -> None:
         siblings = [
             type("Sibling", (), {"rfilename": name})() for name in ("a.onnx", "nested/b.onnx")

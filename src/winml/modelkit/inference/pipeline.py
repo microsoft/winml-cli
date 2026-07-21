@@ -38,11 +38,17 @@ _HF_PIPELINE_TASK_MAP: dict[str, str] = {
 }
 
 
-def _create_inpainting_pipeline(model: WinMLPreTrainedModel) -> Any:
+def _create_inpainting_pipeline(
+    model: WinMLPreTrainedModel | WinMLCompositeModel,
+) -> Any:
     """Create the built-in direct-ONNX inpainting adapter."""
+    from ..models.winml.base import WinMLPreTrainedModel
     from .inpainting import WinMLInpaintingPipeline
 
-    return WinMLInpaintingPipeline(model)
+    if not isinstance(model, WinMLPreTrainedModel):
+        raise TypeError("The inpainting runtime pipeline requires a single ONNX model.")
+
+    return WinMLInpaintingPipeline(model, runtime_config=model.runtime_config)
 
 
 _CUSTOM_PIPELINE_FACTORIES = {

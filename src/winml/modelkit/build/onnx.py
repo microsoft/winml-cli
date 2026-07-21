@@ -307,6 +307,8 @@ def build_onnx_model(
         timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
         elapsed_seconds=round(elapsed, 3),
         final_artifact=final_path.name,
+        task=config.loader.task,
+        runtime=config.runtime.to_dict() if config.runtime is not None else None,
         stages=manifest_stages,
         analyze_iterations=analyze_iters,
         analyze_unsupported_node_count=analyze_unsupported,

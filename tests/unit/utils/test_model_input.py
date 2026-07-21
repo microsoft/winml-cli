@@ -315,3 +315,17 @@ class TestResolveModelInput:
         assert mi.hf_id == "org/repo"
         assert mi.artifact_path == "nested/model.onnx"
         assert mi.revision == "abc123"
+
+    def test_optional_bare_repo_discovery_falls_back_offline(self) -> None:
+        """Offline discovery leaves a normal HF ID available to cached loaders."""
+        from huggingface_hub.errors import OfflineModeIsEnabled
+
+        with patch(
+            "huggingface_hub.HfApi.model_info",
+            side_effect=OfflineModeIsEnabled("offline"),
+        ):
+            mi = resolve_model_input("microsoft/resnet-50", discover_repo_onnx=True)
+
+        assert mi.kind is ModelInputKind.HF_ID
+        assert mi.hf_id == "microsoft/resnet-50"
+        assert mi.local_path is None

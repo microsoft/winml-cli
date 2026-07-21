@@ -56,7 +56,9 @@ def resolve_hf_repo_onnx(
     revision from changing between discovery and download.
     """
     from huggingface_hub import HfApi
-    from huggingface_hub.errors import HfHubHTTPError
+    from huggingface_hub.errors import HfHubHTTPError, OfflineModeIsEnabled
+    from requests.exceptions import ConnectionError as RequestsConnectionError
+    from requests.exceptions import Timeout as RequestsTimeout
 
     try:
         info = HfApi().model_info(
@@ -65,7 +67,7 @@ def resolve_hf_repo_onnx(
             files_metadata=False,
             token=token,
         )
-    except HfHubHTTPError as exc:
+    except (HfHubHTTPError, OfflineModeIsEnabled, RequestsConnectionError, RequestsTimeout) as exc:
         # Discovery is an optional preflight before the existing Transformers
         # path. Auth, gated-repo, missing-repo, and transient Hub HTTP errors
         # must therefore fall through so the authoritative downstream loader

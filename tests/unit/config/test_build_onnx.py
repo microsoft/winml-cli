@@ -315,6 +315,23 @@ class TestGenerateBuildConfigOnnxPath:
     # Config structure invariants
     # -----------------------------------------------------------------
 
+    def test_runtime_contract_round_trips_in_onnx_override(self, tmp_path) -> None:
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake")
+        runtime = {"pipeline": "inpainting", "options": {"contract": "test"}}
+
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=True),
+            patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
+        ):
+            config = generate_onnx_build_config(
+                onnx_file,
+                task="inpainting",
+                override={"runtime": runtime},
+            )
+
+        assert config.to_dict()["runtime"] == runtime
+
     def test_export_always_none(self, tmp_path) -> None:
         """All ONNX model states produce export=None."""
         onnx_file = tmp_path / "model.onnx"

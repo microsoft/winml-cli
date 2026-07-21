@@ -202,7 +202,7 @@ class WinMLAutoModel:
             logger.info("Skipping build (compiled model or explicit skip). Using original ONNX.")
             # TODO: run analyze_onnx for validation/lint
             winml_class = get_winml_class(None, resolved_task)
-            return winml_class(
+            model = winml_class(
                 onnx_path=onnx_path,
                 config=None,
                 device=device,
@@ -210,6 +210,9 @@ class WinMLAutoModel:
                 ep=ep,
                 provider_options=provider_options,
             )
+            model._build_config = config
+            model._runtime_config = config.runtime.to_dict() if config.runtime is not None else None
+            return model
 
         # Resolve output directory and cache key
         task_abbrev = get_task_abbrev(resolved_task) if resolved_task else "onnx"
@@ -247,7 +250,7 @@ class WinMLAutoModel:
         winml_class = get_winml_class(None, resolved_task)
         logger.info("Creating inference wrapper: %s", winml_class.__name__)
 
-        return winml_class(
+        model = winml_class(
             onnx_path=result.final_onnx_path,
             config=None,  # No HF PretrainedConfig for bare ONNX builds
             device=device,
@@ -255,6 +258,9 @@ class WinMLAutoModel:
             ep=ep,
             provider_options=provider_options,
         )
+        model._build_config = config
+        model._runtime_config = config.runtime.to_dict() if config.runtime is not None else None
+        return model
 
     @classmethod
     def from_pretrained(
@@ -528,6 +534,7 @@ class WinMLAutoModel:
             provider_options=provider_options,
         )
         model._build_config = config  # resolved build config (task, quant, compile)
+        model._runtime_config = config.runtime.to_dict() if config.runtime is not None else None
         return model
 
     @classmethod
