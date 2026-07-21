@@ -766,7 +766,7 @@ class TestRecipeConfigHelpers:
 
 
 class TestBuildJobs:
-    """``_build_jobs`` expands entries into one job per recipe precision variant."""
+    """``_build_jobs`` is NPU-only for recipe/precision expansion."""
 
     def _make_single_recipe(self, recipes_dir: Path, slug: str, task: str, precisions: list[str]):
         model_dir = recipes_dir / slug
@@ -776,27 +776,64 @@ class TestBuildJobs:
                 json.dumps({"eval": {"task": task, "dataset": {"path": "x"}}}), encoding="utf-8"
             )
 
-    def test_recipe_expands_to_one_job_per_precision(self, run_eval, tmp_path):
+    def test_npu_recipe_expands_to_one_job_per_precision(self, run_eval, tmp_path):
         self._make_single_recipe(
             tmp_path, "microsoft_resnet-50", "image-classification", ["fp16", "w8a16"]
         )
         entry = _entry()
-        jobs = run_eval._build_jobs([entry], tmp_path)
+        jobs = run_eval._build_jobs([entry], tmp_path, "npu")
         assert [j.precision for j in jobs] == ["fp16", "w8a16"]
         assert all(j.entry is entry for j in jobs)
 
-    def test_no_recipe_falls_back_to_single_job(self, run_eval, tmp_path):
+    def test_non_npu_ignores_recipe_single_fallback(self, run_eval, tmp_path):
+        # A recipe exists, but non-NPU devices never expand via recipes.
+        self._make_single_recipe(
+            tmp_path, "microsoft_resnet-50", "image-classification", ["fp16", "w8a16"]
+        )
+        entry = _entry()
+        for device in ("cpu", "gpu", "auto"):
+            jobs = run_eval._build_jobs([entry], tmp_path, device)
+            assert len(jobs) == 1
+            assert jobs[0].variant is None
+            assert jobs[0].precision is None
+
+    def test_npu_no_recipe_expands_to_w8a8_and_w8a16(self, run_eval, tmp_path):
         entry = _entry("some/model", "text-classification")
-        jobs = run_eval._build_jobs([entry], tmp_path)
+        jobs = run_eval._build_jobs([entry], tmp_path, "npu")
+        assert [j.precision for j in jobs] == ["w8a8", "w8a16"]
+        assert all(j.variant is None for j in jobs)
+        assert all(j.entry is entry for j in jobs)
+
+    def test_npu_no_recipe_honors_explicit_precision(self, run_eval, tmp_path):
+        # An explicit per-model precision suppresses the w8a8+w8a16 expansion;
+        # fallback_precision stays unset so entry.precision applies at build time.
+        entry = _entry("some/model", "text-classification")
+        entry.precision = "fp16"
+        jobs = run_eval._build_jobs([entry], tmp_path, "npu")
         assert len(jobs) == 1
         assert jobs[0].variant is None
         assert jobs[0].precision is None
 
-    def test_recipes_disabled_yields_fallback_jobs(self, run_eval, tmp_path):
+    def test_non_npu_no_recipe_single_fallback(self, run_eval, tmp_path):
+        entry = _entry("some/model", "text-classification")
+        jobs = run_eval._build_jobs([entry], tmp_path, "cpu")
+        assert len(jobs) == 1
+        assert jobs[0].variant is None
+        assert jobs[0].precision is None
+
+    def test_npu_recipes_disabled_yields_precision_fallback(self, run_eval, tmp_path):
         self._make_single_recipe(tmp_path, "microsoft_resnet-50", "image-classification", ["fp16"])
         entry = _entry()
-        # recipes_dir=None disables recipe discovery entirely.
-        jobs = run_eval._build_jobs([entry], None)
+        # recipes_dir=None disables recipe discovery entirely; NPU still expands
+        # the recipe-less model into the w8a8+w8a16 fallback jobs.
+        jobs = run_eval._build_jobs([entry], None, "npu")
+        assert [j.precision for j in jobs] == ["w8a8", "w8a16"]
+        assert all(j.variant is None for j in jobs)
+
+    def test_non_npu_recipes_disabled_single_fallback(self, run_eval, tmp_path):
+        self._make_single_recipe(tmp_path, "microsoft_resnet-50", "image-classification", ["fp16"])
+        entry = _entry()
+        jobs = run_eval._build_jobs([entry], None, "cpu")
         assert len(jobs) == 1
         assert jobs[0].variant is None
 

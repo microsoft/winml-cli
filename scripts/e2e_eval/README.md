@@ -52,13 +52,17 @@ uv run python scripts/e2e_eval/build_registry.py --dry-run
 ### `run_eval.py` — Run Evaluation (recipe-driven perf + accuracy)
 
 For each filtered model the runner builds the model, runs `winml perf`, and — when
-perf passes — runs `winml eval`. Builds prefer an **authored recipe** under
+perf passes — runs `winml eval`. **Recipes and precision expansion are NPU-only.**
+On NPU, builds prefer an **authored recipe** under
 `examples/recipes/<slug>/<task>_<precision>_config*.json` (built with
 `winml build -c`, once per precision variant that exists, e.g. `fp16` + `w8a16`);
-models without a recipe fall back to `winml config` generation. The runner writes
-one `eval_result.json` per `(model, task, precision)` containing facts only (perf
-output + the winml-eval `metrics`/`dataset`). Delta/verdict grading against the
-PyTorch baseline is done by the report site.
+an NPU model without a recipe falls back to `winml config` and is expanded into
+**two jobs — `w8a8` and `w8a16`** (an explicit per-model `precision` in the
+registry overrides this and builds that single precision instead). On CPU/GPU (and
+`auto`) recipes are ignored entirely and each model builds a single `winml config`
+fallback. The runner writes one `eval_result.json` per `(model, task, precision)`
+containing facts only (perf output + the winml-eval `metrics`/`dataset`).
+Delta/verdict grading against the PyTorch baseline is done by the report site.
 
 ```bash
 # Perf only (default), recipe-driven across precision variants
@@ -101,8 +105,8 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 | `--registry` | `testsets/models_all.json` | Model registry file |
 | `--hf-model` | — | Single model (overrides registry) |
 | `--output-dir` | `eval_results/{date}` | Output directory |
-| `--recipes-dir` | `examples/recipes` | Authored recipe configs; one build per precision variant, `winml config` fallback when a model has none |
-| `--no-recipes` | off | Ignore recipes; build every model via `winml config` |
+| `--recipes-dir` | `examples/recipes` | Authored recipe configs (**NPU only**); one build per precision variant, `winml config` `w8a8`+`w8a16` fallback when an NPU model has none |
+| `--no-recipes` | off | Ignore recipes; build every model via `winml config` (on NPU still expands the `w8a8`+`w8a16` fallback) |
 | `--eval-type` | `perf` | `perf`, `accuracy`, or `both` (perf-gated accuracy) |
 | `--task` | — | Filter by HF task |
 | `--priority` | `P0 P1 P2` | Filter: one or more of `P0`, `P1`, `P2`, `P3` (e.g. `--priority P0 P1`). Pass `P3` explicitly to include P3 models. |
@@ -244,17 +248,23 @@ no re-run.
 
 ### Recipe-driven builds & precision variants
 
+**Recipes and multi-precision expansion apply only when the target device is NPU**
+(`--device npu`). On CPU/GPU (and `auto`) recipes are ignored and every model builds
+a single `winml config` fallback (precision by device policy — CPU/GPU omit
+`--precision`).
+
 A *recipe* is an authored `winml build` config checked into
 `examples/recipes/<slug>/` (slug = HF id with `/` → `_`), named
 `<task>_<precision>_config.json` (single model) or
-`<task>_<precision>_config_<role>.json` (composite, e.g. encoder/decoder). For
-each `(model, task)` the runner builds **every precision variant** present on disk
-(`fp16`, `w8a16`, `w8a8` — discovery is data-driven, so adding a `w8a8` recipe is
-picked up automatically). Each variant becomes its own job and its own
-`eval_result.json`. Models without a recipe fall back to `winml config` generation
-(single precision by device policy). Because recipes set `compile: null`, the build
-is EP-agnostic; the execution provider is applied at `winml perf`/`winml eval` time
-via `--ep`/`--device`.
+`<task>_<precision>_config_<role>.json` (composite, e.g. encoder/decoder). On NPU,
+for each `(model, task)` the runner builds **every precision variant** present on
+disk (`fp16`, `w8a16`, `w8a8` — discovery is data-driven, so adding a `w8a8` recipe
+is picked up automatically). Each variant becomes its own job and its own
+`eval_result.json`. An NPU model **without** a recipe falls back to `winml config`
+and is expanded into **two jobs, `w8a8` and `w8a16`**; an explicit per-model
+`precision` field in the registry overrides this and builds that single precision.
+Because recipes set `compile: null`, the build is EP-agnostic; the execution
+provider is applied at `winml perf`/`winml eval` time via `--ep`/`--device`.
 
 ### Perf-gated accuracy
 
