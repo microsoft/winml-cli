@@ -111,6 +111,7 @@ def _build_perf_args(
     batch_size: int | None = None,
     input_data: Path | None = None,
     op_tracing: str | None = None,
+    iterations_overwrite: int | None = None
 ) -> list[str]:
     """Build the argv list passed to the perf CLI.
 
@@ -118,7 +119,7 @@ def _build_perf_args(
     enough samples to observe utilization) and 3 otherwise (kept tiny for
     e2e speed). Warmup is always 1.
     """
-    iterations = 300 if monitor else 3
+    iterations = iterations_overwrite if iterations_overwrite is not None else (300 if monitor else 3)
     args: list[str] = [
         "-m",
         model_arg,
@@ -421,7 +422,7 @@ class _PerfBenchmarkSuite:
         result = runner.invoke(
             perf,
             _build_perf_args(
-                model_arg=model_arg, output_file=output_file, device="gpu", monitor=True
+                model_arg=model_arg, output_file=output_file, device="gpu", monitor=True, iterations_overwrite=1000
             ),
             obj={},
             catch_exceptions=False,
@@ -546,7 +547,7 @@ class _PerfBenchmarkSuite:
         result = runner.invoke(
             perf,
             _build_perf_args(
-                model_arg=model_arg, output_file=output_file, device="gpu", ep=ep, monitor=True
+                model_arg=model_arg, output_file=output_file, device="gpu", ep=ep, monitor=True, iterations_overwrite=1000
             ),
             obj={},
             catch_exceptions=False,
@@ -740,7 +741,7 @@ class TestPerfHuggingFace:
         result = runner.invoke(
             perf,
             _build_perf_args(
-                model_arg=model_arg, output_file=output_file, device="gpu", ep=ep, monitor=True
+                model_arg=model_arg, output_file=output_file, device="gpu", ep=ep, monitor=True, iterations_overwrite=1000
             ),
             obj={},
             catch_exceptions=False,
