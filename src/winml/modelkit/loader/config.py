@@ -188,10 +188,9 @@ def resolve_loader_config(
         # Caller supplied a pre-loaded config — skip the round-trip.
         pass
     elif model_id is not None:
-        hf_config = AutoConfig.from_pretrained(
-            model_id,
-            trust_remote_code=trust_remote_code,
-        )
+        from ._autoconfig import load_hf_config
+
+        hf_config = load_hf_config(AutoConfig, model_id, trust_remote_code=trust_remote_code)
     elif model_type is not None:
         try:
             hf_config = AutoConfig.for_model(model_type)
