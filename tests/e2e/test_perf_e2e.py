@@ -35,6 +35,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
 import onnx
 import pytest
 from click.testing import CliRunner
@@ -107,6 +108,9 @@ def _build_perf_args(
     memory: bool | None = None,
     verbose: bool = False,
     no_skip_build: bool = False,
+    batch_size: int | None = None,
+    input_data: Path | None = None,
+    op_tracing: str | None = None,
 ) -> list[str]:
     """Build the argv list passed to the perf CLI.
 
@@ -141,6 +145,12 @@ def _build_perf_args(
         args.append("--verbose")
     if no_skip_build:
         args.append("--no-skip-build")
+    if batch_size is not None:
+        args += ["--batch-size", str(batch_size)]
+    if input_data is not None:
+        args += ["--input-data", str(input_data)]
+    if op_tracing is not None:
+        args += ["--op-tracing", op_tracing]
     return args
 
 
@@ -585,6 +595,107 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
     @pytest.fixture
     def model_arg(self, onnx_model_path: Path) -> str:
         return str(onnx_model_path)
+
+    def test_batch_size_cpu(self, tmp_path: Path, onnx_model_path: Path):
+        """--batch-size applies to a model with a dynamic leading dimension."""
+        model = onnx.load(onnx_model_path)
+        for value_info in (*model.graph.input, *model.graph.output):
+            dimensions = value_info.type.tensor_type.shape.dim
+            if dimensions:
+                dimensions[0].ClearField("dim_value")
+                dimensions[0].dim_param = "batch"
+
+        dynamic_model_path = tmp_path / "dynamic_batch.onnx"
+        onnx.save(model, dynamic_model_path)
+        output_file = tmp_path / "perf_batch_size_cpu.json"
+
+        result = CliRunner().invoke(
+            perf,
+            _build_perf_args(
+                model_arg=str(dynamic_model_path),
+                output_file=output_file,
+                device="cpu",
+                batch_size=4,
+                memory=False,
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        data = json.loads(output_file.read_text())
+        assert data["benchmark_info"]["batch_size"] == 4
+        assert data["benchmark_info"]["effective_batch_size"] == 4
+        assert all(shape[0] is None for shape in data["model_info"]["input_shapes"])
+        assert data["throughput"]["samples_per_sec"] > 0
+
+    def test_input_data_cpu(self, tmp_path: Path, onnx_model_path: Path):
+        """--input-data benchmarks named tensors from an NPZ archive on CPU."""
+        model = onnx.load(onnx_model_path)
+        initializer_names = {initializer.name for initializer in model.graph.initializer}
+        arrays = {}
+        for value_info in model.graph.input:
+            if value_info.name in initializer_names:
+                continue
+            tensor_type = value_info.type.tensor_type
+            shape = [dimension.dim_value or 1 for dimension in tensor_type.shape.dim]
+            dtype = onnx.helper.tensor_dtype_to_np_dtype(tensor_type.elem_type)
+            arrays[value_info.name] = np.ones(shape, dtype=dtype)
+
+        input_file = tmp_path / "inputs.npz"
+        np.savez(input_file, **arrays)
+        output_file = tmp_path / "perf_input_data_cpu.json"
+
+        result = CliRunner().invoke(
+            perf,
+            _build_perf_args(
+                model_arg=str(onnx_model_path),
+                output_file=output_file,
+                device="cpu",
+                input_data=input_file,
+                memory=False,
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        data = json.loads(output_file.read_text())
+        assert data["benchmark_info"]["device"] == "cpu"
+        effective_batch = next(iter(arrays.values())).shape[0]
+        assert data["benchmark_info"]["effective_batch_size"] == effective_batch
+        assert data["latency_ms"]["mean"] > 0
+
+    def test_op_tracing_basic_qnn_npu(self, tmp_path: Path, onnx_model_path: Path):
+        """--op-tracing basic produces a QNN NPU operator trace."""
+        require_ep("qnn")
+        _require_npu()
+        output_file = tmp_path / "perf_op_tracing_qnn_npu.json"
+        trace_output = tmp_path / "perf_op_tracing_qnn_npu_op_trace.json"
+
+        result = CliRunner().invoke(
+            perf,
+            _build_perf_args(
+                model_arg=str(onnx_model_path),
+                output_file=output_file,
+                device="npu",
+                ep="qnn",
+                op_tracing="basic",
+                memory=False,
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        assert output_file.exists()
+        assert trace_output.exists()
+        trace = json.loads(trace_output.read_text())
+        assert trace["metadata"]["device"] == "npu"
+        assert trace["metadata"]["ep"] == EP_ALIASES["qnn"]
+        assert trace["metadata"]["tracing_level"] == "basic"
+        assert trace["metadata"]["num_samples"] == 3
+        assert trace["operators"]
 
 
 class TestPerfHuggingFace:
