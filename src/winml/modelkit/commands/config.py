@@ -360,7 +360,11 @@ def config(
 
             # Check composite model registry: (model_type, task) -> multi-config
             pipeline_components = _resolve_composite_model_components(
-                hf_model, model_type, task, trust_remote_code=trust_remote_code
+                hf_model,
+                model_type,
+                task,
+                precision=precision,
+                trust_remote_code=trust_remote_code,
             )
             if pipeline_components:
                 from ..loader.resolution import (
@@ -612,6 +616,7 @@ def _resolve_composite_model_components(
     hf_model: str | None,
     model_type: str | None,
     task: str | None,
+    precision: str = "fp32",
     trust_remote_code: bool = False,
 ) -> dict[str, str] | None:
     """Resolve the composite ``_SUB_MODEL_CONFIG`` for a build, else None.
@@ -626,6 +631,7 @@ def _resolve_composite_model_components(
         hf_model,
         task=task,
         model_type=model_type,
+        precision=precision,
         trust_remote_code=trust_remote_code,
     )
 

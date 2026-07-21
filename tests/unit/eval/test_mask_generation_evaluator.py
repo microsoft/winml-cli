@@ -12,6 +12,8 @@ files cached and are run only in the integration suite -- see
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 from PIL import Image
@@ -21,9 +23,12 @@ from winml.modelkit.eval.mask_generation_evaluator import (
     _TARGET_SIZE,
     WinMLMaskGenerationEvaluator,
     _build_decoder_inputs,
+    _build_encoder_prompt_inputs,
     _build_providers,
     _postprocess_mask,
     _preprocess_image,
+    _resolve_point_prompt_inputs,
+    _select_best_mask,
 )
 
 
@@ -363,6 +368,7 @@ from winml.modelkit.eval.mask_generation_evaluator import (  # noqa: E402
     _postprocess_for_profile,
     _preprocess_for_profile,
     _resolve_profile,
+    _resolve_release_profile,
 )
 
 
@@ -507,3 +513,145 @@ class TestResolveProfile:
         sess = _StubSession([1, 3, "H", "W"])
         prof = _resolve_profile(_cfg("unknown/family"), sess)
         assert prof is SAM3_PROFILE
+
+
+class _PromptNode:
+    def __init__(self, name: str, shape: list[int], node_type: str = "tensor(float)") -> None:
+        self.name = name
+        self.shape = shape
+        self.type = node_type
+
+
+class _PromptSession:
+    def __init__(self, inputs: list[_PromptNode]) -> None:
+        self._inputs = inputs
+
+    def get_inputs(self):
+        return self._inputs
+
+
+class TestEncoderPromptRouting:
+    def test_resolves_float_coordinate_and_label_pair(self) -> None:
+        session = _PromptSession(
+            [
+                _PromptNode("image", [1, 3, 1024, 1024]),
+                _PromptNode("coordinates", [1, 2, 2]),
+                _PromptNode("labels", [1, 2]),
+            ]
+        )
+
+        assert _resolve_point_prompt_inputs(session) == ("coordinates", "labels")
+
+    def test_builds_normalized_point_and_padding(self) -> None:
+        session = _PromptSession(
+            [
+                _PromptNode("image", [1, 3, 1024, 1024]),
+                _PromptNode("coordinates", [1, 2, 2]),
+                _PromptNode("labels", [1, 2]),
+            ]
+        )
+
+        feed = _build_encoder_prompt_inputs(
+            prompt={"point": [160, 120]},
+            prompt_mode="point",
+            session=session,
+            coordinate_name="coordinates",
+            label_name="labels",
+            original_width=640,
+            original_height=480,
+        )
+
+        np.testing.assert_allclose(feed["coordinates"][0, 0], [0.25, 0.25])
+        np.testing.assert_allclose(feed["coordinates"][0, 1], [0.0, 0.0])
+        np.testing.assert_allclose(feed["labels"], [[1.0, -1.0]])
+
+    def test_resolves_preprocessing_from_release_metadata(self, tmp_path) -> None:
+        encoder = tmp_path / "encoder" / "model.onnx"
+        encoder.parent.mkdir()
+        encoder.touch()
+        (encoder.parent / "winml_release_metadata.json").write_text(
+            json.dumps(
+                {
+                    "model_files": {
+                        "graph-a.onnx": {
+                            "inputs": {
+                                "image": {
+                                    "shape": [1, 3, 1024, 1024],
+                                    "dtype": "float32",
+                                    "io_type": "image",
+                                    "value_range": [0.0, 1.0],
+                                },
+                                "coordinates": {
+                                    "shape": [1, 2, 2],
+                                    "dtype": "float32",
+                                },
+                                "labels": {"shape": [1, 2], "dtype": "float32"},
+                            }
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        config = _cfg("unrelated/id")
+        config.model_path = {
+            "image-encoder": str(encoder),
+            "prompt-decoder": str(tmp_path / "decoder.onnx"),
+        }
+        session = _PromptSession(
+            [
+                _PromptNode("image", [1, 3, 1024, 1024]),
+                _PromptNode("coordinates", [1, 2, 2]),
+                _PromptNode("labels", [1, 2]),
+            ]
+        )
+
+        profile = _resolve_release_profile(config, session)
+
+        assert profile.name == "prompt-encoder"
+        assert profile.target_size == 1024
+        assert profile.resize_mode == "direct"
+
+    def test_missing_release_metadata_fails_closed(self, tmp_path) -> None:
+        config = _cfg("unrelated/id")
+        config.model_path = {
+            "image-encoder": str(tmp_path / "encoder.onnx"),
+            "prompt-decoder": str(tmp_path / "decoder.onnx"),
+        }
+        session = _PromptSession(
+            [
+                _PromptNode("image", [1, 3, 1024, 1024]),
+                _PromptNode("coordinates", [1, 2, 2]),
+                _PromptNode("labels", [1, 2]),
+            ]
+        )
+
+        with pytest.raises(ValueError, match="requires persisted release runtime metadata"):
+            _resolve_release_profile(config, session)
+
+    def test_ambiguous_coordinate_inputs_fail_closed(self) -> None:
+        session = _PromptSession(
+            [
+                _PromptNode("coordinates_a", [1, 2, 2]),
+                _PromptNode("coordinates_b", [1, 2, 2]),
+                _PromptNode("labels", [1, 2]),
+            ]
+        )
+
+        with pytest.raises(ValueError, match="incomplete or ambiguous"):
+            _resolve_point_prompt_inputs(session)
+
+    def test_selects_mask_from_rank4_release_layout(self) -> None:
+        masks = np.stack([np.zeros((4, 4), dtype=np.float32), np.ones((4, 4), dtype=np.float32)])[
+            None, ...
+        ]
+        scores = np.array([[0.1, 0.9]], dtype=np.float32)
+
+        np.testing.assert_array_equal(_select_best_mask(masks, scores), np.ones((4, 4)))
+
+    def test_mask_score_candidate_mismatch_fails_closed(self) -> None:
+        with pytest.raises(ValueError, match="candidate count mismatch"):
+            _select_best_mask(
+                np.zeros((1, 2, 4, 4), dtype=np.float32),
+                np.zeros((1, 1), dtype=np.float32),
+            )

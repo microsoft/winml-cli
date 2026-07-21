@@ -66,6 +66,50 @@ def test_resolver_selects_matching_graph_contract_and_falls_back_to_fp32(monkeyp
     }
 
 
+def test_resolver_discovers_prompt_bearing_encoder_and_embedding_only_decoder(
+    monkeypatch,
+) -> None:
+    graphs = {
+        "first.onnx": _graph(
+            "first.onnx",
+            inputs=(
+                ("image", "tensor(float)", 4),
+                ("coordinates", "tensor(float)", 3),
+                ("labels", "tensor(float)", 2),
+            ),
+            outputs=(
+                ("embedding", "tensor(float)", 4),
+                ("sparse", "tensor(float)", 3),
+            ),
+            precision="fp32",
+        ),
+        "second.onnx": _graph(
+            "second.onnx",
+            inputs=(
+                ("embedding", "tensor(float)", 4),
+                ("sparse", "tensor(float)", 3),
+            ),
+            outputs=(
+                ("mask", "tensor(float)", 4),
+                ("quality", "tensor(float)", 2),
+            ),
+            precision="fp32",
+        ),
+    }
+    monkeypatch.setattr("huggingface_hub.list_repo_files", lambda *args, **kwargs: list(graphs))
+    monkeypatch.setattr(
+        onnx_hub,
+        "resolve_hf_onnx_path",
+        lambda model_id, **kwargs: Path(model_id.rsplit("/", 1)[-1]),
+    )
+    monkeypatch.setattr(onnx_hub, "_inspect_runnable_graph", lambda path: graphs[path.name])
+
+    assert onnx_hub.resolve_hf_onnx_encoder_decoder("org/model") == {
+        "image-encoder": Path("first.onnx"),
+        "prompt-decoder": Path("second.onnx"),
+    }
+
+
 def test_resolver_prefers_unquantized_graph_family(monkeypatch) -> None:
     graphs = {
         "encoder.onnx": _graph(
@@ -77,10 +121,11 @@ def test_resolver_prefers_unquantized_graph_family(monkeypatch) -> None:
         "decoder.onnx": _graph(
             "decoder.onnx",
             inputs=(
+                ("points", "tensor(float)", 4),
                 ("labels", "tensor(int64)", 3),
                 ("embedding", "tensor(float)", 4),
             ),
-            outputs=(("masks", "tensor(float)", 5),),
+            outputs=(("scores", "tensor(float)", 3), ("masks", "tensor(float)", 5)),
             precision="fp32",
         ),
         "encoder_quantized.onnx": _graph(
@@ -93,10 +138,11 @@ def test_resolver_prefers_unquantized_graph_family(monkeypatch) -> None:
         "decoder_quantized.onnx": _graph(
             "decoder_quantized.onnx",
             inputs=(
+                ("points", "tensor(float)", 4),
                 ("labels", "tensor(int64)", 3),
                 ("embedding", "tensor(float)", 4),
             ),
-            outputs=(("masks", "tensor(float)", 5),),
+            outputs=(("scores", "tensor(float)", 3), ("masks", "tensor(float)", 5)),
             precision="fp32",
             has_quantized_weights=True,
         ),
@@ -128,10 +174,11 @@ def test_resolver_rejects_multiple_valid_graph_pairs_as_ambiguous(monkeypatch) -
         "decoder_a.onnx": _graph(
             "decoder_a.onnx",
             inputs=(
+                ("points", "tensor(float)", 4),
                 ("labels", "tensor(int64)", 3),
                 ("embedding_a", "tensor(float)", 4),
             ),
-            outputs=(("masks", "tensor(float)", 5),),
+            outputs=(("scores", "tensor(float)", 3), ("masks", "tensor(float)", 5)),
             precision="fp32",
         ),
         "encoder_b.onnx": _graph(
@@ -143,10 +190,11 @@ def test_resolver_rejects_multiple_valid_graph_pairs_as_ambiguous(monkeypatch) -
         "decoder_b.onnx": _graph(
             "decoder_b.onnx",
             inputs=(
+                ("points", "tensor(float)", 4),
                 ("labels", "tensor(int64)", 3),
                 ("embedding_b", "tensor(float)", 4),
             ),
-            outputs=(("masks", "tensor(float)", 5),),
+            outputs=(("scores", "tensor(float)", 3), ("masks", "tensor(float)", 5)),
             precision="fp32",
         ),
     }
@@ -170,6 +218,37 @@ def test_resolver_rejects_multiple_valid_graph_pairs_as_ambiguous(monkeypatch) -
     assert message.index("encoder_a.onnx") < message.index("encoder_b.onnx")
     assert "decoder_a.onnx" in message
     assert "decoder_b.onnx" in message
+
+
+def test_resolver_rejects_decoder_without_score_output(monkeypatch) -> None:
+    graphs = {
+        "encoder.onnx": _graph(
+            "encoder.onnx",
+            inputs=(("pixels", "tensor(float)", 4),),
+            outputs=(("embedding", "tensor(float)", 4),),
+            precision="fp32",
+        ),
+        "decoder.onnx": _graph(
+            "decoder.onnx",
+            inputs=(
+                ("points", "tensor(float)", 4),
+                ("labels", "tensor(int64)", 3),
+                ("embedding", "tensor(float)", 4),
+            ),
+            outputs=(("masks", "tensor(float)", 5),),
+            precision="fp32",
+        ),
+    }
+    monkeypatch.setattr("huggingface_hub.list_repo_files", lambda *args, **kwargs: list(graphs))
+    monkeypatch.setattr(
+        onnx_hub,
+        "resolve_hf_onnx_path",
+        lambda model_id, **kwargs: Path(model_id.rsplit("/", 1)[-1]),
+    )
+    monkeypatch.setattr(onnx_hub, "_inspect_runnable_graph", lambda path: graphs[path.name])
+
+    with pytest.raises(ValueError, match="do not contain a runnable promptable"):
+        onnx_hub.resolve_hf_onnx_encoder_decoder("org/model")
 
 
 def test_sam_published_onnx_absence_preserves_pytorch_fallback(monkeypatch) -> None:

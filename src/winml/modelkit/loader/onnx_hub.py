@@ -35,6 +35,16 @@ class _GraphContract:
     outputs: tuple[tuple[str, str, int], ...]
     precision: str
     has_quantized_weights: bool = False
+    input_shapes: tuple[tuple[Any, ...], ...] = ()
+    output_shapes: tuple[tuple[Any, ...], ...] = ()
+
+
+@dataclass(frozen=True)
+class _CompositeGraphPair:
+    encoder: _GraphContract
+    decoder: _GraphContract
+    shared_outputs: tuple[str, ...]
+    prompt_component: str
 
 
 def _inspect_runnable_graph(path: Path) -> _GraphContract | None:
@@ -72,7 +82,112 @@ def _inspect_runnable_graph(path: Path) -> _GraphContract | None:
         outputs=contract(session.get_outputs()),
         precision=precision,
         has_quantized_weights=has_quantized_weights,
+        input_shapes=tuple(tuple(node.shape) for node in session.get_inputs()),
+        output_shapes=tuple(tuple(node.shape) for node in session.get_outputs()),
     )
+
+
+def _has_point_prompt(contract: _GraphContract) -> bool:
+    """Whether a graph contract exposes one coordinate/label prompt pair."""
+    ports = contract.inputs
+    has_integer_labels = any(
+        rank in {2, 3} and "int" in dtype.lower() for _name, dtype, rank in ports
+    )
+    has_point_tensor = any(
+        rank in {3, 4} and "float" in dtype.lower() for _name, dtype, rank in ports
+    )
+    # Some deployment exports cast labels to float. Their unambiguous prompt
+    # shape is coordinates [B,N,2] plus labels [B,N]. Embedding-only decoders
+    # have no rank-2 input, so this does not mistake sparse embeddings for prompts.
+    has_float_pair = any(rank == 2 for _name, _dtype, rank in ports) and any(
+        rank == 3 for _name, _dtype, rank in ports
+    )
+    return has_point_tensor and (has_integer_labels or has_float_pair)
+
+
+def _has_mask_outputs(contract: _GraphContract) -> bool:
+    ranks = [rank for _name, _dtype, rank in contract.outputs]
+    return sum(rank >= 4 for rank in ranks) == 1 and sum(1 <= rank <= 3 for rank in ranks) == 1
+
+
+def _select_encoder_decoder_pair(
+    graphs: list[_GraphContract],
+    *,
+    precision: str,
+) -> _CompositeGraphPair:
+    """Select one graph pair by connectivity, image, prompt, and mask contracts."""
+    preferred_precisions = ("fp16", "fp32") if precision == "fp16" else ("fp32",)
+    candidates: list[tuple[int, int, _CompositeGraphPair]] = []
+    for encoder in graphs:
+        image_inputs = [port for port in encoder.inputs if port[2] == 4]
+        if len(image_inputs) != 1:
+            continue
+        encoder_outputs = {name for name, _dtype, _rank in encoder.outputs}
+        for decoder in graphs:
+            if (
+                decoder.path == encoder.path
+                or decoder.precision != encoder.precision
+                or decoder.has_quantized_weights != encoder.has_quantized_weights
+                or not _has_mask_outputs(decoder)
+            ):
+                continue
+            decoder_inputs = {name for name, _dtype, _rank in decoder.inputs}
+            shared = tuple(sorted(encoder_outputs & decoder_inputs))
+            if not shared:
+                continue
+            encoder_prompt = _has_point_prompt(encoder)
+            decoder_prompt = _has_point_prompt(decoder)
+            if encoder_prompt == decoder_prompt:
+                continue
+            try:
+                precision_rank = preferred_precisions.index(encoder.precision)
+            except ValueError:
+                continue
+            pair = _CompositeGraphPair(
+                encoder=encoder,
+                decoder=decoder,
+                shared_outputs=shared,
+                prompt_component="image-encoder" if encoder_prompt else "prompt-decoder",
+            )
+            candidates.append((precision_rank, int(encoder.has_quantized_weights), pair))
+
+    if not candidates:
+        contracts = [
+            {
+                "file": graph.path.name,
+                "precision": graph.precision,
+                "inputs": [name for name, _dtype, _rank in graph.inputs],
+                "outputs": [name for name, _dtype, _rank in graph.outputs],
+            }
+            for graph in graphs
+        ]
+        raise ValueError(
+            "Published ONNX graphs do not contain a runnable promptable "
+            f"encoder/decoder pair for precision {precision!r}: {contracts}"
+        )
+
+    best_source_rank = min(candidate[:2] for candidate in candidates)
+    preferred = sorted(
+        (candidate[2] for candidate in candidates if candidate[:2] == best_source_rank),
+        key=lambda pair: (str(pair.encoder.path), str(pair.decoder.path)),
+    )
+    if len(preferred) != 1:
+        pairs = [
+            {
+                "image-encoder": pair.encoder.path.name,
+                "prompt-decoder": pair.decoder.path.name,
+                "precision": pair.encoder.precision,
+                "shared_outputs": list(pair.shared_outputs),
+                "prompt_component": pair.prompt_component,
+            }
+            for pair in preferred
+        ]
+        raise ValueError(
+            "Published ONNX graphs contain multiple valid encoder/decoder pairs "
+            f"for precision {precision!r}; unable to select one unambiguously. "
+            f"Candidate pairs: {pairs}"
+        )
+    return preferred[0]
 
 
 def resolve_hf_onnx_encoder_decoder(
@@ -113,80 +228,44 @@ def resolve_hf_onnx_encoder_decoder(
         if graph is not None:
             graphs.append(graph)
 
-    preferred_precisions = ("fp16", "fp32") if precision == "fp16" else ("fp32",)
-    candidates: list[tuple[int, int, _GraphContract, _GraphContract, tuple[str, ...]]] = []
-    for encoder in graphs:
-        encoder_inputs = encoder.inputs
-        if len(encoder_inputs) != 1 or encoder_inputs[0][2] != 4:
-            continue
-        encoder_outputs = {name for name, _dtype, _rank in encoder.outputs}
-        for decoder in graphs:
-            if (
-                decoder.path == encoder.path
-                or decoder.precision != encoder.precision
-                or decoder.has_quantized_weights != encoder.has_quantized_weights
-            ):
-                continue
-            decoder_inputs = {name for name, _dtype, _rank in decoder.inputs}
-            shared = encoder_outputs & decoder_inputs
-            has_integer_prompt = any(
-                rank == 3 and "int" in dtype.lower() for _name, dtype, rank in decoder.inputs
-            )
-            if not shared or not has_integer_prompt:
-                continue
-            try:
-                precision_rank = preferred_precisions.index(encoder.precision)
-            except ValueError:
-                continue
-            quantization_rank = int(encoder.has_quantized_weights)
-            candidates.append(
-                (precision_rank, quantization_rank, encoder, decoder, tuple(sorted(shared)))
-            )
+    pair = _select_encoder_decoder_pair(graphs, precision=precision)
+    return {"image-encoder": pair.encoder.path, "prompt-decoder": pair.decoder.path}
 
-    if not candidates:
-        contracts = [
-            {
-                "file": graph.path.name,
-                "precision": graph.precision,
-                "inputs": [name for name, _dtype, _rank in graph.inputs],
-                "outputs": [name for name, _dtype, _rank in graph.outputs],
-            }
-            for graph in graphs
-        ]
-        raise ValueError(
-            "Published ONNX graphs do not contain a runnable encoder/decoder pair "
-            f"for precision {precision!r}: {contracts}"
-        )
 
-    best_source_rank = min(candidate[:2] for candidate in candidates)
-    preferred_candidates = sorted(
-        (candidate for candidate in candidates if candidate[:2] == best_source_rank),
-        key=lambda candidate: (str(candidate[2].path), str(candidate[3].path)),
+def resolve_hf_release_onnx_encoder_decoder(
+    model_id: str,
+    *,
+    revision: str | None = None,
+    precision: str = "fp32",
+    cache_dir: str | Path | None = None,
+    token: str | bool | None = None,
+) -> dict[str, Path] | None:
+    """Resolve a config-less release archive into one promptable graph pair."""
+    from .release_assets import acquire_hf_release_asset
+
+    release = acquire_hf_release_asset(
+        model_id,
+        revision=revision,
+        precision=precision,
+        format_name="onnx",
+        cache_dir=cache_dir,
+        token=token,
     )
-    if len(preferred_candidates) != 1:
-        pairs = [
-            {
-                "image-encoder": encoder.path.name,
-                "prompt-decoder": decoder.path.name,
-                "precision": encoder.precision,
-                "shared_outputs": list(shared),
-            }
-            for (
-                _precision_rank,
-                _quantization_rank,
-                encoder,
-                decoder,
-                shared,
-            ) in preferred_candidates
-        ]
+    if release is None:
+        return None
+    pipeline_tag = release.provenance.get("pipeline_tag")
+    if pipeline_tag not in {"image-segmentation", "mask-generation"}:
         raise ValueError(
-            "Published ONNX graphs contain multiple valid encoder/decoder pairs "
-            f"for precision {precision!r}; unable to select one unambiguously. "
-            f"Candidate pairs: {pairs}"
+            f"Release archive graph pair requires an image-segmentation or "
+            f"mask-generation pipeline tag; got {pipeline_tag!r}."
         )
-
-    _precision_rank, _quantization_rank, encoder, decoder, _shared = preferred_candidates[0]
-    return {"image-encoder": encoder.path, "prompt-decoder": decoder.path}
+    graphs = [
+        graph
+        for path in sorted(release.root.rglob("*.onnx"))
+        if (graph := _inspect_runnable_graph(path)) is not None
+    ]
+    pair = _select_encoder_decoder_pair(graphs, precision=precision)
+    return {"image-encoder": pair.encoder.path, "prompt-decoder": pair.decoder.path}
 
 
 def resolve_hf_onnx_path(
@@ -335,4 +414,5 @@ def _format_available_onnx_files(
 __all__ = [
     "resolve_hf_onnx_encoder_decoder",
     "resolve_hf_onnx_path",
+    "resolve_hf_release_onnx_encoder_decoder",
 ]
