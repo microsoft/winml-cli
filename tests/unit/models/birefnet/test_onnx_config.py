@@ -9,7 +9,6 @@ import torch
 from torchvision.ops import deform_conv2d
 from transformers import PretrainedConfig
 
-import winml.modelkit.models  # noqa: F401
 from winml.modelkit.export import generate_dummy_inputs
 from winml.modelkit.export.io import _get_onnx_config
 from winml.modelkit.models.hf.birefnet import BiRefNetIOConfig, _exportable_deform_conv2d

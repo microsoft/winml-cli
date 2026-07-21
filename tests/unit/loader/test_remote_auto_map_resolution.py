@@ -75,7 +75,7 @@ def test_load_hf_model_calls_remote_auto_class_with_trust() -> None:
     model = MagicMock()
     model.parameters.return_value = []
     with (
-        patch("winml.modelkit.loader.hf.AutoConfig.from_pretrained", return_value=config),
+        patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=config),
         patch.object(
             AutoModelForImageSegmentation,
             "from_pretrained",
@@ -92,4 +92,5 @@ def test_load_hf_model_calls_remote_auto_class_with_trust() -> None:
     from_pretrained.assert_called_once_with(
         "org/custom-model",
         trust_remote_code=True,
+        config=config,
     )
