@@ -150,6 +150,64 @@ def _detect_task_from_model_class(model_class: type) -> str:
     return cast("str", TasksManager.infer_task_from_model(model_class))
 
 
+def _resolve_remote_auto_model_class(
+    config: PretrainedConfig,
+    task: str | None = None,
+) -> tuple[str, type] | None:
+    """Resolve a trusted custom-code auto class from config metadata.
+
+    A custom checkpoint may name an architecture that is intentionally absent
+    from the installed ``transformers`` package. In that case, ``auto_map`` is
+    the authoritative loader declaration. Accept an entry only when its remote
+    class basename is also declared in ``architectures``; this avoids selecting
+    unrelated tokenizer/config mappings and keeps resolution model-ID agnostic.
+
+    Args:
+        config: Hugging Face config carrying ``architectures`` and ``auto_map``.
+        task: Optional Optimum-canonical task used to filter matching auto classes.
+
+    Returns:
+        A unique ``(task, auto_model_class)`` match, or ``None`` when metadata
+        does not declare one.
+
+    Raises:
+        ValueError: If metadata declares multiple matching model auto classes.
+    """
+    architectures = set(getattr(config, "architectures", None) or [])
+    auto_map = getattr(config, "auto_map", None)
+    if not architectures or not isinstance(auto_map, dict):
+        return None
+
+    import transformers
+
+    matches: dict[tuple[str, type], None] = {}
+    for auto_class_name, remote_reference in auto_map.items():
+        if not auto_class_name.startswith("AutoModel") or not isinstance(remote_reference, str):
+            continue
+        if remote_reference.rsplit(".", 1)[-1] not in architectures:
+            continue
+        auto_class = getattr(transformers, auto_class_name, None)
+        if not isinstance(auto_class, type):
+            continue
+        try:
+            inferred_task = _detect_task_from_model_class(auto_class)
+        except (KeyError, ValueError):
+            continue
+        if task is None or inferred_task == task:
+            matches[(inferred_task, auto_class)] = None
+
+    if not matches:
+        return None
+    if len(matches) > 1:
+        names = sorted(f"{matched_task}:{cls.__name__}" for matched_task, cls in matches)
+        raise ValueError(
+            "Custom-code metadata declares multiple matching model auto classes: "
+            + ", ".join(names)
+            + ". Please specify task and model_class explicitly."
+        )
+    return next(iter(matches))
+
+
 def _upgrade_fill_mask_for_seq2seq(task: str, config: PretrainedConfig) -> str:
     """Correct Optimum's ``fill-mask`` mislabel for encoder-decoder generation heads.
 
@@ -550,11 +608,14 @@ def resolve_task(
         # `text2text-generation`. So `--task summarization` tags the composite while
         # `--task text2text-generation` stays composite=None (single-decoder export).
         composite = resolve_composite(model_type_norm, original) if model_type_norm else None
-        resolved = None
+        remote_resolution = _resolve_remote_auto_model_class(config, normalized)
+        resolved = remote_resolution[1] if remote_resolution is not None else None
         if model_type_norm:
-            resolved = _get_custom_model_class(
-                model_type_norm, original
-            ) or _get_custom_model_class(model_type_norm, normalized)
+            resolved = (
+                resolved
+                or _get_custom_model_class(model_type_norm, original)
+                or _get_custom_model_class(model_type_norm, normalized)
+            )
         if resolved is None:
             try:
                 resolved = TasksManager.get_model_class_for_task(normalized, framework="pt")
@@ -606,11 +667,16 @@ def resolve_task(
 
     # 1c. TasksManager (reads config.architectures)
     if opt_task is None:
-        try:
-            opt_task = _infer_task_from_architecture(config)
+        remote_resolution = _resolve_remote_auto_model_class(config)
+        if remote_resolution is not None:
+            opt_task, resolved = remote_resolution
             source = TaskSource.TASKS_MANAGER
-        except ValueError:
-            opt_task = None
+        else:
+            try:
+                opt_task = _infer_task_from_architecture(config)
+                source = TaskSource.TASKS_MANAGER
+            except ValueError:
+                opt_task = None
 
     # 1d. Hub pipeline_tag fallback
     if opt_task is None and model_id and model_type:
