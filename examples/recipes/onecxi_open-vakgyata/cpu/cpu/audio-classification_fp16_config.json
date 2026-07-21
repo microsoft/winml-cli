@@ -11,39 +11,15 @@
     "hierarchy_tag_format": "full",
     "input_tensors": [
       {
-        "name": "input_ids",
-        "dtype": "int32",
+        "name": "input_values",
+        "dtype": "float32",
         "shape": [
           1,
-          512
+          16000
         ],
         "value_range": [
-          0,
-          30522
-        ]
-      },
-      {
-        "name": "attention_mask",
-        "dtype": "int32",
-        "shape": [
-          1,
-          512
-        ],
-        "value_range": [
-          0,
-          2
-        ]
-      },
-      {
-        "name": "token_type_ids",
-        "dtype": "int32",
-        "shape": [
-          1,
-          512
-        ],
-        "value_range": [
-          0,
-          2
+          -1,
+          1
         ]
       }
     ],
@@ -53,17 +29,17 @@
       }
     ]
   },
-  "optim": {
-    "clamp_constant_values": true
-  },
+  "optim": {},
   "quant": {
-    "mode": "qdq",
+    "mode": "fp16",
     "samples": 10,
     "calibration_method": "minmax",
     "weight_type": "uint8",
-    "activation_type": "uint16",
+    "activation_type": "uint8",
     "per_channel": false,
     "symmetric": false,
+    "weight_symmetric": null,
+    "activation_symmetric": null,
     "save_calibration": false,
     "distribution": "uniform",
     "seed": null,
@@ -71,13 +47,16 @@
     "calibration_save_path": null,
     "op_types_to_quantize": null,
     "nodes_to_exclude": null,
-    "task": "text-classification",
-    "model_id": "cross-encoder/ms-marco-MiniLM-L6-v2"
+    "task": "audio-classification",
+    "model_id": "onecxi/open-vakgyata",
+    "model_type": "wav2vec2",
+    "fp16_keep_io_types": true,
+    "fp16_op_block_list": null
   },
   "compile": null,
   "loader": {
-    "task": "text-classification",
-    "model_class": "AutoModelForSequenceClassification",
-    "model_type": "bert"
+    "task": "audio-classification",
+    "model_class": "AutoModelForAudioClassification",
+    "model_type": "wav2vec2"
   }
 }

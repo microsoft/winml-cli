@@ -533,6 +533,7 @@ def _maybe_build_genai_bundle(
     ep: EPNameOrAlias | None,
     precision: str | None,
     rebuild: bool,
+    submodel: str | None,
 ) -> bool:
     """Build an optimized (onnxruntime-genai) bundle when selected, else fall through.
 
@@ -622,6 +623,18 @@ def _maybe_build_genai_bundle(
     # Match the resolved (ep, device) against the recipe -- a target the recipe
     # does not support raises here.
     bundle_ep, bundle_device = _resolve_optimized_target(recipe, device=device, ep=ep)
+
+    # The recipe fixes every component, so narrowing to one sub-model is
+    # meaningless here; reject rather than silently building the whole bundle.
+    # This runs before the generic single/composite path where --submodel is
+    # honored, so the flag can no longer be silently ignored on this dispatch.
+    if submodel is not None:
+        raise click.BadParameter(
+            "--submodel is not supported for an optimized (genai bundle) build: the "
+            "bundle's components are fixed by its recipe. Re-run with "
+            "--export-type generic to build a single composite sub-model.",
+            param_hint="--submodel",
+        )
 
     # The bundle is fully recipe-driven: every component, shape, precision,
     # quantization and compile setting comes from the recipe, so a supplied
@@ -784,6 +797,15 @@ def _maybe_build_genai_bundle(
 @cli_utils.trust_remote_code_option(
     optional_message="Trust remote code for custom model architectures (e.g., Mu2)."
 )
+@click.option(
+    "--submodel",
+    type=str,
+    default=None,
+    help=(
+        "Build a specific sub-model from a composite model "
+        "(e.g., 'encoder', 'decoder'). Omit to build all sub-models automatically."
+    ),
+)
 @cli_utils.verbosity_options()
 @cli_utils.no_color_option()
 @click.pass_context
@@ -809,6 +831,7 @@ def build(
     max_optim_iterations: int | None,
     allow_unsupported_nodes: bool,
     trust_remote_code: bool,
+    submodel: str | None,
     verbose: int,
     quiet: bool,
 ) -> None:
@@ -1124,11 +1147,21 @@ def build(
             ep=ep,
             precision=precision,
             rebuild=rebuild,
+            submodel=submodel,
         ):
             return
 
         if isinstance(config_or_configs, list):
             # ---- MODULE MODE: array config, one build per submodule ----
+            # --submodel selects one composite sub-component; module mode fans out
+            # over an array config's submodules instead, so the two are unrelated.
+            # Reject rather than silently building every module and ignoring it.
+            if submodel is not None:
+                raise click.BadParameter(
+                    "--submodel is not supported for module mode (array config): "
+                    "an array config already builds each of its submodules.",
+                    param_hint="--submodel",
+                )
             if use_cache:
                 raise click.UsageError(
                     "--use-cache is not supported for module mode (array config). "
@@ -1263,6 +1296,22 @@ def build(
                     raise click.ClickException(
                         f"Composite model detection failed unexpectedly: {e}"
                     ) from e
+
+            # ── --submodel validation ──────────────────────────────────────
+            if submodel is not None:
+                if components is None:
+                    raise click.BadParameter(
+                        f"'{submodel}' was specified, but '{model}' "
+                        f"is not a composite model (no sub-models detected).",
+                        param_hint="--submodel",
+                    )
+                if submodel not in components:
+                    raise click.BadParameter(
+                        f"Unknown sub-model '{submodel}'. "
+                        f"Available: {', '.join(components.keys())}",
+                        param_hint="--submodel",
+                    )
+                components = {submodel: components[submodel]}
 
             if components:
                 if use_cache:

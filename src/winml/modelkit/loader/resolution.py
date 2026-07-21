@@ -366,6 +366,45 @@ def composite_pipeline_tasks(model_type: str) -> list[str]:
     return sorted(task for (mt, task) in _composite_registry() if mt == model_type)
 
 
+def resolve_composite_load_task(
+    hf_model: str | None,
+    *,
+    trust_remote_code: bool = False,
+) -> str | None:
+    """Registered composite *pipeline* task for loading ``hf_model``, else ``None``.
+
+    :func:`resolve_composite_components` tells the fan-out commands (config /
+    export / build) *which* sub-models to build. The model loaders
+    (``WinMLAutoModel`` / ``WinMLCompositeModel``) instead need a concrete
+    registry task to instantiate the pipeline object. This bridges the two on the
+    auto-detection path: it applies the same seq2seq detection, then maps the
+    detected composite back to a loadable pipeline task so a bare ``winml perf``
+    / benchmark call builds the whole pipeline instead of a single sub-model.
+
+    When a model_type registers several pipeline tasks that share the same
+    sub-models (e.g. T5 ``summarization`` / ``translation``), detection has
+    already deduped them to one component set, so the sorted-first pipeline task
+    is a deterministic, sub-model-equivalent choice. Model types whose composite
+    tasks expose *different* sub-models make detection raise before reaching here.
+    """
+    from transformers import AutoConfig
+
+    if hf_model is None:
+        return None
+    config = AutoConfig.from_pretrained(hf_model, trust_remote_code=trust_remote_code)
+    if resolve_task(config).composite is None:
+        return None
+    model_type = getattr(config, "model_type", None)
+    if model_type is None:
+        return None
+    # Normalize before the registry lookup -- registry keys are lower/hyphenated
+    # (e.g. "vision-encoder-decoder"), and this mirrors the other composite call
+    # sites (_get_custom_model_class / resolve_task), so a model_type carrying
+    # underscores or mixed case still maps to its pipeline tasks.
+    tasks = composite_pipeline_tasks(model_type.lower().replace("_", "-"))
+    return tasks[0] if tasks else None
+
+
 # Optimum-canonical generation task that detect-path seq2seq models surface;
 # bridged to the model_type's composite. Universal taxonomy, not a model name.
 _SEQ2SEQ_GENERATION_TASK = "text2text-generation"

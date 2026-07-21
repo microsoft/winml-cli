@@ -804,6 +804,135 @@ class TestPerfDynamicAxes:
 
 
 # ===========================================================================
+# Composite model: per-sub-model benchmarking.
+# ===========================================================================
+
+
+@pytest.mark.slow
+@pytest.mark.network
+@pytest.mark.timeout(1800)
+class TestPerfT5Composite:
+    """A composite pipeline benchmarks each sub-model and reports them together.
+
+    ``google-t5/t5-small`` is a composite (encoder + decoder). Like ``build`` and
+    ``export``, perf auto-detects the composite from a bare ``-m`` (no explicit
+    task) and builds the whole pipeline; it then benchmarks each sub-model
+    individually and writes a combined report keyed by component name. An
+    explicit pipeline task (``--task translation``) selects the same composite.
+    Component names/tasks are read from the registry to keep the assertions
+    architecture-agnostic.
+    """
+
+    @pytest.mark.parametrize("extra_args", [[], ["--task", "translation"]], ids=["auto", "task"])
+    def test_composite_report_cpu(self, extra_args: list[str], tmp_path: Path):
+        from winml.modelkit.loader.resolution import resolve_composite_components
+
+        components = resolve_composite_components("google-t5/t5-small")
+        # t5-small is an encoder-decoder pipeline: exactly two sub-models.
+        assert set(components) == {"encoder", "decoder"}
+
+        output_file = tmp_path / "perf_t5_composite.json"
+        result = CliRunner().invoke(
+            perf,
+            [
+                "-m",
+                "google-t5/t5-small",
+                "--device",
+                "cpu",
+                "--iterations",
+                "3",
+                "--warmup",
+                "1",
+                "-o",
+                str(output_file),
+                "--no-memory",
+                *extra_args,
+            ],
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        assert output_file.exists()
+
+        data = json.loads(output_file.read_text())
+        assert data["model_id"] == "google-t5/t5-small"
+        assert data["component_count"] == 2
+        assert set(data["components"]) == {"encoder", "decoder"}
+
+        # Every sub-model was benchmarked individually: it carries its own task
+        # and a positive mean latency.
+        for name, component_task in components.items():
+            component = data["components"][name]
+            assert component["benchmark_info"]["task"] == component_task
+            assert component["latency_ms"]["mean"] > 0, f"sub-model {name!r} has no latency"
+
+    def test_submodel_benchmarks_single(self, tmp_path: Path):
+        from winml.modelkit.loader.resolution import resolve_composite_components
+
+        components = resolve_composite_components("google-t5/t5-small")
+        assert set(components) == {"encoder", "decoder"}
+        selected = next(iter(components))
+
+        output_file = tmp_path / "perf_t5_submodel.json"
+        result = CliRunner().invoke(
+            perf,
+            [
+                "-m",
+                "google-t5/t5-small",
+                "--submodel",
+                selected,
+                "--device",
+                "cpu",
+                "--iterations",
+                "3",
+                "--warmup",
+                "1",
+                "-o",
+                str(output_file),
+                "--no-memory",
+            ],
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        assert output_file.exists()
+
+        data = json.loads(output_file.read_text())
+        # --submodel benchmarks a single sub-model through the standalone path, so
+        # the report is the single-model schema -- not the composite fan-out one.
+        assert "component_count" not in data
+        assert "components" not in data
+        assert data["benchmark_info"]["task"] == components[selected]
+        assert data["latency_ms"]["mean"] > 0
+
+    def test_unknown_submodel_fails(self, tmp_path: Path):
+        # An unknown sub-model name is rejected before any benchmark runs.
+        output_file = tmp_path / "perf_t5_bad_submodel.json"
+        result = CliRunner().invoke(
+            perf,
+            [
+                "-m",
+                "google-t5/t5-small",
+                "--submodel",
+                "not_a_submodel",
+                "--device",
+                "cpu",
+                "--iterations",
+                "3",
+                "--warmup",
+                "1",
+                "-o",
+                str(output_file),
+                "--no-memory",
+            ],
+            obj={},
+            catch_exceptions=True,
+        )
+        assert result.exit_code != 0, f"expected failure, got exit=0:\n{result.output}"
+        assert not output_file.exists(), "no report should be written on an invalid --submodel"
+
+
+# ===========================================================================
 # GenAI runtime (winml-genai): --device / --ep override
 # ===========================================================================
 

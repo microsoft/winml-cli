@@ -108,11 +108,20 @@ class PatternAlternative(BaseModel):
         pattern_id: Alternative pattern identifier
         result: Runtime test result for this alternative
         alternative_type: Type of alternative relationship
+        enabled: Whether this alternative recommendation is enabled
+        details: Optional detailed recommendation text
+        action_items: Optional action item list with optimization options
     """
 
     pattern_id: str = Field(..., description="Alternative pattern identifier")
     result: RuntimeTestResult = Field(..., description="Runtime test result")
     alternative_type: AlternativeType = Field(..., description="Type of alternative relationship")
+    enabled: bool = Field(default=True, description="Whether this alternative is enabled")
+    details: str | None = Field(default=None, description="Optional alternative details")
+    action_items: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="Optional action items carrying optimization options",
+    )
 
 
 class PatternRuntime(BaseModel):
@@ -122,6 +131,7 @@ class PatternRuntime(BaseModel):
         pattern_id: Original pattern identifier
         result: Runtime test result for the original pattern
         alternatives: List of alternative patterns with their results
+        explanation: Optional recommendation explanation from skeleton rule
         pattern_match: The PatternMatch object for this runtime check
     """
 
@@ -129,6 +139,10 @@ class PatternRuntime(BaseModel):
     result: RuntimeTestResult = Field(..., description="Runtime test result")
     alternatives: list[PatternAlternative] = Field(
         default_factory=list, description="Alternative patterns with results"
+    )
+    explanation: str | None = Field(
+        default=None,
+        description="Optional recommendation explanation for this pattern",
     )
     pattern_match: Any = Field(
         default=None, description="The PatternMatch object for this runtime check"

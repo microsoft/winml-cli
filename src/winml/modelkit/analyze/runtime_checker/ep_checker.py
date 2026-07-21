@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 
 import onnx
 import onnxruntime as ort
@@ -23,6 +23,16 @@ if TYPE_CHECKING:
 # Notes:
 # - Paasing only the inference session object would not suffice for tester,
 # as sess.get_session_options() may return a modified version of session options
+
+
+class _RulesPrefilterProtocol(Protocol):
+    """Protocol for rules-prefilter service used by EPChecker."""
+
+    def build_skip_check_result_for_rules_all_nodes_compile_run_pass(
+        self,
+        onnx_model: onnx.ModelProto,
+    ) -> dict[str, Any] | None:
+        ...
 
 
 class EPChecker:
@@ -47,10 +57,12 @@ class EPChecker:
         ep_name: str,
         device_type: ort.OrtHardwareDeviceType,
         provider_options: Sequence[dict[Any, Any]] | None = None,
+        rules_prefilter: _RulesPrefilterProtocol | None = None,
     ) -> None:
         self.device_type = device_type
-        self.ep_name = ep_name
+        self.ep_name: str = ep_name
         self._provider_options = provider_options
+        self._rules_prefilter = rules_prefilter
 
     def _get_sess_options(self) -> ort.SessionOptions:
         from ...session import (
@@ -93,6 +105,21 @@ class EPChecker:
         if required_device_types is None:
             return False
         return self.device_type in required_device_types
+
+    def set_rules_prefilter(self, rules_prefilter: _RulesPrefilterProtocol | None) -> None:
+        """Set or clear rules-prefilter service for this checker."""
+        self._rules_prefilter = rules_prefilter
+
+    def build_skip_check_result_for_rules_all_nodes_compile_run_pass(
+        self,
+        onnx_model: onnx.ModelProto,
+    ) -> dict[str, Any] | None:
+        """Build synthetic check_result from fixed rules-prefilter service."""
+        if self._rules_prefilter is None:
+            return None
+        return self._rules_prefilter.build_skip_check_result_for_rules_all_nodes_compile_run_pass(
+            onnx_model
+        )
 
     def check_compile(
         self,

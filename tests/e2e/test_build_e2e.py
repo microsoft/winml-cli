@@ -351,3 +351,119 @@ class TestBuildDynamicAxes:
         dims = pixel_values.type.tensor_type.shape.dim
         assert dims[0].dim_param == "batch", f"expected a symbolic batch dim, got {list(dims)}"
         assert [d.dim_value for d in dims[1:]] == [3, 224, 224]
+
+
+# ===========================================================================
+# Composite model: encoder-decoder build fan-out.
+# ===========================================================================
+
+
+@pytest.mark.slow
+@pytest.mark.network
+class TestBuildT5Composite:
+    """A composite model builds one artifact per sub-component.
+
+    ``google-t5/t5-small`` resolves to two sub-models (encoder + decoder). With
+    no ``-c`` config the build auto-detects the composite (via the seq2seq
+    bridge) and fans out into one build per component, each producing its own
+    ``<component>_model.onnx`` under the output dir. Component names come from
+    the registry so the test stays architecture-agnostic.
+    """
+
+    def test_composite_fanout(self, tmp_path: Path):
+        from winml.modelkit.loader.resolution import resolve_composite_components
+
+        components = resolve_composite_components("google-t5/t5-small")
+        assert components, "google-t5/t5-small did not resolve to a composite model"
+
+        output_dir = tmp_path / "output"
+        result = CliRunner().invoke(
+            build,
+            [
+                "-m",
+                "google-t5/t5-small",
+                "-o",
+                str(output_dir),
+                "--no-quant",
+                "--no-compile",
+                "--no-analyze",
+            ],
+            obj={"debug": True},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"build failed (exit {result.exit_code}):\n{result.output}"
+
+        onnx_names = [p.name for p in output_dir.rglob("*.onnx")]
+        assert onnx_names, (
+            f"No ONNX files found in {output_dir}. Contents: "
+            f"{[str(p) for p in output_dir.rglob('*')]}"
+        )
+        # Each sub-component contributes its own build artifacts; the final
+        # per-component model is named ``<component>_model.onnx``.
+        for name in components:
+            assert f"{name}_model.onnx" in onnx_names, (
+                f"missing built artifact for sub-model {name!r}; produced: {onnx_names}"
+            )
+
+    def test_submodel_narrows_to_single(self, tmp_path: Path):
+        from winml.modelkit.loader.resolution import resolve_composite_components
+
+        components = resolve_composite_components("google-t5/t5-small")
+        assert components, "google-t5/t5-small did not resolve to a composite model"
+        selected = next(iter(components))
+
+        output_dir = tmp_path / "output"
+        result = CliRunner().invoke(
+            build,
+            [
+                "-m",
+                "google-t5/t5-small",
+                "-o",
+                str(output_dir),
+                "--submodel",
+                selected,
+                "--no-quant",
+                "--no-compile",
+                "--no-analyze",
+            ],
+            obj={"debug": True},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"build failed (exit {result.exit_code}):\n{result.output}"
+
+        onnx_names = [p.name for p in output_dir.rglob("*.onnx")]
+        # Only the selected sub-model is built; the others are skipped entirely.
+        assert f"{selected}_model.onnx" in onnx_names, (
+            f"missing built artifact for selected sub-model {selected!r}; produced: {onnx_names}"
+        )
+        for name in components:
+            if name == selected:
+                continue
+            assert f"{name}_model.onnx" not in onnx_names, (
+                f"--submodel {selected!r} should not build component {name!r}; "
+                f"produced: {onnx_names}"
+            )
+
+    def test_unknown_submodel_fails(self, tmp_path: Path):
+        # An unknown sub-model name is rejected before any build runs.
+        output_dir = tmp_path / "output"
+        result = CliRunner().invoke(
+            build,
+            [
+                "-m",
+                "google-t5/t5-small",
+                "-o",
+                str(output_dir),
+                "--submodel",
+                "not_a_submodel",
+                "--no-quant",
+                "--no-compile",
+                "--no-analyze",
+            ],
+            obj={"debug": True},
+            catch_exceptions=True,
+        )
+        assert result.exit_code != 0, f"expected failure, got exit=0:\n{result.output}"
+        assert not list(output_dir.rglob("*.onnx")), (
+            "no ONNX should be built on an invalid --submodel"
+        )

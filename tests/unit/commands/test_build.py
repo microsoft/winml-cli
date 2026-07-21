@@ -2662,3 +2662,206 @@ class TestBuildComposite:
         # Outer compile carried over too, deep-copied.
         assert built_config.compile is not None
         assert built_config.compile is not outer_cfg.compile
+
+
+class TestBuildSubmodel:
+    """Test --submodel narrows a composite build to a single sub-model."""
+
+    def test_submodel_builds_only_requested_component(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """--submodel builds only the named component."""
+        from winml.modelkit.commands.build import build
+
+        components = {
+            "decoder_prefill": "feature-extraction",
+            "decoder_gen": "text2text-generation",
+        }
+        output_dir = tmp_path / "out"
+
+        fake_cfg = MagicMock()
+        fake_cfg.quant = None
+        fake_cfg.compile = None
+        fake_cfg.loader = MagicMock(task=None)
+
+        with (
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value=components,
+            ),
+            patch(
+                "winml.modelkit.config.generate_build_config",
+                return_value=fake_cfg,
+            ),
+            patch(
+                "winml.modelkit.commands.build._run_single_build",
+            ) as mock_single_build,
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = runner.invoke(
+                build,
+                [
+                    "-m",
+                    "Qwen/Qwen3-0.6B",
+                    "-o",
+                    str(output_dir),
+                    "--submodel",
+                    "decoder_prefill",
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        # Only the requested component is built.
+        assert mock_single_build.call_count == 1
+        assert mock_single_build.call_args.kwargs["cache_key"] == "decoder_prefill"
+
+    def test_submodel_rejects_unknown_name(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """--submodel with an invalid name is a clean error."""
+        from winml.modelkit.commands.build import build
+
+        components = {
+            "decoder_prefill": "feature-extraction",
+            "decoder_gen": "text2text-generation",
+        }
+
+        fake_cfg = MagicMock()
+        fake_cfg.quant = None
+        fake_cfg.compile = None
+        fake_cfg.loader = MagicMock(task=None)
+
+        with (
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value=components,
+            ),
+            patch(
+                "winml.modelkit.config.generate_build_config",
+                return_value=fake_cfg,
+            ),
+            patch(
+                "winml.modelkit.commands.build._run_single_build",
+            ) as mock_single_build,
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = runner.invoke(
+                build,
+                [
+                    "-m",
+                    "Qwen/Qwen3-0.6B",
+                    "-o",
+                    str(tmp_path / "out"),
+                    "--submodel",
+                    "encoder",
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code != 0
+        assert "Unknown sub-model 'encoder'" in result.output
+        assert "decoder_prefill" in result.output
+        mock_single_build.assert_not_called()
+
+    def test_submodel_rejects_non_composite(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """--submodel on a non-composite model is a clean error."""
+        from winml.modelkit.commands.build import build
+
+        fake_cfg = MagicMock()
+        fake_cfg.quant = None
+        fake_cfg.compile = None
+        fake_cfg.loader = MagicMock(task=None)
+
+        with (
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value=None,
+            ),
+            patch(
+                "winml.modelkit.config.generate_build_config",
+                return_value=fake_cfg,
+            ),
+            patch(
+                "winml.modelkit.commands.build._run_single_build",
+            ) as mock_single_build,
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = runner.invoke(
+                build,
+                [
+                    "-m",
+                    "prajjwal1/bert-tiny",
+                    "-o",
+                    str(tmp_path / "out"),
+                    "--submodel",
+                    "encoder",
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code != 0
+        assert "not a composite model" in result.output
+        mock_single_build.assert_not_called()
+
+    def test_submodel_rejected_in_module_mode(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """--submodel on an array (module-mode) config is rejected early.
+
+        Module mode fans out over an array config's submodules; --submodel selects
+        one composite sub-component, so the two are unrelated. The command must
+        reject rather than silently build every module and ignore the flag.
+        """
+        arr_path = tmp_path / "modules.json"
+        arr_path.write_text(
+            json.dumps(
+                [
+                    {
+                        "loader": {
+                            "task": "image-classification",
+                            "model_type": "resnet",
+                            "module_path": "layer1",
+                        },
+                        "export": {"opset_version": 17, "batch_size": 1},
+                        "optim": {},
+                        "quant": None,
+                        "compile": None,
+                    }
+                ]
+            )
+        )
+
+        with patch("winml.modelkit.commands.build._build_modules") as mock_build_modules:
+            result = _invoke(
+                [
+                    "-c",
+                    str(arr_path),
+                    "-o",
+                    str(tmp_path / "out"),
+                    "--submodel",
+                    "encoder",
+                ]
+            )
+
+        assert result.exit_code != 0
+        assert "--submodel is not supported for module mode" in result.output
+        mock_build_modules.assert_not_called()

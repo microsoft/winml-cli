@@ -18,7 +18,7 @@ Usage:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ...onnx import ONNXDomain
 
@@ -26,6 +26,7 @@ from ...onnx import ONNXDomain
 if TYPE_CHECKING:
     import argparse
 
+    from ...utils.constants import EPName
     from ..runtime_checker.ep_checker import EPChecker
 from ...pattern.base import (
     PatternInputGenerator,
@@ -33,7 +34,7 @@ from ...pattern.base import (
     get_registered_pattern_input_generators,
 )
 from ...session import DEVICE_TYPE_TO_DEVICE
-from ...sysinfo import SysInfo
+from ..core.rules_prefilter import RuntimeCheckerRulesPrefilter
 from ..runtime_checker.check_ops import (
     OpenVINONPUChecker,
     QNNNPUChecker,
@@ -81,8 +82,8 @@ def check_patterns(
     Returns:
         Dictionary mapping pattern names to their test results:
         {
-            "Gelu": {"check_results": [...], "sys_info": {...}, "output_path": "..."},
-            "MatMulAdd": {"check_results": [...], "sys_info": {...}, "output_path": "..."},
+            "Gelu": {"check_results": [...], "output_path": "..."},
+            "MatMulAdd": {"check_results": [...], "output_path": "..."},
             ...
         }
     """
@@ -91,8 +92,6 @@ def check_patterns(
             raise ValueError("--case_index and --conflict_file cannot be used together")
         case_index = load_case_indices_from_conflict_file(conflict_file)
         print(f"Loaded {len(case_index)} case_index values from conflict file: {conflict_file}")
-
-    sys_info = SysInfo().to_dict()
 
     # Create output directory if it doesn't exist
     output_dir = Path(output_dir)
@@ -108,6 +107,13 @@ def check_patterns(
     domain_versions = {
         ONNXDomain.from_str(domain): version for domain, version in opset_mapping.items()
     }
+
+    ep_checker.set_rules_prefilter(
+        RuntimeCheckerRulesPrefilter(
+            ep_name=cast("EPName", ep_checker.ep_name),
+            device_type=ep_checker.device_type.name,
+        )
+    )
 
     # Test each pattern
     for pattern_name in patterns:
@@ -148,7 +154,6 @@ def check_patterns(
         # Use writer as context manager (auto-flushes on exit)
         with CheckResultWriter(
             output_path,
-            sys_info,
             save_per_cases=None if dry_run else 20,
             rerun_failed=rerun_failed,
             delta_only=delta_only,
@@ -159,6 +164,11 @@ def check_patterns(
             print(f"Running {pattern_name} tests on {ep_checker.ep_name}...")
             if n_cases is not None:
                 print(f"Limiting to first {n_cases} test cases")
+            if not dry_run:
+                print(
+                    "Rules-first mode: check node support via parquet rules before ep_checker; "
+                    "only fallback to real compile/run when any node is unsupported/no_data."
+                )
 
             check_results_iter = gen.check_on_ep(
                 ep_checker,
@@ -167,7 +177,6 @@ def check_patterns(
                 skip_cases=0,
                 save_failed_model=save_failed_model,
                 skip_signature_fn=writer.should_skip_case,
-                yield_skipped=True,
                 dry_run=dry_run,
             )
 
@@ -206,14 +215,13 @@ def check_patterns(
         # Store results for return
         all_results[pattern_name] = {
             "check_results": check_results,
-            "sys_info": sys_info,
             "output_path": str(output_path),
         }
 
     return all_results
 
 
-# NPU EPCheckers and get_ep_checker are re-exported from
+# EPCheckers and get_ep_checker are re-exported from
 # ..runtime_checker.check_ops to keep a single source of truth.
 __all__ = [
     "OpenVINONPUChecker",
@@ -253,14 +261,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--ep",
         type=str,
         required=True,
-        # CARVE-OUT: This subprocess tool intentionally supports only a curated subset of
-        # NPU EPs. VitisAI and future NPU EPs are excluded because this pattern-checking
-        # tool has not been validated against them. Do NOT derive from eps_for_device("npu")
-        # or EP_DEVICE_SPECS — this is an explicit opt-in allowlist, not catalog drift.
-        choices=["QNNExecutionProvider", "OpenVINOExecutionProvider"],
+        # CARVE-OUT: This subprocess tool intentionally supports only a curated allowlist
+        # of EPs. VitisAI and other unvalidated NPU EPs are excluded because this
+        # pattern-checking tool has not been validated against them. Do NOT derive from
+        # eps_for_device(...) or EP_DEVICE_SPECS — this is an explicit opt-in allowlist,
+        # not catalog drift.
+        choices=[
+            "QNNExecutionProvider",
+            "OpenVINOExecutionProvider",
+            "NvTensorRTRTXExecutionProvider",
+        ],
         help=(
             "Execution Provider names to test. "
-            "Available: QNNExecutionProvider, OpenVINOExecutionProvider"
+            "Available: QNNExecutionProvider, OpenVINOExecutionProvider, "
+            "NvTensorRTRTXExecutionProvider"
         ),
     )
     parser.add_argument(

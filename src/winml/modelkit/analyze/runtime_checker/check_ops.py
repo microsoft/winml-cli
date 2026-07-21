@@ -35,7 +35,6 @@ if TYPE_CHECKING:
     import argparse
 from ...pattern.op_input_gen.qdq_gen import QDQGenerator
 from ...session import DEVICE_TO_DEVICE_TYPE, DEVICE_TYPE_TO_DEVICE
-from ...sysinfo import SysInfo
 from ..utils import CheckResultWriter, load_case_indices_from_conflict_file
 from ..utils.model_utils import get_op_since_version
 from .ep_checker import EPChecker
@@ -90,7 +89,6 @@ def check_ops(
         case_index = load_case_indices_from_conflict_file(conflict_file)
         print(f"Loaded {len(case_index)} case_index values from conflict file: {conflict_file}")
 
-    sys_info = SysInfo().to_dict()
     domain = ONNXDomain.from_str(opset_domain)
 
     qdq_gen = QDQGenerator(1, ONNXDomain.COM_MICROSOFT) if use_qdq else None
@@ -152,7 +150,6 @@ def check_ops(
             # Use writer as context manager (auto-flushes on exit)
             with CheckResultWriter(
                 output_path,
-                sys_info,
                 save_per_cases=None if dry_run else 100,
                 rerun_failed=rerun_failed,
                 delta_only=delta_only,
@@ -173,9 +170,6 @@ def check_ops(
                     save_model=save_model,
                     model_output_dir=model_output_dir,
                     skip_signature_fn=writer.should_skip_case,
-                    # Also yield skipped cases (with skip
-                    # marker) to maintain order
-                    yield_skipped=True,
                     dry_run=dry_run,
                 )
 
@@ -249,9 +243,9 @@ class VitisAIChecker(EPChecker):
     """VitisAI execution provider checker wrapper for pytest compatibility."""
 
     def __init__(self, device_type: ort.OrtHardwareDeviceType) -> None:
+        """Initialize VitisAI checker."""
         if device_type != ort.OrtHardwareDeviceType.NPU:
             raise ValueError("VitisAIExecutionProvider only supports NPU device type")
-        """Initialize VitisAI checker."""
         super().__init__(ep_name="VitisAIExecutionProvider", device_type=device_type)
 
 
@@ -259,9 +253,9 @@ class MIGraphXChecker(EPChecker):
     """MIGraphX execution provider checker wrapper for pytest compatibility."""
 
     def __init__(self, device_type: ort.OrtHardwareDeviceType) -> None:
+        """Initialize MIGraphX checker."""
         if device_type != ort.OrtHardwareDeviceType.GPU:
             raise ValueError("MIGraphXExecutionProvider only supports GPU device type")
-        """Initialize MIGraphX checker."""
         super().__init__(ep_name="MIGraphXExecutionProvider", device_type=device_type)
 
 
@@ -269,9 +263,9 @@ class RTXChecker(EPChecker):
     """NVIDIA TensorRT RTX execution provider checker wrapper for pytest compatibility."""
 
     def __init__(self, device_type: ort.OrtHardwareDeviceType) -> None:
+        """Initialize RTX checker."""
         if device_type != ort.OrtHardwareDeviceType.GPU:
             raise ValueError("NvTensorRTRTXExecutionProvider only supports GPU device type")
-        """Initialize RTX checker."""
         super().__init__(
             ep_name="NvTensorRTRTXExecutionProvider", device_type=ort.OrtHardwareDeviceType.GPU
         )

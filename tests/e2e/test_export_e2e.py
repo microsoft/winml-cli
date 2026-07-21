@@ -43,6 +43,11 @@ pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.network, pytest.mar
 
 _MODEL = "microsoft/resnet-50"
 
+# Composite (encoder-decoder) model exercised by the fan-out tests. Its
+# sub-component names/tasks are resolved from the registry at runtime rather
+# than hardcoded, so the tests stay architecture-agnostic.
+_COMPOSITE_MODEL = "google-t5/t5-small"
+
 # Full WinMLBuildConfig used by ``-c PATH`` tests. Sets opset_version=18 so the
 # resulting ONNX model can be verified via its default-domain opset.
 _BUILD_CONFIG: dict = {
@@ -503,3 +508,86 @@ class TestExportDynamicAxes:
         onnx_path = tmp_path / "model.onnx"
         bad = _write_json(tmp_path / "axes.json", {"pixel_values": {"0": ""}})
         _assert_fails(_happy_args(onnx_path, "--dynamic-axes", str(bad)), onnx_path)
+
+
+# ===========================================================================
+# Composite model: encoder-decoder fan-out
+# ===========================================================================
+
+
+class TestExportT5Composite:
+    """Composite (encoder-decoder) export fans out into one ONNX per sub-model.
+
+    ``google-t5/t5-small`` resolves to two sub-components (encoder + decoder).
+    Exporting the whole model writes ``<stem>_<component>.onnx`` for every
+    component instead of the verbatim ``-o`` path, while ``--submodel`` narrows
+    the fan-out to a single component. Component names are read from the
+    registry so the assertions never hardcode architecture-specific labels.
+    """
+
+    def _components(self) -> dict[str, str]:
+        from winml.modelkit.loader.resolution import resolve_composite_components
+
+        components = resolve_composite_components(_COMPOSITE_MODEL)
+        assert components, f"{_COMPOSITE_MODEL} did not resolve to a composite model"
+        return components
+
+    def test_composite_fanout(self, tmp_path: Path):
+        components = self._components()
+        onnx_path = tmp_path / "model.onnx"
+
+        result = _invoke(["-m", _COMPOSITE_MODEL, "-o", str(onnx_path)])
+        assert result.exit_code == 0, f"export failed (exit {result.exit_code}):\n{result.output}"
+
+        # The verbatim -o path is never written for a multi-component fan-out;
+        # each sub-model lands at ``<stem>_<component>.onnx`` instead.
+        assert not onnx_path.exists(), "composite export unexpectedly wrote the verbatim -o path"
+        for name in components:
+            component_path = tmp_path / f"{onnx_path.stem}_{name}.onnx"
+            assert component_path.exists(), f"missing sub-model ONNX for {name!r}: {component_path}"
+            model = onnx.load(str(component_path))
+            assert list(model.graph.node), f"sub-model {name!r} has zero graph nodes"
+
+    def test_submodel_narrows_to_single(self, tmp_path: Path):
+        components = self._components()
+        selected = next(iter(components))
+        onnx_path = tmp_path / "model.onnx"
+
+        result = _invoke(["-m", _COMPOSITE_MODEL, "-o", str(onnx_path), "--submodel", selected])
+        assert result.exit_code == 0, f"export failed (exit {result.exit_code}):\n{result.output}"
+
+        # Only the selected component is written; the others are skipped.
+        assert (tmp_path / f"{onnx_path.stem}_{selected}.onnx").exists()
+        for name in components:
+            if name == selected:
+                continue
+            assert not (tmp_path / f"{onnx_path.stem}_{name}.onnx").exists(), (
+                f"--submodel {selected!r} should not export component {name!r}"
+            )
+
+    def test_unknown_submodel_fails(self, tmp_path: Path):
+        # An unknown sub-model name is rejected before any ONNX is produced.
+        onnx_path = tmp_path / "model.onnx"
+        result = _invoke(
+            ["-m", _COMPOSITE_MODEL, "-o", str(onnx_path), "--submodel", "not_a_submodel"],
+            catch=True,
+        )
+        assert result.exit_code != 0, f"expected failure, got exit=0:\n{result.output}"
+        assert not list(tmp_path.glob("*.onnx")), (
+            "no ONNX should be written on an invalid --submodel"
+        )
+
+    def test_submodel_on_non_composite_fails(self, tmp_path: Path):
+        # --submodel only makes sense for a composite model; a plain single
+        # model (resnet-50) resolves to no sub-components, so the option is
+        # rejected up front and nothing is exported.
+        onnx_path = tmp_path / "model.onnx"
+        result = _invoke(
+            ["-m", _MODEL, "-o", str(onnx_path), "--submodel", "encoder"],
+            catch=True,
+        )
+        assert result.exit_code != 0, f"expected failure, got exit=0:\n{result.output}"
+        assert "not a composite model" in result.output
+        assert not list(tmp_path.glob("*.onnx")), (
+            "no ONNX should be written when --submodel targets a non-composite model"
+        )
