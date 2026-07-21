@@ -54,6 +54,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from optimum.utils import NormalizedConfig
+    from transformers.models.sam.configuration_sam import SamPromptEncoderConfig
     from transformers.models.sam2.modeling_sam2 import Sam2MultiScaleBlock, Sam2PromptEncoder
 
 
@@ -288,7 +289,10 @@ class SAMMaskGeneration(torch.nn.Module):
 
     def _get_image_positional_embeddings(self, batch_size: int = 1) -> torch.Tensor:
         """Replicates SamModel.get_image_wide_positional_embeddings()."""
-        size = self.config.prompt_encoder_config.image_embedding_size
+        # prompt_encoder_config is typed dict | PreTrainedConfig | None but is
+        # always a SamPromptEncoderConfig at runtime for SamModel.
+        prompt_encoder_config = cast("SamPromptEncoderConfig", self.config.prompt_encoder_config)
+        size = prompt_encoder_config.image_embedding_size
         # positional_embedding is a registered Parameter reached via torch's
         # __getattr__ (typed Tensor | Module); narrow to Tensor for device/dtype.
         pos_emb = cast("torch.Tensor", self.shared_image_embedding.positional_embedding)
@@ -492,7 +496,9 @@ def _patched_sam2_multiscale_block_forward(
             raise ImportError(
                 "do_pool not found; upgrade transformers to a version that includes SAM2 support"
             ) from e
-        residual = do_pool(self.proj(hidden_states), self.query_stride)
+        # query_stride is int | list[int] | None; do_pool types it int | None,
+        # but forwards it to max_pool2d(kernel_size=...), which accepts a list.
+        residual = do_pool(self.proj(hidden_states), self.query_stride)  # type: ignore[arg-type]
 
     window_size = self.window_size
     H, W = None, None  # noqa: N806 (standard tensor dimension naming)
@@ -506,7 +512,9 @@ def _patched_sam2_multiscale_block_forward(
     hidden_states = attn_output
 
     if self.query_stride:
-        window_size = self.window_size // self.query_stride[0]
+        # When set, query_stride is a list[int] (e.g. [2, 2]); indexing [0]
+        # mirrors stock Sam2MultiScaleBlock.forward.
+        window_size = self.window_size // cast("list[int]", self.query_stride)[0]
         H, W = residual.shape[1:3]  # noqa: N806
         pad_h = (window_size - H % window_size) % window_size
         pad_w = (window_size - W % window_size) % window_size

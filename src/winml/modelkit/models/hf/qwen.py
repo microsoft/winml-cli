@@ -194,8 +194,8 @@ class QwenDecoderWrapper(nn.Module):
         )
         max_cache_len = args[kv_start].size(2)
         for i in range(self.num_layers):
-            cache.layers[i].keys = args[kv_start + i * 2]
-            cache.layers[i].values = args[kv_start + i * 2 + 1]
+            cache._layer(i).keys = args[kv_start + i * 2]
+            cache._layer(i).values = args[kv_start + i * 2 + 1]
 
         # Sliding window: tokens always append at the END of the buffer.
         # cache_position = buffer positions (right-aligned) so HF's

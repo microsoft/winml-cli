@@ -96,6 +96,7 @@ from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLStaticCache
 
 if TYPE_CHECKING:
     from transformers import GenerationConfig, PretrainedConfig
+    from transformers.cache_utils import CacheLayerMixin
     from transformers.models.bart.modeling_bart import BartLearnedPositionalEmbedding
 
 logger = logging.getLogger(__name__)
@@ -280,7 +281,8 @@ class BartDecoderWrapper(nn.Module):
     def from_pretrained(cls, model_name_or_path: str, **kwargs: Any) -> BartDecoderWrapper:
         """Load full BartForConditionalGeneration, wrap with sliding-window cache."""
         full_model = BartForConditionalGeneration.from_pretrained(model_name_or_path, **kwargs)
-        num_layers = full_model.config.decoder_layers
+        # config.decoder_layers is typed int | None but is always set for BART.
+        num_layers = cast("int", full_model.config.decoder_layers)
         wrapper = cls(full_model, num_layers)
         wrapper.eval()
         return wrapper
@@ -320,8 +322,11 @@ class BartDecoderWrapper(nn.Module):
             device=decoder_input_ids.device,
         )
         for i in range(self.num_layers):
-            self_attn_cache.layers[i].keys = args[kv_start + i * 2]
-            self_attn_cache.layers[i].values = args[kv_start + i * 2 + 1]
+            # WinML caches use standard (non-linear) attention layers, which
+            # carry keys/values; narrow away LinearAttentionCacheLayerMixin.
+            layer = cast("CacheLayerMixin", self_attn_cache.layers[i])
+            layer.keys = args[kv_start + i * 2]
+            layer.values = args[kv_start + i * 2 + 1]
 
         # Thread absolute seq pos to the (patched) learned embedding via a
         # module attribute.  The patched forward reads this and uses it for

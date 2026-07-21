@@ -139,12 +139,12 @@ def _install_impl() -> None:
                 import torch
                 return torch.float32
 
-        transformers.modeling_utils.get_parameter_dtype = get_parameter_dtype
+        transformers.modeling_utils.get_parameter_dtype = get_parameter_dtype  # type: ignore[attr-defined]  # untyped lib monkey-patch
 
     # Empty dict means the recorder branch never fires; output_attentions /
     # output_hidden_states capture during export is silently skipped.
     if not hasattr(transformers.utils.generic, "_CAN_RECORD_REGISTRY"):
-        transformers.utils.generic._CAN_RECORD_REGISTRY = {}
+        transformers.utils.generic._CAN_RECORD_REGISTRY = {}  # type: ignore[attr-defined]  # untyped lib monkey-patch
 
     if not hasattr(transformers.utils.generic, "OutputRecorder"):
 
@@ -165,7 +165,7 @@ def _install_impl() -> None:
 
         # Monkey-patch the untyped transformers module: it declares
         # OutputRecorder as a type, so mypy rejects rebinding it.
-        transformers.utils.generic.OutputRecorder = OutputRecorder  # type: ignore[misc, assignment]  # untyped lib monkey-patch
+        transformers.utils.generic.OutputRecorder = OutputRecorder  # type: ignore[attr-defined]  # untyped lib monkey-patch
 
     # optimum-onnx 0.1.0's sdpa_mask_without_vmap was written against
     # transformers 4.x's mask_interface (cache_position tensor); tf 5.x
@@ -200,7 +200,7 @@ def _install_impl() -> None:
             mask_function = causal_mask_function
         padding_mask = prepare_padding_mask(attention_mask, kv_length, kv_offset)
         if allow_is_causal_skip and _ignore_causal_mask_sdpa(
-            padding_mask, q_length, kv_length, kv_offset, local_size
+            padding_mask, q_length, kv_length, q_offset, kv_offset, local_size
         ):
             return None
         if padding_mask is not None:

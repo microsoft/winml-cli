@@ -44,6 +44,7 @@ from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLSlidingWindowCache
 
 if TYPE_CHECKING:
     from transformers import GenerationConfig, PretrainedConfig
+    from transformers.cache_utils import CacheLayerMixin
 
 
 # =============================================================================
@@ -168,8 +169,11 @@ class T5DecoderWrapper(nn.Module):
             device=decoder_input_ids.device,
         )
         for i in range(self.num_layers):
-            self_attn_cache.layers[i].keys = args[kv_start + i * 2]
-            self_attn_cache.layers[i].values = args[kv_start + i * 2 + 1]
+            # WinML caches use standard (non-linear) attention layers, which
+            # carry keys/values; narrow away LinearAttentionCacheLayerMixin.
+            layer = cast("CacheLayerMixin", self_attn_cache.layers[i])
+            layer.keys = args[kv_start + i * 2]
+            layer.values = args[kv_start + i * 2 + 1]
 
         # Sliding window + single-token gen: the query is always at the
         # rightmost slot.  Constructing this constant inside forward traces it

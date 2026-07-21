@@ -357,8 +357,8 @@ class MarianDecoderWrapper(nn.Module):
             device=decoder_input_ids.device,
         )
         for i in range(self.num_layers):
-            self_attn_cache.layers[i].keys = args[kv_start + i * 2]
-            self_attn_cache.layers[i].values = args[kv_start + i * 2 + 1]
+            self_attn_cache._layer(i).keys = args[kv_start + i * 2]
+            self_attn_cache._layer(i).values = args[kv_start + i * 2 + 1]
 
         # Thread absolute seq pos to the (patched) sin/cos embedding via a
         # module attribute.  The patched forward reads this and uses it for
