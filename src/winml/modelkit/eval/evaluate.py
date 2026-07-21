@@ -330,6 +330,16 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
     config = replace(
         config, mode=mode, task=_resolve_task(config), dataset=deepcopy(config.dataset)
     )
+    if config.task == "mask-generation" and config.model_path is None and config.model_id:
+        from ..loader.resolution import resolve_composite_onnx_sources
+
+        sources = resolve_composite_onnx_sources(
+            config.model_id,
+            task=config.task,
+            precision=config.precision,
+        )
+        if sources is not None:
+            config = replace(config, model_path=sources)
     if config.mode != "compare" and config.dataset.path is None:
         default = _DEFAULT_DATASETS.get(config.task) if config.task is not None else None
         if default is None:

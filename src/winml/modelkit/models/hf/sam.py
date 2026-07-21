@@ -34,7 +34,7 @@ Exports:
 from __future__ import annotations
 
 import types
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import torch
 import torch.nn.functional as F
@@ -48,6 +48,7 @@ from optimum.utils.input_generators import (
 from transformers import Sam2Model, SamModel
 
 from ...export import register_onnx_overwrite
+from ..winml.composite_model import WinMLCompositeModel, register_composite_model
 
 
 if TYPE_CHECKING:
@@ -402,6 +403,41 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
 }
 
 
+@register_composite_model("sam", "mask-generation")
+class WinMLSAMModel(WinMLCompositeModel):
+    """SAM composite backed by published encoder and prompt-decoder ONNX graphs."""
+
+    _PRETRAINED_ONNX_ONLY: ClassVar[bool] = True
+    _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {
+        "image-encoder": "image-feature-extraction",
+        "prompt-decoder": "mask-generation",
+    }
+
+    @classmethod
+    def resolve_pretrained_onnx(
+        cls,
+        model_id: str,
+        *,
+        revision: str | None = None,
+        precision: str = "fp32",
+    ) -> dict[str, str] | None:
+        """Discover the checkpoint's runnable published ONNX graph pair."""
+        from ...loader.onnx_hub import resolve_hf_onnx_encoder_decoder
+
+        try:
+            sources = resolve_hf_onnx_encoder_decoder(
+                model_id,
+                revision=revision,
+                precision=precision,
+            )
+        except FileNotFoundError:
+            # Published ONNX is an optional source for SAM. Ordinary PyTorch
+            # checkpoints must retain the existing export path. Malformed or
+            # ambiguous published graph sets still raise and fail closed.
+            return None
+        return {name: str(path) for name, path in sources.items()}
+
+
 # Note: No model-specific build config needed. The analyzer autoconf loop
 # discovers optimization flags automatically. See issue #232.
 
@@ -577,9 +613,7 @@ def _patched_sam2_prompt_encoder_forward(
 
     # _original_forward is added dynamically by Sam2ModelPatcher (not on the class),
     # so it's reached via nn.Module.__getattr__ (typed Tensor | Module); type it callable.
-    orig_forward = cast(
-        "Callable[..., tuple[torch.Tensor, torch.Tensor]]", self._original_forward
-    )
+    orig_forward = cast("Callable[..., tuple[torch.Tensor, torch.Tensor]]", self._original_forward)
 
     # If use_mask_input not provided, use original behavior
     if use_mask_input is None:
@@ -1084,6 +1118,7 @@ __all__ = [
     "Sam2ModelPatcher",
     "Sam2NormalizedVisionConfig",
     "SamMaskGenerationIOConfig",
+    "WinMLSAMModel",
     "_patched_sam2_multiscale_block_forward",
     "_patched_sam2_prompt_encoder_forward",
 ]

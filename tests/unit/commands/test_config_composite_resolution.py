@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import httpx
 import pytest
 from transformers import BartConfig, Qwen3Config, T5Config
 
@@ -145,3 +146,33 @@ def test_explicit_task_resolves_decoder_only_composite() -> None:
     components = _resolve(None, "qwen3", "text-generation")
     assert components is not None
     assert "decoder_prefill" in components and "decoder_gen" in components
+
+
+def test_explicit_model_type_and_task_do_not_probe_hub() -> None:
+    """An explicit offline schema must not trigger optional release discovery."""
+    with (
+        patch("transformers.AutoConfig.from_pretrained") as auto_config,
+        patch(
+            "winml.modelkit.loader.onnx_hub.resolve_hf_release_onnx_encoder_decoder"
+        ) as release_resolver,
+    ):
+        assert _resolve("some-model", "bert", "fill-mask") is None
+
+    auto_config.assert_not_called()
+    release_resolver.assert_not_called()
+
+
+def test_optional_release_discovery_preserves_offline_config_fallback() -> None:
+    """An unavailable optional Hub probe must not replace the established error."""
+    config_error = OSError("cached config unavailable")
+    with (
+        patch("transformers.AutoConfig.from_pretrained", side_effect=config_error),
+        patch(
+            "winml.modelkit.loader.onnx_hub.resolve_hf_release_onnx_encoder_decoder",
+            side_effect=httpx.ConnectError("offline"),
+        ),
+        pytest.raises(OSError, match="cached config unavailable") as error,
+    ):
+        _resolve("some-model", None, None)
+
+    assert error.value is config_error

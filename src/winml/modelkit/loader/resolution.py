@@ -312,11 +312,20 @@ def resolve_composite(model_type: str, task: str) -> CompositeComponents | None:
     return dict(cls._SUB_MODEL_CONFIG) if cls is not None else None
 
 
+def _optional_hub_discovery_errors() -> tuple[type[Exception], ...]:
+    """Errors for which optional release discovery preserves the original path."""
+    import httpx
+    from huggingface_hub.errors import HfHubHTTPError, OfflineModeIsEnabled
+
+    return (HfHubHTTPError, OfflineModeIsEnabled, httpx.HTTPError)
+
+
 def resolve_composite_components(
     hf_model: str | None,
     *,
     task: str | None = None,
     model_type: str | None = None,
+    precision: str = "fp32",
     trust_remote_code: bool = False,
 ) -> CompositeComponents | None:
     """Resolve a composite model's ``_SUB_MODEL_CONFIG`` (sub-name -> task), else None.
@@ -331,23 +340,143 @@ def resolve_composite_components(
     """
     from transformers import AutoConfig
 
+    if task is not None and model_type is not None:
+        return resolve_composite(model_type, task)
+
+    config = None
+    config_error: ValueError | OSError | None = None
+    if hf_model is not None:
+        try:
+            config = AutoConfig.from_pretrained(hf_model, trust_remote_code=trust_remote_code)
+        except (ValueError, OSError) as error:
+            config_error = error
+            from .onnx_hub import resolve_hf_release_onnx_encoder_decoder
+
+            try:
+                release_sources = resolve_hf_release_onnx_encoder_decoder(
+                    hf_model,
+                    precision=precision,
+                )
+            except _optional_hub_discovery_errors() as release_error:
+                raise error from release_error
+            if release_sources is not None:
+                if task not in {None, "mask-generation"}:
+                    raise ValueError(
+                        f"Published promptable ONNX composite serves 'mask-generation', "
+                        f"not {task!r}."
+                    ) from error
+                return {
+                    "image-encoder": "image-feature-extraction",
+                    "prompt-decoder": "mask-generation",
+                }
+
     if task is not None:
         resolved_type = model_type
-        if resolved_type is None and hf_model is not None:
-            resolved_type = AutoConfig.from_pretrained(
-                hf_model, trust_remote_code=trust_remote_code
-            ).model_type
+        if resolved_type is None and config is not None:
+            resolved_type = config.model_type
+        if resolved_type is None and config_error is not None:
+            raise config_error
         if resolved_type is None:
             return None
         return resolve_composite(resolved_type, task)
 
-    if hf_model is not None:
-        config = AutoConfig.from_pretrained(hf_model, trust_remote_code=trust_remote_code)
-    elif model_type is not None:
+    if config is None and model_type is not None:
         config = AutoConfig.for_model(model_type)
-    else:
+    elif config is None and config_error is not None:
+        raise config_error
+    elif config is None:
         return None
     return resolve_task(config).composite
+
+
+def resolve_composite_onnx_sources(
+    hf_model: str,
+    *,
+    task: str | None = None,
+    component_name: str | None = None,
+    precision: str = "fp32",
+    trust_remote_code: bool = False,
+) -> dict[str, str] | None:
+    """Resolve published ONNX sources for a registered composite model."""
+    from transformers import AutoConfig
+
+    try:
+        config = AutoConfig.from_pretrained(hf_model, trust_remote_code=trust_remote_code)
+    except (ValueError, OSError) as config_error:
+        from .onnx_hub import resolve_hf_release_onnx_encoder_decoder
+
+        try:
+            release_sources = resolve_hf_release_onnx_encoder_decoder(
+                hf_model,
+                precision=precision,
+            )
+        except _optional_hub_discovery_errors() as release_error:
+            raise config_error from release_error
+        if release_sources is None:
+            raise
+        if task not in {None, "mask-generation"}:
+            raise ValueError(
+                f"Published promptable ONNX composite serves 'mask-generation', not {task!r}."
+            ) from config_error
+        resolved_release = {name: str(path) for name, path in release_sources.items()}
+        if component_name is not None:
+            if component_name not in resolved_release:
+                raise ValueError(
+                    f"Published composite has no component {component_name!r}; "
+                    f"available: {sorted(resolved_release)}"
+                ) from config_error
+            return {component_name: resolved_release[component_name]}
+        return resolved_release
+    model_type = config.model_type.lower().replace("_", "-")
+    registry = _composite_registry()
+
+    if task is not None and (model_type, task) in registry:
+        composite_cls = registry[(model_type, task)]
+    else:
+        resolution = resolve_task(config, task=task)
+        matching = [
+            cls
+            for (registered_type, _registered_task), cls in registry.items()
+            if registered_type == model_type
+            and resolution.composite == dict(cls._SUB_MODEL_CONFIG)
+            and (component_name is None or component_name in cls._SUB_MODEL_CONFIG)
+        ]
+        if not matching:
+            return None
+        if len(set(matching)) != 1:
+            raise ValueError(
+                f"{model_type!r} has multiple matching composite ONNX sources; pass --task."
+            )
+        composite_cls = matching[0]
+
+    sources = composite_cls.resolve_pretrained_onnx(
+        hf_model,
+        revision=getattr(config, "_commit_hash", None),
+        precision=precision,
+    )
+    if sources is None:
+        return None
+    resolved = {name: str(path) for name, path in sources.items()}
+    if component_name is not None:
+        if component_name not in resolved:
+            raise ValueError(
+                f"Published composite has no component {component_name!r}; "
+                f"available: {sorted(resolved)}"
+            )
+        return {component_name: resolved[component_name]}
+    return resolved
+
+
+def composite_requires_pretrained_onnx(components: CompositeComponents) -> bool:
+    """Whether a registered composite exists only for published ONNX sources.
+
+    Such registrations augment an architecture without replacing its existing
+    PyTorch export behavior when the checkpoint publishes no ONNX components.
+    """
+    matching = {
+        cls for cls in _composite_registry().values() if components == dict(cls._SUB_MODEL_CONFIG)
+    }
+    return len(matching) == 1 and next(iter(matching))._PRETRAINED_ONNX_ONLY
 
 
 def composite_pipeline_tasks(model_type: str) -> list[str]:

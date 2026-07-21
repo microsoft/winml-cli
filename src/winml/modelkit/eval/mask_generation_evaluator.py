@@ -36,6 +36,7 @@ Hub; tracked as a follow-up.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from dataclasses import dataclass
@@ -112,6 +113,17 @@ SAM2_PROFILE = _MaskGenProfile(
 )
 
 
+PROMPT_ENCODER_PROFILE = _MaskGenProfile(
+    name="prompt-encoder",
+    target_size=1024,
+    mean=(0.0, 0.0, 0.0),
+    std=(1.0, 1.0, 1.0),
+    resize_mode="direct",
+)
+
+_RELEASE_METADATA_NAME = "winml_release_metadata.json"
+
+
 # Back-compat module-level SAM 3 constant (preserved so existing imports
 # from tests/scripts keep working unchanged).
 _TARGET_SIZE = SAM3_PROFILE.target_size
@@ -167,13 +179,42 @@ class WinMLMaskGenerationEvaluator(WinMLEvaluator):
                 "Use prompt_mode='bbox' or 'point'."
             )
         self._enc_sess, self._dec_sess = self._load_sessions()
-        self._encoder_input_name = _resolve_encoder_input_name(self._enc_sess)
+        self._encoder_prompt_inputs = _resolve_point_prompt_inputs(self._enc_sess)
+        self._decoder_input_names = _node_names(self._dec_sess.get_inputs())
+        self._decoder_prompt_inputs = _resolve_point_prompt_inputs(self._dec_sess)
+        if self._encoder_prompt_inputs and self._decoder_prompt_inputs:
+            raise ValueError(
+                "Prompt inputs are present on both composite components; routing is ambiguous."
+            )
+        if not self._encoder_prompt_inputs and not self._decoder_prompt_inputs:
+            raise ValueError("Neither composite component exposes a point-prompt contract.")
+        self._prompt_component = (
+            self._ENCODER_ROLE if self._encoder_prompt_inputs else self._DECODER_ROLE
+        )
+        if self._prompt_component == self._ENCODER_ROLE:
+            if "prompt_mode" in mapping and self._prompt_mode == "bbox":
+                raise ValueError(
+                    "The encoder prompt contract accepts points only; use prompt_mode='point'."
+                )
+            self._prompt_mode = "point"
+        elif "input_boxes" not in self._decoder_input_names:
+            if "prompt_mode" in mapping and self._prompt_mode == "bbox":
+                raise ValueError(
+                    "The decoder does not accept box prompts; use prompt_mode='point'."
+                )
+            self._prompt_mode = "point"
+        self._encoder_input_name = _resolve_encoder_input_name(
+            self._enc_sess,
+            excluded=set(self._encoder_prompt_inputs or ()),
+        )
         self._encoder_output_names = _node_names(self._enc_sess.get_outputs())
         self._embedding_input_names = _resolve_embedding_input_names(
             self._dec_sess,
             self._encoder_output_names,
         )
-        self._decoder_output_names = _resolve_decoder_output_names(self._dec_sess)
+        self._mask_output_name, self._score_output_name = _resolve_decoder_output_names(
+            self._dec_sess
+        )
         # Pick the per-family preprocessing profile from the encoder's
         # static input shape (falling back to a model_id heuristic, then
         # SAM 3).  Threaded through preprocess + postprocess in _predict.
@@ -320,30 +361,45 @@ class WinMLMaskGenerationEvaluator(WinMLEvaluator):
             self._profile,
             image,
         )
-        enc_out = self._enc_sess.run(None, {self._encoder_input_name: pixel_values})
+        encoder_feed = {self._encoder_input_name: pixel_values}
+        if self._encoder_prompt_inputs is not None:
+            encoder_feed.update(
+                _build_encoder_prompt_inputs(
+                    prompt=prompt,
+                    prompt_mode=self._prompt_mode,
+                    session=self._enc_sess,
+                    coordinate_name=self._encoder_prompt_inputs[0],
+                    label_name=self._encoder_prompt_inputs[1],
+                    original_width=image.size[0],
+                    original_height=image.size[1],
+                )
+            )
+        enc_out = self._enc_sess.run(None, encoder_feed)
         emb = dict(zip(self._encoder_output_names, enc_out, strict=True))
 
-        dec_inputs = _build_decoder_inputs(
-            prompt=prompt,
-            prompt_mode=self._prompt_mode,
-            scale_x=scale_x,
-            scale_y=scale_y,
-            emb=emb,
-            required_embed_names=self._embedding_input_names,
-        )
+        if self._encoder_prompt_inputs is not None:
+            dec_inputs = {name: emb[name] for name in self._embedding_input_names}
+        else:
+            dec_inputs = _build_decoder_inputs(
+                prompt=prompt,
+                prompt_mode=self._prompt_mode,
+                scale_x=scale_x,
+                scale_y=scale_y,
+                emb=emb,
+                required_embed_names=self._embedding_input_names,
+                required_input_names=self._decoder_input_names,
+            )
         dec_out = self._dec_sess.run(
-            list(self._decoder_output_names),
+            [self._score_output_name, self._mask_output_name],
             dec_inputs,
         )
-        dec_by_name = dict(zip(self._decoder_output_names, dec_out, strict=True))
-        iou_scores = dec_by_name["iou_scores"]
-        pred_masks = dec_by_name["pred_masks"]
-
-        # pred_masks: (1, num_prompts, num_masks, H, W); pick the
-        # best-scoring of the candidate masks for the first prompt.
-        iou_preds = iou_scores[0, 0]  # (num_masks,)
-        best_idx = int(iou_preds.argmax())
-        best_low_res = pred_masks[0, 0, best_idx]
+        dec_by_name = dict(
+            zip((self._score_output_name, self._mask_output_name), dec_out, strict=True)
+        )
+        best_low_res = _select_best_mask(
+            dec_by_name[self._mask_output_name],
+            dec_by_name[self._score_output_name],
+        )
 
         return _postprocess_for_profile(
             self._profile,
@@ -378,6 +434,9 @@ def _resolve_profile(
        ``sam3`` / ``sam-3`` -> SAM 3) when the encoder shape is dynamic.
     3. **Default SAM 3** -- preserves the original evaluator behaviour.
     """
+    if _resolve_point_prompt_inputs(enc_sess) is not None:
+        return _resolve_release_profile(config, enc_sess)
+
     known = (SAM3_PROFILE, SAM2_PROFILE)
 
     try:
@@ -398,6 +457,80 @@ def _resolve_profile(
     return SAM3_PROFILE
 
 
+def _resolve_release_profile(config: WinMLEvaluationConfig, enc_sess: Any) -> _MaskGenProfile:
+    """Resolve image preprocessing from a release runtime contract, never an ID heuristic."""
+    if not isinstance(config.model_path, dict):
+        raise TypeError("Release-backed mask generation requires composite model paths.")
+    encoder_path = Path(config.model_path[WinMLMaskGenerationEvaluator._ENCODER_ROLE])
+    candidates = (
+        encoder_path.parent / _RELEASE_METADATA_NAME,
+        encoder_path.parent / "metadata.json",
+    )
+    metadata_path = next((path for path in candidates if path.is_file()), None)
+    if metadata_path is None:
+        raise ValueError(
+            "A prompt-bearing encoder requires persisted release runtime metadata; "
+            f"expected {_RELEASE_METADATA_NAME!r} beside {encoder_path.name!r}."
+        )
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8-sig"))
+        model_files = metadata["model_files"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
+        raise ValueError(f"Invalid release runtime metadata {metadata_path}: {error}") from error
+    if not isinstance(model_files, dict):
+        raise TypeError("Release runtime metadata 'model_files' must be an object.")
+
+    session_inputs = {node.name: node for node in enc_sess.get_inputs()}
+    matching = [
+        contract
+        for contract in model_files.values()
+        if isinstance(contract, dict)
+        and isinstance(contract.get("inputs"), dict)
+        and set(contract["inputs"]) == set(session_inputs)
+    ]
+    if len(matching) != 1:
+        raise ValueError(
+            "Release runtime metadata must contain exactly one graph contract matching "
+            f"encoder inputs {sorted(session_inputs)}; found {len(matching)}."
+        )
+    inputs = matching[0]["inputs"]
+    image_names = [
+        name
+        for name, spec in inputs.items()
+        if isinstance(spec, dict) and spec.get("io_type") == "image"
+    ]
+    if len(image_names) != 1:
+        raise ValueError(
+            "Release runtime metadata must identify exactly one encoder input as io_type=image."
+        )
+    image_name = image_names[0]
+    image_spec = inputs[image_name]
+    shape = image_spec.get("shape")
+    value_range = image_spec.get("value_range")
+    session_shape = list(getattr(session_inputs[image_name], "shape", ()))
+    if (
+        not isinstance(shape, list)
+        or len(shape) != 4
+        or shape != session_shape
+        or shape[1] != 3
+        or not isinstance(shape[-1], int)
+        or shape[-2] != shape[-1]
+        or image_spec.get("dtype") != "float32"
+        or value_range != [0.0, 1.0]
+    ):
+        raise ValueError(
+            "Unsupported or inconsistent release image contract; expected a matching "
+            "square NCHW RGB float32 input with value_range [0.0, 1.0]."
+        )
+    return _MaskGenProfile(
+        name=PROMPT_ENCODER_PROFILE.name,
+        target_size=shape[-1],
+        mean=PROMPT_ENCODER_PROFILE.mean,
+        std=PROMPT_ENCODER_PROFILE.std,
+        resize_mode=PROMPT_ENCODER_PROFILE.resize_mode,
+    )
+
+
 def _node_names(nodes: Any) -> tuple[str, ...]:
     """Return ORT input/output names, rejecting unnamed nodes."""
     names = tuple(getattr(node, "name", "") for node in nodes)
@@ -406,13 +539,18 @@ def _node_names(nodes: Any) -> tuple[str, ...]:
     return names
 
 
-def _resolve_encoder_input_name(enc_sess: Any) -> str:
+def _resolve_encoder_input_name(enc_sess: Any, *, excluded: set[str] | None = None) -> str:
     """Pick the encoder image input name from the actual ONNX session."""
-    names = _node_names(enc_sess.get_inputs())
+    excluded = excluded or set()
+    inputs = [node for node in enc_sess.get_inputs() if node.name not in excluded]
+    names = _node_names(inputs)
     if not names:
         raise ValueError("Encoder ONNX session has no inputs.")
     if "pixel_values" in names:
         return "pixel_values"
+    rank4 = [str(node.name) for node in inputs if len(getattr(node, "shape", ())) == 4]
+    if len(rank4) == 1:
+        return rank4[0]
     if len(names) == 1:
         return names[0]
     raise ValueError(
@@ -427,14 +565,6 @@ def _resolve_embedding_input_names(
 ) -> tuple[str, ...]:
     """Match decoder embedding inputs to encoder output names."""
     decoder_inputs = _node_names(dec_sess.get_inputs())
-    required_prompt_inputs = ("input_points", "input_labels", "input_boxes")
-    missing_prompt = [name for name in required_prompt_inputs if name not in decoder_inputs]
-    if missing_prompt:
-        raise ValueError(
-            f"Decoder ONNX session missing prompt input(s) {missing_prompt}. "
-            f"Got inputs: {list(decoder_inputs)}."
-        )
-
     embedding_inputs = tuple(name for name in decoder_inputs if name in encoder_output_names)
     if not embedding_inputs:
         raise ValueError(
@@ -447,14 +577,114 @@ def _resolve_embedding_input_names(
 
 def _resolve_decoder_output_names(dec_sess: Any) -> tuple[str, str]:
     """Validate and return decoder outputs needed by the metric path."""
-    outputs = _node_names(dec_sess.get_outputs())
-    required = ("iou_scores", "pred_masks")
-    missing = [name for name in required if name not in outputs]
-    if missing:
+    nodes = dec_sess.get_outputs()
+    outputs = _node_names(nodes)
+    mask_candidates = [node.name for node in nodes if len(getattr(node, "shape", ())) >= 4]
+    score_candidates = [node.name for node in nodes if 1 <= len(getattr(node, "shape", ())) <= 3]
+    if "pred_masks" in outputs:
+        mask_candidates = ["pred_masks"]
+    elif "masks" in outputs:
+        mask_candidates = ["masks"]
+    if "iou_scores" in outputs:
+        score_candidates = ["iou_scores"]
+    elif "scores" in outputs:
+        score_candidates = ["scores"]
+    if len(mask_candidates) != 1 or len(score_candidates) != 1:
         raise ValueError(
-            f"Decoder ONNX session missing output(s) {missing}. Got outputs: {list(outputs)}."
+            "Could not identify one mask output and one score output from decoder "
+            f"contract. Got outputs: {list(outputs)}."
         )
-    return required
+    return mask_candidates[0], score_candidates[0]
+
+
+def _resolve_point_prompt_inputs(session: Any) -> tuple[str, str] | None:
+    """Resolve one coordinate/label input pair by rank/shape, failing on ambiguity."""
+    nodes = session.get_inputs()
+    coordinates = []
+    for node in nodes:
+        shape = getattr(node, "shape", ())
+        if isinstance(shape, (list, tuple)) and len(shape) in {3, 4} and shape[-1] == 2:
+            coordinates.append(node)
+    labels = [
+        node
+        for node in nodes
+        if len(getattr(node, "shape", ())) in {2, 3}
+        and node not in coordinates
+        and (
+            "int" in getattr(node, "type", "").lower()
+            or "label" in getattr(node, "name", "").lower()
+        )
+    ]
+    if not coordinates and not labels:
+        return None
+    if len(coordinates) != 1 or len(labels) != 1:
+        raise ValueError(
+            "Point-prompt inputs are incomplete or ambiguous: "
+            f"coordinates={[node.name for node in coordinates]}, "
+            f"labels={[node.name for node in labels]}."
+        )
+    return coordinates[0].name, labels[0].name
+
+
+def _numpy_dtype(node_type: str) -> Any:
+    lowered = node_type.lower()
+    if "int64" in lowered:
+        return np.int64
+    if "int32" in lowered:
+        return np.int32
+    return np.float32
+
+
+def _build_encoder_prompt_inputs(
+    *,
+    prompt: dict[str, Any],
+    prompt_mode: str,
+    session: Any,
+    coordinate_name: str,
+    label_name: str,
+    original_width: int,
+    original_height: int,
+) -> dict[str, np.ndarray]:
+    """Build normalized point tensors for a prompt-bearing encoder contract."""
+    if prompt_mode != "point":
+        raise ValueError("Encoder-side prompt routing currently requires prompt_mode='point'.")
+    nodes = {node.name: node for node in session.get_inputs()}
+    coordinate = nodes[coordinate_name]
+    label = nodes[label_name]
+    coordinate_shape = tuple(coordinate.shape)
+    label_shape = tuple(label.shape)
+    if any(not isinstance(dim, int) or dim <= 0 for dim in coordinate_shape + label_shape):
+        raise ValueError(
+            "Encoder-side point prompts require positive static coordinate and label shapes."
+        )
+    coords = np.zeros(coordinate_shape, dtype=_numpy_dtype(coordinate.type))
+    labels = np.full(label_shape, -1, dtype=_numpy_dtype(label.type))
+    px, py = prompt["point"]
+    normalized = (px / original_width, py / original_height)
+    if len(coordinate_shape) == 3:
+        coords[0, 0] = normalized
+        labels[0, 0] = 1
+    else:
+        coords[0, 0, 0] = normalized
+        labels[0, 0, 0] = 1
+    return {coordinate_name: coords, label_name: labels}
+
+
+def _select_best_mask(masks: np.ndarray, scores: np.ndarray) -> np.ndarray:
+    """Select the highest-scoring low-resolution mask across common SAM layouts."""
+    if masks.ndim == 4:
+        candidates = masks[0]
+        score_values = scores.reshape(-1)
+    elif masks.ndim == 5:
+        candidates = masks[0, 0]
+        score_values = scores[0, 0].reshape(-1)
+    else:
+        raise ValueError(f"Unsupported mask output rank {masks.ndim}; expected 4 or 5.")
+    if candidates.shape[0] != score_values.size:
+        raise ValueError(
+            f"Mask/score candidate count mismatch: {candidates.shape[0]} vs {score_values.size}."
+        )
+    return np.asarray(candidates[int(score_values.argmax())])
 
 
 def _preprocess_for_profile(
@@ -599,6 +829,11 @@ def _build_decoder_inputs(
         "image_embeddings.1",
         "image_embeddings.2",
     ),
+    required_input_names: tuple[str, ...] = (
+        "input_points",
+        "input_labels",
+        "input_boxes",
+    ),
 ) -> dict[str, np.ndarray]:
     """Assemble the decoder feed dict for bbox or point prompts.
 
@@ -648,11 +883,12 @@ def _build_decoder_inputs(
             f"Encoder output missing required keys {missing_embeds}. Got: {list(emb.keys())}"
         )
 
-    feed = {
+    prompt_feed = {
         "input_points": points,
         "input_labels": labels,
         "input_boxes": box,
     }
+    feed = {name: value for name, value in prompt_feed.items() if name in required_input_names}
     feed.update({name: emb[name] for name in required_embed_names})
     return feed
 
