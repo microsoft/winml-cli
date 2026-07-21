@@ -57,6 +57,11 @@ NPU_EPS = ("qnn", "vitisai", "openvino")
 GPU_EPS = ("dml", "nv_tensorrt_rtx", "migraphx", "openvino", "qnn")
 NON_CPU_EPS = ("qnn", "vitisai", "dml", "nv_tensorrt_rtx", "migraphx")
 
+# Real image-classification ONNX model shipped in the repo
+# (``pixel_values`` [1, 224, 224, 3] -> ``logits`` [1, 3]). Used for NPU
+# tests, where a bare float MatMul is not representative of NPU execution.
+ASSETS_ONNX_MODEL = Path(__file__).resolve().parent.parent / "assets" / "model.onnx"
+
 
 def _require_gpu() -> None:
     """Skip the current test unless a GPU is discoverable via PDH."""
@@ -119,7 +124,9 @@ def _build_perf_args(
     enough samples to observe utilization) and 3 otherwise (kept tiny for
     e2e speed). Warmup is always 1.
     """
-    iterations = iterations_overwrite if iterations_overwrite is not None else (300 if monitor else 3)
+    iterations = (
+        iterations_overwrite if iterations_overwrite is not None else (300 if monitor else 3)
+    )
     args: list[str] = [
         "-m",
         model_arg,
@@ -190,6 +197,17 @@ class _PerfBenchmarkSuite:
     @pytest.fixture
     def model_arg(self) -> str:
         raise NotImplementedError("Subclasses must override model_arg fixture")
+
+    @pytest.fixture
+    def npu_model_arg(self, model_arg: str) -> str:
+        """Model source used by the NPU tests.
+
+        Defaults to ``model_arg`` so subclasses share a single model.
+        Subclasses backed by a real ONNX file override this to point at a
+        model that actually executes on the NPU (QNN / VitisAI), where a
+        bare float MatMul is not representative.
+        """
+        return model_arg
 
     def test_benchmark_cpu(self, tmp_path: Path, model_arg: str):
         """Benchmark on CPU with minimal iterations.
@@ -347,7 +365,7 @@ class _PerfBenchmarkSuite:
         # Console output should NOT contain Memory section
         assert "Memory:" not in result.output
 
-    def test_benchmark_npu_memory(self, tmp_path: Path, model_arg: str):
+    def test_benchmark_npu_memory(self, tmp_path: Path, npu_model_arg: str):
         """Benchmark on NPU with --memory produces VRAM fields.
 
         Verifies VRAM local/shared fields are present in JSON output.
@@ -359,7 +377,7 @@ class _PerfBenchmarkSuite:
         result = runner.invoke(
             perf,
             _build_perf_args(
-                model_arg=model_arg, output_file=output_file, device="npu", memory=True
+                model_arg=npu_model_arg, output_file=output_file, device="npu", memory=True
             ),
             obj={},
             catch_exceptions=False,
@@ -422,7 +440,11 @@ class _PerfBenchmarkSuite:
         result = runner.invoke(
             perf,
             _build_perf_args(
-                model_arg=model_arg, output_file=output_file, device="gpu", monitor=True, iterations_overwrite=1000
+                model_arg=model_arg,
+                output_file=output_file,
+                device="gpu",
+                monitor=True,
+                iterations_overwrite=1000,
             ),
             obj={},
             catch_exceptions=False,
@@ -432,8 +454,7 @@ class _PerfBenchmarkSuite:
         assert output_file.exists(), f"Output file not created: {output_file}"
         data = json.loads(output_file.read_text())
         _assert_monitor_result(data, device="gpu")
-
-    def test_benchmark_npu_monitor(self, tmp_path: Path, model_arg: str):
+    def test_benchmark_npu_monitor(self, tmp_path: Path, npu_model_arg: str):
         """Benchmark on NPU with --monitor.
 
         Requires a real NPU discoverable via PDH. Verifies the JSON output
@@ -447,7 +468,7 @@ class _PerfBenchmarkSuite:
         result = runner.invoke(
             perf,
             _build_perf_args(
-                model_arg=model_arg, output_file=output_file, device="npu", monitor=True
+                model_arg=npu_model_arg, output_file=output_file, device="npu", monitor=True
             ),
             obj={},
             catch_exceptions=False,
@@ -547,7 +568,12 @@ class _PerfBenchmarkSuite:
         result = runner.invoke(
             perf,
             _build_perf_args(
-                model_arg=model_arg, output_file=output_file, device="gpu", ep=ep, monitor=True, iterations_overwrite=1000
+                model_arg=model_arg,
+                output_file=output_file,
+                device="gpu",
+                ep=ep,
+                monitor=True,
+                iterations_overwrite=1000,
             ),
             obj={},
             catch_exceptions=False,
@@ -559,7 +585,7 @@ class _PerfBenchmarkSuite:
         _assert_monitor_result(data, device="gpu", ep=EP_ALIASES[ep])
 
     @pytest.mark.parametrize("ep", NPU_EPS)
-    def test_benchmark_ep_device_npu(self, ep: str, tmp_path: Path, model_arg: str):
+    def test_benchmark_ep_device_npu(self, ep: str, tmp_path: Path, npu_model_arg: str):
         """Benchmark with --ep <ep> and --device npu.
 
         Skipped if the specified EP or a NPU is unavailable on the host.
@@ -573,7 +599,7 @@ class _PerfBenchmarkSuite:
         result = runner.invoke(
             perf,
             _build_perf_args(
-                model_arg=model_arg, output_file=output_file, device="npu", ep=ep, monitor=True
+                model_arg=npu_model_arg, output_file=output_file, device="npu", ep=ep, monitor=True
             ),
             obj={},
             catch_exceptions=False,
@@ -596,6 +622,16 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
     @pytest.fixture
     def model_arg(self, onnx_model_path: Path) -> str:
         return str(onnx_model_path)
+
+    @pytest.fixture
+    def npu_model_arg(self) -> str:
+        """NPU tests run against a real image-classification ONNX model.
+
+        A bare float MatMul does not exercise a representative NPU
+        (QNN / VitisAI) execution path, so the NPU tests use the model
+        shipped under ``tests/assets/``.
+        """
+        return str(ASSETS_ONNX_MODEL)
 
     def test_batch_size_cpu(self, tmp_path: Path, onnx_model_path: Path):
         """--batch-size applies to a model with a dynamic leading dimension."""
@@ -667,7 +703,7 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
         assert data["benchmark_info"]["effective_batch_size"] == effective_batch
         assert data["latency_ms"]["mean"] > 0
 
-    def test_op_tracing_basic_qnn_npu(self, tmp_path: Path, onnx_model_path: Path):
+    def test_op_tracing_basic_qnn_npu(self, tmp_path: Path, npu_model_arg: str):
         """--op-tracing basic produces a QNN NPU operator trace."""
         require_ep("qnn")
         _require_npu()
@@ -677,7 +713,7 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
         result = CliRunner().invoke(
             perf,
             _build_perf_args(
-                model_arg=str(onnx_model_path),
+                model_arg=npu_model_arg,
                 output_file=output_file,
                 device="npu",
                 ep="qnn",
@@ -741,7 +777,12 @@ class TestPerfHuggingFace:
         result = runner.invoke(
             perf,
             _build_perf_args(
-                model_arg=model_arg, output_file=output_file, device="gpu", ep=ep, monitor=True, iterations_overwrite=1000
+                model_arg=model_arg,
+                output_file=output_file,
+                device="gpu",
+                ep=ep,
+                monitor=True,
+                iterations_overwrite=1000,
             ),
             obj={},
             catch_exceptions=False,
