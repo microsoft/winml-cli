@@ -1,0 +1,24 @@
+{
+  "models_root": "D:\\Models",
+  "qnn_json": "src\\winml\\modelkit\\pattern\\rules\\qnn.json",
+  "include_alternatives": true,
+  "target_classes": [
+    "ExpandedAttentionPattern",
+    "TransposeAttentionPattern"
+  ],
+  "scanned": 5,
+  "failed": 0,
+  "skipped_prefilter": 0,
+  "invalid_model_for_matcher": 0,
+  "hit_count": 1,
+  "elapsed_ms": 328,
+  "hits": [
+    {
+      "model_path": "D:\\Models\\cardiffnlp_twitter-roberta-base-sentiment-latest__text-classification\\cardiffnlp_twitter-roberta-base-sentiment-latest__text-classification.onnx",
+      "class_hit_count": {
+        "ExpandedAttentionPattern": 12
+      },
+      "total_hit_count": 12
+    }
+  ]
+}

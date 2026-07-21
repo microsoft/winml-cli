@@ -9,12 +9,15 @@ Implements FR-003 (Extract patterns), FR-011 (Pattern detection), FR-004 (Subgra
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
 from ...pattern.base import InvalidPatternMatcherModelError, PatternMatcher
-from ...pattern.config import UnifiedPatternConfig
+from ...pattern.config import PatternConfig, UnifiedPatternConfig
 from ..models.onnx_model import ModelTag, ONNXModel
 from ..models.output import extract_model_stats
 from ..utils.timing_utils import make_timing_logger
@@ -23,10 +26,23 @@ from ..utils.timing_utils import make_timing_logger
 if TYPE_CHECKING:
     import onnx
 
-    from winml.modelkit.pattern.match import PatternMatchResult
-    from winml.modelkit.pattern.models import SubgraphPattern
+    from ...pattern.base import Pattern
+    from ...pattern.match import PatternMatchResult
+    from ...pattern.models import SubgraphPattern
+    from ...utils.constants import EPNameOrAlias
 
+    from ..models.ihv_type import IHVType
     from ..models.output import ModelStats
+
+
+class PatternSourceStat(TypedDict):
+    """Per-source skeleton extraction stats for debug reporting."""
+
+    source: str
+    cache_hit: bool
+    pattern_class_count: int
+    match_count: int
+    elapsed_ms: int
 
 
 class PatternSummary(TypedDict):
@@ -34,6 +50,10 @@ class PatternSummary(TypedDict):
 
     summary: ModelStats
     subgraph_patterns: list[PatternMatchResult]
+    subgraph_patterns_by_source: dict[str, dict[str, list[PatternMatchResult]]]
+    source_stats: list[PatternSourceStat]
+    total_extract_ms: int
+    model_signature: str
 
 
 # Type alias for HTP metadata structure
@@ -57,6 +77,12 @@ class PatternExtractor:
     Attributes:
         model: ONNX model to analyze (ONNXModel)
     """
+
+    # In-memory per-process caches.
+    # - rules cache: source key -> loaded skeleton Pattern instances
+    # - match cache: (model signature, source key) -> grouped PatternMatchResult
+    _RULES_PATTERN_CACHE: dict[str, list[Pattern]] = {}
+    _MATCH_CACHE: dict[tuple[str, str], dict[str, list[PatternMatchResult]]] = {}
 
     def __init__(self, model: ONNXModel, htp_metadata_path: str | None = None) -> None:
         """Initialize pattern extractor.
@@ -87,6 +113,169 @@ class PatternExtractor:
     def model(self) -> ONNXModel:
         """The ONNX model being analyzed."""
         return self._model
+
+    def _compute_model_signature(self) -> str:
+        """Build a stable in-process signature for cache keys."""
+        model_path = self._model.model_path
+        if model_path and model_path != "<memory>":
+            path = Path(model_path)
+            if path.exists():
+                stat = path.stat()
+                return f"{path.resolve()}|{stat.st_size}|{stat.st_mtime_ns}"
+
+        # Fallback for in-memory models or missing paths.
+        model_bytes = self._model.get_model().SerializeToString()
+        digest = hashlib.sha1(model_bytes).hexdigest()
+        return f"in_memory:{digest}"
+
+    @staticmethod
+    def _ihv_to_rules_key(ihv_type: IHVType) -> str | None:
+        """Map IHV enum to rules filename stem."""
+        mapping = {
+            "QC": "qnn",
+            "INTEL": "openvino",
+            "AMD": "quark",
+            "NVIDIA": "nvidia",
+            "MICROSOFT": "microsoft",
+        }
+        return mapping.get(ihv_type.name)
+
+    def _resolve_sources_for_ep(self, ep: EPNameOrAlias | None) -> list[str]:
+        """Return extraction sources for the target EP.
+
+        The new flow keeps default and IHV-specific extraction independent.
+        """
+        sources = ["default"]
+        if ep is None:
+            return sources
+
+        from ..utils import infer_ihv_from_ep_name
+        from ..models.ihv_type import IHVType
+
+        ihv_type = infer_ihv_from_ep_name(ep)
+        if ihv_type is IHVType.UNKNOWN:
+            return sources
+
+        rules_key = self._ihv_to_rules_key(ihv_type)
+        if rules_key and self._rules_file_for_source(rules_key).exists():
+            sources.append(rules_key)
+        return sources
+
+    @staticmethod
+    def _rules_dir() -> Path:
+        """Return the pattern rules directory."""
+        # .../modelkit/analyze/core/pattern_extractor.py -> .../modelkit/pattern/rules
+        return Path(__file__).resolve().parents[2] / "pattern" / "rules"
+
+    def _rules_file_for_source(self, source: str) -> Path:
+        """Return rules JSON path for a source key."""
+        return self._rules_dir() / f"{source}.json"
+
+    def _load_skeleton_patterns_for_source(self, source: str) -> list[Pattern]:
+        """Load skeleton pattern instances for one source, with in-memory cache."""
+        cached = self._RULES_PATTERN_CACHE.get(source)
+        if cached is not None:
+            return cached
+
+        patterns: list[Pattern] = []
+        if source == "default":
+            cfg = UnifiedPatternConfig(ihv_type="default")
+            patterns = cfg.get_skeleton_patterns()
+            self._RULES_PATTERN_CACHE[source] = patterns
+            return patterns
+
+        rules_file = self._rules_file_for_source(source)
+        if not rules_file.exists():
+            self._RULES_PATTERN_CACHE[source] = []
+            return []
+
+        try:
+            with rules_file.open(encoding="utf-8") as f:
+                source_cfg = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            logger.warning("Failed to load source rules config: %s", rules_file, exc_info=True)
+            self._RULES_PATTERN_CACHE[source] = []
+            return []
+
+        for entry in source_cfg.get("SkeletonPatternRules", []):
+            if not entry.get("enabled", False):
+                continue
+            try:
+                pattern_cfg = PatternConfig(
+                    pattern_id=entry["pattern_id"],
+                    pattern_class=entry["pattern_class"],
+                    module=entry["module"],
+                    enabled=bool(entry["enabled"]),
+                    description=entry.get("description"),
+                    alternatives=[],
+                )
+                patterns.append(pattern_cfg.load_pattern())
+            except Exception:
+                logger.warning(
+                    "Failed to load skeleton pattern from %s for source '%s': %s",
+                    rules_file,
+                    source,
+                    entry.get("pattern_class", "<unknown>"),
+                    exc_info=True,
+                )
+
+        self._RULES_PATTERN_CACHE[source] = patterns
+        return patterns
+
+    def _extract_skeleton_matches_for_source(
+        self,
+        *,
+        source: str,
+        model_signature: str,
+    ) -> tuple[dict[str, list[PatternMatchResult]], PatternSourceStat]:
+        """Extract skeleton matches for one source with model+source cache key."""
+        cache_key = (model_signature, source)
+        start = time.perf_counter()
+
+        cached = self._MATCH_CACHE.get(cache_key)
+        if cached is not None:
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            hit_stat: PatternSourceStat = {
+                "source": source,
+                "cache_hit": True,
+                "pattern_class_count": len(cached),
+                "match_count": sum(len(v) for v in cached.values()),
+                "elapsed_ms": elapsed_ms,
+            }
+            return {k: list(v) for k, v in cached.items()}, hit_stat
+
+        grouped: dict[str, list[PatternMatchResult]] = {}
+        pattern_instances = self._load_skeleton_patterns_for_source(source)
+        if pattern_instances:
+            model_proto = self._model.get_model()
+            try:
+                matcher = PatternMatcher(model_proto, model_path=self._model.model_path)
+            except InvalidPatternMatcherModelError as e:
+                logger.warning("Model validation failed for pattern matching: %s", str(e))
+                self._model.model_tags[ModelTag(e.error_tag)] = str(e)
+                matcher = None
+
+            if matcher is not None:
+                for pattern in pattern_instances:
+                    matcher.register_pattern(pattern)
+
+                matches = matcher.match()
+                for match in matches:
+                    # Keep explicit source for debug attribution.
+                    match.attributes["source"] = source
+                    pattern_class = match.pattern.__class__.__name__
+                    grouped.setdefault(pattern_class, []).append(match)
+
+        self._MATCH_CACHE[cache_key] = grouped
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        miss_stat: PatternSourceStat = {
+            "source": source,
+            "cache_hit": False,
+            "pattern_class_count": len(grouped),
+            "match_count": sum(len(v) for v in grouped.values()),
+            "elapsed_ms": elapsed_ms,
+        }
+        return {k: list(v) for k, v in grouped.items()}, miss_stat
 
     def _load_htp_metadata(self) -> HTPMetadata:
         """Load HTP metadata from JSON file.
@@ -122,7 +311,7 @@ class PatternExtractor:
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON in HTP metadata file: {e}") from e
 
-    def summary(self) -> PatternSummary:
+    def summary(self, ep: EPNameOrAlias | None = None) -> PatternSummary:
         """Generate comprehensive pattern analysis summary.
 
         Returns:
@@ -133,10 +322,22 @@ class PatternExtractor:
         logger.info("Generating pattern analysis summary")
         total_start = time.perf_counter()
 
-        # Extract subgraph patterns
-        subgraph_start = time.perf_counter()
-        subgraph_patterns = self.extract_subgraph_patterns()
-        subgraph_ms = int((time.perf_counter() - subgraph_start) * 1000)
+        model_signature = self._compute_model_signature()
+        sources = self._resolve_sources_for_ep(ep)
+
+        subgraph_patterns_by_source: dict[str, dict[str, list[PatternMatchResult]]] = {}
+        source_stats: list[PatternSourceStat] = []
+        subgraph_patterns: list[PatternMatchResult] = []
+
+        for source in sources:
+            grouped_matches, stat = self._extract_skeleton_matches_for_source(
+                source=source,
+                model_signature=model_signature,
+            )
+            subgraph_patterns_by_source[source] = grouped_matches
+            source_stats.append(stat)
+            for matches in grouped_matches.values():
+                subgraph_patterns.extend(matches)
 
         # Build pattern count dict: pattern_id -> count
         count_dict_start = time.perf_counter()
@@ -156,15 +357,20 @@ class PatternExtractor:
             model=self._model.model_path,
             detected_subgraph_patterns=len(subgraph_patterns),
             unique_pattern_ids=len(pattern_count_dict),
-            extract_subgraph_ms=subgraph_ms,
+            extract_subgraph_ms=sum(stat["elapsed_ms"] for stat in source_stats),
             build_count_dict_ms=count_dict_ms,
             model_summary_ms=model_summary_ms,
             total_ms=int((time.perf_counter() - total_start) * 1000),
         )
 
+        total_extract_ms = int((time.perf_counter() - total_start) * 1000)
         return {
             "summary": metadata,
             "subgraph_patterns": subgraph_patterns,
+            "subgraph_patterns_by_source": subgraph_patterns_by_source,
+            "source_stats": source_stats,
+            "total_extract_ms": total_extract_ms,
+            "model_signature": model_signature,
         }
 
     def extract_subgraph_patterns(self) -> list[PatternMatchResult]:

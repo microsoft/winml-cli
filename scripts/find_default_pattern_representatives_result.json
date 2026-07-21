@@ -1,0 +1,45 @@
+{
+  "models_root": "D:\\Models",
+  "default_json": "src\\winml\\modelkit\\pattern\\rules\\default.json",
+  "target_classes": [
+    "Gelu1Pattern",
+    "Gelu2Pattern",
+    "Gelu3Pattern",
+    "Gelu4Pattern",
+    "MatMulAddPattern",
+    "LayerNormalizationPowPattern",
+    "LayerNormalizationMulPattern",
+    "ReshapeTransposeReshapeOverlyHighDimPattern"
+  ],
+  "scanned": 1851,
+  "failed": 0,
+  "found_count": 3,
+  "missing_classes": [
+    "Gelu1Pattern",
+    "Gelu3Pattern",
+    "Gelu4Pattern",
+    "LayerNormalizationMulPattern",
+    "LayerNormalizationPowPattern"
+  ],
+  "elapsed_ms": 414672,
+  "representatives": {
+    "ReshapeTransposeReshapeOverlyHighDimPattern": {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\pytorch-converted\\test_PixelShuffle\\model.onnx",
+      "match_count": 1,
+      "pattern_id": "SUBGRAPH/ReshapeTransposeReshapeOverlyHighDimPattern",
+      "total_extract_ms": 0
+    },
+    "MatMulAddPattern": {
+      "model_path": "D:\\Models\\AdamCodd_vit-base-nsfw-detector__image-classification\\AdamCodd_vit-base-nsfw-detector__image-classification.onnx",
+      "match_count": 72,
+      "pattern_id": "SUBGRAPH/GemmPattern",
+      "total_extract_ms": 646
+    },
+    "Gelu2Pattern": {
+      "model_path": "D:\\Models\\AdamCodd_vit-base-nsfw-detector__image-classification\\AdamCodd_vit-base-nsfw-detector__image-classification.onnx",
+      "match_count": 12,
+      "pattern_id": "SUBGRAPH/GeluPattern",
+      "total_extract_ms": 646
+    }
+  }
+}

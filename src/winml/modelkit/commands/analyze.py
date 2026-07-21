@@ -709,6 +709,11 @@ def _build_runtime_debug_output_path(model_path: Path, ep_name: str, device_name
     return model_path.parent / filename
 
 
+def _build_analyze_debug_log_output_path(model_path: Path) -> Path:
+    """Build analyze debug log path near the model file."""
+    return model_path.parent / "analyze_debug.log"
+
+
 # ── Click command ─────────────────────────────────────────────────────────
 
 
@@ -834,6 +839,8 @@ def analyze(
     cli_utils.guard_output(output, overwrite)
     cli_utils.guard_output(optim_config, overwrite, label="Optimization config")
 
+    pattern_debug_log_output: Path | None = None
+
     try:
         from ..analyze import ONNXStaticAnalyzer
 
@@ -853,6 +860,8 @@ def analyze(
 
         for_debug = debug
         if for_debug:
+            pattern_debug_log_output = _build_analyze_debug_log_output_path(model)
+
             debug_search_dirs = get_runtime_rules_debug_search_dirs()
             has_debug_parquet = any(
                 debug_dir.is_dir() and any(debug_dir.glob("*/*.parquet"))
@@ -1264,6 +1273,7 @@ def analyze(
                         enable_information=information,
                         htp_metadata_path=str(htp_metadata) if htp_metadata else None,
                         for_debug=for_debug,
+                        pattern_debug_log_path=pattern_debug_log_output,
                         run_unknown_op=run_unknown_op_for_ep,
                         save_node_types=save_node_types,
                         on_node_result=on_node_result,
@@ -1324,6 +1334,7 @@ def analyze(
                     enable_information=information,
                     htp_metadata_path=str(htp_metadata) if htp_metadata else None,
                     for_debug=for_debug,
+                    pattern_debug_log_path=pattern_debug_log_output,
                     run_unknown_op=run_unknown_op_for_ep,
                     save_node_types=save_node_types,
                 )

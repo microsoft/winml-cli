@@ -1,0 +1,393 @@
+{
+  "models_root": "D:\\Models",
+  "total_models": 1851,
+  "failed_models": 0,
+  "models_with_attention": 47,
+  "attention_nodes": 47,
+  "attention_input_ge4": 22,
+  "k_from_transpose": 0,
+  "k_from_transpose_perm_0213": 0,
+  "attention_model_count": 47,
+  "attention_model_samples": [
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_attn_mask\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_causal\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_diff_heads_sizes\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_diff_heads_sizes_attn_mask\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_diff_heads_sizes_causal\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_diff_heads_sizes_scaled\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_diff_heads_sizes_softcap\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_diff_heads_with_past_and_present\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_gqa\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_gqa_attn_mask\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_gqa_causal\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_gqa_scaled\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_gqa_softcap\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_gqa_with_past_and_present\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_scaled\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_softcap\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_with_past_and_present\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_with_past_and_present_qk_matmul\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_with_past_and_present_qk_matmul_bias\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_with_past_and_present_qk_matmul_softcap\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_with_past_and_present_qk_matmul_softmax\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_attn_mask\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_attn_mask_bool\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_causal\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_diff_heads_sizes\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_diff_heads_sizes_attn_mask\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_diff_heads_sizes_causal\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_diff_heads_sizes_scaled\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_diff_heads_sizes_softcap\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_diff_heads_with_past_and_present\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_gqa\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_gqa_attn_mask\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_gqa_causal\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_gqa_scaled\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_gqa_softcap\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_gqa_with_past_and_present\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_scaled\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_softcap\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_with_past_and_present\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_with_past_and_present_qk_matmul\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_with_past_and_present_qk_matmul_bias\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_with_qk_matmul\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_with_qk_matmul_bias\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_with_qk_matmul_softcap\\model.onnx",
+    "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_with_qk_matmul_softmax\\model.onnx"
+  ],
+  "attention_signatures": [
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_attn_mask\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 4,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_causal\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_diff_heads_sizes\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_diff_heads_sizes_attn_mask\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 4,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_diff_heads_sizes_causal\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_diff_heads_sizes_scaled\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_diff_heads_sizes_softcap\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_diff_heads_with_past_and_present\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 6,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_gqa\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_gqa_attn_mask\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 4,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_gqa_causal\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_gqa_scaled\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_gqa_softcap\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_gqa_with_past_and_present\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 6,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_scaled\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_softcap\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_with_past_and_present\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 6,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_with_past_and_present_qk_matmul\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 6,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_with_past_and_present_qk_matmul_bias\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 6,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_with_past_and_present_qk_matmul_softcap\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 6,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_3d_with_past_and_present_qk_matmul_softmax\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 6,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_attn_mask\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 4,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_attn_mask_bool\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 4,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_causal\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_diff_heads_sizes\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_diff_heads_sizes_attn_mask\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 4,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_diff_heads_sizes_causal\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_diff_heads_sizes_scaled\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_diff_heads_sizes_softcap\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_diff_heads_with_past_and_present\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 6,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_gqa\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_gqa_attn_mask\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 4,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_gqa_causal\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_gqa_scaled\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_gqa_softcap\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_gqa_with_past_and_present\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 6,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_scaled\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_softcap\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_with_past_and_present\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 6,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_with_past_and_present_qk_matmul\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 6,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_with_past_and_present_qk_matmul_bias\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 6,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_with_qk_matmul\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 3,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_with_qk_matmul_bias\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 4,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_with_qk_matmul_softcap\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 4,
+      "k_source_op": null,
+      "k_source_perm": null
+    },
+    {
+      "model_path": "D:\\Models\\_winml-cli\\.venv\\Lib\\site-packages\\onnx\\backend\\test\\data\\node\\test_attention_4d_with_qk_matmul_softmax\\model.onnx",
+      "attention_node_name": "",
+      "attention_input_count": 4,
+      "k_source_op": null,
+      "k_source_perm": null
+    }
+  ],
+  "candidate_model_count": 0,
+  "candidate_samples": []
+}

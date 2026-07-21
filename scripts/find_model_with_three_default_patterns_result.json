@@ -1,0 +1,20 @@
+{
+  "models_root": "D:\\Models",
+  "target_classes": [
+    "Gelu2Pattern",
+    "MatMulAddPattern",
+    "ReshapeTransposeReshapeOverlyHighDimPattern"
+  ],
+  "scanned": 1716,
+  "failed": 0,
+  "invalid_model_for_matcher": 0,
+  "found": {
+    "model_path": "D:\\Models\\facebook_nougat-base__image-to-text\\facebook_nougat-base__image-to-text.decoder.onnx",
+    "class_count": {
+      "Gelu2Pattern": 30,
+      "MatMulAddPattern": 220,
+      "ReshapeTransposeReshapeOverlyHighDimPattern": 40
+    }
+  },
+  "elapsed_ms": 173103
+}

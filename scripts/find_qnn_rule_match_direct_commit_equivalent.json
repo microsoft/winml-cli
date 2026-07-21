@@ -1,0 +1,15 @@
+{
+  "models_root": "D:\\Models",
+  "qnn_json": "src\\winml\\modelkit\\pattern\\rules\\qnn.json",
+  "include_alternatives": false,
+  "target_classes": [
+    "TransposeAttentionPattern"
+  ],
+  "scanned": 1851,
+  "failed": 0,
+  "skipped_prefilter": 1851,
+  "invalid_model_for_matcher": 0,
+  "hit_count": 0,
+  "elapsed_ms": 1231,
+  "hits": []
+}

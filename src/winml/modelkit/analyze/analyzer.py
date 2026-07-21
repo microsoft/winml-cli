@@ -163,6 +163,61 @@ def _build_runtime_debug_details_summary(
     return summary
 
 
+def _append_pattern_debug_log(
+    *,
+    output_path: Path,
+    model_path: str,
+    ep: str | None,
+    device: str,
+    extracted_count: int,
+    model_signature: str,
+    extraction_total_ms: int,
+    source_stats: list[dict[str, Any]],
+    pattern_matches_by_source: dict[str, dict[str, list[Any]]],
+) -> None:
+    """Append pattern-extractor debug details to a dedicated file.
+
+    This is a temporary, explicit sink for pattern debug signals introduced by
+    the recent pattern extractor changes. It intentionally bypasses global
+    logger level filtering.
+    """
+
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    lines: list[str] = [
+        f"[{timestamp}] model={model_path} ep={ep} device={device}",
+        f"Extracted {extracted_count} patterns",
+        f"Pattern extractor debug: model_signature={model_signature} total_ms={extraction_total_ms}",
+    ]
+
+    for source_stat in source_stats:
+        source = str(source_stat.get("source", ""))
+        cache_hit = source_stat.get("cache_hit", False)
+        pattern_class_count = source_stat.get("pattern_class_count", 0)
+        match_count = source_stat.get("match_count", 0)
+        elapsed_ms = source_stat.get("elapsed_ms", 0)
+
+        lines.append(
+            "Pattern extractor source="
+            f"{source} cache_hit={cache_hit} pattern_class_count={pattern_class_count} "
+            f"match_count={match_count} elapsed_ms={elapsed_ms}"
+        )
+
+        source_group = pattern_matches_by_source.get(source, {})
+        lines.append(
+            "Pattern extractor source="
+            f"{source} matched pattern classes={sorted(source_group.keys())}"
+        )
+
+    lines.append("")
+
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with output_path.open("a", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+    except OSError:
+        logger.debug("Failed to append pattern debug log: %s", output_path, exc_info=True)
+
+
 class AnalysisResult:
     """Analysis result wrapper containing the output and additional metadata.
 
@@ -599,6 +654,7 @@ class ONNXStaticAnalyzer:
         enable_information: bool = True,
         htp_metadata_path: str | None = None,
         for_debug: bool = False,
+        pattern_debug_log_path: str | Path | None = None,
         run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
         on_node_result: Callable | None = None,
@@ -626,6 +682,9 @@ class ONNXStaticAnalyzer:
                 for pattern extraction from hierarchy traces
             for_debug: Whether to include runtime debug payloads in check results.
                 Default: False
+            pattern_debug_log_path: Optional path for temporary pattern debug
+                file sink. When set with ``for_debug=True``, the recent
+                pattern-extractor debug signals are appended to this file.
             run_unknown_op: Whether to run unknown operators on the local machine
                 if possible. Default: True
             save_node_types: Set of node types to save for further analysis
@@ -708,6 +767,7 @@ class ONNXStaticAnalyzer:
             model_path=str(model_file),
             htp_metadata_path=htp_metadata_path,
             for_debug=for_debug,
+            pattern_debug_log_path=pattern_debug_log_path,
             run_unknown_op=run_unknown_op,
             save_node_types=save_node_types,
             on_node_result=on_node_result,
@@ -734,6 +794,7 @@ class ONNXStaticAnalyzer:
         model_path: str | None = None,
         htp_metadata_path: str | None = None,
         for_debug: bool = False,
+        pattern_debug_log_path: str | Path | None = None,
         run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
         on_node_result: Callable | None = None,
@@ -758,6 +819,9 @@ class ONNXStaticAnalyzer:
                 for pattern extraction from hierarchy traces
             for_debug: Whether to include runtime debug payloads in check results.
                 Default: False
+            pattern_debug_log_path: Optional path for temporary pattern debug
+                file sink. When set with ``for_debug=True``, the recent
+                pattern-extractor debug signals are appended to this file.
             run_unknown_op: Whether to run unknown operators on local machine
                 if possible. Default: True
             save_node_types: Set of node types to save for further analysis
@@ -826,12 +890,56 @@ class ONNXStaticAnalyzer:
             object.__setattr__(onnx_model, "model_path", model_path)
 
         pattern_extractor = PatternExtractor(onnx_model, htp_metadata_path=htp_metadata_path)
-        extraction_result = pattern_extractor.summary()
+        extraction_result = pattern_extractor.summary(ep=ep_normalized)
 
         metadata = extraction_result["summary"]
         pattern_matches = extraction_result["subgraph_patterns"]
+        pattern_matches_by_source = extraction_result["subgraph_patterns_by_source"]
+        source_stats = extraction_result["source_stats"]
+        extraction_total_ms = extraction_result["total_extract_ms"]
+        model_signature = extraction_result["model_signature"]
         logger.info("Extracted %d patterns", len(pattern_matches))
         extraction_ms = int((time.perf_counter() - extraction_start) * 1000)
+
+        if for_debug and pattern_debug_log_path is not None:
+            _append_pattern_debug_log(
+                output_path=Path(pattern_debug_log_path),
+                model_path=str(onnx_model.model_path),
+                ep=ep_normalized,
+                device=device_to_use,
+                extracted_count=len(pattern_matches),
+                model_signature=model_signature,
+                extraction_total_ms=extraction_total_ms,
+                source_stats=source_stats,
+                pattern_matches_by_source=pattern_matches_by_source,
+            )
+
+        if for_debug:
+            logger.info(
+                "Pattern extractor debug: model_signature=%s total_ms=%d",
+                model_signature,
+                extraction_total_ms,
+            )
+            for source_stat in source_stats:
+                logger.info(
+                    "Pattern extractor source=%s cache_hit=%s pattern_class_count=%d match_count=%d elapsed_ms=%d",
+                    source_stat["source"],
+                    source_stat["cache_hit"],
+                    source_stat["pattern_class_count"],
+                    source_stat["match_count"],
+                    source_stat["elapsed_ms"],
+                )
+                source_group = pattern_matches_by_source.get(source_stat["source"], {})
+                logger.info(
+                    "Pattern extractor source=%s matched pattern classes=%s",
+                    source_stat["source"],
+                    sorted(source_group.keys()),
+                )
+
+        # Pattern extraction results are currently for debug/observability only.
+        # Runtime checker continues with operator-level checks while the new
+        # pattern flow is being built out.
+        pattern_matches_for_runtime: list[Any] = []
 
         # Step 2: Check runtime support for each EP
         check_op_results: dict[EPName, list[PatternRuntime]] = {}
@@ -853,7 +961,7 @@ class ONNXStaticAnalyzer:
                 ep=current_ep,
                 device=device_to_use,
                 model=onnx_model,
-                patterns=pattern_matches,
+                patterns=pattern_matches_for_runtime,
             )
             # TODO: add VitisAIExecutionProvider back once non-QDQ
             # data is ready, and run_unknown_op is supported for QDQ ops
@@ -862,7 +970,7 @@ class ONNXStaticAnalyzer:
                 run_unknown_op_for_ep = False
 
             runtime_summary = runtime_checker.summary(
-                patterns=pattern_matches,
+                patterns=pattern_matches_for_runtime,
                 for_debug=for_debug,
                 run_unknown_op=run_unknown_op_for_ep,
                 save_node_types=save_node_types,

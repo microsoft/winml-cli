@@ -1,0 +1,23 @@
+{
+  "models_root": "D:\\Models",
+  "target_classes": [
+    "Gelu1Pattern",
+    "Gelu3Pattern",
+    "Gelu4Pattern",
+    "LayerNormalizationMulPattern",
+    "LayerNormalizationPowPattern"
+  ],
+  "scanned": 1851,
+  "failed": 0,
+  "invalid_model_for_matcher": 0,
+  "found_count": 0,
+  "missing_classes": [
+    "Gelu1Pattern",
+    "Gelu3Pattern",
+    "Gelu4Pattern",
+    "LayerNormalizationMulPattern",
+    "LayerNormalizationPowPattern"
+  ],
+  "elapsed_ms": 53511,
+  "representatives": {}
+}
