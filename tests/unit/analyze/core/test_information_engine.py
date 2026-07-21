@@ -462,6 +462,103 @@ class TestInformationEngineCheckPatterns:
 
         assert len(info_list) == 0
 
+    def test_skeleton_metadata_drives_explanation_and_action_items(
+        self, simple_model: ONNXModel, test_device: str
+    ) -> None:
+        """Pattern explanations and action metadata come from skeleton alternatives."""
+        runtime_result = PatternRuntime(
+            pattern_id="SUBGRAPH/GemmPattern",
+            result=RuntimeTestResult(compile=False, run=False),
+            explanation="Gemm can be rewritten for better support.",
+            alternatives=[
+                PatternAlternative(
+                    pattern_id="SUBGRAPH/ReshapeGemmReshapePattern",
+                    result=RuntimeTestResult(compile=True, run=True),
+                    alternative_type=AlternativeType.EQUIVALENT,
+                    details="Prefer Gemm rewrite from Skeleton alternative metadata.",
+                    action_items=[
+                        {
+                            "type": "GraphOptimization",
+                            "optimization_options": {"matmul_add_fusion": True},
+                        }
+                    ],
+                ),
+                PatternAlternative(
+                    pattern_id="SUBGRAPH/Conv2DInplaceLinear2DPattern",
+                    result=RuntimeTestResult(compile=True, run=True),
+                    alternative_type=AlternativeType.EQUIVALENT,
+                ),
+            ],
+        )
+
+        engine = InformationEngine(
+            op_runtime_results=[],
+            subgraph_runtime_results=[runtime_result],
+            ep="QNNExecutionProvider",
+            model=simple_model,
+            device=test_device,
+        )
+
+        info_list = engine._check_patterns()
+
+        assert len(info_list) == 1
+        assert info_list[0].explanation == "Gemm can be rewritten for better support."
+        assert info_list[0].actions is not None
+
+        action_to_ids = {action.pattern_to_id for action in info_list[0].actions}
+        assert "SUBGRAPH/ReshapeGemmReshapePattern" in action_to_ids
+        assert "SUBGRAPH/Conv2DInplaceLinear2DPattern" in action_to_ids
+
+        reshape_action = next(
+            action
+            for action in info_list[0].actions
+            if action.pattern_to_id == "SUBGRAPH/ReshapeGemmReshapePattern"
+        )
+        assert reshape_action.action_items
+        assert reshape_action.action_items[0].optimization_options == {"matmul_add_fusion": True}
+        assert reshape_action.details == "Prefer Gemm rewrite from Skeleton alternative metadata."
+
+    def test_aggregated_custom_explanation_keeps_support_context(
+        self, simple_model: ONNXModel, test_device: str
+    ) -> None:
+        """Aggregated custom explanations should keep support-level context."""
+        alternative = PatternAlternative(
+            pattern_id="SUBGRAPH/OptimizedPattern",
+            result=RuntimeTestResult(compile=True, run=True),
+            alternative_type=AlternativeType.EQUIVALENT,
+        )
+        runtime_results = [
+            PatternRuntime(
+                pattern_id="SUBGRAPH/TestPattern",
+                result=RuntimeTestResult(compile=False, run=False, reason="Not supported"),
+                explanation="Rewrite to OptimizedPattern for better compatibility.",
+                alternatives=[alternative],
+            ),
+            PatternRuntime(
+                pattern_id="SUBGRAPH/TestPattern",
+                result=RuntimeTestResult(compile=False, run=False, reason="Not supported"),
+                explanation="Rewrite to OptimizedPattern for better compatibility.",
+                alternatives=[alternative],
+            ),
+        ]
+
+        engine = InformationEngine(
+            op_runtime_results=[],
+            subgraph_runtime_results=runtime_results,
+            ep="QNNExecutionProvider",
+            model=simple_model,
+            device=test_device,
+        )
+
+        info_list = engine._check_patterns()
+
+        assert len(info_list) == 1
+        assert (
+            "2 instances of pattern 'SUBGRAPH/TestPattern' are not supported."
+            in info_list[0].explanation
+        )
+        assert "Rewrite to OptimizedPattern for better compatibility." in info_list[0].explanation
+
 
 class TestInformationEngineProcessPatternWithAlternatives:
     """Tests for _process_pattern_with_alternatives method."""
@@ -690,6 +787,98 @@ class TestInformationEngineExtractActions:
         # Should generate warning since no valid alternatives
         assert len(actions) == 1
         assert actions[0].level == ActionLevel.WARNING
+
+    def test_extract_actions_keeps_action_items_without_support_improvement(
+        self, simple_model: ONNXModel, test_device: str
+    ) -> None:
+        """No-improvement alternatives with action_items are kept as fallback suggestions."""
+        alternative = PatternAlternative(
+            pattern_id="SUBGRAPH/ReshapeGemmReshapePattern",
+            result=RuntimeTestResult(compile=True, run=True),
+            alternative_type=AlternativeType.EQUIVALENT,
+            details="Keep optimization hint even when support level is unchanged.",
+            action_items=[
+                {
+                    "type": "GraphOptimization",
+                    "optimization_options": {"matmul_add_fusion": True},
+                }
+            ],
+        )
+        runtime = PatternRuntime(
+            pattern_id="SUBGRAPH/GemmPattern",
+            result=RuntimeTestResult(compile=True, run=True),
+            alternatives=[alternative],
+        )
+
+        engine = InformationEngine(
+            op_runtime_results=[],
+            subgraph_runtime_results=[runtime],
+            ep="QNNExecutionProvider",
+            model=simple_model,
+            device=test_device,
+        )
+
+        actions = engine._extract_actions(runtime)
+
+        assert len(actions) == 1
+        assert actions[0].level == ActionLevel.OPTIONAL
+        assert actions[0].status == SupportLevel.SUPPORTED
+        assert actions[0].action_items
+        assert actions[0].action_items[0].optimization_options == {"matmul_add_fusion": True}
+        assert (
+            actions[0].details
+            == "Keep optimization hint even when support level is unchanged."
+        )
+
+    def test_extract_actions_deduplicates_same_from_to_pair(
+        self, simple_model: ONNXModel, test_device: str
+    ) -> None:
+        """Repeated alternatives with the same from->to pair are emitted once."""
+        alt_first = PatternAlternative(
+            pattern_id="OP/ai.onnx/Conv",
+            result=RuntimeTestResult(compile=True, run=True),
+            alternative_type=AlternativeType.EQUIVALENT,
+            details="first candidate",
+            action_items=[
+                {
+                    "type": "GraphOptimization",
+                    "optimization_options": {"conv_bn_fusion": True},
+                }
+            ],
+        )
+        alt_duplicate = PatternAlternative(
+            pattern_id="OP/ai.onnx/Conv",
+            result=RuntimeTestResult(compile=True, run=True),
+            alternative_type=AlternativeType.EQUIVALENT,
+            details="duplicate candidate",
+            action_items=[
+                {
+                    "type": "GraphOptimization",
+                    "optimization_options": {"conv_bn_fusion": False},
+                }
+            ],
+        )
+        runtime = PatternRuntime(
+            pattern_id="OP/ai.onnx/Custom",
+            result=RuntimeTestResult(compile=False, run=False),
+            alternatives=[alt_first, alt_duplicate],
+        )
+
+        engine = InformationEngine(
+            op_runtime_results=[],
+            subgraph_runtime_results=[runtime],
+            ep="QNNExecutionProvider",
+            model=simple_model,
+            device=test_device,
+        )
+
+        actions = engine._extract_actions(runtime)
+
+        assert len(actions) == 1
+        assert actions[0].pattern_from_id == "OP/ai.onnx/Custom"
+        assert actions[0].pattern_to_id == "OP/ai.onnx/Conv"
+        assert actions[0].details == "first candidate"
+        assert actions[0].action_items[0].optimization_options == {"conv_bn_fusion": True}
 
 
 class TestInformationEngineIntegration:

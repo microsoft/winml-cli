@@ -21,6 +21,7 @@ from colorama import Fore, Style
 from onnx.defs import OpSchema
 
 from ...onnx import ONNXDomain, SupportedONNXType
+from ...utils.result_sanitizer import sanitize_check_result_payload
 from ..utils import get_op_input_properties
 from .qdq_gen import QDQGenerator
 
@@ -1498,7 +1499,6 @@ class OpInputGenerator(ABC):
         save_model: bool = False,
         model_output_dir: str | Path | None = None,
         skip_signature_fn: Callable[[dict], bool] | None = None,
-        yield_skipped: bool = False,
         dry_run: bool = False,
     ) -> Any:
         """Test the given OpInputGenerator by generating ONNX models.
@@ -1511,9 +1511,14 @@ class OpInputGenerator(ABC):
         skip_cases: number of test cases to skip before starting to run tests.
         skip_signature_fn: if not None, a function that takes
             a result dict and returns True if the case should
-            be skipped (for delta or rerun mode).
-        yield_skipped: if True, also yield skipped cases with a "_skipped" marker.
-                       This allows the caller to reuse existing results in order.
+            be skipped (for delta or rerun mode). Skipped cases are yielded
+            with a "_skipped" marker so callers can reuse existing results.
+        For non-dry-run cases, rules prefilter runs only for multi-node models
+        (pattern-like graphs). For single-node op models, compile/run proceeds
+        directly on ep_checker.
+        When all nodes in a multi-node generated model are supported by rules,
+        compile/run on ep_checker is skipped and a synthetic successful
+        check_result is written for that case.
 
         Yields:
             Test result dictionaries one at a time.
@@ -1573,13 +1578,12 @@ class OpInputGenerator(ABC):
                     # the model is deferred until we know the case is not discarded.
                     if skip_signature_fn is not None:
                         if skip_signature_fn(final_tags):
-                            if yield_skipped:
-                                # Reused cases still need the model payload for replay.
-                                final_tags["model_bytes_b64"] = model_bytes_to_b64(
-                                    onnx_model.SerializeToString()
-                                )
-                                final_tags["_skipped"] = True
-                                yield final_tags
+                            # Reused cases still need the model payload for replay.
+                            final_tags["model_bytes_b64"] = model_bytes_to_b64(
+                                onnx_model.SerializeToString()
+                            )
+                            final_tags["_skipped"] = True
+                            yield final_tags
                             continue
                     # Check if we need to skip this case
                     elif cases_skipped < skip_cases:
@@ -1589,6 +1593,34 @@ class OpInputGenerator(ABC):
                     model_bytes = onnx_model.SerializeToString()
                     # Keep model payload by default so every persisted case can be replayed.
                     final_tags["model_bytes_b64"] = model_bytes_to_b64(model_bytes)
+
+                    rules_all_nodes_pass_skip_check_result: dict[str, Any] | None = None
+                    # Only run rules-based skip check for pattern-like multi-node graphs.
+                    # Single-node models are operator checks and should run real compile/run.
+                    if not dry_run and len(onnx_model.graph.node) > 1:
+                        rules_all_nodes_pass_skip_check_result = (
+                            ep_checker.build_skip_check_result_for_rules_all_nodes_compile_run_pass(
+                                onnx_model
+                            )
+                        )
+
+                    if rules_all_nodes_pass_skip_check_result is not None:
+                        compile_count = _increment_test_phase_global_count("compile", True)
+                        run_count = _increment_test_phase_global_count("run", True)
+                        final_tags["check_result"] = rules_all_nodes_pass_skip_check_result
+                        print(
+                            f"{Fore.GREEN}Rules all-nodes compile/run pass; "
+                            f"skip EP compile/run. "
+                            f"compile_count: success<{compile_count['success']}> "
+                            f"failed<{compile_count['failed']}> "
+                            f"all<{compile_count['all']}>, "
+                            f"run_count: success<{run_count['success']}> "
+                            f"failed<{run_count['failed']}> "
+                            f"all<{run_count['all']}>"
+                            f"{Style.RESET_ALL}"
+                        )
+                        yield final_tags
+                        continue
 
                     qdq_types = final_tags.get(self.qdq_types_key, None)
                     ep_checker_inputs = self.create_input_dict(kwargs, qdq_types=qdq_types)
@@ -1609,6 +1641,7 @@ class OpInputGenerator(ABC):
                         else _dry_run_result()
                     )
                     _check_qnn_ep_setup_failure(compile_result)
+                    sanitize_check_result_payload(compile_result)
 
                     # TODO: if compilation succeeded, maybe skip run test?
                     compile_success = compile_result["result"]["success"]
@@ -1702,6 +1735,7 @@ class OpInputGenerator(ABC):
                         else _dry_run_result()
                     )
                     _check_qnn_ep_setup_failure(run_result)
+                    sanitize_check_result_payload(run_result)
 
                     run_success = run_result["result"]["success"]
                     run_count = _increment_test_phase_global_count("run", run_success)
