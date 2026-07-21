@@ -131,27 +131,11 @@ class WinMLEvaluator:
 
     def prepare_pipeline(self) -> Pipeline:
         """Create HF pipeline for inference. Subclasses override to configure."""
-        from transformers import pipeline
-
         assert self.config.task is not None, "config.task is required to build pipeline"
         pipeline_task = _PIPELINE_TASK_MAP.get(self.config.task, self.config.task)
-        # transformers.pipeline has 60+ Literal overloads — runtime task strings
-        # can't be statically matched. The string-task fallback handles unknown tasks.
-        return cast(
-            "Pipeline",
-            pipeline(  # type: ignore[call-overload, misc]  # 60+ Literal overloads + union model arg
-                pipeline_task,
-                model=self.model,
-                framework="pt",
-                tokenizer=self.config.model_id,
-                feature_extractor=self.config.model_id,
-                image_processor=self.config.model_id,
-                processor=self.config.model_id,
-                # "device" is for HF pipeline pytorch tensors, not ORT EP.
-                # WinMLSession handles device delegation for ORT.
-                device="cpu",
-            ),
-        )
+        from ..inference.pipeline import create_pipeline
+
+        return cast("Pipeline", create_pipeline(pipeline_task, self.model, self.config.model_id))
 
     def _fixed_seq_length(self) -> int | None:
         """Return the model's fixed sequence length, or ``None`` if dynamic.

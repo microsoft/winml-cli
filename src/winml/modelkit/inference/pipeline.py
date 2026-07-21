@@ -37,6 +37,10 @@ _HF_PIPELINE_TASK_MAP: dict[str, str] = {
     "sentence-similarity": "feature-extraction",
 }
 
+_SPECIALIZED_PIPELINE_REGISTRY: dict[tuple[str, str], str] = {
+    ("mgp-str", "image-to-text"): "MgpstrImageToTextPipeline",
+}
+
 
 def create_pipeline(
     task: str,
@@ -57,6 +61,19 @@ def create_pipeline(
     Returns:
         A configured ``transformers.Pipeline`` ready for inference.
     """
+    model_type = getattr(getattr(model, "config", None), "model_type", None)
+    specialized = _SPECIALIZED_PIPELINE_REGISTRY.get((model_type, task))
+    if specialized is not None:
+        if model_id is None:
+            raise ValueError(f"{specialized} requires a model ID to load its processor.")
+        from ..models.winml.image_to_text import MgpstrImageToTextPipeline
+
+        specialized_classes = {"MgpstrImageToTextPipeline": MgpstrImageToTextPipeline}
+        pipe = specialized_classes[specialized](model, model_id)
+        _adapt_image_processor_size(pipe, task, model)
+        logger.info("Created specialized pipeline: task=%s model=%s", task, model_id)
+        return pipe
+
     from transformers import pipeline
 
     kwargs: dict[str, Any] = {

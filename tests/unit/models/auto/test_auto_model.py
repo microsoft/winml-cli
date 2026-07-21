@@ -170,6 +170,43 @@ class TestWinMLAutoModelFactory:
         model_class = get_winml_class("unknown", "unsupported-task-type")
         assert model_class == WinMLModelForGenericTask
 
+    def test_mgp_str_image_to_text_uses_specialized_wrapper(self):
+        from winml.modelkit.models import get_winml_class
+        from winml.modelkit.models.winml.image_to_text import (
+            WinMLModelForMgpstrSceneTextRecognition,
+        )
+
+        assert (
+            get_winml_class("mgp-str", "image-to-text")
+            is WinMLModelForMgpstrSceneTextRecognition
+        )
+
+    def test_mgp_str_wrapper_preserves_three_head_order(self):
+        from unittest.mock import MagicMock
+
+        import torch
+
+        from winml.modelkit.models.winml.image_to_text import (
+            WinMLModelForMgpstrSceneTextRecognition,
+        )
+
+        model = object.__new__(WinMLModelForMgpstrSceneTextRecognition)
+        model._format_inputs = MagicMock(side_effect=lambda **kwargs: kwargs)
+        expected = {
+            "char_logits": torch.tensor([1.0]),
+            "bpe_logits": torch.tensor([2.0]),
+            "wp_logits": torch.tensor([3.0]),
+        }
+        model._run_inference = MagicMock(return_value=expected)
+
+        result = model.forward(pixel_values=torch.zeros((1, 3, 32, 128)))
+
+        assert result.logits == (
+            expected["char_logits"],
+            expected["bpe_logits"],
+            expected["wp_logits"],
+        )
+
     @pytest.mark.parametrize(
         "task,model_type,expected_class_name",
         [
