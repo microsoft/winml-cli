@@ -562,6 +562,11 @@ def _run_build(
     via ``-o`` (preserving the intermediate export/optimized/quantized ONNX) and
     skips compile (``--no-compile``) — no execution provider is required.
     Otherwise the build populates the global cache (``--use-cache``).
+
+    ``precision`` is passed to both ``winml config`` and ``winml build``: since
+    we always pass ``--device``, ``winml build -c`` re-resolves quant from
+    device+precision and overwrites what the config baked in, so omitting it
+    would let the build revert to its auto default (npu → w8a16).
     """
     composite_onnx = getattr(entry, "composite_onnx", None)
     if isinstance(composite_onnx, dict) and composite_onnx:
@@ -661,6 +666,9 @@ def _run_build(
         else:
             build_args += ["--use-cache"]
         build_args += ["--device", device]
+        # See docstring: forward precision so the build doesn't revert to auto.
+        if precision:
+            build_args += ["--precision", precision]
         if ep:
             build_args += ["--ep", ep]
         # Mirror the --no-quant passed to winml config above so the build

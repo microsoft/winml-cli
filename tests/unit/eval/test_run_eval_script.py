@@ -373,6 +373,67 @@ class TestRunBuildConfigOverwrite:
         assert config_call[idx + 2] == "--overwrite", config_call
 
 
+class TestRunBuildPrecisionForwarding:
+    """``_run_build`` must forward ``--precision`` to both ``winml config`` and
+    ``winml build``.
+
+    Regression guard: since the harness always passes ``--device``,
+    ``winml build -c`` re-resolves quant from device+precision and overwrites
+    the config's quant. Omitting ``--precision`` let it revert to the auto
+    default (npu → w8a16), so w8a8 and w8a16 fallback jobs collided on one
+    cached artifact.
+    """
+
+    @staticmethod
+    def _make_entry():
+        entry = MagicMock()
+        entry.hf_id = "google-bert/bert-base-uncased"
+        entry.task = "text-classification"
+        entry.perf_args = []
+        return entry
+
+    def _invoke(self, run_eval, precision, tmp_path, ep=None):
+        entry = self._make_entry()
+        (tmp_path / "build_config.json").write_text("{}", encoding="utf-8")
+        captured: list[list[str]] = []
+
+        def fake_subprocess(args, _timeout):
+            captured.append(list(args))
+            stdout = "" if "config" in args else "Build cache: model.onnx"
+            return {
+                "exit_code": 0,
+                "stdout": stdout,
+                "stderr": "",
+                "elapsed": 0.1,
+                "command": " ".join(args),
+            }
+
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=fake_subprocess),
+            patch.object(run_eval, "_extract_onnx_path", return_value=str(tmp_path / "model.onnx")),
+        ):
+            run_eval._run_build(entry, "npu", precision, 300, tmp_path, ep=ep)
+        return captured
+
+    def test_precision_forwarded_to_both_config_and_build(self, run_eval, tmp_path):
+        calls = self._invoke(run_eval, "w8a8", tmp_path)
+        config_call = next(args for args in calls if "config" in args)
+        build_call = next(args for args in calls if "build" in args)
+        for call in (config_call, build_call):
+            assert "--precision" in call, call
+            assert call[call.index("--precision") + 1] == "w8a8", call
+
+    def test_distinct_precisions_forwarded_distinctly(self, run_eval, tmp_path):
+        build_a = next(a for a in self._invoke(run_eval, "w8a8", tmp_path) if "build" in a)
+        build_b = next(a for a in self._invoke(run_eval, "w8a16", tmp_path) if "build" in a)
+        assert build_a[build_a.index("--precision") + 1] == "w8a8", build_a
+        assert build_b[build_b.index("--precision") + 1] == "w8a16", build_b
+
+    def test_precision_omitted_from_build_when_none(self, run_eval, tmp_path):
+        build_call = next(a for a in self._invoke(run_eval, None, tmp_path) if "build" in a)
+        assert "--precision" not in build_call, build_call
+
+
 class TestFeedVersionForCombo:
     """``_feed_version_for`` embeds the EP/device combo after the run-stamp."""
 
