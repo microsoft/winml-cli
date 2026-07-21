@@ -110,6 +110,92 @@ def _has_mask_outputs(contract: _GraphContract) -> bool:
     return sum(rank >= 4 for rank in ranks) == 1 and sum(1 <= rank <= 3 for rank in ranks) == 1
 
 
+def _shared_ports_compatible(
+    encoder: _GraphContract,
+    decoder: _GraphContract,
+    shared: tuple[str, ...],
+) -> bool:
+    """Check connected ports, unifying static and symbolic shape constraints."""
+    encoder_ports = {
+        name: (dtype, rank, encoder.output_shapes[index] if encoder.output_shapes else None)
+        for index, (name, dtype, rank) in enumerate(encoder.outputs)
+    }
+    decoder_ports = {
+        name: (dtype, rank, decoder.input_shapes[index] if decoder.input_shapes else None)
+        for index, (name, dtype, rank) in enumerate(decoder.inputs)
+    }
+    if len(encoder_ports) != len(encoder.outputs) or len(decoder_ports) != len(decoder.inputs):
+        return False
+
+    parents: dict[tuple[str, str], tuple[str, str]] = {}
+    static_values: dict[tuple[str, str], int] = {}
+
+    def find(symbol: tuple[str, str]) -> tuple[str, str]:
+        parents.setdefault(symbol, symbol)
+        if parents[symbol] != symbol:
+            parents[symbol] = find(parents[symbol])
+        return parents[symbol]
+
+    def bind(symbol: tuple[str, str], value: int) -> bool:
+        root = find(symbol)
+        existing = static_values.get(root)
+        if existing is not None and existing != value:
+            return False
+        static_values[root] = value
+        return True
+
+    def union(left: tuple[str, str], right: tuple[str, str]) -> bool:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root == right_root:
+            return True
+        left_value = static_values.pop(left_root, None)
+        right_value = static_values.pop(right_root, None)
+        if left_value is not None and right_value is not None and left_value != right_value:
+            return False
+        parents[right_root] = left_root
+        merged_value = left_value if left_value is not None else right_value
+        if merged_value is not None:
+            static_values[left_root] = merged_value
+        return True
+
+    for name in shared:
+        encoder_dtype, encoder_rank, encoder_shape = encoder_ports[name]
+        decoder_dtype, decoder_rank, decoder_shape = decoder_ports[name]
+        if encoder_dtype.lower() != decoder_dtype.lower() or encoder_rank != decoder_rank:
+            return False
+        if encoder_shape is None:
+            encoder_shape = (None,) * encoder_rank
+        if decoder_shape is None:
+            decoder_shape = (None,) * decoder_rank
+        if len(encoder_shape) != encoder_rank or len(decoder_shape) != decoder_rank:
+            return False
+        for encoder_dim, decoder_dim in zip(encoder_shape, decoder_shape, strict=True):
+            encoder_static = encoder_dim if isinstance(encoder_dim, int) else None
+            decoder_static = decoder_dim if isinstance(decoder_dim, int) else None
+            encoder_symbol = encoder_dim if isinstance(encoder_dim, str) and encoder_dim else None
+            decoder_symbol = decoder_dim if isinstance(decoder_dim, str) and decoder_dim else None
+            if (
+                encoder_static is not None
+                and decoder_static is not None
+                and encoder_static != decoder_static
+            ):
+                return False
+            if encoder_symbol is not None and decoder_symbol is not None:
+                if not union(("encoder", encoder_symbol), ("decoder", decoder_symbol)):
+                    return False
+            elif encoder_symbol is not None and decoder_static is not None:
+                if not bind(("encoder", encoder_symbol), decoder_static):
+                    return False
+            elif (
+                decoder_symbol is not None
+                and encoder_static is not None
+                and not bind(("decoder", decoder_symbol), encoder_static)
+            ):
+                return False
+    return True
+
+
 def _select_encoder_decoder_pair(
     graphs: list[_GraphContract],
     *,
@@ -133,7 +219,7 @@ def _select_encoder_decoder_pair(
                 continue
             decoder_inputs = {name for name, _dtype, _rank in decoder.inputs}
             shared = tuple(sorted(encoder_outputs & decoder_inputs))
-            if not shared:
+            if not shared or not _shared_ports_compatible(encoder, decoder, shared):
                 continue
             encoder_prompt = _has_point_prompt(encoder)
             decoder_prompt = _has_point_prompt(decoder)

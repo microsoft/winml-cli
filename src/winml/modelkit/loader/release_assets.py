@@ -13,18 +13,18 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
 import shutil
 import stat
 import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 _MANIFEST_NAME = "release_assets.json"
 _PROVENANCE_NAME = "winml_release_provenance.json"
@@ -149,20 +149,68 @@ def safe_extract_zip(archive: Path, destination: Path) -> None:
                 shutil.copyfileobj(source, output, length=1024 * 1024)
 
 
-def validate_onnx_external_data(path: Path, root: Path) -> tuple[Path, ...]:
-    """Require every ONNX external-data location to be a present in-root file."""
+def _graph_tensors(graph: Any) -> Iterator[Any]:
+    """Yield every tensor reachable from a GraphProto, including nested graphs."""
     import onnx
+
+    yield from graph.initializer
+    for sparse in graph.sparse_initializer:
+        yield sparse.values
+        yield sparse.indices
+    for node in graph.node:
+        yield from _node_attribute_tensors(node, onnx.AttributeProto)
+
+
+def _node_attribute_tensors(node: Any, attribute_proto: Any) -> Iterator[Any]:
+    """Yield tensor and sparse-tensor attributes, recursing into graph attributes."""
+    for attribute in node.attribute:
+        if attribute.type == attribute_proto.TENSOR:
+            yield attribute.t
+        elif attribute.type == attribute_proto.TENSORS:
+            yield from attribute.tensors
+        elif attribute.type == attribute_proto.SPARSE_TENSOR:
+            yield attribute.sparse_tensor.values
+            yield attribute.sparse_tensor.indices
+        elif attribute.type == attribute_proto.SPARSE_TENSORS:
+            for sparse in attribute.sparse_tensors:
+                yield sparse.values
+                yield sparse.indices
+        elif attribute.type == attribute_proto.GRAPH:
+            yield from _graph_tensors(attribute.g)
+        elif attribute.type == attribute_proto.GRAPHS:
+            for graph in attribute.graphs:
+                yield from _graph_tensors(graph)
+
+
+def _model_tensors(model: Any) -> Iterator[Any]:
+    """Yield every TensorProto that may carry external data in a ModelProto."""
+    import onnx
+
+    yield from _graph_tensors(model.graph)
+    for function in model.functions:
+        for node in function.node:
+            yield from _node_attribute_tensors(node, onnx.AttributeProto)
+
+
+def validate_onnx_external_data(path: Path, root: Path) -> tuple[Path, ...]:
+    """Require every recursively referenced ONNX sidecar to be a present in-root file."""
+    import onnx
+    from onnx.external_data_helper import ExternalDataInfo, uses_external_data
 
     model = onnx.load(path, load_external_data=False)
     sidecars: list[Path] = []
     root_resolved = root.resolve()
-    for initializer in model.graph.initializer:
-        if initializer.data_location != onnx.TensorProto.EXTERNAL:
+    for tensor in _model_tensors(model):
+        if not uses_external_data(tensor):
             continue
-        fields = {field.key: field.value for field in initializer.external_data}
-        location = fields.get("location")
+        try:
+            location = ExternalDataInfo(tensor).location
+        except ValueError as error:
+            raise ValueError(
+                f"External tensor in {path.name!r} has invalid external-data metadata."
+            ) from error
         if not location:
-            raise ValueError(f"External initializer in {path.name!r} has no location.")
+            raise ValueError(f"External tensor in {path.name!r} has no location.")
         relative = PurePosixPath(location.replace("\\", "/"))
         if (
             relative.is_absolute()
@@ -180,6 +228,79 @@ def validate_onnx_external_data(path: Path, root: Path) -> tuple[Path, ...]:
             )
         sidecars.append(sidecar)
     return tuple(dict.fromkeys(sidecars))
+
+
+def _recorded_path(root: Path, relative_path: str) -> Path:
+    """Resolve one provenance path without allowing it to escape the cache root."""
+    relative = PurePosixPath(relative_path.replace("\\", "/"))
+    if (
+        relative.is_absolute()
+        or any(part in {"", ".", ".."} for part in relative.parts)
+        or (relative.parts and ":" in relative.parts[0])
+    ):
+        raise ValueError(f"Unsafe path in release provenance: {relative_path!r}.")
+    resolved = root.joinpath(*relative.parts).resolve()
+    root_resolved = root.resolve()
+    if root_resolved not in resolved.parents:
+        raise ValueError(f"Release provenance path escapes extraction root: {relative_path!r}.")
+    return resolved
+
+
+def _validate_cached_extraction(
+    extracted: Path,
+    archive_path: Path,
+    provenance: dict[str, Any],
+) -> bool:
+    """Validate every cached graph and sidecar against its immutable provenance."""
+    if provenance.get("schema_version") != 2 or not archive_path.is_file():
+        return False
+    archive_sha256 = provenance.get("archive_sha256")
+    graphs = provenance.get("graphs")
+    external_data = provenance.get("external_data")
+    if (
+        not isinstance(archive_sha256, str)
+        or not isinstance(graphs, dict)
+        or not graphs
+        or not isinstance(external_data, dict)
+    ):
+        return False
+    if _sha256(archive_path) != archive_sha256:
+        return False
+
+    try:
+        actual_graphs = {
+            path.relative_to(extracted).as_posix() for path in extracted.rglob("*.onnx")
+        }
+        if actual_graphs != set(graphs):
+            return False
+        for graph_relative, graph_sha256 in graphs.items():
+            if not isinstance(graph_relative, str) or not isinstance(graph_sha256, str):
+                return False
+            graph = _recorded_path(extracted, graph_relative)
+            if not graph.is_file() or _sha256(graph) != graph_sha256:
+                return False
+            recorded_sidecars = external_data.get(graph_relative)
+            if not isinstance(recorded_sidecars, dict):
+                return False
+            actual_sidecars = {
+                sidecar.relative_to(extracted).as_posix(): sidecar
+                for sidecar in validate_onnx_external_data(graph, extracted)
+            }
+            if set(actual_sidecars) != set(recorded_sidecars):
+                return False
+            for sidecar_relative, sidecar_sha256 in recorded_sidecars.items():
+                if not isinstance(sidecar_relative, str) or not isinstance(sidecar_sha256, str):
+                    return False
+                sidecar = _recorded_path(extracted, sidecar_relative)
+                if (
+                    actual_sidecars.get(sidecar_relative) != sidecar
+                    or not sidecar.is_file()
+                    or _sha256(sidecar) != sidecar_sha256
+                ):
+                    return False
+        return set(external_data) == set(graphs)
+    except (OSError, ValueError):
+        return False
 
 
 def copy_release_contract_files(source_graph: Path, destination: Path) -> None:
@@ -257,10 +378,27 @@ def acquire_hf_release_asset(
     extracted = asset_root / "extracted"
     provenance_path = extracted / _PROVENANCE_NAME
 
+    archive_is_trusted = False
     if provenance_path.is_file():
-        provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
-        if provenance.get("archive_sha256") == _sha256(archive_path):
+        try:
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            archive_is_trusted = (
+                isinstance(provenance, dict)
+                and archive_path.is_file()
+                and isinstance(provenance.get("archive_sha256"), str)
+                and provenance["archive_sha256"] == _sha256(archive_path)
+            )
+        except (OSError, json.JSONDecodeError):
+            provenance = {}
+        if isinstance(provenance, dict) and _validate_cached_extraction(
+            extracted, archive_path, provenance
+        ):
             metadata_files = sorted(extracted.rglob("metadata.json"))
+            if len(metadata_files) > 1:
+                raise ValueError(
+                    f"Release cache contains multiple metadata.json files: "
+                    f"{[str(path.relative_to(extracted)) for path in metadata_files]}"
+                )
             return AcquiredReleaseAsset(
                 root=extracted,
                 manifest_path=manifest_path,
@@ -270,6 +408,10 @@ def acquire_hf_release_asset(
             )
 
     asset_root.mkdir(parents=True, exist_ok=True)
+    if extracted.exists():
+        shutil.rmtree(extracted)
+    if archive_path.is_file() and not archive_is_trusted:
+        archive_path.unlink()
     if not archive_path.is_file():
         _download_archive(url, archive_path)
 
@@ -281,14 +423,14 @@ def acquire_hf_release_asset(
         if not graph_paths:
             raise ValueError(f"Release archive {url!r} contains no ONNX graphs.")
         external_data = {
-            str(path.relative_to(staging)): [
-                str(sidecar.relative_to(staging))
+            path.relative_to(staging).as_posix(): {
+                sidecar.relative_to(staging).as_posix(): _sha256(sidecar)
                 for sidecar in validate_onnx_external_data(path, staging)
-            ]
+            }
             for path in graph_paths
         }
         provenance = {
-            "schema_version": 1,
+            "schema_version": 2,
             "repo_id": model_id,
             "requested_revision": revision,
             "resolved_revision": resolved_revision,
@@ -301,7 +443,7 @@ def acquire_hf_release_asset(
             "download_url": url,
             "archive_sha256": _sha256(archive_path),
             "tool_versions": asset.get("tool_versions", {}),
-            "graphs": {str(path.relative_to(staging)): _sha256(path) for path in graph_paths},
+            "graphs": {path.relative_to(staging).as_posix(): _sha256(path) for path in graph_paths},
             "external_data": external_data,
         }
         (staging / _PROVENANCE_NAME).write_text(

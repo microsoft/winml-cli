@@ -21,8 +21,18 @@ def _graph(
     outputs: tuple[tuple[str, str, int], ...],
     precision: str,
     has_quantized_weights: bool = False,
+    input_shapes: tuple[tuple[object, ...], ...] = (),
+    output_shapes: tuple[tuple[object, ...], ...] = (),
 ) -> onnx_hub._GraphContract:
-    return onnx_hub._GraphContract(Path(name), inputs, outputs, precision, has_quantized_weights)
+    return onnx_hub._GraphContract(
+        Path(name),
+        inputs,
+        outputs,
+        precision,
+        has_quantized_weights,
+        input_shapes,
+        output_shapes,
+    )
 
 
 def test_resolver_selects_matching_graph_contract_and_falls_back_to_fp32(monkeypatch) -> None:
@@ -249,6 +259,80 @@ def test_resolver_rejects_decoder_without_score_output(monkeypatch) -> None:
 
     with pytest.raises(ValueError, match="do not contain a runnable promptable"):
         onnx_hub.resolve_hf_onnx_encoder_decoder("org/model")
+
+
+@pytest.mark.parametrize(
+    ("encoder_port", "decoder_port", "encoder_shape", "decoder_shape"),
+    [
+        (("embedding", "tensor(float)", 4), ("embedding", "tensor(float16)", 4), (), ()),
+        (("embedding", "tensor(float)", 4), ("embedding", "tensor(float)", 3), (), ()),
+        (
+            ("embedding", "tensor(float)", 4),
+            ("embedding", "tensor(float)", 4),
+            (1, 256, 64, 64),
+            (1, 128, 32, 32),
+        ),
+        (
+            ("embedding", "tensor(float)", 4),
+            ("embedding", "tensor(float)", 4),
+            (1, 256, "spatial", "spatial"),
+            (1, 256, 64, 32),
+        ),
+    ],
+)
+def test_pairing_rejects_incompatible_shared_port_contracts(
+    encoder_port,
+    decoder_port,
+    encoder_shape,
+    decoder_shape,
+) -> None:
+    encoder = _graph(
+        "encoder.onnx",
+        inputs=(("pixels", "tensor(float)", 4),),
+        outputs=(encoder_port,),
+        precision="fp32",
+        output_shapes=(encoder_shape,) if encoder_shape else (),
+    )
+    decoder = _graph(
+        "decoder.onnx",
+        inputs=(
+            ("points", "tensor(float)", 4),
+            ("labels", "tensor(int64)", 3),
+            decoder_port,
+        ),
+        outputs=(("scores", "tensor(float)", 3), ("masks", "tensor(float)", 5)),
+        precision="fp32",
+        input_shapes=((None,) * 4, (None,) * 3, decoder_shape) if decoder_shape else (),
+    )
+
+    with pytest.raises(ValueError, match="do not contain a runnable promptable"):
+        onnx_hub._select_encoder_decoder_pair([encoder, decoder], precision="fp32")
+
+
+def test_pairing_accepts_compatible_symbolic_and_static_shared_port_shapes() -> None:
+    encoder = _graph(
+        "encoder.onnx",
+        inputs=(("pixels", "tensor(float)", 4),),
+        outputs=(("embedding", "tensor(float)", 4),),
+        precision="fp32",
+        output_shapes=((1, 256, "height", "width"),),
+    )
+    decoder = _graph(
+        "decoder.onnx",
+        inputs=(
+            ("points", "tensor(float)", 4),
+            ("labels", "tensor(int64)", 3),
+            ("embedding", "tensor(float)", 4),
+        ),
+        outputs=(("scores", "tensor(float)", 3), ("masks", "tensor(float)", 5)),
+        precision="fp32",
+        input_shapes=((None,) * 4, (None,) * 3, (1, 256, 64, 64)),
+    )
+
+    pair = onnx_hub._select_encoder_decoder_pair([encoder, decoder], precision="fp32")
+
+    assert pair.encoder.path == Path("encoder.onnx")
+    assert pair.decoder.path == Path("decoder.onnx")
 
 
 def test_sam_published_onnx_absence_preserves_pytorch_fallback(monkeypatch) -> None:

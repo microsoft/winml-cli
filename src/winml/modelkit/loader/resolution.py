@@ -312,6 +312,14 @@ def resolve_composite(model_type: str, task: str) -> CompositeComponents | None:
     return dict(cls._SUB_MODEL_CONFIG) if cls is not None else None
 
 
+def _optional_hub_discovery_errors() -> tuple[type[Exception], ...]:
+    """Errors for which optional release discovery preserves the original path."""
+    import httpx
+    from huggingface_hub.errors import HfHubHTTPError, OfflineModeIsEnabled
+
+    return (HfHubHTTPError, OfflineModeIsEnabled, httpx.HTTPError)
+
+
 def resolve_composite_components(
     hf_model: str | None,
     *,
@@ -332,6 +340,9 @@ def resolve_composite_components(
     """
     from transformers import AutoConfig
 
+    if task is not None and model_type is not None:
+        return resolve_composite(model_type, task)
+
     config = None
     config_error: ValueError | OSError | None = None
     if hf_model is not None:
@@ -341,10 +352,13 @@ def resolve_composite_components(
             config_error = error
             from .onnx_hub import resolve_hf_release_onnx_encoder_decoder
 
-            release_sources = resolve_hf_release_onnx_encoder_decoder(
-                hf_model,
-                precision=precision,
-            )
+            try:
+                release_sources = resolve_hf_release_onnx_encoder_decoder(
+                    hf_model,
+                    precision=precision,
+                )
+            except _optional_hub_discovery_errors() as release_error:
+                raise error from release_error
             if release_sources is not None:
                 if task not in {None, "mask-generation"}:
                     raise ValueError(
@@ -391,10 +405,13 @@ def resolve_composite_onnx_sources(
     except (ValueError, OSError) as config_error:
         from .onnx_hub import resolve_hf_release_onnx_encoder_decoder
 
-        release_sources = resolve_hf_release_onnx_encoder_decoder(
-            hf_model,
-            precision=precision,
-        )
+        try:
+            release_sources = resolve_hf_release_onnx_encoder_decoder(
+                hf_model,
+                precision=precision,
+            )
+        except _optional_hub_discovery_errors() as release_error:
+            raise config_error from release_error
         if release_sources is None:
             raise
         if task not in {None, "mask-generation"}:
