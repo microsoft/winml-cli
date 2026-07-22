@@ -2,7 +2,7 @@
   "total": 118,
   "opset_range": [
     12,
-    22
+    23
   ],
   "ops_ai_onnx": {
     "Abs": {
@@ -95,10 +95,10 @@
     },
     "Attention": {
       "version_key_map": {
-        "99999": "1n"
+        "23": "1n"
       },
-      "start_version": 99999,
-      "valid_for_gene": false
+      "start_version": 23,
+      "valid_for_gene": true
     },
     "AveragePool": {
       "version_key_map": {
@@ -1023,8 +1023,28 @@
         "Attention"
       ],
       "version_key_map": {
-        "99999": "8v"
-      }
+        "23": "8v"
+      },
+      "check_for_eps": [
+        "qnn_gpu",
+        "qnn_npu"
+      ]
+    },
+    "SingleGeluPattern": {
+      "ops": [
+        "Gelu"
+      ],
+      "version_key_map": {
+        "1": "aw"
+      },
+      "check_for_eps": [
+        "ov_cpu",
+        "ov_gpu",
+        "ov_npu",
+        "qnn_gpu",
+        "qnn_npu",
+        "nv_gpu"
+      ]
     },
     "Conv2DInplaceLinear4DPattern": {
       "ops": [

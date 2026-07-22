@@ -11,11 +11,6 @@ ORTFusionPipe remain as capability-driven optimization pipes.
 
 from typing import Any
 
-from .algebraic import (
-    ALGEBRAIC_CAPABILITIES,
-    AlgebraicRewritePipe,
-    AlgebraicRewritePipeConfig,
-)
 from .base import BasePipe, OptimizationError, PipeConfig, caps_dict
 from .fusion import ORTFusionPipe, ORTFusionPipeConfig
 from .graph import GRAPH_CAPABILITIES, ORTGraphPipe, ORTGraphPipeConfig
@@ -27,19 +22,12 @@ from .surgery import SURGERY_CAPABILITIES, SurgeryPipe, SurgeryPipeConfig
 # - ORTGraphPipe: ORT graph-level optimizations (C++ optimizer), including constant folding.
 #   Runs first so downstream pipes see a constant-folded graph (e.g. Reshape shape inputs
 #   become literal constants, enabling skeleton-based pattern matching).
-# - AlgebraicRewritePipe: Exact topology-based algebraic rewrites (after ORT folding).
 # - RewritePipe: Pattern-based subgraph rewriting (runs after ORT constant folding so that
 #   shape constants are visible, but before ORTFusionPipe so normalised patterns are
 #   available for transformer fusions).
 # - ORTFusionPipe: ORT transformer fusions (Python optimizer)
 # - SurgeryPipe: Post-optimization model surgery (runs last to clamp constants after folding)
-PIPES: list[type[BasePipe]] = [
-    ORTGraphPipe,
-    AlgebraicRewritePipe,
-    RewritePipe,
-    ORTFusionPipe,
-    SurgeryPipe,
-]
+PIPES: list[type[BasePipe]] = [ORTGraphPipe, RewritePipe, ORTFusionPipe, SurgeryPipe]
 
 
 def get_all_capabilities() -> dict[str, Any]:
@@ -55,12 +43,9 @@ def get_all_capabilities() -> dict[str, Any]:
 
 
 __all__ = [
-    "ALGEBRAIC_CAPABILITIES",
     "GRAPH_CAPABILITIES",
     "PIPES",
     "SURGERY_CAPABILITIES",
-    "AlgebraicRewritePipe",
-    "AlgebraicRewritePipeConfig",
     "BasePipe",
     "ORTFusionPipe",
     "ORTFusionPipeConfig",

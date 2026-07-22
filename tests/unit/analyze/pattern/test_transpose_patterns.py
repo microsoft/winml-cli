@@ -20,7 +20,9 @@ from winml.modelkit.pattern import (
     ReshapeGemmReshapePattern,
     ReshapeTransposeReshapeLowDimPattern,
     ReshapeTransposeReshapeOverlyHighDimPattern,
+    get_pattern_input_generator,
 )
+from winml.modelkit.pattern.transpose_patterns import _compute_merged_transpose
 
 from .conftest import TEST_DOMAIN_VERSIONS
 
@@ -244,3 +246,50 @@ class TestRTRPatternIdAlignment:
         pattern = ReshapeTransposeReshapeLowDimPattern()
         schema_based = f"SUBGRAPH/{pattern.get_schema().name}"
         assert pattern.pattern_id != schema_based
+
+
+class TestRTRPatternInputGeneratorCoverage:
+    """Regression tests for RTR pattern input-generation coverage."""
+
+    def test_output_dim_coverage_includes_3d_and_4d(self) -> None:
+        """Generator should include both 3-D and 4-D output-shape variants."""
+        generator_class = get_pattern_input_generator("ReshapeTransposeReshapeOverlyHighDimPattern")
+        gen = generator_class(domain_versions=TEST_DOMAIN_VERSIONS)
+
+        combinations = gen.get_input_and_infinite_attribute_combinations()
+        output_dims: set[int] = set()
+        for item in combinations:
+            output_shape = item.get("output_shape")
+            assert isinstance(output_shape, tuple)
+            output_dims.add(len(output_shape))
+
+        assert 3 in output_dims
+        assert 4 in output_dims
+
+    def test_output_dim_remains_finite_matching_property(self) -> None:
+        """output_dim should stay finite and participate in rule matching."""
+        generator_class = get_pattern_input_generator("ReshapeTransposeReshapeOverlyHighDimPattern")
+        gen = generator_class(domain_versions=TEST_DOMAIN_VERSIONS)
+
+        infinite_properties = gen.get_infinite_property_names()
+        assert "output_dim" not in infinite_properties
+
+    def test_coverage_includes_merged_transpose_dim_5(self) -> None:
+        """Generator should include a case producing merged_transpose_dim=5."""
+        generator_class = get_pattern_input_generator("ReshapeTransposeReshapeOverlyHighDimPattern")
+        gen = generator_class(domain_versions=TEST_DOMAIN_VERSIONS)
+
+        combinations = gen.get_input_and_infinite_attribute_combinations()
+        merged_dims = set()
+        for item in combinations:
+            transpose_shape = item.get("transpose_shape")
+            perm = item.get("perm")
+            assert isinstance(transpose_shape, tuple)
+            assert isinstance(perm, tuple)
+            merged_shape, _ = _compute_merged_transpose(
+                transpose_shape,
+                perm,
+            )
+            merged_dims.add(len(merged_shape))
+
+        assert 5 in merged_dims

@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from . import (
     activation,
-    algebraic,
     attention,
     conv,
     elimination,
@@ -31,7 +30,6 @@ from . import (
 
 __all__ = [
     "activation",
-    "algebraic",
     "attention",
     "conv",
     "elimination",
