@@ -336,15 +336,11 @@ class HTPExporter:
             # at 18), so echoing export_config.opset_version would misreport the
             # real graph. Fall back to the request only if the value can't be read.
             actual_opset = self._read_default_opset(output_path)
-            if actual_opset is not None and actual_opset != export_config.opset_version:
-                logger.warning(
-                    "Requested opset %d but the exporter produced opset %d. "
-                    "torch's dynamo exporter targets a minimum opset of 18 and "
-                    "cannot always lower to a smaller requested version; pass "
-                    "--no-dynamo for a natively opset-%d graph.",
+            if actual_opset is not None:
+                self._warn_on_opset_mismatch(
                     export_config.opset_version,
                     actual_opset,
-                    export_config.opset_version,
+                    dynamo=self._use_dynamo_hierarchy,
                 )
             monitor.update(
                 ExportStep.ONNX_EXPORT,
@@ -446,6 +442,30 @@ class HTPExporter:
             if opset.domain in ("", "ai.onnx"):
                 return opset.version
         return None
+
+    @staticmethod
+    def _warn_on_opset_mismatch(
+        requested_opset: int,
+        actual_opset: int,
+        *,
+        dynamo: bool,
+    ) -> None:
+        """Warn accurately when an exporter does not honor the requested opset."""
+        if requested_opset == actual_opset:
+            return
+        if dynamo and actual_opset > requested_opset:
+            logger.warning(
+                "Requested opset %d, but dynamo could not lower the exported model "
+                "and kept opset %d. Pass --no-dynamo if the exact lower opset is required.",
+                requested_opset,
+                actual_opset,
+            )
+            return
+        logger.warning(
+            "Requested opset %d but the exporter produced opset %d.",
+            requested_opset,
+            actual_opset,
+        )
 
     def _verify_onnx_export(
         self,

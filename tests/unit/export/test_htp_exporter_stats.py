@@ -6,9 +6,11 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
+import pytest
 from onnx import TensorProto, helper, save
 
 from winml.modelkit.export.htp import HTPExporter
@@ -103,3 +105,33 @@ class TestHTPExporterReadDefaultOpset:
 
     def test_returns_none_for_unreadable_path(self, tmp_path: Path) -> None:
         assert HTPExporter._read_default_opset(str(tmp_path / "missing.onnx")) is None
+
+
+class TestHTPExporterOpsetMismatchWarning:
+    """Mismatch guidance must match the exporter and conversion direction."""
+
+    def test_failed_dynamo_downconversion_recommends_no_dynamo(self, caplog) -> None:
+        with caplog.at_level(logging.WARNING):
+            HTPExporter._warn_on_opset_mismatch(17, 18, dynamo=True)
+
+        assert "could not lower" in caplog.text
+        assert "--no-dynamo" in caplog.text
+
+    @pytest.mark.parametrize(
+        ("requested", "actual", "dynamo"),
+        [(18, 17, True), (17, 18, False)],
+    )
+    def test_other_mismatches_use_generic_wording(
+        self,
+        caplog,
+        requested: int,
+        actual: int,
+        dynamo: bool,
+    ) -> None:
+        with caplog.at_level(logging.WARNING):
+            HTPExporter._warn_on_opset_mismatch(requested, actual, dynamo=dynamo)
+
+        assert f"Requested opset {requested}" in caplog.text
+        assert f"produced opset {actual}" in caplog.text
+        assert "--no-dynamo" not in caplog.text
+        assert "could not lower" not in caplog.text
