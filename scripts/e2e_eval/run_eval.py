@@ -2333,10 +2333,16 @@ class EvalJob:
 
     @property
     def precision(self) -> str | None:
-        """Recipe precision, else the pinned fallback precision, else None."""
+        """Recipe precision, else pinned fallback, else the per-model precision.
+
+        Falling back to ``entry.precision`` keeps the result-dir slug, display
+        label, and recorded precision in sync with what ``_build_for_job``
+        actually builds (it uses ``fallback_precision or entry.precision``) for
+        a recipe-less job that carries an explicit per-model precision.
+        """
         if self.variant is not None:
             return self.variant.precision
-        return self.fallback_precision
+        return self.fallback_precision or self.entry.precision
 
 
 def _is_quantized_precision(precision: str) -> bool:
@@ -2352,7 +2358,7 @@ def _is_quantized_precision(precision: str) -> bool:
 
 
 def _build_jobs(
-    entries: list[ModelEntry], recipes_dir: Path | None, device: str
+    entries: list[ModelEntry], recipes_dir: Path | None, device: str, ep: str | None = None
 ) -> list[EvalJob]:
     """Expand entries into jobs. Recipes apply on every device; quant is NPU-only.
 
@@ -2364,7 +2370,9 @@ def _build_jobs(
       quantized).
     * NPU + no recipe + no per-model precision → one fallback job per NPU
       quantization scheme (:data:`_NPU_FALLBACK_PRECISIONS`, i.e. ``w8a8`` +
-      ``w8a16``).
+      ``w8a16``). Skipped for skip-quant EPs (VitisAI), which build a single
+      unquantized fallback -- otherwise both precisions collapse onto the same
+      unquantized artifact (``_resolve_precision`` forces the flag off).
     * NPU + no recipe + explicit per-model precision → a single fallback job
       honoring that precision (``winml config``).
     * non-NPU + non-quantized recipe variants → one job per such variant
@@ -2373,6 +2381,10 @@ def _build_jobs(
       fallback job (``variant=None``).
     """
     npu = device == "npu"
+    # Skip-quant EPs (VitisAI) build the model unquantized regardless of
+    # precision, so the NPU multi-precision expansion would produce duplicate
+    # artifacts under distinct precision slugs -- fall back to a single job.
+    expand_npu_quant = npu and not _should_skip_winml_quant(ep)
     jobs: list[EvalJob] = []
     for entry in entries:
         variants = (
@@ -2386,7 +2398,7 @@ def _build_jobs(
             variants = [v for v in variants if not _is_quantized_precision(v.precision)]
         if variants:
             jobs.extend(EvalJob(entry, variant) for variant in variants)
-        elif npu and entry.precision is None:
+        elif expand_npu_quant and entry.precision is None:
             # NPU without a recipe: build both NPU quantization precisions. An
             # explicit per-model precision (e.g. fp16) skips this and is honored
             # by the single-fallback branch below via _resolve_precision.
@@ -2814,7 +2826,7 @@ def main() -> None:
     # w8a16); off-NPU builds only the non-quantized recipe variants, else a
     # single winml-config fallback (variant=None).
     recipes_dir = None if args.no_recipes else args.recipes_dir
-    jobs = _build_jobs(entries, recipes_dir, args.device)
+    jobs = _build_jobs(entries, recipes_dir, args.device, ep=args.ep)
     total_jobs = len(jobs)
 
     safe_print(f"E2E Evaluation: {len(entries)} models -> {total_jobs} jobs -> {output_dir}")

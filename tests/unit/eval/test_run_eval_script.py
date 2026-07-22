@@ -882,10 +882,21 @@ class TestBuildJobs:
 
     def test_npu_no_recipe_honors_explicit_precision(self, run_eval, tmp_path):
         # An explicit per-model precision suppresses the w8a8+w8a16 expansion;
-        # fallback_precision stays unset so entry.precision applies at build time.
+        # the single fallback job reports that precision so its slug/label match
+        # the built artifact.
         entry = _entry("some/model", "text-classification")
         entry.precision = "fp16"
         jobs = run_eval._build_jobs([entry], tmp_path, "npu")
+        assert len(jobs) == 1
+        assert jobs[0].variant is None
+        assert jobs[0].precision == "fp16"
+
+    def test_npu_skip_quant_ep_no_recipe_single_fallback(self, run_eval, tmp_path):
+        # A skip-quant EP (VitisAI) builds the model unquantized regardless of
+        # precision, so the w8a8+w8a16 expansion is suppressed to avoid two jobs
+        # collapsing onto the same unquantized artifact.
+        entry = _entry("some/model", "text-classification")
+        jobs = run_eval._build_jobs([entry], tmp_path, "npu", ep="vitisai")
         assert len(jobs) == 1
         assert jobs[0].variant is None
         assert jobs[0].precision is None

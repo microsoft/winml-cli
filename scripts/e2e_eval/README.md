@@ -268,6 +268,9 @@ is picked up automatically). Each variant becomes its own job and its own
 `eval_result.json`. An NPU model **without** a recipe falls back to `winml config`
 and is expanded into **two jobs, `w8a8` and `w8a16`**; an explicit per-model
 `precision` field in the registry overrides this and builds that single precision.
+A skip-quant EP (VitisAI, `--ep vitisai`) builds the model unquantized regardless
+of precision, so this expansion is suppressed and the recipe-less model builds a
+single `winml config` fallback instead.
 Because recipes set `compile: null`, the build is EP-agnostic; the execution
 provider is applied at `winml perf`/`winml eval` time via `--ep`/`--device`.
 
