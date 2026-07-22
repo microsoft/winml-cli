@@ -86,7 +86,9 @@ def _require_npu() -> None:
         pytest.skip("No NPU detected via PDH")
 
 
-def _assert_hw_monitor_section(data: dict, device_kind: str) -> None:
+def _assert_hw_monitor_section(
+        data: dict, device_kind: str, *, require_utilization: bool = True
+    ) -> None:
     """Assert the ``hw_monitor`` section is present and well-formed.
 
     Checks the section emitted by HWMonitor when --monitor is passed:
@@ -102,7 +104,11 @@ def _assert_hw_monitor_section(data: dict, device_kind: str) -> None:
     else:
         assert hw["device_kind"] == device_kind
         assert hw["adapter_luid"] is not None
-        assert hw[device_kind]["mean_pct"] > 0
+        if require_utilization:
+            assert hw[device_kind]["mean_pct"] > 0
+        else:
+            # Just a valid data
+            assert hw[device_kind]["mean_pct"] >= 0
 
 
 def _build_perf_args(
@@ -171,6 +177,7 @@ def _assert_monitor_result(
     device: str,
     device_kind: str | None = None,
     ep: str | None = None,
+    require_utilization: bool = True,
 ) -> None:
     """Assert a monitored perf run produced the expected device + hw_monitor data.
 
@@ -178,7 +185,7 @@ def _assert_monitor_result(
     measured, and delegates the hw_monitor checks to
     :func:`_assert_hw_monitor_section`. ``device_kind`` defaults to ``device``
     when not given (only differs for cases like VitisAI where ``--device`` and
-    the monitored hardware diverge).
+    the monitored hardware diverge). ``require_utilization`` is forwarded.
     """
     if device_kind is None:
         device_kind = device
@@ -186,7 +193,7 @@ def _assert_monitor_result(
     assert data["latency_ms"]["mean"] > 0
     if ep is not None:
         assert data["benchmark_info"]["ep"] == ep
-    _assert_hw_monitor_section(data, device_kind)
+    _assert_hw_monitor_section(data, device_kind, require_utilization=require_utilization)
 
 
 # ===========================================================================
@@ -597,7 +604,8 @@ class _PerfBenchmarkSuite:
 
         assert output_file.exists()
         data = json.loads(output_file.read_text())
-        _assert_monitor_result(data, device="gpu", ep=EP_ALIASES[ep])
+        # openvino gpu could not emit valid pdh counter
+        _assert_monitor_result(data, device="gpu", ep=EP_ALIASES[ep], require_utilization=ep != "openvino")
 
     @pytest.mark.parametrize("ep", NPU_EPS)
     def test_benchmark_ep_device_npu(self, ep: str, tmp_path: Path, npu_model_arg: str):
