@@ -338,7 +338,11 @@ class _ReshapeTransposeReshapeInputGeneratorBase(PatternInputGenerator):
     def get_input_and_infinite_attribute_combinations(
         self,
     ) -> list[dict[str, Any]]:
-        """Generate input and attribute combinations for testing."""
+        """Generate representative input/attribute combinations for testing.
+
+        The combinations intentionally cover both 3-D and 4-D output shapes,
+        which are commonly seen in real RTR subgraphs.
+        """
         return [
             {
                 "data": InputShapeConstraint((1, 256, 256, 96)),
@@ -349,8 +353,46 @@ class _ReshapeTransposeReshapeInputGeneratorBase(PatternInputGenerator):
             {
                 "data": InputShapeConstraint((1, 256, 256, 96)),
                 "transpose_shape": (1, 32, 8, 32, 8, 96),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (1024, 64, 96),
+            },
+            {
+                "data": InputShapeConstraint((1, 256, 256, 96)),
+                "transpose_shape": (1, 32, 8, 32, 8, 96),
                 "perm": (5, 4, 3, 2, 1, 0),
                 "output_shape": (1024, 8, 8, 96),
+            },
+            {
+                "data": InputShapeConstraint((1, 256, 256, 96)),
+                "transpose_shape": (1, 32, 8, 32, 8, 96),
+                "perm": (5, 4, 3, 2, 1, 0),
+                "output_shape": (1, 65536, 96),
+            },
+            {
+                "data": InputShapeConstraint((1, 224, 168, 128)),
+                "transpose_shape": (1, 32, 7, 24, 7, 128),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (768, 49, 128),
+            },
+            {
+                "data": InputShapeConstraint((1, 224, 168, 128)),
+                "transpose_shape": (1, 32, 24, 7, 7, 128),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (-1, 224, 168, 128),
+            },
+            {
+                "data": InputShapeConstraint((1, 192, 49, 256)),
+                "transpose_shape": (1, 16, 7, 12, 7, 256),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (192, 49, 256),
+            },
+            {
+                # PixelShuffle-style RTR variant observed in real models.
+                # This case provides merged_transpose_dim=5 coverage.
+                "data": InputShapeConstraint((1, 1, 3, 3, 4, 4)),
+                "transpose_shape": (1, 1, 3, 3, 4, 4),
+                "perm": (0, 1, 4, 2, 5, 3),
+                "output_shape": (1, 1, 12, 12),
             },
         ]
 
@@ -367,7 +409,12 @@ class _ReshapeTransposeReshapeInputGeneratorBase(PatternInputGenerator):
 
     def get_infinite_property_names(self) -> list[str]:
         """Return names of properties with infinite possible values."""
-        return ["attr_transpose_shape", "attr_output_shape", "attr_perm", "data_shape"]
+        return [
+            "attr_transpose_shape",
+            "attr_output_shape",
+            "attr_perm",
+            "data_shape",
+        ]
 
 
 @register_pattern_input_generator
