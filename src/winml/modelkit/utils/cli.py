@@ -1215,7 +1215,7 @@ def normalize_model_arg(value: str | None) -> str | None:
         return None
     from .model_input import resolve_model_input
 
-    return resolve_model_input(value).local_path or value
+    return resolve_model_input(value, discover_repo_onnx=True).local_path or value
 
 
 def is_cli_provided(ctx: click.Context, param_name: str) -> bool:

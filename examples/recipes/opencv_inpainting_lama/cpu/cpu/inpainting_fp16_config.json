@@ -1,0 +1,42 @@
+{
+  "skip_optimize": true,
+  "export": null,
+  "optim": {},
+  "quant": {
+    "mode": "fp16",
+    "samples": 10,
+    "calibration_method": "minmax",
+    "weight_type": "uint8",
+    "activation_type": "uint8",
+    "per_channel": false,
+    "symmetric": false,
+    "weight_symmetric": null,
+    "activation_symmetric": null,
+    "save_calibration": false,
+    "distribution": "uniform",
+    "seed": null,
+    "calibration_load_path": null,
+    "calibration_save_path": null,
+    "op_types_to_quantize": null,
+    "nodes_to_exclude": null,
+    "fp16_keep_io_types": true,
+    "fp16_op_block_list": null
+  },
+  "compile": null,
+  "loader": {
+    "task": "inpainting"
+  },
+  "runtime": {
+    "pipeline": "inpainting",
+    "options": {
+      "image_input_name": "image",
+      "mask_input_name": "mask",
+      "output_name": "output",
+      "image_color_order": "bgr",
+      "image_value_range": [0, 1],
+      "mask_semantics": "nonzero-is-hole",
+      "output_color_order": "bgr",
+      "output_value_range": [0, 255]
+    }
+  }
+}

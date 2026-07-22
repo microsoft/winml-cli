@@ -31,10 +31,12 @@ logger = logging.getLogger(__name__)
 def ensure_pre_quantized_stamped(
     config: WinMLBuildConfig, onnx_path: Path, *, force: bool = False
 ) -> None:
-    """Stamp ``config.skip_optimize`` (and clear ``config.quant``) once.
+    """Stamp ``config.skip_optimize`` and suppress incompatible quantization.
 
-    Sets ``config.skip_optimize = True`` and clears ``config.quant`` if the
-    input ONNX is already quantized.
+    Sets ``config.skip_optimize = True`` when the input ONNX is already
+    quantized. QDQ/QOperator quantization is suppressed, but an explicit FP16
+    conversion is preserved because it converts the graph's remaining float
+    tensors rather than re-quantizing integer weights.
 
     This is the **single defensive detection point** for the library entry
     points (``build_onnx_model``, ``build_hf_model``). When
@@ -50,20 +52,25 @@ def ensure_pre_quantized_stamped(
             ``is_quantized_onnx`` (used to honor the legacy
             ``skip_optimize=True`` kwarg from direct callers).
     """
+
+    def _clear_incompatible_quant() -> None:
+        if config.quant is not None and config.quant.mode != "fp16":
+            config.quant = None
+
     if config.skip_optimize:
-        config.quant = None
+        _clear_incompatible_quant()
         return
     if force:
         config.skip_optimize = True
-        config.quant = None
+        _clear_incompatible_quant()
         return
 
     if is_quantized_onnx(onnx_path):
         config.skip_optimize = True
-        config.quant = None
+        _clear_incompatible_quant()
         logger.info(
             "Pre-quantized model detected (QDQ or QOperator nodes present). "
-            "Skipping optimize + quantize stages."
+            "Skipping graph optimization and incompatible quantization."
         )
 
 

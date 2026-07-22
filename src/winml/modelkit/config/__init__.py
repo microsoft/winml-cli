@@ -26,6 +26,7 @@ from ..utils.config_utils import merge_config
 from .build import (
     SubmoduleClassNotFoundError,
     WinMLBuildConfig,
+    WinMLRuntimeConfig,
     generate_build_config,
     generate_hf_build_config,
     generate_onnx_build_config,
@@ -48,6 +49,7 @@ __all__ = [
     "PrecisionPolicy",
     "SubmoduleClassNotFoundError",
     "WinMLBuildConfig",
+    "WinMLRuntimeConfig",
     "expand_precision",
     "extract_activation_bits",
     "extract_weight_bits",

@@ -13,7 +13,7 @@ together replace the previous trio of detectors (``is_hub_model``,
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from winml.modelkit.utils.model_input import (
     ModelInputKind,
@@ -294,3 +294,38 @@ class TestResolveModelInput:
         assert mi.kind == "hub_onnx"
         assert mi.local_path == str(downloaded)
         assert mi.hf_id == "onnx-community/sam3-tracker-ONNX"
+
+    def test_bare_repo_discovery_preserves_provenance(self, tmp_path: Path) -> None:
+        downloaded = tmp_path / "model.onnx"
+        downloaded.write_bytes(b"")
+        resolved = MagicMock(
+            local_path=downloaded,
+            repo_id="org/repo",
+            filename="nested/model.onnx",
+            revision="abc123",
+        )
+        with patch(
+            "winml.modelkit.loader.onnx_hub.resolve_hf_repo_onnx",
+            return_value=resolved,
+        ):
+            mi = resolve_model_input("org/repo", discover_repo_onnx=True)
+
+        assert mi.kind is ModelInputKind.HUB_ONNX
+        assert mi.local_path == str(downloaded)
+        assert mi.hf_id == "org/repo"
+        assert mi.artifact_path == "nested/model.onnx"
+        assert mi.revision == "abc123"
+
+    def test_optional_bare_repo_discovery_falls_back_offline(self) -> None:
+        """Offline discovery leaves a normal HF ID available to cached loaders."""
+        from huggingface_hub.errors import OfflineModeIsEnabled
+
+        with patch(
+            "huggingface_hub.HfApi.model_info",
+            side_effect=OfflineModeIsEnabled("offline"),
+        ):
+            mi = resolve_model_input("microsoft/resnet-50", discover_repo_onnx=True)
+
+        assert mi.kind is ModelInputKind.HF_ID
+        assert mi.hf_id == "microsoft/resnet-50"
+        assert mi.local_path is None

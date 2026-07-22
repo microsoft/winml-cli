@@ -198,6 +198,39 @@ class TestFromOnnx:
 
         assert result is mock_instance
 
+    def test_programmatic_onnx_preserves_runtime_contract(
+        self, fake_onnx: Path, tmp_path: Path
+    ) -> None:
+        """An explicit config reaches the returned runtime wrapper unchanged."""
+        from winml.modelkit.config import WinMLBuildConfig
+
+        runtime = {"pipeline": "inpainting", "options": {"contract": "test"}}
+        explicit_config = WinMLBuildConfig.from_dict(
+            {
+                "loader": {"task": "inpainting"},
+                "export": None,
+                "quant": None,
+                "compile": None,
+                "runtime": runtime,
+            }
+        )
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=True),
+            patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
+            patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
+        ):
+            model = MagicMock()
+            mock_get_class.return_value = lambda **_kwargs: model
+            result = WinMLAutoModel.from_onnx(
+                fake_onnx,
+                task="inpainting",
+                config=explicit_config,
+                skip_build=True,
+            )
+
+        assert result is model
+        assert model._runtime_config == runtime
+
 
 class TestFromPretrainedDelegatesToFromOnnx:
     """Test that from_pretrained delegates .onnx files to from_onnx."""

@@ -623,6 +623,46 @@ class TestBuildFlagPassthrough:
         assert quant is not None
         assert quant.mode == "fp16"
 
+    def test_precision_fp16_preserved_for_prequantized_onnx(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ):
+        """Pre-quantized ONNX still converts remaining float tensors to FP16."""
+        onnx_path = tmp_path / "prequantized.onnx"
+        onnx_path.write_bytes(b"fake")
+        config_path = tmp_path / "prequantized_fp16.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "skip_optimize": True,
+                    "loader": {"task": "inpainting"},
+                    "export": None,
+                    "optim": {},
+                    "quant": {"mode": "fp16"},
+                    "compile": None,
+                }
+            )
+        )
+
+        result = _invoke(
+            [
+                "-c",
+                str(config_path),
+                "-m",
+                str(onnx_path),
+                "-o",
+                str(tmp_path / "out"),
+                "--device",
+                "cpu",
+                "--precision",
+                "fp16",
+            ]
+        )
+
+        assert result.exit_code == 0, result.output
+        quant = mock_run_single_build.call_args.kwargs["config"].quant
+        assert quant is not None
+        assert quant.mode == "fp16"
+
     def test_precision_alone_triggers_quant_patch(
         self, tmp_path: Path, mock_run_single_build: MagicMock
     ):

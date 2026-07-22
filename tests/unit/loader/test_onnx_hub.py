@@ -22,6 +22,7 @@ import pytest
 from winml.modelkit.loader.onnx_hub import (
     _split_hf_onnx_path,
     resolve_hf_onnx_path,
+    resolve_hf_repo_onnx,
 )
 
 
@@ -183,9 +184,7 @@ class TestResolveHfOnnxPathDiscovery:
             ) as mock_list,
             pytest.raises(FileNotFoundError) as exc_info,
         ):
-            resolve_hf_onnx_path(
-                "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder.onnx"
-            )
+            resolve_hf_onnx_path("onnx-community/sam3-tracker-ONNX/onnx/vision_encoder.onnx")
 
         msg = str(exc_info.value)
         # Names the bad path and the repo
@@ -202,8 +201,7 @@ class TestResolveHfOnnxPathDiscovery:
         mock_list.assert_called_once()
         assert (
             mock_list.call_args.args[0] == "onnx-community/sam3-tracker-ONNX"
-            or mock_list.call_args.kwargs.get("repo_id")
-            == "onnx-community/sam3-tracker-ONNX"
+            or mock_list.call_args.kwargs.get("repo_id") == "onnx-community/sam3-tracker-ONNX"
         )
 
     def test_missing_file_listing_failure_falls_back_gracefully(self) -> None:
@@ -254,3 +252,101 @@ class TestResolveHfOnnxPathDiscovery:
         msg = str(exc_info.value)
         assert "No .onnx files were found" in msg
         assert "org/pytorch-only" in msg
+
+
+class TestResolveHfRepoOnnx:
+    """Bare Hub repositories resolve only for an unambiguous ONNX sibling."""
+
+    def test_single_onnx_uses_resolved_commit(self, tmp_path: Path) -> None:
+        downloaded = tmp_path / "model.onnx"
+        downloaded.write_bytes(b"onnx")
+        info = type(
+            "Info",
+            (),
+            {
+                "config": {},
+                "sha": "abc123",
+                "siblings": [type("Sibling", (), {"rfilename": "weights/model.onnx"})()],
+            },
+        )()
+
+        with (
+            patch("huggingface_hub.HfApi.model_info", return_value=info),
+            patch(
+                "winml.modelkit.loader.onnx_hub.resolve_hf_onnx_path",
+                return_value=downloaded,
+            ) as mock_download,
+        ):
+            result = resolve_hf_repo_onnx("org/repo", revision="release")
+
+        assert result is not None
+        assert result.local_path == downloaded
+        assert result.filename == "weights/model.onnx"
+        assert result.revision == "abc123"
+        mock_download.assert_called_once_with(
+            "org/repo/weights/model.onnx",
+            revision="abc123",
+            cache_dir=None,
+            token=None,
+        )
+
+    def test_transformers_repository_is_not_reclassified(self) -> None:
+        info = type(
+            "Info",
+            (),
+            {
+                "config": {"model_type": "bert"},
+                "sha": "abc123",
+                "siblings": [type("Sibling", (), {"rfilename": "model.onnx"})()],
+            },
+        )()
+        with patch("huggingface_hub.HfApi.model_info", return_value=info):
+            assert resolve_hf_repo_onnx("org/bert") is None
+
+    def test_http_error_falls_back_to_existing_hf_loader(self) -> None:
+        """Optional discovery must not replace established HF loader errors."""
+        from huggingface_hub.errors import HfHubHTTPError
+        from requests import Response
+
+        response = Response()
+        response.status_code = 401
+        response.url = "https://huggingface.co/api/models/org/private"
+        with patch(
+            "huggingface_hub.HfApi.model_info",
+            side_effect=HfHubHTTPError("unauthorized", response=response),
+        ):
+            assert resolve_hf_repo_onnx("org/private") is None
+
+    def test_offline_mode_falls_back_to_existing_hf_loader(self) -> None:
+        """Optional discovery preserves the established cached/offline HF path."""
+        from huggingface_hub.errors import OfflineModeIsEnabled
+
+        with patch(
+            "huggingface_hub.HfApi.model_info",
+            side_effect=OfflineModeIsEnabled("offline"),
+        ):
+            assert resolve_hf_repo_onnx("microsoft/resnet-50") is None
+
+    def test_connection_failure_falls_back_to_existing_hf_loader(self) -> None:
+        """A connectivity-only preflight failure is deferred to the normal loader."""
+        from requests.exceptions import ConnectionError
+
+        with patch(
+            "huggingface_hub.HfApi.model_info",
+            side_effect=ConnectionError("network unavailable"),
+        ):
+            assert resolve_hf_repo_onnx("microsoft/resnet-50") is None
+
+    def test_multiple_onnx_requires_explicit_path(self) -> None:
+        siblings = [
+            type("Sibling", (), {"rfilename": name})() for name in ("a.onnx", "nested/b.onnx")
+        ]
+        info = type("Info", (), {"config": {}, "sha": "abc123", "siblings": siblings})()
+        with (
+            patch("huggingface_hub.HfApi.model_info", return_value=info),
+            pytest.raises(ValueError, match="multiple ONNX files") as exc_info,
+        ):
+            resolve_hf_repo_onnx("org/ambiguous")
+
+        assert "org/ambiguous/a.onnx" in str(exc_info.value)
+        assert "org/ambiguous/nested/b.onnx" in str(exc_info.value)
