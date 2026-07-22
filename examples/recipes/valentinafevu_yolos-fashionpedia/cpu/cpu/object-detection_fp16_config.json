@@ -13,16 +13,8 @@
       {
         "name": "pixel_values",
         "dtype": "float32",
-        "shape": [
-          1,
-          3,
-          512,
-          864
-        ],
-        "value_range": [
-          0,
-          1
-        ]
+        "shape": [1, 3, 512, 864],
+        "value_range": [0, 1]
       }
     ],
     "output_tensors": [
@@ -52,9 +44,6 @@
     "calibration_save_path": null,
     "op_types_to_quantize": null,
     "nodes_to_exclude": null,
-    "task": "object-detection",
-    "model_id": "valentinafevu/yolos-fashionpedia",
-    "model_type": "yolos",
     "fp16_keep_io_types": true,
     "fp16_op_block_list": null
   },
@@ -68,15 +57,18 @@
     "task": "object-detection",
     "dataset": {
       "path": "detection-datasets/fashionpedia",
+      "revision": "80845435ce686b8a9dbf70a05452fbfb8e09cdd7",
       "split": "val",
-      "samples": 100,
-      "shuffle": true,
+      "samples": 10,
+      "shuffle": false,
       "seed": 42,
+      "streaming": true,
       "columns_mapping": {
+        "input_column": "image",
         "annotation_column": "objects",
         "bbox_key": "bbox",
         "category_key": "category",
-        "box_format": "xyxy",
+        "box_format": "xywh",
         "box_coords": "absolute"
       }
     }

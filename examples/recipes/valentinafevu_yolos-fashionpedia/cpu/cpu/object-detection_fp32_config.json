@@ -13,16 +13,8 @@
       {
         "name": "pixel_values",
         "dtype": "float32",
-        "shape": [
-          1,
-          3,
-          512,
-          864
-        ],
-        "value_range": [
-          0,
-          1
-        ]
+        "shape": [1, 3, 512, 864],
+        "value_range": [0, 1]
       }
     ],
     "output_tensors": [
@@ -35,27 +27,7 @@
     ]
   },
   "optim": {},
-  "quant": {
-    "mode": "static",
-    "samples": 10,
-    "calibration_method": "minmax",
-    "weight_type": "uint8",
-    "activation_type": "uint8",
-    "per_channel": false,
-    "symmetric": false,
-    "weight_symmetric": null,
-    "activation_symmetric": null,
-    "save_calibration": false,
-    "distribution": "uniform",
-    "seed": null,
-    "calibration_load_path": null,
-    "calibration_save_path": null,
-    "op_types_to_quantize": null,
-    "nodes_to_exclude": null,
-    "task": "object-detection",
-    "model_id": "valentinafevu/yolos-fashionpedia",
-    "model_type": "yolos"
-  },
+  "quant": null,
   "compile": null,
   "loader": {
     "task": "object-detection",
@@ -66,15 +38,18 @@
     "task": "object-detection",
     "dataset": {
       "path": "detection-datasets/fashionpedia",
+      "revision": "80845435ce686b8a9dbf70a05452fbfb8e09cdd7",
       "split": "val",
-      "samples": 500,
-      "shuffle": true,
+      "samples": 10,
+      "shuffle": false,
       "seed": 42,
+      "streaming": true,
       "columns_mapping": {
+        "input_column": "image",
         "annotation_column": "objects",
         "bbox_key": "bbox",
         "category_key": "category",
-        "box_format": "xyxy",
+        "box_format": "xywh",
         "box_coords": "absolute"
       }
     }
