@@ -77,3 +77,26 @@ def test_onnxscript_version_converter_revealed_when_verbose(verbosity, expected)
     configure_logging(verbosity=verbosity)
     assert logger.level == expected
     assert logger.isEnabledFor(logging.WARNING)
+
+
+def test_torch_compat_opset_notice_floored_at_error_in_normal_mode():
+    # torch's exporter emits a one-line "Setting ONNX exporter to use operator set
+    # version 18 ..." WARNING when it cannot honor a lower requested opset. winml
+    # surfaces its own concise opset warning, so torch's notice is floored by default.
+    configure_logging(verbosity=0)
+    logger = logging.getLogger("torch.onnx._internal.exporter._compat")
+    assert logger.level == logging.ERROR
+    assert not logger.isEnabledFor(logging.WARNING)
+
+
+@pytest.mark.parametrize("verbosity,expected", [(1, logging.INFO), (2, logging.DEBUG)])
+def test_torch_compat_opset_notice_revealed_when_verbose(verbosity, expected):
+    # -v/-vv opts into the detail: the torch logger follows the CLI level.
+    logger = logging.getLogger("torch.onnx._internal.exporter._compat")
+
+    configure_logging(verbosity=0)
+    assert not logger.isEnabledFor(logging.WARNING)
+
+    configure_logging(verbosity=verbosity)
+    assert logger.level == expected
+    assert logger.isEnabledFor(logging.WARNING)

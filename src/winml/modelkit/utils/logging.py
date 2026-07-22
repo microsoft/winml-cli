@@ -36,13 +36,18 @@ _DATE_FORMAT = "%H:%M:%S"
 
 # Third-party loggers whose INFO/WARNING chatter is noise for CLI users and can
 # interleave with rich progress output. Examples: optimum's "No model type passed
-# for the task ..." notice when a task maps to several loader classes, and
-# onnxscript's version-converter fallback WARNING (with a full call stack) that
-# fires when the dynamo exporter cannot down-convert a model to the requested opset
-# -- winml already surfaces a concise opset warning for that case, so the raw
-# traceback is redundant. They are floored at ERROR in normal output and only follow
-# the CLI level once the user passes -v/-vv.
-_NOISY_LIBRARY_LOGGERS = ("optimum", "onnxscript.version_converter")
+# for the task ..." notice when a task maps to several loader classes; onnxscript's
+# version-converter fallback WARNING (with a full call stack) that fires when the
+# dynamo exporter cannot down-convert a model to the requested opset; and torch's
+# own one-line "Setting ONNX exporter to use operator set version 18 ..." notice for
+# the same down-convert case -- winml already surfaces a concise opset warning, so
+# both are redundant. They are floored at ERROR in normal output and only follow the
+# CLI level once the user passes -v/-vv.
+_NOISY_LIBRARY_LOGGERS = (
+    "optimum",
+    "onnxscript.version_converter",
+    "torch.onnx._internal.exporter._compat",
+)
 
 
 def configure_logging(

@@ -411,10 +411,10 @@ class HTPExporter:
         stays cheap for large models. Returns ``None`` if the model cannot be
         read or declares no default-domain opset import.
         """
-        import onnx
+        from ...onnx import load_onnx
 
         try:
-            model = onnx.load(output_path, load_external_data=False)
+            model = load_onnx(output_path, load_weights=False, validate=False)
         except Exception:
             return None
         for opset in model.opset_import:
