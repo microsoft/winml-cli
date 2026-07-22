@@ -10,6 +10,7 @@ plotext for chart rendering and Rich Live for terminal refresh.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from rich.console import Console
@@ -41,11 +42,17 @@ class LiveMonitorDisplay:
         chart_height: int = 15,
         poll_interval_ms: int = 100,
         device_kind: str | None = None,
+        duration_sec: float | None = None,
     ) -> None:
         self._total = total_iterations
         self._warmup = warmup
         self._model_id = model_id
         self._device = device
+        # When set, the benchmark phase runs on a wall-clock budget instead of a
+        # fixed iteration count, so progress is reported as elapsed/total time.
+        # ``_bench_start`` is stamped on the first benchmark-phase update().
+        self._duration_sec = duration_sec
+        self._bench_start: float | None = None
         # `device_kind` is the value HWMonitor resolved at start() — pass it
         # in when you want the legend to reflect what's actually polled (e.g.
         # "auto" that resolved to GPU). Falls back to the requested string
@@ -94,6 +101,15 @@ class LiveMonitorDisplay:
         """Update the live display with current metrics."""
         if self._live is None:
             return
+
+        # Stamp the start of the timed benchmark phase so duration-based progress
+        # is measured from the first post-warmup iteration.
+        if (
+            self._duration_sec is not None
+            and self._bench_start is None
+            and iteration > self._warmup
+        ):
+            self._bench_start = time.perf_counter()
 
         try:
             chart_renderable = self._render_chart(util_samples, cpu_samples)
@@ -234,14 +250,22 @@ class LiveMonitorDisplay:
         current_util = util_samples[-1] if util_samples else 0.0
         mean_util = sum(util_samples) / len(util_samples) if util_samples else 0.0
 
-        pct = iteration / self._total if self._total > 0 else 0
+        if self._duration_sec is not None and phase == "benchmark":
+            # Duration mode: base progress on elapsed wall-clock time, since the
+            # benchmark iteration count is not known ahead of time.
+            elapsed = time.perf_counter() - self._bench_start if self._bench_start else 0.0
+            pct = min(elapsed / self._duration_sec, 1.0) if self._duration_sec > 0 else 0.0
+            shown = min(elapsed, self._duration_sec)
+            progress = f"[green]Time: {shown:.1f}/{self._duration_sec:.0f}s[/green]"
+        else:
+            pct = iteration / self._total if self._total > 0 else 0
+            if phase == "warmup":
+                progress = f"[yellow]Warmup: {iteration}/{self._warmup}[/yellow]"
+            else:
+                progress = f"[green]Iter: {effective_iter}/{total_bench}[/green]"
+
         bar_len = int(pct * 20)
         bar = f"[{'=' * bar_len}{' ' * (20 - bar_len)}]"
-
-        if phase == "warmup":
-            progress = f"[yellow]Warmup: {iteration}/{self._warmup}[/yellow]"
-        else:
-            progress = f"[green]Iter: {effective_iter}/{total_bench}[/green]"
 
         throughput = 1000.0 / latency_ms if latency_ms > 0 else 0.0
 

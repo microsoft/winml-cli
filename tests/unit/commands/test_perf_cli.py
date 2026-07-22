@@ -818,6 +818,25 @@ class TestPerfUnifiedPipeline:
 
         assert result.to_dict()["benchmark_info"]["ep_options"] is None
 
+    def test_iterations_reports_configured_count_without_duration(self) -> None:
+        """Without --duration, benchmark_info.iterations is the configured value."""
+        config = BenchmarkConfig(model_id="m", iterations=100)
+        result = BenchmarkResult(config=config, raw_samples_ms=[1.0, 2.0, 3.0])
+
+        info = result.to_dict()["benchmark_info"]
+        assert info["iterations"] == 100
+        assert info["duration_sec"] is None
+
+    def test_iterations_reports_actual_sample_count_with_duration(self) -> None:
+        """In duration mode, benchmark_info.iterations is the actual sample count."""
+        config = BenchmarkConfig(model_id="m", iterations=100, duration=5.0)
+        result = BenchmarkResult(config=config, raw_samples_ms=[1.0, 2.0, 3.0, 4.0])
+
+        info = result.to_dict()["benchmark_info"]
+        # 4 timed samples were collected, not the unused --iterations=100.
+        assert info["iterations"] == 4
+        assert info["duration_sec"] == 5.0
+
 
 class TestResolveShape:
     def test_symbolic_override_rejects_list_value_with_clean_error(self) -> None:
@@ -1477,3 +1496,153 @@ class TestPerfSubmodel:
 
         assert result.exit_code != 0
         assert "cannot be combined with --module" in result.output
+
+
+# =============================================================================
+# --DURATION (TIME-BUDGETED BENCHMARKING)
+# =============================================================================
+
+
+class TestPerfDuration:
+    """--duration runs the benchmark for a wall-clock budget instead of a fixed
+    iteration count (ideal with --monitor; rejected with --op-tracing)."""
+
+    def test_duration_shown_in_help(self, runner: CliRunner) -> None:
+        result = runner.invoke(perf, ["--help"])
+        assert result.exit_code == 0
+        assert "--duration" in result.output
+
+    def test_duration_forwarded_into_config(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--duration lands in BenchmarkConfig.duration for the benchmark run."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        captured: dict[str, BenchmarkConfig] = {}
+
+        def capture_config(config: BenchmarkConfig) -> MagicMock:
+            captured["config"] = config
+            mock = MagicMock()
+            mock.run.return_value = MagicMock()
+            return mock
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf.PerfBenchmark",
+                side_effect=capture_config,
+            ),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                ["-m", str(onnx_file), "--duration", "5", "-o", str(tmp_path / "out.json")],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert captured["config"].duration == 5.0
+
+    def test_duration_defaults_to_none(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Without --duration the config keeps the iteration-count behavior."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        captured: dict[str, BenchmarkConfig] = {}
+
+        def capture_config(config: BenchmarkConfig) -> MagicMock:
+            captured["config"] = config
+            mock = MagicMock()
+            mock.run.return_value = MagicMock()
+            return mock
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf.PerfBenchmark",
+                side_effect=capture_config,
+            ),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                ["-m", str(onnx_file), "-o", str(tmp_path / "out.json")],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert captured["config"].duration is None
+
+    def test_duration_rejected_with_op_tracing(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--duration cannot be combined with --op-tracing."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        with patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_bench:
+            result = runner.invoke(
+                perf,
+                ["-m", str(onnx_file), "--duration", "5", "--op-tracing", "basic"],
+                obj={},
+            )
+
+        assert result.exit_code != 0
+        assert "not valid with --op-tracing" in result.output
+        mock_bench.assert_not_called()
+
+    def test_duration_rejects_non_positive(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--duration must be strictly positive (a 0s budget benchmarks nothing)."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        result = runner.invoke(
+            perf,
+            ["-m", str(onnx_file), "--duration", "0"],
+            obj={},
+        )
+
+        assert result.exit_code != 0
+
+
+class TestBenchmarkIndices:
+    """_benchmark_indices drives either a fixed iteration count or a timed loop."""
+
+    def test_iteration_mode_yields_total(self) -> None:
+        from winml.modelkit.commands.perf import _benchmark_indices
+
+        indices = list(_benchmark_indices(total_iterations=5, warmup=2, duration_sec=None))
+        assert indices == [0, 1, 2, 3, 4]
+
+    def test_duration_mode_runs_warmup_then_timed_budget(self, monkeypatch) -> None:
+        """Warmup indices come first, then the loop runs until the budget elapses."""
+        from winml.modelkit.commands import perf as perf_mod
+
+        clock = {"t": 0.0}
+        monkeypatch.setattr(perf_mod.time, "perf_counter", lambda: clock["t"])
+
+        indices = []
+        # total_iterations is huge so only the time budget can end the loop.
+        for idx in perf_mod._benchmark_indices(total_iterations=10_000, warmup=2, duration_sec=1.0):
+            indices.append(idx)
+            clock["t"] += 0.3  # advance 0.3s per iteration
+            assert len(indices) < 100, "duration loop failed to terminate"
+
+        # First two indices are warmup; the timed phase (budget captured at t=0.6)
+        # runs until elapsed >= 1.0s.
+        assert indices[:2] == [0, 1]
+        assert indices == [0, 1, 2, 3, 4, 5]
+
+    def test_duration_mode_runs_at_least_one_benchmark_iter(self, monkeypatch) -> None:
+        """Even if the budget is already exceeded, one benchmark run still happens."""
+        from winml.modelkit.commands import perf as perf_mod
+
+        clock = {"t": 0.0}
+        monkeypatch.setattr(perf_mod.time, "perf_counter", lambda: clock["t"])
+
+        indices = []
+        for idx in perf_mod._benchmark_indices(
+            total_iterations=10_000, warmup=0, duration_sec=0.001
+        ):
+            indices.append(idx)
+            clock["t"] += 10.0  # blow past the budget immediately
+            assert len(indices) < 10, "duration loop failed to terminate"
+
+        assert indices == [0]
