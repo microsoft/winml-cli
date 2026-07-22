@@ -454,6 +454,7 @@ class _PerfBenchmarkSuite:
         assert output_file.exists(), f"Output file not created: {output_file}"
         data = json.loads(output_file.read_text())
         _assert_monitor_result(data, device="gpu")
+
     def test_benchmark_npu_monitor(self, tmp_path: Path, npu_model_arg: str):
         """Benchmark on NPU with --monitor.
 
