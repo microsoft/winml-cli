@@ -17,8 +17,10 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
+import numpy as np
+
 from ...onnx import ONNXDomain
-from ...pattern.base import InvalidPatternMatcherModelError, PatternMatcher
+from ...pattern.base import InvalidPatternMatcherModelError, PatternMatcher, PatternMismatchedError
 from ...pattern.config import PatternConfig, UnifiedPatternConfig
 from ..models.onnx_model import ModelTag, ONNXModel
 from ..models.output import extract_model_stats
@@ -68,6 +70,7 @@ class PatternRuleCompileRunResult(TypedDict):
     pattern_id: str
     is_alternative: bool
     status: str
+    mismatch_error: str | None
     compile: bool | None
     run: bool | None
     row_count: int
@@ -566,6 +569,70 @@ class PatternExtractor:
         table_cache[cache_key] = table_df
         return "ok", table_df
 
+    def _probe_candidate_pattern_mismatch(
+        self,
+        *,
+        candidate_pattern_obj: Any | None,
+        pattern_match: PatternMatchResult,
+        model_opsets: dict[ONNXDomain, int],
+    ) -> tuple[bool, str | None]:
+        """Probe candidate pattern preconditions via get_internal_constants_and_attributes.
+
+        If a pattern explicitly raises PatternMismatchedError for this match,
+        we stop before parquet lookup and surface the mismatch reason directly.
+        """
+        if candidate_pattern_obj is None:
+            return False, None
+
+        try:
+            schema = candidate_pattern_obj.get_schema()
+        except Exception:  # noqa: BLE001
+            return False, None
+
+        inputs: dict[str, np.ndarray] = {}
+        is_constant_map: dict[str, bool] = {}
+
+        for input_param in schema.inputs:
+            input_name = input_param.name
+            info = pattern_match.input_infos.get(input_name)
+
+            # Missing/unknown input facts means probe is inconclusive.
+            if info is None:
+                return False, None
+
+            is_constant_map[input_name] = info.is_constant
+
+            if info.value is not None:
+                inputs[input_name] = info.value
+                continue
+
+            if info.shape is None:
+                return False, None
+
+            safe_shape = tuple(
+                int(dim) if isinstance(dim, (int, np.integer)) and int(dim) > 0 else 1
+                for dim in info.shape
+            )
+            inputs[input_name] = np.zeros(safe_shape, dtype=np.float32)
+
+        try:
+            candidate_pattern_obj.get_internal_constants_and_attributes(
+                inputs=inputs,
+                attributes=pattern_match.attributes,
+                is_constant_map=is_constant_map,
+                domain_versions=model_opsets,
+            )
+        except PatternMismatchedError as mismatch_error:
+            return True, str(mismatch_error)
+        except Exception:  # noqa: BLE001
+            logger.debug(
+                "Candidate mismatch probe failed for %s; continue parquet lookup",
+                candidate_pattern_obj.__class__.__name__,
+                exc_info=True,
+            )
+
+        return False, None
+
     def _query_pattern_rule_compile_run_for_match(
         self,
         *,
@@ -763,6 +830,35 @@ class PatternExtractor:
                 for match_index, pattern_match in enumerate(matches, start=1):
                     candidate_results: list[PatternRuleCompileRunResult] = []
                     for candidate_class, candidate_id, is_alt, candidate_pattern_obj in candidate_specs:
+                        is_mismatch, mismatch_error = self._probe_candidate_pattern_mismatch(
+                            candidate_pattern_obj=candidate_pattern_obj,
+                            pattern_match=pattern_match,
+                            model_opsets=model_opsets,
+                        )
+                        if is_mismatch:
+                            candidate_results.append(
+                                {
+                                    "pattern_class": candidate_class,
+                                    "pattern_id": candidate_id,
+                                    "is_alternative": is_alt,
+                                    "status": "mismatch_error",
+                                    "mismatch_error": mismatch_error,
+                                    "compile": None,
+                                    "run": None,
+                                    "row_count": 0,
+                                    "table_file": None,
+                                    "table_path": None,
+                                    "domain": None,
+                                    "opset_version": None,
+                                    "compile_true_rows": 0,
+                                    "run_true_rows": 0,
+                                    "case_indices": None,
+                                    "query_condition_count": 0,
+                                    "query_condition_keys": [],
+                                }
+                            )
+                            continue
+
                         if candidate_pattern_obj is not None:
                             preferred_domain, target_opset = self._domain_and_target_opset_for_pattern(
                                 candidate_pattern_obj,
@@ -788,6 +884,7 @@ class PatternExtractor:
                                     "pattern_id": candidate_id,
                                     "is_alternative": is_alt,
                                     "status": "table_not_found",
+                                    "mismatch_error": None,
                                     "compile": None,
                                     "run": None,
                                     "row_count": 0,
@@ -834,6 +931,7 @@ class PatternExtractor:
                                 "pattern_id": candidate_id,
                                 "is_alternative": is_alt,
                                 "status": status,
+                                "mismatch_error": None,
                                 "compile": compile_ok,
                                 "run": run_ok,
                                 "row_count": row_count,
@@ -893,9 +991,12 @@ class PatternExtractor:
 
         try:
             with metadata_path.open(encoding="utf-8") as f:
-                self._htp_metadata = json.load(f)
+                loaded = json.load(f)
+            if not isinstance(loaded, dict):
+                raise ValueError("HTP metadata root must be a JSON object")
+            self._htp_metadata = cast("HTPMetadata", loaded)
             logger.info("Successfully loaded HTP metadata")
-            return self._htp_metadata
+            return cast("HTPMetadata", self._htp_metadata)
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON in HTP metadata file: {e}") from e
 

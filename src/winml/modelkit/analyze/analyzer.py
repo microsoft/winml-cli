@@ -235,6 +235,7 @@ def _append_pattern_debug_log(
                 f"pattern_id={candidate.get('pattern_id')} "
                 f"is_alternative={candidate.get('is_alternative')} "
                 f"status={candidate.get('status')} "
+                f"mismatch_error={candidate.get('mismatch_error')} "
                 f"compile={candidate.get('compile')} "
                 f"run={candidate.get('run')} "
                 f"row_count={candidate.get('row_count')} "

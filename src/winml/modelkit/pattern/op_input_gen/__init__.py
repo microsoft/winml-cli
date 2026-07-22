@@ -2,7 +2,11 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-from .attention_input_generator import AttentionInputGenerator
+try:
+    from .attention_input_generator import AttentionInputGenerator
+except ModuleNotFoundError:
+    # Keep optional generator import from blocking unrelated pattern tooling.
+    AttentionInputGenerator = None
 from .binary_input_generator import *
 from .binary_like_input_generator import *
 from .constant_of_shape_input_generator import ConstantOfShapeInputGenerator
