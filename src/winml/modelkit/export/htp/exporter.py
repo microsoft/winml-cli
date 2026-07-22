@@ -295,9 +295,27 @@ class HTPExporter:
                 self._hierarchy_builder.get_outputs() if self._hierarchy_builder else None
             )
             output_names = infer_output_names(traced_outputs) if traced_outputs is not None else []
+            # Report the opset the exporter actually produced, not the requested
+            # one. torch's dynamo exporter targets a minimum opset of 18 and does
+            # not always down-convert to a lower requested value (e.g. ResNet stays
+            # at 18), so echoing export_config.opset_version would misreport the
+            # real graph. Fall back to the request only if the value can't be read.
+            actual_opset = self._read_default_opset(output_path)
+            if actual_opset is not None and actual_opset != export_config.opset_version:
+                logger.warning(
+                    "Requested opset %d but the exporter produced opset %d. "
+                    "torch's dynamo exporter targets a minimum opset of 18 and "
+                    "cannot always lower to a smaller requested version; pass "
+                    "--no-dynamo for a natively opset-%d graph.",
+                    export_config.opset_version,
+                    actual_opset,
+                    export_config.opset_version,
+                )
             monitor.update(
                 ExportStep.ONNX_EXPORT,
-                opset_version=export_config.opset_version,
+                opset_version=(
+                    actual_opset if actual_opset is not None else export_config.opset_version
+                ),
                 do_constant_folding=export_config.do_constant_folding,
                 onnx_size_mb=onnx_size_mb,
                 output_names=output_names,
@@ -384,6 +402,25 @@ class HTPExporter:
         summary = self._hierarchy_builder.get_execution_summary()
         self._hierarchy_data = summary["module_hierarchy"]
         self._export_stats["hierarchy_modules"] = len(self._hierarchy_data)
+
+    @staticmethod
+    def _read_default_opset(output_path: str) -> int | None:
+        """Return the default-domain (ai.onnx) opset of the exported model.
+
+        Reads only the model proto (external weight files are not loaded), so it
+        stays cheap for large models. Returns ``None`` if the model cannot be
+        read or declares no default-domain opset import.
+        """
+        import onnx
+
+        try:
+            model = onnx.load(output_path, load_external_data=False)
+        except Exception:
+            return None
+        for opset in model.opset_import:
+            if opset.domain in ("", "ai.onnx"):
+                return opset.version
+        return None
 
     def _verify_onnx_export(
         self,

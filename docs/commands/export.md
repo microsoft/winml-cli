@@ -128,13 +128,14 @@ winml export -m microsoft/resnet-50 -o resnet50_clean.onnx --no-hierarchy
   hierarchy tags. Pass `--no-dynamo` to select the legacy TorchScript exporter.
   Shape staticness is independent of the exporter: both default to static shapes
   and only emit dynamic axes when you ask for them. The QNN-relevant
-  difference is op decomposition: the dynamo exporter's op library targets a
-  minimum opset of 18, so it lowers ops at opset 18 and then down-converts to the
-  requested opset (17 by default), whereas TorchScript builds natively at opset
-  17. That extra lowering-and-conversion pass can decompose some ops differently
-  and reduce QNN fusion coverage (e.g. MatMul + Add fusion). Prefer `--no-dynamo`
-  for hand exports targeting QNN/NPU compilation until the dynamo graph is
-  validated for your model.
+  difference is opset and op decomposition: torch's dynamo op library targets a
+  minimum opset of 18, so the dynamo path exports at opset 18, whereas the
+  TorchScript path exports at the configured opset (17 by default). Dynamo also
+  lowers some ops differently -- for example ResNet's classification head becomes
+  `ReduceMean` + `Reshape` under dynamo but `GlobalAveragePool` + `Flatten` under
+  TorchScript -- which can change or reduce QNN fusion coverage. Prefer
+  `--no-dynamo` for hand exports targeting QNN/NPU compilation until the dynamo
+  graph is validated for your model.
 - **`--torch-module` is experimental.** The flag emits a warning and has no
   effect in the current release. Do not rely on it in automated pipelines yet.
 - **Output directory must be writable.** The command creates parent directories
