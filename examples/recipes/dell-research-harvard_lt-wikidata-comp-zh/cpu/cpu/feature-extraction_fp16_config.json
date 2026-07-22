@@ -57,11 +57,11 @@
     "clamp_constant_values": true
   },
   "quant": {
-    "mode": "static",
+    "mode": "fp16",
     "samples": 10,
     "calibration_method": "minmax",
     "weight_type": "uint8",
-    "activation_type": "uint16",
+    "activation_type": "uint8",
     "per_channel": false,
     "symmetric": false,
     "weight_symmetric": null,
@@ -75,7 +75,9 @@
     "nodes_to_exclude": null,
     "task": "feature-extraction",
     "model_id": "dell-research-harvard/lt-wikidata-comp-zh",
-    "model_type": "bert"
+    "model_type": "bert",
+    "fp16_keep_io_types": true,
+    "fp16_op_block_list": null
   },
   "compile": null,
   "loader": {
@@ -86,9 +88,14 @@
   "eval": {
     "task": "feature-extraction",
     "dataset": {
-      "path": "mteb/stsbenchmark-sts",
+      "path": "mteb/sts22-crosslingual-sts",
+      "name": "zh",
       "split": "test",
-      "samples": 1000,
+      "samples": 20,
+      "shuffle": false,
+      "seed": 42,
+      "streaming": true,
+      "revision": "91d97a5b9d761e285ac3e1b4f239797bbd21c4b8",
       "columns_mapping": {
         "input_column_1": "sentence1",
         "input_column_2": "sentence2",
