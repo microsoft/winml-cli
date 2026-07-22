@@ -70,6 +70,16 @@ class TestHFModelClassMappingDesign:
         )
         assert result.__name__ == "AutoModelForSemanticSegmentation"
 
+    def test_layoutlm_question_answering_returns_concrete_qa_class(self):
+        """LayoutLM QA should use the concrete architecture registered for export."""
+        from winml.modelkit.loader.resolution import _get_custom_model_class
+
+        result = _get_custom_model_class(
+            model_type="layoutlm",
+            task="question-answering",
+        )
+        assert result.__name__ == "LayoutLMForQuestionAnswering"
+
     # =========================================================================
     # Level 2: Task Defaults (tasks not in TasksManager)
     # =========================================================================
@@ -187,6 +197,12 @@ class TestHFModelClassMappingRegistry:
         from winml.modelkit.models import HF_MODEL_CLASS_MAPPING
 
         assert ("segformer", "image-segmentation") in HF_MODEL_CLASS_MAPPING
+
+    def test_layoutlm_class_mapping_registered(self):
+        """LayoutLM QA mapping should be aggregated from its architecture module."""
+        from winml.modelkit.models import HF_MODEL_CLASS_MAPPING
+
+        assert ("layoutlm", "question-answering") in HF_MODEL_CLASS_MAPPING
 
     def test_segformer_module_class_mapping_structure(self):
         """Segformer module should export MODEL_CLASS_MAPPING dict."""

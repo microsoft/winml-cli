@@ -159,6 +159,32 @@ class TestLayoutLMQuestionAnsweringOverride:
         assert inputs["token_type_ids"].shape == (1, layoutlm_config.max_position_embeddings)
         assert inputs["token_type_ids"].max().item() == 0
 
+    def test_layoutlm_qa_uses_usable_length_for_padding_offset(self) -> None:
+        """RoBERTa-style position offsets must not generate out-of-range positions."""
+        from transformers import LayoutLMConfig
+
+        layoutlm_config = LayoutLMConfig(
+            vocab_size=100,
+            hidden_size=64,
+            num_hidden_layers=2,
+            num_attention_heads=2,
+            intermediate_size=128,
+            max_position_embeddings=34,
+            max_2d_position_embeddings=1024,
+            type_vocab_size=1,
+            pad_token_id=1,
+        )
+
+        inputs = generate_dummy_inputs("layoutlm", "question-answering", layoutlm_config)
+
+        assert inputs["input_ids"].shape == (1, 32)
+        assert inputs["bbox"].shape == (1, 32, 4)
+        assert inputs["attention_mask"].shape == (1, 32)
+        assert inputs["token_type_ids"].shape == (1, 32)
+
+        specs = resolve_io_specs("layoutlm", "question-answering", layoutlm_config)
+        assert specs["value_ranges"]["token_type_ids"] == (0, 1)
+
     def test_layoutlm_qa_io_specs_include_span_outputs(self) -> None:
         """LayoutLM QA specs expose document bbox input and span logits outputs."""
         from transformers import LayoutLMConfig

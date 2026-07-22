@@ -849,6 +849,56 @@ class TestResolveShape:
             )
 
 
+class TestGenerateRandomInputs:
+    """Generated build-config ranges must reach default perf inputs."""
+
+    @pytest.mark.parametrize(
+        "value_range",
+        [
+            [0, 1],
+            [3, 7],
+        ],
+    )
+    def test_integer_ranges_remain_high_exclusive(self, value_range: list[int]) -> None:
+        import numpy as np
+
+        from winml.modelkit.commands.perf import generate_random_inputs
+
+        io_config = {
+            "input_names": ["tokens"],
+            "input_shapes": [[1, 32]],
+            "input_types": ["int32"],
+            "input_value_ranges": {"tokens": value_range},
+        }
+
+        with patch("numpy.random.randint", wraps=np.random.randint) as randint:
+            values = generate_random_inputs(io_config)["tokens"]
+
+        assert randint.call_args.args[:2] == tuple(value_range)
+        assert np.all(values >= value_range[0])
+        assert np.all(values < value_range[1])
+
+    def test_float_range_and_unspecified_defaults_are_preserved(self) -> None:
+        import numpy as np
+
+        from winml.modelkit.commands.perf import generate_random_inputs
+
+        io_config = {
+            "input_names": ["ranged", "default_int", "default_float"],
+            "input_shapes": [[1, 1024], [1, 1024], [1, 1024]],
+            "input_types": ["float32", "int64", "float32"],
+            "input_value_ranges": {"ranged": [-2.0, -1.0]},
+        }
+
+        inputs = generate_random_inputs(io_config)
+
+        assert np.all(inputs["ranged"] >= -2.0)
+        assert np.all(inputs["ranged"] < -1.0)
+        assert set(np.unique(inputs["default_int"])) == {0, 1}
+        assert np.all(inputs["default_float"] >= 0.0)
+        assert np.all(inputs["default_float"] < 1.0)
+
+
 class TestEffectiveBatchSize:
     """Throughput must scale by the batch the session actually ran.
 
