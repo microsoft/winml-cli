@@ -7,11 +7,12 @@
 """HTP (Hierarchy-preserving Tags Protocol) Exporter.
 
 This exporter preserves the hierarchical structure of HuggingFace models
-when converting to ONNX format by tracing module execution and tagging
-ONNX nodes with their source module information.
+when converting to ONNX format. TorchDynamo recovers module context from
+ONNX node metadata; the legacy TorchScript path traces module execution.
+Both paths tag ONNX nodes with their source module information.
 
 Key Features:
-- Direct module context capture during execution
+- Source-aware hierarchy recovery for both ONNX exporters
 - Precise hierarchy tag generation
 - Comprehensive metadata export
 - Optional detailed reporting

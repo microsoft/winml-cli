@@ -484,7 +484,7 @@
           "minimum": 0
         },
         "traced_modules": {
-          "description": "Number of modules traced during execution",
+          "description": "Number of modules present in the recovered or traced hierarchy",
           "type": "integer",
           "minimum": 0
         },

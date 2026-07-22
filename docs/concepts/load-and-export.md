@@ -31,7 +31,9 @@ During export the HTP (Hierarchy-preserving Tags Protocol) exporter attaches two
 
 #### How tags are built
 
-The module path attached to each node is obtained differently depending on the exporter. Under the default TorchDynamo exporter, dynamo records originating-module information as ONNX metadata, and the exporter reconstructs the hierarchy directly from that metadata after export — no forward hooks are involved. Under `--no-dynamo`, the TorchScript path instead registers PyTorch forward hooks on each module: when a module executes, a pre-hook pushes its class name onto a tag stack and the post-hook pops it. Either way the result is hierarchical paths that mirror the PyTorch module tree:
+The module path attached to each node is obtained differently depending on the exporter. Under the default TorchDynamo exporter, dynamo records originating-module information as ONNX metadata, and the exporter reconstructs the hierarchy directly from that metadata after export — no forward hooks are involved. Under `--no-dynamo`, the TorchScript path instead registers PyTorch forward hooks on each module: when a module executes, a pre-hook pushes its class name onto a tag stack and the post-hook pops it. Either way the result is hierarchical paths that mirror the PyTorch module tree.
+
+The hook flow below applies only to the `--no-dynamo` TorchScript path:
 
 ```mermaid
 flowchart LR
