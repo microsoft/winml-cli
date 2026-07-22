@@ -55,13 +55,15 @@
   },
   "optim": {},
   "quant": {
-    "mode": "qdq",
+    "mode": "fp16",
     "samples": 10,
     "calibration_method": "minmax",
     "weight_type": "uint8",
-    "activation_type": "uint16",
+    "activation_type": "uint8",
     "per_channel": false,
     "symmetric": false,
+    "weight_symmetric": null,
+    "activation_symmetric": null,
     "save_calibration": false,
     "distribution": "uniform",
     "seed": null,
@@ -69,8 +71,8 @@
     "calibration_save_path": null,
     "op_types_to_quantize": null,
     "nodes_to_exclude": null,
-    "task": "text-classification",
-    "model_id": "daekeun-ml/koelectra-small-v3-nsmc"
+    "fp16_keep_io_types": true,
+    "fp16_op_block_list": null
   },
   "compile": null,
   "loader": {
@@ -81,11 +83,18 @@
   "eval": {
     "task": "text-classification",
     "dataset": {
-      "path": "nsmc",
+      "path": "e9t/nsmc",
       "split": "test",
-      "samples": 1000,
+      "samples": 100,
+      "shuffle": false,
+      "streaming": true,
+      "revision": "153263700c285ac0997b3e2a2d80b826aaf672d6",
       "columns_mapping": {
         "input_column": "document"
+      },
+      "label_mapping": {
+        "negative": 0,
+        "positive": 1
       }
     }
   }
