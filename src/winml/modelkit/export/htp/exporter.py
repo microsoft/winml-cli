@@ -315,15 +315,18 @@ class HTPExporter:
             )
             # Output names: dynamo exposes them authoritatively on the ONNX graph;
             # the TorchScript path derives them from the traced outputs.
+            output_names: list[str]
             if self._use_dynamo_hierarchy:
                 output_names = [output.name for output in onnx_model.graph.output]
             else:
                 traced_outputs = (
                     self._hierarchy_builder.get_outputs() if self._hierarchy_builder else None
                 )
+                # infer_output_names returns list[str] | None; normalize to a list
+                # so output_names is always list[str] (keeps mypy happy at merge).
                 output_names = (
-                    infer_output_names(traced_outputs) if traced_outputs is not None else []
-                )
+                    infer_output_names(traced_outputs) if traced_outputs is not None else None
+                ) or []
             # Report the opset the exporter actually produced, not the requested
             # one. torch's dynamo exporter targets a minimum opset of 18 and does
             # not always down-convert to a lower requested value (e.g. ResNet stays
