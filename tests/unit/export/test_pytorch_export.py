@@ -122,6 +122,21 @@ class TestInputTensorSpecToTensor:
         assert t.dtype == torch.int64
         assert (t == 1).all()
 
+    def test_bbox_tensor_generates_ordered_coordinates_within_range(self) -> None:
+        spec = InputTensorSpec(
+            name="bbox",
+            dtype="int32",
+            shape=(2, 128, 4),
+            value_range=(0, 1000),
+        )
+        t = spec.to_tensor()
+        assert t.dtype == torch.int32
+        assert t.shape == (2, 128, 4)
+        assert int(t.min()) >= 0
+        assert int(t.max()) < 1000
+        assert torch.all(t[:, :, 2] >= t[:, :, 0])
+        assert torch.all(t[:, :, 3] >= t[:, :, 1])
+
     def test_no_dtype_defaults_float(self) -> None:
         spec = InputTensorSpec(name="x", shape=(1, 10))
         t = spec.to_tensor()
