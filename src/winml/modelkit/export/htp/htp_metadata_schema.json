@@ -113,7 +113,7 @@
           "type": "string"
         },
         "execution_order": {
-          "description": "Order of execution during tracing",
+          "description": "Order the module was first encountered (execution order for trace, discovery order in the exported graph for onnx_metadata)",
           "title": "Execution Order",
           "type": "integer",
           "minimum": 0

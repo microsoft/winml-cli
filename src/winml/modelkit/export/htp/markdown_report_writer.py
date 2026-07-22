@@ -427,7 +427,12 @@ class MarkdownReportWriter(StepAwareWriter):
         hierarchy = data.hierarchy.hierarchy
 
         # Module table with reordered columns
-        self.doc.add_heading("Module List (Sorted by Execution Order)", level=3)
+        order_label = (
+            "Discovery Order"
+            if data.hierarchy.source == HIERARCHY_SOURCE_ONNX_METADATA
+            else "Execution Order"
+        )
+        self.doc.add_heading(f"Module List (Sorted by {order_label})", level=3)
 
         # Count direct and total nodes for each module if available
         direct_counts: dict[str, int] = {}
@@ -437,10 +442,10 @@ class MarkdownReportWriter(StepAwareWriter):
                 data.node_tagging.tagged_nodes
             )
 
-        headers = ["Execution Order", "Class Name", "Nodes", "Tag", "Scope"]
+        headers = [order_label, "Class Name", "Nodes", "Tag", "Scope"]
         rows = []
 
-        # Sort by execution order
+        # Sort by the source-specific encounter order
         sorted_items = sorted(
             hierarchy.items(),
             key=lambda x: (

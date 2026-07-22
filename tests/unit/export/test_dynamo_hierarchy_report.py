@@ -169,6 +169,18 @@ class TestHierarchySourceWording:
         assert "Total execution steps" in out
         assert "42" in out
 
+    def test_dynamo_module_list_uses_discovery_order(self) -> None:
+        writer = MarkdownReportWriter("unused.md")
+        writer._write_module_hierarchy_section(
+            ExportData(
+                hierarchy=_hierarchy_data(HIERARCHY_SOURCE_ONNX_METADATA, None),
+            )
+        )
+
+        out = str(writer.doc)
+        assert "Discovery Order" in out
+        assert "Execution Order" not in out
+
     def test_metadata_records_dynamo_source_without_fake_step_count(self) -> None:
         writer = MetadataWriter("unused.json")
         writer.write(
