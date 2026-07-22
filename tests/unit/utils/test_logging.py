@@ -8,19 +8,20 @@ import logging
 
 import pytest
 
-from winml.modelkit.utils.logging import configure_logging
+from winml.modelkit.utils.logging import _NOISY_LIBRARY_LOGGERS, configure_logging
 
 
 @pytest.fixture(autouse=True)
 def _restore_logger_levels():
     """configure_logging mutates global logger state (root + the noisy library loggers);
-    restore both after each test so verbosity changes don't leak across tests."""
-    root = logging.getLogger()
-    optimum = logging.getLogger("optimum")
-    root_before, optimum_before = root.level, optimum.level
+    restore all of them after each test so verbosity changes don't leak across tests."""
+    saved = [(logging.getLogger(), logging.getLogger().level)]
+    for name in _NOISY_LIBRARY_LOGGERS:
+        logger = logging.getLogger(name)
+        saved.append((logger, logger.level))
     yield
-    root.setLevel(root_before)
-    optimum.setLevel(optimum_before)
+    for logger, level in saved:
+        logger.setLevel(level)
 
 
 def test_library_loggers_floored_at_error_in_normal_mode():
@@ -54,3 +55,25 @@ def test_optimum_child_logger_gated_by_parent_floor():
 
     configure_logging(verbosity=1)
     assert child.isEnabledFor(logging.WARNING)
+
+
+def test_onnxscript_version_converter_floored_at_error_in_normal_mode():
+    # The onnxscript version-converter fallback WARNING carries a full call stack when
+    # the dynamo exporter cannot down-convert to the requested opset. winml surfaces
+    # its own concise opset warning, so the raw traceback is floored out by default.
+    configure_logging(verbosity=0)
+    assert logging.getLogger("onnxscript.version_converter").level == logging.ERROR
+
+
+@pytest.mark.parametrize("verbosity,expected", [(1, logging.INFO), (2, logging.DEBUG)])
+def test_onnxscript_version_converter_revealed_when_verbose(verbosity, expected):
+    # -v/-vv opts into the detail: the converter logger follows the CLI level so the
+    # call stack becomes visible on demand.
+    logger = logging.getLogger("onnxscript.version_converter")
+
+    configure_logging(verbosity=0)
+    assert not logger.isEnabledFor(logging.WARNING)
+
+    configure_logging(verbosity=verbosity)
+    assert logger.level == expected
+    assert logger.isEnabledFor(logging.WARNING)
