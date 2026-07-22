@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import ast
 from collections import defaultdict
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 
 if TYPE_CHECKING:
@@ -377,30 +377,49 @@ class DynamoMetadataTagger:
         """
         return fq_class.rsplit(".", 1)[-1] if fq_class else ""
 
-    def _tag_from_metadata(self, class_hierarchy: list[str], name_scopes: list[str]) -> str | None:
-        """Build a ``/Root/Child.N/Leaf`` tag from aligned dynamo metadata lists.
+    @staticmethod
+    def _segment(short_class: str, scope: str) -> str:
+        """Build one hierarchy-tag segment from a class name and cumulative scope.
 
-        The last element of each list is the node's own op target / node name
-        (not a module level) and is dropped. For every remaining level the
-        class supplies the segment name; when the cumulative scope's final
-        component is a pure index (a ``ModuleList``/``Sequential`` child) it is
-        folded in as ``Class.N`` to mirror the TorchScript tagger's indexed
-        module tags.
+        The scope's final path component is the module's local attribute name
+        (e.g. ``query``) or its ``ModuleList``/``Sequential`` index (e.g. ``0``).
+        It is appended as ``Class.local`` so same-class siblings stay distinct:
+        an attention block's ``query``/``key``/``value`` (all ``Linear``) become
+        ``Linear.query``/``Linear.key``/``Linear.value`` and indexed children
+        become ``Class.N``. The root level has an empty scope and stays the bare
+        class name.
+        """
+        local = scope.rsplit(".", 1)[-1] if scope else ""
+        return f"{short_class}.{local}" if local else short_class
+
+    def _module_segments(
+        self, class_hierarchy: list[str], name_scopes: list[str]
+    ) -> list[tuple[str, str, str]]:
+        """Yield ``(scope, short_class, segment)`` for each module level.
+
+        The last element of each aligned list is the node's own op target / node
+        name (not a module level) and is dropped. Levels whose class name is
+        empty are skipped so a malformed entry never emits a blank segment.
         """
         classes = class_hierarchy[:-1]
         scopes = name_scopes[:-1]
 
-        segments: list[str] = []
+        levels: list[tuple[str, str, str]] = []
         for cls, scope in zip(classes, scopes, strict=False):
             short = self._short_class(cls)
             if not short:
                 continue
-            local = scope.rsplit(".", 1)[-1] if scope else ""
-            if local.isdigit():
-                segments.append(f"{short}.{local}")
-            else:
-                segments.append(short)
+            levels.append((scope, short, self._segment(short, scope)))
+        return levels
 
+    def _tag_from_metadata(self, class_hierarchy: list[str], name_scopes: list[str]) -> str | None:
+        """Build a ``/Root/Child.N/Leaf`` tag from aligned dynamo metadata lists.
+
+        Every module level contributes a :meth:`_segment`, so both indexed
+        (``Blk.0``) and named (``Linear.query``) modules stay uniquely
+        addressable. Returns ``None`` when no module level survives.
+        """
+        segments = [seg for _, _, seg in self._module_segments(class_hierarchy, name_scopes)]
         if not segments:
             return None
         return "/" + "/".join(segments)
@@ -472,3 +491,44 @@ class DynamoMetadataTagger:
             "operation_matches": 0,
             "root_fallbacks": root_fallbacks,
         }
+
+    def build_module_hierarchy(self, onnx_model: onnx.ModelProto) -> dict[str, dict[str, Any]]:
+        """Reconstruct the module hierarchy from dynamo node metadata.
+
+        The dynamo exporter does not run the TorchScript trace that normally
+        feeds the export monitor's module tree, so this rebuilds the same flat
+        ``{scope_path -> module info}`` mapping directly from the per-node
+        ``name_scopes``/``class_hierarchy`` metadata. The result matches the
+        shape :class:`TracingHierarchyBuilder` produces, so the shared
+        report/console/metadata writers render the dynamo module tree
+        identically.
+
+        The root module is keyed by ``""``; every other module is keyed by its
+        cumulative dotted scope path (e.g. ``"blocks.0"``,
+        ``"blocks.0.attention.query"``). Each value carries the module's short
+        class name, its full hierarchy tag, and first-seen execution order.
+        """
+        self.model_root_tag = self._extract_model_root_tag(onnx_model)
+
+        hierarchy: dict[str, dict[str, Any]] = {}
+        order = 0
+        for node in onnx_model.graph.node:
+            metadata = self._node_metadata(node)
+            classes = self._parse_list(metadata.get(self.CLASS_HIERARCHY_KEY))
+            scopes = self._parse_list(metadata.get(self.NAME_SCOPES_KEY))
+            if not classes or not scopes:
+                continue
+
+            segments: list[str] = []
+            for scope, short, segment in self._module_segments(classes, scopes):
+                segments.append(segment)
+                if scope in hierarchy:
+                    continue
+                hierarchy[scope] = {
+                    "class_name": short,
+                    "traced_tag": "/" + "/".join(segments),
+                    "execution_order": order,
+                }
+                order += 1
+
+        return hierarchy

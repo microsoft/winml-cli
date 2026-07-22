@@ -103,10 +103,37 @@ class TestDynamoMetadataTagger:
         model = _make_model(_resnet_like_nodes())
         tags = DynamoMetadataTagger().tag_all_nodes(model)
 
-        # Digit scope component ("blocks.0") folds into "Blk.0"; named module
-        # ("blocks.0.lin" -> Linear) uses the class short-name only.
-        assert tags["node_gemm"] == "/Net/Blk.0/Linear"
-        assert tags["node_relu"] == "/Net/Blk.0/ReLU"
+        # Indexed scope component ("blocks.0") folds into "Blk.0"; named modules
+        # ("blocks.0.lin" -> Linear, "blocks.0.act" -> ReLU) fold their local
+        # attribute name in the same way so same-class siblings stay distinct.
+        assert tags["node_gemm"] == "/Net/Blk.0/Linear.lin"
+        assert tags["node_relu"] == "/Net/Blk.0/ReLU.act"
+
+    def test_same_class_named_siblings_stay_distinct(self) -> None:
+        # Attention query/key/value are all torch.nn.Linear; without folding the
+        # local attribute name they would collapse to a single "/.../Linear" tag
+        # and could no longer be benchmarked or scoped independently.
+        siblings = ("query", "key", "value")
+        nodes = [
+            _make_node(
+                "MatMul",
+                f"node_{name}",
+                name_scopes=["", "attn", f"attn.{name}", "linear"],
+                class_hierarchy=[
+                    "pkg.Net",
+                    "pkg.Attention",
+                    "torch.nn.modules.linear.Linear",
+                    "aten.linear.default",
+                ],
+            )
+            for name in siblings
+        ]
+        tags = DynamoMetadataTagger().tag_all_nodes(_make_model(nodes))
+
+        assert tags["node_query"] == "/Net/Attention.attn/Linear.query"
+        assert tags["node_key"] == "/Net/Attention.attn/Linear.key"
+        assert tags["node_value"] == "/Net/Attention.attn/Linear.value"
+        assert len({tags["node_query"], tags["node_key"], tags["node_value"]}) == 3
 
     def test_model_root_tag_from_first_class(self) -> None:
         tagger = DynamoMetadataTagger()
@@ -182,7 +209,7 @@ class TestDynamoMetadataTagger:
         # Key mirrors exporter convention: "<op_type>_<id>".
         (only_key,) = tags.keys()
         assert only_key.startswith("Gemm_")
-        assert tags[only_key] == "/Net/Blk.0/Linear"
+        assert tags[only_key] == "/Net/Blk.0/Linear.lin"
 
     def test_get_tagging_statistics(self) -> None:
         nodes = _resnet_like_nodes()
@@ -198,3 +225,77 @@ class TestDynamoMetadataTagger:
         # Keys required by the shared console/report/metadata writers exist.
         for key in ("root_nodes", "parent_matches", "operation_matches"):
             assert key in stats
+
+
+def _attention_nodes() -> list[NodeProto]:
+    """Query/key/value nodes for one attention block (all torch.nn.Linear)."""
+    return [
+        _make_node(
+            "MatMul",
+            f"node_{name}",
+            name_scopes=["", "blocks.0", "blocks.0.attn", f"blocks.0.attn.{name}", "linear"],
+            class_hierarchy=[
+                "pkg.Net",
+                "pkg.Blk",
+                "pkg.Attention",
+                "torch.nn.modules.linear.Linear",
+                "aten.linear.default",
+            ],
+        )
+        for name in ("query", "key", "value")
+    ]
+
+
+class TestBuildModuleHierarchy:
+    """Reconstruction of the flat module hierarchy from dynamo node metadata."""
+
+    def test_root_module_keyed_by_empty_string(self) -> None:
+        hierarchy = DynamoMetadataTagger().build_module_hierarchy(_make_model(_resnet_like_nodes()))
+        assert "" in hierarchy
+        assert hierarchy[""]["class_name"] == "Net"
+        assert hierarchy[""]["traced_tag"] == "/Net"
+
+    def test_cumulative_scope_paths_and_tags(self) -> None:
+        hierarchy = DynamoMetadataTagger().build_module_hierarchy(_make_model(_resnet_like_nodes()))
+        # Each module level is keyed by its cumulative dotted scope path with the
+        # matching class name and full hierarchy tag.
+        assert hierarchy["blocks.0"]["class_name"] == "Blk"
+        assert hierarchy["blocks.0"]["traced_tag"] == "/Net/Blk.0"
+        assert hierarchy["blocks.0.lin"]["class_name"] == "Linear"
+        assert hierarchy["blocks.0.lin"]["traced_tag"] == "/Net/Blk.0/Linear.lin"
+        assert hierarchy["blocks.0.act"]["traced_tag"] == "/Net/Blk.0/ReLU.act"
+
+    def test_same_class_siblings_get_distinct_entries(self) -> None:
+        hierarchy = DynamoMetadataTagger().build_module_hierarchy(_make_model(_attention_nodes()))
+        for name in ("query", "key", "value"):
+            key = f"blocks.0.attn.{name}"
+            assert hierarchy[key]["class_name"] == "Linear"
+            assert hierarchy[key]["traced_tag"] == f"/Net/Blk.0/Attention.attn/Linear.{name}"
+        # The shared attention parent is recorded once.
+        assert hierarchy["blocks.0.attn"]["class_name"] == "Attention"
+
+    def test_execution_order_is_unique_per_module(self) -> None:
+        hierarchy = DynamoMetadataTagger().build_module_hierarchy(_make_model(_attention_nodes()))
+        orders = [info["execution_order"] for info in hierarchy.values()]
+        assert all(isinstance(o, int) for o in orders)
+        assert len(orders) == len(set(orders))
+
+    def test_nodes_without_metadata_are_skipped(self) -> None:
+        nodes = _resnet_like_nodes()
+        nodes.append(_make_node("Add", "node_bare"))  # no metadata
+        nodes.append(
+            _make_node(
+                "Add",
+                "node_bad",
+                raw_name_scopes="not-a-list",
+                raw_class_hierarchy="[unclosed",
+            )
+        )
+        hierarchy = DynamoMetadataTagger().build_module_hierarchy(_make_model(nodes))
+        # Only the real module scopes are present; malformed nodes contribute
+        # nothing and do not raise.
+        assert set(hierarchy) == {"", "blocks.0", "blocks.0.lin", "blocks.0.act"}
+
+    def test_empty_graph_returns_empty_hierarchy(self) -> None:
+        hierarchy = DynamoMetadataTagger().build_module_hierarchy(_make_model([]))
+        assert hierarchy == {}
