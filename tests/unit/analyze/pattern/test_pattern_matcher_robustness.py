@@ -13,6 +13,7 @@ from onnx.defs import get_schema
 
 from winml.modelkit.onnx import ONNXDomain
 from winml.modelkit.pattern import (
+    LayerNormalizationPowPattern,
     Pattern,
     PatternMatcher,
     PatternSchema,
@@ -185,3 +186,38 @@ class TestPatternMatcherLookupInvariants:
         results = matcher.match_skeleton()
         # The pattern can't match because the edge is missing
         assert len(results) == 0
+
+
+class TestPatternMatcherIncompleteInputMetadata:
+    """Incomplete shape inference must reject a match, not abort analysis."""
+
+    def test_layernorm_without_input_shape_skips_match(self) -> None:
+        x = helper.make_tensor_value_info("X", TensorProto.FLOAT, None)
+        y = helper.make_tensor_value_info("Y", TensorProto.FLOAT, None)
+        scale = numpy_helper.from_array(np.ones([4], dtype=np.float32), name="Scale")
+        bias = numpy_helper.from_array(np.zeros([4], dtype=np.float32), name="B")
+        exponent = numpy_helper.from_array(np.array(2.0, dtype=np.float32), name="Exponent")
+        epsilon = numpy_helper.from_array(np.array(1e-5, dtype=np.float32), name="Epsilon")
+        nodes = [
+            helper.make_node("ReduceMean", ["X"], ["mean"], axes=[-1], name="mean"),
+            helper.make_node("Sub", ["X", "mean"], ["centered"], name="sub"),
+            helper.make_node("Pow", ["centered", "Exponent"], ["squared"], name="pow"),
+            helper.make_node("ReduceMean", ["squared"], ["variance"], axes=[-1], name="variance"),
+            helper.make_node("Add", ["variance", "Epsilon"], ["stabilized"], name="epsilon"),
+            helper.make_node("Sqrt", ["stabilized"], ["stddev"], name="sqrt"),
+            helper.make_node("Div", ["centered", "stddev"], ["normalized"], name="div"),
+            helper.make_node("Mul", ["normalized", "Scale"], ["scaled"], name="scale"),
+            helper.make_node("Add", ["scaled", "B"], ["Y"], name="bias"),
+        ]
+        graph = helper.make_graph(
+            nodes,
+            "incomplete_layernorm",
+            [x],
+            [y],
+            [scale, bias, exponent, epsilon],
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        matcher = PatternMatcher(model)
+        matcher.register_pattern(LayerNormalizationPowPattern())
+
+        assert matcher.match() == []
