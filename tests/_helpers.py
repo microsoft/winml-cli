@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Shared test helpers for winml CLI invocation.
+"""Shared test helpers for WinML CLI invocation.
 
 Provides ``run_inspect``, a thin wrapper around ``CliRunner.invoke`` used
 by both ``tests/cli/test_inspect_cli.py`` and ``tests/e2e/test_inspect_e2e.py``

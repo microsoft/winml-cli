@@ -402,7 +402,7 @@ def _normalize_table_path(path_like: str | Path) -> str:
     """Normalize table path for debug output.
 
     - Resolve '..' segments when possible.
-    - If the path includes a workspace folder marker (e.g., ModelKit),
+    - If the path includes a workspace folder marker (e.g., winml-cli),
       return a path starting from that marker.
     """
     p = Path(path_like)
@@ -412,7 +412,7 @@ def _normalize_table_path(path_like: str | Path) -> str:
         pass
 
     parts = list(p.parts)
-    for marker in ("ModelKit",):
+    for marker in ("winml-cli",):
         if marker in parts:
             idx = parts.index(marker)
             return "\\".join(parts[idx:])

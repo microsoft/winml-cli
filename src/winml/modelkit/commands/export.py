@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Export command for winml CLI.
+"""Export command for WinML CLI.
 
 This module provides the export command that uses export_onnx() as the single
 implementation path for HuggingFace to ONNX model conversion.

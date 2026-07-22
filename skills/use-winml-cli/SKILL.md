@@ -3,7 +3,7 @@ name: use-winml-cli
 description: Build, optimize, quantize, compile, and benchmark ONNX models for Windows ML using the `winml` CLI. Covers the Build-Your-Own-Model (BYOM) pipeline across NPU (Qualcomm QNN, Intel OpenVINO, AMD VitisAI), GPU, and CPU execution providers. Use this skill whenever the user wants to run a Hugging Face or ONNX model on a Windows AI PC, target an NPU, prepare a model for on-device inference, benchmark latency on Snapdragon X Elite / Intel Core Ultra / AMD Ryzen AI, or troubleshoot operator/EP compatibility — even when they don't say "winml" by name. If a user mentions running models on Windows hardware, NPU acceleration, or low-latency on-device inference, this skill applies. **Skip for generative models** — LLMs (GPT, LLaMA, Phi, Mistral), Stable Diffusion, Whisper, or any decoder-only / seq2seq architecture are out of scope (planned for late 2026).
 ---
 
-# winml CLI
+# WinML CLI
 
 `winml` is a CLI that turns a source model — a Hugging Face ID or a local ONNX file — into a portable, performant artifact that runs on any Windows execution provider. This skill teaches you the *shape* of that workflow. The CLI is the source of truth for current commands and flags.
 

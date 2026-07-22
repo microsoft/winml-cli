@@ -97,7 +97,7 @@ def _count_onnx_nodes(path: Path) -> int | None:
 
 
 def _run_cli(args: list[str]) -> tuple[int, str]:
-    """Run a winml CLI command via subprocess. Returns (rc, combined_output)."""
+    """Run a WinML CLI command via subprocess. Returns (rc, combined_output)."""
     result = subprocess.run(  # noqa: S603
         [sys.executable, "-m", "winml.modelkit.cli", *args],
         capture_output=True,
@@ -138,7 +138,7 @@ def _normalize_ep(ep: str) -> str:
 
 
 def _resolve_ep_arg(ep: str) -> str:
-    """Resolve full ORT EP name to the short form accepted by winml CLI --ep."""
+    """Resolve full ORT EP name to the short form accepted by WinML CLI --ep."""
     try:
         return _EP_TO_PERF_ARG[ep]
     except KeyError:

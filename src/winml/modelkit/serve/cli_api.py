@@ -5,7 +5,7 @@
 
 """Phase 0: CLI-as-API FastAPI application.
 
-Wraps every winml CLI command as a REST endpoint using Click's CliRunner.
+Wraps every WinML CLI command as a REST endpoint using Click's CliRunner.
 Each request is stateless — the model loads, runs, and unloads within a
 single CliRunner.invoke() call.
 
@@ -225,7 +225,7 @@ def _extract_json_from_stdout(stdout: str) -> dict[str, Any] | list[Any] | None:
 
 
 def _invoke(command: str, args: dict[str, Any]) -> CliResponse:
-    """Invoke a winml CLI command via CliRunner and return a CliResponse.
+    """Invoke a WinML CLI command via CliRunner and return a CliResponse.
 
     Applies the per-command JSON extraction strategy to populate ``result``.
     """
@@ -336,7 +336,7 @@ async def health() -> HealthResponse:
     "/v1/cli/{command}",
     response_model=CliResponse,
     tags=["CLI"],
-    summary="Invoke a winml CLI command",
+    summary="Invoke a WinML CLI command",
     responses={
         200: {"description": "Command invoked (check exit_code for success/failure)"},
         404: {"description": "Unknown command name"},

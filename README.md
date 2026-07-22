@@ -6,7 +6,7 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 [![Model Accuracy Report](https://img.shields.io/badge/docs-model%20accuracy%20report-blue)](https://microsoft.github.io/winml-cli/latest/reports/model_accuracy_report.html)
 
-**Windows ML CLI** is a command line tool for building **portable, performant, and high-quality** AI models for Windows ML. It takes you from a source model — whether from Hugging Face or your own pipeline — to a hardware-optimized artifact in a reproducible workflow.
+**WinML CLI** is a command line tool for building **portable, performant, and high-quality** AI models for Windows ML. It takes you from a source model — whether from Hugging Face or your own pipeline — to a hardware-optimized artifact in a reproducible workflow.
 
 Purpose-built for Windows hardware diversity, the CLI handles conversion, graph optimization, and compilation across AMD, Intel, NVIDIA, and Qualcomm targets. The CLI fits naturally into CI/CD pipelines so teams can validate and ship models easily.
 
@@ -97,7 +97,7 @@ uv run winml inspect -m microsoft/resnet-50
 uv run winml build -m microsoft/resnet-50 -o resnet_out/ --no-quant
 ```
 
-`winml build` runs all pipeline steps in sequence — export, optimize, quantize. You can start a model build without a config file, or provide one to configure each step in the sequence (see [`winml config`](https://microsoft.github.io/winml-cli/latest/commands/config/) to customize). All intermediate artifacts land in `resnet_out/`. For more details, see [Output Layout - Windows ML CLI](https://microsoft.github.io/winml-cli/latest/reference/output-layout/#file-categories).
+`winml build` runs all pipeline steps in sequence — export, optimize, quantize. You can start a model build without a config file, or provide one to configure each step in the sequence (see [`winml config`](https://microsoft.github.io/winml-cli/latest/commands/config/) to customize). All intermediate artifacts land in `resnet_out/`. For more details, see [Output Layout - WinML CLI](https://microsoft.github.io/winml-cli/latest/reference/output-layout/#file-categories).
 
 ### Benchmark the model
 
@@ -111,8 +111,8 @@ uv run winml perf -m resnet_out/model.onnx --device auto --iterations 50 --monit
 
 ## 🔀 Try Other Ways
 
-- **Use with AI Agent** — See details at [Use with AI Agent - Windows ML CLI](https://microsoft.github.io/winml-cli/latest/getting-started/agent-skill/).
-- **UI Quickstart** — See also [UI Quickstart - Windows ML CLI](https://microsoft.github.io/winml-cli/latest/getting-started/ui-quickstart/).
+- **Use with AI Agent** — See details at [Use with AI Agent - WinML CLI](https://microsoft.github.io/winml-cli/latest/getting-started/agent-skill/).
+- **UI Quickstart** — See also [UI Quickstart - WinML CLI](https://microsoft.github.io/winml-cli/latest/getting-started/ui-quickstart/).
 
 ---
 
