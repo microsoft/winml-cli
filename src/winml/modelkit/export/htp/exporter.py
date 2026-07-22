@@ -303,8 +303,7 @@ class HTPExporter:
             # No forward trace runs on this path, so execution_steps stays unset
             # (None) rather than reporting the module count as a fake step total.
             if self._use_dynamo_hierarchy:
-                assert isinstance(self._node_tagger, DynamoMetadataTagger)
-                self._hierarchy_data = self._node_tagger.build_module_hierarchy(onnx_model)
+                self._hierarchy_data = self._recover_dynamo_hierarchy(onnx_model)
                 monitor.update(
                     ExportStep.HIERARCHY,
                     hierarchy=self._hierarchy_data,
@@ -674,6 +673,18 @@ class HTPExporter:
             self._node_tagger = create_node_tagger_from_hierarchy(
                 self._hierarchy_data, enable_operation_fallback=enable_operation_fallback
             )
+
+    def _recover_dynamo_hierarchy(self, onnx_model: onnx.ModelProto) -> dict[str, dict[str, Any]]:
+        """Recover module hierarchy from dynamo metadata and surface total degradation."""
+        assert isinstance(self._node_tagger, DynamoMetadataTagger)
+        hierarchy = self._node_tagger.build_module_hierarchy(onnx_model)
+        if onnx_model.graph.node and not hierarchy:
+            logger.warning(
+                "Dynamo export produced no usable module hierarchy metadata; "
+                "hierarchy tags will use the model-root fallback. "
+                "Pass --no-dynamo to build hierarchy from a TorchScript execution trace."
+            )
+        return hierarchy
 
     def _apply_hierarchy_tags(self, onnx_model: onnx.ModelProto) -> None:
         """Tag nodes internally."""

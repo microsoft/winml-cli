@@ -18,17 +18,18 @@ writers previously had:
 from __future__ import annotations
 
 import io
+import logging
 
 from onnx import ModelProto, NodeProto, StringStringEntryProto, helper
 from rich.console import Console
 
 from winml.modelkit.core.hierarchy_utils import find_immediate_children
 from winml.modelkit.core.onnx_node_tagger import DynamoMetadataTagger
+from winml.modelkit.export.htp import HTPExporter, HTPExportMonitor
 from winml.modelkit.export.htp.base_writer import ExportData, ExportStep
 from winml.modelkit.export.htp.console_writer import ConsoleWriter
 from winml.modelkit.export.htp.markdown_report_writer import MarkdownReportWriter
 from winml.modelkit.export.htp.metadata_writer import MetadataWriter
-from winml.modelkit.export.htp.monitor import HTPExportMonitor
 from winml.modelkit.export.htp.step_data import (
     HIERARCHY_SOURCE_ONNX_METADATA,
     HIERARCHY_SOURCE_TRACE,
@@ -190,6 +191,32 @@ class TestHierarchySourceWording:
         assert info.source == HIERARCHY_SOURCE_TRACE
         assert info.builder == "TracingHierarchyBuilder"
         assert info.execution_steps == 7
+
+
+class TestDynamoHierarchyRecoveryWarning:
+    """A completely missing dynamo hierarchy is visible but non-fatal."""
+
+    def test_warns_when_nonempty_graph_has_no_usable_metadata(self, caplog) -> None:
+        exporter = HTPExporter()
+        exporter._node_tagger = DynamoMetadataTagger()
+        model = _model([helper.make_node("Identity", ["x"], ["y"], name="bare")])
+
+        with caplog.at_level(logging.WARNING):
+            hierarchy = exporter._recover_dynamo_hierarchy(model)
+
+        assert hierarchy == {}
+        assert "no usable module hierarchy metadata" in caplog.text
+        assert "--no-dynamo" in caplog.text
+
+    def test_does_not_warn_when_hierarchy_is_recovered(self, caplog) -> None:
+        exporter = HTPExporter()
+        exporter._node_tagger = DynamoMetadataTagger()
+
+        with caplog.at_level(logging.WARNING):
+            hierarchy = exporter._recover_dynamo_hierarchy(_attention_model())
+
+        assert hierarchy
+        assert "no usable module hierarchy metadata" not in caplog.text
 
 
 def _summary_data(source: str) -> ExportData:
