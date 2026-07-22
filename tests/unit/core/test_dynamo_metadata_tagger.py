@@ -19,8 +19,7 @@ assert the tagger reproduces the ``/Root/Child.N/Leaf`` hierarchy-tag contract.
 
 from __future__ import annotations
 
-import onnx
-from onnx import helper
+from onnx import ModelProto, NodeProto, StringStringEntryProto, helper
 
 from winml.modelkit.core.onnx_node_tagger import DynamoMetadataTagger
 
@@ -37,7 +36,7 @@ def _make_node(
     class_hierarchy: list[str] | None = None,
     raw_name_scopes: str | None = None,
     raw_class_hierarchy: str | None = None,
-) -> onnx.NodeProto:
+) -> NodeProto:
     """Build an ONNX node with dynamo-style metadata_props.
 
     ``name_scopes``/``class_hierarchy`` are serialized with ``repr`` exactly as
@@ -46,30 +45,30 @@ def _make_node(
     node = helper.make_node(op_type, inputs=["x"], outputs=["y"], name=name)
     if raw_name_scopes is not None:
         node.metadata_props.append(
-            onnx.StringStringEntryProto(key=NAME_SCOPES_KEY, value=raw_name_scopes)
+            StringStringEntryProto(key=NAME_SCOPES_KEY, value=raw_name_scopes)
         )
     elif name_scopes is not None:
         node.metadata_props.append(
-            onnx.StringStringEntryProto(key=NAME_SCOPES_KEY, value=repr(name_scopes))
+            StringStringEntryProto(key=NAME_SCOPES_KEY, value=repr(name_scopes))
         )
     if raw_class_hierarchy is not None:
         node.metadata_props.append(
-            onnx.StringStringEntryProto(key=CLASS_HIERARCHY_KEY, value=raw_class_hierarchy)
+            StringStringEntryProto(key=CLASS_HIERARCHY_KEY, value=raw_class_hierarchy)
         )
     elif class_hierarchy is not None:
         node.metadata_props.append(
-            onnx.StringStringEntryProto(key=CLASS_HIERARCHY_KEY, value=repr(class_hierarchy))
+            StringStringEntryProto(key=CLASS_HIERARCHY_KEY, value=repr(class_hierarchy))
         )
     return node
 
 
-def _make_model(nodes: list[onnx.NodeProto]) -> onnx.ModelProto:
+def _make_model(nodes: list[NodeProto]) -> ModelProto:
     """Wrap nodes in a minimal ModelProto (tagger only iterates graph.node)."""
     graph = helper.make_graph(nodes, "g", inputs=[], outputs=[])
     return helper.make_model(graph)
 
 
-def _resnet_like_nodes() -> list[onnx.NodeProto]:
+def _resnet_like_nodes() -> list[NodeProto]:
     """Two nodes mirroring the empirically verified dynamo output shape."""
     return [
         _make_node(

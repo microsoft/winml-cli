@@ -16,7 +16,7 @@ Some community models host custom Python code in their repositories. The loader 
 
 ## Exporting to ONNX
 
-`winml export` converts the loaded model to ONNX. By default it uses PyTorch's TorchDynamo ONNX exporter (`torch.onnx.export(dynamo=True)`), which records rich per-node module metadata that is used to derive the `winml.hierarchy.*` node tags. Pass `--no-dynamo` to fall back to the legacy TorchScript exporter, which follows actual execution paths, tends to produce compact inference-oriented graphs, and remains the QNN-safe choice for static-shape exports.
+`winml export` converts the loaded model to ONNX. By default it uses PyTorch's TorchDynamo ONNX exporter (`torch.onnx.export(dynamo=True)`), which records rich per-node module metadata that is used to derive the `winml.hierarchy.*` node tags. Pass `--no-dynamo` to fall back to the legacy TorchScript exporter, which follows actual execution paths and tends to produce compact inference-oriented graphs. Both exporters default to static shapes; the QNN-relevant difference is that the dynamo exporter defaults to a newer opset and decomposes some ops differently, so `--no-dynamo` remains the validated choice for QNN/NPU hand exports today.
 
 By default the exporter runs an eight-step process that includes hierarchy tracing and tag injection. The result is an ONNX file enriched with structural metadata that powers downstream features such as per-module benchmarking, inspector views, and optimizer scoping.
 

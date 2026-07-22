@@ -119,7 +119,8 @@ def _warn_partial_composite(completed: list[Path]) -> None:
     default=True,
     show_default=True,
     help="Use PyTorch's TorchDynamo ONNX exporter (default). "
-    "Pass --no-dynamo for the legacy TorchScript exporter (QNN-safe).",
+    "Pass --no-dynamo for the legacy TorchScript exporter, the validated "
+    "path for QNN/NPU compilation today.",
 )
 @click.option(
     "--torch-module",
