@@ -52,16 +52,19 @@ uv run python scripts/e2e_eval/build_registry.py --dry-run
 ### `run_eval.py` — Run Evaluation (recipe-driven perf + accuracy)
 
 For each filtered model the runner builds the model, runs `winml perf`, and — when
-perf passes — runs `winml eval`. **Recipes and precision expansion are NPU-only.**
-On NPU, builds prefer an **authored recipe** under
+perf passes — runs `winml eval`. **Recipes drive the build on every device (they
+carry the accuracy eval/dataset config), but quantized precision variants are
+NPU-only.** On NPU, builds prefer an **authored recipe** under
 `examples/recipes/<slug>/<task>_<precision>_config*.json` (built with
 `winml build -c`, once per precision variant that exists, e.g. `fp16` + `w8a16`);
 an NPU model without a recipe falls back to `winml config` and is expanded into
 **two jobs — `w8a8` and `w8a16`** (an explicit per-model `precision` in the
 registry overrides this and builds that single precision instead). On CPU/GPU (and
-`auto`) recipes are ignored entirely and each model builds a single `winml config`
-fallback. The runner writes one `eval_result.json` per `(model, task, precision)`
-containing facts only (perf output + the winml-eval `metrics`/`dataset`).
+`auto`) the runner builds only the **non-quantized** recipe variants (e.g. `fp16`),
+dropping quantized ones, and a model with no applicable recipe variant builds a
+single `winml config` fallback. The runner writes one `eval_result.json` per
+`(model, task, precision)` containing facts only (perf output + the winml-eval
+`metrics`/`dataset`).
 Delta/verdict grading against the PyTorch baseline is done by the report site.
 
 ```bash
@@ -105,7 +108,7 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 | `--registry` | `testsets/models_all.json` | Model registry file |
 | `--hf-model` | — | Single model (overrides registry) |
 | `--output-dir` | `eval_results/{date}` | Output directory |
-| `--recipes-dir` | `examples/recipes` | Authored recipe configs (**NPU only**); one build per precision variant, `winml config` `w8a8`+`w8a16` fallback when an NPU model has none |
+| `--recipes-dir` | `examples/recipes` | Authored recipe configs. NPU builds every precision variant (`winml config` `w8a8`+`w8a16` fallback when a model has none); CPU/GPU build only the non-quantized variants (e.g. `fp16`), else a `winml config` fallback |
 | `--no-recipes` | off | Ignore recipes; build every model via `winml config` (on NPU still expands the `w8a8`+`w8a16` fallback) |
 | `--eval-type` | `perf` | `perf`, `accuracy`, or `both` (perf-gated accuracy) |
 | `--task` | — | Filter by HF task |
@@ -248,10 +251,12 @@ no re-run.
 
 ### Recipe-driven builds & precision variants
 
-**Recipes and multi-precision expansion apply only when the target device is NPU**
-(`--device npu`). On CPU/GPU (and `auto`) recipes are ignored and every model builds
-a single `winml config` fallback (precision by device policy — CPU/GPU omit
-`--precision`).
+**Recipes drive the build on every device, but multi-precision expansion into
+quantized variants applies only when the target device is NPU** (`--device npu`).
+On CPU/GPU (and `auto`) the runner uses recipes for their eval/dataset config but
+builds only the **non-quantized** variants (e.g. `fp16`), dropping quantized ones;
+a model with no applicable recipe variant builds a single `winml config` fallback
+(precision by device policy — CPU/GPU omit `--precision`).
 
 A *recipe* is an authored `winml build` config checked into
 `examples/recipes/<slug>/` (slug = HF id with `/` → `_`), named

@@ -827,7 +827,9 @@ class TestRecipeConfigHelpers:
 
 
 class TestBuildJobs:
-    """``_build_jobs`` is NPU-only for recipe/precision expansion."""
+    """``_build_jobs`` uses recipes on every device but drops quantized variants
+    off-NPU.
+    """
 
     def _make_single_recipe(self, recipes_dir: Path, slug: str, task: str, precisions: list[str]):
         model_dir = recipes_dir / slug
@@ -846,17 +848,30 @@ class TestBuildJobs:
         assert [j.precision for j in jobs] == ["fp16", "w8a16"]
         assert all(j.entry is entry for j in jobs)
 
-    def test_non_npu_ignores_recipe_single_fallback(self, run_eval, tmp_path):
-        # A recipe exists, but non-NPU devices never expand via recipes.
+    def test_non_npu_keeps_only_non_quantized_variants(self, run_eval, tmp_path):
+        # A recipe with fp16 + w8a16: off-NPU keeps fp16 (for its eval config)
+        # and drops the quantized w8a16 variant.
         self._make_single_recipe(
             tmp_path, "microsoft_resnet-50", "image-classification", ["fp16", "w8a16"]
         )
         entry = _entry()
         for device in ("cpu", "gpu", "auto"):
             jobs = run_eval._build_jobs([entry], tmp_path, device)
-            assert len(jobs) == 1
-            assert jobs[0].variant is None
-            assert jobs[0].precision is None
+            assert [j.precision for j in jobs] == ["fp16"]
+            assert jobs[0].variant is not None
+            assert all(j.entry is entry for j in jobs)
+
+    def test_non_npu_recipe_only_quantized_falls_back(self, run_eval, tmp_path):
+        # A recipe with no non-quantized variant leaves nothing to run off-NPU,
+        # so the model builds a single winml-config fallback.
+        self._make_single_recipe(
+            tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"]
+        )
+        entry = _entry()
+        jobs = run_eval._build_jobs([entry], tmp_path, "cpu")
+        assert len(jobs) == 1
+        assert jobs[0].variant is None
+        assert jobs[0].precision is None
 
     def test_npu_no_recipe_expands_to_w8a8_and_w8a16(self, run_eval, tmp_path):
         entry = _entry("some/model", "text-classification")
