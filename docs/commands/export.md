@@ -37,9 +37,12 @@ $ winml export [options]
 
 `winml export` loads the model via Hugging Face `transformers`, then runs the
 eight-step Hierarchy-preserving Tags Protocol (HTP): model preparation, input
-generation, module-hierarchy tracing, TorchScript ONNX export, node-tagger
+generation, module-hierarchy recovery, ONNX export, node-tagger
 creation, per-node tagging, tag injection into ONNX `metadata_props`, and
-optional report generation. The hierarchy metadata allows downstream tools to
+optional report generation. By default the hierarchy is reconstructed from the
+TorchDynamo exporter's per-node module metadata; with `--no-dynamo` it is
+captured by tracing the model's forward pass under the legacy TorchScript
+exporter instead. The hierarchy metadata allows downstream tools to
 reason about operators grouped by their originating module rather than flat
 graph position. When `--no-hierarchy` is specified, hierarchy steps are bypassed
 and a bare ONNX file is written, useful for third-party tools that do not

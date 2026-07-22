@@ -141,12 +141,21 @@
       "type": "object"
     },
     "TracingInfo": {
-      "description": "Tracing execution information",
+      "description": "Hierarchy build information (execution trace or ONNX-metadata recovery)",
       "properties": {
         "builder": {
           "description": "Hierarchy builder used",
           "type": "string",
           "default": "TracingHierarchyBuilder"
+        },
+        "source": {
+          "description": "How the hierarchy was obtained: a forward-execution trace (TorchScript) or reconstruction from ONNX node metadata (dynamo)",
+          "type": "string",
+          "enum": [
+            "trace",
+            "onnx_metadata"
+          ],
+          "default": "trace"
         },
         "modules_traced": {
           "description": "Number of modules traced during execution",
@@ -154,7 +163,7 @@
           "minimum": 0
         },
         "execution_steps": {
-          "description": "Number of execution steps",
+          "description": "Number of execution steps (0 when the hierarchy was recovered from ONNX metadata rather than an execution trace)",
           "type": "integer",
           "minimum": 0
         },

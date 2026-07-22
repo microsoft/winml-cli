@@ -17,12 +17,25 @@ writers previously had:
 
 from __future__ import annotations
 
+import io
+
 from onnx import ModelProto, NodeProto, StringStringEntryProto, helper
+from rich.console import Console
 
 from winml.modelkit.core.hierarchy_utils import find_immediate_children
 from winml.modelkit.core.onnx_node_tagger import DynamoMetadataTagger
+from winml.modelkit.export.htp.base_writer import ExportData, ExportStep
+from winml.modelkit.export.htp.console_writer import ConsoleWriter
+from winml.modelkit.export.htp.markdown_report_writer import MarkdownReportWriter
 from winml.modelkit.export.htp.metadata_writer import MetadataWriter
-from winml.modelkit.export.htp.step_data import ModuleInfo
+from winml.modelkit.export.htp.monitor import HTPExportMonitor
+from winml.modelkit.export.htp.step_data import (
+    HIERARCHY_SOURCE_ONNX_METADATA,
+    HIERARCHY_SOURCE_TRACE,
+    HierarchyData,
+    ModelPrepData,
+    ModuleInfo,
+)
 
 
 NAME_SCOPES_KEY = "pkg.torch.onnx.name_scopes"
@@ -121,3 +134,106 @@ class TestMetadataWriterTree:
         # The compound root child "blocks.0" is present, not orphaned.
         assert "Blk.0" in tree["children"]
         assert tree["children"]["Blk.0"]["scope"] == "blocks.0"
+
+
+def _hierarchy_data(source: str, execution_steps: int | None) -> HierarchyData:
+    return HierarchyData(
+        hierarchy={"": ModuleInfo(class_name="Net", traced_tag="/Net")},
+        execution_steps=execution_steps,
+        source=source,
+    )
+
+
+def _console_output(hierarchy: HierarchyData) -> str:
+    buf = io.StringIO()
+    console = Console(file=buf, width=120, no_color=True)
+    writer = ConsoleWriter(console=console)
+    writer.write(ExportStep.HIERARCHY, ExportData(hierarchy=hierarchy))
+    return buf.getvalue()
+
+
+class TestHierarchySourceWording:
+    """Console/metadata wording must match how the hierarchy was obtained."""
+
+    def test_dynamo_source_uses_reconstruction_wording(self) -> None:
+        out = _console_output(_hierarchy_data(HIERARCHY_SOURCE_ONNX_METADATA, None))
+        assert "Reconstructing module hierarchy from ONNX" in out
+        # No forward trace ran, so no trace/execution-step claims.
+        assert "Tracing module execution" not in out
+        assert "execution steps" not in out.lower()
+
+    def test_trace_source_uses_trace_wording(self) -> None:
+        out = _console_output(_hierarchy_data(HIERARCHY_SOURCE_TRACE, 42))
+        assert "Tracing module execution" in out
+        assert "Total execution steps" in out
+        assert "42" in out
+
+    def test_metadata_records_dynamo_source_without_fake_step_count(self) -> None:
+        writer = MetadataWriter("unused.json")
+        writer.write(
+            ExportStep.HIERARCHY,
+            ExportData(hierarchy=_hierarchy_data(HIERARCHY_SOURCE_ONNX_METADATA, None)),
+        )
+        info = writer.builder._tracing_info
+        assert info.source == HIERARCHY_SOURCE_ONNX_METADATA
+        assert info.builder == "DynamoMetadataTagger"
+        # Module count must not be reported as an execution-step total.
+        assert info.execution_steps == 0
+
+    def test_metadata_records_trace_source_and_steps(self) -> None:
+        writer = MetadataWriter("unused.json")
+        writer.write(
+            ExportStep.HIERARCHY,
+            ExportData(hierarchy=_hierarchy_data(HIERARCHY_SOURCE_TRACE, 7)),
+        )
+        info = writer.builder._tracing_info
+        assert info.source == HIERARCHY_SOURCE_TRACE
+        assert info.builder == "TracingHierarchyBuilder"
+        assert info.execution_steps == 7
+
+
+def _summary_data(source: str) -> ExportData:
+    return ExportData(
+        hierarchy=HierarchyData(
+            hierarchy={"": ModuleInfo(class_name="Net", traced_tag="/Net")},
+            source=source,
+        ),
+        model_prep=ModelPrepData(model_class="Net", total_modules=3, total_parameters=0),
+    )
+
+
+class TestExportSummaryModulesLabel:
+    """The export summary must not claim a trace when modules were recovered."""
+
+    def _monitor_summary(self, source: str) -> str:
+        monitor = HTPExportMonitor("unused.onnx", verbose=True)
+        buf = io.StringIO()
+        monitor.console = Console(file=buf, width=120, no_color=True)
+        monitor.data = _summary_data(source)
+        monitor._print_summary()
+        return buf.getvalue()
+
+    def test_console_summary_dynamo_says_recovered(self) -> None:
+        out = self._monitor_summary(HIERARCHY_SOURCE_ONNX_METADATA)
+        assert "Recovered modules:" in out
+        assert "Traced modules:" not in out
+
+    def test_console_summary_trace_says_traced(self) -> None:
+        out = self._monitor_summary(HIERARCHY_SOURCE_TRACE)
+        assert "Traced modules:" in out
+        assert "Recovered modules:" not in out
+
+    def _markdown_summary(self, source: str) -> str:
+        writer = MarkdownReportWriter("unused.md")
+        writer._write_summary_section(_summary_data(source))
+        return str(writer.doc)
+
+    def test_markdown_summary_dynamo_says_recovered(self) -> None:
+        out = self._markdown_summary(HIERARCHY_SOURCE_ONNX_METADATA)
+        assert "Recovered Modules" in out
+        assert "Traced Modules" not in out
+
+    def test_markdown_summary_trace_says_traced(self) -> None:
+        out = self._markdown_summary(HIERARCHY_SOURCE_TRACE)
+        assert "Traced Modules" in out
+        assert "Recovered Modules" not in out

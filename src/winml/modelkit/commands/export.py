@@ -187,8 +187,10 @@ def export(
     The export process (8 steps):
     1. Model Preparation - Load and configure model
     2. Input Generation - Generate example inputs
-    3. Hierarchy Building - Trace module execution
-    4. ONNX Export - Convert to ONNX format (TorchScript by default)
+    3. Hierarchy Building - Recover the module hierarchy (from the ONNX metadata
+       under dynamo, or a forward-execution trace with --no-dynamo)
+    4. ONNX Export - Convert to ONNX format (TorchDynamo by default; TorchScript
+       with --no-dynamo)
     5. Node Tagger Creation - Create tagger from hierarchy
     6. Node Tagging - Apply hierarchy tags to nodes
     7. Tag Injection - Embed tags in ONNX node metadata_props

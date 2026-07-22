@@ -18,7 +18,7 @@ Some community models host custom Python code in their repositories. The loader 
 
 `winml export` converts the loaded model to ONNX. By default it uses PyTorch's TorchDynamo ONNX exporter (`torch.onnx.export(dynamo=True)`), which records rich per-node module metadata that is used to derive the `winml.hierarchy.*` node tags. Pass `--no-dynamo` to fall back to the legacy TorchScript exporter, which follows actual execution paths and tends to produce compact inference-oriented graphs. Both exporters default to static shapes; the QNN-relevant difference is opset and op decomposition: torch's dynamo op library is built against a minimum opset of 18. When a lower opset is requested (17 by default), dynamo attempts to down-convert to it, which may succeed (the graph is saved at the requested opset) or fail (it stays at opset 18); `winml export` reports the opset actually produced and warns when it differs from the requested value. The TorchScript path always exports at the configured opset (17 by default) and lowers some ops differently (e.g. ResNet's head becomes `ReduceMean` + `Reshape` under dynamo but `GlobalAveragePool` + `Flatten` under TorchScript). Because the opset-17 TorchScript graph is what the QNN/NPU toolchain has been validated against, `--no-dynamo` remains the validated choice for QNN/NPU hand exports today.
 
-By default the exporter runs an eight-step process that includes hierarchy tracing and tag injection. The result is an ONNX file enriched with structural metadata that powers downstream features such as per-module benchmarking, inspector views, and optimizer scoping.
+By default the exporter runs an eight-step process that includes hierarchy recovery and tag injection. The result is an ONNX file enriched with structural metadata that powers downstream features such as per-module benchmarking, inspector views, and optimizer scoping.
 
 ### Hierarchy tagging in detail
 
@@ -31,7 +31,7 @@ During export the HTP (Hierarchy-preserving Tags Protocol) exporter attaches two
 
 #### How tags are built
 
-The exporter registers PyTorch forward hooks on each module. When a module executes, a pre-hook pushes its class name onto a tag stack; the post-hook pops it. This produces hierarchical paths that mirror the PyTorch module tree:
+The module path attached to each node is obtained differently depending on the exporter. Under the default TorchDynamo exporter, dynamo records the originating module for every node as ONNX metadata, and the exporter reconstructs the hierarchy directly from that metadata after export — no forward hooks are involved. Under `--no-dynamo`, the TorchScript path instead registers PyTorch forward hooks on each module: when a module executes, a pre-hook pushes its class name onto a tag stack and the post-hook pops it. Either way the result is hierarchical paths that mirror the PyTorch module tree:
 
 ```mermaid
 flowchart LR
@@ -42,11 +42,11 @@ flowchart LR
     E --> F[Tag stack → path]
 ```
 
-Only modules that are actually executed during tracing receive tags — unused modules are excluded. For example, `prajjwal1/bert-tiny` has 48 registered modules but only 18 are reached during a forward pass.
+Under `--no-dynamo`, only modules that are actually executed during tracing receive tags — unused modules are excluded. For example, `prajjwal1/bert-tiny` has 48 registered modules but only 18 are reached during a forward pass. (Under the default dynamo path the hierarchy instead reflects the modules present in the exported graph's metadata.)
 
 #### Concrete example: BERT-tiny
 
-Running `winml export -m prajjwal1/bert-tiny -o model.onnx -v` produces the following hierarchy tree (18 traced modules, 132 ONNX nodes, 100 % coverage):
+Running `winml export -m prajjwal1/bert-tiny -o model.onnx -v --no-dynamo` produces the following hierarchy tree (18 traced modules, 132 ONNX nodes, 100 % coverage) — the numbers below are from the TorchScript trace path:
 
 ```
 BertModel (132 nodes)

@@ -39,6 +39,7 @@ from ...core.onnx_utils import infer_output_names
 from .base_writer import ExportStep
 from .hierarchy import TracingHierarchyBuilder
 from .monitor import HTPExportMonitor
+from .step_data import HIERARCHY_SOURCE_ONNX_METADATA, HIERARCHY_SOURCE_TRACE
 
 
 if TYPE_CHECKING:
@@ -266,6 +267,7 @@ class HTPExporter:
                     ExportStep.HIERARCHY,
                     hierarchy=self._hierarchy_data,
                     execution_steps=execution_steps,
+                    source=HIERARCHY_SOURCE_TRACE,
                 )
 
             # Step 4: ONNX Export
@@ -298,13 +300,15 @@ class HTPExporter:
             # instead of a TorchScript trace. Recover it now that the graph exists
             # and issue the deferred Step 3 update so the report/console/metadata
             # module tree and the hierarchy_modules stat reflect the real modules.
+            # No forward trace runs on this path, so execution_steps stays unset
+            # (None) rather than reporting the module count as a fake step total.
             if self._use_dynamo_hierarchy:
                 assert isinstance(self._node_tagger, DynamoMetadataTagger)
                 self._hierarchy_data = self._node_tagger.build_module_hierarchy(onnx_model)
                 monitor.update(
                     ExportStep.HIERARCHY,
                     hierarchy=self._hierarchy_data,
-                    execution_steps=len(self._hierarchy_data),
+                    source=HIERARCHY_SOURCE_ONNX_METADATA,
                 )
 
             # Update monitor with ONNX export info

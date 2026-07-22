@@ -22,6 +22,7 @@ from ...core.hierarchy_utils import find_immediate_children
 from ...core.time_utils import format_timestamp_iso
 from .base_writer import ExportData, ExportStep, StepAwareWriter, step
 from .metadata_builder import HTPMetadataBuilder
+from .step_data import HIERARCHY_SOURCE_ONNX_METADATA
 
 
 if TYPE_CHECKING:
@@ -133,20 +134,33 @@ class MetadataWriter(StepAwareWriter):
         # Get input info from previous step data
         input_data = self._steps_data.get("input_generation", {})
 
+        # The dynamo path reconstructs the hierarchy from ONNX metadata instead
+        # of a forward trace, so there is no execution-step count and a different
+        # producer. Record the source explicitly and avoid a fabricated count.
+        source = data.hierarchy.source
+        if source == HIERARCHY_SOURCE_ONNX_METADATA:
+            builder = "DynamoMetadataTagger"
+        else:
+            builder = "TracingHierarchyBuilder"
+        execution_steps = data.hierarchy.execution_steps or 0
+
         self.builder.with_tracing_info(
             modules_traced=len(data.hierarchy.hierarchy),
-            execution_steps=data.hierarchy.execution_steps,
+            execution_steps=execution_steps,
             model_type=input_data.get("model_type"),
             task=input_data.get("task"),
             inputs=input_data.get("inputs"),
+            source=source,
+            builder=builder,
         )
 
         # Record step completion
         self._steps_data["hierarchy_building"] = {
             "completed": True,
             "timestamp": format_timestamp_iso(data.get_step_timestamp(export_step)) or "",
+            "source": source,
             "modules_traced": len(data.hierarchy.hierarchy),
-            "execution_steps": data.hierarchy.execution_steps,
+            "execution_steps": execution_steps,
         }
 
         return 1

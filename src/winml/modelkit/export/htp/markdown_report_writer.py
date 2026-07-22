@@ -23,6 +23,7 @@ from ...core.hierarchy_utils import (
 )
 from ...core.time_utils import format_timestamp_iso
 from .base_writer import ExportData, ExportStep, StepAwareWriter, step
+from .step_data import HIERARCHY_SOURCE_ONNX_METADATA
 
 
 class MarkdownReportWriter(StepAwareWriter):
@@ -254,11 +255,18 @@ class MarkdownReportWriter(StepAwareWriter):
         self.doc.add_heading("✅ Step 3/6: Hierarchy Building", level=3)
 
         if data.hierarchy:
-            items = [
-                f"**Modules Traced**: {len(data.hierarchy.hierarchy)}",
-                f"**Execution Steps**: {data.hierarchy.execution_steps}",
-                "**Status**: Module hierarchy successfully traced",
-            ]
+            if data.hierarchy.source == HIERARCHY_SOURCE_ONNX_METADATA:
+                items = [
+                    f"**Modules Reconstructed**: {len(data.hierarchy.hierarchy)}",
+                    "**Source**: ONNX node metadata (dynamo, no execution trace)",
+                    "**Status**: Module hierarchy reconstructed from ONNX metadata",
+                ]
+            else:
+                items = [
+                    f"**Modules Traced**: {len(data.hierarchy.hierarchy)}",
+                    f"**Execution Steps**: {data.hierarchy.execution_steps}",
+                    "**Status**: Module hierarchy successfully traced",
+                ]
             self.doc.add_unordered_list(items)
 
             # Add module hierarchy tree preview
@@ -527,9 +535,14 @@ class MarkdownReportWriter(StepAwareWriter):
             data.node_tagging.tagging_stats.get("empty_tags", 0) if data.node_tagging else 0
         )
 
+        modules_label = (
+            "Recovered Modules"
+            if data.hierarchy and data.hierarchy.source == HIERARCHY_SOURCE_ONNX_METADATA
+            else "Traced Modules"
+        )
         stats = [
             f"**Hierarchy Modules**: {total_modules}",
-            f"**Traced Modules**: {traced_modules}/{total_modules}",
+            f"**{modules_label}**: {traced_modules}/{total_modules}",
             f"**ONNX Nodes**: {onnx_nodes}",
             f"**Tagged Nodes**: {tagged_nodes} ({coverage:.1f}%)",
             f"**Empty Tags**: {empty_tags}",
