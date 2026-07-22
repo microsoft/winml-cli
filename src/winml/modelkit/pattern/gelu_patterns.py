@@ -444,3 +444,11 @@ class Gelu4PatternInputGenerator(PatternInputGenerator, get_runtime_checker_op("
 
     pattern = Gelu4Pattern()
     registration_name = "Gelu4Pattern"
+
+
+@register_pattern_input_generator
+class SingleGeluPatternInputGenerator(PatternInputGenerator, get_runtime_checker_op("Gelu")):  # type: ignore[misc]  # dynamic base class (runtime-checker op)
+    """Input generator for native com.microsoft.Gelu single-op pattern."""
+
+    pattern = SingleGeluPattern()
+    registration_name = "SingleGeluPattern"
