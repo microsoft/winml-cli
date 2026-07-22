@@ -174,6 +174,7 @@ def _append_pattern_debug_log(
     extraction_total_ms: int,
     source_stats: list[dict[str, Any]],
     pattern_matches_by_source: dict[str, dict[str, list[Any]]],
+    merge_prep: list[dict[str, Any]] | None = None,
 ) -> None:
     """Append pattern-extractor debug details to a dedicated file.
 
@@ -207,6 +208,45 @@ def _append_pattern_debug_log(
             "Pattern extractor source="
             f"{source} matched pattern classes={sorted(source_group.keys())}"
         )
+
+    merge_prep_entries = merge_prep or []
+    lines.append(f"Pattern merge prep entries={len(merge_prep_entries)}")
+    for entry in merge_prep_entries:
+        source = str(entry.get("source", ""))
+        pattern_class = str(entry.get("pattern_class", ""))
+        pattern_id = str(entry.get("pattern_id", ""))
+        match_count = int(entry.get("match_count", 0))
+        match_index = int(entry.get("match_index", 0))
+        match_id = str(entry.get("match_id", ""))
+        matched_node_keys = entry.get("matched_node_keys", []) or []
+        alternatives = entry.get("alternatives", []) or []
+        lines.append(
+            "Pattern merge prep "
+            f"source={source} pattern_class={pattern_class} pattern_id={pattern_id} "
+            f"match_count={match_count} match_index={match_index} match_id={match_id} "
+            f"matched_nodes={matched_node_keys} alternatives_count={len(alternatives)}"
+        )
+        lines.append(f"Pattern merge prep alternatives={alternatives}")
+
+        for candidate in entry.get("candidates", []) or []:
+            lines.append(
+                "Pattern merge prep candidate "
+                f"pattern_class={candidate.get('pattern_class')} "
+                f"pattern_id={candidate.get('pattern_id')} "
+                f"is_alternative={candidate.get('is_alternative')} "
+                f"status={candidate.get('status')} "
+                f"compile={candidate.get('compile')} "
+                f"run={candidate.get('run')} "
+                f"row_count={candidate.get('row_count')} "
+                f"compile_true_rows={candidate.get('compile_true_rows')} "
+                f"run_true_rows={candidate.get('run_true_rows')} "
+                f"case_indices={candidate.get('case_indices')} "
+                f"query_condition_count={candidate.get('query_condition_count')} "
+                f"query_condition_keys={candidate.get('query_condition_keys')} "
+                f"table_file={candidate.get('table_file')} "
+                f"domain={candidate.get('domain')} "
+                f"opset_version={candidate.get('opset_version')}"
+            )
 
     lines.append("")
 
@@ -890,12 +930,17 @@ class ONNXStaticAnalyzer:
             object.__setattr__(onnx_model, "model_path", model_path)
 
         pattern_extractor = PatternExtractor(onnx_model, htp_metadata_path=htp_metadata_path)
-        extraction_result = pattern_extractor.summary(ep=ep_normalized)
+        extraction_result = pattern_extractor.summary(
+            ep=ep_normalized,
+            device=device_to_use,
+            for_debug=for_debug,
+        )
 
         metadata = extraction_result["summary"]
         pattern_matches = extraction_result["subgraph_patterns"]
         pattern_matches_by_source = extraction_result["subgraph_patterns_by_source"]
         source_stats = extraction_result["source_stats"]
+        merge_prep = extraction_result.get("merge_prep", [])
         extraction_total_ms = extraction_result["total_extract_ms"]
         model_signature = extraction_result["model_signature"]
         logger.info("Extracted %d patterns", len(pattern_matches))
@@ -912,6 +957,7 @@ class ONNXStaticAnalyzer:
                 extraction_total_ms=extraction_total_ms,
                 source_stats=source_stats,
                 pattern_matches_by_source=pattern_matches_by_source,
+                merge_prep=merge_prep,
             )
 
         if for_debug:

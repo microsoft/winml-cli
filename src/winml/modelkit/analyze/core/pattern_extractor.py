@@ -12,14 +12,18 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
+from ...onnx import ONNXDomain
 from ...pattern.base import InvalidPatternMatcherModelError, PatternMatcher
 from ...pattern.config import PatternConfig, UnifiedPatternConfig
 from ..models.onnx_model import ModelTag, ONNXModel
 from ..models.output import extract_model_stats
+from ..utils.model_utils import encode_rule_condition_value_for_parquet, make_hashable
+from ..utils.rule_loader import get_runtime_rules_debug_search_dirs, get_runtime_rules_search_dirs
 from ..utils.timing_utils import make_timing_logger
 
 
@@ -52,8 +56,44 @@ class PatternSummary(TypedDict):
     subgraph_patterns: list[PatternMatchResult]
     subgraph_patterns_by_source: dict[str, dict[str, list[PatternMatchResult]]]
     source_stats: list[PatternSourceStat]
+    merge_prep: list["PatternMergePrepEntry"]
     total_extract_ms: int
     model_signature: str
+
+
+class PatternRuleCompileRunResult(TypedDict):
+    """Rule-table compile/run snapshot for one pattern candidate."""
+
+    pattern_class: str
+    pattern_id: str
+    is_alternative: bool
+    status: str
+    compile: bool | None
+    run: bool | None
+    row_count: int
+    table_file: str | None
+    table_path: str | None
+    domain: str | None
+    opset_version: int | None
+    compile_true_rows: int
+    run_true_rows: int
+    case_indices: list[Any] | None
+    query_condition_count: int
+    query_condition_keys: list[str]
+
+
+class PatternMergePrepEntry(TypedDict):
+    """Derived metadata used by upcoming pattern merge/dedup stage."""
+
+    source: str
+    pattern_class: str
+    pattern_id: str
+    match_count: int
+    match_index: int
+    match_id: str
+    matched_node_keys: list[str]
+    alternatives: list[dict[str, Any]]
+    candidates: list[PatternRuleCompileRunResult]
 
 
 # Type alias for HTP metadata structure
@@ -83,6 +123,7 @@ class PatternExtractor:
     # - match cache: (model signature, source key) -> grouped PatternMatchResult
     _RULES_PATTERN_CACHE: dict[str, list[Pattern]] = {}
     _MATCH_CACHE: dict[tuple[str, str], dict[str, list[PatternMatchResult]]] = {}
+    _VALID_EP_DEVICE_PAIRS_CACHE: set[tuple[str, str]] | None = None
 
     def __init__(self, model: ONNXModel, htp_metadata_path: str | None = None) -> None:
         """Initialize pattern extractor.
@@ -170,6 +211,63 @@ class PatternExtractor:
     def _rules_file_for_source(self, source: str) -> Path:
         """Return rules JSON path for a source key."""
         return self._rules_dir() / f"{source}.json"
+
+    @staticmethod
+    def _available_providers_config_path() -> Path:
+        """Return bundled EP/device validity mapping JSON path."""
+        return (
+            Path(__file__).resolve().parents[1]
+            / "utils"
+            / "avalizble_ep_device_ops"
+            / "avaliable_providers.json"
+        )
+
+    @classmethod
+    def _load_valid_ep_device_pairs(cls) -> set[tuple[str, str]]:
+        """Load and cache valid EP/device pairs from provider config."""
+        if cls._VALID_EP_DEVICE_PAIRS_CACHE is not None:
+            return cls._VALID_EP_DEVICE_PAIRS_CACHE
+
+        valid_pairs: set[tuple[str, str]] = set()
+        config_path = cls._available_providers_config_path()
+        try:
+            payload = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            logger.warning(
+                "Failed to load available providers config: %s",
+                config_path,
+                exc_info=True,
+            )
+            cls._VALID_EP_DEVICE_PAIRS_CACHE = valid_pairs
+            return valid_pairs
+
+        if not isinstance(payload, dict):
+            cls._VALID_EP_DEVICE_PAIRS_CACHE = valid_pairs
+            return valid_pairs
+
+        for ep_name, ep_payload in payload.items():
+            if not isinstance(ep_name, str) or not isinstance(ep_payload, dict):
+                continue
+
+            devices_payload = ep_payload.get("devices")
+            if not isinstance(devices_payload, dict):
+                continue
+
+            for device_name, device_payload in devices_payload.items():
+                if not isinstance(device_name, str) or not isinstance(device_payload, dict):
+                    continue
+                if bool(device_payload.get("valid", False)):
+                    valid_pairs.add((ep_name, device_name.upper()))
+
+        cls._VALID_EP_DEVICE_PAIRS_CACHE = valid_pairs
+        return valid_pairs
+
+    def _is_valid_parquet_lookup_target(self, ep_name: str, device: str) -> bool:
+        """Return True when parquet lookup should run for this EP/device pair."""
+        valid_pairs = self._load_valid_ep_device_pairs()
+        if not valid_pairs:
+            return False
+        return (ep_name, device.upper()) in valid_pairs
 
     def _load_skeleton_patterns_for_source(self, source: str) -> list[Pattern]:
         """Load skeleton pattern instances for one source, with in-memory cache."""
@@ -277,6 +375,496 @@ class PatternExtractor:
         }
         return {k: list(v) for k, v in grouped.items()}, miss_stat
 
+    def _domain_and_target_opset_for_pattern(
+        self,
+        pattern: Pattern,
+        model_opsets: dict[ONNXDomain, int],
+    ) -> tuple[str, int]:
+        """Infer preferred domain/opset for locating pattern-level rule parquet files."""
+        skeleton = pattern.get_skeleton()
+        if not skeleton.node_domains:
+            default_opset = model_opsets.get(ONNXDomain.AI_ONNX, 1)
+            return ONNXDomain.AI_ONNX.value, default_opset
+
+        preferred_domain = skeleton.node_domains[0]
+        target_opset = model_opsets.get(
+            preferred_domain,
+            model_opsets.get(ONNXDomain.AI_ONNX, 1),
+        )
+        return preferred_domain.value, target_opset
+
+    @staticmethod
+    def _parse_pattern_rule_filename(
+        filename: str,
+        *,
+        pattern_class: str,
+        ep_name: str,
+        device: str,
+    ) -> tuple[str, int] | None:
+        """Parse `<pattern>_<ep>_<device>_<domain>_opset<ver>.parquet` style names."""
+        prefix = f"{pattern_class}_{ep_name}_{device.upper()}_"
+        if not filename.startswith(prefix):
+            return None
+
+        suffix = filename[len(prefix) :]
+        match = re.match(r"(?P<domain>.+)_opset(?P<opset>\d+)(?:_qdq)?\.parquet$", suffix)
+        if match is None:
+            return None
+
+        return match.group("domain"), int(match.group("opset"))
+
+    def _resolve_pattern_rule_table(
+        self,
+        *,
+        pattern_class: str,
+        ep_name: str,
+        device: str,
+        preferred_domain: str,
+        target_opset: int,
+        for_debug: bool,
+    ) -> tuple[Path | None, str | None, int | None]:
+        """Resolve the most suitable parquet table for one pattern candidate."""
+        search_dirs: list[Path] = []
+        if for_debug:
+            search_dirs.extend(get_runtime_rules_debug_search_dirs())
+        search_dirs.extend(get_runtime_rules_search_dirs())
+
+        # Keep first-seen order and skip non-existing directories.
+        dedup_dirs: list[Path] = []
+        seen_dirs: set[Path] = set()
+        for base_dir in search_dirs:
+            try:
+                resolved_dir = base_dir.resolve(strict=False)
+            except OSError:
+                continue
+            if resolved_dir in seen_dirs or not resolved_dir.is_dir():
+                continue
+            seen_dirs.add(resolved_dir)
+            dedup_dirs.append(resolved_dir)
+
+        if not dedup_dirs:
+            return None, None, None
+
+        rule_subdir = f"{ep_name}_{device.upper()}"
+        glob_pattern = f"{pattern_class}_{ep_name}_{device.upper()}_*_opset*.parquet"
+
+        for base_dir in dedup_dirs:
+            target_dir = base_dir / rule_subdir
+            if not target_dir.is_dir():
+                continue
+
+            candidates: list[tuple[Path, str, int]] = []
+            for path in target_dir.glob(glob_pattern):
+                parsed = self._parse_pattern_rule_filename(
+                    path.name,
+                    pattern_class=pattern_class,
+                    ep_name=ep_name,
+                    device=device,
+                )
+                if parsed is None:
+                    continue
+                domain_name, opset_version = parsed
+                candidates.append((path, domain_name, opset_version))
+
+            if not candidates:
+                continue
+
+            # Prefer exact-domain rows; then closest opset not above target.
+            same_domain_le = [c for c in candidates if c[1] == preferred_domain and c[2] <= target_opset]
+            if same_domain_le:
+                picked = max(same_domain_le, key=lambda c: c[2])
+                return picked
+
+            any_domain_le = [c for c in candidates if c[2] <= target_opset]
+            if any_domain_le:
+                picked = max(any_domain_le, key=lambda c: c[2])
+                return picked
+
+            same_domain_gt = [c for c in candidates if c[1] == preferred_domain and c[2] > target_opset]
+            if same_domain_gt:
+                picked = min(same_domain_gt, key=lambda c: c[2])
+                return picked
+
+            picked = min(candidates, key=lambda c: c[2])
+            return picked
+
+        return None, None, None
+
+    @staticmethod
+    def _normalize_compile_run_cell(value: Any) -> tuple[bool, bool] | None:
+        """Normalize one `compile_run_success` cell to `(compile, run)` booleans."""
+        raw_value = value
+        if not isinstance(raw_value, (list, tuple)) and hasattr(raw_value, "tolist"):
+            try:
+                raw_value = raw_value.tolist()
+            except Exception:  # noqa: BLE001
+                return None
+
+        if not isinstance(raw_value, (list, tuple)) or len(raw_value) < 2:
+            return None
+
+        return bool(raw_value[0]), bool(raw_value[1])
+
+    @staticmethod
+    def _extract_rule_condition_columns(column_names: list[str]) -> list[str]:
+        """Return parquet condition columns (excluding output metadata columns)."""
+        output_cols = {
+            "row_index",
+            "compile_run_success",
+            "compile_reason",
+            "run_reason",
+            "rule_row_count",
+            "case_indices",
+        }
+        return [col for col in column_names if col not in output_cols]
+
+    @staticmethod
+    def _normalize_case_indices(case_indices: Any) -> list[Any] | None:
+        """Normalize case_indices to list form for debug payloads."""
+        if case_indices is None:
+            return None
+
+        normalized = case_indices
+        if hasattr(normalized, "tolist"):
+            try:
+                normalized = normalized.tolist()
+            except Exception:  # noqa: BLE001
+                normalized = case_indices
+
+        if isinstance(normalized, list):
+            return normalized
+        if isinstance(normalized, tuple):
+            return list(normalized)
+        return [normalized]
+
+    def _load_pattern_rule_table(
+        self,
+        parquet_path: Path,
+        table_cache: dict[str, Any],
+    ) -> tuple[str, Any | None]:
+        """Load + sanitize parquet table with a per-summary cache."""
+        cache_key = str(parquet_path.resolve(strict=False)).casefold()
+        if cache_key in table_cache:
+            return "ok", table_cache[cache_key]
+
+        try:
+            import pandas as pd
+        except Exception:  # noqa: BLE001
+            return "pandas_unavailable", None
+
+        try:
+            table_df = pd.read_parquet(parquet_path)
+        except Exception:  # noqa: BLE001
+            logger.debug("Failed to read pattern parquet: %s", parquet_path, exc_info=True)
+            return "read_error", None
+
+        table_df = table_df.where(table_df.notna(), None)
+        for col in table_df.columns:
+            raw = table_df[col].to_numpy()
+            table_df[col] = [make_hashable(v) for v in raw]
+
+        table_cache[cache_key] = table_df
+        return "ok", table_df
+
+    def _query_pattern_rule_compile_run_for_match(
+        self,
+        *,
+        parquet_path: Path,
+        pattern_match: PatternMatchResult,
+        candidate_pattern_name: str,
+        model_opsets: dict[ONNXDomain, int],
+        table_cache: dict[str, Any],
+    ) -> tuple[str, bool | None, bool | None, int, int, int, list[Any] | None, int, list[str]]:
+        """Query one candidate parquet table using one match's constraints."""
+        from .runtime_checker_query import get_query_conditions_for_pattern, query_table_exact_match
+
+        load_status, table_df = self._load_pattern_rule_table(parquet_path, table_cache)
+        if load_status != "ok":
+            return load_status, None, None, 0, 0, 0, None, 0, []
+        if table_df is None:
+            return "read_error", None, None, 0, 0, 0, None, 0, []
+
+        row_count = int(len(table_df))
+        if row_count == 0:
+            return "empty_table", None, None, 0, 0, 0, None, 0, []
+
+        if "compile_run_success" not in table_df.columns:
+            return "missing_compile_run_success", None, None, row_count, 0, 0, None, 0, []
+
+        try:
+            conditions, infinite_properties = get_query_conditions_for_pattern(
+                pattern_match=pattern_match,
+                pattern_name=candidate_pattern_name,
+                opset_versions=model_opsets,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug(
+                "Failed to build query conditions for pattern '%s'",
+                candidate_pattern_name,
+                exc_info=True,
+            )
+            return "query_build_error", None, None, row_count, 0, 0, None, 0, []
+
+        condition_columns = self._extract_rule_condition_columns(list(table_df.columns))
+        query_conditions: dict[str, Any] = {}
+        for col in condition_columns:
+            if col in infinite_properties:
+                continue
+            if col not in conditions:
+                return (
+                    "query_key_missing",
+                    None,
+                    None,
+                    row_count,
+                    0,
+                    0,
+                    None,
+                    len(query_conditions),
+                    sorted(query_conditions.keys()),
+                )
+
+            encoded_value = encode_rule_condition_value_for_parquet(conditions[col])
+            query_conditions[col] = make_hashable(encoded_value)
+
+        if query_conditions:
+            matched_df = query_table_exact_match(table_df, query_conditions)
+            if matched_df.empty:
+                return (
+                    "properties_not_found",
+                    None,
+                    None,
+                    row_count,
+                    0,
+                    0,
+                    None,
+                    len(query_conditions),
+                    sorted(query_conditions.keys()),
+                )
+            matched_row = matched_df.iloc[0]
+        else:
+            matched_row = table_df.iloc[0]
+
+        compile_run = self._normalize_compile_run_cell(matched_row.get("compile_run_success"))
+        if compile_run is None:
+            return (
+                "invalid_compile_run_success",
+                None,
+                None,
+                row_count,
+                0,
+                0,
+                None,
+                len(query_conditions),
+                sorted(query_conditions.keys()),
+            )
+
+        compile_ok, run_ok = compile_run
+        return (
+            "ok",
+            compile_ok,
+            run_ok,
+            row_count,
+            int(compile_ok),
+            int(run_ok),
+            self._normalize_case_indices(matched_row.get("case_indices")),
+            len(query_conditions),
+            sorted(query_conditions.keys()),
+        )
+
+    def _build_merge_prep_metadata(
+        self,
+        *,
+        subgraph_patterns_by_source: dict[str, dict[str, list[PatternMatchResult]]],
+        ep: EPNameOrAlias | None,
+        device: str | None,
+        for_debug: bool,
+    ) -> list[PatternMergePrepEntry]:
+        """Build alternatives + parquet compile/run snapshots for merge/dedup preparation."""
+        if ep is None or device is None:
+            return []
+
+        ep_name = str(ep)
+        device_name = device.upper()
+        if not self._is_valid_parquet_lookup_target(ep_name, device_name):
+            logger.info(
+                "Skip pattern parquet lookup for invalid EP/device pair: %s_%s",
+                ep_name,
+                device_name,
+            )
+            return []
+
+        model_opsets = ONNXDomain.get_model_domain_opset_versions(self._model.get_model())
+        source_configs: dict[str, UnifiedPatternConfig] = {}
+        entries: list[PatternMergePrepEntry] = []
+        table_cache: dict[str, Any] = {}
+
+        for source, source_group in sorted(subgraph_patterns_by_source.items()):
+            if not source_group:
+                continue
+
+            config = source_configs.get(source)
+            if config is None:
+                config = UnifiedPatternConfig(ihv_type=source)
+                source_configs[source] = config
+
+            for pattern_class, matches in sorted(source_group.items()):
+                if not matches:
+                    continue
+
+                representative = matches[0]
+                pattern_obj = representative.pattern
+                pattern_id = pattern_obj.pattern_id
+
+                config_alternatives = config.get_alternatives(pattern_obj)
+                alternatives_meta = [
+                    {
+                        "pattern_to_id": alt.pattern_to_id,
+                        "pattern_class": alt.pattern_class,
+                        "priority": alt.priority,
+                        "enabled": alt.enabled,
+                    }
+                    for alt in config_alternatives
+                ]
+
+                candidate_specs: list[tuple[str, str, bool, Any | None]] = [
+                    (pattern_class, pattern_id, False, pattern_obj)
+                ]
+                seen_candidates: set[tuple[str, str]] = {(pattern_class, pattern_id)}
+
+                for alt in config_alternatives:
+                    alt_pattern_class = alt.pattern_class or alt.pattern_to_id.split("/")[-1]
+                    alt_pattern_id = alt.pattern_to_id
+                    dedup_key = (alt_pattern_class, alt_pattern_id)
+                    if dedup_key in seen_candidates:
+                        continue
+                    seen_candidates.add(dedup_key)
+
+                    alt_pattern_obj: Any | None = None
+                    if alt.pattern_class and alt.module:
+                        try:
+                            alt_pattern_obj = PatternConfig(
+                                pattern_id=alt_pattern_id,
+                                pattern_class=alt.pattern_class,
+                                module=alt.module,
+                                enabled=True,
+                            ).load_pattern()
+                        except Exception:  # noqa: BLE001
+                            logger.debug(
+                                "Failed to load alternative pattern %s from %s",
+                                alt.pattern_class,
+                                alt.module,
+                                exc_info=True,
+                            )
+
+                    candidate_specs.append(
+                        (alt_pattern_class, alt_pattern_id, True, alt_pattern_obj)
+                    )
+
+                for match_index, pattern_match in enumerate(matches, start=1):
+                    candidate_results: list[PatternRuleCompileRunResult] = []
+                    for candidate_class, candidate_id, is_alt, candidate_pattern_obj in candidate_specs:
+                        if candidate_pattern_obj is not None:
+                            preferred_domain, target_opset = self._domain_and_target_opset_for_pattern(
+                                candidate_pattern_obj,
+                                model_opsets,
+                            )
+                        else:
+                            preferred_domain = ONNXDomain.AI_ONNX.value
+                            target_opset = model_opsets.get(ONNXDomain.AI_ONNX, 1)
+
+                        table_path, resolved_domain, resolved_opset = self._resolve_pattern_rule_table(
+                            pattern_class=candidate_class,
+                            ep_name=ep_name,
+                            device=device_name,
+                            preferred_domain=preferred_domain,
+                            target_opset=target_opset,
+                            for_debug=for_debug,
+                        )
+
+                        if table_path is None:
+                            candidate_results.append(
+                                {
+                                    "pattern_class": candidate_class,
+                                    "pattern_id": candidate_id,
+                                    "is_alternative": is_alt,
+                                    "status": "table_not_found",
+                                    "compile": None,
+                                    "run": None,
+                                    "row_count": 0,
+                                    "table_file": None,
+                                    "table_path": None,
+                                    "domain": resolved_domain,
+                                    "opset_version": resolved_opset,
+                                    "compile_true_rows": 0,
+                                    "run_true_rows": 0,
+                                    "case_indices": None,
+                                    "query_condition_count": 0,
+                                    "query_condition_keys": [],
+                                }
+                            )
+                            continue
+
+                        candidate_pattern_name = (
+                            candidate_pattern_obj.__class__.__name__
+                            if candidate_pattern_obj is not None
+                            else candidate_class
+                        )
+
+                        (
+                            status,
+                            compile_ok,
+                            run_ok,
+                            row_count,
+                            compile_true_rows,
+                            run_true_rows,
+                            case_indices,
+                            query_condition_count,
+                            query_condition_keys,
+                        ) = self._query_pattern_rule_compile_run_for_match(
+                            parquet_path=table_path,
+                            pattern_match=pattern_match,
+                            candidate_pattern_name=candidate_pattern_name,
+                            model_opsets=model_opsets,
+                            table_cache=table_cache,
+                        )
+
+                        candidate_results.append(
+                            {
+                                "pattern_class": candidate_class,
+                                "pattern_id": candidate_id,
+                                "is_alternative": is_alt,
+                                "status": status,
+                                "compile": compile_ok,
+                                "run": run_ok,
+                                "row_count": row_count,
+                                "table_file": table_path.name,
+                                "table_path": str(table_path.resolve(strict=False)),
+                                "domain": resolved_domain,
+                                "opset_version": resolved_opset,
+                                "compile_true_rows": compile_true_rows,
+                                "run_true_rows": run_true_rows,
+                                "case_indices": case_indices,
+                                "query_condition_count": query_condition_count,
+                                "query_condition_keys": query_condition_keys,
+                            }
+                        )
+
+                    entries.append(
+                        {
+                            "source": source,
+                            "pattern_class": pattern_class,
+                            "pattern_id": pattern_id,
+                            "match_count": len(matches),
+                            "match_index": match_index,
+                            "match_id": pattern_match.match_id,
+                            "matched_node_keys": list(pattern_match.matched_node_keys),
+                            "alternatives": alternatives_meta,
+                            "candidates": candidate_results,
+                        }
+                    )
+
+        return entries
+
     def _load_htp_metadata(self) -> HTPMetadata:
         """Load HTP metadata from JSON file.
 
@@ -311,7 +899,12 @@ class PatternExtractor:
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON in HTP metadata file: {e}") from e
 
-    def summary(self, ep: EPNameOrAlias | None = None) -> PatternSummary:
+    def summary(
+        self,
+        ep: EPNameOrAlias | None = None,
+        device: str | None = None,
+        for_debug: bool = False,
+    ) -> PatternSummary:
         """Generate comprehensive pattern analysis summary.
 
         Returns:
@@ -363,12 +956,24 @@ class PatternExtractor:
             total_ms=int((time.perf_counter() - total_start) * 1000),
         )
 
+        merge_prep = (
+            self._build_merge_prep_metadata(
+                subgraph_patterns_by_source=subgraph_patterns_by_source,
+                ep=ep,
+                device=device,
+                for_debug=for_debug,
+            )
+            if for_debug
+            else []
+        )
+
         total_extract_ms = int((time.perf_counter() - total_start) * 1000)
         return {
             "summary": metadata,
             "subgraph_patterns": subgraph_patterns,
             "subgraph_patterns_by_source": subgraph_patterns_by_source,
             "source_stats": source_stats,
+            "merge_prep": merge_prep,
             "total_extract_ms": total_extract_ms,
             "model_signature": model_signature,
         }
