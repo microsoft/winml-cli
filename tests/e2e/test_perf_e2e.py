@@ -60,7 +60,8 @@ NON_CPU_EPS = ("qnn", "vitisai", "dml", "nv_tensorrt_rtx", "migraphx")
 # Real image-classification ONNX model shipped in the repo
 # (``pixel_values`` [1, 224, 224, 3] -> ``logits`` [1, 3]). Used for NPU
 # tests, where a bare float MatMul is not representative of NPU execution.
-ASSETS_ONNX_MODEL = Path(__file__).resolve().parent.parent / "assets" / "model.onnx"
+ASSETS_NPU_ONNX_MODEL = Path(__file__).resolve().parent.parent / "assets" / "resnet_w8a8" / "model.onnx"
+ASSETS_GPU_ONNX_MODEL = Path(__file__).resolve().parent.parent / "assets" / "resnet_fp32" / "model.onnx"
 
 
 def _require_gpu() -> None:
@@ -632,7 +633,7 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
         (QNN / VitisAI) execution path, so the NPU tests use the model
         shipped under ``tests/assets/`` instead of ``model_arg``.
         """
-        return str(ASSETS_ONNX_MODEL)
+        return str(ASSETS_NPU_ONNX_MODEL)
 
     def test_batch_size_cpu(self, tmp_path: Path, onnx_model_path: Path):
         """--batch-size applies to a model with a dynamic leading dimension."""
