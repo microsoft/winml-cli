@@ -20,6 +20,7 @@ Key Features:
 from __future__ import annotations
 
 import contextlib
+import inspect
 import logging
 import sys
 import time
@@ -445,8 +446,24 @@ class HTPExporter:
         output_path = str(Path(output_path).resolve())
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-        # Input names from config, fallback to inputs dict keys
+        # Input names from config, fallback to inputs dict keys.
         input_names = export_config.get_input_names() or list(inputs.keys())
+
+        if not hasattr(model, "get_export_args"):
+            # torch.onnx.export binds kwargs by name when invoking forward(), but
+            # applies input_names positionally to the resulting graph inputs in
+            # forward-signature order. Keep kwargs for safe invocation and align
+            # the ONNX names independently so recipe order cannot swap bindings.
+            try:
+                parameters = inspect.signature(model.forward).parameters
+                forward_input_names = [name for name in parameters if name in input_names]
+                if len(forward_input_names) == len(input_names):
+                    input_names = forward_input_names
+            except (TypeError, ValueError):
+                logger.debug(
+                    "Could not inspect %s.forward; preserving configured input order.",
+                    type(model).__name__,
+                )
 
         # Output names: infer from traced hierarchy, validate against config
         traced_outputs = self._hierarchy_builder.get_outputs() if self._hierarchy_builder else None

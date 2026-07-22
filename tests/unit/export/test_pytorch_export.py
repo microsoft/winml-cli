@@ -350,12 +350,12 @@ class TestExportPytorch:
         assert not _all_value_info_have_shape(onnx_model)
 
     def test_mismatched_input_order_exports_successfully(self, tmp_path) -> None:
-        """Export succeeds when InputTensorSpec order differs from forward() param order.
+        """ONNX names bind correctly when specs differ from forward() param order.
 
         Regression test for CLIP bug: OnnxConfig listed pixel_values before input_ids,
-        but CLIPModel.forward() expected input_ids first. With positional args this
-        caused 'not enough values to unpack (expected 4, got 2)'. The fix uses
-        kwargs= in torch.onnx.export so name-based binding makes order irrelevant.
+        but CLIPModel.forward() expected input_ids first. kwargs make model invocation
+        order-independent, while input_names must separately follow forward order
+        because torch.onnx.export applies those names positionally to graph inputs.
         """
         model = MismatchedInputOrderModel()
 
@@ -374,9 +374,14 @@ class TestExportPytorch:
 
         onnx_model = onnx.load(str(tmp_path / "model.onnx"))
         onnx.checker.check_model(onnx_model)
-        input_names = {i.name for i in onnx_model.graph.input}
-        assert "pixel_values" in input_names
-        assert "text_input" in input_names
+        input_shapes = {
+            tensor.name: tuple(dim.dim_value for dim in tensor.type.tensor_type.shape.dim)
+            for tensor in onnx_model.graph.input
+        }
+        assert input_shapes == {
+            "text_input": (1, 16),
+            "pixel_values": (1, 3, 8, 8),
+        }
 
 
 class TestStaleExternalDataCleanup:
