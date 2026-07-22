@@ -872,6 +872,29 @@ class TestBuildSubmoduleConfig:
         assert len(result.export.output_tensors) == 1
         assert result.export.output_tensors[0].name == "output_0"
 
+    @pytest.mark.parametrize("dynamo", [False, True])
+    def test_preserves_parent_exporter_choice(
+        self,
+        parent_config: WinMLBuildConfig,
+        dynamo: bool,
+    ) -> None:
+        """An explicit parent exporter choice survives submodule specialization."""
+        assert parent_config.export is not None
+        parent_config.export.dynamo = dynamo
+        sub_info = SubmoduleInfo(
+            class_name="Linear",
+            module_path="encoder.proj",
+            input_shapes=[[1, 8]],
+            output_shapes=[[1, 8]],
+            input_dtypes=["float32"],
+            output_dtypes=["float32"],
+        )
+
+        result = _build_submodule_config(sub_info, parent_config)
+
+        assert result.export is not None
+        assert result.export.dynamo is dynamo
+
     def test_multi_input(self, parent_config: WinMLBuildConfig) -> None:
         """SubmoduleInfo with 2 input_shapes creates 2 InputTensorSpec."""
         sub_info = SubmoduleInfo(

@@ -1061,6 +1061,11 @@ def _build_submodule_config(
             input_tensors=input_tensors or None,
             output_tensors=output_tensors or None,
             dynamic_axes={},  # Static shapes for submodules
+            dynamo=(
+                parent_config.export.dynamo
+                if parent_config.export is not None
+                else WinMLExportConfig().dynamo
+            ),
             # opset_version and batch_size use dataclass defaults from WinMLExportConfig
         ),
         optim=copy.deepcopy(parent_config.optim),
