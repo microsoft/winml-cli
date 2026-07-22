@@ -9,6 +9,7 @@ import logging
 import os
 import re
 from pathlib import Path
+from typing import Any
 
 from ..models.ihv_type import IHVType
 from ..models.information import Information
@@ -231,90 +232,105 @@ class RuleLoader:
         return loaded_rules
 
     def load_information_rules(self, ihv_type: IHVType | None = None) -> list[Information]:
-        """Load information generation rules from JSON files.
+        """Load information generation rules from merged and legacy locations.
 
-        Only loads files with suffix "_information.json" to distinguish from
-        other data files in the information_rules directory.
+        Preferred source is merged pattern configuration under
+        ``modelkit/pattern/rules/*.json`` in the top-level ``InformationRules``
+        section. Legacy ``analyze/rules/information_rules/*_information.json``
+        files are still supported for backward compatibility and are merged in.
 
         Args:
             ihv_type: Optional IHV type for per-IHV rule loading.
-                     If provided, loads default_information.json + {ihv_lowercase}_information.json.
-                     If None, loads all *_information.json files (backward compatibility).
 
         Returns:
-            List of Information instances (only enabled ones)
-
-        Examples:
-            >>> loader = RuleLoader()
-            >>> # Load QC-specific rules (default + qc)
-            >>> rules = loader.load_information_rules(ihv_type=IHVType.QC)
-            >>> # Load all rules (backward compatibility)
-            >>> rules = loader.load_information_rules(ihv_type=None)
+            List of enabled Information instances.
         """
-        information_rules_dir = self.rules_dir / "information_rules"
-
-        if not information_rules_dir.exists():
-            logger.warning("Information rules directory not found: %s", information_rules_dir)
-            return []
-
         all_informations: list[Information] = []
+        seen_information_keys: set[tuple[str | None, str | None, str]] = set()
 
-        # Determine which files to load
-        if ihv_type is not None:
-            # Per-IHV loading: default + ihv-specific
-            ihv_lowercase = ihv_type.value.lower()
-            files_to_load = [
-                information_rules_dir / "default_information.json",
-                information_rules_dir / f"{ihv_lowercase}_information.json",
-            ]
-            # Filter only existing files
-            files_to_load = [f for f in files_to_load if f.exists()]
+        # 1) Preferred source: merged pattern configuration files.
+        pattern_rule_files = self._get_pattern_rule_files_for_information(ihv_type)
+        if pattern_rule_files:
             logger.info(
-                "Loading information rules for IHV %s from %d files",
-                ihv_type.value,
-                len(files_to_load),
+                "Loading merged information rules from %d pattern rule file(s)",
+                len(pattern_rule_files),
             )
-        else:
-            # Load all *_information.json files (backward compatibility)
-            files_to_load = list(information_rules_dir.glob("*_information.json"))
-            logger.info("Loading all information rules from %d files", len(files_to_load))
 
-        # Load each file
-        for rule_file in files_to_load:
+        for rule_file in pattern_rule_files:
             try:
-                informations_data = json.loads(rule_file.read_text(encoding="utf-8"))
+                config_data = json.loads(rule_file.read_text(encoding="utf-8"))
+                informations_data = config_data.get("InformationRules", [])
 
-                # Ensure it's a list
                 if not isinstance(informations_data, list):
                     informations_data = [informations_data]
 
-                # Parse each information
-                for info_dict in informations_data:
-                    try:
-                        # Filter enabled actions only
-                        if info_dict.get("actions"):
-                            info_dict["actions"] = [
-                                action
-                                for action in info_dict["actions"]
-                                if action.get("enabled", True)
-                            ]
-
-                        # Create Information instance
-                        information = Information(**info_dict)
-                        all_informations.append(information)
-                    except Exception as e:
-                        logger.error(
-                            "Failed to parse information %s in %s: %s",
-                            info_dict.get("Information_id", "unknown"),
-                            rule_file,
-                            e,
-                        )
-                        continue
-
+                self._extend_information_from_dicts(
+                    all_informations=all_informations,
+                    seen_information_keys=seen_information_keys,
+                    informations_data=informations_data,
+                    source_file=rule_file,
+                )
                 logger.info(
-                    "Loaded %d information rules from %s", len(informations_data), rule_file
+                    "Loaded %d merged information rule(s) from %s",
+                    len(informations_data),
+                    rule_file,
+                )
+            except json.JSONDecodeError as e:
+                logger.error("Invalid JSON in %s: %s", rule_file, e)
+            except Exception as e:
+                logger.error("Error loading %s: %s", rule_file, e)
+
+        # 2) Backward compatibility source: *_information.json files.
+        information_rules_dir = self.rules_dir / "information_rules"
+        if not information_rules_dir.exists():
+            if all_informations:
+                logger.info(
+                    "Loaded %d information rule(s) from merged pattern rules; "
+                    "legacy information_rules directory not found: %s",
+                    len(all_informations),
+                    information_rules_dir,
+                )
+                return all_informations
+            logger.warning("Information rules directory not found: %s", information_rules_dir)
+            return []
+
+        if ihv_type is not None:
+            ihv_lowercase = ihv_type.value.lower()
+            legacy_files_to_load = [
+                information_rules_dir / "default_information.json",
+                information_rules_dir / f"{ihv_lowercase}_information.json",
+            ]
+            legacy_files_to_load = [f for f in legacy_files_to_load if f.exists()]
+            logger.info(
+                "Loading legacy information rules for IHV %s from %d file(s)",
+                ihv_type.value,
+                len(legacy_files_to_load),
+            )
+        else:
+            legacy_files_to_load = list(information_rules_dir.glob("*_information.json"))
+            logger.info(
+                "Loading all legacy information rules from %d file(s)",
+                len(legacy_files_to_load),
+            )
+
+        for rule_file in legacy_files_to_load:
+            try:
+                informations_data = json.loads(rule_file.read_text(encoding="utf-8"))
+                if not isinstance(informations_data, list):
+                    informations_data = [informations_data]
+
+                self._extend_information_from_dicts(
+                    all_informations=all_informations,
+                    seen_information_keys=seen_information_keys,
+                    informations_data=informations_data,
+                    source_file=rule_file,
                 )
 
+                logger.info(
+                    "Loaded %d legacy information rule(s) from %s",
+                    len(informations_data),
+                    rule_file,
+                )
             except json.JSONDecodeError as e:
                 logger.error("Invalid JSON in %s: %s", rule_file, e)
             except Exception as e:
@@ -322,6 +338,95 @@ class RuleLoader:
 
         logger.info("Total %d information rules loaded", len(all_informations))
         return all_informations
+
+    def _get_pattern_rule_files_for_information(self, ihv_type: IHVType | None) -> list[Path]:
+        """Resolve merged pattern-rule files that may contain InformationRules.
+
+        Only applies when rules_dir follows the default source layout:
+        ``.../modelkit/analyze/rules``.
+        """
+        # Detect source-tree layout used by this package.
+        if self.rules_dir.name != "rules" or self.rules_dir.parent.name != "analyze":
+            return []
+
+        pattern_rules_dir = self.rules_dir.parent.parent / "pattern" / "rules"
+        if not pattern_rules_dir.exists():
+            return []
+
+        if ihv_type is None:
+            files = [
+                f
+                for f in pattern_rules_dir.glob("*.json")
+                if not f.name.endswith(".schema.json")
+            ]
+            return sorted(files)
+
+        ihv_to_file_stem = {
+            IHVType.QC: "qnn",
+            IHVType.INTEL: "openvino",
+            IHVType.AMD: "quark",
+            IHVType.NVIDIA: "nvidia",
+            IHVType.MICROSOFT: "microsoft",
+            IHVType.UNKNOWN: None,
+        }
+
+        files = [pattern_rules_dir / "default.json"]
+        ihv_stem = ihv_to_file_stem.get(ihv_type)
+        if ihv_stem:
+            files.append(pattern_rules_dir / f"{ihv_stem}.json")
+
+        return [f for f in files if f.exists()]
+
+    def _extend_information_from_dicts(
+        self,
+        *,
+        all_informations: list[Information],
+        seen_information_keys: set[tuple[str | None, str | None, str]],
+        informations_data: list[Any],
+        source_file: Path,
+    ) -> None:
+        """Parse and append Information dicts, filtering disabled entries and duplicates."""
+        for info_dict in informations_data:
+            try:
+                if not isinstance(info_dict, dict):
+                    continue
+
+                if not info_dict.get("enabled", True):
+                    continue
+
+                normalized_info = dict(info_dict)
+
+                if normalized_info.get("actions"):
+                    normalized_info["actions"] = [
+                        action
+                        for action in normalized_info["actions"]
+                        if action.get("enabled", True)
+                    ]
+
+                information = Information(**normalized_info)
+                dedupe_key = (
+                    normalized_info.get("Information_id"),
+                    information.pattern_id,
+                    information.explanation,
+                )
+                if dedupe_key in seen_information_keys:
+                    continue
+
+                seen_information_keys.add(dedupe_key)
+                all_informations.append(information)
+            except Exception as e:
+                info_id = (
+                    info_dict.get("Information_id", "unknown")
+                    if isinstance(info_dict, dict)
+                    else "unknown"
+                )
+                logger.error(
+                    "Failed to parse information %s in %s: %s",
+                    info_id,
+                    source_file,
+                    e,
+                )
+                continue
 
     def get_rules_for_pattern(self, pattern_id: str, ihv_type: IHVType) -> list[RuntimeCheckRule]:
         """Get all rules matching specific pattern and IHV.

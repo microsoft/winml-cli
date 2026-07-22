@@ -92,6 +92,30 @@ class TestUnifiedPatternConfig:
         assert alt.pattern_class == "SingleGeluPattern"
         assert alt.module == "winml.modelkit.pattern.gelu_patterns"
 
+    def test_variants_define_explicit_alternative_action_items(self):
+        """Variant alternatives should carry explicit metadata (no pair-level inheritance)."""
+        config = UnifiedPatternConfig()
+        patterns = config.get_skeleton_patterns()
+
+        expected = {
+            "Gelu2Pattern": {"gelu_fusion": True},
+            "Gelu3Pattern": {"gelu_fusion": True},
+            "Gelu4Pattern": {"gelu_fusion": True},
+            "LayerNormalizationMulPattern": {"layer_norm_fusion": True},
+        }
+
+        for pattern_class, optim_options in expected.items():
+            pattern = next((p for p in patterns if p.__class__.__name__ == pattern_class), None)
+            assert pattern is not None, f"{pattern_class} not found"
+
+            alternatives = config.get_alternatives(pattern)
+            assert len(alternatives) == 1
+            alt = alternatives[0]
+            assert alt.details is not None
+            assert alt.action_items is not None
+            assert len(alt.action_items) == 1
+            assert alt.action_items[0]["optimization_options"] == optim_options
+
     def test_gemm_alternatives_have_distinct_pattern_to_id(self):
         """Test that GemmPattern alternatives use distinct pattern_to_id values.
 

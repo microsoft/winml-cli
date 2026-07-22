@@ -108,6 +108,10 @@
           "type": "string",
           "description": "Human-readable pattern description"
         },
+        "explanation": {
+          "type": "string",
+          "description": "Optional recommendation explanation used when this pattern is detected"
+        },
         "flag_name": {
           "type": "string",
           "description": "Optional CLI flag name override (source part only, e.g. 'gelu'). If omitted, auto-generated from class names with Pattern suffix stripped."
@@ -138,6 +142,21 @@
           "type": "string",
           "description": "Explanation for why this alternative is recommended"
         },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether this alternative recommendation is enabled"
+        },
+        "details": {
+          "type": "string",
+          "description": "Optional detailed recommendation text for this alternative"
+        },
+        "action_items": {
+          "type": "array",
+          "description": "Optional action items that carry optimization options for this alternative",
+          "items": {
+            "$ref": "#/definitions/AlternativeActionItem"
+          }
+        },
         "pattern_class": {
           "type": "string",
           "description": "Optional: Python class name for rewrite target (e.g., SingleGeluPattern)"
@@ -149,6 +168,21 @@
         "flag_name": {
           "type": "string",
           "description": "Optional: CLI flag name override for the target slug (e.g. 'layernorm'). Overrides the auto-generated target part of the --enable-{source}-{target} flag."
+        }
+      }
+    },
+    "AlternativeActionItem": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "optimization_options": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "boolean"
+          }
         }
       }
     }

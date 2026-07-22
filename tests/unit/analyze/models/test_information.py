@@ -356,8 +356,8 @@ class TestActionItemModelRewrite:
         assert item.type == "ModelRewrite"
         assert item.optimization_options == {"highdimRTR-lowdimRTR": True}
 
-    def test_default_information_json_has_reshape_transpose_reshape_entry(self):
-        """Test default_information.json includes the ReshapeTransposeReshape entry."""
+    def test_default_pattern_rules_has_reshape_transpose_reshape_explanation_entry(self):
+        """Test default pattern rules include RTR explanation and optimization metadata."""
         import json
         from pathlib import Path
 
@@ -366,25 +366,38 @@ class TestActionItemModelRewrite:
             / "src"
             / "winml"
             / "modelkit"
-            / "analyze"
+            / "pattern"
             / "rules"
-            / "information_rules"
-            / "default_information.json"
+            / "default.json"
         )
-        data = json.loads(rules_path.read_text(encoding="utf-8"))
-        pattern_ids = [entry["pattern_id"] for entry in data if "pattern_id" in entry]
-        assert "SUBGRAPH/ReshapeTransposeReshapeOverlyHighDimPattern" in pattern_ids
+        config_data = json.loads(rules_path.read_text(encoding="utf-8"))
 
-        target_id = "SUBGRAPH/ReshapeTransposeReshapeOverlyHighDimPattern"
-        entry = next(e for e in data if e.get("pattern_id") == target_id)
-        assert entry["enabled"] is True
-        action_items = entry["actions"][0]["action_items"]
-        assert len(action_items) == 1
-        assert action_items[0]["type"] == "GraphOptimization"
-        assert action_items[0]["optimization_options"] == {"highdimRTR_lowdimRTR": True}
+        skeleton_rules = config_data.get("SkeletonPatternRules", [])
+        skeleton_entry = next(
+            e
+            for e in skeleton_rules
+            if e.get("pattern_id") == "SUBGRAPH/ReshapeTransposeReshapeOverlyHighDimPattern"
+        )
+        assert "fused into a single optimized operator" in skeleton_entry["explanation"]
 
-    def test_qc_information_json_has_transpose_attention_entry(self):
-        """Test that qc_information.json has the QC-specific TransposeAttentionPattern entry."""
+        alternative = next(
+            a
+            for a in skeleton_entry.get("alternatives", [])
+            if a.get("pattern_to_id") == "SUBGRAPH/ReshapeTransposeReshapeLowDimPattern"
+        )
+        assert "can be merged" in alternative["details"]
+
+        skeleton_action_items = next(
+            a["action_items"]
+            for a in skeleton_entry.get("alternatives", [])
+            if a.get("pattern_to_id") == "SUBGRAPH/ReshapeTransposeReshapeLowDimPattern"
+        )
+        assert len(skeleton_action_items) == 1
+        assert skeleton_action_items[0]["type"] == "GraphOptimization"
+        assert skeleton_action_items[0]["optimization_options"] == {"highdimRTR_lowdimRTR": True}
+
+    def test_qnn_pattern_rules_has_transpose_attention_explanation_entry(self):
+        """Test QNN pattern rules include TransposeAttention explanation and details."""
         import json
         from pathlib import Path
 
@@ -393,25 +406,33 @@ class TestActionItemModelRewrite:
             / "src"
             / "winml"
             / "modelkit"
-            / "analyze"
+            / "pattern"
             / "rules"
-            / "information_rules"
-            / "qc_information.json"
+            / "qnn.json"
         )
-        data = json.loads(rules_path.read_text(encoding="utf-8"))
-        pattern_ids = {e["pattern_id"] for e in data if "pattern_id" in e}
-        assert "SUBGRAPH/TransposeAttentionPattern" in pattern_ids
+        config_data = json.loads(rules_path.read_text(encoding="utf-8"))
 
-        target_id = "SUBGRAPH/TransposeAttentionPattern"
-        entry = next(e for e in data if e.get("pattern_id") == target_id)
-        assert entry["enabled"] is True
-        action_items = entry["actions"][0]["action_items"]
+        skeleton_rules = config_data.get("SkeletonPatternRules", [])
+        skeleton_entry = next(
+            e
+            for e in skeleton_rules
+            if e.get("pattern_id") == "SUBGRAPH/TransposeAttentionPattern"
+        )
+        assert "Attention operator" in skeleton_entry["explanation"]
+
+        alternative = next(
+            a
+            for a in skeleton_entry.get("alternatives", [])
+            if a.get("pattern_to_id") == "SUBGRAPH/ExpandedAttentionPattern"
+        )
+        assert "scaled dot-product attention subgraph" in alternative["details"]
+        action_items = alternative["action_items"]
         assert len(action_items) == 1
         assert action_items[0]["type"] == "GraphOptimization"
         assert action_items[0]["optimization_options"] == {"attention_expandedattention": True}
 
-    def test_default_information_json_does_not_have_transpose_attention_entry(self):
-        """Test that TransposeAttentionPattern is NOT in default_information.json (QC-specific)."""
+    def test_default_pattern_rules_does_not_have_transpose_attention_pattern(self):
+        """Test that TransposeAttention stays QNN-specific in skeleton rules."""
         import json
         from pathlib import Path
 
@@ -420,11 +441,11 @@ class TestActionItemModelRewrite:
             / "src"
             / "winml"
             / "modelkit"
-            / "analyze"
+            / "pattern"
             / "rules"
-            / "information_rules"
-            / "default_information.json"
+            / "default.json"
         )
-        data = json.loads(rules_path.read_text(encoding="utf-8"))
-        pattern_ids = {e["pattern_id"] for e in data if "pattern_id" in e}
+        config_data = json.loads(rules_path.read_text(encoding="utf-8"))
+        skeleton_rules = config_data.get("SkeletonPatternRules", [])
+        pattern_ids = {e["pattern_id"] for e in skeleton_rules if "pattern_id" in e}
         assert "SUBGRAPH/TransposeAttentionPattern" not in pattern_ids
