@@ -47,6 +47,8 @@ def convert_to_fp16(
     from onnx import TensorProto
     from onnxruntime.transformers.float16 import convert_float_to_float16
 
+    from ..onnx import EXTERNAL_DATA_THRESHOLD, get_model_size
+
     # Skip if model is already FP16 (check floating-point initializer dtypes)
     fp32_types = {TensorProto.FLOAT, TensorProto.DOUBLE, TensorProto.BFLOAT16}
     initializers = model.graph.initializer
@@ -64,9 +66,19 @@ def convert_to_fp16(
     if op_block_list:
         logger.info("  Keeping ops in FP32: %s", op_block_list)
 
+    # ORT's default shape-inference path serializes the complete ModelProto in
+    # memory.  Protobuf cannot serialize very large models (for example,
+    # DepthPro is ~3.6 GiB), even when their tensors came from external data.
+    # Export and optimization have already populated shape information, so
+    # bypass that redundant, size-unsafe step for external-data-scale models.
+    disable_shape_infer = get_model_size(model) >= EXTERNAL_DATA_THRESHOLD
+    if disable_shape_infer:
+        logger.info("  Skipping in-memory shape inference for large model")
+
     converted: ModelProto = convert_float_to_float16(
         model,
         keep_io_types=keep_io_types,
+        disable_shape_infer=disable_shape_infer,
         op_block_list=op_block_list,
     )
 

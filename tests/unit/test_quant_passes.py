@@ -337,6 +337,41 @@ class TestFP16PassConfig:
         assert calls == [{"keep_io_types": False, "op_block_list": ["Gather"]}]
 
 
+class TestConvertToFP16:
+    @pytest.mark.parametrize(
+        ("model_size", "expected_disable_shape_infer"),
+        [(1, False), (100 * 1024 * 1024, True)],
+    )
+    def test_disables_shape_inference_for_large_models(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        model_size: int,
+        expected_disable_shape_infer: bool,
+    ) -> None:
+        """Large external-data models must avoid protobuf serialization in ORT."""
+        import onnx
+        import onnxruntime.transformers.float16 as ort_fp16
+
+        import winml.modelkit.onnx as onnx_utils
+        from winml.modelkit.quant.fp16 import convert_to_fp16
+
+        model = onnx.helper.make_model(
+            onnx.helper.make_graph([], "g", [], []),
+            opset_imports=[onnx.helper.make_opsetid("", 17)],
+        )
+        calls: list[dict[str, Any]] = []
+
+        def fake_convert(candidate, **kwargs):  # type: ignore[no-untyped-def]
+            calls.append(kwargs)
+            return candidate
+
+        monkeypatch.setattr(onnx_utils, "get_model_size", lambda _model: model_size)
+        monkeypatch.setattr(ort_fp16, "convert_float_to_float16", fake_convert)
+
+        assert convert_to_fp16(model) is model
+        assert calls[0]["disable_shape_infer"] is expected_disable_shape_infer
+
+
 # ---------------------------------------------------------------------------
 # RTNPass — config field wiring
 # ---------------------------------------------------------------------------
