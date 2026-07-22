@@ -20,6 +20,7 @@ Key Features:
 from __future__ import annotations
 
 import contextlib
+import inspect
 import logging
 import sys
 import time
@@ -445,8 +446,12 @@ class HTPExporter:
         output_path = str(Path(output_path).resolve())
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-        # Input names from config, fallback to inputs dict keys
+        # Input names from config, fallback to inputs dict keys. Keyword inputs
+        # invoke forward() by name, but the TorchScript exporter assigns these
+        # ONNX names positionally to the traced graph inputs. Align names with
+        # forward() order so a config's tensor order cannot swap graph bindings.
         input_names = export_config.get_input_names() or list(inputs.keys())
+        input_names = self._resolve_keyword_input_names(model, inputs, input_names)
 
         # Output names: infer from traced hierarchy, validate against config
         traced_outputs = self._hierarchy_builder.get_outputs() if self._hierarchy_builder else None
@@ -494,6 +499,54 @@ class HTPExporter:
                 torch.onnx.export(model, export_args, output_path, **onnx_kwargs)
             else:
                 torch.onnx.export(model, (), output_path, kwargs=inputs, **onnx_kwargs)
+
+    @staticmethod
+    def _resolve_keyword_input_names(
+        model: nn.Module,
+        inputs: dict[str, torch.Tensor],
+        configured_input_names: list[str],
+    ) -> list[str]:
+        """Return ONNX names in the order produced by keyword tracing.
+
+        ``torch.onnx.export`` invokes the model safely with keyword arguments,
+        then applies ``input_names`` positionally to graph inputs emitted in
+        ``forward`` signature order. Reorder only when every configured,
+        generated input has an unambiguous signature match. Models implementing
+        ``get_export_args`` own a separate positional protocol, so their config
+        order remains authoritative.
+        """
+        if hasattr(model, "get_export_args"):
+            return configured_input_names
+
+        try:
+            parameters = inspect.signature(model.forward).parameters
+        except (TypeError, ValueError):
+            logger.debug(
+                "Could not inspect %s.forward; preserving configured input order.",
+                type(model).__name__,
+            )
+            return configured_input_names
+
+        configured_set = set(configured_input_names)
+        generated_set = set(inputs)
+        forward_input_names = [
+            name for name in parameters if name in configured_set and name in generated_set
+        ]
+        if (
+            len(forward_input_names) == len(configured_input_names)
+            and set(forward_input_names) == configured_set
+        ):
+            return forward_input_names
+
+        logger.debug(
+            "Could not align every configured input for %s.forward; "
+            "preserving configured input order. configured=%s generated=%s forward=%s",
+            type(model).__name__,
+            configured_input_names,
+            list(inputs),
+            list(parameters),
+        )
+        return configured_input_names
 
     @staticmethod
     def _get_optimum_patcher(model: nn.Module, task: str | None) -> Any:

@@ -11,57 +11,29 @@
     "hierarchy_tag_format": "full",
     "input_tensors": [
       {
-        "name": "input_ids",
-        "dtype": "int32",
-        "shape": [
-          1,
-          16
-        ],
-        "value_range": [
-          0,
-          49408
-        ]
-      },
-      {
         "name": "pixel_values",
         "dtype": "float32",
-        "shape": [
-          1,
-          3,
-          768,
-          768
-        ],
-        "value_range": [
-          0,
-          1
-        ]
+        "shape": [1, 3, 768, 768],
+        "value_range": [0, 1]
+      },
+      {
+        "name": "input_ids",
+        "dtype": "int32",
+        "shape": [1, 16],
+        "value_range": [0, 49408]
       },
       {
         "name": "attention_mask",
         "dtype": "int32",
-        "shape": [
-          1,
-          16
-        ],
-        "value_range": [
-          0,
-          2
-        ]
+        "shape": [1, 16],
+        "value_range": [0, 2]
       }
     ],
     "output_tensors": [
-      {
-        "name": "logits"
-      },
-      {
-        "name": "pred_boxes"
-      },
-      {
-        "name": "text_embeds"
-      },
-      {
-        "name": "image_embeds"
-      }
+      { "name": "logits" },
+      { "name": "pred_boxes" },
+      { "name": "text_embeds" },
+      { "name": "image_embeds" }
     ]
   },
   "optim": {},
