@@ -35,14 +35,27 @@ knowledge lives in one place.  A per-family subclass only has to:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 
 import torch
 import torch.nn as nn
 from optimum.exporters.onnx import OnnxConfig
-from transformers import PreTrainedModel
 
 from ..winml.kv_cache import WinMLCache, WinMLStaticCache
+
+
+if TYPE_CHECKING:
+    from transformers import PreTrainedModel
+
+
+class _PreTrainedModelLoader(Protocol):
+    """Class-level loader contract shared by built-in and upstream model classes."""
+
+    @classmethod
+    def from_pretrained(
+        cls, pretrained_model_name_or_path: str, **kwargs: Any
+    ) -> PreTrainedModel:
+        """Load a pretrained model."""
 
 
 class WinMLDecoderWrapper(nn.Module, ABC):
@@ -60,7 +73,8 @@ class WinMLDecoderWrapper(nn.Module, ABC):
         num_layers    — derived from ``onnx_config._normalized_config.num_layers``
     """
 
-    _HF_MODEL_CLS: ClassVar[type[PreTrainedModel]]  # set per-subclass to a concrete HF model class
+    # Set per-subclass to a concrete HF model loader.
+    _HF_MODEL_CLS: ClassVar[_PreTrainedModelLoader]
     _IO_CONFIG_CLS: ClassVar[type]
     _TASK: ClassVar[str] = "text2text-generation"
     _CACHE_CLS: ClassVar[type[WinMLCache]] = WinMLStaticCache

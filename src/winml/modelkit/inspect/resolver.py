@@ -270,17 +270,9 @@ def resolve_exporter(
     model_type_normalized = model_type.lower().replace("_", "-")
 
     # Check MODEL_BUILD_CONFIGS for predefined config
-    if model_type_normalized in MODEL_BUILD_CONFIGS:
-        config: WinMLBuildConfig = MODEL_BUILD_CONFIGS[model_type_normalized]
-        # MODEL_BUILD_CONFIGS entries are HF export configs; export is None only on
-        # the direct-ONNX build path, which never reaches this registry lookup.
-        export_config = config.export
-        if export_config is None:
-            raise ValueError(
-                f"MODEL_BUILD_CONFIGS entry for {model_type_normalized!r} is missing an "
-                "export config (export is None only on the direct-ONNX build path)."
-            )
-
+    config: WinMLBuildConfig | None = MODEL_BUILD_CONFIGS.get(model_type_normalized)
+    export_config = config.export if config is not None else None
+    if export_config is not None and export_config.input_tensors is not None:
         # Extract input tensors
         input_tensors: list[TensorInfo] = []
         if export_config.input_tensors:
@@ -375,6 +367,47 @@ def resolve_exporter(
     )
 
 
+def resolve_composite_exporter(
+    model_type: str,
+    task: str,
+    hf_config: PretrainedConfig | None = None,
+    *,
+    model_id: str | None = None,
+) -> ExporterInfo | None:
+    """Resolve a composite exporter by validating every registered component."""
+    from ..models.winml.composite_model import COMPOSITE_MODEL_REGISTRY
+
+    model_type_normalized = model_type.lower().replace("_", "-")
+    composite_cls = COMPOSITE_MODEL_REGISTRY.get((model_type_normalized, task))
+    if composite_cls is None:
+        return None
+
+    component_names = list(composite_cls._SUB_MODEL_CONFIG)
+    for component_task in composite_cls._SUB_MODEL_CONFIG.values():
+        loader = resolve_loader(model_type_normalized, component_task)
+        exporter = resolve_exporter(
+            model_type_normalized,
+            component_task,
+            hf_config=hf_config,
+            model_id=model_id,
+        )
+        if (
+            loader.support_level == SupportLevel.UNSUPPORTED
+            or exporter.support_level == SupportLevel.UNSUPPORTED
+        ):
+            return ExporterInfo(
+                onnx_config_class=None,
+                onnx_config_source="COMPOSITE_MODEL_REGISTRY",
+                support_level=SupportLevel.UNSUPPORTED,
+            )
+
+    return ExporterInfo(
+        onnx_config_class=f"Composite ({', '.join(component_names)})",
+        onnx_config_source="COMPOSITE_MODEL_REGISTRY",
+        support_level=SupportLevel.SUPPORTED,
+    )
+
+
 def resolve_winml(model_type: str, task: str) -> WinMLInfo:
     """Resolve WinML inference class for a model.
 
@@ -391,6 +424,16 @@ def resolve_winml(model_type: str, task: str) -> WinMLInfo:
         WinMLInfo with class name, source, and support level
     """
     model_type_normalized = model_type.lower().replace("_", "-")
+
+    from ..models.winml.composite_model import COMPOSITE_MODEL_REGISTRY
+
+    composite_cls = COMPOSITE_MODEL_REGISTRY.get((model_type_normalized, task))
+    if composite_cls is not None:
+        return WinMLInfo(
+            winml_class=composite_cls.__name__,
+            winml_class_source="COMPOSITE_MODEL_REGISTRY",
+            support_level=SupportLevel.SUPPORTED,
+        )
 
     # Level 1: Check WINML_MODEL_CLASS_MAPPING (specialized)
     key = (model_type_normalized, task)

@@ -27,7 +27,7 @@ from .io import (
 )
 from .metadata import capture_metadata, restore_metadata
 from .persistence import ONNXSaveError, cleanup_onnx, load_onnx, save_onnx
-from .shape import infer_onnx_shapes, infer_shapes
+from .shape import infer_onnx_shapes, infer_shapes, infer_symbolic_shapes
 from .utils import EXTERNAL_DATA_THRESHOLD, check_onnx_model, get_model_size, strip_node_attrs
 
 
@@ -50,6 +50,7 @@ __all__ = [
     "get_onnx_model_hash",
     "infer_onnx_shapes",
     "infer_shapes",
+    "infer_symbolic_shapes",
     "is_compiled_onnx",
     "is_quantized_onnx",
     "load_onnx",

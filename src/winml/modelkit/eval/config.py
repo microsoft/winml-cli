@@ -89,6 +89,7 @@ class WinMLEvaluationConfig:
             composite models (e.g. ``{"image-encoder": "...", "text-encoder": "..."}``).
             None = build from model_id.
         task: HF pipeline task. Auto-detected from model_id if omitted.
+        prompt: Optional task prompt passed to prompt-aware pipelines.
         device: Target device for inference.
         ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides
             device-to-provider mapping when provided.
@@ -112,6 +113,7 @@ class WinMLEvaluationConfig:
     model_id: str | None = None
     model_path: str | dict[str, str] | None = None
     task: str | None = None
+    prompt: str | None = None
     device: str = "auto"
     precision: str = "auto"
     ep: EPNameOrAlias | None = None
@@ -136,6 +138,8 @@ class WinMLEvaluationConfig:
             result["model_path"] = self.model_path
         if self.task is not None:
             result["task"] = self.task
+        if self.prompt is not None:
+            result["prompt"] = self.prompt
         result["device"] = self.device
         if self.precision != "auto":
             result["precision"] = self.precision
@@ -182,6 +186,7 @@ class WinMLEvaluationConfig:
             model_id=data.get("model_id"),
             model_path=data.get("model_path"),
             task=data.get("task"),
+            prompt=data.get("prompt"),
             device=data.get("device", "auto"),
             precision=data.get("precision", "auto"),
             ep=data.get("ep"),

@@ -41,6 +41,7 @@ Concrete composite models live alongside their export configs:
 from __future__ import annotations
 
 import logging
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import torch
@@ -55,6 +56,12 @@ if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
 logger = logging.getLogger(__name__)
+
+
+class PipelineCapability(StrEnum):
+    """Optional preprocessing contracts required by a composite model."""
+
+    COMBINED_IMAGE_TEXT_PROCESSOR = "combined-image-text-processor"
 
 
 # =========================================================================
@@ -105,6 +112,7 @@ class WinMLCompositeModel(PreTrainedModel):
     """
 
     _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {}
+    pipeline_capabilities: ClassVar[frozenset[PipelineCapability]] = frozenset()
 
     def __init__(
         self,
@@ -115,6 +123,7 @@ class WinMLCompositeModel(PreTrainedModel):
         self.sub_models = sub_models
         self.config = config
         self._device = device
+        self._trust_remote_code = False
 
     @classmethod
     def from_pretrained(
@@ -201,7 +210,9 @@ class WinMLCompositeModel(PreTrainedModel):
                 **merged,
             )
 
-        return cls(sub_models=sub_models, config=hf_config)
+        model = cls(sub_models=sub_models, config=hf_config)
+        model._trust_remote_code = trust_remote_code
+        return model
 
     @classmethod
     def from_onnx(
@@ -213,6 +224,7 @@ class WinMLCompositeModel(PreTrainedModel):
         task: str | None = None,
         hf_config: PretrainedConfig | None = None,
         sub_model_kwargs: dict[str, dict[str, Any]] | None = None,
+        trust_remote_code: bool = False,
         **kwargs: Any,
     ) -> WinMLCompositeModel:
         """Load composite model from pre-built ONNX files.
@@ -269,7 +281,9 @@ class WinMLCompositeModel(PreTrainedModel):
 
         if hf_config is None:
             raise ValueError("Composite model construction requires an HF config (hf_config).")
-        return resolved_cls(sub_models=sub_models, config=hf_config)
+        model = resolved_cls(sub_models=sub_models, config=hf_config)
+        model._trust_remote_code = trust_remote_code
+        return model
 
     @property
     def device(self) -> torch.device:

@@ -28,6 +28,7 @@ from .resolver import (
     get_build_config,
     get_known_tasks,
     resolve_cache,
+    resolve_composite_exporter,
     resolve_composite_info,
     resolve_exporter,
     resolve_io_config,
@@ -72,6 +73,7 @@ def inspect_model(
     model_id: str,
     include_hierarchy: bool = False,
     task_override: str | None = None,
+    trust_remote_code: bool = False,
 ) -> InspectResult:
     """Inspect a HuggingFace model and return configuration details.
 
@@ -79,6 +81,7 @@ def inspect_model(
         model_id: HuggingFace model identifier (e.g., "openai/clip-vit-base-patch32")
         include_hierarchy: If True, load model and extract HF module hierarchy
         task_override: If provided, use this task instead of auto-detection
+        trust_remote_code: Whether to trust remote/custom code when loading config
 
     Returns:
         InspectResult with all configuration details
@@ -98,7 +101,7 @@ def inspect_model(
 
     # Step 1: Fetch HF config (no model download)
     try:
-        hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=False)
+        hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=trust_remote_code)
     except OSError as e:
         if "404" in str(e) or "not found" in str(e).lower():
             raise ModelNotFoundError(f"Model '{model_id}' not found on HuggingFace Hub") from e
@@ -136,7 +139,12 @@ def inspect_model(
     )
 
     # Step 4: Resolve exporter configuration (pass model_id for correct image sizes)
-    exporter_info = resolve_exporter(model_type, task, hf_config=hf_config, model_id=model_id)
+    exporter_info = resolve_composite_exporter(
+        model_type,
+        task,
+        hf_config=hf_config,
+        model_id=model_id,
+    ) or resolve_exporter(model_type, task, hf_config=hf_config, model_id=model_id)
     logger.debug(
         "Exporter: %s (source: %s)",
         exporter_info.onnx_config_class,
@@ -152,7 +160,7 @@ def inspect_model(
     if include_hierarchy:
         from .hierarchy import extract_hierarchy
 
-        hierarchy_info = extract_hierarchy(model_id)
+        hierarchy_info = extract_hierarchy(model_id, trust_remote_code=trust_remote_code)
         logger.debug("Hierarchy: %d HF modules", hierarchy_info.hf_module_count)
 
     # Step 6: Compile overall support status
@@ -233,6 +241,7 @@ __all__ = [
     "get_known_tasks",
     "inspect_model",
     "resolve_cache",
+    "resolve_composite_exporter",
     "resolve_composite_info",
     "resolve_io_config",
     "resolve_processor",

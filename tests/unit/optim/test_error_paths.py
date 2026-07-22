@@ -324,7 +324,7 @@ class TestShapeInferenceFallback:
 
         with (
             patch(
-                "onnxruntime.tools.symbolic_shape_infer.SymbolicShapeInference.infer_shapes",
+                "winml.modelkit.onnx.shape.infer_symbolic_shapes",
                 side_effect=RuntimeError("SymPy error"),
             ),
             patch(
@@ -341,7 +341,7 @@ class TestShapeInferenceFallback:
 
         with (
             patch(
-                "onnxruntime.tools.symbolic_shape_infer.SymbolicShapeInference.infer_shapes",
+                "winml.modelkit.onnx.shape.infer_symbolic_shapes",
                 side_effect=RuntimeError("SymPy error"),
             ),
             patch(
@@ -360,7 +360,7 @@ class TestShapeInferenceFallback:
 
         with (
             patch(
-                "onnxruntime.tools.symbolic_shape_infer.SymbolicShapeInference.infer_shapes",
+                "winml.modelkit.onnx.shape.infer_symbolic_shapes",
                 return_value=simple_model,
             ),
             patch("winml.modelkit.onnx.shape.onnx.shape_inference.infer_shapes", mock_onnx),

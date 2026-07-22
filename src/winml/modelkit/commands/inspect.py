@@ -146,6 +146,12 @@ def _list_tasks_for_model(model_type: str) -> list[str]:
     default=None,
     help="Override model class (e.g., BertForMaskedLM) — can be used without --model",
 )
+@click.option(
+    "--trust-remote-code",
+    is_flag=True,
+    default=False,
+    help="Trust remote/custom HuggingFace code when loading model configuration",
+)
 @cli_utils.verbosity_options()
 @cli_utils.no_color_option()
 @click.pass_context
@@ -160,6 +166,7 @@ def inspect(
     list_tasks: bool,
     model_type: str | None,
     model_class: str | None,
+    trust_remote_code: bool,
 ) -> None:
     r"""Inspect input model's WinML CLI configuration.
 
@@ -196,7 +203,10 @@ def inspect(
             from transformers import AutoConfig
 
             try:
-                hf_config = AutoConfig.from_pretrained(model, trust_remote_code=False)
+                hf_config = AutoConfig.from_pretrained(
+                    model,
+                    trust_remote_code=trust_remote_code,
+                )
             except Exception as e:
                 raise click.ClickException(
                     f"Could not resolve model type for '{model}': {e}"
@@ -299,6 +309,7 @@ def inspect(
                 model_type_override=model_type,
                 model_class_override=model_class,
                 include_hierarchy=hierarchy,
+                trust_remote_code=trust_remote_code,
             )
         else:
             with _stderr_console.status(
@@ -311,6 +322,7 @@ def inspect(
                     model_type_override=model_type,
                     model_class_override=model_class,
                     include_hierarchy=hierarchy,
+                    trust_remote_code=trust_remote_code,
                 )
 
         if output_format == "json":
@@ -338,6 +350,7 @@ def _inspect_model_v2(
     model_type_override: str | None = None,
     model_class_override: str | None = None,
     include_hierarchy: bool = False,
+    trust_remote_code: bool = False,
 ) -> InspectResult:
     """Inspect v2 core — calls shared loader/export modules directly.
 
@@ -347,6 +360,7 @@ def _inspect_model_v2(
         model_type_override: Model type override (e.g., "bert")
         model_class_override: Model class override (e.g., "BertForMaskedLM")
         include_hierarchy: Whether to extract module hierarchy
+        trust_remote_code: Whether to trust remote/custom HuggingFace code
 
     Returns:
         InspectResult dataclass
@@ -368,6 +382,7 @@ def _inspect_model_v2(
         build_tensor_infos_from_io_specs,
         compile_support_status,
         resolve_cache,
+        resolve_composite_exporter,
         resolve_composite_info,
         resolve_io_config,
         resolve_processor,
@@ -389,7 +404,10 @@ def _inspect_model_v2(
     parent_hf_config = None
     if model_id and not model_type_override:
         try:
-            parent_hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=False)
+            parent_hf_config = AutoConfig.from_pretrained(
+                model_id,
+                trust_remote_code=trust_remote_code,
+            )
         except Exception:
             pass  # resolve_loader_config will handle the error properly
 
@@ -405,6 +423,7 @@ def _inspect_model_v2(
             model_type=model_type_override,
             model_class=model_class_override,
             hf_config=parent_hf_config,
+            trust_remote_code=trust_remote_code,
         )
     except RepositoryNotFoundError as e:
         # Direct HF Hub 404 — keep full message (includes private-repo hint).
@@ -531,6 +550,14 @@ def _inspect_model_v2(
         output_tensors=output_tensors,
         opset_version=opset_version,
     )
+    composite_exporter = resolve_composite_exporter(
+        model_type,
+        task,
+        hf_config=hf_config,
+        model_id=model_id,
+    )
+    if composite_exporter is not None:
+        exporter_info = composite_exporter
 
     # =========================================================================
     # STEP 6: WinML class (inspect-only lookup)
@@ -545,7 +572,7 @@ def _inspect_model_v2(
         try:
             from ..inspect.hierarchy import extract_hierarchy
 
-            hierarchy_info = extract_hierarchy(model_id)
+            hierarchy_info = extract_hierarchy(model_id, trust_remote_code=trust_remote_code)
         except Exception as e:
             logger.debug("Hierarchy extraction failed for %s: %s", model_id, e)
 

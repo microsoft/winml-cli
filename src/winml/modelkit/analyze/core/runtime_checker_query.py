@@ -25,6 +25,7 @@ from ...onnx import (
     ONNXDomain,
     SupportedONNXType,
     infer_onnx_shapes,
+    infer_symbolic_shapes,
     remove_optional_from_type_annotation,
 )
 from ...onnx.external_data import try_load_external_initializer_array
@@ -1018,9 +1019,7 @@ class RuntimeCheckerQuery:
             # Then try to enhance with symbolic shape inference
             # if available which supports Microsoft domain
             try:
-                from onnxruntime.tools.symbolic_shape_infer import SymbolicShapeInference
-
-                symbolic_inferred = SymbolicShapeInference.infer_shapes(inferred_model)
+                symbolic_inferred = infer_symbolic_shapes(inferred_model)
                 if symbolic_inferred is not None:
                     inferred_model = symbolic_inferred
             except Exception as e:

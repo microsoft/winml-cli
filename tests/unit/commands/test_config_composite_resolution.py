@@ -23,13 +23,16 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from transformers import BartConfig, Qwen3Config, T5Config
+from transformers import BartConfig, Florence2Config, Qwen3Config, T5Config
 
 from winml.modelkit.commands.config import (
     _resolve_composite_model_components as _resolve,
 )
 from winml.modelkit.loader.resolution import (
     _composite_components_for_task as _serve,
+)
+from winml.modelkit.loader.resolution import (
+    resolve_task,
 )
 
 
@@ -55,6 +58,20 @@ def test_blip_image_to_text_expands_to_composite() -> None:
     components = _serve("blip", "image-to-text")
     assert components is not None
     assert "encoder" in components and "decoder" in components
+
+
+def test_florence2_default_resolution_matches_image_to_text_composite() -> None:
+    config = Florence2Config()
+    config.architectures = ["Florence2ForConditionalGeneration"]
+
+    resolution = resolve_task(config)
+
+    assert resolution.task == "image-to-text"
+    assert resolution.composite == {
+        "encoder": "image-feature-extraction",
+        "decoder": "text2text-generation",
+    }
+    assert _resolve(None, "florence2", None) == resolution.composite
 
 
 def test_bart_text_classification_stays_single() -> None:

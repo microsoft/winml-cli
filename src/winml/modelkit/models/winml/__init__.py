@@ -181,6 +181,7 @@ def register_specialization(model_type: str, task: str, class_name: str) -> None
 from .base import WinMLModelForGenericTask, WinMLPreTrainedModel
 from .composite_model import (
     COMPOSITE_MODEL_REGISTRY,
+    PipelineCapability,
     WinMLCompositeModel,
     register_composite_model,
 )
@@ -224,6 +225,7 @@ __all__ = [
     "GenaiTarget",
     "GenaiTransformerSpec",
     "ImageSegmentationOutput",
+    "PipelineCapability",
     "WinMLCache",
     "WinMLCompositeModel",
     "WinMLDecoderOnlyModel",
