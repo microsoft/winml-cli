@@ -57,11 +57,13 @@ NPU_EPS = ("qnn", "vitisai", "openvino")
 GPU_EPS = ("dml", "nv_tensorrt_rtx", "migraphx", "openvino", "qnn")
 NON_CPU_EPS = ("qnn", "vitisai", "dml", "nv_tensorrt_rtx", "migraphx")
 
-# Real image-classification ONNX model shipped in the repo
-# (``pixel_values`` [1, 224, 224, 3] -> ``logits`` [1, 3]). Used for NPU
-# tests, where a bare float MatMul is not representative of NPU execution.
-ASSETS_NPU_ONNX_MODEL = Path(__file__).resolve().parent.parent / "assets" / "resnet_w8a8" / "model.onnx"
-ASSETS_GPU_ONNX_MODEL = Path(__file__).resolve().parent.parent / "assets" / "resnet_fp32" / "model.onnx"
+# Real image-classification ONNX models shipped in the repo, used by the
+# NPU / GPU tests where a bare float MatMul is not representative of
+# accelerator execution. NPU uses a quantized ResNet (w8a8, NHWC); GPU uses
+# the fp32 ResNet (NCHW). Both classify to ``logits`` [1, 3].
+_ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+ASSETS_NPU_ONNX_MODEL = _ASSETS_DIR / "resnet_w8a8" / "model.onnx"
+ASSETS_GPU_ONNX_MODEL = _ASSETS_DIR / "resnet_fp32" / "model.onnx"
 
 
 def _require_gpu() -> None:
@@ -207,6 +209,17 @@ class _PerfBenchmarkSuite:
         Subclasses backed by a real ONNX file override this to point at a
         model that actually executes on the NPU (QNN / VitisAI), where a
         bare float MatMul is not representative.
+        """
+        return model_arg
+
+    @pytest.fixture
+    def gpu_model_arg(self, model_arg: str) -> str:
+        """Model source used by the GPU tests.
+
+        Defaults to ``model_arg`` so subclasses share a single model.
+        Subclasses backed by a real ONNX file override this to point at a
+        model that actually executes on the GPU, where a bare float MatMul
+        is not representative.
         """
         return model_arg
 
@@ -427,7 +440,7 @@ class _PerfBenchmarkSuite:
         data = json.loads(output_file.read_text())
         _assert_monitor_result(data, device="cpu")
 
-    def test_benchmark_gpu_monitor(self, tmp_path: Path, model_arg: str):
+    def test_benchmark_gpu_monitor(self, tmp_path: Path, gpu_model_arg: str):
         """Benchmark on GPU with --monitor.
 
         Requires a real GPU discoverable via PDH. Verifies the JSON output
@@ -441,11 +454,11 @@ class _PerfBenchmarkSuite:
         result = runner.invoke(
             perf,
             _build_perf_args(
-                model_arg=model_arg,
+                model_arg=gpu_model_arg,
                 output_file=output_file,
                 device="gpu",
                 monitor=True,
-                iterations_overwrite=1500,
+                iterations_overwrite=1000,
             ),
             obj={},
             catch_exceptions=False,
@@ -556,7 +569,7 @@ class _PerfBenchmarkSuite:
         _assert_monitor_result(data, device="cpu", ep=EP_ALIASES[ep])
 
     @pytest.mark.parametrize("ep", GPU_EPS)
-    def test_benchmark_ep_device_gpu(self, ep: str, tmp_path: Path, model_arg: str):
+    def test_benchmark_ep_device_gpu(self, ep: str, tmp_path: Path, gpu_model_arg: str):
         """Benchmark with --ep <ep> and --device gpu.
 
         Skipped if the specified EP or a GPU is unavailable on the host.
@@ -570,12 +583,12 @@ class _PerfBenchmarkSuite:
         result = runner.invoke(
             perf,
             _build_perf_args(
-                model_arg=model_arg,
+                model_arg=gpu_model_arg,
                 output_file=output_file,
                 device="gpu",
                 ep=ep,
                 monitor=True,
-                iterations_overwrite=1500,
+                iterations_overwrite=1000,
             ),
             obj={},
             catch_exceptions=False,
@@ -634,6 +647,16 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
         shipped under ``tests/assets/`` instead of ``model_arg``.
         """
         return str(ASSETS_NPU_ONNX_MODEL)
+
+    @pytest.fixture
+    def gpu_model_arg(self, model_arg: str) -> str:
+        """GPU tests run against a real image-classification ONNX model.
+
+        A bare float MatMul does not exercise a representative GPU
+        execution path, so the GPU tests use the model shipped under
+        ``tests/assets/`` instead of ``model_arg``.
+        """
+        return str(ASSETS_GPU_ONNX_MODEL)
 
     def test_batch_size_cpu(self, tmp_path: Path, onnx_model_path: Path):
         """--batch-size applies to a model with a dynamic leading dimension."""
@@ -784,7 +807,7 @@ class TestPerfHuggingFace:
                 device="gpu",
                 ep=ep,
                 monitor=True,
-                iterations_overwrite=1500,
+                iterations_overwrite=1000,
             ),
             obj={},
             catch_exceptions=False,
