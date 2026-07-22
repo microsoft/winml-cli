@@ -898,6 +898,41 @@ class TestGenerateRandomInputs:
         assert np.all(inputs["default_float"] >= 0.0)
         assert np.all(inputs["default_float"] < 1.0)
 
+    def test_bbox_range_generates_ordered_positive_area_boxes(self) -> None:
+        """Default perf inputs must preserve the canonical bbox corner contract."""
+        import numpy as np
+
+        from winml.modelkit.commands.perf import generate_random_inputs
+
+        io_config = {
+            "input_names": ["bbox"],
+            "input_shapes": [[1, 512, 4]],
+            "input_types": ["int32"],
+            "input_value_ranges": {"bbox": [0, 1001]},
+        }
+
+        bbox = generate_random_inputs(io_config)["bbox"]
+
+        assert bbox.shape == (1, 512, 4)
+        assert np.all(bbox >= 0)
+        assert np.all(bbox < 1001)
+        assert np.all(bbox[..., 0] < bbox[..., 2])
+        assert np.all(bbox[..., 1] < bbox[..., 3])
+
+    def test_bbox_range_requires_two_coordinates(self) -> None:
+        """A degenerate bbox range must fail instead of producing invalid corners."""
+        from winml.modelkit.commands.perf import generate_random_inputs
+
+        io_config = {
+            "input_names": ["bbox"],
+            "input_shapes": [[1, 8, 4]],
+            "input_types": ["int32"],
+            "input_value_ranges": {"bbox": [0, 1]},
+        }
+
+        with pytest.raises(ValueError, match="at least two coordinates"):
+            generate_random_inputs(io_config)
+
 
 class TestEffectiveBatchSize:
     """Throughput must scale by the batch the session actually ran.
