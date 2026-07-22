@@ -76,8 +76,6 @@ class HTPConfig:
         "opset_version": 17,
         "do_constant_folding": True,
         "verbose": False,  # ONNX internal verbose
-        # PyTorch dynamo export disabled by default. Use --dynamo flag to enable
-        # for rich node metadata (namespace, class_hierarchy, etc.)
         # dynamic_axes: Not set (defaults to None = static dimensions)
         # This prevents dynamic batch which causes MatMulAddFusion failure
     }
@@ -93,7 +91,7 @@ class HTPConfig:
     DEFAULT_EXPORT_STATS: ClassVar[dict[str, Any]] = {
         # Seconds elapsed from export() entry to final stat collection.
         "export_time": 0.0,
-        # Number of named hierarchy modules discovered during tracing.
+        # Number of named modules in the recovered or traced hierarchy.
         "hierarchy_modules": 0,
         # Total ONNX graph nodes in the exported model.
         "onnx_nodes": 0,

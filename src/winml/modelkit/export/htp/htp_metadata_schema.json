@@ -158,7 +158,7 @@
           "default": "trace"
         },
         "modules_traced": {
-          "description": "Number of modules traced during execution",
+          "description": "Number of modules present in the recovered or traced hierarchy",
           "type": "integer",
           "minimum": 0
         },
@@ -377,6 +377,11 @@
             },
             "timestamp": {
               "$ref": "#/$defs/ISOTimestamp"
+            },
+            "source": {
+              "description": "How the hierarchy was obtained",
+              "type": "string",
+              "enum": ["trace", "onnx_metadata"]
             },
             "modules_traced": {"type": "integer", "minimum": 0},
             "execution_steps": {"type": "integer", "minimum": 0}

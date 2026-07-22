@@ -2,13 +2,13 @@
 
 The first stage of the winml-cli pipeline is the most deterministic: bring a model into memory and convert it to ONNX. Everything that follows — optimization, quantization, compilation — operates on that ONNX artifact. A well-exported graph with accurate metadata travels cleanly through the rest of the pipeline without requiring patching or re-export.
 
-Loading is an internal operation: the loader module resolves model provenance, selects the right HuggingFace model class, and prepares the weights for tracing. The `winml export` command is the surface users interact with directly.
+Loading is an internal operation: the loader module resolves model provenance, selects the right HuggingFace model class, and prepares the weights for export. The `winml export` command is the surface users interact with directly.
 
 ## Loading a model
 
 When you point winml-cli at a model identifier, the internal loader resolves it in one of two ways. If the identifier looks like a HuggingFace Hub path (e.g., `prajjwal1/bert-tiny`), the loader downloads the model weights and configuration to the standard HuggingFace cache at `~/.cache/huggingface`. Subsequent runs are served from that cache without re-downloading. If the identifier is a path to a local PyTorch checkpoint directory, the loader reads it directly without network access.
 
-In both cases the loader auto-detects the task — image classification, text feature extraction, and so on — and selects a corresponding HuggingFace model class. The result is a PyTorch model object ready for tracing.
+In both cases the loader auto-detects the task — image classification, text feature extraction, and so on — and selects a corresponding HuggingFace model class. The result is a PyTorch model object ready for export.
 
 Before committing to a full export you can verify that the loader resolved everything correctly with `winml inspect`. It prints the detected task, the HuggingFace model class, the export configuration, and the WinML inference class — all without downloading weights. Add `--hierarchy` to reconstruct the PyTorch module tree from random-weight tracing.
 
@@ -31,7 +31,7 @@ During export the HTP (Hierarchy-preserving Tags Protocol) exporter attaches two
 
 #### How tags are built
 
-The module path attached to each node is obtained differently depending on the exporter. Under the default TorchDynamo exporter, dynamo records the originating module for every node as ONNX metadata, and the exporter reconstructs the hierarchy directly from that metadata after export — no forward hooks are involved. Under `--no-dynamo`, the TorchScript path instead registers PyTorch forward hooks on each module: when a module executes, a pre-hook pushes its class name onto a tag stack and the post-hook pops it. Either way the result is hierarchical paths that mirror the PyTorch module tree:
+The module path attached to each node is obtained differently depending on the exporter. Under the default TorchDynamo exporter, dynamo records originating-module information as ONNX metadata, and the exporter reconstructs the hierarchy directly from that metadata after export — no forward hooks are involved. Under `--no-dynamo`, the TorchScript path instead registers PyTorch forward hooks on each module: when a module executes, a pre-hook pushes its class name onto a tag stack and the post-hook pops it. Either way the result is hierarchical paths that mirror the PyTorch module tree:
 
 ```mermaid
 flowchart LR
@@ -75,7 +75,7 @@ Each ONNX node gets its tag from the module it belongs to. Here are a few exampl
 
 #### Node-to-module mapping
 
-After the ONNX graph is produced by `torch.onnx.export`, a 4-priority system assigns each ONNX node to the closest matching module:
+Under the default dynamo path, each node is assigned directly from its `pkg.torch.onnx.name_scopes` and `pkg.torch.onnx.class_hierarchy` metadata; nodes without usable metadata receive the model-root fallback. Under `--no-dynamo`, after the ONNX graph is produced by `torch.onnx.export`, the legacy tagger instead uses a 4-priority system to assign each ONNX node to the closest traced module:
 
 1. **Direct match** (61 %) — the node's scope name maps exactly to a traced module.
 2. **Parent match** (24 %) — walk up the scope hierarchy until a traced module is found.
@@ -100,7 +100,7 @@ These I/O specs enable tools like `winml perf` to generate correct dummy inputs 
 Alongside the `.onnx` file, the exporter writes a `*_htp_metadata.json` sidecar containing:
 
 - **`nodes`** — complete mapping of every ONNX node name → hierarchy tag
-- **`modules`** — traced module information (class name, tag, execution order)
+- **`modules`** — hierarchy module information (class name, tag, discovery order)
 - **`statistics`** — export time, node counts, coverage percentage
 - **`outputs`** — I/O tensor specifications
 
