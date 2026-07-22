@@ -266,6 +266,17 @@ def _prune_unused_initializers(model: onnx.ModelProto) -> None:
     model.graph.initializer.extend(remaining)
 
 
+def _prune_stale_value_info(model: onnx.ModelProto) -> None:
+    """Remove value metadata for tensors no longer defined by the graph."""
+    graph = model.graph
+    defined = {value.name for value in graph.input if value.name}
+    defined.update(initializer.name for initializer in graph.initializer)
+    defined.update(output for node in graph.node for output in node.output if output)
+    remaining = [value for value in graph.value_info if value.name in defined]
+    del graph.value_info[:]
+    graph.value_info.extend(remaining)
+
+
 def _prune_generated_slices(model: onnx.ModelProto, introduced: set[str]) -> None:
     """Remove generated Slice nodes whose outputs are entirely dead."""
     while True:
@@ -486,12 +497,13 @@ def _collect_affine_chain(
     output_shape: tuple[int, ...],
     start: int,
     end: int,
+    calculation_dtype: np.dtype[Any],
 ) -> _AffineCandidate | None:
     """Collect a safe consecutive Mul/Add chain from one routed branch."""
     current = first
     current_input = source_name
-    scale = np.ones(end - start, dtype=np.float32)
-    offset = np.zeros(end - start, dtype=np.float32)
+    scale = np.ones(end - start, dtype=calculation_dtype)
+    offset = np.zeros(end - start, dtype=calculation_dtype)
     matched: list[onnx.NodeProto] = []
 
     while current.op_type in {"Mul", "Add"}:
@@ -503,7 +515,7 @@ def _collect_affine_chain(
         values = _affine_operand(index, current, current_input, output_shape, end - start)
         if values is None:
             return None
-        values = values.astype(np.result_type(values.dtype, np.float32), copy=False)
+        values = values.astype(calculation_dtype, copy=False)
         if current.op_type == "Mul":
             scale *= values
             offset *= values
@@ -543,6 +555,7 @@ def _collect_routed_affine_candidates(
     source_output_index: int,
     start: int,
     end: int,
+    calculation_dtype: np.dtype[Any],
 ) -> list[_AffineCandidate]:
     """Collect affine leaves below safe views and disjoint channel slices."""
     if source_output_index >= len(source_node.output):
@@ -587,6 +600,7 @@ def _collect_routed_affine_candidates(
             current_shape,
             start,
             end,
+            calculation_dtype,
         )
         if candidate is None:
             return []
@@ -618,6 +632,7 @@ def _collect_routed_affine_candidates(
                 0,
                 start + local_start,
                 start + local_end,
+                calculation_dtype,
             )
         )
     return candidates
@@ -716,6 +731,7 @@ def _fold_channel_affine(
         weight_dtype = onnx.numpy_helper.to_array(weight_initializer).dtype
         if channels <= 0:
             continue
+        calculation_dtype = np.result_type(weight_dtype, np.float32)
 
         route_name = conv_output
         route_shape = conv_shape
@@ -750,6 +766,7 @@ def _fold_channel_affine(
                 route_shape,
                 0,
                 channels,
+                calculation_dtype,
             )
             if direct is not None:
                 direct.source_node = route_source_node
@@ -777,6 +794,7 @@ def _fold_channel_affine(
                             output_index,
                             start,
                             end,
+                            calculation_dtype,
                         )
                     )
 
@@ -797,7 +815,6 @@ def _fold_channel_affine(
         ):
             continue
 
-        calculation_dtype = np.result_type(weight_dtype, np.float32)
         scale = np.ones(channels, dtype=calculation_dtype)
         offset = np.zeros(channels, dtype=calculation_dtype)
         for candidate in candidates:
@@ -909,4 +926,5 @@ class AlgebraicRewritePipe(BasePipe[AlgebraicRewritePipeConfig]):
         _prune_generated_slices(result, introduced_nodes)
         _prune_dead_constant_nodes(result)
         _prune_unused_initializers(result)
+        _prune_stale_value_info(result)
         return result

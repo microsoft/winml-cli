@@ -316,6 +316,7 @@ class TestConvChannelAffineFolding:
         assert {initializer.name for initializer in transformed.graph.initializer} == set(
             transformed.graph.node[0].input[1:]
         )
+        assert not transformed.graph.value_info
         _assert_valid_with_inferred_shapes(transformed)
         np.testing.assert_allclose(
             _run(model, values),
@@ -323,6 +324,38 @@ class TestConvChannelAffineFolding:
             rtol=2e-5,
             atol=2e-5,
         )
+
+    def test_float64_affine_values_preserve_weight_precision(self) -> None:
+        shape = [1, 1, 1, 1]
+
+        def tensor_info(name: str) -> onnx.ValueInfoProto:
+            return onnx.helper.make_tensor_value_info(name, onnx.TensorProto.DOUBLE, shape)
+
+        weight = np.ones(shape, dtype=np.float64)
+        scale = np.asarray(1.0 + 2**-30, dtype=np.float64)
+        model = _model(
+            [
+                onnx.helper.make_node("Conv", ["x", "weight"], ["conv_out"]),
+                onnx.helper.make_node("Mul", ["conv_out", "scale"], ["y"]),
+            ],
+            [tensor_info("x")],
+            [tensor_info("y")],
+            [_tensor("weight", weight), _tensor("scale", scale)],
+            value_info=[tensor_info("conv_out")],
+        )
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(conv_channel_affine_folding=True),
+        )
+        folded_weight = next(
+            initializer
+            for initializer in transformed.graph.initializer
+            if initializer.name == transformed.graph.node[0].input[1]
+        )
+        folded_values = onnx.numpy_helper.to_array(folded_weight)
+        assert folded_values.dtype == np.float64
+        np.testing.assert_array_equal(folded_values, weight * scale)
 
     def test_shared_conv_output_is_ineligible(
         self,
