@@ -116,7 +116,7 @@ def _build_perf_args(
     batch_size: int | None = None,
     input_data: Path | None = None,
     op_tracing: str | None = None,
-    iterations_overwrite: int | None = None
+    iterations_overwrite: int | None = None,
 ) -> list[str]:
     """Build the argv list passed to the perf CLI.
 
@@ -444,7 +444,7 @@ class _PerfBenchmarkSuite:
                 output_file=output_file,
                 device="gpu",
                 monitor=True,
-                iterations_overwrite=1000,
+                iterations_overwrite=1500,
             ),
             obj={},
             catch_exceptions=False,
@@ -454,6 +454,7 @@ class _PerfBenchmarkSuite:
         assert output_file.exists(), f"Output file not created: {output_file}"
         data = json.loads(output_file.read_text())
         _assert_monitor_result(data, device="gpu")
+
     def test_benchmark_npu_monitor(self, tmp_path: Path, npu_model_arg: str):
         """Benchmark on NPU with --monitor.
 
@@ -573,7 +574,7 @@ class _PerfBenchmarkSuite:
                 device="gpu",
                 ep=ep,
                 monitor=True,
-                iterations_overwrite=1000,
+                iterations_overwrite=1500,
             ),
             obj={},
             catch_exceptions=False,
@@ -624,12 +625,12 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
         return str(onnx_model_path)
 
     @pytest.fixture
-    def npu_model_arg(self) -> str:
+    def npu_model_arg(self, model_arg: str) -> str:
         """NPU tests run against a real image-classification ONNX model.
 
         A bare float MatMul does not exercise a representative NPU
         (QNN / VitisAI) execution path, so the NPU tests use the model
-        shipped under ``tests/assets/``.
+        shipped under ``tests/assets/`` instead of ``model_arg``.
         """
         return str(ASSETS_ONNX_MODEL)
 
@@ -782,7 +783,7 @@ class TestPerfHuggingFace:
                 device="gpu",
                 ep=ep,
                 monitor=True,
-                iterations_overwrite=1000,
+                iterations_overwrite=1500,
             ),
             obj={},
             catch_exceptions=False,
