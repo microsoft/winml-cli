@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 import numpy as np
 import onnx
@@ -208,7 +208,7 @@ def _static_shape(index: _GraphIndex, name: str) -> tuple[int, ...] | None:
     shape = index.shapes.get(name)
     if shape is None or any(dimension is None for dimension in shape):
         return None
-    return tuple(int(dimension) for dimension in shape)
+    return cast("tuple[int, ...]", shape)
 
 
 def _new_initializer(
@@ -733,9 +733,10 @@ def _fold_channel_affine(
             if view_output is None or route_name in index.graph_outputs:
                 break
             route_name = view_output
-            route_shape = _static_shape(index, route_name)
-            if route_shape is None:
+            next_route_shape = _static_shape(index, route_name)
+            if next_route_shape is None:
                 break
+            route_shape = next_route_shape
             route_source_node = view
             route_source_output_index = 0
             direct_consumers = index.consumers.get(route_name, [])
