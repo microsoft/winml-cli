@@ -246,8 +246,9 @@ class WinMLAutoModel:
         # Build: optimize → [quantize] → [compile]
         from ..build import build_onnx_model
 
+        cache_task = resolved_task or "onnx"
         cache_key = get_cache_key(
-            get_task_abbrev(cast("str", resolved_task)),
+            get_task_abbrev(cast("str", cache_task)),
             config.generate_cache_key(),
             _get_cache_build_controls(
                 skip_optimize=bool(kwargs.get("skip_optimize", False)),

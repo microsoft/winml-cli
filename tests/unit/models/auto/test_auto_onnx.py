@@ -406,6 +406,36 @@ class TestFromOnnxCacheDirAndKey:
         assert call_kwargs["cache_key"]
         assert "imgcls" in call_kwargs["cache_key"]
 
+    def test_taskless_onnx_uses_default_cache_abbrev(
+        self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: EPDeviceTarget
+    ):
+        """from_onnx() falls back to the stable ONNX cache abbrev when task is absent."""
+        mock_config = MagicMock()
+        mock_config.export = None
+        mock_config.loader = None
+        mock_config.generate_cache_key.return_value = "feedfacefeedface"
+
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+            patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
+            patch("winml.modelkit.config.generate_onnx_build_config", return_value=mock_config),
+            patch("winml.modelkit.build.build_onnx_model") as mock_build,
+            patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
+        ):
+            mock_build.return_value = _make_build_result(tmp_path)
+            mock_get_class.return_value = lambda **kw: MagicMock()
+
+            WinMLAutoModel.from_onnx(
+                fake_onnx,
+                ep_device=cpu_ep_device,
+                task=None,
+            )
+
+        from winml.modelkit.cache import get_cache_key
+
+        call_kwargs = mock_build.call_args.kwargs
+        assert call_kwargs["cache_key"] == get_cache_key("onnx", "feedfacefeedface")
+
     def test_build_controls_change_cache_key(self, fake_onnx: Path, tmp_path: Path):
         """Artifact-changing build controls must produce distinct shared-helper keys."""
         from winml.modelkit.cache import get_cache_key
