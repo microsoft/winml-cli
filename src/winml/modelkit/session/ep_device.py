@@ -38,6 +38,8 @@ from typing import Any, Final, NamedTuple, cast
 
 import onnxruntime as ort
 
+from ..utils.constants import EP_ALIASES, EP_NAMES, normalize_ep_name
+
 
 logger = logging.getLogger(__name__)
 
@@ -187,20 +189,7 @@ class UnknownListingPick(Exception):  # noqa: N818
 
 # --- EP-name short<->full helpers -----------------------------------------
 # These live above EPDeviceTarget so its __post_init__ can validate ep names
-# against the known catalog without forward references.
-
-
-_SHORT_TO_FULL: Final[dict[str, str]] = {
-    "qnn": "QNNExecutionProvider",
-    "openvino": "OpenVINOExecutionProvider",
-    "vitisai": "VitisAIExecutionProvider",
-    "migraphx": "MIGraphXExecutionProvider",
-    "nvtensorrtrtx": "NvTensorRTRTXExecutionProvider",
-    "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
-    "tensorrt": "TensorrtExecutionProvider",
-    "dml": "DmlExecutionProvider",
-    "cpu": "CPUExecutionProvider",
-}
+# against the shared public normalizer without forward references.
 
 
 def expand_ep_name(name: str) -> str:
@@ -210,21 +199,7 @@ def expand_ep_name(name: str) -> str:
     case-insensitively. Names outside the catalog pass through unchanged so
     callers can report their own validation error.
     """
-    full = _SHORT_TO_FULL.get(name.lower())
-    if full is not None:
-        return full
-    name_folded = name.casefold()
-    for canonical in _FULL_TO_SHORT:
-        if canonical.casefold() == name_folded:
-            return canonical
-    return name
-
-
-# Inverse of _SHORT_TO_FULL. Reverse iteration preserves the first-declared
-# short name as canonical when public aliases share one provider.
-_FULL_TO_SHORT: Final[dict[str, str]] = {
-    full: short for short, full in reversed(tuple(_SHORT_TO_FULL.items()))
-}
+    return normalize_ep_name(name) or name
 
 
 def short_ep_name(full: str) -> str:
@@ -235,9 +210,11 @@ def short_ep_name(full: str) -> str:
     unknown full names so the function never raises — the caller can
     then validate against their own short-name allowlist.
     """
-    if full in _FULL_TO_SHORT:
-        return _FULL_TO_SHORT[full]
-    return full.removesuffix("ExecutionProvider").lower()
+    canonical = expand_ep_name(full)
+    return next(
+        (alias for alias, ep_name in EP_ALIASES.items() if ep_name == canonical),
+        canonical.removesuffix("ExecutionProvider").lower(),
+    )
 
 
 def ep_short_or_none(ep_full: str) -> str | None:
@@ -261,7 +238,7 @@ def ep_short_or_none(ep_full: str) -> str | None:
 # - VALID_DEVICES: the 3 device categories ORT enumerates.
 # - VALID_SOURCE_TAGS: the canonical EPSource origin tags. See
 #   docs/design/session/3_design_classes.md §4.
-# - known_ep_short_names(): derived from _SHORT_TO_FULL (no hardcoded list,
+# - known_ep_short_names(): derived from EP_ALIASES (no hardcoded list,
 #   per CLAUDE.md cardinal rule #1).
 
 VALID_DEVICES: Final[frozenset[str]] = frozenset({"npu", "gpu", "cpu"})
@@ -279,12 +256,12 @@ VALID_SOURCE_TAGS: Final[frozenset[str]] = frozenset(
 
 
 def known_ep_short_names() -> frozenset[str]:
-    """Set of EP short names registered in ``_SHORT_TO_FULL``.
+    """Set of EP short names registered in the public alias map.
 
     Derived (not hardcoded) per CLAUDE.md cardinal rule #1 — adding a new
-    EP to ``_SHORT_TO_FULL`` automatically expands the validation set.
+    EP to ``EP_ALIASES`` automatically expands the validation set.
     """
-    return frozenset(_SHORT_TO_FULL.keys())
+    return frozenset(EP_ALIASES)
 
 
 # --- dataclass -------------------------------------------------------------
@@ -303,7 +280,7 @@ class EPDeviceTarget:
     Construction-time validation (see ``__post_init__``):
       - ``device``: must be ``"auto"`` or in :data:`VALID_DEVICES`
       - ``ep``:     must be ``"auto"`` or a known short/full name from
-                    :data:`_SHORT_TO_FULL`
+                    the shared public EP aliases
       - ``source``: must be ``None`` or in :data:`VALID_SOURCE_TAGS`
     """
 
@@ -327,7 +304,7 @@ class EPDeviceTarget:
         if (
             self.ep != "auto"
             and self.ep.lower() not in known_ep_short_names()
-            and self.ep not in _FULL_TO_SHORT
+            and normalize_ep_name(self.ep) not in EP_NAMES
         ):
             raise ValueError(
                 f"Unknown EP {self.ep!r}; "
@@ -655,6 +632,42 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
     """
     ep = target.ep
     device = target.device
+
+    # Fully automatic resolution is the one path allowed to load candidate
+    # EPs while selecting a target. Explicit EP or device requests retain the
+    # structured failure behavior of WinMLEPRegistry.auto_device.
+    if ep == "auto" and device == "auto":
+        from ..ep_path import EP_CATALOG
+        from .ep_registry import WinMLEPRegistry
+
+        registry = WinMLEPRegistry.instance()
+        available_eps = registry.available_eps()
+        vendor_detection_failed = False
+        for spec in EP_DEVICE_SPECS:
+            if spec.ep not in available_eps:
+                continue
+            if vendor_detection_failed:
+                if spec.device != "cpu":
+                    continue
+            else:
+                try:
+                    if not EP_CATALOG.is_compatible(spec.ep):
+                        continue
+                except RuntimeError as e:
+                    logger.warning(
+                        "Hardware detection failed (%s); falling back to CPU target selection.",
+                        e,
+                    )
+                    vendor_detection_failed = True
+                    if spec.device != "cpu":
+                        continue
+            candidate = EPDeviceTarget(ep=spec.ep, device=spec.device, source=target.source)
+            try:
+                registry.auto_device(candidate)
+            except (DeviceNotFound, WinMLEPNotDiscovered, WinMLEPRegistrationFailed):
+                continue
+            return candidate
+        raise ValueError("No registered EP/device pair is available for automatic selection.")
 
     # --- Resolve device axis first --------------------------------------
     if device == "auto":

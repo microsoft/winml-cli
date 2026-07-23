@@ -6,7 +6,6 @@
 
 from ..ep_path import DirectorySource, EPEntry
 from .ep_device import (
-    _SHORT_TO_FULL,
     DEVICE_TO_DEVICE_TYPE,
     DEVICE_TYPE_TO_DEVICE,
     EP_DEVICE_SPECS,

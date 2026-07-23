@@ -36,6 +36,7 @@ from winml.modelkit.session import (
     WinMLEPDevice,
     WinMLEPRegistrationFailed,
     WinMLEPRegistry,
+    resolve_device,
 )
 
 
@@ -252,6 +253,48 @@ class TestAutoDevice:
         target = EPDeviceTarget(ep="openvino", device="auto")
         with pytest.raises(ValueError, match="auto"):
             fresh_registry.auto_device(target)
+
+    def test_fully_automatic_selection_skips_registered_ep_without_requested_device(
+        self, fresh_registry: WinMLEPRegistry
+    ) -> None:
+        """Full auto must continue to the next catalog pair when QNN lacks an NPU."""
+        qnn_entry = _pypi_entry("QNNExecutionProvider")
+        qnn_gpu = _winml_ep_with_device(qnn_entry, "GPU")
+        fresh_registry._discovered = [qnn_entry]
+
+        from winml.modelkit.ep_path import EPCatalog
+
+        with (
+            patch.object(
+                WinMLEPRegistry,
+                "available_eps",
+                return_value=frozenset({"QNNExecutionProvider"}),
+            ),
+            patch.object(EPCatalog, "is_compatible", return_value=True),
+            patch(
+                "winml.modelkit.session.ep_device.auto_detect_device",
+                return_value="npu",
+            ),
+            patch.object(fresh_registry, "register_ep", return_value=qnn_gpu),
+        ):
+            result = resolve_device(EPDeviceTarget(ep="auto", device="auto"))
+
+        assert result.ep == "QNNExecutionProvider"
+        assert result.device == "gpu"
+
+    def test_explicit_device_does_not_fall_back_to_cpu(
+        self, fresh_registry: WinMLEPRegistry
+    ) -> None:
+        """An explicit NPU request keeps its structured device-class failure."""
+        qnn_entry = _pypi_entry("QNNExecutionProvider")
+        qnn_gpu = _winml_ep_with_device(qnn_entry, "GPU")
+        fresh_registry._discovered = [qnn_entry]
+
+        with (
+            patch.object(fresh_registry, "register_ep", return_value=qnn_gpu),
+            pytest.raises(DeviceNotFound, match="NPU"),
+        ):
+            fresh_registry.auto_device(EPDeviceTarget(ep="qnn", device="npu"))
 
     def test_g_unmatched_source_tag_raises_unknown_listing_pick(
         self, fresh_registry: WinMLEPRegistry

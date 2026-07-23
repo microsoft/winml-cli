@@ -448,28 +448,39 @@ class WinMLEPRegistry:
                 f"{str(entry.dll_path)!r}) failed: {exc}",
                 dll_path=entry.dll_path,
             ) from exc
-        self._registration_count[entry.ep_name] = n + 1
-
         # Filter ORT's device list by THIS DLL's library_path — the
         # device's self-reported ep_name is canonical (not suffixed), so
         # filtering on ep_name would collapse multiple registrations of
         # the same ep_name into one set.
-        all_handles = _ort_get_ep_devices_or_fail(entry)
-        matching = [
-            d for d in all_handles if d.ep_metadata.get("library_path") == str(entry.dll_path)
-        ]
-        deduped = _dedup_ort_devices(matching)
+        try:
+            all_handles = _ort_get_ep_devices_or_fail(entry)
+            matching = [
+                d for d in all_handles if d.ep_metadata.get("library_path") == str(entry.dll_path)
+            ]
+            deduped = _dedup_ort_devices(matching)
 
-        if not deduped:
-            raise WinMLEPRegistrationFailed(
-                f"Registered {arg0!r} from {entry.dll_path} but no "
-                f"OrtEpDevices visible in ort.get_ep_devices().",
-                dll_path=entry.dll_path,
-            )
+            if not deduped:
+                raise WinMLEPRegistrationFailed(
+                    f"Registered {arg0!r} from {entry.dll_path} but no "
+                    f"OrtEpDevices visible in ort.get_ep_devices().",
+                    dll_path=entry.dll_path,
+                )
+        except WinMLEPRegistrationFailed:
+            try:
+                ort.unregister_execution_provider_library(arg0)
+            except Exception:
+                logger.warning(
+                    "Failed to roll back native EP registration %r after "
+                    "device enumeration failure.",
+                    arg0,
+                    exc_info=True,
+                )
+            raise
 
         devices = tuple(WinMLDevice(h) for h in deduped)
         winml_ep = WinMLEP(source=entry, devices=devices, arg0=arg0)
         self._registered[entry.dll_path] = winml_ep
+        self._registration_count[entry.ep_name] = n + 1
         return winml_ep
 
     def unregister_ep(self, winml_ep: WinMLEP) -> None:

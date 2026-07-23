@@ -182,6 +182,36 @@ def test_register_ep_yields_zero_devices_raises(fresh_registry_with_qnn: WinMLEP
             fresh_registry_with_qnn.register_ep(entry)
 
 
+@pytest.mark.parametrize(
+    "get_devices",
+    [
+        pytest.param(RuntimeError("enumeration boom"), id="enumeration-failure"),
+        pytest.param([], id="zero-matching-devices"),
+    ],
+)
+def test_register_ep_rolls_back_native_registration_after_enumeration_failure(
+    fresh_registry_with_qnn: WinMLEPRegistry, get_devices: object
+) -> None:
+    """Post-registration failures unregister and leave registry state unchanged."""
+    entry = _ep_entry("QNNExecutionProvider")
+    with patch("winml.modelkit.session.ep_registry.ort") as mock_ort:
+        mock_ort.register_execution_provider_library = MagicMock()
+        mock_ort.unregister_execution_provider_library = MagicMock()
+        if isinstance(get_devices, Exception):
+            mock_ort.get_ep_devices.side_effect = get_devices
+        else:
+            mock_ort.get_ep_devices.return_value = get_devices
+
+        with pytest.raises(WinMLEPRegistrationFailed) as excinfo:
+            fresh_registry_with_qnn.register_ep(entry)
+
+    mock_ort.unregister_execution_provider_library.assert_called_once_with("QNNExecutionProvider")
+    assert fresh_registry_with_qnn._registration_count == {}
+    assert fresh_registry_with_qnn._registered == {}
+    if isinstance(get_devices, Exception):
+        assert excinfo.value.__cause__ is get_devices
+
+
 def test_register_ep_wraps_get_ep_devices_failure_plugin_branch(
     fresh_registry_with_qnn: WinMLEPRegistry,
 ) -> None:
@@ -235,10 +265,13 @@ def test_register_ep_wraps_get_ep_devices_failure_builtin_branch() -> None:
         )
         # Now flip get_ep_devices to raise — exercises the BuiltinSource
         # branch's helper call inside register_ep.
-        with patch(
-            "winml.modelkit.session.ep_registry.ort.get_ep_devices",
-            side_effect=RuntimeError("driver reset"),
-        ), pytest.raises(WinMLEPRegistrationFailed, match=r"get_ep_devices"):
+        with (
+            patch(
+                "winml.modelkit.session.ep_registry.ort.get_ep_devices",
+                side_effect=RuntimeError("driver reset"),
+            ),
+            pytest.raises(WinMLEPRegistrationFailed, match=r"get_ep_devices"),
+        ):
             reg.register_ep(builtin_entry)
     finally:
         WinMLEPRegistry._instance = None
@@ -260,7 +293,9 @@ def test_register_ep_appends_to_entries_when_not_present(
     fresh_registry_with_qnn._discovered = []  # simulate "entry not in discovery"
     entry = _ep_entry("OpenVINOExecutionProvider", dll="C:/fake/openvino.dll")
     fake_dev = _fake_ort_device(
-        "OpenVINOExecutionProvider", "NPU", dll_path="C:/fake/openvino.dll",
+        "OpenVINOExecutionProvider",
+        "NPU",
+        dll_path="C:/fake/openvino.dll",
     )
     with patch("winml.modelkit.session.ep_registry.ort") as mock_ort:
         mock_ort.get_ep_devices.return_value = [fake_dev]
@@ -314,8 +349,7 @@ def test_builtin_source_synthesized_into_discovered_at_init() -> None:
         )
         entry = entries[0]
         assert isinstance(entry.source, BuiltinSource), (
-            f"Built-in entry's source should be BuiltinSource, got "
-            f"{type(entry.source).__name__}."
+            f"Built-in entry's source should be BuiltinSource, got {type(entry.source).__name__}."
         )
         assert entry.ep_name == "CPUExecutionProvider"
     finally:
@@ -362,8 +396,7 @@ def test_builtin_source_only_synthesized_when_ort_exposes_devices() -> None:
 
         ep_names = {e.ep_name for e in reg._discovered if isinstance(e.source, BuiltinSource)}
         assert ep_names == {"CPUExecutionProvider"}, (
-            f"Expected only CPU to be synthesized (DML has no devices), "
-            f"got {sorted(ep_names)}."
+            f"Expected only CPU to be synthesized (DML has no devices), got {sorted(ep_names)}."
         )
     finally:
         WinMLEPRegistry._instance = None
@@ -424,6 +457,3 @@ def test_register_ep_builtin_source_is_object_identity_idempotent() -> None:
         )
     finally:
         WinMLEPRegistry._instance = None
-
-
-

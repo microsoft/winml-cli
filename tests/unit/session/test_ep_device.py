@@ -6,7 +6,7 @@
 # tests/unit/session/test_ep_device.py
 """Unit tests for EPDeviceTarget descriptor and resolution helpers."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -16,6 +16,7 @@ from winml.modelkit.session import (
     resolve_device,
     short_ep_name,
 )
+from winml.modelkit.utils.constants import EP_ALIASES, EP_NAMES, normalize_ep_name
 
 
 def test_ep_device_round_trip() -> None:
@@ -139,10 +140,8 @@ def test_expand_ep_name_passthrough() -> None:
 
 
 def _short_to_full_items() -> list[tuple[str, str]]:
-    """Read _SHORT_TO_FULL directly so this test catches every entry."""
-    from winml.modelkit.session import _SHORT_TO_FULL
-
-    return list(_SHORT_TO_FULL.items())
+    """Read public aliases so the normalizer is the sole alias authority."""
+    return list(EP_ALIASES.items())
 
 
 @pytest.mark.parametrize("short, full", _short_to_full_items())
@@ -155,8 +154,8 @@ def test_short_full_loopback(short: str, full: str) -> None:
                shorts ever alias the same full — the canonical winner
                just has to be ONE of them.)
 
-    This invariant pins the 1:1 (or many:1) shape of _SHORT_TO_FULL /
-    _FULL_TO_SHORT. Catalog drift (e.g. typoing a value, adding an alias
+    This invariant pins the 1:1 (or many:1) shape of the public aliases /
+    canonical names. Catalog drift (e.g. typoing a value, adding an alias
     that breaks the inverse) fails this test loudly.
     """
     # Forward
@@ -170,6 +169,27 @@ def test_short_full_loopback(short: str, full: str) -> None:
         f"expand_ep_name({canonical_short!r}) = "
         f"{expand_ep_name(canonical_short)!r} != {full!r}"
     )
+
+
+def test_catalog_ep_names_and_aliases_match_shared_normalizer() -> None:
+    """Every catalog EP uses a public canonical name and normalizes case-insensitively."""
+    from winml.modelkit.session import EP_DEVICE_SPECS
+
+    catalog_eps = {spec.ep for spec in EP_DEVICE_SPECS}
+    assert catalog_eps <= set(EP_NAMES)
+    for canonical in catalog_eps:
+        assert normalize_ep_name(canonical.swapcase()) == canonical
+    for alias, canonical in EP_ALIASES.items():
+        if canonical in catalog_eps:
+            assert expand_ep_name(alias.upper()) == canonical
+
+
+def test_catalog_ep_names_have_supported_device_definitions() -> None:
+    """Every catalog EP can resolve its supported device tuple."""
+    from winml.modelkit.session import EP_DEVICE_SPECS
+    from winml.modelkit.utils.constants import EP_SUPPORTED_DEVICES
+
+    assert {spec.ep for spec in EP_DEVICE_SPECS} <= set(EP_SUPPORTED_DEVICES)
 
 
 # --- resolve_device tests (pure-deduction; no DLL load) ----------------------
@@ -208,6 +228,24 @@ def test_resolve_device_does_not_load_dll() -> None:
         result = resolve_device(EPDeviceTarget(ep="qnn", device="npu"))
     assert result.ep == "QNNExecutionProvider"
     mock_reg.instance.assert_not_called()
+
+
+def test_resolve_both_auto_falls_back_to_cpu_when_vendor_detection_fails() -> None:
+    """A vendor probe failure preserves the established fully-automatic CPU fallback."""
+    from winml.modelkit.ep_path import EPCatalog
+    from winml.modelkit.session.ep_registry import WinMLEPRegistry
+
+    registry = MagicMock()
+    registry.available_eps.return_value = frozenset({"CPUExecutionProvider"})
+    registry.auto_device.return_value = object()
+    with (
+        patch.object(WinMLEPRegistry, "instance", return_value=registry),
+        patch.object(EPCatalog, "is_compatible", side_effect=RuntimeError("WMI unavailable")),
+    ):
+        result = resolve_device(EPDeviceTarget(ep="auto", device="auto"))
+
+    assert result.ep == "CPUExecutionProvider"
+    assert result.device == "cpu"
 
 
 # --- short_ep_name tests ---------------------------------------------------
@@ -807,8 +845,7 @@ def test_resolve_device_both_auto_skips_l2_incompatible_full_chain() -> None:
     this test catches it.
 
     Stub layout:
-      - auto_detect_device picks "npu" (Intel AI Boost detected)
-      - QNN, OpenVINO both registered (L1 ok)
+      - QNN, OpenVINO both discovered and expose registered device pairs
       - QNN L2-incompatible (wrong vendor), OpenVINO L2-ok
       - Expected: resolve_device returns OpenVINO, not QNN
     """
@@ -826,15 +863,16 @@ def test_resolve_device_both_auto_skips_l2_incompatible_full_chain() -> None:
         "OpenVINOExecutionProvider": True,
         "CPUExecutionProvider": True,
     }
+    from winml.modelkit.session.ep_registry import WinMLEPRegistry
+
+    mock_registry = patch.object(WinMLEPRegistry, "instance")
 
     with contextlib.ExitStack() as stack:
-        for cm in _patch_available_eps(available):
-            stack.enter_context(cm)
+        instance = stack.enter_context(mock_registry)
+        instance.return_value.available_eps.return_value = available
+        instance.return_value.auto_device.return_value = object()
         for cm in _patch_ep_catalog_compat(compatibility):
             stack.enter_context(cm)
-        stack.enter_context(
-            patch("winml.modelkit.session.ep_device.auto_detect_device", return_value="npu")
-        )
         result = resolve_device(EPDeviceTarget(ep="auto", device="auto"))
 
     assert result.ep == "OpenVINOExecutionProvider", (

@@ -48,7 +48,7 @@ def test_gpu_dml_is_deprioritized_below_every_plugin_gpu_ep():
         "OpenVINOExecutionProvider",
         "MIGraphXExecutionProvider",
         "TensorrtExecutionProvider",
-        "NvTensorRtRtxExecutionProvider",
+        "NvTensorRTRTXExecutionProvider",
     )
     for ep in plugin_gpu_eps:
         idx = _first_index_of_ep_in_device_group(ep, "gpu")
@@ -136,8 +136,8 @@ def _mock_vendors(*vendors: str):
         (
             "NVIDIA Corporation",
             "gpu",
-            ("NvTensorRtRtxExecutionProvider", "DmlExecutionProvider"),
-            "NvTensorRtRtxExecutionProvider",
+            ("NvTensorRTRTXExecutionProvider", "DmlExecutionProvider"),
+            "NvTensorRTRTXExecutionProvider",
         ),
         # CPU device always resolves via first available.
         (

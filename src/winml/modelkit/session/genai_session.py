@@ -54,6 +54,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from ..ep_path import BuiltinSource
 from ..utils.constants import (
     EP_NAMES,
     EP_SUPPORTED_DEVICES,
@@ -410,6 +411,7 @@ class GenaiSession:
         self._verbose = verbose
         self._compile = compile
         self._compile_timeout = compile_timeout
+        self._genai_registered_paths: set[Path] = set()
 
         # Resolved at load() time.
         self._context_length: int | None = None
@@ -503,7 +505,7 @@ class GenaiSession:
         hw_ep = self._bundle_uses_hardware_ep(effective_cfg)
         logger.info("Hardware EP detected in effective genai_config: %s", hw_ep)
         if hw_ep is not None:
-            self._register_eps()
+            self._register_eps(og, hw_ep)
 
         if self._verbose:
             og.set_log_options(enabled=True, model_input_values=True, model_output_shapes=True)
@@ -1713,19 +1715,31 @@ class GenaiSession:
                 "platform-incompatible build)."
             ) from exc
 
-    def _register_eps(self) -> None:
-        """Register WinML EPs with ORT GenAI (idempotent, best-effort)."""
-        try:
-            # Best-effort, dynamically-dispatched legacy registration path:
-            # attributes are resolved at runtime and any miss is swallowed by
-            # the surrounding except, so this boundary is intentionally untyped.
-            registry: Any = WinMLEPRegistry.get_instance()
-            if registry.winml_available:
-                result = registry.register_execution_providers(ort_genai=True)
-                registered = result.get("onnxruntime_genai", [])
-                logger.info("WinML EPs registered for ORT GenAI: %s", registered)
-        except Exception as exc:
-            logger.warning("WinML EP registration skipped: %s", exc)
+    def _register_eps(self, og: Any, required_ep: str) -> None:
+        """Register the effective bundle's plugin EP with ORT GenAI."""
+        canonical = normalize_ep_name(required_ep)
+        if canonical not in EP_NAMES:
+            logger.warning("Skipping unknown ORT GenAI EP from bundle config: %r", required_ep)
+            return
+
+        registry = WinMLEPRegistry.instance()
+        for entry in registry.all_discovered():
+            if entry.ep_name != canonical or isinstance(entry.source, BuiltinSource):
+                continue
+            if entry.dll_path in self._genai_registered_paths:
+                continue
+            try:
+                og.register_execution_provider_library(entry.ep_name, str(entry.dll_path))
+            except Exception as exc:
+                logger.warning(
+                    "Failed to register %s with ORT GenAI from %s: %s",
+                    entry.ep_name,
+                    entry.dll_path,
+                    exc,
+                )
+                continue
+            self._genai_registered_paths.add(entry.dll_path)
+            logger.info("Registered %s with ORT GenAI from %s.", entry.ep_name, entry.dll_path)
 
     def _read_genai_config(self) -> dict[str, Any]:
         """Parse and return the bundle's ``genai_config.json``."""

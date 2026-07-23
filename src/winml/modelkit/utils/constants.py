@@ -19,6 +19,7 @@ EPName = Literal[
     "NvTensorRTRTXExecutionProvider",
     "OpenVINOExecutionProvider",
     "QNNExecutionProvider",
+    "TensorrtExecutionProvider",
     "VitisAIExecutionProvider",
 ]
 
@@ -33,6 +34,7 @@ EPAlias = Literal[
     "nvtensorrtrtx",
     "nv_tensorrt_rtx",
     "migraphx",
+    "tensorrt",
 ]
 
 # Either an alias or a full name — what user-facing entry points accept before normalization.
@@ -71,6 +73,7 @@ EP_ALIASES: dict[EPAlias, EPName] = {
     "nvtensorrtrtx": "NvTensorRTRTXExecutionProvider",
     "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
     "migraphx": "MIGraphXExecutionProvider",
+    "tensorrt": "TensorrtExecutionProvider",
 }
 
 # Runtime-iterable forms of the Literal types above (for membership checks, choice lists).
@@ -102,19 +105,17 @@ def normalize_ep_name(ep: EPNameOrAlias | None) -> EPName | None:
     if ep is None:
         return None
 
-    # Check if it's already a full name.
-    # ``EP_NAMES`` is the runtime tuple of canonical names from the EPName Literal,
-    # so membership narrowing here gives the type checker an EPName directly.
-    if ep in EP_NAMES:
-        return ep
+    ep_folded = ep.casefold()
+    for canonical_name in EP_NAMES:
+        if canonical_name.casefold() == ep_folded:
+            return canonical_name
 
     # Try to find in aliases (case-insensitive). ``.get()`` returns Optional, but
     # the prior membership check narrowed ``ep_lower`` so the alias mapping is
     # total in this branch.
-    ep_lower = ep.lower()
-    # ep_lower is an arbitrary lowercased string; cast to the key type for the
+    # ep_folded is an arbitrary folded string; cast to the key type for the
     # lookup (.get tolerates non-alias keys, returning None).
-    canonical = EP_ALIASES.get(cast("EPAlias", ep_lower))
+    canonical = EP_ALIASES.get(cast("EPAlias", ep_folded))
     if canonical is not None:
         return canonical
 
@@ -174,8 +175,8 @@ EP_SUPPORTED_DEVICES: dict[EPName, tuple[str, ...]] = {
     "MIGraphXExecutionProvider": ("gpu",),
     "QNNExecutionProvider": ("npu", "gpu"),
     "OpenVINOExecutionProvider": ("npu", "gpu", "cpu"),
+    "TensorrtExecutionProvider": ("gpu",),
     "DmlExecutionProvider": ("gpu",),
     "CPUExecutionProvider": ("cpu",),
     "VitisAIExecutionProvider": ("npu",),
 }
-
