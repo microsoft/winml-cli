@@ -18,31 +18,29 @@ Usage:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-from ... import winml
 from ...onnx import ONNXDomain
+
+
+if TYPE_CHECKING:
+    import argparse
+
+    from ...utils.constants import EPName
+    from ..runtime_checker.ep_checker import EPChecker
 from ...pattern.base import (
     PatternInputGenerator,
     get_pattern_input_generator,
     get_registered_pattern_input_generators,
 )
-
-
-if TYPE_CHECKING:
-    import argparse
-    from collections.abc import Callable
-
-    import onnxruntime as ort
-
-    from ...utils.constants import EPName
-from ...utils import constants
+from ...session import DEVICE_TYPE_TO_DEVICE
 from ..core.rules_prefilter import RuntimeCheckerRulesPrefilter
-from ..runtime_checker.ep_checker import EPChecker
+from ..runtime_checker.check_ops import (
+    OpenVINONPUChecker,
+    QNNNPUChecker,
+    get_ep_checker,
+)
 from ..utils import CheckResultWriter, load_case_indices_from_conflict_file
-
-
-winml.register_execution_providers(ort=True)
 
 
 def check_patterns(
@@ -112,7 +110,7 @@ def check_patterns(
 
     ep_checker.set_rules_prefilter(
         RuntimeCheckerRulesPrefilter(
-            ep_name=ep_checker.ep_name,
+            ep_name=cast("EPName", ep_checker.ep_name),
             device_type=ep_checker.device_type.name,
         )
     )
@@ -149,7 +147,7 @@ def check_patterns(
             opset_suffix = f"_{first_domain.value}_opset{first_version}"
 
         # Prepare output file
-        device = constants.DEVICE_TYPE_TO_DEVICE[ep_checker.device_type]
+        device = DEVICE_TYPE_TO_DEVICE[ep_checker.device_type].upper()
         output_filename = f"{pattern_name}_{ep_checker.ep_name}_{device}{opset_suffix}.json"
         output_path = output_dir / output_filename
 
@@ -223,65 +221,14 @@ def check_patterns(
     return all_results
 
 
-# don't use EPChecker directly as there is a bug with pytest in subprocess
-class OpenVINONPUChecker(EPChecker):
-    """OpenVINO NPU execution provider checker wrapper for pytest compatibility."""
-
-    def __init__(self, device_type: ort.OrtHardwareDeviceType) -> None:
-        """Initialize OpenVINO NPU checker."""
-        super().__init__(ep_name="OpenVINOExecutionProvider", device_type=device_type)
-
-
-# don't use EPChecker directly as there is a bug with pytest in subprocess
-class QNNNPUChecker(EPChecker):
-    """QNN NPU execution provider checker wrapper for pytest compatibility."""
-
-    def __init__(self, device_type: ort.OrtHardwareDeviceType) -> None:
-        """Initialize QNN NPU checker."""
-        super().__init__(ep_name="QNNExecutionProvider", device_type=device_type)
-
-
-class RTXChecker(EPChecker):
-    """NVIDIA TensorRT RTX execution provider checker wrapper for pytest compatibility."""
-
-    def __init__(self, device_type: ort.OrtHardwareDeviceType) -> None:
-        """Initialize RTX checker."""
-        if device_type != constants.DEVICE_TO_DEVICE_TYPE["GPU"]:
-            raise ValueError("NvTensorRTRTXExecutionProvider only supports GPU device type")
-        super().__init__(
-            ep_name="NvTensorRTRTXExecutionProvider",
-            device_type=constants.DEVICE_TO_DEVICE_TYPE["GPU"],
-        )
-
-
-def get_ep_checker(ep_name: EPName, device: str) -> EPChecker:
-    """Get EPChecker for given execution provider name.
-
-    Args:
-        ep_name: Execution provider name (e.g., "QNNExecutionProvider")
-        device: Target device type (CPU, GPU, NPU)
-
-    Returns:
-        EPChecker corresponding to the execution provider.
-
-    Raises:
-        ValueError: If the execution provider name is not supported.
-    """
-    device_type = constants.DEVICE_TO_DEVICE_TYPE[device]
-    ep_name_to_checker: dict[str, Callable[..., EPChecker]] = {
-        "QNNExecutionProvider": QNNNPUChecker,
-        "OpenVINOExecutionProvider": OpenVINONPUChecker,
-        "NvTensorRTRTXExecutionProvider": RTXChecker,
-        # Add other EPChecker subclasses here as needed
-    }
-    if ep_name not in ep_name_to_checker:
-        raise ValueError(
-            f"Unsupported execution provider: {ep_name}. "
-            f"Available: QNNExecutionProvider, "
-            f"OpenVINOExecutionProvider, "
-            f"NvTensorRTRTXExecutionProvider"
-        )
-    return ep_name_to_checker[ep_name](device_type=device_type)
+# EPCheckers and get_ep_checker are re-exported from
+# ..runtime_checker.check_ops to keep a single source of truth.
+__all__ = [
+    "OpenVINONPUChecker",
+    "QNNNPUChecker",
+    "check_patterns",
+    "get_ep_checker",
+]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -314,6 +261,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--ep",
         type=str,
         required=True,
+        # CARVE-OUT: This subprocess tool intentionally supports only a curated allowlist
+        # of EPs. VitisAI and other unvalidated NPU EPs are excluded because this
+        # pattern-checking tool has not been validated against them. Do NOT derive from
+        # eps_for_device(...) or EP_DEVICE_SPECS — this is an explicit opt-in allowlist,
+        # not catalog drift.
         choices=[
             "QNNExecutionProvider",
             "OpenVINOExecutionProvider",

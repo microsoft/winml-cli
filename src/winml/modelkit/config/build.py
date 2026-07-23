@@ -49,7 +49,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any, cast, overload
 
 from ..compiler.configs import WinMLCompileConfig
 from ..export.config import (
@@ -324,7 +324,7 @@ def resolve_quant_compile_config(
     *,
     device: str = "auto",
     precision: str = "auto",
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     task: str | None = None,
 ) -> tuple[WinMLQuantizationConfig | None, WinMLCompileConfig | None]:
     """Resolve quantization and compilation config from device/precision policy.
@@ -344,14 +344,16 @@ def resolve_quant_compile_config(
         Tuple of (quant_config, compile_config). Either may be None when the
         policy does not require that stage (e.g., CPU with fp32).
     """
-    from ..sysinfo import resolve_check_device_ep
+    from ..session import auto_detect_device
+    from ..sysinfo.hardware import get_available_devices
     from .precision import (
         extract_weight_bits,
         is_weight_only_precision,
         resolve_precision,
     )
 
-    resolved_device, available_devices, resolved_eps = resolve_check_device_ep(device=device, ep=ep)
+    available_devices = get_available_devices()
+    resolved_device = auto_detect_device() if device.lower() == "auto" else device.lower()
     logger.info(
         "Device resolved: %s (available: %s)",
         resolved_device,
@@ -361,7 +363,7 @@ def resolve_quant_compile_config(
     policy = resolve_precision(
         device=resolved_device,
         precision=precision,
-        ep=resolved_eps[0],
+        ep=ep,
         available_devices=available_devices,
         task=task,
     )
@@ -386,7 +388,9 @@ def resolve_quant_compile_config(
         )
 
     # Compile config
-    compile_config = WinMLCompileConfig.for_provider(policy.compile_provider, device=policy.device)
+    compile_config = WinMLCompileConfig.for_provider(
+        cast("EPNameOrAlias | None", policy.compile_provider), device=policy.device
+    )
 
     return quant_config, compile_config
 
@@ -402,7 +406,7 @@ def generate_onnx_build_config(
     task: str | None = None,
     device: str = "auto",
     precision: str = "auto",
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     override: BuildConfigOverride | None = None,
     no_compile: bool = False,
 ) -> WinMLBuildConfig:
@@ -588,7 +592,7 @@ def generate_hf_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     no_compile: bool = False,
 ) -> WinMLBuildConfig: ...
 
@@ -607,7 +611,7 @@ def generate_hf_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     no_compile: bool = False,
 ) -> list[WinMLBuildConfig]: ...
 
@@ -630,7 +634,7 @@ def generate_hf_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     no_compile: bool = False,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]: ...
 
@@ -648,7 +652,7 @@ def generate_hf_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     no_compile: bool = False,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Generate WinMLBuildConfig for a HuggingFace model (Scenarios A/B/C).
@@ -815,7 +819,8 @@ def generate_hf_build_config(
     # =========================================================================
     # STEP 4.5: Apply device/precision policy (affects quant + compile only)
     # =========================================================================
-    from ..sysinfo import resolve_check_device_ep
+    from ..session import auto_detect_device
+    from ..sysinfo.hardware import get_available_devices
     from .precision import (
         extract_weight_bits,
         is_weight_only_precision,
@@ -824,7 +829,8 @@ def generate_hf_build_config(
 
     # ALWAYS detect hardware — even when device="auto" — so we don't
     # blindly default to QNN on machines without an NPU (#412).
-    resolved_device, available_devices, resolved_eps = resolve_check_device_ep(device=device, ep=ep)
+    available_devices = get_available_devices()
+    resolved_device = auto_detect_device() if device.lower() == "auto" else device.lower()
     logger.info(
         "Device resolved: %s (available: %s)",
         resolved_device,
@@ -834,7 +840,7 @@ def generate_hf_build_config(
     policy = resolve_precision(
         device=resolved_device,
         precision=precision,
-        ep=resolved_eps[0],
+        ep=ep,
         available_devices=available_devices,
         task=parent_config.loader.task,
     )
@@ -870,11 +876,24 @@ def generate_hf_build_config(
     # Store resolved precision for multi-pass expansion.
     parent_config.precision = policy.precision  # type: ignore[attr-defined]
 
-    # Compile config
-    parent_config.compile = WinMLCompileConfig.for_provider(
-        policy.compile_provider,
-        device=policy.device,
-    )
+    # Compile config: use policy or fall back to detected hardware
+    if policy.compile_provider is not None:
+        parent_config.compile = WinMLCompileConfig.for_provider(
+            cast("EPNameOrAlias", policy.compile_provider),
+        )
+    else:
+        # Even in auto/auto mode, set compile provider from detected hardware
+        # instead of preserving the hardcoded EPConfig default (#412).
+        from ..session import default_ep_for_device, ep_short_or_none
+
+        _canonical = default_ep_for_device(resolved_device)
+        hw_provider = ep_short_or_none(_canonical) if _canonical is not None else None
+        if hw_provider is not None:
+            parent_config.compile = WinMLCompileConfig.for_provider(
+                cast("EPNameOrAlias", hw_provider),
+            )
+        # When hw_provider is None (CPU-only), keep the default compile config
+        # so the pipeline still has a valid compile section.
 
     # no_compile overrides policy — applied last so it always wins
     if no_compile:
@@ -937,7 +956,7 @@ def generate_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     onnx_path: str | Path | None = None,
 ) -> WinMLBuildConfig: ...
 
@@ -956,7 +975,7 @@ def generate_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     onnx_path: str | Path | None = None,
 ) -> list[WinMLBuildConfig]: ...
 
@@ -974,7 +993,7 @@ def generate_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     onnx_path: str | Path | None = None,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Generate WinMLBuildConfig by orchestrating existing modules.

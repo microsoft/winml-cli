@@ -85,7 +85,9 @@ class QwenTransformerOnlyDecoderWrapper(nn.Module):
         # Tag the config so the exporter resolves this variant's OnnxConfig
         # (registered under ``TRANSFORMER_ONLY_MODEL_TYPE``) rather than the
         # stock qwen3 one. Mirrors the CLIP/zoedepth sub-model precedent.
-        self.config.model_type = TRANSFORMER_ONLY_MODEL_TYPE
+        # PretrainedConfig.model_type is declared ClassVar in transformers, but
+        # tagging the config instance is the intended per-model override mechanism.
+        self.config.model_type = TRANSFORMER_ONLY_MODEL_TYPE  # type: ignore[misc]  # ClassVar override on config instance is intentional
 
     @classmethod
     def from_pretrained(

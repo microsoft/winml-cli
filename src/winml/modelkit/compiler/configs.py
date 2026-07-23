@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ..utils.constants import CompilerName, EPAlias, EPName
 
@@ -89,14 +89,40 @@ class WinMLCompileConfig:
     validate: bool = True
     verbose: bool = False
 
+    # Optional resolved EP+device binding (used by stages/compile.py to align
+    # EPContext filenames with the actual runtime-resolved device).
+    ep_device: Any = None  # EPDeviceTarget | None — avoid cyclic import
+
     @property
     def device(self) -> str:
         """Get device/provider name for backward compatibility."""
         return self.ep_config.provider or ""
 
     @classmethod
+    def for_ep_device(cls, ep_device: Any) -> WinMLCompileConfig:
+        """Factory for a fully-resolved (EP, device) binding.
+
+        Args:
+            ep_device: EPDeviceTarget or similar with .ep / .device attrs.
+
+        Returns:
+            WinMLCompileConfig bound to the given target.
+        """
+        from ..session import short_ep_name
+
+        # short_ep_name returns a broad str; it is a valid EP short alias here.
+        provider = short_ep_name(ep_device.ep)
+        base = cls.for_provider(cast("EPNameOrAlias", provider))
+        assert base is not None  # provider non-None => for_provider returns non-None
+        base.ep_device = ep_device
+        return base
+
+    @classmethod
     def for_provider(
-        cls, provider: EPNameOrAlias | None, device: str | None = None
+        cls,
+        provider: EPNameOrAlias | None,
+        device: str | None = None,
+        quantize: bool | None = None,
     ) -> WinMLCompileConfig | None:
         """Factory that dispatches to a known for_* method or creates a generic config.
 
@@ -111,8 +137,17 @@ class WinMLCompileConfig:
         Returns:
             WinMLCompileConfig for the provider, or None if provider is None.
         """
+        import warnings
+
         from ..utils.constants import normalize_ep_name
 
+        if quantize is not None:
+            warnings.warn(
+                "The 'quantize' parameter is deprecated and ignored. "
+                "Use WinMLQuantizationConfig for quantization settings.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         if provider is None:
             return None
         canonical = normalize_ep_name(provider)
@@ -130,13 +165,12 @@ class WinMLCompileConfig:
         }
         factory = factories.get(canonical)
         if factory is None:
-            # Not a known EP — no typed EPConfig possible.
+            # Custom/unknown EP — no EPContext assumed → skip offline compile.
             return None
-        config = factory()
-        # EPs that don't produce EPContext have no offline compile step
-        if not config.ep_config.enable_ep_context:
-            return None
-        return config
+        # Known factory always returns a config. Callers inspect
+        # `.ep_config.enable_ep_context` to decide whether to invoke the
+        # offline compile step (CPU/CUDA/DML/MIGraphX have it False).
+        return factory()
 
     @classmethod
     def for_qnn(cls, device: str | None = None) -> WinMLCompileConfig:

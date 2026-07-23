@@ -214,7 +214,10 @@ def load_hf_model(
 
     # [1] Load HF Config
     if hf_config is None:
-        hf_config = AutoConfig.from_pretrained(
+        from ._autoconfig import load_hf_config
+
+        hf_config = load_hf_config(
+            AutoConfig,
             model_name_or_path,
             trust_remote_code=trust_remote_code,
         )

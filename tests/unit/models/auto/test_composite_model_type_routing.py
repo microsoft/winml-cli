@@ -2,22 +2,24 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Regression tests for composite routing under an explicit ``model_type``.
+"""Regression test for native composite routing in ``from_pretrained``.
 
-``WinMLAutoModel.from_pretrained`` may be given an explicit ``model_type`` to
-select a *variant* composite that shares a task with the model's native type
-(e.g. a transformer-only surgical export vs. the full architecture).  The
-factory must resolve and call that variant's composite class directly.
+When ``(model_type, task)`` is a registered composite, ``WinMLAutoModel``
+derives the ``model_type`` from the HF config and dispatches directly to that
+composite's ``from_pretrained`` (threading the resolved ``ep_device`` through),
+rather than delegating to the base ``WinMLCompositeModel.from_pretrained``.  The
+test uses a generic throwaway registry entry so no model-architecture name is
+baked into the test logic.
 
-Previously it computed the override but then delegated to the base
-``WinMLCompositeModel.from_pretrained``, which re-derives the *native*
-``model_type`` from the HF config and silently drops the override — building the
-wrong (native) composite.  These tests lock the corrected routing using generic
-throwaway registry entries so no model-architecture name is baked into the test
-logic.
+Note: this branch resolves the composite from the HF-config ``model_type`` only
+— there is no ``model_type=`` override parameter on ``from_pretrained`` (removed
+in the ep_device redesign), so the variant-override short-circuit that origin/main
+tested no longer exists on this branch.
 """
 
 from __future__ import annotations
+
+from types import SimpleNamespace
 
 import pytest
 
@@ -56,25 +58,13 @@ def routing_probes(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
     return calls
 
 
-class TestCompositeModelTypeOverrideRouting:
-    def test_explicit_override_selects_variant_composite(
-        self, routing_probes: dict[str, list[str]]
-    ) -> None:
-        # An explicit model_type resolves the composite directly (no HF config
-        # lookup), so a dummy id never touches the network.
-        result = WinMLAutoModel.from_pretrained(
-            "dummy/model", task=_SHARED_TASK, model_type=_VARIANT_TYPE
-        )
-
-        assert result == "VARIANT"
-        assert routing_probes["variant"] == ["dummy/model"]
-        assert routing_probes["native"] == []
-
+class TestCompositeNativeRouting:
     def test_native_model_type_selects_native_composite(
         self, monkeypatch: pytest.MonkeyPatch, routing_probes: dict[str, list[str]]
     ) -> None:
-        # Without an override the factory derives the native model_type from the
-        # HF config; stub that lookup so the native composite is selected.
+        # The factory derives the native model_type from the HF config; stub that
+        # lookup so the native composite is selected. A pre-resolved ep_device is
+        # threaded in so dispatch does not probe real hardware.
         import transformers
 
         class _Cfg:
@@ -86,7 +76,10 @@ class TestCompositeModelTypeOverrideRouting:
             classmethod(lambda cls, *a, **k: _Cfg()),
         )
 
-        result = WinMLAutoModel.from_pretrained("dummy/model", task=_SHARED_TASK)
+        ep_device = SimpleNamespace(device=SimpleNamespace(device_type="CPU"))
+        result = WinMLAutoModel.from_pretrained(
+            "dummy/model", task=_SHARED_TASK, ep_device=ep_device
+        )
 
         assert result == "NATIVE"
         assert routing_probes["native"] == ["dummy/model"]

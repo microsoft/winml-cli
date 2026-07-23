@@ -55,11 +55,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from ..utils.constants import (
-    EP_NAME_TO_ALIAS,
     EP_NAMES,
     EP_SUPPORTED_DEVICES,
     normalize_ep_name,
 )
+from .ep_device import VALID_EPS, short_ep_name
 from .ep_registry import WinMLEPRegistry
 
 
@@ -449,7 +449,7 @@ class GenaiSession:
             return None
         normalized = normalize_ep_name(ep)
         if normalized not in EP_NAMES:
-            valid = ", ".join(sorted(EP_NAME_TO_ALIAS.values()))
+            valid = ", ".join(sorted(VALID_EPS))
             raise ValueError(
                 f"Unknown execution provider {ep!r} for GenaiSession ep override. "
                 f"Pass one of: {valid} (or a full *ExecutionProvider name), or None "
@@ -493,7 +493,7 @@ class GenaiSession:
                 "EP override %r was requested but did not take effect (flat/empty "
                 "pipeline, or every stage runs on CPU); the run follows the "
                 "bundle's genai_config.json instead.",
-                EP_NAME_TO_ALIAS[self._ep_override],
+                short_ep_name(self._ep_override),
             )
 
         # Register WinML EPs only when the *effective* config routes at least one
@@ -815,7 +815,7 @@ class GenaiSession:
         """
         if self._ep_override is None:
             return None
-        return EP_NAME_TO_ALIAS[self._ep_override]
+        return cast("EPAlias", short_ep_name(self._ep_override))
 
     @property
     def effective_ep(self) -> EPAlias | None:
@@ -828,7 +828,7 @@ class GenaiSession:
         """
         if self._ep_override is None or not self._override_effective:
             return None
-        return EP_NAME_TO_ALIAS[self._ep_override]
+        return cast("EPAlias", short_ep_name(self._ep_override))
 
     @property
     def context_length(self) -> int | None:
@@ -958,7 +958,7 @@ class GenaiSession:
         if not (isinstance(current_po, list) and self._provider_list_has_hardware_ep(current_po)):
             return
 
-        alias = EP_NAME_TO_ALIAS[ep]
+        alias = short_ep_name(ep)
         if self._stage_targets_ep(current_po, ep):
             # Re-selecting the stage's own EP: preserve its shipped options
             # verbatim (even when empty) — this is a byte-for-byte no-op.
@@ -991,7 +991,7 @@ class GenaiSession:
                 "QNN options. QNN will fall back to its default backend and may "
                 "not target the intended device. Point --ep/--device at a bundle "
                 "whose config already defines QNN, or rebuild it for this EP.",
-                EP_NAME_TO_ALIAS[ep],
+                short_ep_name(ep),
             )
         return {}
 
@@ -1716,7 +1716,10 @@ class GenaiSession:
     def _register_eps(self) -> None:
         """Register WinML EPs with ORT GenAI (idempotent, best-effort)."""
         try:
-            registry = WinMLEPRegistry.get_instance()
+            # Best-effort, dynamically-dispatched legacy registration path:
+            # attributes are resolved at runtime and any miss is swallowed by
+            # the surrounding except, so this boundary is intentionally untyped.
+            registry: Any = WinMLEPRegistry.get_instance()
             if registry.winml_available:
                 result = registry.register_execution_providers(ort_genai=True)
                 registered = result.get("onnxruntime_genai", [])

@@ -43,25 +43,28 @@ class TestResolvePrecision:
         "device,precision,exp_device,exp_precision,exp_weight,exp_act,exp_provider",
         [
             # device   precision  exp_device  exp_prec  weight    act      provider
-            ("npu", "auto", "npu", "w8a16", "uint8", "uint16", "QNNExecutionProvider"),
-            ("npu", "int8", "npu", "int8", "uint8", "uint8", "QNNExecutionProvider"),
-            ("npu", "int16", "npu", "int16", "int16", "uint16", "QNNExecutionProvider"),
-            ("npu", "fp16", "npu", "fp16", None, None, "QNNExecutionProvider"),
-            ("npu", "fp32", "npu", "fp32", None, None, "QNNExecutionProvider"),
-            ("npu", "w8a16", "npu", "w8a16", "uint8", "uint16", "QNNExecutionProvider"),
-            ("npu", "w8a8", "npu", "w8a8", "uint8", "uint8", "QNNExecutionProvider"),
-            ("npu", "w16a16", "npu", "w16a16", "int16", "uint16", "QNNExecutionProvider"),
-            ("gpu", "auto", "gpu", "fp32", None, None, "DmlExecutionProvider"),
-            ("gpu", "w8a16", "gpu", "w8a16", "uint8", "uint16", "DmlExecutionProvider"),
-            ("gpu", "int8", "gpu", "int8", "uint8", "uint8", "DmlExecutionProvider"),
-            ("gpu", "int16", "gpu", "int16", "int16", "uint16", "DmlExecutionProvider"),
-            ("gpu", "fp16", "gpu", "fp16", None, None, "DmlExecutionProvider"),
-            ("gpu", "fp32", "gpu", "fp32", None, None, "DmlExecutionProvider"),
-            ("cpu", "auto", "cpu", "fp32", None, None, None),
-            ("cpu", "int8", "cpu", "int8", "uint8", "uint8", None),
-            ("cpu", "int16", "cpu", "int16", "int16", "uint16", None),
-            ("cpu", "fp16", "cpu", "fp16", None, None, None),
-            ("cpu", "fp32", "cpu", "fp32", None, None, None),
+            ("npu", "auto", "npu", "w8a16", "uint8", "uint16", "qnn"),
+            ("npu", "int8", "npu", "int8", "uint8", "uint8", "qnn"),
+            ("npu", "int16", "npu", "int16", "int16", "uint16", "qnn"),
+            ("npu", "fp16", "npu", "fp16", None, None, "qnn"),
+            ("npu", "fp32", "npu", "fp32", None, None, "qnn"),
+            ("npu", "w8a16", "npu", "w8a16", "uint8", "uint16", "qnn"),
+            ("npu", "w8a8", "npu", "w8a8", "uint8", "uint8", "qnn"),
+            ("npu", "w16a16", "npu", "w16a16", "int16", "uint16", "qnn"),
+            # After the built-ins-as-fallback catalog reorder, gpu deduces
+            # to OpenVINO (first plugin) instead of DML (built-in fallback),
+            # and cpu deduces to OpenVINO instead of the CPU built-in.
+            ("gpu", "auto", "gpu", "fp16", None, None, "openvino"),
+            ("gpu", "w8a16", "gpu", "w8a16", "uint8", "uint16", "openvino"),
+            ("gpu", "int8", "gpu", "int8", "uint8", "uint8", "openvino"),
+            ("gpu", "int16", "gpu", "int16", "int16", "uint16", "openvino"),
+            ("gpu", "fp16", "gpu", "fp16", None, None, "openvino"),
+            ("gpu", "fp32", "gpu", "fp32", None, None, "openvino"),
+            ("cpu", "auto", "cpu", "fp16", None, None, "openvino"),
+            ("cpu", "int8", "cpu", "int8", "uint8", "uint8", "openvino"),
+            ("cpu", "int16", "cpu", "int16", "int16", "uint16", "openvino"),
+            ("cpu", "fp16", "cpu", "fp16", None, None, "openvino"),
+            ("cpu", "fp32", "cpu", "fp32", None, None, "openvino"),
         ],
     )
     def test_resolve_precision_matrix(
@@ -185,13 +188,13 @@ class TestEpOverride:
         assert policy.compile_provider == "MIGraphXExecutionProvider"
         assert policy.device == "gpu"
 
-    def test_ep_overrides_default_dml(self) -> None:
-        """Without ep, gpu maps to DML. With ep='nv_tensorrt_rtx', should be NvTensorRTRTX."""
+    def test_ep_overrides_default_plugin(self) -> None:
+        """Without ep, gpu maps to the first-plugin default (openvino). Explicit ep wins."""
         default = resolve_precision(device="gpu")
-        assert default.compile_provider == "DmlExecutionProvider"
+        assert default.compile_provider == "openvino"
 
-        override = resolve_precision(device="gpu", ep="nv_tensorrt_rtx")
-        assert override.compile_provider == "NvTensorRTRTXExecutionProvider"
+        override = resolve_precision(device="gpu", ep="nvtensorrtrtx")
+        assert override.compile_provider == "nvtensorrtrtx"
 
     def test_ep_infers_device_from_gpu_ep(self) -> None:
         """ep='migraphx' with device='auto' should infer device='gpu'."""
@@ -230,19 +233,12 @@ class TestEpOverride:
             resolve_precision(ep="unknown_ep")
 
     def test_all_valid_eps(self) -> None:
-        """Every canonical EPName should be accepted without error.
+        """All VALID_EPS should be accepted without error."""
+        from winml.modelkit.session import VALID_EPS
 
-        CPU is excluded from the compile_provider assertion: it resolves to
-        device='cpu', which never needs EPContext compilation (compile_provider=None).
-        """
-        from winml.modelkit.utils.constants import EP_SUPPORTED_DEVICES
-
-        for ep_name in EP_SUPPORTED_DEVICES:
+        for ep_name in VALID_EPS:
             policy = resolve_precision(ep=ep_name)
-            if ep_name == "CPUExecutionProvider":
-                assert policy.compile_provider is None
-            else:
-                assert policy.compile_provider == ep_name
+            assert policy.compile_provider == ep_name
 
     def test_ep_accepts_aliases(self) -> None:
         """resolve_precision should accept shorthand aliases."""
@@ -258,6 +254,76 @@ class TestEpOverride:
         """EP names should be case-insensitive."""
         policy = resolve_precision(ep="MiGraphX")
         assert policy.compile_provider == "MIGraphXExecutionProvider"
+
+
+# =============================================================================
+# TestRegistrationAwareCompileProvider - spec §6.4 in 3_design_ep.md
+# =============================================================================
+
+
+class TestRegistrationAwareCompileProvider:
+    """resolve_precision must propagate registration-aware EP selection.
+
+    The internal call to `default_ep_for_device(resolved_device)` at
+    config/precision.py:275 currently returns the static-catalog default
+    (QNN for npu, DML for gpu). On a host where that EP is not registered,
+    the resulting `compile_provider` points at an EP the build pipeline
+    cannot actually load. See docs/design/session/3_design_ep.md §6.4.
+    """
+
+    def test_npu_on_openvino_only_box_picks_openvino(self) -> None:
+        """device='npu' on an OpenVINO-only host: compile_provider must be 'openvino'.
+
+        Today this returns 'qnn' because the static catalog orders QNN first
+        for npu. The fix to `default_ep_for_device` should propagate here
+        without any change to resolve_precision itself.
+        """
+        import contextlib
+        from unittest.mock import patch
+
+        from winml.modelkit.session.ep_registry import WinMLEPRegistry
+
+        available = frozenset({"OpenVINOExecutionProvider", "CPUExecutionProvider"})
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(
+                patch.object(
+                    WinMLEPRegistry, "available_eps", return_value=available
+                )
+            )
+            policy = resolve_precision(device="npu", precision="int8")
+
+        assert policy.compile_provider == "openvino", (
+            f"Expected compile_provider='openvino' on an OpenVINO-only NPU box, "
+            f"got {policy.compile_provider!r}. The static-catalog QNN-first "
+            "default leaked through resolve_precision."
+        )
+
+    def test_gpu_on_migraphx_only_box_picks_migraphx(self) -> None:
+        """device='gpu' on AMD/MIGraphX-only host: compile_provider must be 'migraphx'.
+
+        MIGraphX is the only GPU-targeting EP in the catalog for AMD hardware.
+        The registration-aware deduction must skip the catalog's QNN/gpu
+        entry (QNN is not registered here) and return MIGraphXExecutionProvider.
+        """
+        import contextlib
+        from unittest.mock import patch
+
+        from winml.modelkit.session.ep_registry import WinMLEPRegistry
+
+        available = frozenset({"MIGraphXExecutionProvider", "CPUExecutionProvider"})
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(
+                patch.object(
+                    WinMLEPRegistry, "available_eps", return_value=available
+                )
+            )
+            policy = resolve_precision(device="gpu", precision="fp16")
+
+        assert policy.compile_provider == "migraphx", (
+            f"Expected compile_provider='migraphx' on a MIGraphX-only GPU box, "
+            f"got {policy.compile_provider!r}. The static catalog leaked an "
+            "unregistered EP through resolve_precision."
+        )
 
 
 # =============================================================================

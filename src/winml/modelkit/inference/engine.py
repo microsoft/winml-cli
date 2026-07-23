@@ -31,7 +31,7 @@ import logging
 import tempfile
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -44,7 +44,6 @@ from .types import Prediction, PredictionResult
 if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
-    from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +258,25 @@ def _discover_pipeline_params_from_task(task: str | None) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# EP-device resolution helper
+# ---------------------------------------------------------------------------
+
+
+def _resolve_ep_device(*, device: str, ep: str | None) -> Any:
+    """Bind ``(device, ep)`` short-name intent to a ``WinMLEPDevice``.
+
+    Shared entry point for :class:`InferenceEngine`'s three loader paths.
+    Delegates to :func:`session.resolve_device` (fills ``"auto"`` axes) and
+    then to :meth:`WinMLEPRegistry.auto_device` (yields a registered device
+    handle).  ``ep`` may be ``None`` — treated as ``"auto"``.
+    """
+    from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
+
+    target = resolve_device(EPDeviceTarget(ep=ep or "auto", device=device))
+    return WinMLEPRegistry.instance().auto_device(target)
+
+
+# ---------------------------------------------------------------------------
 # InferenceEngine
 # ---------------------------------------------------------------------------
 
@@ -276,7 +294,7 @@ class InferenceEngine:
         self._model_id: str | None = None
         self._task: str | None = None
         self._device: str = "auto"
-        self._ep: EPNameOrAlias | None = None
+        self._ep: str | None = None
         self._model_path: str | None = None  # original arg for reload()
         self._request_count: int = 0
         self._last_request_at: datetime | None = None
@@ -298,7 +316,7 @@ class InferenceEngine:
         *,
         task: str | None = None,
         device: str = "auto",
-        ep: EPNameOrAlias | None = None,
+        ep: str | None = None,
         skip_build: bool = True,
         allow_unsupported_nodes: bool = False,
     ) -> None:
@@ -388,7 +406,7 @@ class InferenceEngine:
         *,
         task: str | None = None,
         device: str = "auto",
-        ep: EPNameOrAlias | None = None,
+        ep: str | None = None,
     ) -> None:
         """Lightweight load for schema display — no model build or ORT session.
 
@@ -465,7 +483,7 @@ class InferenceEngine:
             ep=self._ep,
         )
 
-    def switch_ep(self, ep: EPNameOrAlias) -> None:
+    def switch_ep(self, ep: str) -> None:
         """Switch to a different execution provider."""
         logger.info("Switching EP: %s → %s", self._ep, ep)
         self._ep = ep
@@ -557,7 +575,7 @@ class InferenceEngine:
         latency_ms = (time.perf_counter() - t0) * 1000
         self._latency_samples.append(latency_ms)
         self._request_count += 1
-        self._last_request_at = datetime.now(tz=timezone.utc)
+        self._last_request_at = datetime.now(tz=UTC)
 
         session = getattr(self._model, "_session", None)
         ep_name = getattr(session, "_ep", self._ep)
@@ -953,7 +971,7 @@ class InferenceEngine:
         *,
         task: str | None,
         device: str,
-        ep: EPNameOrAlias | None,
+        ep: str | None,
     ) -> None:
         onnx_path, manifest = _find_build_artifacts(build_dir, task=task)
 
@@ -966,8 +984,9 @@ class InferenceEngine:
 
         from ..models.winml import get_winml_class
 
+        ep_device = _resolve_ep_device(device=device, ep=ep)
         winml_class = get_winml_class(None, task or "")
-        self._model = winml_class(onnx_path=onnx_path, config=None, device=device)
+        self._model = winml_class(onnx_path=onnx_path, config=None, ep_device=ep_device)
         self._task = task or getattr(self._model, "task", None)
 
         if model_id:
@@ -989,15 +1008,16 @@ class InferenceEngine:
         *,
         task: str | None,
         device: str,
-        ep: EPNameOrAlias | None,
+        ep: str | None,
         skip_build: bool = True,
     ) -> None:
         from ..models.auto import WinMLAutoModel
 
         self._task = task
         self._model_id = None
+        ep_device = _resolve_ep_device(device=device, ep=ep)
         self._model = WinMLAutoModel.from_onnx(
-            onnx_path, task=task, device=device, ep=ep, skip_build=skip_build
+            onnx_path, task=task, ep_device=ep_device, skip_build=True
         )
         logger.info("Loaded from ONNX: %s task=%s skip_build=%s", onnx_path, task, skip_build)
 
@@ -1007,19 +1027,14 @@ class InferenceEngine:
         *,
         task: str | None,
         device: str,
-        ep: EPNameOrAlias | None,
+        ep: str | None,
         allow_unsupported_nodes: bool = False,
     ) -> None:
         from ..models.auto import WinMLAutoModel
 
         self._model_id = model_id
-        self._model = WinMLAutoModel.from_pretrained(
-            model_id,
-            task=task,
-            device=device,
-            ep=ep,
-            allow_unsupported_nodes=allow_unsupported_nodes,
-        )
+        ep_device = _resolve_ep_device(device=device, ep=ep)
+        self._model = WinMLAutoModel.from_pretrained(model_id, ep_device=ep_device, task=task)
         self._task = (
             task
             or getattr(self._model, "task", None)

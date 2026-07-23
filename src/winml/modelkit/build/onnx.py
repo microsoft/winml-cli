@@ -14,23 +14,19 @@ Pipeline: [Optimize] -> [Analyze<->Optimize] -> [Quantize] -> [Compile] -> [Fina
 from __future__ import annotations
 
 import datetime
-import json
 import logging
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..compiler import compile_onnx
 from ..onnx import copy_onnx_model
-from ..quant import quantize_onnx
 from ..utils import MANIFEST_FILENAME, ManifestStage, WinMLManifest
-from .common import ensure_pre_quantized_stamped, run_optimize_analyze_loop
+from .common import run_build_stages
 from .hf import BuildResult
 
 
 if TYPE_CHECKING:
     from ..config import WinMLBuildConfig
-    from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +37,7 @@ def build_onnx_model(
     config: WinMLBuildConfig,
     output_dir: Path | str,
     rebuild: bool = False,
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     device: str | None = None,
     cache_key: str | None = None,
     **kwargs: Any,
@@ -80,7 +76,8 @@ def build_onnx_model(
         RuntimeError: If a pipeline stage fails.
     """
     hack_max_optim_iterations: int = kwargs.pop("hack_max_optim_iterations", 3)
-    allow_unsupported_nodes: bool = kwargs.pop("allow_unsupported_nodes", False)
+    # Consumed so it doesn't leak into **kwargs; not yet threaded through run_build_stages.
+    kwargs.pop("allow_unsupported_nodes", False)
     onnx_kwargs = {
         "use_external_data": kwargs.get("use_external_data", True),
     }
@@ -118,7 +115,6 @@ def build_onnx_model(
     final_path = output_dir / _name("model.onnx")
     config_path = output_dir / _name("winml_build_config.json")
     manifest_path = output_dir / _name(MANIFEST_FILENAME)
-    analyze_result_path = output_dir / _name("analyze_result.json")
 
     # Check for existing artifact (skip build if present and not rebuilding)
     if final_path.exists() and not rebuild:
@@ -152,124 +148,32 @@ def build_onnx_model(
         copy_onnx_model(onnx_path, current_path)
 
     # =========================================================================
-    # [1] OPTIMIZE + ANALYZE (or SKIP-BOTH for pre-quantized)
-    # FIXME: Stages [1]-[4] (optimize, quantize, compile, finalize) are
-    # duplicated between build_onnx_model() and build_hf_model(). Extract
-    # into a shared run_build_stages() function in common.py.
+    # [1]-[4] OPTIMIZE -> QUANTIZE -> COMPILE -> FINALIZE
+    # Shared with build_hf_model via ``common.run_build_stages``.
     # =========================================================================
-    # Single defensive detection. No-op when the CLI path (via
-    # ``generate_onnx_build_config``) already stamped ``config.skip_optimize``.
-    # Direct callers who hand-built a config trigger the one detection here.
-    skip_optimize_kwarg: bool = kwargs.pop("skip_optimize", False)
-    ensure_pre_quantized_stamped(config, current_path, force=skip_optimize_kwarg)
-    is_pre_quantized = config.skip_optimize
-
-    if is_pre_quantized:
-        logger.info("Skipping optimize + quantize stages (config.skip_optimize=True)")
-        stages_skipped.append("optimize")
-        # Skip the ORT-based graph optimization (no kernel for QOperator
-        # ops like ConvInteger on the host EP). The autoconf re-optim/
-        # analyze loop is disabled too -- ``run_optimize_analyze_loop``
-        # forces ``max_optim_iterations=0`` when ``skip_optimize=True``,
-        # so ``_run_analyze_loop`` is not invoked. The model still flows
-        # through later stages (quantize-skip + compile) for validation.
-        current_path, _, analyze_iters, analyze_unsupported, analyze_details = (
-            run_optimize_analyze_loop(
-                model_path=current_path,
-                optimized_path=optimized_path,
-                config=config,
-                ep=ep,
-                device=device,
-                skip_optimize=True,
-                **onnx_kwargs,
-            )
-        )
-    else:
-        logger.info("Optimizing ONNX model...")
-        current_path, opt_elapsed, analyze_iters, analyze_unsupported, analyze_details = (
-            run_optimize_analyze_loop(
-                model_path=current_path,
-                optimized_path=optimized_path,
-                config=config,
-                ep=ep,
-                device=device,
-                max_optim_iterations=hack_max_optim_iterations,
-                allow_unsupported_nodes=allow_unsupported_nodes,
-                analyze_output_path=analyze_result_path,
-                **onnx_kwargs,
-            )
-        )
-        stage_timings["optimize"] = opt_elapsed
-        stages_completed.append("optimize")
-        logger.info("Optimize done (%.1fs) -> %s", opt_elapsed, optimized_path)
-
-    # Persist config AFTER autoconf — includes discovered optimization flags
-    config_path.write_text(json.dumps(config.to_dict(), indent=2))
-    logger.debug("Config persisted: %s", config_path)
-
-    # =========================================================================
-    # [2] QUANTIZE (optional — config.quant=None means skip)
-    # =========================================================================
-    # No defensive ``is_quantized_onnx`` re-check here: when the model is
-    # pre-quantized, ``ensure_pre_quantized_stamped`` has already set
-    # ``config.quant = None`` at stage [1], so this branch naturally
-    # falls through to the ``quant is None`` skip path.
-    quant_result = None
-    if is_pre_quantized:
-        # Already handled above -- skip quantize for pre-quantized models
-        if "quantize" not in stages_skipped:
-            stages_skipped.append("quantize")
-        logger.info("Quantize skipped (pre-quantized model)")
-    elif config.quant is not None:
-        logger.info("Quantizing model...")
-        t0 = time.monotonic()
-        quant_result = quantize_onnx(
-            model_path=current_path,
-            output_path=quantized_path,
-            config=config.quant,
-            **onnx_kwargs,
-        )
-        if not quant_result.success:
-            errors = ", ".join(quant_result.errors) if quant_result.errors else "Unknown"
-            raise RuntimeError(f"Quantization failed: {errors}")
-        current_path = quantized_path
-        stage_timings["quantize"] = time.monotonic() - t0
-        stages_completed.append("quantize")
-        logger.info("Quantize done (%.1fs) -> %s", stage_timings["quantize"], quantized_path)
-    else:
-        stages_skipped.append("quantize")
-        logger.info("Quantize skipped (config.quant is None)")
-
-    # =========================================================================
-    # [3] COMPILE (optional — config.compile=None means skip)
-    # =========================================================================
-    if config.compile is not None:
-        logger.info("Compiling model...")
-        t0 = time.monotonic()
-        compile_result = compile_onnx(
-            model_path=current_path,
-            output_path=compiled_path,
-            config=config.compile,
-        )
-        if hasattr(compile_result, "success") and not compile_result.success:
-            errors = ", ".join(compile_result.errors) if compile_result.errors else "Unknown"
-            raise RuntimeError(f"Compilation failed: {errors}")
-        if compile_result.output_path and Path(compile_result.output_path) != compiled_path:
-            copy_onnx_model(compile_result.output_path, compiled_path)
-        if compiled_path.exists():
-            current_path = compiled_path
-        stage_timings["compile"] = time.monotonic() - t0
-        stages_completed.append("compile")
-        logger.info("Compile done (%.1fs) -> %s", stage_timings["compile"], current_path)
-    else:
-        stages_skipped.append("compile")
-        logger.info("Compile skipped (config.compile is None)")
-
-    # =========================================================================
-    # [4] FINALIZE — Copy last stage output as model.onnx
-    # =========================================================================
-    if current_path != final_path:
-        copy_onnx_model(current_path, final_path)
+    skip_optimize: bool = kwargs.pop("skip_optimize", False)
+    stages = run_build_stages(
+        current_path=current_path,
+        optimized_path=optimized_path,
+        quantized_path=quantized_path,
+        compiled_path=compiled_path,
+        final_path=final_path,
+        config=config,
+        config_path=config_path,
+        ep=ep,
+        device=device,
+        hack_max_optim_iterations=hack_max_optim_iterations,
+        skip_optimize=skip_optimize,
+        onnx_kwargs=onnx_kwargs,
+    )
+    stages_completed.extend(stages.stages_completed)
+    stages_skipped.extend(stages.stages_skipped)
+    stage_timings.update(stages.stage_timings)
+    current_path = stages.current_path
+    analyze_iters = stages.analyze_iterations
+    analyze_unsupported = stages.analyze_unsupported_nodes
+    analyze_details = stages.analyze_details
+    quant_result = stages.quant_result
 
     elapsed = time.monotonic() - start_time
     logger.info("Build complete in %.1fs -> %s", elapsed, final_path)

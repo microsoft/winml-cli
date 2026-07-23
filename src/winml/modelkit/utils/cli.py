@@ -14,7 +14,10 @@ from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 import click
 from rich.console import Console
 
-from .constants import ALL_EP_NAMES, SUPPORTED_DEVICES
+from .constants import (
+    ALL_EP_NAMES,
+    SUPPORTED_DEVICES,
+)
 
 
 if TYPE_CHECKING:

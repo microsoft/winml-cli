@@ -22,7 +22,7 @@ from ..utils.constants import EPNameOrAlias
 # ---------------------------------------------------------------------------
 
 
-class EpSwitchRequest(BaseModel):
+class EPSwitchRequest(BaseModel):
     """POST /v1/ep — switch execution provider."""
 
     ep: EPNameOrAlias = Field(
