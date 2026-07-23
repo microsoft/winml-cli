@@ -449,6 +449,7 @@ class TestPerfModuleMonitor:
             warmup=0,
             model_id=ANY,
             device="cpu",
+            duration_sec=None,
         )
         # And the collected HW metrics still land in the JSON report.
         report = json.loads(out_path.read_text(encoding="utf-8"))

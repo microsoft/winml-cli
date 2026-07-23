@@ -1555,3 +1555,49 @@ class TestLiveMonitorDisplay:
         )
         assert "GPU: 42.0% avg" in status
         assert "VRAM:" in status
+
+    def test_duration_mode_status_shows_time_progress(self):
+        """With duration_sec set, the benchmark phase reports elapsed/total time
+        instead of an iteration count."""
+        import time
+
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+        from winml.modelkit.commands.perf import _BenchmarkClock
+
+        # The benchmark loop shares its start reference with the display via a
+        # clock object (normally stamped by _benchmark_indices after warmup).
+        clock = _BenchmarkClock(start=time.perf_counter())
+        display = LiveMonitorDisplay(
+            total_iterations=110,
+            warmup=10,
+            model_id="test",
+            device="npu",
+            duration_sec=30.0,
+            clock=clock,
+        )
+        status = display._render_status(
+            iteration=50,  # past warmup → benchmark phase
+            latency_ms=2.0,
+            util_samples=[80.0],
+            cpu_pct=10.0,
+            ram_mb=8000.0,
+        )
+        assert "Time:" in status
+        assert "/30s" in status
+        # Iteration-count progress must not appear in duration mode.
+        assert "Iter:" not in status
+
+    def test_iteration_mode_status_shows_iter_progress(self):
+        """Without duration_sec the benchmark phase still shows Iter: x/total."""
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        display = LiveMonitorDisplay(total_iterations=110, warmup=10, model_id="test", device="npu")
+        status = display._render_status(
+            iteration=50,
+            latency_ms=2.0,
+            util_samples=[80.0],
+            cpu_pct=10.0,
+            ram_mb=8000.0,
+        )
+        assert "Iter: 40/100" in status
+        assert "Time:" not in status
