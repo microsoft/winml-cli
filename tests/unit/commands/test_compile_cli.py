@@ -11,6 +11,7 @@ No actual compilation or hardware EP registration is needed.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -30,6 +31,29 @@ def _fake_ep_device(ep: str, device: str) -> EPDeviceTarget:
     return EPDeviceTarget(ep=ep, device=device)
 
 
+@dataclass(frozen=True)
+class CompileCliMocks:
+    """Patched compile-command collaborators exposed to tests."""
+
+    compile_onnx: MagicMock
+    compile_config: MagicMock
+    resolve_device: MagicMock
+
+
+def _assert_successful_compile_call(
+    result,
+    compile_cli_mocks: CompileCliMocks,
+    model_path: Path,
+) -> None:
+    """Assert a successful CLI invocation compiled the requested input model."""
+    assert result.exit_code == 0, result.output
+    compile_cli_mocks.compile_onnx.assert_called_once_with(
+        model_path,
+        output_path=None,
+        config=compile_cli_mocks.compile_config,
+    )
+
+
 @pytest.fixture
 def runner() -> CliRunner:
     """Create a CLI test runner."""
@@ -45,7 +69,7 @@ def fake_onnx(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def mock_compile_onnx():
+def compile_cli_mocks() -> CompileCliMocks:
     """Prevent any real EP discovery or compilation; return a successful result stub."""
     result = MagicMock()
     result.success = True
@@ -56,6 +80,19 @@ def mock_compile_onnx():
 
     # Default: resolve_device returns a QNN/NPU EPDeviceTarget.
     default_ep_device = _fake_ep_device("QNNExecutionProvider", "npu")
+    compile_config = MagicMock()
+    compile_config.ep_device = default_ep_device
+    compile_config.validate = True
+    compile_config.verbose = False
+    compile_config.ep_config.compiler = "ort"
+    compile_config.ep_config.qnn_sdk_root = None
+    compile_config.ep_config.embed_context = False
+    compile_config.ep_config.provider_options = {}
+    compile_config.ep_config.enable_ep_context = False
+
+    def _build_compile_config(ep_device: EPDeviceTarget) -> MagicMock:
+        compile_config.ep_device = ep_device
+        return compile_config
 
     with (
         patch(
@@ -63,10 +100,17 @@ def mock_compile_onnx():
             return_value=default_ep_device,
         ) as mock_resolve,
         patch("winml.modelkit.commands.compile.is_compiled_onnx", return_value=False),
-        patch("winml.modelkit.compiler.compile_onnx", return_value=result),
-        patch("winml.modelkit.compiler.WinMLCompileConfig"),
+        patch("winml.modelkit.compiler.compile_onnx", return_value=result) as mock_compile_onnx,
+        patch(
+            "winml.modelkit.compiler.WinMLCompileConfig.for_ep_device",
+            side_effect=_build_compile_config,
+        ),
     ):
-        yield result, mock_resolve
+        yield CompileCliMocks(
+            compile_onnx=mock_compile_onnx,
+            compile_config=compile_config,
+            resolve_device=mock_resolve,
+        )
 
 
 # =============================================================================
@@ -104,96 +148,130 @@ class TestCompileCliDeviceEpFlags:
     """Verify CLI accepts --ep/--device combinations and deduces correctly."""
 
     def test_ep_qnn_no_device_accepted(
-        self, runner: CliRunner, fake_onnx: Path, mock_compile_onnx
+        self, runner: CliRunner, fake_onnx: Path, compile_cli_mocks: CompileCliMocks
     ) -> None:
         """--ep qnn without --device is accepted (device deduced from ep)."""
-        _result, _ = mock_compile_onnx
         r = runner.invoke(compile, ["-m", str(fake_onnx), "--ep", "qnn"])
-        # Should not fail on argument validation
-        assert "Error: Invalid value" not in (r.output or "")
+        _assert_successful_compile_call(
+            r,
+            compile_cli_mocks,
+            fake_onnx,
+        )
 
     def test_device_npu_no_ep_accepted(
-        self, runner: CliRunner, fake_onnx: Path, mock_compile_onnx
+        self, runner: CliRunner, fake_onnx: Path, compile_cli_mocks: CompileCliMocks
     ) -> None:
         """--device npu without --ep is accepted (ep deduced from device)."""
-        _result, _ = mock_compile_onnx
         r = runner.invoke(compile, ["-m", str(fake_onnx), "--device", "npu"])
-        assert "Error: Invalid value" not in (r.output or "")
+        _assert_successful_compile_call(
+            r,
+            compile_cli_mocks,
+            fake_onnx,
+        )
 
     def test_neither_ep_nor_device_accepted(
-        self, runner: CliRunner, fake_onnx: Path, mock_compile_onnx
+        self, runner: CliRunner, fake_onnx: Path, compile_cli_mocks: CompileCliMocks
     ) -> None:
         """Omitting both --ep and --device is accepted (defaults to qnn/npu)."""
-        _result, _ = mock_compile_onnx
         r = runner.invoke(compile, ["-m", str(fake_onnx)])
-        assert "Error: Invalid value" not in (r.output or "")
+        _assert_successful_compile_call(
+            r,
+            compile_cli_mocks,
+            fake_onnx,
+        )
+
+    @patch("winml.modelkit.compiler.list_compilers", return_value="QAIRT")
+    def test_list_uses_resolved_provider_name(
+        self,
+        mock_list_compilers: MagicMock,
+        runner: CliRunner,
+        compile_cli_mocks: CompileCliMocks,
+    ) -> None:
+        """--list must pass the resolved canonical provider name to list_compilers()."""
+        result = runner.invoke(compile, ["--list", "--device", "npu", "--ep", "qnn"])
+
+        assert result.exit_code == 0, result.output
+        mock_list_compilers.assert_called_once_with("QNNExecutionProvider")
+        assert result.output == "QAIRT\n"
+        compile_cli_mocks.compile_onnx.assert_not_called()
 
     def test_device_npu_shows_npu_in_output(
-        self, runner: CliRunner, fake_onnx: Path, mock_compile_onnx
+        self, runner: CliRunner, fake_onnx: Path, compile_cli_mocks: CompileCliMocks
     ) -> None:
         """--device npu → 'Device: npu' appears in output."""
-        _result, mock_resolve = mock_compile_onnx
-        mock_resolve.return_value = _fake_ep_device("QNNExecutionProvider", "npu")
+        compile_cli_mocks.resolve_device.return_value = _fake_ep_device(
+            "QNNExecutionProvider",
+            "npu",
+        )
         r = runner.invoke(compile, ["-m", str(fake_onnx), "--device", "npu"])
         assert "Device: npu" in r.output
 
     def test_device_gpu_shows_gpu_in_output(
-        self, runner: CliRunner, fake_onnx: Path, mock_compile_onnx
+        self, runner: CliRunner, fake_onnx: Path, compile_cli_mocks: CompileCliMocks
     ) -> None:
         """--device gpu → 'Device: gpu' appears in output."""
-        _result, mock_resolve = mock_compile_onnx
-        mock_resolve.return_value = _fake_ep_device("DmlExecutionProvider", "gpu")
+        compile_cli_mocks.resolve_device.return_value = _fake_ep_device(
+            "DmlExecutionProvider",
+            "gpu",
+        )
         r = runner.invoke(compile, ["-m", str(fake_onnx), "--device", "gpu"])
         assert "Device: gpu" in r.output
 
     def test_ep_dml_shows_gpu_in_output(
-        self, runner: CliRunner, fake_onnx: Path, mock_compile_onnx
+        self, runner: CliRunner, fake_onnx: Path, compile_cli_mocks: CompileCliMocks
     ) -> None:
         """--ep dml → 'Device: gpu' because dml is a GPU EP."""
-        _result, mock_resolve = mock_compile_onnx
-        mock_resolve.return_value = _fake_ep_device("DmlExecutionProvider", "gpu")
+        compile_cli_mocks.resolve_device.return_value = _fake_ep_device(
+            "DmlExecutionProvider",
+            "gpu",
+        )
         r = runner.invoke(compile, ["-m", str(fake_onnx), "--ep", "dml"])
         assert "Device: gpu" in r.output
 
     def test_resolve_device_called_at_boundary(
-        self, runner: CliRunner, fake_onnx: Path, mock_compile_onnx
+        self, runner: CliRunner, fake_onnx: Path, compile_cli_mocks: CompileCliMocks
     ) -> None:
         """resolve_device() is called exactly once with the CLI args."""
-        _result, mock_resolve = mock_compile_onnx
         runner.invoke(compile, ["-m", str(fake_onnx), "--ep", "qnn", "--device", "npu"])
-        mock_resolve.assert_called_once_with(EPDeviceTarget(ep="qnn", device="npu"))
+        compile_cli_mocks.resolve_device.assert_called_once_with(
+            EPDeviceTarget(ep="qnn", device="npu")
+        )
 
     def test_resolve_device_called_ep_only(
-        self, runner: CliRunner, fake_onnx: Path, mock_compile_onnx
+        self, runner: CliRunner, fake_onnx: Path, compile_cli_mocks: CompileCliMocks
     ) -> None:
         """--ep only: resolve_device(EPDeviceTarget(ep=..., device='auto'))."""
-        _result, mock_resolve = mock_compile_onnx
         runner.invoke(compile, ["-m", str(fake_onnx), "--ep", "vitisai"])
-        mock_resolve.assert_called_once_with(EPDeviceTarget(ep="vitisai", device="auto"))
+        compile_cli_mocks.resolve_device.assert_called_once_with(
+            EPDeviceTarget(ep="vitisai", device="auto")
+        )
 
     def test_resolve_device_called_device_only(
-        self, runner: CliRunner, fake_onnx: Path, mock_compile_onnx
+        self, runner: CliRunner, fake_onnx: Path, compile_cli_mocks: CompileCliMocks
     ) -> None:
         """--device only: resolve_device(EPDeviceTarget(ep='auto', device=...))."""
-        _result, mock_resolve = mock_compile_onnx
         runner.invoke(compile, ["-m", str(fake_onnx), "--device", "gpu"])
-        mock_resolve.assert_called_once_with(EPDeviceTarget(ep="auto", device="gpu"))
+        compile_cli_mocks.resolve_device.assert_called_once_with(
+            EPDeviceTarget(ep="auto", device="gpu")
+        )
 
     def test_resolve_device_called_neither(
-        self, runner: CliRunner, fake_onnx: Path, mock_compile_onnx
+        self, runner: CliRunner, fake_onnx: Path, compile_cli_mocks: CompileCliMocks
     ) -> None:
         """Neither --ep nor --device: resolve_device(EPDeviceTarget(ep='auto', device='auto'))."""
-        _result, mock_resolve = mock_compile_onnx
         runner.invoke(compile, ["-m", str(fake_onnx)])
-        mock_resolve.assert_called_once_with(EPDeviceTarget(ep="auto", device="auto"))
+        compile_cli_mocks.resolve_device.assert_called_once_with(
+            EPDeviceTarget(ep="auto", device="auto")
+        )
 
     def test_device_auto_treated_as_none(
-        self, runner: CliRunner, fake_onnx: Path, mock_compile_onnx
+        self, runner: CliRunner, fake_onnx: Path, compile_cli_mocks: CompileCliMocks
     ) -> None:
         """--device auto: passes EPDeviceTarget(ep='auto', device='auto')."""
-        _result, mock_resolve = mock_compile_onnx
         runner.invoke(compile, ["-m", str(fake_onnx), "--device", "auto"])
-        mock_resolve.assert_called_once_with(EPDeviceTarget(ep="auto", device="auto"))
+        compile_cli_mocks.resolve_device.assert_called_once_with(
+            EPDeviceTarget(ep="auto", device="auto")
+        )
 
     def test_invalid_device_rejected(self, runner: CliRunner, fake_onnx: Path) -> None:
         """Unknown device string is rejected by Click."""

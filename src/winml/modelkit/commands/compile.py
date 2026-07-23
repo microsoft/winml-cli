@@ -230,7 +230,7 @@ def compile(
     if list_compilers_flag:
         from ..compiler import list_compilers
 
-        click.echo(list_compilers(cast("EPName", ep_device_resolved.device)))
+        click.echo(list_compilers(cast("EPName", ep_device_resolved.ep)))
         return
 
     # Validate model(s) provided when not listing

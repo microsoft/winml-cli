@@ -33,13 +33,14 @@ class TestWinMLRegistryEPDiscovery:
         # Registry should be accessible
         assert registry is not None
 
-        # Skip if no plugin EP was discovered on this environment.
-        if not registry._discovered:
-            pytest.skip("WinML SDK not available")
+        plugin_entries = [entry for entry in registry._discovered if not entry.is_built_in()]
 
-        # If discovery yielded any entry, there's at least one EP name visible.
-        assert len({e.ep_name for e in registry._discovered}) > 0, (
-            "WinML available but no EPs discovered"
+        # Skip if no real plugin EP was discovered on this environment.
+        if not plugin_entries:
+            pytest.skip("No plugin EPs discovered in this environment")
+
+        assert len({entry.ep_name for entry in plugin_entries}) > 0, (
+            "WinML available but no plugin EPs discovered"
         )
 
 
