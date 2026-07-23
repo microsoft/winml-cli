@@ -1664,6 +1664,132 @@ class TestLiveMonitorDisplay:
         assert "Adapter:" not in status
         assert status.splitlines()[1].lstrip().startswith("CPU:")
 
+    @pytest.mark.parametrize(
+        ("device", "hidden_label"),
+        [
+            ("gpu", "GPU (selected):"),
+            ("npu", "NPU:"),
+        ],
+    )
+    def test_render_status_explicit_none_hides_selected_adapter_for_requested_accelerator(
+        self,
+        device: str,
+        hidden_label: str,
+    ):
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        display = LiveMonitorDisplay(
+            total_iterations=10,
+            warmup=0,
+            model_id="test",
+            device=device,
+            device_kind=None,
+        )
+        status = display._render_status(
+            iteration=1,
+            latency_ms=1.0,
+            util_samples=[],
+            cpu_pct=12.0,
+            cpu_samples=[10.0, 12.0],
+            gpu_pct=20.0,
+            gpu_samples=[18.0, 20.0],
+        )
+
+        assert hidden_label not in status
+        assert status.splitlines()[1].lstrip().startswith("CPU:")
+
+    @pytest.mark.parametrize(
+        ("device", "hidden_legend"),
+        [
+            ("gpu", "GPU (selected) %"),
+            ("npu", "NPU %"),
+        ],
+    )
+    def test_render_chart_explicit_none_hides_selected_adapter_legend_for_requested_accelerator(
+        self,
+        device: str,
+        hidden_legend: str,
+    ):
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        fake_plotext = type(
+            "FakePlotext",
+            (),
+            {
+                "clf": lambda self: None,
+                "theme": lambda self, *args, **kwargs: None,
+                "plot": lambda self, *args, **kwargs: None,
+                "ylabel": lambda self, *args, **kwargs: None,
+                "ylim": lambda self, *args, **kwargs: None,
+                "yticks": lambda self, *args, **kwargs: None,
+                "xlim": lambda self, *args, **kwargs: None,
+                "xlabel": lambda self, *args, **kwargs: None,
+                "plotsize": lambda self, *args, **kwargs: None,
+                "build": lambda self: "chart",
+            },
+        )()
+
+        display = LiveMonitorDisplay(
+            total_iterations=110,
+            warmup=10,
+            model_id="test",
+            device=device,
+            device_kind=None,
+        )
+        with patch.dict(sys.modules, {"plotext": fake_plotext}):
+            renderable = display._render_chart(
+                util_samples=[80.0, 90.0],
+                cpu_samples=[15.0],
+                gpu_samples=[42.5],
+            )
+
+        title = renderable.renderables[0].plain
+        assert hidden_legend not in title
+
+    def test_render_chart_explicit_none_uses_cpu_fallback_for_requested_gpu(self):
+        import builtins
+
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        real_import = builtins.__import__
+
+        def _missing_plotext(name, *args, **kwargs):
+            if name == "plotext":
+                raise ImportError
+            return real_import(name, *args, **kwargs)
+
+        display = LiveMonitorDisplay(
+            total_iterations=10,
+            warmup=0,
+            model_id="test",
+            device="gpu",
+            device_kind=None,
+        )
+        with patch("builtins.__import__", side_effect=_missing_plotext):
+            renderable = display._render_chart(
+                util_samples=[50.0],
+                cpu_samples=[20.0],
+                gpu_samples=[33.0],
+            )
+
+        assert renderable.plain == (
+            "  CPU: [##########........................................] 20.0%"
+        )
+
+    def test_render_status_omitted_device_kind_preserves_legacy_accelerator_inference(self):
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        display = LiveMonitorDisplay(total_iterations=10, warmup=0, model_id="test", device="npu")
+        status = display._render_status(
+            iteration=1,
+            latency_ms=1.0,
+            util_samples=[30.0],
+            cpu_pct=12.0,
+            cpu_samples=[10.0, 12.0],
+        )
+
+        assert "NPU: 30.0%/30.0%" in status
+
     def test_update_accepts_gpu_samples_noop_when_live_none(self):
         from winml.modelkit.commands._live_chart import LiveMonitorDisplay
 

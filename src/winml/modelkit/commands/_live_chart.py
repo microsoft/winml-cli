@@ -10,7 +10,7 @@ plotext for chart rendering and Rich Live for terminal refresh.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Final
 
 from rich.console import Console
 from rich.panel import Panel
@@ -24,6 +24,13 @@ _CHART_WINDOW_SECONDS = 15.0
 
 # Display refresh rate (frames per second)
 _REFRESH_FPS = 5
+
+
+class _OmittedDeviceKind:
+    """Sentinel for callers that omitted the resolved adapter kind."""
+
+
+_DEVICE_KIND_OMITTED: Final = _OmittedDeviceKind()
 
 
 def _avg_now(
@@ -57,7 +64,7 @@ class LiveMonitorDisplay:
         chart_width: int = 120,
         chart_height: int = 15,
         poll_interval_ms: int = 100,
-        device_kind: str | None = None,
+        device_kind: str | None | _OmittedDeviceKind = _DEVICE_KIND_OMITTED,
     ) -> None:
         self._total = total_iterations
         self._warmup = warmup
@@ -67,7 +74,7 @@ class LiveMonitorDisplay:
         # in when you want the legend to reflect what's actually polled (e.g.
         # "auto" that resolved to GPU). Falls back to the requested string
         # when the caller doesn't know the resolved kind yet.
-        if device_kind is None:
+        if device_kind is _DEVICE_KIND_OMITTED:
             requested = (device or "").lower()
             device_kind = requested if requested in ACCELERATOR_DEVICE_TYPES else None
         # When no adapter is polled (CPU-only / auto resolved to nothing),

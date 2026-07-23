@@ -477,6 +477,49 @@ class TestPerfModuleMonitor:
         report = json.loads(out_path.read_text(encoding="utf-8"))
         assert report["instances"][0]["hw_monitor"]["monitor"] == "HWMonitor"
 
+    def test_run_monitored_loop_forwards_explicit_none_device_kind_to_live_display(self) -> None:
+        from winml.modelkit.commands.perf import _run_monitored_loop
+
+        fake_session = MagicMock()
+        fake_stats = MagicMock()
+        fake_stats.all_samples_ms = [1.25]
+        fake_hw = MagicMock()
+        fake_hw.device_kind = None
+        fake_hw.utilization_samples = []
+        fake_hw.peak_memory_local_mb = 0.0
+        fake_hw.peak_memory_shared_mb = 0.0
+        fake_hw.mean_cpu_pct = 0.0
+        fake_hw.ram_used_mb = 0.0
+        fake_hw.cpu_samples = []
+        fake_hw.gpu_samples = []
+        fake_hw.mean_gpu_pct = 0.0
+
+        fake_display = MagicMock()
+        fake_display.__enter__.return_value = fake_display
+
+        with patch(
+            "winml.modelkit.commands.perf.LiveMonitorDisplay",
+            return_value=fake_display,
+        ) as mock_display:
+            _run_monitored_loop(
+                fake_session,
+                {"input_ids": [1]},
+                fake_stats,
+                fake_hw,
+                total_iterations=1,
+                warmup=0,
+                model_id="fake/model",
+                device="gpu",
+            )
+
+        mock_display.assert_called_once_with(
+            total_iterations=1,
+            warmup=0,
+            model_id="fake/model",
+            device="gpu",
+            device_kind=None,
+        )
+
 
 class TestPerfModuleQuantCompileToggles:
     """--no-quantize and --compile/--no-compile clear cfg.quant / cfg.compile
