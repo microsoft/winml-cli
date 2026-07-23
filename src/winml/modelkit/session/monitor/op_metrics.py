@@ -75,6 +75,12 @@ class OperatorMetrics:
     # Empty when source parser only produced an aggregated avg.
     samples_us: list[float] = field(default_factory=list)
 
+    # Opt-in ONNX graph context.
+    onnx_op_type: str | None = None
+    onnx_attributes: dict[str, Any] | None = None
+    onnx_inputs: dict[str, dict[str, Any]] | None = None
+    onnx_outputs: dict[str, dict[str, Any]] | None = None
+
     @property
     def sample_count(self) -> int:
         """Number of retained per-sample timings."""
@@ -103,8 +109,12 @@ class OperatorMetrics:
         return _stats.quantiles(self.samples_us, n=10, method="inclusive")[8]
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize to dict, preserving None for unavailable fields."""
-        return asdict(self)
+        """Serialize to dict, omitting only unset opt-in ONNX metadata."""
+        result = asdict(self)
+        for key in ("onnx_op_type", "onnx_attributes", "onnx_inputs", "onnx_outputs"):
+            if result[key] is None:
+                del result[key]
+        return result
 
 
 @dataclass

@@ -255,46 +255,17 @@ class TestResolveEpMonitor:
         assert "QNN is not available" in msg
         assert "onnxruntime" in msg
 
-    # ---- OpenVINO dispatch ----
-
-    def test_op_tracing_openvino_always_raises(self, tmp_path: Path):
-        """OpenVINO op-tracing is intentionally, unconditionally refused.
-
-        The shipping Intel OpenVINO EP wheel (openvino-plugin-ep) does not
-        implement the CSV-dump mechanism OpenVINOMonitor was written
-        against, so ``_resolve_ep_monitor`` refuses rather than silently
-        emit empty/no-data JSON. See ``perf.py``'s ``_resolve_ep_monitor``
-        docstring/comment for the full rationale.
-        """
-        with pytest.raises(
-            RuntimeError, match="Op-tracing --ep openvino is not currently supported"
-        ):
+    def test_op_tracing_openvino_uses_generic_unsupported_error(self, tmp_path: Path):
+        """OpenVINO is not advertised as an op-tracing implementation."""
+        with pytest.raises(RuntimeError) as excinfo:
             _resolve_ep_monitor(ep="openvino", op_tracing="basic", output_dir=tmp_path)
 
-    def test_op_tracing_openvino_detail_raises(self, tmp_path: Path):
-        """--ep openvino --op-tracing detail must reject — OV surface is basic-only."""
-        from winml.modelkit.session.monitor.openvino_monitor import OpenVINOMonitor
-
-        with (
-            patch.object(OpenVINOMonitor, "is_available", return_value=True),
-            pytest.raises(RuntimeError, match="detail is not supported for OpenVINO"),
-        ):
-            _resolve_ep_monitor(
-                ep="openvino",
-                op_tracing="detail",
-                output_dir=tmp_path,
-            )
+        message = str(excinfo.value)
+        assert "not available for EP 'openvino'" in message
+        assert "Supported EPs: qnn." in message
 
     def test_npu_op_tracing_without_qnn_raises_no_openvino_fallback(self, tmp_path: Path):
-        """No NPU auto-fallback to OpenVINO exists — QNN unavailable on NPU
-        raises a generic 'not available' error, not a silent OpenVINO pickup.
-
-        This deliberately pins the CURRENT shipped behavior, which differs
-        from PR #1019's own Summary text ("NPU/auto -> try monitor A, fall
-        back to B"): no such fallback branch exists in _resolve_ep_monitor.
-        A working implementation of that fallback was built on a sibling
-        branch (commit e6be7659) but never merged into this branch.
-        """
+        """Unavailable QNN does not silently select another NPU monitor."""
         from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
         with (
@@ -304,15 +275,12 @@ class TestResolveEpMonitor:
             _resolve_ep_monitor(ep=None, op_tracing="basic", output_dir=tmp_path, device="npu")
 
     def test_gpu_op_tracing_raises_no_openvino_fallback(self, tmp_path: Path):
-        """No GPU auto-fallback to OpenVINO exists for op-tracing.
-
-        Same rationale as test_npu_op_tracing_without_qnn_raises_no_openvino_fallback.
-        """
+        """No supported op-tracing backend is selected for a GPU request."""
         with pytest.raises(RuntimeError, match="Op-tracing not available for EP"):
             _resolve_ep_monitor(ep=None, op_tracing="basic", output_dir=tmp_path, device="gpu")
 
-    def test_unsupported_ep_error_mentions_both_supported_eps(self, tmp_path: Path):
-        """When neither QNN nor OpenVINO fits, the error names both supported paths."""
+    def test_unsupported_ep_error_mentions_only_supported_ep(self, tmp_path: Path):
+        """The diagnostic advertises only implemented tracing backends."""
         with pytest.raises(RuntimeError) as excinfo:
             _resolve_ep_monitor(
                 ep="dml",
@@ -321,7 +289,7 @@ class TestResolveEpMonitor:
             )
         msg = str(excinfo.value)
         assert "qnn" in msg.lower()
-        assert "openvino" in msg.lower()
+        assert "openvino" not in msg.lower()
 
 
 class TestOpTracingIterationsSmartDefault:

@@ -752,8 +752,9 @@ class WinMLSession:
         saved_last_error = self._last_error
         saved_running_model_path = self._running_model_path
 
-        # Inject the ONNX op-type map into the monitor *before* __enter__ so
-        # op-tracing monitors can prepare their state on the map.
+        # Inject ONNX context into the monitor *before* __enter__ so
+        # op-tracing monitors can prepare their state.
+        effective_monitor.set_onnx_model_path(self._onnx_path)
         effective_monitor.set_onnx_op_types(self._build_op_type_map(self._onnx_path))
 
         # Rebuild InferenceSession only when monitor-contributed options differ

@@ -363,6 +363,32 @@ def test_perf_calls_set_onnx_op_types_on_monitor():
     assert enter_order == ["set_onnx_op_types", "__enter__"]
 
 
+def test_perf_injects_onnx_model_path_before_monitor_enter():
+    from pathlib import Path
+
+    from winml.modelkit.session.monitor.ep_monitor import NullEPMonitor
+
+    calls: list[Path] = []
+    order: list[str] = []
+
+    class _RecordingMonitor(NullEPMonitor):
+        def set_onnx_model_path(self, onnx_model_path: Path) -> None:
+            calls.append(Path(onnx_model_path))
+            order.append("set_onnx_model_path")
+
+        def __enter__(self):
+            order.append("__enter__")
+            return self
+
+    model_path = get_minimal_onnx_model_path()
+    session = _make_cpu_session(model_path)
+    with session.perf(monitor=_RecordingMonitor()):
+        pass
+
+    assert calls == [Path(model_path)]
+    assert order == ["set_onnx_model_path", "__enter__"]
+
+
 def test_perf_provides_completed_window_before_monitor_exit():
     from winml.modelkit.session.monitor.ep_monitor import NullEPMonitor
 

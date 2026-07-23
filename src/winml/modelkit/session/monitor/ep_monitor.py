@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
     from typing import Self
 
     from .op_metrics import OpTraceResult
@@ -117,6 +118,13 @@ class WinMLEPMonitor(ABC):
         Called unconditionally by :meth:`WinMLSession.perf` immediately
         before ``mon.__enter__()`` so the monitor has the map available
         for the entire lifetime of the perf window.
+        """
+
+    def set_onnx_model_path(self, onnx_model_path: Path) -> None:  # noqa: B027 - intentional no-op default; metadata monitors override
+        """Inject the ONNX model path before monitor entry.
+
+        Default: no-op. Monitors that optionally inspect the full graph
+        override this hook; all other monitors remain unaffected.
         """
 
     def set_perf_window(self, warmup: int, measured_iterations: int) -> None:  # noqa: B027 - intentional no-op default; sampling monitors override

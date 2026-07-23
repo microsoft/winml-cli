@@ -170,28 +170,8 @@ def _resolve_ep_monitor(
                 output_dir=output_dir,
             )
 
-        if ep_norm == "openvino":
-            if op_tracing == "detail":
-                raise RuntimeError(
-                    "Op-tracing --level detail is not supported for OpenVINO EP; "
-                    "use --op-tracing basic."
-                )
-            # Unconditional refusal for basic. The shipping OpenVINO EP
-            # wheels (Intel openvino-plugin-ep) don't implement the
-            # CSV-dump mechanism OpenVINOMonitor was written against, so
-            # returning the monitor would produce silent no-data JSON.
-            # ``OpenVINOMonitor.is_available()`` returns ``False`` for the
-            # same reason — this branch is the user-facing failure path.
-            raise RuntimeError(
-                "Op-tracing --ep openvino is not currently supported. The shipping "
-                "OpenVINO EP wheels (Intel openvino-plugin-ep) don't implement the "
-                "CSV-dump mechanism the monitor needs. Run `wmk perf` without "
-                "--op-tracing, or use --ep qnn if a QNN NPU is available."
-            )
-
         raise RuntimeError(
-            f"Op-tracing not available for EP {ep!r} on device {device!r}. "
-            "Supported EPs: qnn, openvino."
+            f"Op-tracing not available for EP {ep!r} on device {device!r}. Supported EPs: qnn."
         )
 
     # Proof-of-execution monitors (no op-tracing)

@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
+from onnx import AttributeProto, TensorProto, TypeProto, helper, load, save_model
 
 
 if TYPE_CHECKING:
@@ -21,6 +23,7 @@ if TYPE_CHECKING:
 def _write_basic_profile(
     path: Path,
     samples: list[dict[str, int]],
+    operator_name: str = "GeneratedOp",
 ) -> None:
     """Write a minimal QNN basic profile using the real CSV row ordering."""
     output = io.StringIO()
@@ -67,7 +70,7 @@ def _write_basic_profile(
                 "CYCLES",
                 "BACKEND",
                 "SUB-EVENT",
-                "GeneratedOp:OpId_1 (cycles)",
+                f"{operator_name}:OpId_1 (cycles)",
             ]
         )
         writer.writerow(
@@ -82,6 +85,41 @@ def _write_basic_profile(
             ]
         )
     path.write_text(output.getvalue(), encoding="utf-8")
+
+
+def _write_transpose_model(path: Path) -> None:
+    input_info = helper.make_tensor_value_info(
+        "input", TensorProto.FLOAT, [1, 3, "height", "width"]
+    )
+    output_info = helper.make_tensor_value_info(
+        "output", TensorProto.FLOAT, [1, "height", "width", 3]
+    )
+    node = helper.make_node(
+        "Transpose",
+        ["input"],
+        ["output"],
+        name="transpose_node",
+        perm=[0, 2, 3, 1],
+    )
+    graph = helper.make_graph([node], "transpose_graph", [input_info], [output_info])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    model.ir_version = 8
+    save_model(model, path)
+
+
+def _write_named_profile(path: Path, operator_name: str) -> None:
+    _write_basic_profile(
+        path,
+        [
+            {
+                "hvx_threads": 4,
+                "accel_execute_cycles": 100,
+                "accel_execute_us": 10,
+                "operator_cycles": 25,
+            }
+        ],
+        operator_name=operator_name,
+    )
 
 
 def test_ctor_defaults():
@@ -307,6 +345,106 @@ def test_basic_metrics_exclude_warmup_samples(tmp_path):
         monitor.result.summary["accel_execute_us"]
         == sum(sample["accel_execute_us"] for sample in samples[1:]) / 2
     )
+
+
+def test_basic_metrics_omit_onnx_metadata_when_env_disabled(tmp_path, monkeypatch):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    model_path = tmp_path / "model.onnx"
+    _write_transpose_model(model_path)
+    monkeypatch.delenv("WINMLCLI_OP_ADD_DATA", raising=False)
+
+    monitor = QNNMonitor(output_dir=tmp_path)
+    monitor.set_onnx_model_path(model_path)
+    monitor.__enter__()
+    _write_named_profile(monitor._csv_path, "transpose_node")
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    operator = monitor.result.to_dict()["operators"][0]
+    assert "onnx_op_type" not in operator
+    assert "onnx_attributes" not in operator
+    assert "onnx_inputs" not in operator
+    assert "onnx_outputs" not in operator
+
+
+def test_basic_metrics_add_onnx_metadata_when_env_enabled(tmp_path, monkeypatch):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    model_path = tmp_path / "model.onnx"
+    _write_transpose_model(model_path)
+    monkeypatch.setenv("WINMLCLI_OP_ADD_DATA", "1")
+
+    monitor = QNNMonitor(output_dir=tmp_path)
+    monitor.set_onnx_model_path(model_path)
+    monitor.__enter__()
+    _write_named_profile(monitor._csv_path, "transpose_node")
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    operator = monitor.result.to_dict()["operators"][0]
+    generated_model = load(model_path)
+    node = generated_model.graph.node[0]
+    graph_input = generated_model.graph.input[0]
+    graph_output = generated_model.graph.output[0]
+    assert operator["onnx_op_type"] == node.op_type
+    assert operator["onnx_attributes"] == {"perm": list(node.attribute[0].ints)}
+    assert operator["onnx_inputs"] == {
+        "data": {
+            "name": graph_input.name,
+            "data_type": TensorProto.DataType.Name(graph_input.type.tensor_type.elem_type),
+            "dims": [
+                dim.dim_value if dim.HasField("dim_value") else dim.dim_param
+                for dim in graph_input.type.tensor_type.shape.dim
+            ],
+        }
+    }
+    assert operator["onnx_outputs"] == {
+        "transposed": {
+            "name": graph_output.name,
+            "data_type": TensorProto.DataType.Name(graph_output.type.tensor_type.elem_type),
+            "dims": [
+                dim.dim_value if dim.HasField("dim_value") else dim.dim_param
+                for dim in graph_output.type.tensor_type.shape.dim
+            ],
+        }
+    }
+
+
+def test_basic_metrics_survive_onnx_metadata_load_failure(tmp_path, monkeypatch, caplog):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monkeypatch.setenv("WINMLCLI_OP_ADD_DATA", "1")
+    monitor = QNNMonitor(output_dir=tmp_path)
+    monitor.set_onnx_model_path(tmp_path / "missing.onnx")
+    monitor.__enter__()
+    _write_named_profile(monitor._csv_path, "transpose_node")
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    operator = monitor.result.to_dict()["operators"][0]
+    assert operator["op_path"] == "transpose_node"
+    assert "onnx_op_type" not in operator
+    assert "onnx_attributes" not in operator
+    assert "onnx_inputs" not in operator
+    assert "onnx_outputs" not in operator
+    assert "Could not enrich QNN profiler metrics with ONNX metadata" in caplog.text
+
+
+def test_serialize_type_proto_attribute_is_json_safe():
+    from winml.modelkit.session.monitor._onnx_metadata import _serialize_attribute
+
+    type_proto = TypeProto()
+    type_proto.tensor_type.elem_type = TensorProto.FLOAT
+    attr = AttributeProto()
+    attr.name = "type_proto"
+    attr.type = AttributeProto.TYPE_PROTO
+    attr.tp.CopyFrom(type_proto)
+
+    value = _serialize_attribute(attr)
+
+    json.dumps(value)
+    assert value == {"tensor_type": {"elem_type": TensorProto.FLOAT}}
 
 
 def test_live_sample_count_mismatch_is_parse_failed(tmp_path):

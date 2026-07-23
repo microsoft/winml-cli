@@ -104,6 +104,36 @@ def test_operator_metrics_to_dict_preserved():
     assert d["duration_us"] == 12.5
 
 
+def test_operator_metrics_omits_unset_onnx_metadata_only():
+    op = OperatorMetrics(name="Conv", op_path="/conv_1")
+
+    serialized = op.to_dict()
+
+    assert "onnx_op_type" not in serialized
+    assert "onnx_attributes" not in serialized
+    assert "onnx_inputs" not in serialized
+    assert "onnx_outputs" not in serialized
+    assert serialized["start_time_us"] is None
+
+
+def test_operator_metrics_serializes_populated_onnx_metadata():
+    op = OperatorMetrics(
+        name="Transpose",
+        op_path="transpose_node",
+        onnx_op_type="Transpose",
+        onnx_attributes={"perm": [0, 2, 3, 1]},
+        onnx_inputs={"data": {"name": "input", "dims": [1, 3, "height", "width"]}},
+        onnx_outputs={"transposed": {"name": "output", "dims": [1, "height", "width", 3]}},
+    )
+
+    serialized = op.to_dict()
+
+    assert serialized["onnx_op_type"] == "Transpose"
+    assert serialized["onnx_attributes"] == {"perm": [0, 2, 3, 1]}
+    assert serialized["onnx_inputs"]["data"]["name"] == "input"
+    assert serialized["onnx_outputs"]["transposed"]["name"] == "output"
+
+
 def test_to_dict_status_only_accepts_known_values_per_typing() -> None:
     """status is a Literal — assert each declared value round-trips through to_dict.
 

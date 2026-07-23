@@ -25,6 +25,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
+from ..._env import env_flag_enabled
+from ._onnx_metadata import _load_onnx_operator_data
 from .ep_monitor import WinMLEPMonitor
 from .op_metrics import OperatorMetrics, OpTraceResult, TraceStatus
 from .qnn._internal import _TOKEN_SUFFIX, parse_qhas, parse_qnn_profiling_csv
@@ -37,6 +39,7 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+_OP_ADD_DATA_ENV = "WINMLCLI_OP_ADD_DATA"
 
 
 # Maps user-facing level to QNN EP's `profiling_level` provider option.
@@ -149,6 +152,7 @@ class QNNMonitor(WinMLEPMonitor):
         # without an onnx_op_types argument). Drives L1 of the fallback chain
         # in :py:meth:`_resolve_op_type`.
         self._onnx_op_types: dict[str, str] = {}
+        self._onnx_model_path: Path | None = None
 
     # ------------------------------------------------------------------
     # Public read-only accessors
@@ -331,6 +335,10 @@ class QNNMonitor(WinMLEPMonitor):
         is a valid no-op: the resolver simply falls through to L2/L3/L4.
         """
         self._onnx_op_types = dict(onnx_op_types)
+
+    def set_onnx_model_path(self, onnx_model_path: Path) -> None:
+        """Store a defensive path copy for opt-in basic-trace enrichment."""
+        self._onnx_model_path = Path(onnx_model_path)
 
     def set_perf_window(self, warmup: int, measured_iterations: int) -> None:
         """Record completed run counts for warmup filtering and validation."""
@@ -560,10 +568,26 @@ class QNNMonitor(WinMLEPMonitor):
                     op["cycles"] / total_cycles * 100 if total_cycles > 0 else 0.0
                 )
 
+        onnx_operator_data: dict[str, dict[str, Any]] = {}
+        if (
+            self._level == "basic"
+            and self._onnx_model_path is not None
+            and env_flag_enabled(_OP_ADD_DATA_ENV)
+        ):
+            try:
+                onnx_operator_data = _load_onnx_operator_data(self._onnx_model_path)
+            except Exception as error:
+                logger.warning(
+                    "Could not enrich QNN profiler metrics with ONNX metadata: %s",
+                    error,
+                    exc_info=True,
+                )
+
         operators = []
         for entry in operator_samples.values():
             durations_us = entry["durations_us"]
             percentages = entry["percentages"]
+            op_data = onnx_operator_data.get(entry["op_path"], {})
             operators.append(
                 OperatorMetrics(
                     name=self._resolve_op_type(entry["op_path"], ep_authoritative=None),
@@ -572,6 +596,10 @@ class QNNMonitor(WinMLEPMonitor):
                     duration_us=sum(durations_us) / len(durations_us),
                     percent_of_total=sum(percentages) / len(percentages),
                     samples_us=durations_us,
+                    onnx_op_type=op_data.get("onnx_op_type"),
+                    onnx_attributes=op_data.get("onnx_attributes"),
+                    onnx_inputs=op_data.get("onnx_inputs"),
+                    onnx_outputs=op_data.get("onnx_outputs"),
                 )
             )
         operators.sort(key=lambda op: op.duration_us, reverse=True)
