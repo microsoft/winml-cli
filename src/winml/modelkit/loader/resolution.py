@@ -132,6 +132,35 @@ def _resolve_model_class_from_config(config: PretrainedConfig) -> type:
         ) from e
 
 
+def _resolve_architecture_mapping(
+    config: PretrainedConfig, model_type_normalized: str
+) -> tuple[str, type] | None:
+    """Resolve an unambiguous registered task from the checkpoint architecture.
+
+    Per-architecture ``MODEL_CLASS_MAPPING`` entries normally override the loader
+    class after task detection. They also provide stronger task evidence when the
+    concrete class in ``config.architectures`` exactly matches a registered class.
+    This corrects incomplete upstream task inference without a model-ID default.
+    """
+    try:
+        architecture_class = _resolve_model_class_from_config(config)
+    except ValueError:
+        return None
+
+    from ..models.hf import MODEL_CLASS_MAPPING
+
+    matches = {
+        task
+        for (model_type, task), model_class in MODEL_CLASS_MAPPING.items()
+        if model_type == model_type_normalized
+        and task is not None
+        and model_class is architecture_class
+    }
+    if len(matches) != 1:
+        return None
+    return matches.pop(), architecture_class
+
+
 def _detect_task_from_model_class(model_class: type) -> str:
     """Detect task from a model class via TasksManager.
 
@@ -251,6 +280,7 @@ class TaskSource(str, Enum):
     USER_CLASS = "user-class"  # user passed --model-class; task inferred
     MODEL_ID_DEFAULT = "model-id-default"  # MODEL_TASK_MAPPING model-id default
     SENTINEL_DEFAULT = "sentinel-default"  # (model_type, None) sentinel
+    ARCHITECTURE_MAPPING = "architecture-mapping"  # exact registered architecture class
     TASKS_MANAGER = "tasks-manager"  # Optimum inference (incl. fill-mask upgrade)
     WRAPPED_LIBRARY = "wrapped-library"  # no architectures -> first supported task
     PIPELINE_TAG = "pipeline-tag"  # Hub pipeline_tag fallback
@@ -589,7 +619,14 @@ def resolve_task(
             else TaskSource.SENTINEL_DEFAULT
         )
 
-    # 1b. no architectures -> first ONNX-exportable task
+    # 1b. exact architecture class -> registered task/class mapping
+    if opt_task is None and model_type_norm:
+        architecture_mapping = _resolve_architecture_mapping(config, model_type_norm)
+        if architecture_mapping is not None:
+            opt_task, resolved = architecture_mapping
+            source = TaskSource.ARCHITECTURE_MAPPING
+
+    # 1c. no architectures -> first ONNX-exportable task
     #     (merges the old timm wrapped-library stage AND the --model-type fallback)
     if opt_task is None and not getattr(config, "architectures", None) and model_type:
         # Populate Optimum's ONNX export-config registry before querying it;
@@ -604,7 +641,7 @@ def resolve_task(
             # lookup failure here — e.g. a wrapped library whose classes aren't registered
             # under framework="pt" — can't escape as a raw KeyError.
 
-    # 1c. TasksManager (reads config.architectures)
+    # 1d. TasksManager (reads config.architectures)
     if opt_task is None:
         try:
             opt_task = _infer_task_from_architecture(config)
@@ -612,7 +649,7 @@ def resolve_task(
         except ValueError:
             opt_task = None
 
-    # 1d. Hub pipeline_tag fallback
+    # 1e. Hub pipeline_tag fallback
     if opt_task is None and model_id and model_type:
         from ..utils.hub_utils import get_pipeline_tag
 
@@ -625,7 +662,7 @@ def resolve_task(
             # reinforcement-learning, time-series-forecasting). Admitting one would flow a
             # non-exportable task into Stage 2 (model-class) / Stage 3 instead of degrading
             # to the last-resort default. Populate Optimum's ONNX export-config registry
-            # first (as Stage 1b does) so get_supported_tasks doesn't return [].
+            # first (as Stage 1c does) so get_supported_tasks doesn't return [].
             import optimum.exporters.onnx.model_configs  # noqa: F401
 
             if normalized_tag in get_supported_tasks(
@@ -634,12 +671,12 @@ def resolve_task(
                 opt_task = normalized_tag
                 source = TaskSource.PIPELINE_TAG
 
-    # 1e. last-resort default
+    # 1f. last-resort default
     if opt_task is None:
         opt_task = next(iter(HF_TASK_DEFAULTS))
         source = TaskSource.HF_TASK_DEFAULT
 
-    # --- Stage 2: model class (if not already resolved in 1b) -------------
+    # --- Stage 2: model class (if not already resolved during detection) --
     if resolved is None:
         resolved = _get_custom_model_class(model_type_norm, opt_task)
         if resolved is None:
@@ -654,6 +691,6 @@ def resolve_task(
     # --- Stage 4: composite tag (detection path) --------------------------
     composite = _composite_components_for_task(model_type, opt_task) if model_type else None
 
-    if source is None:  # structural invariant: Stage 1d always sets a source
+    if source is None:  # structural invariant: Stage 1 always sets a source
         raise RuntimeError("resolve_task: internal invariant violated — source was not set")
     return TaskResolution(surfaced, to_optimum_task(surfaced), resolved, source, composite)

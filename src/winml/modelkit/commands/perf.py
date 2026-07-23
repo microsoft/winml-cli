@@ -262,6 +262,7 @@ def generate_random_inputs(
     symbolic_shapes = io_config.get("input_symbolic_shapes") or [
         [None] * len(s) for s in io_config["input_shapes"]
     ]
+    value_ranges = io_config.get("input_value_ranges") or {}
     overrides = shape_config or {}
 
     specs: dict[str, dict[str, Any]] = {}
@@ -290,6 +291,12 @@ def generate_random_inputs(
             "dtype": gen_dtype,
             "shape": list(resolved_shape),
         }
+        if name in value_ranges:
+            lo, hi = value_ranges[name]
+            # Build-config ranges are high-exclusive. The legacy NumPy
+            # generator accepts an inclusive integer maximum, so adapt only
+            # that boundary; float generation already uses [lo, hi).
+            specs[name]["range"] = [lo, hi - 1] if gen_dtype == "int" else [lo, hi]
 
     return generate_dummy_inputs_from_specs(specs)
 

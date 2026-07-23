@@ -35,6 +35,20 @@ def test_autodetect_text_classification_via_tasks_manager():
     assert r.source == TaskSource.TASKS_MANAGER
 
 
+def test_layoutlm_qa_uses_exact_architecture_mapping():
+    r = resolve_task(_cfg("layoutlm", ["LayoutLMForQuestionAnswering"]))
+    assert r.task == "question-answering"
+    assert r.optimum_task == "question-answering"
+    assert r.model_class.__name__ == "LayoutLMForQuestionAnswering"
+    assert r.source == TaskSource.ARCHITECTURE_MAPPING
+
+
+def test_layoutlm_non_qa_architecture_keeps_tasks_manager_routing():
+    r = resolve_task(_cfg("layoutlm", ["LayoutLMForTokenClassification"]))
+    assert r.task == "token-classification"
+    assert r.source == TaskSource.TASKS_MANAGER
+
+
 def test_autodetect_modality_upgrade_for_vision_feature_extraction():
     r = resolve_task(_cfg("vit", ["ViTModel"]))
     assert r.task == "image-feature-extraction"
