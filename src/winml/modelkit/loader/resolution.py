@@ -558,7 +558,7 @@ def resolve_task(
         if resolved is None:
             try:
                 resolved = TasksManager.get_model_class_for_task(
-                    normalized, framework="pt", model_type=model_type_norm or None
+                    normalized, framework="pt", model_type=model_type or None
                 )
             except KeyError as e:
                 if composite is not None:
@@ -647,7 +647,7 @@ def resolve_task(
         if resolved is None:
             try:
                 resolved = TasksManager.get_model_class_for_task(
-                    opt_task, framework="pt", model_type=model_type_norm or None
+                    opt_task, framework="pt", model_type=model_type or None
                 )
             except Exception:
                 resolved = _resolve_model_class_from_config(config)  # arch fallback

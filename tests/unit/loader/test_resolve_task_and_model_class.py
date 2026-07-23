@@ -117,3 +117,26 @@ class TestUserModelClassEdgeCases:
         # Task is normalized (unlike the user-task path which preserves the original)
         assert r.task == "fill-mask"
         assert r.source == TaskSource.USER_CLASS
+
+
+class TestUnderscoreModelTypePassedToTasksManager:
+    """Regression: model_type with underscores must reach TasksManager un-normalized.
+
+    Optimum registers some model types with underscores (e.g. speech_to_text).
+    Converting to hyphens (speech-to-text) prevents Optimum from matching the
+    correct AutoModel class. See PR review comment on explicit ASR resolution.
+    """
+
+    def test_speech_to_text_resolves_seq2seq_class(self):
+        """speech_to_text (underscore) resolves AutoModelForSpeechSeq2Seq via TasksManager."""
+        config = MagicMock()
+        config.model_type = "speech_to_text"
+        config.architectures = ["Speech2TextForConditionalGeneration"]
+        config._name_or_path = ""
+
+        r = resolve_task(config, task="automatic-speech-recognition")
+
+        assert r.task == "automatic-speech-recognition"
+        assert r.source == TaskSource.USER_TASK
+        # TasksManager should resolve to SpeechSeq2Seq for speech_to_text
+        assert "Seq2Seq" in r.model_class.__name__ or "Speech" in r.model_class.__name__
