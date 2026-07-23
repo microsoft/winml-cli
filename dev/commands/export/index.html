@@ -2740,8 +2740,8 @@ pipeline. This is the entry point before <code>winml quantize</code> or <code>wi
 <td><code>--dynamo/--no-dynamo</code></td>
 <td></td>
 <td>flag</td>
-<td><code>true</code></td>
-<td>Use PyTorch's TorchDynamo ONNX exporter (default) for richer per-node module metadata. Pass <code>--no-dynamo</code> for the legacy TorchScript exporter, whose opset-17 op decomposition is the validated path for QNN/NPU compilation today.</td>
+<td><code>false</code></td>
+<td>Use the legacy TorchScript exporter by default, whose opset-17 op decomposition is the validated path for QNN/NPU compilation today. Pass <code>--dynamo</code> to use PyTorch's TorchDynamo ONNX exporter for richer per-node module metadata.</td>
 </tr>
 <tr>
 <td><code>--torch-module</code></td>
@@ -2813,10 +2813,10 @@ pipeline. This is the entry point before <code>winml quantize</code> or <code>wi
 eight-step Hierarchy-preserving Tags Protocol (HTP): model preparation, input
 generation, module-hierarchy recovery, ONNX export, node-tagger
 creation, per-node tagging, tag injection into ONNX <code>metadata_props</code>, and
-optional report generation. By default the hierarchy is reconstructed from the
-TorchDynamo exporter's per-node module metadata; with <code>--no-dynamo</code> it is
-captured by tracing the model's forward pass under the legacy TorchScript
-exporter instead. The hierarchy metadata allows downstream tools to
+optional report generation. By default the hierarchy is captured by tracing the
+model's forward pass under the legacy TorchScript exporter; with <code>--dynamo</code> it
+is reconstructed from the TorchDynamo exporter's per-node module metadata.
+The hierarchy metadata allows downstream tools to
 reason about operators grouped by their originating module rather than flat
 graph position. When <code>--no-hierarchy</code> is specified, hierarchy steps are bypassed
 and a bare ONNX file is written, useful for third-party tools that do not
@@ -2881,9 +2881,10 @@ dummy input tensor. For example, <code>{"input_ids": {"dtype": "int64", "shape":
 <li><strong>Dynamic dimensions can reduce QNN optimization coverage.</strong> Static batch and
   static shapes remain the default because some QNN fusions require them. Use
   <code>--dynamic-axes</code> only when downstream runtime scenarios need variable sizes.</li>
-<li><strong>Dynamo is the default exporter.</strong> <code>winml export</code> uses PyTorch's TorchDynamo
-  ONNX exporter, which records rich per-node module metadata that drives the
-  hierarchy tags. Pass <code>--no-dynamo</code> to select the legacy TorchScript exporter.
+<li><strong>Dynamo is opt-in.</strong> <code>winml export</code> uses the legacy TorchScript exporter by
+  default, whose opset-17 graph is the validated path for QNN/NPU compilation.
+  Pass <code>--dynamo</code> to use PyTorch's TorchDynamo ONNX exporter, which records rich
+  per-node module metadata that drives the hierarchy tags.
   Shape staticness is independent of the exporter: both default to static shapes
   and only emit dynamic axes when you ask for them. The QNN-relevant
   difference is opset and op decomposition: torch's dynamo op library is built
@@ -2891,14 +2892,14 @@ dummy input tensor. For example, <code>{"input_ids": {"dtype": "int64", "shape":
   dynamo attempts to down-convert the graph to it; this can succeed (the graph is
   saved at the requested opset) or fail (the graph stays at opset 18). <code>winml
   export</code> reports the opset actually produced and warns when it differs from the
-  one you requested, so pass <code>--no-dynamo</code> if you need a graph natively at opset</li>
-<li>The TorchScript path always exports at the configured opset (17 by
-  default). Dynamo also
+  one you requested, so keep the default TorchScript path if you need a graph
+  natively at opset 17. The TorchScript path always exports at the configured
+  opset (17 by default). Dynamo also
   lowers some ops differently -- for example ResNet's classification head becomes
   <code>ReduceMean</code> + <code>Reshape</code> under dynamo but <code>GlobalAveragePool</code> + <code>Flatten</code> under
-  TorchScript -- which can change or reduce QNN fusion coverage. Prefer
-  <code>--no-dynamo</code> for hand exports targeting QNN/NPU compilation until the dynamo
-  graph is validated for your model.</li>
+  TorchScript -- which can change or reduce QNN fusion coverage. Keep the
+  TorchScript default for hand exports targeting QNN/NPU compilation until the
+  Dynamo graph is validated for your model.</li>
 <li><strong><code>--torch-module</code> is experimental.</strong> The flag emits a warning and has no
   effect in the current release. Do not rely on it in automated pipelines yet.</li>
 <li><strong>Output directory must be writable.</strong> The command creates parent directories
