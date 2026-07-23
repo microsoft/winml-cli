@@ -61,8 +61,7 @@ def _suppress_dll_load_dialogs() -> Iterator[None]:
     if sys.platform != "win32":
         yield
         return
-    import ctypes
-    from ctypes import wintypes
+    import ctypes.wintypes
 
     # Win32 API constant names — preserve canonical UPPER_CASE.
     SEM_FAILCRITICALERRORS = 0x0001  # noqa: N806
@@ -70,10 +69,13 @@ def _suppress_dll_load_dialogs() -> Iterator[None]:
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     set_thread_error_mode = kernel32.SetThreadErrorMode
-    set_thread_error_mode.argtypes = [wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
-    set_thread_error_mode.restype = wintypes.BOOL
+    set_thread_error_mode.argtypes = [
+        ctypes.wintypes.DWORD,
+        ctypes.POINTER(ctypes.wintypes.DWORD),
+    ]
+    set_thread_error_mode.restype = ctypes.wintypes.BOOL
 
-    old = wintypes.DWORD(0)
+    old = ctypes.wintypes.DWORD(0)
     ok = set_thread_error_mode(
         SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX,
         ctypes.byref(old),

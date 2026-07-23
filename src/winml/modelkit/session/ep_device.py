@@ -826,6 +826,7 @@ class WinMLDevice:
                     if multiplier:
                         return n * multiplier
                 except ValueError:
+                    # Malformed memory metadata is treated as unavailable.
                     pass
         return None
 

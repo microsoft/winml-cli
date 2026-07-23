@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from types import TracebackType
 
-    import onnx
+    from onnx import GraphProto, ModelProto, NodeProto, ValueInfoProto
 
     from ..compiler.configs import EPConfig
     from .ep_registry import WinMLEPDevice
@@ -949,7 +949,7 @@ class WinMLSession:
         return value_ranges
 
     @staticmethod
-    def _get_precision(model_proto: onnx.ModelProto) -> str | None:
+    def _get_precision(model_proto: ModelProto) -> str | None:
         """Best-effort estimate of a model's numeric precision.
 
         Returns one of: ``"fp32"``, ``"fp16"``, ``"bf16"``, ``"int4"``,
@@ -1050,7 +1050,7 @@ class WinMLSession:
         return None
 
     @staticmethod
-    def _dominant_float_bits(graph: onnx.GraphProto) -> int | None:
+    def _dominant_float_bits(graph: GraphProto) -> int | None:
         """Return 32 or 16 — whichever float dtype dominates initializer count.
 
         ``None`` if no float initializers are present.
@@ -1072,8 +1072,8 @@ class WinMLSession:
 
     def is_compatible(
         self,
-        node: onnx.NodeProto,
-        graph: onnx.GraphProto | None = None,
+        node: NodeProto,
+        graph: GraphProto | None = None,
     ) -> bool:
         """Test if a single ONNX node is compatible with an EP.
 
@@ -1103,14 +1103,12 @@ class WinMLSession:
             )
 
         # 1. Resolve input/output ValueInfoProto
-        inputs: list[onnx.ValueInfoProto] = []
-        outputs: list[onnx.ValueInfoProto] = []
+        inputs: list[ValueInfoProto] = []
+        outputs: list[ValueInfoProto] = []
 
         if graph is not None:
             # Build lookup from parent graph
-            all_value_info: dict[str, onnx.ValueInfoProto] = {
-                vi.name: vi for vi in graph.value_info
-            }
+            all_value_info: dict[str, ValueInfoProto] = {vi.name: vi for vi in graph.value_info}
             for gi in graph.input:
                 all_value_info[gi.name] = gi
             for go in graph.output:
