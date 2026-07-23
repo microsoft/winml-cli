@@ -39,6 +39,12 @@ from .conv2d_inplace_linear_patterns import (
     Conv2DInplaceLinear4DPatternInputGenerator,
     Conv2DInplaceLinearInputGeneratorBase,
 )
+from .conv_batchnorm_patterns import (
+    CONV_ADD_BATCHNORM_SCHEMA,
+    AddConvBatchNormalizationPattern,
+    ConvAddBatchNormalizationPattern,
+    FoldedConvAddPattern,
+)
 from .gelu_patterns import (
     Gelu1Pattern,
     Gelu1PatternInputGenerator,
@@ -84,7 +90,9 @@ from .transpose_patterns import (
 
 
 __all__ = [
+    "CONV_ADD_BATCHNORM_SCHEMA",
     "MATMUL_ADD_SCHEMA",
+    "AddConvBatchNormalizationPattern",
     "Conv2DInplaceLinear2DPattern",
     "Conv2DInplaceLinear2DPatternInputGenerator",
     "Conv2DInplaceLinear3DPattern",
@@ -92,8 +100,10 @@ __all__ = [
     "Conv2DInplaceLinear4DPattern",
     "Conv2DInplaceLinear4DPatternInputGenerator",
     "Conv2DInplaceLinearInputGeneratorBase",
+    "ConvAddBatchNormalizationPattern",
     "ExpandedAttentionPattern",
     "ExpandedAttentionPatternInputGenerator",
+    "FoldedConvAddPattern",
     "Gelu1Pattern",
     "Gelu1PatternInputGenerator",
     "Gelu2Pattern",
