@@ -122,10 +122,14 @@ def _all_eps_available_and_compatible_by_default():
     all_eps = frozenset(s.ep for s in EP_DEVICE_SPECS)
     with (
         patch.object(
-            WinMLEPRegistry, "available_eps", return_value=all_eps,
+            WinMLEPRegistry,
+            "available_eps",
+            return_value=all_eps,
         ),
         patch.object(
-            EPCatalog, "is_compatible", return_value=True,
+            EPCatalog,
+            "is_compatible",
+            return_value=True,
         ),
     ):
         yield
@@ -142,7 +146,7 @@ EP_NAME_MAP = {
     "dml": "DmlExecutionProvider",
     "cuda": "CUDAExecutionProvider",
     "tensorrt": "TensorrtExecutionProvider",
-    "tensorrt_rtx": "NvTensorRtRtxExecutionProvider",
+    "tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
     "vitisai": "VitisAIExecutionProvider",
     "coreml": "CoreMLExecutionProvider",
     "rocm": "ROCMExecutionProvider",

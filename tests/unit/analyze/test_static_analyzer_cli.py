@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from winml.modelkit.commands.analyze import analyze
+from winml.modelkit.utils.constants import EP_SUPPORTED_DEVICES, normalize_ep_name
 
 
 # Fixed simulated local availability derived from `ort.get_ep_devices()` after
@@ -64,10 +65,8 @@ def _mock_local_ep_device_pairs(monkeypatch: pytest.MonkeyPatch) -> None:
         "winml.modelkit.sysinfo.device._get_available_eps",
         lambda: simulated_eps,
     )
-    # The analyze command now resolves a single `auto` target via the shared
-    # sysinfo helpers (resolve_device / resolve_eps), which read the ORT device
-    # -> EP map directly. Mirror the simulated local matrix here so resolution is
-    # deterministic and hardware-independent.
+    # Keep the legacy sysinfo shims aligned with the simulated matrix for any
+    # indirect callers that still read them.
     device_ep_map: dict[str, list[str]] = {}
     for _ep, _device in SIMULATED_LOCAL_EP_DEVICE_PAIRS:
         device_ep_map.setdefault(_device.lower(), []).append(_ep)
@@ -75,6 +74,39 @@ def _mock_local_ep_device_pairs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "winml.modelkit.sysinfo.device._get_device_ep_map_from_ort",
         lambda: simulated_device_ep_map,
+    )
+
+    local_pairs_by_device = {
+        device_name.lower(): [
+            ep_name
+            for ep_name in EP_SUPPORTED_DEVICES
+            if (ep_name, device_name.upper()) in SIMULATED_LOCAL_EP_DEVICE_PAIRS
+        ]
+        for device_name in {"cpu", "gpu", "npu"}
+    }
+
+    def _resolve_target(target):
+        requested_ep = target.ep
+        if target.device != "auto":
+            return target
+
+        if requested_ep == "auto":
+            for device_name in ("npu", "gpu", "cpu"):
+                eps = local_pairs_by_device.get(device_name, [])
+                if eps:
+                    return type(target)(ep=eps[0], device=device_name, source=target.source)
+            raise ValueError("No execution provider is available on this system.")
+
+        canonical_ep = normalize_ep_name(requested_ep)
+        for device_name in ("npu", "gpu", "cpu"):
+            if canonical_ep in local_pairs_by_device.get(device_name, []):
+                return type(target)(ep=canonical_ep, device=device_name, source=target.source)
+        raise ValueError(f"{requested_ep} is not available on this system.")
+
+    monkeypatch.setattr("winml.modelkit.session.resolve_device", _resolve_target)
+    monkeypatch.setattr(
+        "winml.modelkit.session.available_eps_for_device",
+        lambda device_name: list(local_pairs_by_device.get(str(device_name).lower(), [])),
     )
 
 
@@ -104,6 +136,7 @@ def _mock_has_rule_data_for_ep(monkeypatch: pytest.MonkeyPatch) -> None:
         ("OpenVINOExecutionProvider", "CPU"),
         ("QNNExecutionProvider", "NPU"),
         ("NvTensorRTRTXExecutionProvider", "GPU"),
+        ("TensorrtExecutionProvider", "GPU"),
     }
 
     monkeypatch.setattr(
@@ -958,7 +991,7 @@ class TestAnalyzeCommandIntegration:
         tmp_path: Path,
         mock_analyzer_result: Mock,
     ) -> None:
-        """Test all supported device types (with rule data validation bypassed)."""
+        """QNN only succeeds on its catalogued device pairs."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
@@ -966,9 +999,13 @@ class TestAnalyzeCommandIntegration:
         mock_instance.analyze.return_value = mock_analyzer_result
         mock_analyzer_class.return_value = mock_instance
 
-        devices = ["CPU", "GPU", "NPU"]
+        expected_exit_by_device = {
+            "CPU": 2,
+            "GPU": 0,
+            "NPU": 0,
+        }
 
-        for device in devices:
+        for device, expected_exit in expected_exit_by_device.items():
             result = runner.invoke(
                 analyze,
                 [
@@ -980,7 +1017,7 @@ class TestAnalyzeCommandIntegration:
                     device,
                 ],
             )
-            assert result.exit_code == 0, f"Failed for device: {device}"
+            assert result.exit_code == expected_exit, f"Unexpected result for device: {device}"
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
     def test_analyze_called_with_correct_parameters(
@@ -1016,7 +1053,7 @@ class TestAnalyzeCommandIntegration:
         call_kwargs = mock_instance.analyze.call_args[1]
         assert call_kwargs["model_path"] == str(model_file)
         assert call_kwargs["ep"] == "OpenVINOExecutionProvider"
-        assert call_kwargs["device"] == "gpu"
+        assert call_kwargs["device"] == "GPU"
         assert call_kwargs["enable_information"] is True
         assert call_kwargs["for_debug"] is False
 
@@ -1251,6 +1288,7 @@ class TestAnalyzeEPDeviceSelectionMatrix:
                     ("OpenVINOExecutionProvider", "NPU"),
                     ("OpenVINOExecutionProvider", "GPU"),
                     ("OpenVINOExecutionProvider", "CPU"),
+                    ("TensorrtExecutionProvider", "GPU"),
                     ("DmlExecutionProvider", "GPU"),
                     ("CPUExecutionProvider", "CPU"),
                     ("VitisAIExecutionProvider", "NPU"),
@@ -1291,6 +1329,7 @@ class TestAnalyzeEPDeviceSelectionMatrix:
             ("NvTensorRTRTXExecutionProvider", "GPU"),
             ("QNNExecutionProvider", "NPU"),
             ("QNNExecutionProvider", "GPU"),
+            ("TensorrtExecutionProvider", "GPU"),
         }
         monkeypatch.setattr(
             "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",

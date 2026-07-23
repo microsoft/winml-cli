@@ -32,7 +32,7 @@ class TestNormalizeEPName:
         assert normalize_ep_name("QNNExecutionProvider") == "QNNExecutionProvider"
         assert normalize_ep_name("CPUExecutionProvider") == "CPUExecutionProvider"
         assert normalize_ep_name("DmlExecutionProvider") == "DmlExecutionProvider"
-        ep = "NvTensorRtRtxExecutionProvider"
+        ep = "NvTensorRTRTXExecutionProvider"
         assert normalize_ep_name(ep) == ep
         assert normalize_ep_name("MIGraphXExecutionProvider") == "MIGraphXExecutionProvider"
 
@@ -44,7 +44,7 @@ class TestNormalizeEPName:
             ("vitisai", "VitisAIExecutionProvider"),
             ("cpu", "CPUExecutionProvider"),
             ("dml", "DmlExecutionProvider"),
-            ("nv_tensorrt_rtx", "NvTensorRtRtxExecutionProvider"),
+            ("nv_tensorrt_rtx", "NvTensorRTRTXExecutionProvider"),
             ("migraphx", "MIGraphXExecutionProvider"),
         ],
     )
@@ -55,7 +55,7 @@ class TestNormalizeEPName:
         """Aliases should resolve regardless of casing."""
         assert normalize_ep_name("QNN") == "QNNExecutionProvider"
         assert normalize_ep_name("Dml") == "DmlExecutionProvider"
-        assert normalize_ep_name("NV_TENSORRT_RTX") == "NvTensorRtRtxExecutionProvider"
+        assert normalize_ep_name("NV_TENSORRT_RTX") == "NvTensorRTRTXExecutionProvider"
 
     def test_unknown_ep_returned_as_is(self) -> None:
         """Unrecognized names are returned unchanged for downstream validation."""

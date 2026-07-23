@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from winml.modelkit.ep_path import EPEntry, PyPISource
+from winml.modelkit.ep_path import BuiltinSource, EPEntry, PyPISource
 from winml.modelkit.session import (
     GenaiLoadError,
     GenaiNotInstalledError,
@@ -213,6 +213,15 @@ def _plugin_entry(ep_name: str, dll: str) -> EPEntry:
             relative_dll=Path(dll).name,
             eps=(ep_name,),
         ),
+    )
+
+
+def _builtin_entry(ep_name: str) -> EPEntry:
+    """Create a built-in discovered entry for GenAI registration tests."""
+    return EPEntry(
+        ep_name=ep_name,
+        dll_path=Path(),
+        source=BuiltinSource(eps=(ep_name,)),
     )
 
 
@@ -407,6 +416,58 @@ class TestEPRegistration:
             session.load()
 
         assert registered == [("QNNExecutionProvider", "C:\\fake\\qnn.dll")]
+
+    def test_hardware_ep_bundle_skips_matching_builtin_entry(
+        self, bundle_dir_with_pipeline: Path, fresh_registry
+    ) -> None:
+        """Built-in entries are ignored even when they match the effective EP."""
+        builtin_qnn = _builtin_entry("QNNExecutionProvider")
+        plugin_qnn = _plugin_entry("QNNExecutionProvider", "C:/fake/qnn.dll")
+        fresh_registry._discovered = [builtin_qnn, plugin_qnn]
+        og, registered = _fake_og_module()
+
+        with _patch_og(og):
+            session = GenaiSession(bundle_dir_with_pipeline)
+            session.load()
+
+        assert registered == [("QNNExecutionProvider", "C:\\fake\\qnn.dll")]
+
+    def test_failed_registration_logs_and_is_retried(
+        self,
+        bundle_dir_with_pipeline: Path,
+        fresh_registry,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Failed GenAI registrations are logged and not cached as successes."""
+        qnn_entry = _plugin_entry("QNNExecutionProvider", "C:/fake/qnn.dll")
+        fresh_registry._discovered = [qnn_entry]
+
+        attempts: list[tuple[str, str]] = []
+        og = types.ModuleType("onnxruntime_genai")
+
+        def _fail(name: str, path: str) -> None:
+            attempts.append((name, path))
+            raise RuntimeError("boom")
+
+        og.register_execution_provider_library = _fail
+        og.Config = MagicMock()
+        og.Model = MagicMock()
+        og.Tokenizer = MagicMock()
+
+        with _patch_og(og), caplog.at_level(logging.WARNING):
+            session = GenaiSession(bundle_dir_with_pipeline)
+            session.load()
+            session.unload()
+            session.load()
+
+        assert attempts == [
+            ("QNNExecutionProvider", "C:\\fake\\qnn.dll"),
+            ("QNNExecutionProvider", "C:\\fake\\qnn.dll"),
+        ]
+        assert Path("C:/fake/qnn.dll") not in session._genai_registered_paths
+        assert (
+            "Failed to register QNNExecutionProvider with ORT GenAI from C:\\fake\\qnn.dll: boom"
+        ) in caplog.text
 
     def test_force_hardware_ep_on_cpu_bundle_skips_registration(
         self,

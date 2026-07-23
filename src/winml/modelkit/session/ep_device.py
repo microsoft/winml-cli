@@ -609,8 +609,10 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
     consults ``default_ep_for_device`` which already filters by
     ``available_eps()``):
 
-    - ``device == "auto"`` and ``ep == "auto"`` → ``auto_detect_device()``
-      picks the device, then fall through to the device-only branch
+    - ``device == "auto"`` and ``ep == "auto"`` → iterate catalog pairs in
+      priority order, keeping only discovered and vendor-compatible EPs, and
+      return the first pair that ``WinMLEPRegistry.auto_device`` confirms
+      exists locally
     - ``device == "auto"`` and ``ep`` given → ``default_device_for_ep(ep)``
     - ``ep == "auto"`` and ``device`` given → ``default_ep_for_device(device)``
       (registration-aware filter)
@@ -671,16 +673,11 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
 
     # --- Resolve device axis first --------------------------------------
     if device == "auto":
-        if ep == "auto":
-            device = auto_detect_device()
-        else:
-            deduced = default_device_for_ep(expand_ep_name(ep))
-            if deduced is None:
-                raise ValueError(
-                    f"Cannot deduce device for EP '{ep}'. Known EPs: {sorted(VALID_EPS)}"
-                )
-            device = deduced
-            logger.debug("Deduced device=%r from ep=%r", device, ep)
+        deduced = default_device_for_ep(expand_ep_name(ep))
+        if deduced is None:
+            raise ValueError(f"Cannot deduce device for EP '{ep}'. Known EPs: {sorted(VALID_EPS)}")
+        device = deduced
+        logger.debug("Deduced device=%r from ep=%r", device, ep)
     else:
         device = device.lower()
         if device not in VALID_DEVICES:
