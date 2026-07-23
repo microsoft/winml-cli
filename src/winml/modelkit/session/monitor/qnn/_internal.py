@@ -41,6 +41,16 @@ _OP_PATTERN = re.compile(r"(.+?)(?:\s+|:)OpId_(\d+)\s*\(cycles\)")
 # semantics with the CSV path.
 _TOKEN_SUFFIX = re.compile(r"_token_\d+(?:_\d+)?")
 
+_REQUIRED_QNN_CSV_COLUMNS = frozenset(
+    {
+        "Message",
+        "Time",
+        "Unit of Measurement",
+        "Event Level",
+        "Event Identifier",
+    }
+)
+
 
 # ---------------------------------------------------------------------------
 # CSV parser (basic-mode profiling)
@@ -93,6 +103,11 @@ def _read_csv(csv_path: str | Path) -> list[dict[str, str]]:
     path = Path(csv_path)
     with path.open(newline="", encoding="utf-8") as fh:
         reader = csv.DictReader(fh)
+        fieldnames = set(reader.fieldnames or [])
+        missing = sorted(_REQUIRED_QNN_CSV_COLUMNS - fieldnames)
+        if missing:
+            joined = ", ".join(missing)
+            raise ValueError(f"missing required QNN profiling CSV columns: {joined}")
         return list(reader)
 
 

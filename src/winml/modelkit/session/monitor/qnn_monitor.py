@@ -754,23 +754,32 @@ class QNNMonitor(WinMLEPMonitor):
         be at least as new as the CSV (with a 5s tolerance for filesystem
         clock skew) to be accepted.
         """
-        candidates = list(self._output_dir.glob("*_schematic.bin"))
-        if candidates:
-            return candidates[0]
-        # Fallback: read-only glob of process CWD. No chdir.
-        # Reject stale schematics older than the profiling CSV.
         csv_mtime = self._csv_path.stat().st_mtime if self._csv_path.is_file() else 0.0
-        fresh = [
-            p for p in Path.cwd().glob("*_schematic.bin") if p.stat().st_mtime >= csv_mtime - 5.0
-        ]
-        if fresh:
+        candidate = self._newest_fresh_schematic(self._output_dir, csv_mtime)
+        if candidate is not None:
+            return candidate
+        # Fallback: read-only glob of process CWD. No chdir.
+        candidate = self._newest_fresh_schematic(Path.cwd(), csv_mtime)
+        if candidate is not None:
             logger.warning(
                 "QNNMonitor: located *_schematic.bin in CWD (%s) rather than output dir (%s)",
-                fresh[0].parent,
+                candidate.parent,
                 self._output_dir,
             )
-            return fresh[0]
+            return candidate
         return None
+
+    @staticmethod
+    def _newest_fresh_schematic(search_dir: Path, csv_mtime: float) -> Path | None:
+        """Return the newest fresh schematic in ``search_dir`` or ``None``."""
+        fresh = [
+            candidate
+            for candidate in search_dir.glob("*_schematic.bin")
+            if candidate.stat().st_mtime >= csv_mtime - 5.0
+        ]
+        if not fresh:
+            return None
+        return max(fresh, key=lambda candidate: (candidate.stat().st_mtime_ns, str(candidate)))
 
     def _make_failure_result(self, status: TraceStatus, error: str | None) -> OpTraceResult:
         """Build a minimal ``OpTraceResult`` for parse-time failures."""

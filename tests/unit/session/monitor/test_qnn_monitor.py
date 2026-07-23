@@ -542,19 +542,19 @@ def test_live_modified_profiling_csv_is_accepted(tmp_path):
 
 
 def test_exit_parse_failure_caught(tmp_path):
-    """If CSV exists but is corrupt, status is 'parse_failed' and error is populated."""
+    """If CSV header is malformed during the monitor window, status is parse_failed."""
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
-    csv = tmp_path / "profiling_output.csv"
-    csv.write_text("this is not a valid qnn csv")
     m = QNNMonitor(output_dir=tmp_path)
     m.__enter__()
+    csv = tmp_path / "profiling_output.csv"
+    csv.write_text("this is not a valid qnn csv\n", encoding="utf-8")
     m.__exit__(None, None, None)
-    # v2.4: data exposed via the typed ``result`` accessor. Either
-    # 'parse_failed' (if parser raises) or 'ok'/'no_data' (if parser
-    # gracefully returns empty). We accept any of those but must NOT raise.
+
     assert m.result is not None
-    assert m.result.status in ("parse_failed", "no_data", "ok")
+    assert m.result.status == "parse_failed"
+    assert m.result.error is not None
+    assert "missing required QNN profiling CSV columns" in m.result.error
 
 
 def test_exit_does_not_suppress_caller_exception(tmp_path):
@@ -756,6 +756,75 @@ def test_find_schematic_prefers_output_dir_over_cwd(tmp_path, monkeypatch):
 
     monkeypatch.chdir(cwd_dir)
     assert monitor._find_schematic() == in_out
+
+
+def test_find_schematic_skips_stale_output_dir_candidate(tmp_path):
+    import os
+    import time
+
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    monitor = QNNMonitor(level="detail", output_dir=out_dir)
+    monitor._csv_path.write_text("dummy", encoding="utf-8")
+    stale = out_dir / "stale_schematic.bin"
+    stale.write_bytes(b"")
+    old = time.time() - 3600
+    os.utime(stale, (old, old))
+
+    assert monitor._find_schematic() is None
+
+
+def test_find_schematic_falls_back_to_fresh_cwd_when_output_dir_is_stale(tmp_path, monkeypatch):
+    import os
+    import time
+
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    out_dir = tmp_path / "out"
+    cwd_dir = tmp_path / "cwd"
+    out_dir.mkdir()
+    cwd_dir.mkdir()
+
+    monitor = QNNMonitor(level="detail", output_dir=out_dir)
+    monitor._csv_path.write_text("dummy", encoding="utf-8")
+
+    stale = out_dir / "stale_schematic.bin"
+    stale.write_bytes(b"")
+    old = time.time() - 3600
+    os.utime(stale, (old, old))
+
+    fresh = cwd_dir / "fresh_schematic.bin"
+    fresh.write_bytes(b"")
+
+    monkeypatch.chdir(cwd_dir)
+    assert monitor._find_schematic() == fresh
+
+
+def test_find_schematic_selects_newest_fresh_output_candidate(tmp_path):
+    import os
+    import time
+
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    monitor = QNNMonitor(level="detail", output_dir=out_dir)
+    monitor._csv_path.write_text("dummy", encoding="utf-8")
+
+    older = out_dir / "older_schematic.bin"
+    older.write_bytes(b"")
+    newer = out_dir / "newer_schematic.bin"
+    newer.write_bytes(b"")
+
+    now = time.time()
+    os.utime(older, (now - 1, now - 1))
+    os.utime(newer, (now, now))
+
+    assert monitor._find_schematic() == newer
 
 
 def test_output_dir_property_exposes_path(tmp_path):

@@ -8,6 +8,8 @@ import csv
 import io
 from pathlib import Path
 
+import pytest
+
 from winml.modelkit.session.monitor.qnn import parse_qnn_profiling_csv
 
 
@@ -175,4 +177,36 @@ def test_parse_csv_drops_boundaries_without_operator_rows_and_averages_metadata(
         / len(measured),
         "accel_execute_us": sum(sample["accel_execute_us"] for sample in measured) / len(measured),
         "num_samples": len(measured),
+    }
+
+
+def test_parse_csv_rejects_missing_required_headers(tmp_path):
+    path = tmp_path / "profile.csv"
+    path.write_text("not,a,valid,qnn,csv\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="missing required QNN profiling CSV columns"):
+        parse_qnn_profiling_csv(path)
+
+
+def test_parse_csv_accepts_header_only_qnn_profile(tmp_path):
+    path = tmp_path / "profile.csv"
+    path.write_text(
+        (
+            "Msg Timestamp,Message,Time,Unit of Measurement,"
+            "Timing Source,Event Level,Event Identifier\n"
+        ),
+        encoding="utf-8",
+    )
+
+    result = parse_qnn_profiling_csv(path)
+
+    assert result == {
+        "metadata": {
+            "hvx_threads": 0,
+            "accel_execute_cycles": 0,
+            "accel_execute_us": 0,
+            "num_samples": 0,
+        },
+        "operators": [],
+        "samples": [],
     }
