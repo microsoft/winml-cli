@@ -1870,7 +1870,7 @@ def _run_simple_loop(
     clock = _BenchmarkClock()
     next_log = 0.0
     log_step = max(duration_sec / 10.0, 0.1)
-    for _i in _benchmark_indices(total_iterations, warmup, duration_sec, clock):
+    for _ in _benchmark_indices(total_iterations, warmup, duration_sec, clock):
         session.run(inputs)
         if clock.start is None:
             continue
