@@ -1529,8 +1529,45 @@ class TestLiveMonitorDisplay:
             cpu_pct=15.0,
             gpu_pct=42.5,
         )
-        assert "GPU:" in status
+        assert "GPU (aggregate):" in status
         assert "42.5" in status
+
+    def test_render_status_uses_resolved_adapter_label_for_auto_gpu(self):
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        display = LiveMonitorDisplay(
+            total_iterations=110,
+            warmup=10,
+            model_id="test",
+            device="auto",
+            device_kind="gpu",
+        )
+        status = display._render_status(
+            iteration=50,
+            latency_ms=2.0,
+            util_samples=[80.0],
+            cpu_pct=15.0,
+            gpu_pct=42.5,
+        )
+
+        assert "Device: GPU" in status
+        assert "Device: auto" not in status
+
+    def test_render_status_distinguishes_selected_and_aggregate_gpu_labels(self):
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        display = LiveMonitorDisplay(total_iterations=110, warmup=10, model_id="test", device="gpu")
+        status = display._render_status(
+            iteration=50,
+            latency_ms=2.0,
+            util_samples=[80.0, 90.0],
+            cpu_pct=15.0,
+            gpu_pct=42.5,
+            gpu_samples=[40.0, 45.0],
+        )
+
+        assert "GPU (selected): 90.0%/85.0%" in status
+        assert "GPU (aggregate): 45.0%/42.5%" in status
 
     def test_render_status_does_not_label_gpu_adapter_as_npu(self):
         from winml.modelkit.commands._live_chart import LiveMonitorDisplay
@@ -1577,6 +1614,55 @@ class TestLiveMonitorDisplay:
 
         title = renderable.renderables[0].plain
         assert "NPU %" not in title
+
+    def test_render_chart_distinguishes_selected_and_aggregate_gpu_labels(self):
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        fake_plotext = type(
+            "FakePlotext",
+            (),
+            {
+                "clf": lambda self: None,
+                "theme": lambda self, *args, **kwargs: None,
+                "plot": lambda self, *args, **kwargs: None,
+                "ylabel": lambda self, *args, **kwargs: None,
+                "ylim": lambda self, *args, **kwargs: None,
+                "yticks": lambda self, *args, **kwargs: None,
+                "xlim": lambda self, *args, **kwargs: None,
+                "xlabel": lambda self, *args, **kwargs: None,
+                "plotsize": lambda self, *args, **kwargs: None,
+                "build": lambda self: "chart",
+            },
+        )()
+
+        display = LiveMonitorDisplay(total_iterations=110, warmup=10, model_id="test", device="gpu")
+        with patch.dict(sys.modules, {"plotext": fake_plotext}):
+            renderable = display._render_chart(
+                util_samples=[80.0, 90.0],
+                cpu_samples=[15.0],
+                gpu_samples=[42.5],
+            )
+
+        title = renderable.renderables[0].plain
+        assert "GPU (selected) %" in title
+        assert "GPU (aggregate) %" in title
+
+    def test_render_status_cpu_only_omits_selected_adapter_cell(self):
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        display = LiveMonitorDisplay(total_iterations=10, warmup=0, model_id="test", device="cpu")
+        status = display._render_status(
+            iteration=1,
+            latency_ms=1.0,
+            util_samples=[],
+            cpu_pct=12.0,
+            cpu_samples=[10.0, 12.0],
+            gpu_pct=20.0,
+            gpu_samples=[18.0, 20.0],
+        )
+
+        assert "Adapter:" not in status
+        assert status.splitlines()[1].lstrip().startswith("CPU:")
 
     def test_update_accepts_gpu_samples_noop_when_live_none(self):
         from winml.modelkit.commands._live_chart import LiveMonitorDisplay

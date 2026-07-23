@@ -82,6 +82,28 @@ class LiveMonitorDisplay:
         # Track the last rendered panel for transient=False final display
         self._last_panel: Any = None
 
+    def _resolved_device_label(self) -> str:
+        """Return the display label for the requested or resolved device."""
+        return self._adapter_label if self._show_adapter else self._device
+
+    def _uses_gpu_role_labels(self) -> bool:
+        """Whether selected-adapter and aggregate GPU labels would collide."""
+        return self._show_adapter and self._adapter_label == adapter_label("gpu")
+
+    def _selected_adapter_label(self) -> str:
+        """Return the selected-adapter label for the chart/status display."""
+        label = self._adapter_label
+        if self._uses_gpu_role_labels():
+            return f"{label} (selected)"
+        return label
+
+    def _aggregate_gpu_label(self) -> str:
+        """Return the aggregate GPU label for the chart/status display."""
+        label = adapter_label("gpu")
+        if self._uses_gpu_role_labels():
+            return f"{label} (aggregate)"
+        return label
+
     def __enter__(self) -> LiveMonitorDisplay:
         from rich.live import Live
 
@@ -156,7 +178,8 @@ class LiveMonitorDisplay:
         X-axis is a moving window of the last N seconds.
         Y-axis has fixed ticks: 0, 20, 40, 60, 80, 100.
         """
-        adapter = self._adapter_label
+        adapter = self._selected_adapter_label()
+        gpu_label = self._aggregate_gpu_label()
         show_adapter = self._show_adapter
         try:
             import plotext as plt
@@ -250,7 +273,7 @@ class LiveMonitorDisplay:
         if has_cpu:
             legend_parts.append("[cyan]\u2588\u2588[/cyan] CPU %")
         if has_gpu:
-            legend_parts.append("[bright_yellow]\u2588\u2588[/bright_yellow] GPU %")
+            legend_parts.append(f"[bright_yellow]\u2588\u2588[/bright_yellow] {gpu_label} %")
         title = Text.from_markup(f"  Utilization ({'  '.join(legend_parts)})")
 
         ansi_output = plt.build()
@@ -302,13 +325,18 @@ class LiveMonitorDisplay:
 
         # Row 1: Progress
         pct_cell = f"{bar} {pct:.0%}"
-        row1 = f"  {pct_cell:<30}|  {progress}  |  Device: {self._device}"
+        row1 = f"  {pct_cell:<30}|  {progress}  |  Device: {self._resolved_device_label()}"
 
         # Row 2: Compute (unified now/avg format across all three)
-        adapter_cell = f"{self._adapter_label}: {adapter_now:.1f}%/{adapter_avg:.1f}%"
+        adapter_label_text = self._selected_adapter_label()
+        gpu_label_text = self._aggregate_gpu_label()
+        adapter_cell = f"{adapter_label_text}: {adapter_now:.1f}%/{adapter_avg:.1f}%"
         cpu_cell = f"CPU: {cpu_now:.1f}%/{cpu_avg:.1f}%"
-        gpu_cell = f"GPU: {gpu_now:.1f}%/{gpu_avg:.1f}%"
-        row2 = f"  {adapter_cell:<20}| {cpu_cell:<20}| {gpu_cell:<20}"
+        gpu_cell = f"{gpu_label_text}: {gpu_now:.1f}%/{gpu_avg:.1f}%"
+        row2_cells = [cpu_cell, gpu_cell]
+        if self._show_adapter:
+            row2_cells.insert(0, adapter_cell)
+        row2 = "  " + "| ".join(f"{cell:<28}" for cell in row2_cells)
 
         # Row 3: Memory
         ram_cell = f"Sys Mem: {ram_mb:.0f} MB"
