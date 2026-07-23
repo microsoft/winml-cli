@@ -546,12 +546,15 @@ class HTPExporter:
         output_path = str(Path(output_path).resolve())
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-        # Input names from config, fallback to inputs dict keys. Keyword inputs
-        # invoke forward() by name, but the TorchScript exporter assigns these
-        # ONNX names positionally to the traced graph inputs. Align names with
-        # forward() order so a config's tensor order cannot swap graph bindings.
+        # Input names from config, fallback to inputs dict keys.
+        # The TorchScript exporter assigns input_names positionally to graph
+        # inputs emitted in forward() signature order, so we must reorder to
+        # match. The dynamo exporter, however, preserves dict iteration order
+        # (the order inputs were generated), so reordering would mismatch
+        # names with tensors and swap dtype/shape bindings.
         input_names = export_config.get_input_names() or list(inputs.keys())
-        input_names = self._resolve_keyword_input_names(model, inputs, input_names)
+        if not export_config.dynamo:
+            input_names = self._resolve_keyword_input_names(model, inputs, input_names)
 
         # Output names: infer from traced hierarchy, validate against config
         traced_outputs = self._hierarchy_builder.get_outputs() if self._hierarchy_builder else None
