@@ -84,6 +84,18 @@ def test_pure_composite_task_resolves_without_crashing():
     assert r.model_class.__name__ == "BartDecoderWrapper"
 
 
+def test_user_task_document_question_answering_uses_qa_model_class():
+    """document-question-answering stays user-facing but uses Optimum QA lookup."""
+    r = resolve_task(
+        _cfg("layoutlm", ["LayoutLMForQuestionAnswering"]),
+        task="document-question-answering",
+    )
+    assert r.task == "document-question-answering"
+    assert r.optimum_task == "question-answering"
+    assert r.source == TaskSource.USER_TASK
+    assert r.model_class.__name__ == "AutoModelForQuestionAnswering"
+    assert r.composite is None
+
 def test_no_architectures_uses_first_supported_task():
     cfg = AutoConfig.for_model("bert")
     assert not getattr(cfg, "architectures", None)

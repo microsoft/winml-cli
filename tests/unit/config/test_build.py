@@ -28,6 +28,7 @@ from winml.modelkit.config import (
     SubmoduleClassNotFoundError,
     WinMLBuildConfig,
     generate_build_config,
+    generate_hf_build_config,
     generate_onnx_build_config,
 )
 from winml.modelkit.config.build import (
@@ -62,6 +63,30 @@ TEXT_MAX_POSITION_EMBEDDINGS = 32
 TEXT_INTERMEDIATE_SIZE = TEXT_HIDDEN_SIZE * 4
 
 
+def test_generate_hf_build_config_document_question_answering_layoutlm() -> None:
+    """document-question-answering keeps its task while exporting via LayoutLM QA."""
+    cfg = generate_hf_build_config(
+        model_type="layoutlm",
+        task="document-question-answering",
+        device="cpu",
+        precision="fp32",
+    )
+
+    assert isinstance(cfg, WinMLBuildConfig)
+    assert cfg.loader.task == "document-question-answering"
+    assert cfg.loader.model_class == "AutoModelForQuestionAnswering"
+    assert cfg.loader.model_type == "layoutlm"
+    assert cfg.export is not None
+    assert [t.name for t in cfg.export.input_tensors or []] == [
+        "input_ids",
+        "bbox",
+        "attention_mask",
+        "token_type_ids",
+    ]
+    assert [t.name for t in cfg.export.output_tensors or []] == [
+        "start_logits",
+        "end_logits",
+    ]
 # =============================================================================
 # Fixtures
 # =============================================================================

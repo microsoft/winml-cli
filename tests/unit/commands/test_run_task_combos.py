@@ -331,6 +331,55 @@ class TestVisualQuestionAnswering:
         assert inputs["question"] == "What is this?"
 
 
+class TestDocumentQuestionAnswering:
+    """document-question-answering: document image plus question text."""
+
+    TASK = "document-question-answering"
+
+    def test_file_and_text_shortcuts(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--file + --text map to image and question fields."""
+        img = tmp_path / "document.png"
+        img.write_bytes(b"doc-image")
+        engine = _make_engine(self.TASK)
+        with patch(_ENGINE_PATH, return_value=engine):
+            result = runner.invoke(
+                run,
+                [
+                    "--model",
+                    "layoutlm-docqa",
+                    "--file",
+                    str(img),
+                    "--text",
+                    "What is the invoice total?",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        inputs = engine.predict.call_args.kwargs["inputs"]
+        assert inputs["image"] == b"doc-image"
+        assert inputs["question"] == "What is the invoice total?"
+
+    def test_all_named_inputs(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Both inputs also work through -I."""
+        img = tmp_path / "document.jpg"
+        img.write_bytes(b"doc-jpeg")
+        engine = _make_engine(self.TASK)
+        with patch(_ENGINE_PATH, return_value=engine):
+            result = runner.invoke(
+                run,
+                [
+                    "--model",
+                    "layoutlm-docqa",
+                    "-I",
+                    f"image=@{img}",
+                    "-I",
+                    "question=Who signed the form?",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        inputs = engine.predict.call_args.kwargs["inputs"]
+        assert inputs["image"] == b"doc-jpeg"
+        assert inputs["question"] == "Who signed the form?"
+
 # =====================================================================
 # 6. Image pair task: keypoint-matching
 # =====================================================================

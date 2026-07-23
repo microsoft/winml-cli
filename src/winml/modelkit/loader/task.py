@@ -253,6 +253,10 @@ TASK_SYNONYM_EXTENSIONS: dict[str, str] = {
     # mask-generation is registered via register_onnx_overwrite for SAM2.
     # Optimum incorrectly maps it to "feature-extraction"; preserve as-is.
     "mask-generation": "mask-generation",
+    # Document QA is a user-facing multimodal pipeline label. The exported
+    # model is still an extractive QA head with text/bbox tensors, so Optimum
+    # should resolve it through its question-answering support.
+    "document-question-answering": "question-answering",
 }
 
 

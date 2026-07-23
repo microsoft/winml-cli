@@ -346,6 +346,32 @@ class TestModelForward:
         call_kwargs = model._format_inputs.call_args[1]
         np.testing.assert_array_equal(call_kwargs["token_type_ids"], tids)
 
+    def test_includes_bbox_when_model_accepts(self):
+        model = self._make_model(
+            input_names=["input_ids", "bbox", "attention_mask", "token_type_ids"],
+        )
+        ids = np.array([[1, 2, 3]])
+        mask = np.array([[1, 1, 1]])
+        bbox = np.array([[[0, 0, 10, 10], [10, 10, 20, 20], [0, 0, 0, 0]]])
+
+        model.forward(input_ids=ids, attention_mask=mask, bbox=bbox)
+
+        call_kwargs = model._format_inputs.call_args[1]
+        np.testing.assert_array_equal(call_kwargs["bbox"], bbox)
+
+    def test_excludes_bbox_when_model_lacks_input(self):
+        model = self._make_model(
+            input_names=["input_ids", "attention_mask"],
+            has_token_type_ids=False,
+        )
+        ids = np.array([[1, 2, 3]])
+        bbox = np.array([[[0, 0, 10, 10], [10, 10, 20, 20], [0, 0, 0, 0]]])
+
+        model.forward(input_ids=ids, bbox=bbox)
+
+        call_kwargs = model._format_inputs.call_args[1]
+        assert "bbox" not in call_kwargs
+
     def test_excludes_token_type_ids_when_model_lacks_input(self):
         model = self._make_model(
             input_names=["input_ids", "attention_mask"],

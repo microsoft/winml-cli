@@ -152,8 +152,12 @@ class TestLayoutLMQuestionAnsweringOverride:
         )
 
         inputs = generate_dummy_inputs("layoutlm", "question-answering", layoutlm_config)
+        doc_inputs = generate_dummy_inputs(
+            "layoutlm", "document-question-answering", layoutlm_config
+        )
 
         assert set(inputs) == {"input_ids", "bbox", "attention_mask", "token_type_ids"}
+        assert set(doc_inputs) == set(inputs)
         assert inputs["input_ids"].shape == (1, layoutlm_config.max_position_embeddings)
         assert inputs["bbox"].shape == (1, layoutlm_config.max_position_embeddings, 4)
         assert inputs["token_type_ids"].shape == (1, layoutlm_config.max_position_embeddings)
@@ -175,7 +179,11 @@ class TestLayoutLMQuestionAnsweringOverride:
         )
 
         specs = resolve_io_specs("layoutlm", "question-answering", layoutlm_config)
+        doc_specs = resolve_io_specs("layoutlm", "document-question-answering", layoutlm_config)
 
+        assert doc_specs["input_names"] == specs["input_names"]
+        assert doc_specs["input_shapes"] == specs["input_shapes"]
+        assert doc_specs["output_names"] == specs["output_names"]
         assert specs["input_names"] == [
             "input_ids",
             "bbox",

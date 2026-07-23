@@ -545,6 +545,7 @@ def resolve_task(
     if task is not None:
         original = task
         normalized = normalize_task(task)
+        optimum_task = to_optimum_task(original)
         # Exact-key composite lookup on the ORIGINAL user string: registration keys are
         # `summarization` / `table-question-answering`, never the normalized
         # `text2text-generation`. So `--task summarization` tags the composite while
@@ -552,12 +553,14 @@ def resolve_task(
         composite = resolve_composite(model_type_norm, original) if model_type_norm else None
         resolved = None
         if model_type_norm:
-            resolved = _get_custom_model_class(
-                model_type_norm, original
-            ) or _get_custom_model_class(model_type_norm, normalized)
+            resolved = (
+                _get_custom_model_class(model_type_norm, original)
+                or _get_custom_model_class(model_type_norm, normalized)
+                or _get_custom_model_class(model_type_norm, optimum_task)
+            )
         if resolved is None:
             try:
-                resolved = TasksManager.get_model_class_for_task(normalized, framework="pt")
+                resolved = TasksManager.get_model_class_for_task(optimum_task, framework="pt")
             except KeyError as e:
                 if composite is not None:
                     # Pure composite (e.g. table-question-answering): no single model class

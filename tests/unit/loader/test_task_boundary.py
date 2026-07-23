@@ -26,6 +26,8 @@ from winml.modelkit.loader import to_optimum_task
         ("next-sentence-prediction", "text-classification"),
         # WinML extension preserved as-is (Optimum would mis-map it otherwise).
         ("mask-generation", "mask-generation"),
+        # User-facing document QA exports through Optimum's extractive QA path.
+        ("document-question-answering", "question-answering"),
         # Already-canonical task passes through unchanged.
         ("text-classification", "text-classification"),
     ],
