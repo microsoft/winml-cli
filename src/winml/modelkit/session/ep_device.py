@@ -595,15 +595,14 @@ def auto_detect_device() -> str:
 
 # --- resolution ------------------------------------------------------------
 def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
-    """Pure-deduction resolver: EPDeviceTarget -> EPDeviceTarget.
+    """Resolve an EP/device intent to a concrete target.
 
     Takes a typed :class:`EPDeviceTarget` intent (possibly carrying
     ``"auto"`` on either axis) and returns a self-describing
     :class:`EPDeviceTarget` whose ``ep`` and ``device`` are concrete.
-    ``source`` passes through unchanged; source-tag validation against
-    discovered entries lives in :meth:`WinMLEPRegistry.auto_device`
-    (Path A's registration step) — this function does no filesystem
-    scan, no DLL load, and no registry I/O.
+    Concrete EP/device pairs require no registry access. Automatic EP
+    selection validates candidate pairs through
+    :meth:`WinMLEPRegistry.auto_device`, which may register plugin EPs.
 
     Resolution order (resolve device first, then ep — device-only path
     consults ``default_ep_for_device`` which already filters by
@@ -614,8 +613,8 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
       return the first pair that ``WinMLEPRegistry.auto_device`` confirms
       exists locally
     - ``device == "auto"`` and ``ep`` given → ``default_device_for_ep(ep)``
-    - ``ep == "auto"`` and ``device`` given → ``default_ep_for_device(device)``
-      (registration-aware filter)
+    - ``ep == "auto"`` and ``device`` given → iterate compatible catalog EPs
+      and return the first pair that ``WinMLEPRegistry.auto_device`` confirms
     - both given → validate and return
 
     Args:
@@ -635,9 +634,8 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
     ep = target.ep
     device = target.device
 
-    # Fully automatic resolution is the one path allowed to load candidate
-    # EPs while selecting a target. Explicit EP or device requests retain the
-    # structured failure behavior of WinMLEPRegistry.auto_device.
+    # Automatic resolution may load candidate EPs to confirm the requested
+    # device class is actually exposed by ORT.
     if ep == "auto" and device == "auto":
         from ..ep_path import EP_CATALOG
         from .ep_registry import WinMLEPRegistry
@@ -685,13 +683,39 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
 
     # --- Resolve ep axis (device is concrete by this point) -------------
     if ep == "auto":
-        default_ep_full = default_ep_for_device(device)
-        if default_ep_full is None:
+        from ..ep_path import EP_CATALOG
+        from .ep_registry import WinMLEPRegistry
+
+        registry = WinMLEPRegistry.instance()
+        available_eps = registry.available_eps()
+        selected_ep: str | None = None
+        try:
+            for spec in EP_DEVICE_SPECS:
+                if (
+                    spec.device != device
+                    or spec.ep not in available_eps
+                    or not EP_CATALOG.is_compatible(spec.ep)
+                ):
+                    continue
+                candidate = EPDeviceTarget(ep=spec.ep, device=device, source=target.source)
+                try:
+                    registry.auto_device(candidate)
+                except (DeviceNotFound, WinMLEPNotDiscovered, WinMLEPRegistrationFailed):
+                    continue
+                selected_ep = spec.ep
+                break
+        except RuntimeError as e:
+            logger.warning(
+                "Hardware detection failed (%s); no compatible EP for device %r.",
+                e,
+                device,
+            )
+        if selected_ep is None:
             raise ValueError(
                 f"No registered EP for device {device!r}. "
                 f"Install a plugin EP that targets this device, or pass --ep explicitly."
             )
-        ep = short_ep_name(default_ep_full)
+        ep = selected_ep
         logger.debug("Deduced ep=%r from device=%r", ep, device)
 
     # --- Final validation + return --------------------------------------

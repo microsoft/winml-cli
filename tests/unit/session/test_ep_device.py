@@ -248,6 +248,43 @@ def test_resolve_both_auto_falls_back_to_cpu_when_vendor_detection_fails() -> No
     assert result.device == "cpu"
 
 
+def test_resolve_auto_ep_retries_when_ep_lacks_requested_device() -> None:
+    """A discovered EP without the requested device class does not block fallback."""
+    from winml.modelkit.session import EP_DEVICE_SPECS, DeviceNotFound
+    from winml.modelkit.session.ep_registry import WinMLEPRegistry
+
+    gpu_eps = list(dict.fromkeys(spec.ep for spec in EP_DEVICE_SPECS if spec.device == "gpu"))
+    first_ep, fallback_ep = gpu_eps[:2]
+    registry = MagicMock()
+    registry.available_eps.return_value = frozenset({first_ep, fallback_ep})
+
+    def validate_device(target: EPDeviceTarget) -> object:
+        if target.ep == first_ep:
+            raise DeviceNotFound(f"{first_ep} exposes no GPU device")
+        return object()
+
+    registry.auto_device.side_effect = validate_device
+    with patch.object(WinMLEPRegistry, "instance", return_value=registry):
+        result = resolve_device(EPDeviceTarget(ep="auto", device="gpu"))
+
+    assert result == EPDeviceTarget(ep=fallback_ep, device="gpu")
+
+
+def test_resolve_auto_ep_preserves_vendor_detection_failure_contract() -> None:
+    """A failed vendor probe still reports that no compatible target was found."""
+    from winml.modelkit.ep_path import EPCatalog
+    from winml.modelkit.session.ep_registry import WinMLEPRegistry
+
+    registry = MagicMock()
+    registry.available_eps.return_value = frozenset({"DmlExecutionProvider"})
+    with (
+        patch.object(WinMLEPRegistry, "instance", return_value=registry),
+        patch.object(EPCatalog, "is_compatible", side_effect=RuntimeError("WMI unavailable")),
+        pytest.raises(ValueError, match="No registered EP for device"),
+    ):
+        resolve_device(EPDeviceTarget(ep="auto", device="gpu"))
+
+
 # --- short_ep_name tests ---------------------------------------------------
 
 
@@ -588,22 +625,23 @@ def test_default_ep_for_device_returns_none_when_no_registered_ep_for_device() -
 
 
 def test_resolve_device_device_only_picks_registered_ep() -> None:
-    """resolve_device(device='npu') with no ep must pick a REGISTERED EP.
+    """resolve_device(device='npu') with no ep must pick a usable registered EP.
 
     Spec: §6.4. On an OpenVINO-only box, deduction must walk the catalog
-    AND filter by available_eps() so QNN is not returned. Post-Batch-C,
-    resolve_device is pure-deduction (no DLL load), so the test verifies
-    the deduced EP name only.
+    AND filter by available_eps() so QNN is not returned, then verify that
+    the registered OpenVINO EP exposes the requested device class.
     """
     import contextlib
 
     from winml.modelkit.session import resolve_device
+    from winml.modelkit.session.ep_registry import WinMLEPRegistry
 
     available = frozenset({"OpenVINOExecutionProvider", "CPUExecutionProvider"})
 
     with contextlib.ExitStack() as stack:
         for cm in _patch_available_eps(available):
             stack.enter_context(cm)
+        stack.enter_context(patch.object(WinMLEPRegistry, "auto_device", return_value=object()))
         result = resolve_device(EPDeviceTarget(ep="auto", device="npu"))
 
     assert result.ep == "OpenVINOExecutionProvider", (
