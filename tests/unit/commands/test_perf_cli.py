@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+from io import StringIO
 from pathlib import Path
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
@@ -19,11 +20,13 @@ from unittest.mock import MagicMock, patch
 import click
 import pytest
 from click.testing import CliRunner
+from rich.console import Console
 
 from winml.modelkit.commands.perf import (
     BenchmarkConfig,
     BenchmarkResult,
     PerfBenchmark,
+    display_console_report,
     generate_output_path,
     perf,
 )
@@ -1393,6 +1396,51 @@ class TestPerfFormatJson:
         # Should NOT be parseable as JSON (it's console text)
         with pytest.raises(json.JSONDecodeError):
             json.loads(result.output)
+
+
+class TestDisplayConsoleReport:
+    def test_prefers_adapter_block_over_gpu_aggregate(self) -> None:
+        result = BenchmarkResult(
+            config=BenchmarkConfig(model_id="microsoft/resnet-50", warmup=1),
+            mean_ms=10.0,
+            min_ms=9.0,
+            max_ms=11.0,
+            p50_ms=10.0,
+            p90_ms=10.5,
+            p95_ms=10.8,
+            p99_ms=11.0,
+            std_ms=0.5,
+            warmup_mean_ms=12.0,
+            samples_per_sec=100.0,
+            effective_batch_size=1,
+            actual_device="gpu",
+            actual_task="image-classification",
+            hw_monitor={
+                "device_kind": "gpu",
+                "adapter": {
+                    "mean_pct": 91.2,
+                    "peak_pct": 98.8,
+                    "sample_count": 5,
+                },
+                "gpu": {
+                    "mean_pct": 1.1,
+                    "peak_pct": 2.2,
+                    "sample_count": 11,
+                    "luids": ["0x0_0xBEEF"],
+                },
+                "cpu": {"mean_pct": 12.3, "peak_pct": 34.5, "sample_count": 5},
+                "ram": {"used_mb": 1024.0, "peak_mb": 2048.0},
+                "device_memory": {"local_peak_mb": 0.0, "shared_peak_mb": 0.0},
+                "running_time_ns": 0,
+            },
+        )
+        console = Console(file=StringIO(), width=200, force_terminal=False, record=True)
+
+        display_console_report(result, console)
+
+        out = console.export_text()
+        assert "GPU: 91.2% avg, 98.8% peak" in out
+        assert "GPU: 1.1% avg, 2.2% peak" not in out
 
 
 class TestPerfSubmodel:

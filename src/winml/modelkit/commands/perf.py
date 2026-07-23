@@ -30,7 +30,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from ..utils import cli as cli_utils
-from ..utils.constants import EPName, EPNameOrAlias
+from ..utils.constants import ACCELERATOR_DEVICE_TYPES, EPName, EPNameOrAlias
 from ..utils.logging import configure_logging
 from ..utils.model_input import ModelInputKind, classify_model_input
 from ._ep_arg import EpAtSourceParamType
@@ -1098,7 +1098,8 @@ class PerfBenchmark:
             # ep_name is the full ORT EP name (a member of EPName at runtime);
             # WinMLPreTrainedModel types it loosely as ``str | None``.
             ep_name = cast("EPName | None", self._single.ep_name)
-            for kind in [device] if device in ("npu", "gpu") else ["npu", "gpu"]:
+            kinds = (device,) if device in ACCELERATOR_DEVICE_TYPES else ACCELERATOR_DEVICE_TYPES
+            for kind in kinds:
                 luid = resolve_adapter_luid(kind, ep_name=ep_name)
                 if luid:
                     return luid
@@ -1699,12 +1700,14 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
         console.print("[bold]Hardware (during benchmark)[/bold]")
         cpu = result.hw_monitor.get("cpu", {})
         ram = result.hw_monitor.get("ram", {})
-        # to_dict() emits both "npu" (always) and "gpu" (when monitoring GPU).
+        # ``hw_monitor["gpu"]`` is aggregate GPU telemetry. Selected-adapter
+        # telemetry lives under the stable ``"adapter"`` key, with a fallback
+        # to the legacy dynamic device-kind block for compatibility.
         # device_kind is None when CPU/RAM-only — drop the adapter line entirely
-        # rather than printing zeroed "NPU: 0.0% avg".
+        # rather than printing zeroed adapter metrics.
         device_kind = result.hw_monitor.get("device_kind")
-        if device_kind in ("npu", "gpu"):
-            adapter = result.hw_monitor.get(device_kind, {})
+        if device_kind in ACCELERATOR_DEVICE_TYPES:
+            adapter = result.hw_monitor.get("adapter") or result.hw_monitor.get(device_kind, {})
             console.print(
                 f"  {device_kind.upper()}: {adapter.get('mean_pct', 0):.1f}% avg, "
                 f"{adapter.get('peak_pct', 0):.1f}% peak  |  "

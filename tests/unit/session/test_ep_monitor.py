@@ -453,6 +453,8 @@ class TestPdhPoller:
         poller._memory_shared_bytes = []
         poller._cpu_samples = []
         poller._ram_used_bytes = []
+        poller._gpu_counter_names = []
+        poller._gpu_samples = []
 
         sample = {
             "util_Compute_0": 80.0,
@@ -540,23 +542,23 @@ class TestHWMonitor:
         assert "ram" in d
         assert "used_mb" in d["ram"]
         assert "peak_mb" in d["ram"]
-        # Adapter section: only present when the resolved kind matches.
+        # Aggregate GPU telemetry is independent of the selected inference
+        # adapter, so this section is always present.
+        assert "gpu" in d
+        assert "mean_pct" in d["gpu"]
+        assert "peak_pct" in d["gpu"]
+        assert "sample_count" in d["gpu"]
+        # Selected adapter section.
         kind = d["device_kind"]
         if kind == "npu":
             assert "npu" in d
             assert "mean_pct" in d["npu"]
             assert "peak_pct" in d["npu"]
             assert "sample_count" in d["npu"]
-            assert "gpu" not in d
         elif kind == "gpu":
-            assert "gpu" in d
-            assert "mean_pct" in d["gpu"]
-            assert "peak_pct" in d["gpu"]
-            assert "sample_count" in d["gpu"]
             assert "npu" not in d
         else:
             assert "npu" not in d
-            assert "gpu" not in d
         # Device memory + running time
         assert "device_memory" in d
         assert "local_peak_mb" in d["device_memory"]
@@ -665,6 +667,7 @@ class TestMonitorImports:
         from winml.modelkit.session import QNNMonitor
 
         assert QNNMonitor is not None
+
 
 # ============================================================================
 # PdhPoller graceful degradation tests
@@ -1188,6 +1191,49 @@ class TestPollerDeviceRouting:
 class TestHWMonitorDeviceRouting:
     """HWMonitor surfaces the correct adapter block for the requested device."""
 
+    def test_to_dict_keeps_aggregate_gpu_and_selected_gpu_separate(self):
+        from winml.modelkit.session import HWMonitor
+
+        hw = HWMonitor(device="gpu")
+        hw._pdh = type(
+            "FakePoller",
+            (),
+            {
+                "device_kind": "gpu",
+                "mean_utilization_pct": 91.23,
+                "peak_utilization_pct": 98.76,
+                "utilization_sample_count": 5,
+                "adapter_luid": "0x0_0xCAFE",
+                "mean_cpu_pct": 12.34,
+                "peak_cpu_pct": 34.56,
+                "cpu_sample_count": 7,
+                "ram_used_mb": 1024.56,
+                "peak_ram_used_mb": 2048.78,
+                "mean_gpu_pct": 4.56,
+                "peak_gpu_pct": 7.89,
+                "gpu_sample_count": 11,
+                "gpu_luids": ["0x0_0xBEEF"],
+                "peak_memory_local_mb": 256.78,
+                "peak_memory_shared_mb": 128.34,
+                "running_time_delta_ns": 123456789,
+            },
+        )()
+
+        d = hw.to_dict()
+
+        assert d["gpu"] == {
+            "mean_pct": 4.56,
+            "peak_pct": 7.89,
+            "sample_count": 11,
+            "luids": ["0x0_0xBEEF"],
+        }
+        assert d["adapter"] == {
+            "mean_pct": 91.23,
+            "peak_pct": 98.76,
+            "sample_count": 5,
+        }
+        assert "npu" not in d
+
     def test_to_dict_emits_gpu_block_when_monitoring_gpu(self):
         from winml.modelkit.session import HWMonitor
 
@@ -1316,6 +1362,7 @@ class TestToDictJsonSerializable:
         d = hw.result.to_dict()
         serialized = json.dumps(d)
         assert isinstance(serialized, str)
+
 
 # ============================================================================
 # Exception safety tests
@@ -1485,6 +1532,52 @@ class TestLiveMonitorDisplay:
         assert "GPU:" in status
         assert "42.5" in status
 
+    def test_render_status_does_not_label_gpu_adapter_as_npu(self):
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        display = LiveMonitorDisplay(total_iterations=110, warmup=10, model_id="test", device="gpu")
+        status = display._render_status(
+            iteration=50,
+            latency_ms=2.0,
+            util_samples=[80.0, 90.0],
+            cpu_pct=15.0,
+            gpu_pct=42.5,
+            gpu_samples=[42.5],
+        )
+
+        assert "NPU:" not in status
+
+    def test_render_chart_does_not_label_gpu_adapter_legend_as_npu(self):
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        fake_plotext = type(
+            "FakePlotext",
+            (),
+            {
+                "clf": lambda self: None,
+                "theme": lambda self, *args, **kwargs: None,
+                "plot": lambda self, *args, **kwargs: None,
+                "ylabel": lambda self, *args, **kwargs: None,
+                "ylim": lambda self, *args, **kwargs: None,
+                "yticks": lambda self, *args, **kwargs: None,
+                "xlim": lambda self, *args, **kwargs: None,
+                "xlabel": lambda self, *args, **kwargs: None,
+                "plotsize": lambda self, *args, **kwargs: None,
+                "build": lambda self: "chart",
+            },
+        )()
+
+        display = LiveMonitorDisplay(total_iterations=110, warmup=10, model_id="test", device="gpu")
+        with patch.dict(sys.modules, {"plotext": fake_plotext}):
+            renderable = display._render_chart(
+                util_samples=[80.0, 90.0],
+                cpu_samples=[15.0],
+                gpu_samples=[42.5],
+            )
+
+        title = renderable.renderables[0].plain
+        assert "NPU %" not in title
+
     def test_update_accepts_gpu_samples_noop_when_live_none(self):
         from winml.modelkit.commands._live_chart import LiveMonitorDisplay
 
@@ -1571,9 +1664,7 @@ class TestPdhPollerGpu:
     def test_no_gpu_returns_zero_metrics(self):
         from winml.modelkit.session.monitor._pdh import PdhPoller
 
-        with patch(
-            "winml.modelkit.session.monitor._pdh.discover_gpu_luids", return_value=[]
-        ):
+        with patch("winml.modelkit.session.monitor._pdh.discover_gpu_luids", return_value=[]):
             poller = PdhPoller(poll_interval_ms=50)
             poller.start()
             time.sleep(0.2)
@@ -1588,9 +1679,7 @@ class TestPdhPollerGpu:
         """CPU collection unaffected when no GPU present."""
         from winml.modelkit.session.monitor._pdh import PdhPoller
 
-        with patch(
-            "winml.modelkit.session.monitor._pdh.discover_gpu_luids", return_value=[]
-        ):
+        with patch("winml.modelkit.session.monitor._pdh.discover_gpu_luids", return_value=[]):
             poller = PdhPoller(poll_interval_ms=50)
             poller.start()
             time.sleep(0.3)

@@ -14,6 +14,7 @@ from __future__ import annotations
 import sys
 from typing import TYPE_CHECKING, Any
 
+from ...utils.constants import ACCELERATOR_DEVICE_TYPES
 from ._pdh import PdhPoller
 
 
@@ -178,9 +179,12 @@ class HWMonitor:
     def to_dict(self) -> dict[str, Any]:
         """JSON-serializable summary of all collected metrics.
 
-        Emits an adapter block keyed by the resolved device kind: ``"npu"``
-        when an NPU is being monitored, ``"gpu"`` when a GPU is. Neither key
-        is present when only CPU/RAM samples are collected.
+        The ``"gpu"`` block is always present because aggregate GPU telemetry
+        is collected independently of the selected inference adapter. When an
+        accelerator is selected, the stable ``"adapter"`` block reports that
+        selected device. A compatibility ``device_kind`` block is added only
+        when its key is not already reserved for aggregate telemetry (for
+        example, ``"npu"`` is added, but ``"gpu"`` is never overwritten).
         """
         kind = self._pdh.device_kind  # "npu", "gpu", or None
         adapter_block = {
@@ -213,8 +217,9 @@ class HWMonitor:
             },
             "running_time_ns": self._pdh.running_time_delta_ns,
         }
-        if kind in ("npu", "gpu"):
-            result[kind] = adapter_block
+        if kind in ACCELERATOR_DEVICE_TYPES:
+            result["adapter"] = adapter_block
+            result.setdefault(kind, adapter_block)
         return result
 
     # --- Chart-compatible properties ---

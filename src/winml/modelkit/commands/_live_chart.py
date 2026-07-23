@@ -4,7 +4,7 @@
 # --------------------------------------------------------------------------
 """Live hardware monitor display for performance benchmarking.
 
-Renders a live NPU/CPU utilization chart during benchmarking using
+Renders a live adapter/CPU utilization chart during benchmarking using
 plotext for chart rendering and Rich Live for terminal refresh.
 """
 
@@ -16,6 +16,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from ..session.monitor.hw_monitor import adapter_label
+from ..utils.constants import ACCELERATOR_DEVICE_TYPES
 
 
 # Moving window size for the x-axis (seconds)
@@ -68,7 +69,7 @@ class LiveMonitorDisplay:
         # when the caller doesn't know the resolved kind yet.
         if device_kind is None:
             requested = (device or "").lower()
-            device_kind = requested if requested in ("npu", "gpu") else None
+            device_kind = requested if requested in ACCELERATOR_DEVICE_TYPES else None
         # When no adapter is polled (CPU-only / auto resolved to nothing),
         # hide the adapter line + status cell entirely instead of drawing
         # a flat zero series labelled "Adapter".
@@ -150,7 +151,8 @@ class LiveMonitorDisplay:
         """Render utilization chart as a Rich renderable.
 
         Uses plotext with AnsiDecoder for flicker-free Rich Live integration.
-        Plots NPU (green), CPU (cyan), and GPU (yellow) with distinct colors.
+        Plots the selected adapter (green), CPU (cyan), and aggregate GPU
+        telemetry (yellow) with distinct colors.
         X-axis is a moving window of the last N seconds.
         Y-axis has fixed ticks: 0, 20, 40, 60, 80, 100.
         """
@@ -181,16 +183,16 @@ class LiveMonitorDisplay:
 
         # Compute moving window: keep last N seconds of samples
         window_samples = int(_CHART_WINDOW_SECONDS / self._poll_interval_s)
-        total_npu = len(util_samples) if util_samples else 0
+        total_adapter = len(util_samples) if util_samples else 0
 
         # Plot the adapter line only when an adapter is actually being polled.
         if show_adapter:
-            npu_window = util_samples[-window_samples:] if util_samples else [0]
-            window_start_idx = max(0, total_npu - len(npu_window))
-            npu_times = [
-                (window_start_idx + i) * self._poll_interval_s for i in range(len(npu_window))
+            adapter_window = util_samples[-window_samples:] if util_samples else [0]
+            window_start_idx = max(0, total_adapter - len(adapter_window))
+            adapter_times = [
+                (window_start_idx + i) * self._poll_interval_s for i in range(len(adapter_window))
             ]
-            plt.plot(npu_times, npu_window, marker="braille", color="green")
+            plt.plot(adapter_times, adapter_window, marker="braille", color="green")
 
         # Plot CPU in cyan (distinct from adapter)
         has_cpu = False
@@ -229,7 +231,7 @@ class LiveMonitorDisplay:
 
         # X-axis: absolute elapsed time, sliding window. Use whichever series
         # we have to anchor the timeline so a CPU-only chart still scrolls.
-        sample_count = total_npu if show_adapter else total_cpu
+        sample_count = total_adapter if show_adapter else total_cpu
         elapsed = sample_count * self._poll_interval_s
         x_min = max(0.0, elapsed - _CHART_WINDOW_SECONDS)
         x_max = max(elapsed, _CHART_WINDOW_SECONDS)
@@ -242,7 +244,9 @@ class LiveMonitorDisplay:
         from rich.text import Text
 
         # Rich-colored title line with legend swatches
-        legend_parts = ["[green]\u2588\u2588[/green] NPU %"]
+        legend_parts = []
+        if show_adapter:
+            legend_parts.append(f"[green]\u2588\u2588[/green] {adapter} %")
         if has_cpu:
             legend_parts.append("[cyan]\u2588\u2588[/cyan] CPU %")
         if has_gpu:
@@ -269,7 +273,7 @@ class LiveMonitorDisplay:
         """Render 4-row status below the chart.
 
         Row 1: progress bar + phase counter + device label.
-        Row 2: compute utilization (NPU / CPU / GPU) — unified ``now%/avg%``.
+        Row 2: compute utilization (adapter / CPU / GPU) — unified ``now%/avg%``.
         Row 3: memory (Sys Mem + Device Mem local/shared).
         Row 4: inference latency + throughput.
 
@@ -292,7 +296,7 @@ class LiveMonitorDisplay:
 
         throughput = 1000.0 / latency_ms if latency_ms > 0 else 0.0
 
-        npu_avg, npu_now = _avg_now(util_samples)
+        adapter_avg, adapter_now = _avg_now(util_samples)
         cpu_avg, cpu_now = _avg_now(cpu_samples, fallback_now=cpu_pct)
         gpu_avg, gpu_now = _avg_now(gpu_samples, fallback_now=gpu_pct)
 
@@ -301,10 +305,10 @@ class LiveMonitorDisplay:
         row1 = f"  {pct_cell:<30}|  {progress}  |  Device: {self._device}"
 
         # Row 2: Compute (unified now/avg format across all three)
-        npu_cell = f"NPU: {npu_now:.1f}%/{npu_avg:.1f}%"
+        adapter_cell = f"{self._adapter_label}: {adapter_now:.1f}%/{adapter_avg:.1f}%"
         cpu_cell = f"CPU: {cpu_now:.1f}%/{cpu_avg:.1f}%"
         gpu_cell = f"GPU: {gpu_now:.1f}%/{gpu_avg:.1f}%"
-        row2 = f"  {npu_cell:<20}| {cpu_cell:<20}| {gpu_cell:<20}"
+        row2 = f"  {adapter_cell:<20}| {cpu_cell:<20}| {gpu_cell:<20}"
 
         # Row 3: Memory
         ram_cell = f"Sys Mem: {ram_mb:.0f} MB"

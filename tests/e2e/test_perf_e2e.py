@@ -84,7 +84,7 @@ def _assert_hw_monitor_section(
 
     Checks the section emitted by HWMonitor when --monitor is passed:
     presence, ``device_kind`` match, a non-null ``adapter_luid``, and a
-    positive ``mean_pct`` for the per-device utilization block.
+    positive ``mean_pct`` for the selected-adapter utilization block.
     """
     assert "hw_monitor" in data, "hw_monitor section missing with --monitor"
     hw = data["hw_monitor"]
@@ -96,7 +96,8 @@ def _assert_hw_monitor_section(
         assert hw["device_kind"] == device_kind
         assert hw["adapter_luid"] is not None
         if require_utilization:
-            assert hw[device_kind]["mean_pct"] > 0
+            adapter = hw.get("adapter") or hw[device_kind]
+            assert adapter["mean_pct"] > 0
 
 
 def _build_perf_args(
