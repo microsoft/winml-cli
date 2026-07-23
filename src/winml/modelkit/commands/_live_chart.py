@@ -43,6 +43,7 @@ class LiveMonitorDisplay:
         poll_interval_ms: int = 100,
         device_kind: str | None = None,
         duration_sec: float | None = None,
+        clock: Any = None,
     ) -> None:
         self._total = total_iterations
         self._warmup = warmup
@@ -50,9 +51,12 @@ class LiveMonitorDisplay:
         self._device = device
         # When set, the benchmark phase runs on a wall-clock budget instead of a
         # fixed iteration count, so progress is reported as elapsed/total time.
-        # ``_bench_start`` is stamped on the first benchmark-phase update().
+        # ``clock`` is the benchmark loop's shared start reference (an object
+        # with a ``.start`` timestamp); reading it — rather than stamping a local
+        # clock on the first update() — keeps the bar aligned with the exact
+        # budget the loop stops on.
         self._duration_sec = duration_sec
-        self._bench_start: float | None = None
+        self._clock = clock
         # `device_kind` is the value HWMonitor resolved at start() — pass it
         # in when you want the legend to reflect what's actually polled (e.g.
         # "auto" that resolved to GPU). Falls back to the requested string
@@ -101,15 +105,6 @@ class LiveMonitorDisplay:
         """Update the live display with current metrics."""
         if self._live is None:
             return
-
-        # Stamp the start of the timed benchmark phase so duration-based progress
-        # is measured from the first post-warmup iteration.
-        if (
-            self._duration_sec is not None
-            and self._bench_start is None
-            and iteration > self._warmup
-        ):
-            self._bench_start = time.perf_counter()
 
         try:
             chart_renderable = self._render_chart(util_samples, cpu_samples)
@@ -252,8 +247,11 @@ class LiveMonitorDisplay:
 
         if self._duration_sec is not None and phase == "benchmark":
             # Duration mode: base progress on elapsed wall-clock time, since the
-            # benchmark iteration count is not known ahead of time.
-            elapsed = time.perf_counter() - self._bench_start if self._bench_start else 0.0
+            # benchmark iteration count is not known ahead of time. The start
+            # reference is the loop's shared clock, so this tracks the same
+            # budget the loop terminates on.
+            start = getattr(self._clock, "start", None)
+            elapsed = time.perf_counter() - start if start else 0.0
             pct = min(elapsed / self._duration_sec, 1.0) if self._duration_sec > 0 else 0.0
             shown = min(elapsed, self._duration_sec)
             progress = f"[green]Time: {shown:.1f}/{self._duration_sec:.0f}s[/green]"

@@ -1559,19 +1559,22 @@ class TestLiveMonitorDisplay:
     def test_duration_mode_status_shows_time_progress(self):
         """With duration_sec set, the benchmark phase reports elapsed/total time
         instead of an iteration count."""
-        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+        import time
 
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+        from winml.modelkit.commands.perf import _BenchmarkClock
+
+        # The benchmark loop shares its start reference with the display via a
+        # clock object (normally stamped by _benchmark_indices after warmup).
+        clock = _BenchmarkClock(start=time.perf_counter())
         display = LiveMonitorDisplay(
             total_iterations=110,
             warmup=10,
             model_id="test",
             device="npu",
             duration_sec=30.0,
+            clock=clock,
         )
-        # Simulate the benchmark-phase start stamp (normally set in update()).
-        import time
-
-        display._bench_start = time.perf_counter()
         status = display._render_status(
             iteration=50,  # past warmup → benchmark phase
             latency_ms=2.0,

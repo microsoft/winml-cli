@@ -728,11 +728,18 @@ class PerfBenchmark:
         )
 
         # [3] Run benchmark
-        logger.info(
-            "Running benchmark: %d iterations + %d warmup",
-            self.config.iterations,
-            self.config.warmup,
-        )
+        if self.config.duration is not None:
+            logger.info(
+                "Running benchmark: %gs duration + %d warmup",
+                self.config.duration,
+                self.config.warmup,
+            )
+        else:
+            logger.info(
+                "Running benchmark: %d iterations + %d warmup",
+                self.config.iterations,
+                self.config.warmup,
+            )
         stats = self._run_benchmark()
 
         if self.config.memory:
@@ -1744,10 +1751,25 @@ def _print_model_info(
     console.print()
 
 
+@dataclass
+class _BenchmarkClock:
+    """Shared wall-clock start for a timed benchmark phase.
+
+    ``_benchmark_indices`` stamps ``start`` the instant warmup ends — the same
+    instant its own budget clock begins — so consumers (the debug-progress log
+    and the live monitor chart) measure elapsed time against the exact budget
+    the loop terminates on, rather than re-stamping a clock that lags by one
+    inference.
+    """
+
+    start: float | None = None
+
+
 def _benchmark_indices(
     total_iterations: int,
     warmup: int,
     duration_sec: float | None,
+    clock: _BenchmarkClock | None = None,
 ) -> Iterator[int]:
     """Yield 0-based iteration indices for a benchmark run.
 
@@ -1758,17 +1780,22 @@ def _benchmark_indices(
     * ``duration_sec`` set -> keeps yielding until that many wall-clock seconds
       elapse, measured from the end of warmup, always running at least one
       benchmark iteration so stats are never empty.
+
+    When ``clock`` is provided, its ``start`` is stamped at the benchmark-phase
+    boundary so callers can report elapsed time against the same reference.
     """
     i = 0
     while i < warmup:
         yield i
         i += 1
+    start = time.perf_counter()
+    if clock is not None:
+        clock.start = start
     if duration_sec is None:
         while i < total_iterations:
             yield i
             i += 1
         return
-    start = time.perf_counter()
     while True:
         yield i
         i += 1
@@ -1789,6 +1816,9 @@ def _run_monitored_loop(
     duration_sec: float | None = None,
 ) -> None:
     """Run the benchmark iteration loop with live hardware monitoring."""
+    # In duration mode the display and the loop share one benchmark-phase clock
+    # so the progress bar tracks the same budget the loop stops on.
+    clock = _BenchmarkClock() if duration_sec is not None else None
     display = LiveMonitorDisplay(
         total_iterations=total_iterations,
         warmup=warmup,
@@ -1796,9 +1826,10 @@ def _run_monitored_loop(
         device=device,
         device_kind=getattr(hw, "device_kind", None),
         duration_sec=duration_sec,
+        clock=clock,
     )
     with display:
-        for i in _benchmark_indices(total_iterations, warmup, duration_sec):
+        for i in _benchmark_indices(total_iterations, warmup, duration_sec, clock):
             session.run(inputs)
 
             latest_latency = stats.all_samples_ms[-1] if stats.all_samples_ms else 0
@@ -1825,13 +1856,28 @@ def _run_simple_loop(
     """Run the benchmark iteration loop with periodic debug logging.
 
     When ``duration_sec`` is set, the benchmark phase (after ``warmup``) runs
-    until the wall-clock duration elapses instead of a fixed iteration count.
+    until the wall-clock duration elapses instead of a fixed iteration count,
+    and progress is logged as elapsed/total time (the iteration count is
+    unbounded and its ``total_iterations`` denominator is meaningless).
     """
-    for i in _benchmark_indices(total_iterations, warmup, duration_sec):
-        session.run(inputs)
+    if duration_sec is None:
+        for i in _benchmark_indices(total_iterations, warmup, duration_sec):
+            session.run(inputs)
+            if (i + 1) % max(1, total_iterations // 10) == 0:
+                logger.debug("Progress: %d/%d", i + 1, total_iterations)
+        return
 
-        if (i + 1) % max(1, total_iterations // 10) == 0:
-            logger.debug("Progress: %d/%d", i + 1, total_iterations)
+    clock = _BenchmarkClock()
+    next_log = 0.0
+    log_step = max(duration_sec / 10.0, 0.1)
+    for _i in _benchmark_indices(total_iterations, warmup, duration_sec, clock):
+        session.run(inputs)
+        if clock.start is None:
+            continue
+        elapsed = time.perf_counter() - clock.start
+        if elapsed >= next_log:
+            logger.debug("Progress: %.1f/%.0fs", min(elapsed, duration_sec), duration_sec)
+            next_log += log_step
 
 
 # =============================================================================
