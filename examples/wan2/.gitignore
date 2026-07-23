@@ -1,0 +1,4 @@
+# Exported ONNX artifacts (regenerate via export_*.py) and generated videos.
+model/
+*.mp4
+_tiny_sym.onnx
