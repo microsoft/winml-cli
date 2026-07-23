@@ -363,6 +363,30 @@ def test_perf_calls_set_onnx_op_types_on_monitor():
     assert enter_order == ["set_onnx_op_types", "__enter__"]
 
 
+def test_perf_provides_completed_window_before_monitor_exit():
+    from winml.modelkit.session.monitor.ep_monitor import NullEPMonitor
+
+    calls: list[tuple[int, int]] = []
+    order: list[str] = []
+
+    class _RecordingMonitor(NullEPMonitor):
+        def set_perf_window(self, warmup: int, measured_iterations: int) -> None:
+            calls.append((warmup, measured_iterations))
+            order.append("set_perf_window")
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            order.append("__exit__")
+
+    session = _make_cpu_session(get_minimal_onnx_model_path())
+    inputs = {"input": np.zeros((1, 4), dtype=np.float32)}
+    with session.perf(warmup=1, monitor=_RecordingMonitor()):
+        for _ in range(3):
+            session.run(inputs)
+
+    assert calls == [(1, 2)]
+    assert order == ["set_perf_window", "__exit__"]
+
+
 def test_perf_injects_real_op_type_map_for_named_nodes(tmp_path):
     """v2.4: when the ONNX has named nodes, the injected map is populated."""
     import onnx

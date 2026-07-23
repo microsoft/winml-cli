@@ -6,9 +6,82 @@
 
 from __future__ import annotations
 
+import csv
+import io
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+def _write_basic_profile(
+    path: Path,
+    samples: list[dict[str, int]],
+) -> None:
+    """Write a minimal QNN basic profile using the real CSV row ordering."""
+    output = io.StringIO()
+    writer = csv.writer(output, lineterminator="\n")
+    writer.writerow(
+        [
+            "Msg Timestamp",
+            "Message",
+            "Time",
+            "Unit of Measurement",
+            "Timing Source",
+            "Event Level",
+            "Event Identifier",
+        ]
+    )
+    for sample in samples:
+        writer.writerow(
+            [
+                0,
+                "BACKEND",
+                sample["hvx_threads"],
+                "COUNT",
+                "BACKEND",
+                "ROOT",
+                "Number of HVX threads used",
+            ]
+        )
+        writer.writerow(
+            [
+                0,
+                "BACKEND",
+                sample["accel_execute_cycles"],
+                "CYCLES",
+                "BACKEND",
+                "ROOT",
+                "Accelerator (execute) time (cycles)",
+            ]
+        )
+        writer.writerow(
+            [
+                0,
+                "NODE",
+                sample["operator_cycles"],
+                "CYCLES",
+                "BACKEND",
+                "SUB-EVENT",
+                "GeneratedOp:OpId_1 (cycles)",
+            ]
+        )
+        writer.writerow(
+            [
+                0,
+                "BACKEND",
+                sample["accel_execute_us"],
+                "US",
+                "BACKEND",
+                "ROOT",
+                "Accelerator (execute) time",
+            ]
+        )
+    path.write_text(output.getvalue(), encoding="utf-8")
 
 
 def test_ctor_defaults():
@@ -157,6 +230,177 @@ def test_exit_with_no_csv_reports_no_data(tmp_path):
     # v2.4: data exposed via the typed ``result`` accessor.
     assert m.result is not None
     assert m.result.status == "no_data"
+
+
+def test_basic_metrics_use_each_samples_own_cycle_ratio(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    samples = [
+        {
+            "hvx_threads": 4,
+            "accel_execute_cycles": 100,
+            "accel_execute_us": 10,
+            "operator_cycles": 50,
+        },
+        {
+            "hvx_threads": 4,
+            "accel_execute_cycles": 1000,
+            "accel_execute_us": 200,
+            "operator_cycles": 100,
+        },
+    ]
+    csv_path = tmp_path / "profiling_output.csv"
+    monitor = QNNMonitor(output_dir=tmp_path)
+    monitor.__enter__()
+    _write_basic_profile(csv_path, samples)
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    assert monitor.result.status == "ok"
+    operator = monitor.result.operators[0]
+    expected_samples_us = [
+        sample["operator_cycles"] * sample["accel_execute_us"] / sample["accel_execute_cycles"]
+        for sample in samples
+    ]
+    expected_percent = sum(
+        sample["operator_cycles"] / sample["accel_execute_cycles"] * 100 for sample in samples
+    ) / len(samples)
+    assert operator.samples_us == expected_samples_us
+    assert operator.duration_us == sum(expected_samples_us) / len(expected_samples_us)
+    assert operator.duration_us == operator.avg_us
+    assert operator.percent_of_total == expected_percent
+    assert monitor.result.summary["accel_execute_cycles"] == sum(
+        sample["accel_execute_cycles"] for sample in samples
+    ) / len(samples)
+    assert monitor.result.summary["accel_execute_us"] == sum(
+        sample["accel_execute_us"] for sample in samples
+    ) / len(samples)
+
+
+def test_basic_metrics_exclude_warmup_samples(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    samples = [
+        {
+            "hvx_threads": 4,
+            "accel_execute_cycles": cycles,
+            "accel_execute_us": duration,
+            "operator_cycles": cycles // 2,
+        }
+        for cycles, duration in [(100, 10), (200, 40), (300, 90)]
+    ]
+    monitor = QNNMonitor(output_dir=tmp_path)
+    monitor.set_perf_window(warmup=1, measured_iterations=2)
+    monitor.__enter__()
+    _write_basic_profile(monitor._csv_path, samples)
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    assert monitor.result.status == "ok"
+    assert monitor.result.num_samples == 2
+    expected_samples_us = [
+        sample["operator_cycles"] * sample["accel_execute_us"] / sample["accel_execute_cycles"]
+        for sample in samples[1:]
+    ]
+    assert monitor.result.operators[0].samples_us == expected_samples_us
+    assert (
+        monitor.result.summary["accel_execute_us"]
+        == sum(sample["accel_execute_us"] for sample in samples[1:]) / 2
+    )
+
+
+def test_live_sample_count_mismatch_is_parse_failed(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    sample = {
+        "hvx_threads": 4,
+        "accel_execute_cycles": 100,
+        "accel_execute_us": 10,
+        "operator_cycles": 50,
+    }
+    monitor = QNNMonitor(output_dir=tmp_path)
+    monitor.set_perf_window(warmup=1, measured_iterations=2)
+    monitor.__enter__()
+    _write_basic_profile(monitor._csv_path, [sample, sample])
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    assert monitor.result.status == "parse_failed"
+    assert monitor.result.error is not None
+    assert "3" in monitor.result.error
+    assert "2" in monitor.result.error
+
+
+def test_live_unchanged_profiling_csv_is_parse_failed(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    sample = {
+        "hvx_threads": 4,
+        "accel_execute_cycles": 100,
+        "accel_execute_us": 10,
+        "operator_cycles": 50,
+    }
+    monitor = QNNMonitor(output_dir=tmp_path)
+    _write_basic_profile(monitor._csv_path, [sample])
+    monitor.__enter__()
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    assert monitor.result.status == "parse_failed"
+    assert monitor.result.error is not None
+    assert "unchanged" in monitor.result.error
+
+
+def test_enter_does_not_read_preexisting_profiling_csv(tmp_path, monkeypatch):
+    """QNN may already hold the profile open when the monitor is entered."""
+    from pathlib import Path
+
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    sample = {
+        "hvx_threads": 4,
+        "accel_execute_cycles": 100,
+        "accel_execute_us": 10,
+        "operator_cycles": 50,
+    }
+    monitor = QNNMonitor(output_dir=tmp_path)
+    _write_basic_profile(monitor._csv_path, [sample])
+    original_open = Path.open
+
+    def _deny_profile_read(path, *args, **kwargs):
+        if path == monitor._csv_path:
+            raise PermissionError("profile is held open by QNN")
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", _deny_profile_read)
+
+    monitor.__enter__()
+
+
+def test_live_modified_profiling_csv_is_accepted(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    first = {
+        "hvx_threads": 4,
+        "accel_execute_cycles": 100,
+        "accel_execute_us": 10,
+        "operator_cycles": 50,
+    }
+    second = {
+        "hvx_threads": 4,
+        "accel_execute_cycles": 200,
+        "accel_execute_us": 40,
+        "operator_cycles": 100,
+    }
+    monitor = QNNMonitor(output_dir=tmp_path)
+    _write_basic_profile(monitor._csv_path, [first])
+    monitor.__enter__()
+    _write_basic_profile(monitor._csv_path, [first, second])
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    assert monitor.result.status == "ok"
+    assert monitor.result.num_samples == 2
 
 
 def test_exit_parse_failure_caught(tmp_path):
@@ -429,9 +673,9 @@ def test_detail_mode_falls_back_to_basic_when_qhas_unavailable(tmp_path):
     # no *_qnn.log is present in the output directory — this is the
     # cleanest hit on the basic_fallback codepath in _try_qhas.
     fixture = Path(__file__).parent / "qnn" / "fixtures" / "optrace_resnet50.csv"
+    monitor.__enter__()
     monitor._csv_path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
 
-    monitor.__enter__()
     monitor.__exit__(None, None, None)
 
     assert monitor.result is not None
@@ -508,9 +752,9 @@ def test_csv_path_event_id_splits_into_name_and_op_path(tmp_path):
 
     monitor = QNNMonitor(level="basic", output_dir=tmp_path)
     fixture = Path(__file__).parent / "qnn" / "fixtures" / "optrace_resnet50.csv"
+    monitor.__enter__()
     monitor._csv_path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
 
-    monitor.__enter__()
     monitor.__exit__(None, None, None)
 
     assert monitor.result is not None
@@ -750,12 +994,12 @@ def test_parse_artifacts_no_retry_when_csv_present_on_first_check(tmp_path, monk
     monitor = QNNMonitor(level="basic", output_dir=tmp_path)
     # Pre-populate the CSV with valid content.
     fixture = Path(__file__).parent / "qnn" / "fixtures" / "optrace_resnet50.csv"
+    monitor.__enter__()
     monitor._csv_path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
 
     sleep_calls: list[float] = []
     monkeypatch.setattr(qnn_monitor_mod.time, "sleep", lambda s: sleep_calls.append(s))
 
-    monitor.__enter__()
     monitor.__exit__(None, None, None)
 
     assert sleep_calls == [], (
@@ -861,6 +1105,7 @@ def test_qnn_monitor_handles_float_string_cycles(tmp_path):
 
     fixture = pathlib.Path(__file__).parent / "qnn" / "fixtures" / "optrace_resnet50.csv"
     monitor = QNNMonitor(level="basic", output_dir=tmp_path)
+    monitor.__enter__()
     monitor._csv_path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
 
     # Inject float-string metadata values to simulate QNN SDK returning
@@ -871,10 +1116,12 @@ def test_qnn_monitor_handles_float_string_cycles(tmp_path):
         data = real_parse(path)
         data["metadata"]["accel_execute_cycles"] = "120000.7"
         data["metadata"]["accel_execute_us"] = "600.3"
+        for sample in data["samples"]:
+            sample["metadata"]["accel_execute_cycles"] = "120000.7"
+            sample["metadata"]["accel_execute_us"] = "600.3"
         return data
 
     with patch.object(qnn_mod, "parse_qnn_profiling_csv", side_effect=_patched_parse):
-        monitor.__enter__()
         monitor.__exit__(None, None, None)
 
     assert monitor.result is not None

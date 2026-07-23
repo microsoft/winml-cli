@@ -65,18 +65,22 @@ def _split_op_event_id(event_id: str) -> str:
 def parse_qnn_profiling_csv(csv_path: str | Path) -> dict[str, Any]:
     """Parse a QNN basic-mode profiling CSV into a structured dict.
 
+    Top-level compatibility metadata reports arithmetic means across all
+    retained inference samples. This matches the averaged top-level operator
+    records while each entry in ``samples`` preserves its own ROOT metadata
+    for same-sample cycle conversion downstream.
+
     Returns:
     -------
     dict with keys:
-        metadata : dict  -- hvx_threads, accel_execute_cycles, num_samples
+        metadata : dict  -- mean hvx_threads/cycles/us plus num_samples
         operators : list[dict]  -- aggregated ops sorted by cycles desc
-        samples : list[list[dict]]  -- per-sample operator lists
+        samples : list[dict]  -- per-sample metadata and operator rows
     """
     rows = _read_csv(csv_path)
-    metadata = _extract_metadata(rows)
     samples = _extract_samples(rows)
-    metadata["num_samples"] = len(samples)
-    operators = _aggregate_operators(samples)
+    metadata = _aggregate_metadata(samples)
+    operators = _aggregate_operators([sample["samples"] for sample in samples])
     return {
         "metadata": metadata,
         "operators": operators,
@@ -92,54 +96,34 @@ def _read_csv(csv_path: str | Path) -> list[dict[str, str]]:
         return list(reader)
 
 
-def _extract_metadata(rows: list[dict[str, str]]) -> dict[str, Any]:
-    """Extract ROOT-level metadata from the CSV rows.
-
-    Captures the *first* occurrence of each metric so the result
-    reflects the initial inference sample.
-    """
-    hvx_threads: int | None = None
-    accel_execute_cycles: int | None = None
-    accel_execute_us: int | None = None
-
-    for row in rows:
-        event_level = row.get("Event Level", "").strip()
-        event_id = row.get("Event Identifier", "").strip()
-        time_val = row.get("Time", "").strip()
-        unit = row.get("Unit of Measurement", "").strip()
-
-        if event_level != "ROOT":
-            continue
-
-        if event_id == "Number of HVX threads used" and unit == "COUNT" and hvx_threads is None:
-            hvx_threads = int(time_val)
-
-        if (
-            event_id == "Accelerator (execute) time (cycles)"
-            and unit == "CYCLES"
-            and accel_execute_cycles is None
-        ):
-            accel_execute_cycles = int(time_val)
-
-        if event_id == "Accelerator (execute) time" and unit == "US" and accel_execute_us is None:
-            accel_execute_us = int(time_val)
-
+def _aggregate_metadata(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return arithmetic-mean ROOT metadata for retained samples."""
+    fields = ("hvx_threads", "accel_execute_cycles", "accel_execute_us")
+    if not samples:
+        return {**dict.fromkeys(fields, 0), "num_samples": 0}
     return {
-        "hvx_threads": hvx_threads or 0,
-        "accel_execute_cycles": accel_execute_cycles or 0,
-        "accel_execute_us": accel_execute_us or 0,
-    }
+        field: sum(sample["metadata"][field] for sample in samples) / len(samples)
+        for field in fields
+    } | {"num_samples": len(samples)}
 
 
-def _extract_samples(rows: list[dict[str, str]]) -> list[list[dict[str, Any]]]:
-    """Parse NODE SUB-EVENT rows into per-sample operator lists.
+def _extract_samples(rows: list[dict[str, str]]) -> list[dict[str, Any]]:
+    """Parse ROOT metadata and NODE rows into structured inference samples.
 
     Each sample begins at a ROOT row with
     ``Accelerator (execute) time (cycles)`` and ends before the
-    next such row (or end-of-file).
+    next such row (or end-of-file). In real QNN output the matching
+    ``Accelerator (execute) time`` microsecond row follows that sample's
+    NODE rows, so it is attached to the current sample before the next
+    cycle boundary starts.
     """
-    samples: list[list[dict[str, Any]]] = []
-    current_sample: list[dict[str, Any]] | None = None
+    samples: list[dict[str, Any]] = []
+    current_sample: dict[str, Any] | None = None
+    hvx_threads = 0
+
+    def _retain_current() -> None:
+        if current_sample is not None and current_sample["samples"]:
+            samples.append(current_sample)
 
     for row in rows:
         event_level = row.get("Event Level", "").strip()
@@ -148,19 +132,35 @@ def _extract_samples(rows: list[dict[str, str]]) -> list[list[dict[str, Any]]]:
         time_val = row.get("Time", "").strip()
         unit = row.get("Unit of Measurement", "").strip()
 
-        # Detect sample boundary.
+        if event_level == "ROOT" and event_id == "Number of HVX threads used" and unit == "COUNT":
+            hvx_threads = int(time_val)
+            continue
+
         if (
             event_level == "ROOT"
             and event_id == "Accelerator (execute) time (cycles)"
             and unit == "CYCLES"
         ):
-            # Close any previous sample before starting a new one.
-            if current_sample is not None:
-                samples.append(current_sample)
-            current_sample = []
+            _retain_current()
+            current_sample = {
+                "metadata": {
+                    "hvx_threads": hvx_threads,
+                    "accel_execute_cycles": int(time_val),
+                    "accel_execute_us": 0,
+                },
+                "samples": [],
+            }
             continue
 
-        # Only collect NODE SUB-EVENT rows with CYCLES unit.
+        if (
+            current_sample is not None
+            and event_level == "ROOT"
+            and event_id == "Accelerator (execute) time"
+            and unit == "US"
+        ):
+            current_sample["metadata"]["accel_execute_us"] = int(time_val)
+            continue
+
         if (
             current_sample is not None
             and message == "NODE"
@@ -169,11 +169,9 @@ def _extract_samples(rows: list[dict[str, str]]) -> list[list[dict[str, Any]]]:
         ):
             parsed = _parse_node_event(event_id, time_val)
             if parsed is not None:
-                current_sample.append(parsed)
+                current_sample["samples"].append(parsed)
 
-    # Flush the last sample.
-    if current_sample is not None and len(current_sample) > 0:
-        samples.append(current_sample)
+    _retain_current()
 
     return samples
 

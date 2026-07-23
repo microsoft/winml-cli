@@ -140,6 +140,9 @@ class QNNMonitor(WinMLEPMonitor):
         self._extra: dict[str, str] = dict(extra_provider_options or {})
         self._entered: bool = False
         self._result: OpTraceResult | None = None
+        self._csv_signature_at_enter: tuple[int, int, int, int, int] | None = None
+        self._warmup_samples: int = 0
+        self._expected_measured_samples: int | None = None
         # v2.4: ONNX node.name -> node.op_type map injected by WinMLSession.perf
         # before __enter__. Populated only when an ONNX graph is available;
         # remains empty for the standalone parsing case (parse_existing_artifacts
@@ -262,6 +265,7 @@ class QNNMonitor(WinMLEPMonitor):
     def __enter__(self) -> Self:
         if self._entered:
             raise RuntimeError("QNNMonitor already entered")
+        self._csv_signature_at_enter = self._artifact_signature(self._csv_path)
         self._entered = True
         return self
 
@@ -272,10 +276,15 @@ class QNNMonitor(WinMLEPMonitor):
         exc_tb: Any,
     ) -> None:
         """Parse whatever artifacts are on disk. Never suppresses caller exceptions."""
-        self._result = self._parse_artifacts_safe()
+        self._result = self._parse_artifacts_safe(require_fresh=True)
         # Implicit None return → does not suppress caller exception.
 
-    def _parse_artifacts_safe(self, qhas_override: Path | None = None) -> OpTraceResult:
+    def _parse_artifacts_safe(
+        self,
+        qhas_override: Path | None = None,
+        *,
+        require_fresh: bool = False,
+    ) -> OpTraceResult:
         """Wrap :py:meth:`_parse_artifacts` with the parse-failure contract.
 
         Single source of truth for parse-failure handling: both ``__exit__``
@@ -289,6 +298,8 @@ class QNNMonitor(WinMLEPMonitor):
                 verbatim to :py:meth:`_parse_artifacts`.
         """
         try:
+            if require_fresh:
+                self._validate_live_csv_freshness()
             return self._parse_artifacts(qhas_override=qhas_override)
         except Exception as exc:
             logger.warning("QNNMonitor: artifact parse failed: %s", exc)
@@ -320,6 +331,39 @@ class QNNMonitor(WinMLEPMonitor):
         is a valid no-op: the resolver simply falls through to L2/L3/L4.
         """
         self._onnx_op_types = dict(onnx_op_types)
+
+    def set_perf_window(self, warmup: int, measured_iterations: int) -> None:
+        """Record completed run counts for warmup filtering and validation."""
+        self._warmup_samples = warmup
+        self._expected_measured_samples = measured_iterations
+
+    @staticmethod
+    def _artifact_signature(path: Path) -> tuple[int, int, int, int, int] | None:
+        """Return a metadata-only signature, or ``None`` when absent.
+
+        The QNN session may already hold the profiling file open when the
+        monitor enters, so freshness detection must not read its contents.
+        """
+        if not path.is_file():
+            return None
+        stat = path.stat()
+        return (
+            stat.st_dev,
+            stat.st_ino,
+            stat.st_size,
+            stat.st_mtime_ns,
+            stat.st_ctime_ns,
+        )
+
+    def _validate_live_csv_freshness(self) -> None:
+        """Reject a profiling CSV that predates and did not change in this window."""
+        if self._csv_signature_at_enter is None:
+            return
+        current_signature = self._artifact_signature(self._csv_path)
+        if current_signature == self._csv_signature_at_enter:
+            raise ValueError(
+                f"profiling CSV was unchanged during the monitor window: {self._csv_path}"
+            )
 
     def _resolve_op_type(self, op_path: str, ep_authoritative: str | None = None) -> str:
         """Walk the v2.4 fallback chain: ONNX -> EP-authoritative -> heuristic -> raw.
@@ -449,7 +493,18 @@ class QNNMonitor(WinMLEPMonitor):
                 return self._make_failure_result(status="no_data", error=None)
 
         parsed = parse_qnn_profiling_csv(csv_path)
-        meta = parsed.get("metadata", {})
+        samples = parsed.get("samples", [])
+        if self._expected_measured_samples is not None:
+            expected_total = self._warmup_samples + self._expected_measured_samples
+            if len(samples) != expected_total:
+                raise ValueError(
+                    "profiling CSV sample count mismatch: "
+                    f"expected {expected_total} total samples "
+                    f"({self._warmup_samples} warmup + "
+                    f"{self._expected_measured_samples} measured), got {len(samples)}"
+                )
+            samples = samples[self._warmup_samples :]
+
         artifacts: dict[str, str] = {"csv": str(csv_path)}
 
         # Convert cycles to microseconds via the CSV-reported ratio.
@@ -468,28 +523,68 @@ class QNNMonitor(WinMLEPMonitor):
                 )
                 return 0
 
-        total_cycles = _to_int(meta.get("accel_execute_cycles", 0) or 0, "accel_execute_cycles")
-        accel_us = _to_int(meta.get("accel_execute_us", 0) or 0, "accel_execute_us")
-        cycle_to_us = accel_us / total_cycles if total_cycles > 0 else 0.0
-
-        # CSV path: no EP-authoritative op type column, so resolve via
-        # L1 (ONNX) then fall through to L3 (heuristic) then L4 (raw).
-        operators: list[OperatorMetrics] = [
-            OperatorMetrics(
-                name=self._resolve_op_type(op["op_path"], ep_authoritative=None),
-                op_path=op["op_path"],
-                op_id=op.get("op_id"),
-                duration_us=op["cycles"] * cycle_to_us,
-                percent_of_total=((op["cycles"] / total_cycles * 100) if total_cycles > 0 else 0.0),
-                samples_us=[c * cycle_to_us for c in op.get("samples_cycles", [])],
+        sample_metadata: list[dict[str, int]] = []
+        operator_samples: dict[int, dict[str, Any]] = {}
+        for sample in samples:
+            sample_meta = sample.get("metadata", {})
+            total_cycles = _to_int(
+                sample_meta.get("accel_execute_cycles", 0) or 0,
+                "accel_execute_cycles",
             )
-            for op in parsed.get("operators", [])
-        ]
+            accel_us = _to_int(
+                sample_meta.get("accel_execute_us", 0) or 0,
+                "accel_execute_us",
+            )
+            hvx_threads = _to_int(sample_meta.get("hvx_threads", 0) or 0, "hvx_threads")
+            sample_metadata.append(
+                {
+                    "hvx_threads": hvx_threads,
+                    "accel_execute_cycles": total_cycles,
+                    "accel_execute_us": accel_us,
+                }
+            )
+            cycle_to_us = accel_us / total_cycles if total_cycles > 0 else 0.0
+            for op in sample.get("samples", []):
+                op_id = op["op_id"]
+                entry = operator_samples.setdefault(
+                    op_id,
+                    {
+                        "op_path": op["op_path"],
+                        "op_id": op_id,
+                        "durations_us": [],
+                        "percentages": [],
+                    },
+                )
+                entry["durations_us"].append(op["cycles"] * cycle_to_us)
+                entry["percentages"].append(
+                    op["cycles"] / total_cycles * 100 if total_cycles > 0 else 0.0
+                )
+
+        operators = []
+        for entry in operator_samples.values():
+            durations_us = entry["durations_us"]
+            percentages = entry["percentages"]
+            operators.append(
+                OperatorMetrics(
+                    name=self._resolve_op_type(entry["op_path"], ep_authoritative=None),
+                    op_path=entry["op_path"],
+                    op_id=entry["op_id"],
+                    duration_us=sum(durations_us) / len(durations_us),
+                    percent_of_total=sum(percentages) / len(percentages),
+                    samples_us=durations_us,
+                )
+            )
+        operators.sort(key=lambda op: op.duration_us, reverse=True)
+
+        def _metadata_mean(field: str) -> float:
+            if not sample_metadata:
+                return 0.0
+            return sum(meta[field] for meta in sample_metadata) / len(sample_metadata)
 
         summary: dict[str, Any] = {
-            "hvx_threads": meta.get("hvx_threads", 0),
-            "accel_execute_cycles": total_cycles,
-            "accel_execute_us": accel_us,
+            "hvx_threads": _metadata_mean("hvx_threads"),
+            "accel_execute_cycles": _metadata_mean("accel_execute_cycles"),
+            "accel_execute_us": _metadata_mean("accel_execute_us"),
         }
 
         status: TraceStatus = "ok"
@@ -515,7 +610,7 @@ class QNNMonitor(WinMLEPMonitor):
             tracing_backend="qnn",
             operators=operators,
             summary=summary,
-            num_samples=int(meta.get("num_samples", 0) or 0),
+            num_samples=len(samples),
             artifacts=artifacts,
             status=status,
         )

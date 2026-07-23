@@ -821,6 +821,19 @@ class WinMLSession:
 
             exc_info = sys.exc_info()
         finally:
+            # Give sampling monitors the completed perf-window counts before
+            # any session teardown flushes and parses their artifacts.
+            monitor_error: Exception | None = None
+            try:
+                effective_monitor.set_perf_window(
+                    warmup=min(stats.warmup, stats.total_count),
+                    measured_iterations=stats.count,
+                )
+            except Exception as error:
+                logger.exception("Monitor set_perf_window failed")
+                if exc_info[1] is None:
+                    monitor_error = error
+
             # C-2: for monitors that require session teardown, reset() BEFORE
             # monitor.__exit__ so the flushed data is available in __exit__.
             if getattr(effective_monitor, "requires_session_teardown", False):
@@ -828,13 +841,12 @@ class WinMLSession:
 
             # Call monitor.__exit__ — propagate exc_info so monitor sees the
             # exception (exception transparency contract).
-            exit_error: Exception | None = None
             try:
                 effective_monitor.__exit__(*exc_info)
             except Exception as error:
                 logger.exception("Monitor __exit__ failed")
-                if exc_info[1] is None:
-                    exit_error = error
+                if exc_info[1] is None and monitor_error is None:
+                    monitor_error = error
 
             # Restore snapshots.
             self._active_session_option_entries = saved_sess_entries
@@ -861,8 +873,8 @@ class WinMLSession:
             # Re-raise any exception from the body.
             if exc_info[1] is not None:
                 raise exc_info[1].with_traceback(exc_info[2])
-            if exit_error is not None:
-                raise exit_error
+            if monitor_error is not None:
+                raise monitor_error
 
     @property
     def io_config(self) -> dict:

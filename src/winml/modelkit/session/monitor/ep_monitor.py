@@ -15,6 +15,9 @@ v2.4 additions (purely additive — see design spec
 * :meth:`WinMLEPMonitor.set_onnx_op_types` — concrete no-op default; op-tracing
   monitors override to receive an injected ``node.name -> node.op_type`` map
   built once by :class:`WinMLSession`.
+* :meth:`WinMLEPMonitor.set_perf_window` — concrete no-op default; monitors
+  that emit one artifact sample per run can align their parsing with
+  ``PerfStats`` warmup exclusion.
 * :attr:`WinMLEPMonitor.result` — concrete property returning ``self._result`` if
   set, else ``None``. Op-tracing monitors populate ``self._result`` during
   ``__exit__`` parsing.
@@ -114,6 +117,13 @@ class WinMLEPMonitor(ABC):
         Called unconditionally by :meth:`WinMLSession.perf` immediately
         before ``mon.__enter__()`` so the monitor has the map available
         for the entire lifetime of the perf window.
+        """
+
+    def set_perf_window(self, warmup: int, measured_iterations: int) -> None:  # noqa: B027 - intentional no-op default; sampling monitors override
+        """Provide counts from the completed :meth:`WinMLSession.perf` window.
+
+        Default: no-op. Sampling monitors override this to exclude the
+        completed warmup runs and validate the measured artifact count.
         """
 
     @property
