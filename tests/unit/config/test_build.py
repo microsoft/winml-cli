@@ -3422,6 +3422,40 @@ class TestResolveQuantCompileConfig:
         assert compile_cfg is not None
         assert compile_cfg.ep_config.provider == "nvtensorrtrtx"
 
+    def test_ep_override_with_auto_device_uses_catalog_default_device(self) -> None:
+        """Explicit EP + device=auto should ignore unrelated hardware auto-detection."""
+        with (
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="npu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["npu", "gpu", "cpu"],
+            ),
+            patch(
+                "winml.modelkit.config.precision.resolve_precision",
+                wraps=__import__(
+                    "winml.modelkit.config.precision", fromlist=["resolve_precision"]
+                ).resolve_precision,
+            ) as mock_prec,
+            patch(
+                "winml.modelkit.config.build.WinMLCompileConfig.for_provider",
+                wraps=WinMLCompileConfig.for_provider,
+            ) as mock_for_provider,
+        ):
+            quant, compile_cfg = resolve_quant_compile_config(
+                device="auto",
+                ep="migraphx",
+            )
+
+        mock_prec.assert_called_once()
+        assert mock_prec.call_args.kwargs["device"] == "auto"
+        assert mock_prec.call_args.kwargs["ep"] == "migraphx"
+        mock_for_provider.assert_called_once_with("migraphx", device="gpu")
+        assert quant is None
+        assert compile_cfg is None
+
     def test_task_forwarded_to_resolve_precision(self) -> None:
         """task parameter is forwarded to resolve_precision.
 

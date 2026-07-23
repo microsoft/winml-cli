@@ -352,8 +352,9 @@ def resolve_quant_compile_config(
         resolve_precision,
     )
 
+    requested_device = device.lower()
     available_devices = get_available_devices()
-    resolved_device = auto_detect_device() if device.lower() == "auto" else device.lower()
+    resolved_device = auto_detect_device() if requested_device == "auto" else requested_device
     logger.info(
         "Device resolved: %s (available: %s)",
         resolved_device,
@@ -361,7 +362,7 @@ def resolve_quant_compile_config(
     )
 
     policy = resolve_precision(
-        device=resolved_device,
+        device=requested_device if ep is not None else resolved_device,
         precision=precision,
         ep=ep,
         available_devices=available_devices,
@@ -828,9 +829,13 @@ def generate_hf_build_config(
     )
 
     # ALWAYS detect hardware — even when device="auto" — so we don't
-    # blindly default to QNN on machines without an NPU (#412).
+    # blindly default to QNN on machines without an NPU (#412). Explicit EP
+    # requests still keep device="auto" for policy resolution so the catalog can
+    # reconstruct that EP's default device instead of inheriting unrelated host
+    # detection.
+    requested_device = device.lower()
     available_devices = get_available_devices()
-    resolved_device = auto_detect_device() if device.lower() == "auto" else device.lower()
+    resolved_device = auto_detect_device() if requested_device == "auto" else requested_device
     logger.info(
         "Device resolved: %s (available: %s)",
         resolved_device,
@@ -838,7 +843,7 @@ def generate_hf_build_config(
     )
 
     policy = resolve_precision(
-        device=resolved_device,
+        device=requested_device if ep is not None else resolved_device,
         precision=precision,
         ep=ep,
         available_devices=available_devices,

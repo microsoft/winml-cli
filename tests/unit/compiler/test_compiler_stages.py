@@ -420,6 +420,59 @@ class TestCompileStageProcess:
         passed_ep_config = mock_session_cls.call_args.kwargs["ep_config"]
         assert passed_ep_config.provider_options == {"device_type": "GPU", "precision": "fp16"}
 
+    def test_process_reconstructs_explicit_serialized_device(self, tmp_path):
+        from unittest.mock import MagicMock, patch
+
+        from winml.modelkit.compiler import CompileContext, CompileStage
+        from winml.modelkit.session import EPDeviceTarget
+
+        model_path = tmp_path / "model.onnx"
+        create_simple_model(model_path)
+
+        fake_session = MagicMock()
+        fake_session.get_providers.return_value = ["QNNExecutionProvider"]
+        fake_session.get_inputs.return_value = []
+        fake_session.get_outputs.return_value = []
+
+        fake_winml_session = MagicMock()
+        fake_winml_session._session = fake_session
+
+        context = CompileContext(
+            model_path=model_path,
+            config={
+                "execution_provider": "qnn",
+                "device": "gpu",
+                "enable_ep_context": True,
+                "validate": False,
+            },
+        )
+
+        mock_session_cls = MagicMock(return_value=fake_winml_session)
+        mock_registry = MagicMock()
+        mock_registry.auto_device.return_value = MagicMock()
+        with (
+            patch.dict(
+                "winml.modelkit.compiler.stages.compile.COMPILER_SESSION_MAPPING",
+                {"ort": mock_session_cls},
+                clear=False,
+            ),
+            patch(
+                "winml.modelkit.compiler.stages.compile.WinMLEPRegistry.instance",
+                return_value=mock_registry,
+            ),
+            patch(
+                "winml.modelkit.compiler.stages.compile.resolve_device",
+                side_effect=lambda target: EPDeviceTarget(
+                    ep=target.ep,
+                    device=("npu" if target.device == "auto" else target.device),
+                    source=target.source,
+                ),
+            ) as mock_resolve_device,
+        ):
+            CompileStage().process(context)
+
+        mock_resolve_device.assert_called_once_with(EPDeviceTarget(ep="qnn", device="gpu"))
+
     def test_multi_model_sequence_shares_options_and_closes_context(self, tmp_path):
         """First, intermediate, and final models share one EP context in sequence."""
         from unittest.mock import MagicMock, patch
