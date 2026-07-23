@@ -116,11 +116,11 @@ def _warn_partial_composite(completed: list[Path]) -> None:
 @click.option(
     "--dynamo/--no-dynamo",
     "dynamo",
-    default=True,
+    default=False,
     show_default=True,
-    help="Use PyTorch's TorchDynamo ONNX exporter (default). "
-    "Pass --no-dynamo for the legacy TorchScript exporter, the validated "
-    "path for QNN/NPU compilation today.",
+    help="Use PyTorch's TorchDynamo ONNX exporter. "
+    "Pass --dynamo to opt in; the default TorchScript exporter is the "
+    "validated path for QNN/NPU compilation today.",
 )
 @click.option(
     "--torch-module",
@@ -187,10 +187,10 @@ def export(
     The export process (8 steps):
     1. Model Preparation - Load and configure model
     2. Input Generation - Generate example inputs
-    3. Hierarchy Building - Recover the module hierarchy (from the ONNX metadata
-       under dynamo, or a forward-execution trace with --no-dynamo)
-    4. ONNX Export - Convert to ONNX format (TorchDynamo by default; TorchScript
-       with --no-dynamo)
+    3. Hierarchy Building - Recover the module hierarchy (from a forward-execution
+       trace by default, or from ONNX metadata under --dynamo)
+    4. ONNX Export - Convert to ONNX format (TorchScript by default; TorchDynamo
+       with --dynamo)
     5. Node Tagger Creation - Create tagger from hierarchy
     6. Node Tagging - Apply hierarchy tags to nodes
     7. Tag Injection - Embed tags in ONNX node metadata_props
@@ -210,8 +210,8 @@ def export(
         # Clean ONNX output (no hierarchy metadata, for optimization)
         winml export -m prajjwal1/bert-tiny -o model.onnx --clean-onnx
 
-        # Use the legacy TorchScript exporter (dynamo is the default)
-        winml export -m prajjwal1/bert-tiny -o model.onnx --no-dynamo
+        # Use the TorchDynamo exporter (TorchScript is the default)
+        winml export -m prajjwal1/bert-tiny -o model.onnx --dynamo
 
         # Include torch.nn modules in hierarchy
         winml export -m prajjwal1/bert-tiny -o model.onnx --torch-module LayerNorm,Embedding

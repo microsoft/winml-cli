@@ -855,7 +855,7 @@ class TestExportPriority:
         Guards the same fix as ``enable_hierarchy_tags`` above.
         """
         eff = _run_export([], {"export": {}}, tmp_path)
-        assert eff["dynamo"] is True  # CLI default (dynamo is the default exporter)
+        assert eff["dynamo"] is False  # CLI and shared config default
 
 
 class TestQuantizePriority:
