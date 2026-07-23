@@ -83,6 +83,7 @@ class PatternRuleCompileRunResult(TypedDict):
     case_indices: list[Any] | None
     query_condition_count: int
     query_condition_keys: list[str]
+    debug_details: dict[str, Any] | None
 
 
 class PatternMergePrepEntry(TypedDict):
@@ -641,22 +642,33 @@ class PatternExtractor:
         candidate_pattern_name: str,
         model_opsets: dict[ONNXDomain, int],
         table_cache: dict[str, Any],
-    ) -> tuple[str, bool | None, bool | None, int, int, int, list[Any] | None, int, list[str]]:
+    ) -> tuple[
+        str,
+        bool | None,
+        bool | None,
+        int,
+        int,
+        int,
+        list[Any] | None,
+        int,
+        list[str],
+        dict[str, Any] | None,
+    ]:
         """Query one candidate parquet table using one match's constraints."""
         from .runtime_checker_query import get_query_conditions_for_pattern, query_table_exact_match
 
         load_status, table_df = self._load_pattern_rule_table(parquet_path, table_cache)
         if load_status != "ok":
-            return load_status, None, None, 0, 0, 0, None, 0, []
+            return load_status, None, None, 0, 0, 0, None, 0, [], None
         if table_df is None:
-            return "read_error", None, None, 0, 0, 0, None, 0, []
+            return "read_error", None, None, 0, 0, 0, None, 0, [], None
 
         row_count = int(len(table_df))
         if row_count == 0:
-            return "empty_table", None, None, 0, 0, 0, None, 0, []
+            return "empty_table", None, None, 0, 0, 0, None, 0, [], None
 
         if "compile_run_success" not in table_df.columns:
-            return "missing_compile_run_success", None, None, row_count, 0, 0, None, 0, []
+            return "missing_compile_run_success", None, None, row_count, 0, 0, None, 0, [], None
 
         try:
             conditions, infinite_properties = get_query_conditions_for_pattern(
@@ -670,7 +682,7 @@ class PatternExtractor:
                 candidate_pattern_name,
                 exc_info=True,
             )
-            return "query_build_error", None, None, row_count, 0, 0, None, 0, []
+            return "query_build_error", None, None, row_count, 0, 0, None, 0, [], None
 
         condition_columns = self._extract_rule_condition_columns(list(table_df.columns))
         query_conditions: dict[str, Any] = {}
@@ -688,6 +700,7 @@ class PatternExtractor:
                     None,
                     len(query_conditions),
                     sorted(query_conditions.keys()),
+                    None,
                 )
 
             encoded_value = encode_rule_condition_value_for_parquet(conditions[col])
@@ -696,6 +709,39 @@ class PatternExtractor:
         if query_conditions:
             matched_df = query_table_exact_match(table_df, query_conditions)
             if matched_df.empty:
+                debug_steps: list[dict[str, Any]] = []
+                current_df = table_df
+                first_zero_column: str | None = None
+                for col, value in query_conditions.items():
+                    rows_before = int(len(current_df))
+                    if col in current_df.columns:
+                        current_df = current_df[current_df[col] == value]
+                    rows_after = int(len(current_df))
+
+                    debug_steps.append(
+                        {
+                            "column": col,
+                            "value": repr(value),
+                            "rows_before": rows_before,
+                            "rows_after": rows_after,
+                        }
+                    )
+                    if first_zero_column is None and rows_after == 0:
+                        first_zero_column = col
+
+                debug_details = {
+                    "type": "properties_not_found",
+                    "pattern_name": candidate_pattern_name,
+                    "table_path": str(parquet_path.resolve(strict=False)),
+                    "table_file": parquet_path.name,
+                    "total_rows": row_count,
+                    "query_condition_count": len(query_conditions),
+                    "query_conditions": {
+                        key: repr(value) for key, value in query_conditions.items()
+                    },
+                    "first_zero_column": first_zero_column,
+                    "steps": debug_steps,
+                }
                 return (
                     "properties_not_found",
                     None,
@@ -706,6 +752,7 @@ class PatternExtractor:
                     None,
                     len(query_conditions),
                     sorted(query_conditions.keys()),
+                    debug_details,
                 )
             matched_row = matched_df.iloc[0]
         else:
@@ -723,6 +770,7 @@ class PatternExtractor:
                 None,
                 len(query_conditions),
                 sorted(query_conditions.keys()),
+                None,
             )
 
         compile_ok, run_ok = compile_run
@@ -736,6 +784,7 @@ class PatternExtractor:
             self._normalize_case_indices(matched_row.get("case_indices")),
             len(query_conditions),
             sorted(query_conditions.keys()),
+            None,
         )
 
     def _build_merge_prep_metadata(
@@ -855,6 +904,7 @@ class PatternExtractor:
                                     "case_indices": None,
                                     "query_condition_count": 0,
                                     "query_condition_keys": [],
+                                    "debug_details": None,
                                 }
                             )
                             continue
@@ -897,6 +947,7 @@ class PatternExtractor:
                                     "case_indices": None,
                                     "query_condition_count": 0,
                                     "query_condition_keys": [],
+                                    "debug_details": None,
                                 }
                             )
                             continue
@@ -917,6 +968,7 @@ class PatternExtractor:
                             case_indices,
                             query_condition_count,
                             query_condition_keys,
+                            debug_details,
                         ) = self._query_pattern_rule_compile_run_for_match(
                             parquet_path=table_path,
                             pattern_match=pattern_match,
@@ -944,6 +996,7 @@ class PatternExtractor:
                                 "case_indices": case_indices,
                                 "query_condition_count": query_condition_count,
                                 "query_condition_keys": query_condition_keys,
+                                "debug_details": debug_details,
                             }
                         )
 

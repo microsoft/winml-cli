@@ -11,6 +11,7 @@ Public API:
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass
@@ -229,6 +230,12 @@ def _append_pattern_debug_log(
         lines.append(f"Pattern merge prep alternatives={alternatives}")
 
         for candidate in entry.get("candidates", []) or []:
+            debug_details = candidate.get("debug_details")
+            debug_details_text = (
+                json.dumps(debug_details, ensure_ascii=True, separators=(",", ":"), default=str)
+                if debug_details is not None
+                else "None"
+            )
             lines.append(
                 "Pattern merge prep candidate "
                 f"pattern_class={candidate.get('pattern_class')} "
@@ -246,7 +253,8 @@ def _append_pattern_debug_log(
                 f"query_condition_keys={candidate.get('query_condition_keys')} "
                 f"table_file={candidate.get('table_file')} "
                 f"domain={candidate.get('domain')} "
-                f"opset_version={candidate.get('opset_version')}"
+                f"opset_version={candidate.get('opset_version')} "
+                f"debug_details={debug_details_text}"
             )
 
     lines.append("")
