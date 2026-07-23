@@ -7,11 +7,12 @@
 """HTP (Hierarchy-preserving Tags Protocol) Exporter.
 
 This exporter preserves the hierarchical structure of HuggingFace models
-when converting to ONNX format by tracing module execution and tagging
-ONNX nodes with their source module information.
+when converting to ONNX format. TorchDynamo recovers module context from
+ONNX node metadata; the legacy TorchScript path traces module execution.
+Both paths tag ONNX nodes with their source module information.
 
 Key Features:
-- Direct module context capture during execution
+- Source-aware hierarchy recovery for both ONNX exporters
 - Precise hierarchy tag generation
 - Comprehensive metadata export
 - Optional detailed reporting
@@ -30,11 +31,16 @@ import torch
 import torch.nn as nn
 from rich.console import Console
 
-from ...core.onnx_node_tagger import ONNXNodeTagger, create_node_tagger_from_hierarchy
+from ...core.onnx_node_tagger import (
+    DynamoMetadataTagger,
+    ONNXNodeTagger,
+    create_node_tagger_from_hierarchy,
+)
 from ...core.onnx_utils import infer_output_names
 from .base_writer import ExportStep
 from .hierarchy import TracingHierarchyBuilder
 from .monitor import HTPExportMonitor
+from .step_data import HIERARCHY_SOURCE_ONNX_METADATA, HIERARCHY_SOURCE_TRACE
 
 
 if TYPE_CHECKING:
@@ -71,8 +77,6 @@ class HTPConfig:
         "opset_version": 17,
         "do_constant_folding": True,
         "verbose": False,  # ONNX internal verbose
-        # PyTorch dynamo export disabled by default. Use --dynamo flag to enable
-        # for rich node metadata (namespace, class_hierarchy, etc.)
         # dynamic_axes: Not set (defaults to None = static dimensions)
         # This prevents dynamic batch which causes MatMulAddFusion failure
     }
@@ -88,7 +92,7 @@ class HTPConfig:
     DEFAULT_EXPORT_STATS: ClassVar[dict[str, Any]] = {
         # Seconds elapsed from export() entry to final stat collection.
         "export_time": 0.0,
-        # Number of named hierarchy modules discovered during tracing.
+        # Number of named modules in the recovered or traced hierarchy.
         "hierarchy_modules": 0,
         # Total ONNX graph nodes in the exported model.
         "onnx_nodes": 0,
@@ -141,10 +145,12 @@ class HTPExporter:
 
         # Core components
         self._hierarchy_builder: TracingHierarchyBuilder | None = None
-        self._node_tagger: ONNXNodeTagger | None = None
+        self._node_tagger: ONNXNodeTagger | DynamoMetadataTagger | None = None
         self._hierarchy_data: dict[str, Any] = {}
         self._tagged_nodes: dict[str, str] = {}
         self._tagging_stats: dict[str, Any] = {}
+        # Whether to source hierarchy from dynamo node metadata (set in export()).
+        self._use_dynamo_hierarchy: bool = False
 
         # Export statistics
         self._export_stats = HTPConfig.DEFAULT_EXPORT_STATS.copy()
@@ -182,6 +188,11 @@ class HTPExporter:
             Export statistics dict.
         """
         start_time = time.time()
+
+        # Dynamo records the module hierarchy natively on each ONNX node's
+        # metadata_props, so select the hierarchy source (and whether to run the
+        # TorchScript trace) from the exporter choice.
+        self._use_dynamo_hierarchy = bool(export_config.dynamo)
 
         # Initialize export monitor
         self._monitor = HTPExportMonitor(
@@ -229,24 +240,34 @@ class HTPExporter:
             monitor.update(ExportStep.INPUT_GEN, **input_gen_data)
 
             # Step 3: Hierarchy Building
-            # Trace under the Optimum patcher so models that inject constant
-            # forward arguments at export time (e.g. ViTPose MoE's dataset_index)
-            # are traced with the same inputs they are exported with. The export
-            # in Step 4 re-enters the patcher; the contexts are sequential, not
-            # nested.
-            with self._get_optimum_patcher(model, task):
-                self._trace_model_hierarchy(model, inputs)
+            #
+            # Under dynamo the exporter records the module hierarchy natively on
+            # each ONNX node's metadata_props, so the TorchScript trace is
+            # redundant (and can fail for models that only export via dynamo).
+            # The hierarchy is recovered from that metadata after the ONNX is
+            # loaded (Step 5), so the monitor update is deferred for dynamo.
+            if self._use_dynamo_hierarchy:
+                self._hierarchy_data = {}
+            else:
+                # Trace under the Optimum patcher so models that inject constant
+                # forward arguments at export time (e.g. ViTPose MoE's dataset_index)
+                # are traced with the same inputs they are exported with. The export
+                # in Step 4 re-enters the patcher; the contexts are sequential, not
+                # nested.
+                with self._get_optimum_patcher(model, task):
+                    self._trace_model_hierarchy(model, inputs)
 
-            execution_steps = (
-                self._hierarchy_builder.get_execution_summary().get("execution_steps", 0)
-                if self._hierarchy_builder
-                else 0
-            )
-            monitor.update(
-                ExportStep.HIERARCHY,
-                hierarchy=self._hierarchy_data,
-                execution_steps=execution_steps,
-            )
+                execution_steps = (
+                    self._hierarchy_builder.get_execution_summary().get("execution_steps", 0)
+                    if self._hierarchy_builder
+                    else 0
+                )
+                monitor.update(
+                    ExportStep.HIERARCHY,
+                    hierarchy=self._hierarchy_data,
+                    execution_steps=execution_steps,
+                    source=HIERARCHY_SOURCE_TRACE,
+                )
 
             # Step 4: ONNX Export
             self._convert_model_to_onnx(model, output_path, inputs, export_config, task=task)
@@ -266,35 +287,71 @@ class HTPExporter:
             # Verify ONNX export
             self._verify_onnx_export(output_path, export_config)
 
+            # Load the exported ONNX once and create the node tagger now; the same
+            # model is reused for dynamo hierarchy recovery, node tagging, and
+            # graph-metadata embedding.
+            from ...onnx import load_onnx
+
+            onnx_model = load_onnx(output_path, validate=False)
+            self._initialize_node_tagger(enable_operation_fallback)
+
+            # Under dynamo the module hierarchy lives on the ONNX node metadata
+            # instead of a TorchScript trace. Recover it now that the graph exists
+            # and issue the deferred Step 3 update so the report/console/metadata
+            # module tree and the hierarchy_modules stat reflect the real modules.
+            # No forward trace runs on this path, so execution_steps stays unset
+            # (None) rather than reporting the module count as a fake step total.
+            if self._use_dynamo_hierarchy:
+                self._hierarchy_data = self._recover_dynamo_hierarchy(onnx_model)
+                monitor.update(
+                    ExportStep.HIERARCHY,
+                    hierarchy=self._hierarchy_data,
+                    source=HIERARCHY_SOURCE_ONNX_METADATA,
+                )
+
             # Update monitor with ONNX export info
             onnx_size_mb = (
                 round(Path(output_path).stat().st_size / (1024 * 1024), 2)
                 if Path(output_path).exists()
                 else 0
             )
-            traced_outputs = (
-                self._hierarchy_builder.get_outputs() if self._hierarchy_builder else None
-            )
-            output_names = infer_output_names(traced_outputs) if traced_outputs is not None else []
+            # Output names: dynamo exposes them authoritatively on the ONNX graph;
+            # the TorchScript path derives them from the traced outputs.
+            output_names: list[str]
+            if self._use_dynamo_hierarchy:
+                output_names = [output.name for output in onnx_model.graph.output]
+            else:
+                traced_outputs = (
+                    self._hierarchy_builder.get_outputs() if self._hierarchy_builder else None
+                )
+                # infer_output_names returns list[str] | None; normalize to a list
+                # so output_names is always list[str] (keeps mypy happy at merge).
+                output_names = (
+                    infer_output_names(traced_outputs) if traced_outputs is not None else None
+                ) or []
+            # Report the opset the exporter actually produced, not the requested
+            # one. torch's dynamo exporter targets a minimum opset of 18 and does
+            # not always down-convert to a lower requested value (e.g. ResNet stays
+            # at 18), so echoing export_config.opset_version would misreport the
+            # real graph. Fall back to the request only if the value can't be read.
+            actual_opset = self._read_default_opset(output_path)
+            if actual_opset is not None:
+                self._warn_on_opset_mismatch(
+                    export_config.opset_version,
+                    actual_opset,
+                    dynamo=self._use_dynamo_hierarchy,
+                )
             monitor.update(
                 ExportStep.ONNX_EXPORT,
-                opset_version=export_config.opset_version,
+                opset_version=(
+                    actual_opset if actual_opset is not None else export_config.opset_version
+                ),
                 do_constant_folding=export_config.do_constant_folding,
                 onnx_size_mb=onnx_size_mb,
                 output_names=output_names,
             )
 
-            # Step 5: Node Tagger Creation
-            from ...onnx import load_onnx
-
-            onnx_model = load_onnx(output_path, validate=False)
-
-            self._initialize_node_tagger(enable_operation_fallback)
-
-            # Tagger creation is part of node tagging process
-            # No separate step needed
-
-            # Step 6: Node Tagging
+            # Step 6: Node Tagging (tagger was created above)
             self._apply_hierarchy_tags(onnx_model)
 
             # Update monitor with tagging results
@@ -365,6 +422,49 @@ class HTPExporter:
         summary = self._hierarchy_builder.get_execution_summary()
         self._hierarchy_data = summary["module_hierarchy"]
         self._export_stats["hierarchy_modules"] = len(self._hierarchy_data)
+
+    @staticmethod
+    def _read_default_opset(output_path: str) -> int | None:
+        """Return the default-domain (ai.onnx) opset of the exported model.
+
+        Reads only the model proto (external weight files are not loaded), so it
+        stays cheap for large models. Returns ``None`` if the model cannot be
+        read or declares no default-domain opset import.
+        """
+        from ...onnx import load_onnx
+
+        try:
+            model = load_onnx(output_path, load_weights=False, validate=False)
+        except Exception:
+            return None
+        for opset in model.opset_import:
+            if opset.domain in ("", "ai.onnx"):
+                return opset.version
+        return None
+
+    @staticmethod
+    def _warn_on_opset_mismatch(
+        requested_opset: int,
+        actual_opset: int,
+        *,
+        dynamo: bool,
+    ) -> None:
+        """Warn accurately when an exporter does not honor the requested opset."""
+        if requested_opset == actual_opset:
+            return
+        if dynamo and actual_opset > requested_opset:
+            logger.warning(
+                "Requested opset %d, but dynamo could not lower the exported model "
+                "and kept opset %d. Pass --no-dynamo if the exact lower opset is required.",
+                requested_opset,
+                actual_opset,
+            )
+            return
+        logger.warning(
+            "Requested opset %d but the exporter produced opset %d.",
+            requested_opset,
+            actual_opset,
+        )
 
     def _verify_onnx_export(
         self,
@@ -477,6 +577,12 @@ class HTPExporter:
         }
         # Always explicitly set dynamo — PyTorch 2.10+ defaults to True
         onnx_kwargs["dynamo"] = bool(export_config.dynamo)
+        if onnx_kwargs["dynamo"]:
+            # torch's dynamo exporter prints capture progress with emoji glyphs
+            # (e.g. ✅) that raise UnicodeEncodeError on non-UTF-8 consoles
+            # (Windows cp1252). winml drives its own progress UI, so silence
+            # torch's verbose printing to keep exports robust across terminals.
+            onnx_kwargs["verbose"] = False
         if input_names:
             onnx_kwargs["input_names"] = input_names
         if output_names:
@@ -575,10 +681,29 @@ class HTPExporter:
         )
 
     def _initialize_node_tagger(self, enable_operation_fallback: bool) -> None:
-        """Create node tagger internally."""
-        self._node_tagger = create_node_tagger_from_hierarchy(
-            self._hierarchy_data, enable_operation_fallback=enable_operation_fallback
-        )
+        """Create node tagger internally.
+
+        Under dynamo the hierarchy comes from each node's dynamo metadata; the
+        legacy path builds a tagger from the TorchScript trace hierarchy.
+        """
+        if self._use_dynamo_hierarchy:
+            self._node_tagger = DynamoMetadataTagger()
+        else:
+            self._node_tagger = create_node_tagger_from_hierarchy(
+                self._hierarchy_data, enable_operation_fallback=enable_operation_fallback
+            )
+
+    def _recover_dynamo_hierarchy(self, onnx_model: onnx.ModelProto) -> dict[str, dict[str, Any]]:
+        """Recover module hierarchy from dynamo metadata and surface total degradation."""
+        assert isinstance(self._node_tagger, DynamoMetadataTagger)
+        hierarchy = self._node_tagger.build_module_hierarchy(onnx_model)
+        if onnx_model.graph.node and not hierarchy:
+            logger.warning(
+                "Dynamo export produced no usable module hierarchy metadata; "
+                "hierarchy tags will use the model-root fallback. "
+                "Pass --no-dynamo to build hierarchy from a TorchScript execution trace."
+            )
+        return hierarchy
 
     def _apply_hierarchy_tags(self, onnx_model: onnx.ModelProto) -> None:
         """Tag nodes internally."""

@@ -113,7 +113,7 @@
           "type": "string"
         },
         "execution_order": {
-          "description": "Order of execution during tracing",
+          "description": "Order the module was first encountered (execution order for trace, discovery order in the exported graph for onnx_metadata)",
           "title": "Execution Order",
           "type": "integer",
           "minimum": 0
@@ -141,20 +141,29 @@
       "type": "object"
     },
     "TracingInfo": {
-      "description": "Tracing execution information",
+      "description": "Hierarchy build information (execution trace or ONNX-metadata recovery)",
       "properties": {
         "builder": {
           "description": "Hierarchy builder used",
           "type": "string",
           "default": "TracingHierarchyBuilder"
         },
+        "source": {
+          "description": "How the hierarchy was obtained: a forward-execution trace (TorchScript) or reconstruction from ONNX node metadata (dynamo)",
+          "type": "string",
+          "enum": [
+            "trace",
+            "onnx_metadata"
+          ],
+          "default": "trace"
+        },
         "modules_traced": {
-          "description": "Number of modules traced during execution",
+          "description": "Number of modules present in the recovered or traced hierarchy",
           "type": "integer",
           "minimum": 0
         },
         "execution_steps": {
-          "description": "Number of execution steps",
+          "description": "Number of execution steps (0 when the hierarchy was recovered from ONNX metadata rather than an execution trace)",
           "type": "integer",
           "minimum": 0
         },
@@ -369,6 +378,11 @@
             "timestamp": {
               "$ref": "#/$defs/ISOTimestamp"
             },
+            "source": {
+              "description": "How the hierarchy was obtained",
+              "type": "string",
+              "enum": ["trace", "onnx_metadata"]
+            },
             "modules_traced": {"type": "integer", "minimum": 0},
             "execution_steps": {"type": "integer", "minimum": 0}
           }
@@ -470,7 +484,7 @@
           "minimum": 0
         },
         "traced_modules": {
-          "description": "Number of modules traced during execution",
+          "description": "Number of modules present in the recovered or traced hierarchy",
           "type": "integer",
           "minimum": 0
         },

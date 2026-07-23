@@ -6,9 +6,18 @@
 
 from __future__ import annotations
 
+import logging
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
+import pytest
+from onnx import TensorProto, helper, save
+
 from winml.modelkit.export.htp import HTPExporter
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestHTPExporterTaggedNodesStats:
@@ -51,3 +60,78 @@ class TestHTPExporterTaggedNodesStats:
         assert exporter._export_stats["tagged_nodes"] == 2
         assert exporter._export_stats["coverage_percentage"] == 50.0
         assert exporter._export_stats["empty_tags"] == 0
+
+
+class TestHTPExporterReadDefaultOpset:
+    """_read_default_opset reports the produced model's ai.onnx opset.
+
+    The dynamo exporter may not honor a lower requested opset (torch's dynamo op
+    set has a minimum of 18), so the exporter records the opset actually present
+    in the file instead of echoing the requested value.
+    """
+
+    @staticmethod
+    def _make_model(tmp_path: Path, opset_imports: list) -> str:
+        node = helper.make_node("Identity", ["x"], ["y"])
+        graph = helper.make_graph(
+            [node],
+            "g",
+            [helper.make_tensor_value_info("x", TensorProto.FLOAT, [1])],
+            [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1])],
+        )
+        model = helper.make_model(graph, opset_imports=opset_imports)
+        path = tmp_path / "m.onnx"
+        save(model, str(path))
+        return str(path)
+
+    def test_reads_default_domain_opset(self, tmp_path: Path) -> None:
+        path = self._make_model(tmp_path, [helper.make_opsetid("", 18)])
+        assert HTPExporter._read_default_opset(path) == 18
+
+    def test_reads_ai_onnx_domain_opset(self, tmp_path: Path) -> None:
+        path = self._make_model(tmp_path, [helper.make_opsetid("ai.onnx", 17)])
+        assert HTPExporter._read_default_opset(path) == 17
+
+    def test_prefers_default_domain_over_custom(self, tmp_path: Path) -> None:
+        path = self._make_model(
+            tmp_path,
+            [helper.make_opsetid("com.microsoft", 1), helper.make_opsetid("", 18)],
+        )
+        assert HTPExporter._read_default_opset(path) == 18
+
+    def test_returns_none_without_default_domain(self, tmp_path: Path) -> None:
+        path = self._make_model(tmp_path, [helper.make_opsetid("com.microsoft", 1)])
+        assert HTPExporter._read_default_opset(path) is None
+
+    def test_returns_none_for_unreadable_path(self, tmp_path: Path) -> None:
+        assert HTPExporter._read_default_opset(str(tmp_path / "missing.onnx")) is None
+
+
+class TestHTPExporterOpsetMismatchWarning:
+    """Mismatch guidance must match the exporter and conversion direction."""
+
+    def test_failed_dynamo_downconversion_recommends_no_dynamo(self, caplog) -> None:
+        with caplog.at_level(logging.WARNING):
+            HTPExporter._warn_on_opset_mismatch(17, 18, dynamo=True)
+
+        assert "could not lower" in caplog.text
+        assert "--no-dynamo" in caplog.text
+
+    @pytest.mark.parametrize(
+        ("requested", "actual", "dynamo"),
+        [(18, 17, True), (17, 18, False)],
+    )
+    def test_other_mismatches_use_generic_wording(
+        self,
+        caplog,
+        requested: int,
+        actual: int,
+        dynamo: bool,
+    ) -> None:
+        with caplog.at_level(logging.WARNING):
+            HTPExporter._warn_on_opset_mismatch(requested, actual, dynamo=dynamo)
+
+        assert f"Requested opset {requested}" in caplog.text
+        assert f"produced opset {actual}" in caplog.text
+        assert "--no-dynamo" not in caplog.text
+        assert "could not lower" not in caplog.text

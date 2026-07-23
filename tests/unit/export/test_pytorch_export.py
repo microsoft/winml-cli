@@ -333,8 +333,11 @@ class TestExportPytorch:
     def test_failed_normalization_skips_shape_inference(self, tmp_path) -> None:
         """When normalization is mocked to return False, status is failed."""
         model = TwoLayerNet()
+        # dynamo already emits value_info shapes during export; pin the legacy
+        # TorchScript exporter so this test exercises winml's own shape inference.
         config = WinMLExportConfig(
             input_tensors=[InputTensorSpec(name="x", dtype="float32", shape=(1, 10))],
+            dynamo=False,
         )
         with patch(
             "winml.modelkit.export.pytorch._normalize_exported_model",
@@ -350,8 +353,11 @@ class TestExportPytorch:
     def test_normalize_false_skips_normalization(self, tmp_path) -> None:
         """When normalize=False, the helper isn't called and status is not_run."""
         model = TwoLayerNet()
+        # dynamo already emits value_info shapes during export; pin the legacy
+        # TorchScript exporter so the "no shapes without normalization" invariant holds.
         config = WinMLExportConfig(
             input_tensors=[InputTensorSpec(name="x", dtype="float32", shape=(1, 10))],
+            dynamo=False,
         )
         with patch(
             "winml.modelkit.export.pytorch._normalize_exported_model",
@@ -501,8 +507,11 @@ class TestStaleExternalDataCleanup:
             raw_sidecars.extend(get_external_data_files(out))
 
         model_path = tmp_path / "model.onnx"
+        # This test forces per-tensor external-data sidecars to mimic the raw
+        # TorchScript exporter, so pin that exporter to test its cleanup path.
         config = WinMLExportConfig(
             input_tensors=[InputTensorSpec(name="x", dtype="float32", shape=(1, 256))],
+            dynamo=False,
         )
 
         with patch.object(

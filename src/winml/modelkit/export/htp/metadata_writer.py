@@ -18,9 +18,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ...core.hierarchy_utils import find_immediate_children
 from ...core.time_utils import format_timestamp_iso
 from .base_writer import ExportData, ExportStep, StepAwareWriter, step
 from .metadata_builder import HTPMetadataBuilder
+from .step_data import HIERARCHY_SOURCE_ONNX_METADATA
 
 
 if TYPE_CHECKING:
@@ -132,20 +134,33 @@ class MetadataWriter(StepAwareWriter):
         # Get input info from previous step data
         input_data = self._steps_data.get("input_generation", {})
 
+        # The dynamo path reconstructs the hierarchy from ONNX metadata instead
+        # of a forward trace, so there is no execution-step count and a different
+        # producer. Record the source explicitly and avoid a fabricated count.
+        source = data.hierarchy.source
+        if source == HIERARCHY_SOURCE_ONNX_METADATA:
+            builder = "DynamoMetadataTagger"
+        else:
+            builder = "TracingHierarchyBuilder"
+        execution_steps = data.hierarchy.execution_steps or 0
+
         self.builder.with_tracing_info(
             modules_traced=len(data.hierarchy.hierarchy),
-            execution_steps=data.hierarchy.execution_steps,
+            execution_steps=execution_steps,
             model_type=input_data.get("model_type"),
             task=input_data.get("task"),
             inputs=input_data.get("inputs"),
+            source=source,
+            builder=builder,
         )
 
         # Record step completion
         self._steps_data["hierarchy_building"] = {
             "completed": True,
             "timestamp": format_timestamp_iso(data.get_step_timestamp(export_step)) or "",
+            "source": source,
             "modules_traced": len(data.hierarchy.hierarchy),
-            "execution_steps": data.hierarchy.execution_steps,
+            "execution_steps": execution_steps,
         }
 
         return 1
@@ -382,6 +397,11 @@ class MetadataWriter(StepAwareWriter):
     ) -> dict[str, Any] | None:
         """Build children dict for a parent module.
 
+        Traversal uses the shared :func:`find_immediate_children` so sparse and
+        compound scopes (``layer.0``, or an indexed child whose ``ModuleList``
+        container never emitted its own entry) nest under the nearest present
+        ancestor instead of being dropped.
+
         Args:
             parent_path: Parent module path (e.g., "", "encoder", "encoder.layer.0")
             flat_hierarchy: Flat dict of all modules
@@ -389,63 +409,40 @@ class MetadataWriter(StepAwareWriter):
         Returns:
             Dict of children or None if no children
         """
-        children = {}
+        child_paths = find_immediate_children(parent_path, flat_hierarchy)
+        if not child_paths:
+            return None
 
-        # Find all direct children of this parent
-        for path, module_info in flat_hierarchy.items():
-            if path == parent_path:
-                continue  # Skip self
+        # A child's key is normally its class name, but same-class named siblings
+        # (an attention block's query/key/value, all torch.nn.Linear) would then
+        # collide and overwrite each other. Detect collisions up front and fold
+        # the local scope identity into the key for the colliding classes so every
+        # sibling is serialized.
+        class_counts: dict[str, int] = {}
+        for path in child_paths:
+            class_name = flat_hierarchy[path].class_name
+            class_counts[class_name] = class_counts.get(class_name, 0) + 1
 
-            # Check if this is a direct child
-            if parent_path == "":
-                # For root, direct children have no dots
-                if "." not in path:
-                    child_name = path
-                else:
-                    continue
+        children: dict[str, Any] = {}
+        for path in child_paths:
+            module_info = flat_hierarchy[path]
+            remainder = path[len(parent_path) + 1 :] if parent_path else path
+            local = remainder.rsplit(".", 1)[-1]
+
+            if local.isdigit():
+                # Indexed container child (layer.0) -> Class.N (unchanged).
+                key = f"{module_info.class_name}.{local}"
+            elif class_counts[module_info.class_name] > 1:
+                # Same-class named siblings -> Class.local (query/key/value stay
+                # distinct instead of collapsing to a single Class key).
+                key = f"{module_info.class_name}.{local}"
             else:
-                # For non-root, check if path starts with parent and has exactly one more segment
-                if not path.startswith(parent_path + "."):
-                    continue
-
-                # Get the path after the parent
-                remainder = path[len(parent_path) + 1 :]
-
-                # Check if this is a direct child by counting the depth
-                # For indexed modules like "layer.0", we need to check the full indexed name
-                # Split remainder into segments considering indexed modules
-                segments = []
-                current_segment = ""
-                for part in remainder.split("."):
-                    if current_segment and part.isdigit():
-                        # This is an index, append to previous segment
-                        current_segment = f"{current_segment}.{part}"
-                    else:
-                        # Start new segment
-                        if current_segment:
-                            segments.append(current_segment)
-                        current_segment = part
-                if current_segment:
-                    segments.append(current_segment)
-
-                # Direct child has exactly one segment
-                if len(segments) != 1:
-                    continue
-
-                child_name = segments[0]
-
-            # Determine the key to use
-            # For indexed modules like layer.0, layer.1, use class_name.index
-            if "." in child_name and child_name.split(".")[-1].isdigit():
-                # This is an indexed module like layer.0
-                index = child_name.split(".")[-1]
-                key = f"{module_info.class_name}.{index}"
-            else:
-                # Use class_name as key for consistency with expected structure
-                # This ensures tests expecting BertEmbeddings, BertEncoder keys work correctly
                 key = module_info.class_name
 
-            # Build child structure
+            # Guarantee uniqueness even for pathological sparse collisions.
+            if key in children:
+                key = f"{module_info.class_name}.{remainder}"
+
             child: dict[str, Any] = {
                 "class_name": module_info.class_name,
                 "traced_tag": module_info.traced_tag,
@@ -456,7 +453,6 @@ class MetadataWriter(StepAwareWriter):
             if module_info.source:
                 child["source"] = module_info.source
 
-            # Recursively build children for this child
             grandchildren = self._build_children_for_parent(path, flat_hierarchy)
             if grandchildren:
                 child["children"] = grandchildren

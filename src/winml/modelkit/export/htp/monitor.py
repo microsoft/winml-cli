@@ -23,6 +23,8 @@ from .console_writer import ConsoleWriter
 from .markdown_report_writer import MarkdownReportWriter
 from .metadata_writer import MetadataWriter
 from .step_data import (
+    HIERARCHY_SOURCE_ONNX_METADATA,
+    HIERARCHY_SOURCE_TRACE,
     HierarchyData,
     InputGenData,
     ModelPrepData,
@@ -162,7 +164,8 @@ class HTPExportMonitor:
 
             self.data.hierarchy = HierarchyData(
                 hierarchy=hierarchy,
-                execution_steps=kwargs.get("execution_steps", 0),
+                execution_steps=kwargs.get("execution_steps"),
+                source=kwargs.get("source", HIERARCHY_SOURCE_TRACE),
                 module_list=kwargs.get("module_list", []),
             )
 
@@ -210,8 +213,15 @@ class HTPExportMonitor:
         console.print("📊 Export Summary:")
         console.print(f"   • Total time: [bold cyan]{total_time:.2f}s[/bold cyan]")
         console.print(f"   • Hierarchy modules: [bold cyan]{total_modules}[/bold cyan]")
+        # "Traced" only fits the TorchScript path; the dynamo path recovers modules
+        # from ONNX metadata, so label the count by how it was actually obtained.
+        modules_label = (
+            "Recovered modules"
+            if self.data.hierarchy and self.data.hierarchy.source == HIERARCHY_SOURCE_ONNX_METADATA
+            else "Traced modules"
+        )
         console.print(
-            f"   • Traced modules: [bold cyan]{traced_modules}/{total_modules}[/bold cyan]"
+            f"   • {modules_label}: [bold cyan]{traced_modules}/{total_modules}[/bold cyan]"
         )
         console.print(f"   • ONNX nodes: [bold cyan]{nodes}[/bold cyan]")
         console.print(

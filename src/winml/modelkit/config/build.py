@@ -551,6 +551,29 @@ def merge_export_overrides(
     return merged
 
 
+def _get_export_batch_size_override(override: BuildConfigOverride | None) -> int | None:
+    """Return a user-specified export batch size before I/O resolution."""
+    export_override: WinMLExportConfig | dict[str, Any] | None
+    if isinstance(override, WinMLBuildConfig):
+        export_override = override.export
+    elif isinstance(override, dict):
+        candidate = override.get("export")
+        export_override = candidate if isinstance(candidate, (WinMLExportConfig, dict)) else None
+    else:
+        export_override = None
+
+    if isinstance(export_override, WinMLExportConfig):
+        return export_override.batch_size
+    if isinstance(export_override, dict) and "batch_size" in export_override:
+        batch_size = export_override["batch_size"]
+        if not isinstance(batch_size, int):
+            raise TypeError(
+                f"export.batch_size override must be an integer, got {type(batch_size).__name__}"
+            )
+        return batch_size
+    return None
+
+
 @overload
 def generate_hf_build_config(
     model_id: str | None = None,
@@ -644,7 +667,7 @@ def generate_hf_build_config(
            -> (WinMLLoaderConfig, hf_config, resolved_class, TaskResolution)
            (includes sub-config consolidation for multimodal)
         2. MODEL_BUILD_CONFIGS.get() — registry lookup (may short-circuit step 3)
-        3. export._resolve_export_config_from_specs() OR registered export config
+        3. Resolve export I/O specs, then apply registered export settings
         4. _assemble_config() + merge -> WinMLBuildConfig
         5. If module: specialize for each matching submodule
 
@@ -723,6 +746,8 @@ def generate_hf_build_config(
     # Note: None means "not configured" (fall through to Optimum);
     # [] would mean "explicitly no inputs" (use as-is, skip Optimum).
     _registered_export = registered.export if registered else None
+    _default_export = WinMLExportConfig()
+    _user_batch_size = _get_export_batch_size_override(override)
     if _registered_export is not None and _registered_export.input_tensors is not None:
         # deepcopy to avoid mutating the shared registry singleton
         export_config = copy.deepcopy(_registered_export)
@@ -733,7 +758,7 @@ def generate_hf_build_config(
     else:
         # Standard path: resolve I/O specs from Optimum's OnnxConfig
         logger.debug(
-            "No registered export config for '%s'; resolving via Optimum",
+            "No registered export I/O specs for '%s'; resolving via Optimum",
             _registry_key,
         )
         export_config = _resolve_export_config_from_specs(
@@ -742,9 +767,22 @@ def generate_hf_build_config(
             hf_config=hf_config,
             library_name=library_name,
             model_id=model_id,
-            batch_size=WinMLExportConfig().batch_size,
+            batch_size=(
+                _user_batch_size
+                if _user_batch_size is not None
+                else (
+                    _registered_export.batch_size
+                    if _registered_export is not None
+                    and _registered_export.batch_size != _default_export.batch_size
+                    else _default_export.batch_size
+                )
+            ),
             **(shape_config or {}),
         )
+        if _registered_export is not None:
+            # Optimum supplies I/O while the registry remains authoritative for
+            # explicit exporter settings such as opset and dynamo.
+            export_config = _merge_export_config(export_config, _registered_export)
 
     # =========================================================================
     # STEP 4: Assemble config + merge override
@@ -1061,6 +1099,11 @@ def _build_submodule_config(
             input_tensors=input_tensors or None,
             output_tensors=output_tensors or None,
             dynamic_axes={},  # Static shapes for submodules
+            dynamo=(
+                parent_config.export.dynamo
+                if parent_config.export is not None
+                else WinMLExportConfig().dynamo
+            ),
             # opset_version and batch_size use dataclass defaults from WinMLExportConfig
         ),
         optim=copy.deepcopy(parent_config.optim),
@@ -1101,24 +1144,47 @@ def _merge_export_config(
     output_tensors = (
         override.output_tensors if override.output_tensors is not None else base.output_tensors
     )
+    defaults = WinMLExportConfig()
 
     return WinMLExportConfig(
         opset_version=(
             override.opset_version
-            if override.opset_version != WinMLExportConfig().opset_version
+            if override.opset_version != defaults.opset_version
             else base.opset_version
         ),
         batch_size=(
-            override.batch_size
-            if override.batch_size != WinMLExportConfig().batch_size
-            else base.batch_size
+            override.batch_size if override.batch_size != defaults.batch_size else base.batch_size
         ),
         input_tensors=(copy.deepcopy(input_tensors) if input_tensors is not None else None),
         output_tensors=(copy.deepcopy(output_tensors) if output_tensors is not None else None),
         dynamic_axes=(
             override.dynamic_axes if override.dynamic_axes is not None else base.dynamic_axes
         ),
-        dynamo=override.dynamo if override.dynamo else base.dynamo,
+        export_params=(
+            override.export_params
+            if override.export_params != defaults.export_params
+            else base.export_params
+        ),
+        do_constant_folding=(
+            override.do_constant_folding
+            if override.do_constant_folding != defaults.do_constant_folding
+            else base.do_constant_folding
+        ),
+        verbose=override.verbose if override.verbose != defaults.verbose else base.verbose,
+        dynamo=(override.dynamo if override.dynamo != defaults.dynamo else base.dynamo),
+        enable_hierarchy_tags=(
+            override.enable_hierarchy_tags
+            if override.enable_hierarchy_tags != defaults.enable_hierarchy_tags
+            else base.enable_hierarchy_tags
+        ),
+        clean_onnx=(
+            override.clean_onnx if override.clean_onnx != defaults.clean_onnx else base.clean_onnx
+        ),
+        hierarchy_tag_format=(
+            override.hierarchy_tag_format
+            if override.hierarchy_tag_format != defaults.hierarchy_tag_format
+            else base.hierarchy_tag_format
+        ),
     )
 
 

@@ -22,6 +22,7 @@ from rich.tree import Tree
 
 from ...core.hierarchy_utils import build_rich_tree
 from .base_writer import ExportData, ExportStep, StepAwareWriter, step
+from .step_data import HIERARCHY_SOURCE_ONNX_METADATA
 
 
 if TYPE_CHECKING:
@@ -171,13 +172,23 @@ class ConsoleWriter(StepAwareWriter):
         self.console.print(f"\n🏗️ {self._bold(step_header)}")
         self.console.print("=" * self.SEPARATOR_LENGTH)
 
-        self.console.print("🔍 Tracing module execution with dummy inputs...")
-        self.console.print(
-            f"✅ Traced {self._bright_cyan(len(data.hierarchy.hierarchy))} modules in hierarchy"
-        )
-        self.console.print(
-            f"📊 Total execution steps: {self._bright_cyan(data.hierarchy.execution_steps)}"
-        )
+        if data.hierarchy.source == HIERARCHY_SOURCE_ONNX_METADATA:
+            # Dynamo path: no forward trace ran; the hierarchy is reconstructed
+            # from ONNX node metadata, so avoid trace/execution-step wording.
+            self.console.print("🔍 Reconstructing module hierarchy from ONNX node metadata...")
+            self.console.print(
+                f"✅ Recovered {self._bright_cyan(len(data.hierarchy.hierarchy))} modules "
+                "in hierarchy"
+            )
+        else:
+            self.console.print("🔍 Tracing module execution with dummy inputs...")
+            self.console.print(
+                f"✅ Traced {self._bright_cyan(len(data.hierarchy.hierarchy))} modules in hierarchy"
+            )
+            if data.hierarchy.execution_steps is not None:
+                self.console.print(
+                    f"📊 Total execution steps: {self._bright_cyan(data.hierarchy.execution_steps)}"
+                )
 
         # Build and display hierarchy tree
         if data.hierarchy.hierarchy:
@@ -335,9 +346,7 @@ class ConsoleWriter(StepAwareWriter):
         line_count = 1  # Start with root
 
         # Helper to add nodes up to limit
-        def add_nodes_to_limit(
-            source_children: Any, target_parent: Any, current_count: int
-        ) -> int:
+        def add_nodes_to_limit(source_children: Any, target_parent: Any, current_count: int) -> int:
             count = current_count
             for child in source_children:
                 if count >= max_lines:

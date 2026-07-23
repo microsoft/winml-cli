@@ -612,30 +612,67 @@ class TestExportWarnings:
 
         assert "not yet supported" in result.output or "Warning" in result.output
 
-    def test_export_warns_on_dynamo(
+    def test_export_dynamo_enabled_by_default(
         self,
         runner: CliRunner,
         mock_export_onnx: MagicMock,
         mock_load_hf_model: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Test --dynamo shows warning (not yet supported)."""
+        """Dynamo is the default exporter when neither flag is passed."""
         from winml.modelkit.commands.export import export
 
         output_path = tmp_path / "model.onnx"
         result = runner.invoke(
             export,
-            [
-                "--model",
-                "test-model",
-                "--output",
-                str(output_path),
-                "--dynamo",
-            ],
+            ["--model", "test-model", "--output", str(output_path)],
             obj={"debug": False},
         )
 
-        assert "not yet supported" in result.output or "Warning" in result.output
+        config = mock_export_onnx.call_args.kwargs["export_config"]
+        assert config.dynamo is True
+        assert "not yet supported" not in result.output
+
+    def test_export_dynamo_flag_enables_dynamo(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        mock_load_hf_model: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--dynamo reaches WinMLExportConfig.dynamo and no longer warns."""
+        from winml.modelkit.commands.export import export
+
+        output_path = tmp_path / "model.onnx"
+        result = runner.invoke(
+            export,
+            ["--model", "test-model", "--output", str(output_path), "--dynamo"],
+            obj={"debug": False},
+        )
+
+        config = mock_export_onnx.call_args.kwargs["export_config"]
+        assert config.dynamo is True
+        assert "not yet supported" not in result.output
+
+    def test_export_no_dynamo_selects_torchscript(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        mock_load_hf_model: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--no-dynamo selects the legacy TorchScript exporter."""
+        from winml.modelkit.commands.export import export
+
+        output_path = tmp_path / "model.onnx"
+        runner.invoke(
+            export,
+            ["--model", "test-model", "--output", str(output_path), "--no-dynamo"],
+            obj={"debug": False},
+        )
+
+        config = mock_export_onnx.call_args.kwargs["export_config"]
+        assert config.dynamo is False
 
 
 class TestExportErrorHandling:

@@ -700,6 +700,129 @@ class TestRegistryShortCircuit:
         # Optimum SHOULD have been called (input_tensors is None)
         mock_optimum.assert_called_once()
 
+    def test_registry_export_options_merge_with_optimum_io(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+    ) -> None:
+        """Registered exporter options override the Optimum-resolved defaults."""
+        loader_config = WinMLLoaderConfig(
+            task="feature-extraction",
+            model_class="SomeModel",
+            model_type="custom_variant",
+        )
+        mock_hf_config.model_type = "custom_variant"
+        resolved_export = WinMLExportConfig(
+            input_tensors=[
+                InputTensorSpec(name="input_ids", dtype="int64", shape=(1, 8)),
+            ],
+            output_tensors=[OutputTensorSpec(name="hidden_states")],
+        )
+        registered_config = WinMLBuildConfig(
+            export=WinMLExportConfig(
+                dynamo=False,
+                opset_version=18,
+                export_params=False,
+                do_constant_folding=False,
+                verbose=True,
+                enable_hierarchy_tags=False,
+                clean_onnx=True,
+                hierarchy_tag_format="module_only",
+            ),
+        )
+
+        with (
+            patch(
+                "winml.modelkit.config.build.resolve_loader_config",
+                return_value=(loader_config, mock_hf_config, mock_model_class, MagicMock()),
+            ),
+            patch(
+                "winml.modelkit.config.build._resolve_export_config_from_specs",
+                return_value=resolved_export,
+            ) as mock_optimum,
+            patch(
+                "winml.modelkit.models.hf.MODEL_BUILD_CONFIGS",
+                {"custom-variant": registered_config},
+            ),
+        ):
+            result = generate_build_config("some/model")
+
+        mock_optimum.assert_called_once()
+        assert result.export.input_tensors == resolved_export.input_tensors
+        assert result.export.output_tensors == resolved_export.output_tensors
+        assert result.export.dynamo is False
+        assert result.export.opset_version == 18
+        assert result.export.export_params is False
+        assert result.export.do_constant_folding is False
+        assert result.export.verbose is True
+        assert result.export.enable_hierarchy_tags is False
+        assert result.export.clean_onnx is True
+        assert result.export.hierarchy_tag_format == "module_only"
+
+    @pytest.mark.parametrize(
+        ("override", "expected_batch_size"),
+        [
+            pytest.param(None, 4, id="registry"),
+            pytest.param({"export": {"batch_size": 2}}, 2, id="mapping-override"),
+            pytest.param(
+                WinMLBuildConfig(export=WinMLExportConfig(batch_size=3)),
+                3,
+                id="config-override",
+            ),
+        ],
+    )
+    def test_effective_batch_size_shapes_optimum_io(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        override: dict | WinMLBuildConfig | None,
+        expected_batch_size: int,
+    ) -> None:
+        """User, registry, and default precedence applies while generating shapes."""
+        loader_config = WinMLLoaderConfig(
+            task="feature-extraction",
+            model_class="SomeModel",
+            model_type="batch_variant",
+        )
+        mock_hf_config.model_type = "batch_variant"
+        registered_config = WinMLBuildConfig(
+            export=WinMLExportConfig(batch_size=4),
+        )
+
+        def resolve_export(**kwargs) -> WinMLExportConfig:
+            batch_size = kwargs["batch_size"]
+            return WinMLExportConfig(
+                batch_size=batch_size,
+                input_tensors=[
+                    InputTensorSpec(
+                        name="input_ids",
+                        dtype="int64",
+                        shape=(batch_size, 8),
+                    ),
+                ],
+            )
+
+        with (
+            patch(
+                "winml.modelkit.config.build.resolve_loader_config",
+                return_value=(loader_config, mock_hf_config, mock_model_class, MagicMock()),
+            ),
+            patch(
+                "winml.modelkit.config.build._resolve_export_config_from_specs",
+                side_effect=resolve_export,
+            ) as mock_optimum,
+            patch(
+                "winml.modelkit.models.hf.MODEL_BUILD_CONFIGS",
+                {"batch-variant": registered_config},
+            ),
+        ):
+            result = generate_build_config("some/model", override=override)
+
+        assert mock_optimum.call_args.kwargs["batch_size"] == expected_batch_size
+        assert result.export.batch_size == expected_batch_size
+        assert result.export.input_tensors is not None
+        assert result.export.input_tensors[0].shape == (expected_batch_size, 8)
+
     def test_registry_deepcopy_prevents_mutation(
         self,
         mock_hf_config: MagicMock,
@@ -871,6 +994,29 @@ class TestBuildSubmoduleConfig:
         assert result.export.output_tensors is not None
         assert len(result.export.output_tensors) == 1
         assert result.export.output_tensors[0].name == "output_0"
+
+    @pytest.mark.parametrize("dynamo", [False, True])
+    def test_preserves_parent_exporter_choice(
+        self,
+        parent_config: WinMLBuildConfig,
+        dynamo: bool,
+    ) -> None:
+        """An explicit parent exporter choice survives submodule specialization."""
+        assert parent_config.export is not None
+        parent_config.export.dynamo = dynamo
+        sub_info = SubmoduleInfo(
+            class_name="Linear",
+            module_path="encoder.proj",
+            input_shapes=[[1, 8]],
+            output_shapes=[[1, 8]],
+            input_dtypes=["float32"],
+            output_dtypes=["float32"],
+        )
+
+        result = _build_submodule_config(sub_info, parent_config)
+
+        assert result.export is not None
+        assert result.export.dynamo is dynamo
 
     def test_multi_input(self, parent_config: WinMLBuildConfig) -> None:
         """SubmoduleInfo with 2 input_shapes creates 2 InputTensorSpec."""
