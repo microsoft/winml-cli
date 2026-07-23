@@ -49,6 +49,8 @@ from .depth_anything import DepthAnythingIOConfig as _DepthAnythingIOConfig  # t
 from .depth_pro import DepthProIOConfig as _DepthProIOConfig  # triggers registration
 from .detr import DETR_CONFIG
 from .layoutlm import LayoutLMQAIOConfig as _LayoutLMQAIOConfig  # triggers registration
+from .layoutlmv3 import LAYOUTLMV3_CONFIG
+from .layoutlmv3 import LayoutLMv3IOConfig as _LayoutLMv3IOConfig  # triggers registration
 from .marian import MARIAN_CONFIG
 from .marian import MODEL_CLASS_MAPPING as _MARIAN_CLASS_MAPPING
 from .marian import MarianDecoderIOConfig as _MarianDecoderIOConfig  # triggers registration
@@ -149,6 +151,7 @@ MODEL_BUILD_CONFIGS = {
     "clip-text-model": CLIP_CONFIG,
     "clip-vision-model": CLIP_CONFIG,
     "detr": DETR_CONFIG,
+    "layoutlmv3": LAYOUTLMV3_CONFIG,
     "marian": MARIAN_CONFIG,
     "roberta": ROBERTA_FAMILY_CONFIG,
     "mu2": MU2_CONFIG,
