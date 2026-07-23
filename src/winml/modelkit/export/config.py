@@ -177,7 +177,7 @@ class WinMLExportConfig:
     export_params: bool = True
     do_constant_folding: bool = True
     verbose: bool = False
-    dynamo: bool = True  # TorchDynamo exporter by default; False = legacy TorchScript path
+    dynamo: bool = False  # TorchScript exporter by default; True enables TorchDynamo
 
     # Phase 2: Hierarchy Preservation Options
     enable_hierarchy_tags: bool = True  # Enable HTP hierarchy tagging by default
@@ -403,7 +403,7 @@ class WinMLExportConfig:
             export_params=data.get("export_params", True),
             do_constant_folding=data.get("do_constant_folding", True),
             verbose=data.get("verbose", False),
-            dynamo=data.get("dynamo", True),
+            dynamo=data.get("dynamo", False),
             enable_hierarchy_tags=data.get("enable_hierarchy_tags", True),
             clean_onnx=data.get("clean_onnx", False),
             hierarchy_tag_format=data.get("hierarchy_tag_format", "full"),
