@@ -27,7 +27,6 @@ have not yet migrated. New code MUST NOT depend on these symbols.
 
 from __future__ import annotations
 
-import logging
 import sys
 import warnings
 from typing import TYPE_CHECKING, Any
@@ -55,9 +54,6 @@ def get_registered_ep_devices() -> tuple[Any, ...]:
 
     WinMLEPRegistry.instance()
     return tuple(ort.get_ep_devices())
-
-
-logger = logging.getLogger(__name__)
 
 
 _DEPRECATION_MSG = (
@@ -98,9 +94,7 @@ class WinML:
         # entries, if any) and capture (ep_name -> abs path) for the
         # primary entry per EP.
         self._resolved: dict[str, tuple[Path, EPSource]] = {
-            e.ep_name: (e.dll_path, e.source)
-            for e in discover_all_eps()
-            if e.status == "primary"
+            e.ep_name: (e.dll_path, e.source) for e in discover_all_eps() if e.status == "primary"
         }
         self._ep_paths: dict[str, str] = {
             name: str(path) for name, (path, _) in self._resolved.items()

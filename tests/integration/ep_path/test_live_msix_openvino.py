@@ -51,8 +51,7 @@ pytestmark = pytest.mark.skipif(
 def _make_identity_model(tmp_path):
     """Build a minimal Identity-op ONNX model and return its file path."""
     import numpy as np  # noqa: F401  (sanity import; numpy is a hard dep)
-    import onnx
-    from onnx import TensorProto, helper
+    from onnx import TensorProto, checker, helper, save
 
     input_tensor = helper.make_tensor_value_info("X", TensorProto.FLOAT, [4])
     output_tensor = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [4])
@@ -60,10 +59,10 @@ def _make_identity_model(tmp_path):
     graph = helper.make_graph([node], "identity_graph", [input_tensor], [output_tensor])
     opset = helper.make_opsetid("", 17)
     model = helper.make_model(graph, opset_imports=[opset], ir_version=10)
-    onnx.checker.check_model(model)
+    checker.check_model(model)
 
     model_path = tmp_path / "identity.onnx"
-    onnx.save(model, str(model_path))
+    save(model, str(model_path))
     return model_path
 
 
@@ -86,9 +85,7 @@ def test_windows_workload_openvino_ep_runs_inference(tmp_path):
 
     _get_pkg_manager.cache_clear()
     if _get_pkg_manager() is None:
-        pytest.skip(
-            "WinRT PackageManager unavailable; install via [winml-catalog]"
-        )
+        pytest.skip("WinRT PackageManager unavailable; install via [winml-catalog]")
 
     # Filter to the OEM channel only so this test exercises the
     # WindowsWorkload-published OpenVINO EP specifically (not the PyPI
@@ -134,9 +131,7 @@ def test_windows_workload_openvino_ep_runs_inference(tmp_path):
         "OpenVINOExecutionProvider registered but ort.get_ep_devices() shows "
         f"zero matching (EP, device) pairs. ep_devices={ep_devices!r}"
     )
-    print(
-        f"OpenVINO ep_devices: {[(d.ep_name, d.device.type) for d in matching_ep_devices]!r}"
-    )
+    print(f"OpenVINO ep_devices: {[(d.ep_name, d.device.type) for d in matching_ep_devices]!r}")
 
     # Bind to CPU first as the most reliable device class — it's the
     # baseline correctness check. NPU/GPU buffer-transfer is more fragile

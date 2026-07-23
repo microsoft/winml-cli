@@ -96,6 +96,7 @@ class EpAtSourceParamType(click.ParamType):
             return split_ep_at_source(value)
         except ValueError as e:
             self.fail(str(e), param, ctx)
+            return None
 
 
 def _reject_ep_source(

@@ -24,8 +24,7 @@ from winml.modelkit.commands.inspect import inspect
 
 def get_minimal_onnx_model_path() -> Path:
     """Return path to a tiny Identity ONNX model used by session tests."""
-    import onnx
-    from onnx import TensorProto, helper
+    from onnx import TensorProto, helper, save
 
     fixture_dir = Path(__file__).parent / "_fixtures"
     fixture_dir.mkdir(exist_ok=True)
@@ -37,7 +36,7 @@ def get_minimal_onnx_model_path() -> Path:
         graph = helper.make_graph([node], "identity", [inp], [out])
         model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
         model.ir_version = 8
-        onnx.save(model, fixture)
+        save(model, fixture)
     return fixture
 
 
