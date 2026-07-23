@@ -177,3 +177,25 @@ class TestSegmentationRegistry:
 
     def test_semantic_alias(self) -> None:
         assert TASK_REGISTRY["semantic-segmentation"].postprocess is _postprocess_segmentation
+
+
+# ---------------------------------------------------------------------------
+# keypoint-detection registry entry
+# ---------------------------------------------------------------------------
+
+
+class TestKeypointDetectionRegistry:
+    def test_registered_with_image_boxes_and_options(self) -> None:
+        spec = TASK_REGISTRY["keypoint-detection"]
+        names = [f.name for f in spec.user_inputs]
+        assert names == ["image", "boxes", "box_format", "dataset_index"]
+
+    def test_boxes_are_pipeline_kwargs(self) -> None:
+        spec = TASK_REGISTRY["keypoint-detection"]
+        assert spec.mapping.pipe_input == "image"
+        assert spec.mapping.pipe_kwargs == ["boxes", "box_format", "dataset_index"]
+
+    def test_option_defaults(self) -> None:
+        fields = {f.name: f for f in TASK_REGISTRY["keypoint-detection"].user_inputs}
+        assert fields["box_format"].default == "xywh"
+        assert fields["dataset_index"].default == 0

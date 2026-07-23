@@ -252,6 +252,35 @@ TASK_REGISTRY: dict[str, TaskInputSpec] = {
         ],
         mapping=PipelineMapping(pipe_input="image"),
     ),
+    "keypoint-detection": TaskInputSpec(
+        user_inputs=[
+            InputField(name="image", type="image", required=True, description="Image to analyze"),
+            InputField(
+                name="boxes",
+                type="json",
+                required=True,
+                description="Person boxes [[x,y,w,h],...] or [[x1,y1,x2,y2],...]",
+            ),
+            InputField(
+                name="box_format",
+                type="text",
+                required=False,
+                description="Box coordinate format: xywh or xyxy",
+                default="xywh",
+            ),
+            InputField(
+                name="dataset_index",
+                type="number",
+                required=False,
+                description="ViTPose+ dataset expert index",
+                default=0,
+            ),
+        ],
+        mapping=PipelineMapping(
+            pipe_input="image",
+            pipe_kwargs=["boxes", "box_format", "dataset_index"],
+        ),
+    ),
     "image-segmentation": TaskInputSpec(
         user_inputs=[
             InputField(name="image", type="image", required=True, description="Image to segment"),

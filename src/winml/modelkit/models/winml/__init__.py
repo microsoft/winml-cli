@@ -40,6 +40,7 @@ TASK_TO_WINML_CLASS: dict[str, str] = {
     "image-segmentation": "WinMLModelForImageSegmentation",
     "semantic-segmentation": "WinMLModelForSemanticSegmentation",
     "object-detection": "WinMLModelForObjectDetection",
+    "keypoint-detection": "WinMLModelForKeypointDetection",
     "depth-estimation": "WinMLModelForDepthEstimation",
     # Not yet implemented — falls back to WinMLModelForGenericTask at runtime
     "token-classification": "WinMLModelForTokenClassification",
@@ -82,6 +83,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
         WinMLModelForImageSegmentation,
         WinMLModelForSemanticSegmentation,
     )
+    from .keypoint_detection import WinMLModelForKeypointDetection
     from .object_detection import WinMLModelForObjectDetection
     from .question_answering import WinMLModelForQuestionAnswering
     from .sequence_classification import WinMLModelForSequenceClassification
@@ -92,6 +94,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
         "WinMLModelForFeatureExtraction": WinMLModelForFeatureExtraction,
         "WinMLModelForImageClassification": WinMLModelForImageClassification,
         "WinMLModelForImageSegmentation": WinMLModelForImageSegmentation,
+        "WinMLModelForKeypointDetection": WinMLModelForKeypointDetection,
         "WinMLModelForObjectDetection": WinMLModelForObjectDetection,
         "WinMLModelForQuestionAnswering": WinMLModelForQuestionAnswering,
         "WinMLModelForSemanticSegmentation": WinMLModelForSemanticSegmentation,
@@ -204,6 +207,7 @@ from .image_segmentation import (
     WinMLModelForImageSegmentation,
     WinMLModelForSemanticSegmentation,
 )
+from .keypoint_detection import KeypointDetectionOutput, WinMLModelForKeypointDetection
 from .kv_cache import (
     WinMLCache,
     WinMLSlidingWindowCache,
@@ -224,6 +228,7 @@ __all__ = [
     "GenaiTarget",
     "GenaiTransformerSpec",
     "ImageSegmentationOutput",
+    "KeypointDetectionOutput",
     "WinMLCache",
     "WinMLCompositeModel",
     "WinMLDecoderOnlyModel",
@@ -233,6 +238,7 @@ __all__ = [
     "WinMLModelForGenericTask",
     "WinMLModelForImageClassification",
     "WinMLModelForImageSegmentation",
+    "WinMLModelForKeypointDetection",
     "WinMLModelForObjectDetection",
     "WinMLModelForSemanticSegmentation",
     "WinMLModelForSequenceClassification",

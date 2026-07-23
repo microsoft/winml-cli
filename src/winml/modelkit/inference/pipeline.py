@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 
@@ -36,6 +37,114 @@ logger = logging.getLogger(__name__)
 _HF_PIPELINE_TASK_MAP: dict[str, str] = {
     "sentence-similarity": "feature-extraction",
 }
+
+
+class KeypointDetectionPipeline:
+    """Minimal ViTPose inference adapter.
+
+    Transformers does not expose a ``keypoint-detection`` pipeline. ViTPose is
+    top-down, so callers provide person boxes and this adapter runs
+    image_processor.preprocess -> WinML model -> post_process_pose_estimation.
+    """
+
+    def __init__(self, model: Any, model_id: str | None = None) -> None:
+        from transformers import AutoImageProcessor
+
+        self.model = model
+        self.image_processor = AutoImageProcessor.from_pretrained(model_id) if model_id else None
+        if self.image_processor is None:
+            raise ValueError("keypoint-detection requires model_id to load the image processor")
+        self._adapt_processor_size()
+
+    def __call__(
+        self,
+        image: Any,
+        *,
+        boxes: list[list[float]],
+        box_format: str = "xywh",
+        dataset_index: int | float = 0,
+    ) -> list[dict[str, Any]]:
+        import torch
+
+        if not isinstance(boxes, list) or not boxes:
+            raise ValueError("boxes must be a non-empty list of [x, y, w, h] boxes")
+        xywh_boxes = [self._to_xywh(box, box_format) for box in boxes]
+        inputs = self.image_processor.preprocess(
+            images=image,
+            boxes=[xywh_boxes],
+            return_tensors="pt",
+        )
+        pixel_values = inputs["pixel_values"]
+
+        extra_inputs: dict[str, Any] = {}
+        if self._declares_input("dataset_index"):
+            extra_inputs["dataset_index"] = torch.tensor([int(dataset_index)], dtype=torch.long)
+
+        heatmaps = []
+        with torch.no_grad():
+            for i in range(pixel_values.shape[0]):
+                outputs = self.model(pixel_values=pixel_values[i : i + 1], **extra_inputs)
+                heatmaps.append(self._extract_heatmaps(outputs))
+
+        wrapped = SimpleNamespace(heatmaps=torch.cat(heatmaps, dim=0))
+        poses = self.image_processor.post_process_pose_estimation(wrapped, boxes=[xywh_boxes])[0]
+        return [self._serialize_pose(pose) for pose in poses]
+
+    def _sanitize_parameters(
+        self,
+        boxes: tuple[Any, ...] = (),
+        box_format: str = "xywh",
+        dataset_index: int = 0,
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        """Expose accepted kwargs for InferenceEngine parameter filtering."""
+        forward_kwargs = {
+            "boxes": boxes,
+            "box_format": box_format,
+            "dataset_index": dataset_index,
+        }
+        return {}, forward_kwargs, {}
+
+    def _adapt_processor_size(self) -> None:
+        io_config = getattr(self.model, "io_config", None) or {}
+        for shape in io_config.get("input_shapes", []):
+            if len(shape) == 4:
+                _, _, h, w = shape
+                self.image_processor.size = {"height": h, "width": w}
+                break
+
+    def _declares_input(self, name: str) -> bool:
+        io_config = getattr(self.model, "io_config", None) or {}
+        return name in (io_config.get("input_names") or [])
+
+    @staticmethod
+    def _extract_heatmaps(outputs: Any) -> Any:
+        if not isinstance(outputs, dict):
+            return outputs.heatmaps
+        heatmaps = outputs.get("heatmaps")
+        if heatmaps is None:
+            heatmaps = next(iter(outputs.values()))
+        return heatmaps
+
+    @staticmethod
+    def _serialize_pose(pose: dict[str, Any]) -> dict[str, Any]:
+        keypoints = pose["keypoints"].detach().cpu().numpy().tolist()
+        scores = pose["scores"].detach().cpu().numpy().tolist()
+        return {
+            "keypoints": keypoints,
+            "scores": scores,
+            "score": float(sum(scores) / len(scores)) if scores else 0.0,
+        }
+
+    @staticmethod
+    def _to_xywh(box: list[float], box_format: str) -> list[float]:
+        if len(box) != 4:
+            raise ValueError("each box must contain exactly four coordinates")
+        x0, y0, a, b = (float(v) for v in box)
+        if box_format == "xyxy":
+            return [x0, y0, a - x0, b - y0]
+        if box_format != "xywh":
+            raise ValueError("box_format must be 'xywh' or 'xyxy'")
+        return [x0, y0, a, b]
 
 
 def create_pipeline(
@@ -57,6 +166,9 @@ def create_pipeline(
     Returns:
         A configured ``transformers.Pipeline`` ready for inference.
     """
+    if task == "keypoint-detection":
+        return KeypointDetectionPipeline(model, model_id)
+
     from transformers import pipeline
 
     kwargs: dict[str, Any] = {
