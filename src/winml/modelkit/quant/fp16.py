@@ -13,6 +13,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from google.protobuf.message import EncodeError
+
 
 if TYPE_CHECKING:
     from onnx import ModelProto
@@ -64,11 +66,24 @@ def convert_to_fp16(
     if op_block_list:
         logger.info("  Keeping ops in FP32: %s", op_block_list)
 
-    converted: ModelProto = convert_float_to_float16(
-        model,
-        keep_io_types=keep_io_types,
-        op_block_list=op_block_list,
-    )
+    try:
+        converted: ModelProto = convert_float_to_float16(
+            model,
+            keep_io_types=keep_io_types,
+            op_block_list=op_block_list,
+        )
+    except EncodeError:
+        logger.warning(
+            "FP16 conversion shape inference could not serialize the model; "
+            "retrying with shape inference disabled. This can happen for "
+            "large ONNX models that use external data."
+        )
+        converted = convert_float_to_float16(
+            model,
+            keep_io_types=keep_io_types,
+            disable_shape_infer=True,
+            op_block_list=op_block_list,
+        )
 
     # ORT's converter appends Cast nodes at the end of the node list (for
     # keep_io_types), which breaks topological ordering. Re-sort the graph
