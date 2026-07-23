@@ -243,7 +243,7 @@ class WinMLQairtSession(WinMLSession):
             self._ep_device,
             self._ep_config,
             None,
-            self._base_session_options,
+            self._session_options_factory,
         )
         self._session = ort.InferenceSession(str(self._ctx_path), sess_options=sess_options)
         # Record the loaded model only after the session is successfully

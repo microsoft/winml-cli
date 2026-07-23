@@ -101,9 +101,7 @@ def test_build_session_options_no_monitor_qnn_npu(qnn_npu: WinMLEPDevice) -> Non
     Burst-mode defaults from the EPDeviceSpec catalog are passed as provider_options.
     """
     fake_so = MagicMock()
-    with patch(
-        "winml.modelkit.session.session.ort.SessionOptions", return_value=fake_so
-    ):
+    with patch("winml.modelkit.session.session.ort.SessionOptions", return_value=fake_so):
         result = _build_session_options(qnn_npu, ep_config=None, ep_monitor=None)
     assert result is fake_so
     fake_so.add_provider_for_devices.assert_called_once_with(
@@ -123,13 +121,9 @@ def test_build_session_options_monitor_plumbs_session_options(qnn_npu: WinMLEPDe
         sess={"session.disable_cpu_ep_fallback": "1"},
     )
     fake_so = MagicMock()
-    with patch(
-        "winml.modelkit.session.session.ort.SessionOptions", return_value=fake_so
-    ):
+    with patch("winml.modelkit.session.session.ort.SessionOptions", return_value=fake_so):
         _build_session_options(qnn_npu, ep_config=None, ep_monitor=monitor)
-    fake_so.add_session_config_entry.assert_called_once_with(
-        "session.disable_cpu_ep_fallback", "1"
-    )
+    fake_so.add_session_config_entry.assert_called_once_with("session.disable_cpu_ep_fallback", "1")
     fake_so.add_provider_for_devices.assert_called_once()
     args, _ = fake_so.add_provider_for_devices.call_args
     assert args[1]["profiling_level"] == "detailed"
@@ -157,18 +151,33 @@ def test_ort_session_options_same_key_overwrites() -> None:
 
 
 def test_build_session_options_repeated_calls_do_not_accumulate(qnn_npu: WinMLEPDevice) -> None:
-    """Repeatedly calling _build_session_options with the same base (MagicMock) and
-    different monitors writes the correct session-config entries each time.
-    """
+    """A fresh factory output receives each monitor's session-config entries."""
     monitor_a = _stub_monitor(prov={}, sess={"session.disable_cpu_ep_fallback": "1"})
     monitor_b = _stub_monitor(prov={}, sess={"session.disable_cpu_ep_fallback": "0"})
-    fake_so = MagicMock()
+    first = MagicMock()
+    second = MagicMock()
+    factory = MagicMock(side_effect=[first, second])
 
-    _build_session_options(qnn_npu, None, monitor_a, fake_so)
-    _build_session_options(qnn_npu, None, monitor_b, fake_so)
+    _build_session_options(qnn_npu, None, monitor_a, factory)
+    _build_session_options(qnn_npu, None, monitor_b, factory)
 
-    # add_session_config_entry should have been called exactly twice.
-    assert fake_so.add_session_config_entry.call_count == 2
-    calls = fake_so.add_session_config_entry.call_args_list
-    assert calls[0] == (("session.disable_cpu_ep_fallback", "1"),)
-    assert calls[1] == (("session.disable_cpu_ep_fallback", "0"),)
+    first.add_session_config_entry.assert_called_once_with("session.disable_cpu_ep_fallback", "1")
+    second.add_session_config_entry.assert_called_once_with("session.disable_cpu_ep_fallback", "0")
+
+
+def test_session_options_factory_creates_fresh_bound_options(qnn_npu: WinMLEPDevice) -> None:
+    """Each ordinary session build gets a fresh caller-configured options object."""
+    first = MagicMock()
+    first.intra_op_num_threads = 4
+    second = MagicMock()
+    second.intra_op_num_threads = 4
+    factory = MagicMock(side_effect=[first, second])
+
+    _build_session_options(qnn_npu, session_options_factory=factory)
+    _build_session_options(qnn_npu, session_options_factory=factory)
+
+    assert factory.call_count == 2
+    assert first.intra_op_num_threads == 4
+    assert second.intra_op_num_threads == 4
+    first.add_provider_for_devices.assert_called_once()
+    second.add_provider_for_devices.assert_called_once()

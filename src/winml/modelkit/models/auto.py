@@ -37,6 +37,8 @@ from .winml import get_supported_tasks, get_winml_class
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from transformers import PretrainedConfig
 
     from ..session import WinMLEPDevice
@@ -128,7 +130,7 @@ class WinMLAutoModel:
         skip_build: bool = False,
         no_compile: bool = False,
         provider_options: dict[str, str] | None = None,
-        session_options: Any | None = None,
+        session_options: Callable[[], Any] | None = None,
         hf_config: PretrainedConfig | None = None,
         **kwargs: Any,
     ) -> WinMLPreTrainedModel | WinMLCompositeModel:
@@ -295,7 +297,7 @@ class WinMLAutoModel:
         shape_config: dict | None = None,
         model_type: str | None = None,
         provider_options: dict[str, str] | None = None,
-        session_options: Any | None = None,
+        session_options: Callable[[], Any] | None = None,
         allow_unsupported_nodes: bool = False,
         no_compile: bool = False,
         skip_optimize: bool = False,

@@ -204,6 +204,134 @@ def test_monitor_enter_raises_leaves_session_clean():
         assert ctx is not None
 
 
+def test_failed_monitored_rebuild_restores_baseline_without_entering_monitor(monkeypatch):
+    """A failed monitor-session build rolls back before the monitor is entered."""
+    from winml.modelkit.session import session as session_module
+    from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
+
+    class _ContributingMonitor(WinMLEPMonitor):
+        def __init__(self):
+            self.entered = 0
+            self.exited = 0
+
+        @classmethod
+        def is_available(cls):
+            return True
+
+        def __enter__(self):
+            self.entered += 1
+            return self
+
+        def __exit__(self, *args):
+            self.exited += 1
+
+        def to_dict(self):
+            return {"ep": "test"}
+
+        def get_provider_options(self):
+            return {"some_key": "1"}
+
+    session = _make_cpu_session(get_minimal_onnx_model_path())
+    baseline = session._session
+    baseline_provider_options = dict(session._provider_options)
+    monitor = _ContributingMonitor()
+
+    with monkeypatch.context() as patch_context:
+        patch_context.setattr(
+            session_module.ort,
+            "InferenceSession",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("rebuild failed")),
+        )
+        with pytest.raises(RuntimeError, match="rebuild failed"), session.perf(monitor=monitor):
+            pass
+
+    assert session._perf_stats is None
+    assert session._session is baseline
+    assert session._provider_options == baseline_provider_options
+    assert session._ep == "CPUExecutionProvider"
+    assert monitor.entered == 0
+    assert monitor.exited == 0
+    with session.perf() as ctx:
+        assert ctx is not None
+
+
+def test_monitored_rebuild_uses_fresh_session_options_factory_outputs():
+    """Monitor and baseline rebuilds bind providers on distinct configured options."""
+    from unittest.mock import MagicMock, patch
+
+    from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
+    from winml.modelkit.session.session import WinMLSession
+
+    from .conftest import make_stub_winml_ep_device
+
+    class _ContributingMonitor(WinMLEPMonitor):
+        @classmethod
+        def is_available(cls):
+            return True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def to_dict(self):
+            return {"ep": "test"}
+
+        def get_provider_options(self):
+            return {"some_key": "1"}
+
+    options = [MagicMock() for _ in range(3)]
+    for option in options:
+        option.intra_op_num_threads = 4
+    factory = MagicMock(side_effect=options)
+    cpu_ep_device = make_stub_winml_ep_device(_get_real_cpu_ort_device(), "CPUExecutionProvider")
+
+    with patch("winml.modelkit.session.session.ort.InferenceSession"):
+        session = WinMLSession(
+            get_minimal_onnx_model_path(),
+            ep_device=cpu_ep_device,
+            session_options=factory,
+        )
+        with session.perf(monitor=_ContributingMonitor()):
+            pass
+
+    assert factory.call_count == 3
+    assert all(option.intra_op_num_threads == 4 for option in options)
+    for option in options:
+        option.add_provider_for_devices.assert_called_once()
+
+
+def test_monitor_exit_failure_is_logged_without_replacing_body_error(caplog):
+    """A monitor teardown error is logged while the perf-body error propagates."""
+    from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
+
+    class _FailingExitMonitor(WinMLEPMonitor):
+        @classmethod
+        def is_available(cls):
+            return True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            raise RuntimeError("monitor exit failed")
+
+        def to_dict(self):
+            return {"ep": "test"}
+
+    session = _make_cpu_session(get_minimal_onnx_model_path())
+
+    with (
+        caplog.at_level("ERROR"),
+        pytest.raises(ValueError, match="body failed"),
+        session.perf(monitor=_FailingExitMonitor()),
+    ):
+        raise ValueError("body failed")
+
+    assert "monitor exit failed" in caplog.text
+
+
 def test_perf_calls_set_onnx_op_types_on_monitor():
     """v2.4: perf() injects the ONNX op-type map unconditionally before __enter__.
 

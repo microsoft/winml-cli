@@ -29,7 +29,7 @@ from .stats import PerfStats
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
     from types import TracebackType
 
     import onnx
@@ -164,7 +164,7 @@ def _build_session_options(
     ep_device: WinMLEPDevice,
     ep_config: EPConfig | None = None,
     ep_monitor: WinMLEPMonitor | None = None,
-    base_session_options: ort.SessionOptions | None = None,
+    session_options_factory: Callable[[], ort.SessionOptions] | None = None,
 ) -> ort.SessionOptions:
     """Build a fully-bound ort.SessionOptions for one WinMLEPDevice pair.
 
@@ -173,7 +173,7 @@ def _build_session_options(
     the (source, device) pair, so no registry / handle filtering happens
     here.
     """
-    so = base_session_options if base_session_options is not None else ort.SessionOptions()
+    so = session_options_factory() if session_options_factory is not None else ort.SessionOptions()
 
     if ep_monitor is not None:
         for key, value in ep_monitor.get_session_options().items():
@@ -198,7 +198,7 @@ class WinMLSession:
         provider_options: dict[str, str] | None = None,
         ep_config: EPConfig | None = None,
         ep_monitor: WinMLEPMonitor | None = None,
-        base_session_options: ort.SessionOptions | None = None,
+        session_options: Callable[[], ort.SessionOptions] | None = None,
     ) -> None:
         """Initialize WinMLSession.
 
@@ -221,7 +221,8 @@ class WinMLSession:
             ep_monitor: Optional monitor. When passed, its session-config
                 entries are threaded into the initial
                 :func:`_build_session_options` call.
-            base_session_options: ORT SessionOptions base. If None, creates default.
+            session_options: Callable that returns configured ORT SessionOptions.
+                A fresh object is requested for each ORT session construction.
         """
         # Ergonomic path: resolve ep_device from device/ep shortcuts.
         # Tests expect ``WinMLSession(onnx_path, device="cpu")`` to defer
@@ -233,9 +234,7 @@ class WinMLSession:
         _ergonomic_lazy = False
         if ep_device is None:
             if device is None:
-                raise TypeError(
-                    "WinMLSession requires either ep_device= or device= (got neither)"
-                )
+                raise TypeError("WinMLSession requires either ep_device= or device= (got neither)")
             from .ep_device import EPDeviceTarget, resolve_device
             from .ep_registry import WinMLEPRegistry
 
@@ -244,9 +243,7 @@ class WinMLSession:
             # WinMLEPNotDiscovered / WinMLEPRegistrationFailed as-is —
             # silently rewriting a --device npu request to CPU would
             # produce wrong-device inference with no signal.
-            target = resolve_device(
-                EPDeviceTarget(ep=ep or "auto", device=device.lower())
-            )
+            target = resolve_device(EPDeviceTarget(ep=ep or "auto", device=device.lower()))
             ep_device = WinMLEPRegistry.instance().auto_device(target)
             _ergonomic_lazy = True
 
@@ -269,7 +266,7 @@ class WinMLSession:
         self._ep_device = ep_device
         self._ep_config = ep_config
         self._ep_monitor = ep_monitor
-        self._base_session_options = base_session_options
+        self._session_options_factory = session_options
 
         # Snapshots preserved across perf() entry/exit (see perf()).
         self._provider_options: dict[str, str] = _build_provider_options(
@@ -309,7 +306,7 @@ class WinMLSession:
                 self._ep_device,
                 self._ep_config,
                 ep_monitor,
-                self._base_session_options,
+                self._session_options_factory,
             )
             self._session = ort.InferenceSession(self._onnx_path, sess_options=so)
             self._running_model_path = self._onnx_path
@@ -343,6 +340,35 @@ class WinMLSession:
 
         logger.info("Compiling for device: %s", target_device)
 
+        if not self._persist_jit:
+            try:
+                session = ort.InferenceSession(
+                    str(self._onnx_path),
+                    sess_options=_build_session_options(
+                        self._ep_device,
+                        self._ep_config,
+                        None,
+                        self._session_options_factory,
+                    ),
+                )
+            except Exception as e:
+                self._state = SessionState.ERROR
+                self._last_error = e
+                raise CompilationError(
+                    message=f"Failed to compile for {target_device}",
+                    context={
+                        "device": target_device,
+                        "onnx_path": str(self._onnx_path),
+                        "error": str(e),
+                    },
+                    suggestion=self._get_compile_suggestion(target_device, e),
+                ) from e
+
+            self._session = session
+            self._running_model_path = self._onnx_path
+            self._state = SessionState.COMPILED
+            return
+
         # Derive the output ctx path from the original model path.
         ctx_path = self._onnx_path.parent / f"{self._onnx_path.stem}_{target_device}_ctx.onnx"
         model_path = self._onnx_path
@@ -365,7 +391,7 @@ class WinMLSession:
                     self._ep_device,
                     self._ep_config,
                     None,  # no monitor at compile time
-                    self._base_session_options,
+                    self._session_options_factory,
                 )
                 model_compiler = ort.ModelCompiler(
                     so,
@@ -389,7 +415,7 @@ class WinMLSession:
                 self._ep_device,
                 self._ep_config,
                 None,
-                self._base_session_options,
+                self._session_options_factory,
             )
             with _suppress_native_output(compile_log):
                 session = ort.InferenceSession(str(model_path), sess_options=runtime_so)
@@ -472,9 +498,7 @@ class WinMLSession:
             # Run inference (with optional perf tracking)
             output_names = [o.name for o in session.get_outputs()]
             if self._perf_stats:
-                outputs = self._perf_stats.record(
-                    lambda: session.run(output_names, ort_inputs)
-                )
+                outputs = self._perf_stats.record(lambda: session.run(output_names, ort_inputs))
             else:
                 outputs = session.run(output_names, ort_inputs)
 
@@ -719,41 +743,52 @@ class WinMLSession:
         # Build merged provider_options for this perf window.
         new_prov = _build_provider_options(self._ep_device, self._ep_config, monitor)
 
-        # Auto-reset: if session is compiled AND monitor contributes options that
-        # differ from the current provider_options, tear down the compiled session
-        # so the new options take effect when a fresh InferenceSession is created.
-        if self._session is not None and new_prov != self._provider_options:
-            logger.warning(
-                "auto-resetting compiled session to apply monitor session/provider options"
-            )
-            self.reset()
-
         # Snapshot state for restore-on-exit.
         saved_sess_entries = dict(self._active_session_option_entries)
         saved_prov = dict(self._provider_options)
         saved_ep = self._ep
+        saved_session = self._session
+        saved_state = self._state
+        saved_last_error = self._last_error
+        saved_running_model_path = self._running_model_path
 
         # Inject the ONNX op-type map into the monitor *before* __enter__ so
         # op-tracing monitors can prepare their state on the map.
         effective_monitor.set_onnx_op_types(self._build_op_type_map(self._onnx_path))
 
-        # Activate PerfStats for this window.
-        stats = PerfStats(warmup=warmup)
-        self._perf_stats = stats
-
         # Rebuild InferenceSession only when monitor-contributed options differ
         # from the current session's options (i.e. a new session is needed).
         # Track whether we rebuilt so the teardown path knows whether to restore.
         _session_rebuilt = new_prov != self._provider_options or self._session is None
-        if _session_rebuilt:
-            self._provider_options = new_prov
-            so = _build_session_options(
-                self._ep_device,
-                self._ep_config,
-                monitor,
-                self._base_session_options,
+        if self._session is not None and _session_rebuilt:
+            logger.warning(
+                "auto-resetting compiled session to apply monitor session/provider options"
             )
-            self._session = ort.InferenceSession(self._onnx_path, sess_options=so)
+            self.reset()
+
+        stats = PerfStats(warmup=warmup)
+        try:
+            if _session_rebuilt:
+                so = _build_session_options(
+                    self._ep_device,
+                    self._ep_config,
+                    monitor,
+                    self._session_options_factory,
+                )
+                self._session = ort.InferenceSession(self._onnx_path, sess_options=so)
+                self._provider_options = new_prov
+        except Exception:
+            self._active_session_option_entries = saved_sess_entries
+            self._provider_options = saved_prov
+            self._ep = saved_ep
+            self._session = saved_session
+            self._state = saved_state
+            self._last_error = saved_last_error
+            self._running_model_path = saved_running_model_path
+            self._perf_stats = None
+            raise
+
+        self._perf_stats = stats
 
         ctx = PerfContext(stats=stats, monitor=effective_monitor)
 
@@ -768,16 +803,10 @@ class WinMLSession:
             self._provider_options = saved_prov
             self._ep = saved_ep
             self._perf_stats = None
-            if _session_rebuilt:
-                self._session = ort.InferenceSession(
-                    self._onnx_path,
-                    sess_options=_build_session_options(
-                        self._ep_device,
-                        self._ep_config,
-                        None,
-                        self._base_session_options,
-                    ),
-                )
+            self._session = saved_session
+            self._state = saved_state
+            self._last_error = saved_last_error
+            self._running_model_path = saved_running_model_path
             raise
 
         exc_info: tuple[type[BaseException] | None, BaseException | None, TracebackType | None] = (
@@ -799,10 +828,13 @@ class WinMLSession:
 
             # Call monitor.__exit__ — propagate exc_info so monitor sees the
             # exception (exception transparency contract).
+            exit_error: Exception | None = None
             try:
                 effective_monitor.__exit__(*exc_info)
-            except Exception:
-                pass  # monitor __exit__ errors do not override body exceptions
+            except Exception as error:
+                logger.exception("Monitor __exit__ failed")
+                if exc_info[1] is None:
+                    exit_error = error
 
             # Restore snapshots.
             self._active_session_option_entries = saved_sess_entries
@@ -822,13 +854,15 @@ class WinMLSession:
                         self._ep_device,
                         self._ep_config,
                         None,
-                        self._base_session_options,
+                        self._session_options_factory,
                     ),
                 )
 
             # Re-raise any exception from the body.
             if exc_info[1] is not None:
                 raise exc_info[1].with_traceback(exc_info[2])
+            if exit_error is not None:
+                raise exit_error
 
     @property
     def io_config(self) -> dict:
@@ -1106,7 +1140,7 @@ class WinMLSession:
                 self._ep_device,
                 self._ep_config,
                 None,
-                self._base_session_options,
+                self._session_options_factory,
             )
             sess_options.log_severity_level = 4  # Suppress ORT logs during probe
             ort.InferenceSession(

@@ -17,6 +17,7 @@ Covers bug fixes and new features in the staged changes:
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -304,6 +305,36 @@ class TestPredictTaskOverride:
 
 
 class TestLoadForwardsAllowUnsupportedNodes:
+    def test_load_from_onnx_forwards_skip_build(self) -> None:
+        """``skip_build`` reaches WinMLAutoModel.from_onnx unchanged."""
+        engine = InferenceEngine()
+        captured: dict[str, Any] = {}
+        fake_model = MagicMock()
+
+        def _fake_from_onnx(onnx_path: Any, **kwargs: Any) -> MagicMock:
+            captured.update(kwargs)
+            return fake_model
+
+        with (
+            patch(
+                "winml.modelkit.inference.engine._resolve_ep_device",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "winml.modelkit.models.auto.WinMLAutoModel.from_onnx",
+                side_effect=_fake_from_onnx,
+            ),
+        ):
+            engine._load_from_onnx(
+                Path("some.onnx"),
+                task="text-classification",
+                device="cpu",
+                ep=None,
+                skip_build=False,
+            )
+
+        assert captured.get("skip_build") is False
+
     def test_load_from_hf_forwards_flag(self) -> None:
         """``allow_unsupported_nodes`` reaches WinMLAutoModel.from_pretrained."""
         engine = InferenceEngine()

@@ -36,6 +36,19 @@ from winml.modelkit.session import (
 from winml.modelkit.session.session import SessionState
 
 
+def _stub_registry(monkeypatch: pytest.MonkeyPatch, ep_device: object) -> MagicMock:
+    """Provide the public registry contract for ergonomic session construction."""
+    from winml.modelkit.session.ep_registry import WinMLEPRegistry
+
+    registry = MagicMock()
+    registry.auto_device.return_value = ep_device
+    registry.available_eps.return_value = frozenset(
+        {getattr(getattr(ep_device, "device", None), "ep_name", "CPUExecutionProvider")}
+    )
+    monkeypatch.setattr(WinMLEPRegistry, "instance", classmethod(lambda _cls: registry))
+    return registry
+
+
 class TestWinMLSessionInstantiation:
     """Test WinMLSession instantiation with EPDeviceTarget-based selection."""
 
@@ -72,13 +85,25 @@ class TestWinMLSessionInstantiation:
         with pytest.raises(NoSuchFile):
             WinMLSession(onnx_path=tmp_path / "nonexistent.onnx", ep_device=cpu_ep_device)
 
-    def test_ep_name_is_none_before_compile(self, simple_matmul_onnx: Path):
+    def test_ep_name_is_none_before_compile(
+        self,
+        simple_matmul_onnx: Path,
+        cpu_ep_device: EPDeviceTarget,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
         """ep_name returns None before compile() since no providers are bound yet."""
+        _stub_registry(monkeypatch, cpu_ep_device)
         session = WinMLSession(onnx_path=simple_matmul_onnx, device="cpu")
         assert session.ep_name is None
 
-    def test_ep_name_after_compile(self, simple_matmul_onnx: Path):
+    def test_ep_name_after_compile(
+        self,
+        simple_matmul_onnx: Path,
+        cpu_ep_device: EPDeviceTarget,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
         """ep_name returns the primary provider name once the session is built."""
+        _stub_registry(monkeypatch, cpu_ep_device)
         session = WinMLSession(onnx_path=simple_matmul_onnx, device="cpu")
         session.compile()
         assert isinstance(session.ep_name, str)
@@ -150,6 +175,27 @@ class TestWinMLSessionCompilation:
         # Second compile also a no-op
         session.compile()
         assert session._session is first_session
+
+    def test_runtime_compile_bypasses_model_compiler(
+        self,
+        simple_matmul_onnx: Path,
+        cpu_ep_device: EPDeviceTarget,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Lazy runtime sessions construct ORT directly without AOT artifacts."""
+        _stub_registry(monkeypatch, cpu_ep_device)
+        with (
+            patch("winml.modelkit.session.session.ort.InferenceSession") as inference_session,
+            patch("winml.modelkit.session.session.ort.ModelCompiler") as model_compiler,
+        ):
+            session = WinMLSession(onnx_path=simple_matmul_onnx, device="cpu")
+            assert session._session is None
+
+            session.compile()
+
+        inference_session.assert_called_once()
+        model_compiler.assert_not_called()
+        assert not (simple_matmul_onnx.parent / "compile.log").exists()
 
     def test_run_uses_epcontext_after_compile(self, cpu_winml_session: WinMLSession):
         """Test that run() works after compile() was called."""
@@ -839,66 +885,19 @@ class TestWinMLSessionExplicitProviders:
             "runtime_only": "y",
         }
 
-    def test_explicit_ep_and_device_both_required(self, simple_matmul_onnx: Path):
-        """Regression: ep=qnn + device=gpu must bind QNN-on-GPU, not QNN-on-NPU.
+    def test_explicit_unavailable_target_propagates_structured_error(
+        self,
+        simple_matmul_onnx: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """An unavailable explicit EP/device request never falls back silently."""
+        from winml.modelkit.session import WinMLEPNotDiscovered
 
-        When both filters are set, ``add_ep_for_device`` must match ep_name
-        AND device_type. Previously the explicit-EP path ignored device, so
-        listing order in ``ort.get_ep_devices()`` decided the binding and
-        ``--ep qnn --device gpu`` could silently land on QNN-on-NPU.
+        registry = _stub_registry(monkeypatch, None)
+        registry.auto_device.side_effect = WinMLEPNotDiscovered("QNN unavailable")
 
-        Both ``(npu, qnn)`` and ``(gpu, qnn)`` are policy-valid per
-        ``EP_SUPPORTED_DEVICES`` — that's what makes the disambiguation
-        ambiguous and the regression possible.
-        """
-        from types import SimpleNamespace
-        from unittest.mock import patch
-
-        import onnxruntime as ort
-
-        from winml.modelkit.sysinfo.device import _get_device_ep_map_from_ort
-
-        # NPU listed first (the trap); GPU second (the correct pick).
-        npu_dev = SimpleNamespace(
-            ep_name="QNNExecutionProvider",
-            device=SimpleNamespace(type=ort.OrtHardwareDeviceType.NPU),
-        )
-        gpu_dev = SimpleNamespace(
-            ep_name="QNNExecutionProvider",
-            device=SimpleNamespace(type=ort.OrtHardwareDeviceType.GPU),
-        )
-        captured: list = []
-
-        def spy(self_so, devs, opts):
-            captured.append(devs[0].device.type)
-
-        _get_device_ep_map_from_ort.cache_clear()
-        try:
-            with (
-                patch("onnxruntime.get_ep_devices", return_value=[npu_dev, gpu_dev]),
-                patch(
-                    "winml.modelkit.sysinfo.device._get_device_ep_map_from_ort",
-                    return_value={
-                        "gpu": ("QNNExecutionProvider",),
-                        "npu": ("QNNExecutionProvider",),
-                    },
-                ),
-                patch.object(ort.SessionOptions, "add_provider_for_devices", spy),
-            ):
-                session = WinMLSession(
-                    onnx_path=simple_matmul_onnx,
-                    device="gpu",
-                    ep="qnn",
-                )
-                # Drive the binding without building a real InferenceSession,
-                # since the mock ep_devices would not load.
-                session._build_session_options("gpu")
-        finally:
-            _get_device_ep_map_from_ort.cache_clear()
-
-        assert captured == [ort.OrtHardwareDeviceType.GPU], (
-            f"binding picked the wrong device: {captured}"
-        )
+        with pytest.raises(WinMLEPNotDiscovered, match="QNN unavailable"):
+            WinMLSession(onnx_path=simple_matmul_onnx, device="gpu", ep="qnn")
 
 
 class TestWinMLSessionPerfTracking:
@@ -1067,12 +1066,16 @@ def test_winml_session_rejects_legacy_ep_kwarg(tmp_path, qnn_npu_ep_device) -> N
         WinMLSession(onnx_path, ep="qnn")  # type: ignore[call-arg]
 
 
-def test_winml_session_rejects_legacy_device_kwarg(tmp_path) -> None:
-    """Legacy device="..." kwarg now raises TypeError (hard break, Task 7 Option A)."""
+def test_winml_session_accepts_device_kwarg_lazily(tmp_path, cpu_ep_device, monkeypatch) -> None:
+    """The public device shortcut resolves a registry device without creating ORT."""
     onnx_path = tmp_path / "noop.onnx"
     onnx_path.write_bytes(b"\x08\x01")
-    with pytest.raises(TypeError):
-        WinMLSession(onnx_path, device="auto")  # type: ignore[call-arg]
+    _stub_registry(monkeypatch, cpu_ep_device)
+
+    session = WinMLSession(onnx_path, device="cpu")
+
+    assert session.device == "cpu"
+    assert session._session is None
 
 
 # =============================================================================

@@ -1017,7 +1017,7 @@ class InferenceEngine:
         self._model_id = None
         ep_device = _resolve_ep_device(device=device, ep=ep)
         self._model = WinMLAutoModel.from_onnx(
-            onnx_path, task=task, ep_device=ep_device, skip_build=True
+            onnx_path, task=task, ep_device=ep_device, skip_build=skip_build
         )
         logger.info("Loaded from ONNX: %s task=%s skip_build=%s", onnx_path, task, skip_build)
 
@@ -1034,7 +1034,12 @@ class InferenceEngine:
 
         self._model_id = model_id
         ep_device = _resolve_ep_device(device=device, ep=ep)
-        self._model = WinMLAutoModel.from_pretrained(model_id, ep_device=ep_device, task=task)
+        self._model = WinMLAutoModel.from_pretrained(
+            model_id,
+            ep_device=ep_device,
+            task=task,
+            allow_unsupported_nodes=allow_unsupported_nodes,
+        )
         self._task = (
             task
             or getattr(self._model, "task", None)
