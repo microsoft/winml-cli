@@ -42,9 +42,7 @@ def mock_ep_registration():
             return_value=fake_qnn_target,
         ),
         # auto_device is the new compound resolution step.
-        patch(
-            "winml.modelkit.session.qairt.qairt_session.WinMLEPRegistry"
-        ) as mock_reg,
+        patch("winml.modelkit.session.qairt.qairt_session.WinMLEPRegistry") as mock_reg,
         patch("winml.modelkit.session.session.ort.InferenceSession"),
         patch(
             "winml.modelkit.session.session.ort.SessionOptions",
@@ -89,39 +87,68 @@ class TestResolveSdkPath:
 class TestCompileIdempotency:
     """Test compile() idempotency behavior."""
 
-    def test_compile_is_idempotent(
+    def test_default_construction_defers_session_creation(
         self, simple_matmul_onnx: Path, mock_qairt_sdk_root: Path, monkeypatch
     ):
-        """Test that calling compile() twice only compiles once.
-
-        Key branch: if self._session is not None: return
-        """
+        """Default QAIRT construction stays in compile workflow until compile()."""
         from winml.modelkit.session import WinMLQairtSession
 
         monkeypatch.setenv("QNN_SDK_ROOT", str(mock_qairt_sdk_root))
 
         session = WinMLQairtSession(onnx_path=simple_matmul_onnx)
 
-        # Mock the compile pipeline methods
+        assert session._session is None
+
+    def test_compile_runs_qairt_pipeline_once(
+        self, simple_matmul_onnx: Path, mock_qairt_sdk_root: Path, monkeypatch
+    ):
+        """First compile runs the QAIRT pipeline; later calls stay idempotent."""
+        from winml.modelkit.session import WinMLQairtSession
+
+        monkeypatch.setenv("QNN_SDK_ROOT", str(mock_qairt_sdk_root))
+
+        session = WinMLQairtSession(onnx_path=simple_matmul_onnx)
+
         with (
             patch.object(session, "_compile_to_qnn_bin") as mock_compile,
-            patch.object(session, "_create_context_bin_info"),
-            patch.object(session, "_wrap_bin_to_onnx"),
-            patch.object(session, "_create_inference_session"),
+            patch.object(session, "_create_context_bin_info") as mock_create_info,
+            patch.object(session, "_wrap_bin_to_onnx") as mock_wrap,
+            patch.object(
+                session,
+                "_create_inference_session",
+                side_effect=lambda: setattr(session, "_session", MagicMock()),
+            ) as mock_create_session,
             patch(
                 "winml.modelkit.session.qairt.qairt_session.ensure_venv",
                 return_value=Path("python.exe"),
             ),
         ):
-            # Set _session to simulate already compiled
-            session._session = MagicMock()
-
-            # Call compile twice
             session.compile()
             session.compile()
 
-            # Should not call compile methods since _session is set
-            mock_compile.assert_not_called()
+        mock_compile.assert_called_once_with(Path("python.exe"))
+        mock_create_info.assert_called_once_with()
+        mock_wrap.assert_called_once_with()
+        mock_create_session.assert_called_once_with()
+
+    def test_rejects_explicitly_disabled_ep_context(
+        self, simple_matmul_onnx: Path, mock_qairt_sdk_root: Path
+    ):
+        """QAIRT sessions reject configs that disable EPContext generation."""
+        from winml.modelkit.compiler import EPConfig
+        from winml.modelkit.session import WinMLQairtSession
+
+        ep_config = EPConfig(
+            qnn_sdk_root=mock_qairt_sdk_root,
+            provider_options={"backend_path": "QnnHtp.dll"},
+            enable_ep_context=False,
+        )
+
+        with pytest.raises(ValueError, match="WinMLQairtSession requires enable_ep_context=True"):
+            WinMLQairtSession(onnx_path=simple_matmul_onnx, ep_config=ep_config)
+
+        assert ep_config.enable_ep_context is False
+        assert ep_config.provider_options == {"backend_path": "QnnHtp.dll"}
 
 
 class TestCompileToQnnBin:

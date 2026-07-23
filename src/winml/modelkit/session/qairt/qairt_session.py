@@ -55,12 +55,22 @@ class WinMLQairtSession(WinMLSession):
         ep_device: WinMLEPDevice | None = None,
         ep_config: EPConfig | None = None,
     ) -> None:
+        if ep_config is not None and not ep_config.enable_ep_context:
+            raise ValueError("WinMLQairtSession requires enable_ep_context=True")
+
         # Default to QNN NPU if no ep_device is provided.
         if ep_device is None:
             target = resolve_device(EPDeviceTarget(ep="qnn", device="npu"))
             ep_device = WinMLEPRegistry.instance().auto_device(target)
+
+        session_ep_config = ep_config
+        if session_ep_config is None:
+            from ...compiler import EPConfig as _EPConfig
+
+            session_ep_config = _EPConfig(provider="qnn")
+
         # Initialize parent WinMLSession
-        super().__init__(onnx_path, ep_device, ep_config=ep_config)
+        super().__init__(onnx_path, ep_device, ep_config=session_ep_config)
 
         # QAIRT-specific paths
         self._bin_path = self._onnx_path.parent / f"{self._onnx_path.stem}_qnn_ctx_qnn.bin"
@@ -71,7 +81,7 @@ class WinMLQairtSession(WinMLSession):
         self._ctx_path = self._onnx_path.parent / f"{self._onnx_path.stem}_ctx.onnx"
 
         self._qnn_sdk_root = (
-            ep_config.qnn_sdk_root if ep_config else None
+            session_ep_config.qnn_sdk_root if session_ep_config else None
         ) or self._resolve_sdk_path()
 
         logger.info("WinMLQairtSession initialized: %s", onnx_path)
