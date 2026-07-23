@@ -160,6 +160,29 @@ logger = logging.getLogger(__name__)
         "random inputs and report tensor-similarity metrics per output tensor."
     ),
 )
+@click.option(
+    "--reference",
+    "reference",
+    type=str,
+    default=None,
+    help=(
+        "Reference ONNX file to compare the candidate against (use with "
+        "--mode compare). Compares two ONNX models on identical random inputs; "
+        "--model-id / --task are not required in this mode."
+    ),
+)
+@click.option(
+    "--input-data",
+    "input_data",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help=(
+        "Path to a .npz file of real input tensors to compare with instead of "
+        "randomly generated ones (use with --mode compare). Keys must match the "
+        "candidate model's input names; the leading axis of each array is the "
+        "sample axis (N samples), and all inputs must share the same N."
+    ),
+)
 @cli_utils.skip_build_option()
 @cli_utils.format_option()
 @cli_utils.build_config_option()
@@ -199,6 +222,8 @@ def eval(
     mode: EvalMode,
     config_file: Path | None,
     skip_build: bool,
+    reference: str | None,
+    input_data: str | None,
 ) -> None:
     r"""Evaluate a model for a task.
 
@@ -206,6 +231,10 @@ def eval(
         winml eval -m microsoft/resnet-50
 
         winml eval -m model.onnx --model-id microsoft/resnet-50
+
+        winml eval --mode compare -m candidate.onnx --reference baseline.onnx
+
+        winml eval --mode compare -m cand.onnx --reference base.onnx --input-data inputs.npz
 
     Run `winml eval --schema --task <task>` to see the dataset columns
     and options expected by each task.
@@ -240,7 +269,12 @@ def eval(
     cfg = _build_eval_config(ctx, config_file, column, label_mapping_path)
 
     # ── 2. Resolve in place ──
-    _resolve_model(cfg, model, model_id)
+    if cfg.reference_path is not None and cfg.mode != "compare":
+        raise click.UsageError("--reference is only valid with --mode compare.")
+    if cfg.input_data is not None and cfg.mode != "compare":
+        raise click.UsageError("--input-data is only valid with --mode compare.")
+    _resolve_model(cfg, model, model_id, allow_missing_model_id=cfg.reference_path is not None)
+    _resolve_reference(cfg)
     _resolve_device(cfg)
     _resolve_label_mapping(cfg)
     _run_dataset_script(cfg, trust_remote_code)
@@ -361,11 +395,52 @@ def _resolve_model(
     cfg: WinMLEvaluationConfig,
     model: tuple[str, ...],
     model_id: str | None,
+    *,
+    allow_missing_model_id: bool = False,
 ) -> None:
     """Resolve ``-m`` / ``--model-id`` into ``cfg.model_path`` / ``cfg.model_id``."""
-    model_path, resolved_id = _resolve_model_path(model=model, model_id=model_id)
+    model_path, resolved_id = _resolve_model_path(
+        model=model, model_id=model_id, allow_missing_model_id=allow_missing_model_id
+    )
     cfg.model_path = model_path
     cfg.model_id = resolved_id
+
+
+def _resolve_reference(cfg: WinMLEvaluationConfig) -> None:
+    """Validate and normalize ``cfg.reference_path`` for two-ONNX compare.
+
+    Requires the candidate (``-m``) to be a single ONNX file (composite
+    ``role=path`` candidates and build-from-id are not supported with
+    ``--reference`` yet). Resolves Hub-hosted ONNX refs to local paths.
+    """
+    if cfg.reference_path is None:
+        return
+
+    if not isinstance(cfg.model_path, str):
+        raise click.UsageError(
+            "--reference requires the candidate (-m) to be a single ONNX file. "
+            "Composite (role=path) candidates and build-from-id are not "
+            "supported with --reference."
+        )
+
+    ref = cfg.reference_path
+    if Path(ref).suffix.lower() != ".onnx":
+        raise click.BadParameter(
+            f"--reference must be an .onnx file, got: {ref}",
+            param_hint="--reference",
+        )
+    try:
+        ref = cli_utils.normalize_model_arg(ref) or ref
+    except Exception as e:
+        raise click.ClickException(
+            f"Failed to resolve Hub-hosted reference ONNX path {ref!r}: {e}"
+        ) from e
+    if not Path(ref).exists():
+        raise click.BadParameter(
+            f"Reference ONNX file not found: {ref}",
+            param_hint="--reference",
+        )
+    cfg.reference_path = ref
 
 
 def _resolve_device(cfg: WinMLEvaluationConfig) -> None:
@@ -451,8 +526,14 @@ def _resolve_model_path(
     *,
     model: tuple[str, ...],
     model_id: str | None,
+    allow_missing_model_id: bool = False,
 ) -> tuple[str | dict[str, str] | None, str | None]:
-    """Turn repeated -m values + --model-id into (model_path, model_id)."""
+    """Turn repeated -m values + --model-id into (model_path, model_id).
+
+    When ``allow_missing_model_id`` is set (two-ONNX ``--mode compare``), a
+    plain ``-m <file>.onnx`` is accepted without ``--model-id`` because the
+    candidate runs as a raw ORT session with no HF config resolution.
+    """
     if not model:
         if model_id is not None:
             return None, model_id
@@ -528,6 +609,8 @@ def _resolve_model_path(
                 param_hint="-m/--model",
             )
         if model_id is None:
+            if allow_missing_model_id:
+                return value, None
             raise click.UsageError(
                 "When using an ONNX file, --model-id is required "
                 "for preprocessor and config resolution."
@@ -576,7 +659,11 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
     console.print()
     console.print(f"[dim]Task:[/dim]       {cfg.task}")
     console.print(f"[dim]Device:[/dim]     {cfg.device}")
-    if ds.path:
+    if cfg.reference_path:
+        console.print(f"[dim]Reference:[/dim]  {cfg.reference_path}")
+    if cfg.input_data:
+        console.print(f"[dim]Input data:[/dim] {cfg.input_data}")
+    elif ds.path:
         console.print(f"[dim]Dataset:[/dim]    {ds.path}")
     console.print(f"[dim]Samples:[/dim]    {ds.samples}")
     if cfg.model_path:

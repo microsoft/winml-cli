@@ -381,85 +381,15 @@ def load_input_data(
 ) -> dict[str, np.ndarray]:
     """Load benchmark inputs from a ``.npz`` file, validated against the model.
 
-    Lets ``winml perf`` profile with real input tensors instead of randomly
-    generated ones. Only ``.npz`` (a named-array archive) is supported today;
-    a single-array ``.npy`` carries no input names to bind against and is
-    rejected with guidance to repackage as ``.npz``.
-
-    Validation:
-
-    * the archive's keys must exactly match the model's input names -- any
-      missing or unexpected key is an error (an unexpected key is usually a
-      typo that would otherwise leave a required input silently unset);
-    * an array whose dtype differs from the model's expected input dtype is
-      cast to the expected dtype with a warning, matching the silent casting
-      ``WinMLSession._prepare_inputs`` does on a normal run (e.g. numpy's
-      default int64 literals binding to an int32 input).
-
-    Shapes are taken from the arrays as-is; correctness beyond dtype (e.g. a
-    static dimension the data violates) surfaces as a runtime error from the
-    inference session.
-
-    Args:
-        path: Path to the ``.npz`` file.
-        io_config: Model I/O configuration (``input_names``, ``input_types``).
-
-    Returns:
-        Dictionary of ``input_name -> numpy array``.
-
-    Raises:
-        click.UsageError: On a non-``.npz`` file or a key mismatch.
+    Thin wrapper over the shared
+    :func:`winml.modelkit.datasets.input_data.load_input_data`, which is also
+    used by ``winml eval --mode compare --input-data``. Imported lazily so
+    ``winml perf`` startup does not pull in the datasets package unless
+    ``--input-data`` is actually used.
     """
-    if path.suffix.lower() == ".npy":
-        raise click.UsageError(
-            f"--input-data does not support .npy files ({path.name}). A single "
-            f"array carries no input names; save your inputs as a named .npz "
-            f"archive instead (e.g. np.savez('inputs.npz', input_ids=..., "
-            f"attention_mask=...))."
-        )
-    if path.suffix.lower() != ".npz":
-        raise click.UsageError(
-            f"--input-data must be a .npz file, got '{path.suffix or path.name}'."
-        )
+    from ..datasets.input_data import load_input_data as _load_input_data
 
-    try:
-        with np.load(path, allow_pickle=False) as archive:
-            provided = {name: archive[name] for name in archive.files}
-    except Exception as exc:
-        raise click.UsageError(f"Could not read --input-data file {path}: {exc}") from exc
-
-    expected_names = list(io_config["input_names"])
-    expected_types = list(io_config["input_types"])
-
-    missing = [name for name in expected_names if name not in provided]
-    unexpected = [name for name in provided if name not in expected_names]
-    if missing or unexpected:
-        parts = []
-        if missing:
-            parts.append(f"missing {missing}")
-        if unexpected:
-            parts.append(f"unexpected {unexpected}")
-        raise click.UsageError(
-            f"--input-data keys do not match the model inputs ({', '.join(parts)}). "
-            f"Expected exactly: {expected_names}."
-        )
-
-    # Cast dtype mismatches instead of failing, mirroring the session's
-    # _prepare_inputs, so inputs that would run fine on a normal invocation
-    # (e.g. int64 literals against an int32 input) don't hard-error here.
-    for name, expected_dtype in zip(expected_names, expected_types, strict=True):
-        want = np.dtype(expected_dtype)
-        got = provided[name].dtype
-        if got != want:
-            logger.warning(
-                "--input-data dtype for '%s' is %s; casting to the model's expected %s.",
-                name,
-                got,
-                want,
-            )
-            provided[name] = provided[name].astype(want)
-
-    return provided
+    return _load_input_data(path, io_config)
 
 
 def effective_batch_size(

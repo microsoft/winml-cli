@@ -231,6 +231,11 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCo
     from ..models import WinMLAutoModel
     from ..utils import cli as cli_utils
 
+    # Two-ONNX compare: the evaluator builds both raw ORT sessions directly from
+    # config.model_path / config.reference_path — no WinMLAutoModel / HF config.
+    if config.mode == "compare" and config.reference_path is not None:
+        return None
+
     quant_override: Any = None
     if not config.quant:
         from ..config import WinMLBuildConfig
@@ -327,8 +332,14 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
     mode = config.mode if config.mode is not None else "onnx"
     if mode not in EVAL_MODES:
         raise ValueError(f"Invalid mode {mode!r}; expected one of {EVAL_MODES} or None.")
+    # Two-ONNX compare: both candidate and reference run as raw ORT sessions, so
+    # HF task resolution / model_id are not required — keep task as-is.
+    onnx_compare = mode == "compare" and config.reference_path is not None
     config = replace(
-        config, mode=mode, task=_resolve_task(config), dataset=deepcopy(config.dataset)
+        config,
+        mode=mode,
+        task=config.task if onnx_compare else _resolve_task(config),
+        dataset=deepcopy(config.dataset),
     )
     if config.mode != "compare" and config.dataset.path is None:
         default = _DEFAULT_DATASETS.get(config.task) if config.task is not None else None
@@ -390,10 +401,16 @@ def print_config(config: WinMLEvaluationConfig) -> None:
     """Print effective evaluation config to the console (quantize.py style)."""
     ds = config.dataset
     output_console = Console()
-    output_console.print(f"[bold blue]Model:[/bold blue] {config.model_id}")
+    if config.model_id is not None:
+        output_console.print(f"[bold blue]Model:[/bold blue] {config.model_id}")
     if config.model_path is not None:
         output_console.print(f"[bold blue]Model path:[/bold blue] {config.model_path}")
-    output_console.print(f"[bold blue]Task:[/bold blue] {config.task}")
+    if config.reference_path is not None:
+        output_console.print(f"[bold blue]Reference:[/bold blue] {config.reference_path}")
+    if config.input_data is not None:
+        output_console.print(f"[bold blue]Input data:[/bold blue] {config.input_data}")
+    if config.task is not None:
+        output_console.print(f"[bold blue]Task:[/bold blue] {config.task}")
     output_console.print(f"[bold blue]Device:[/bold blue] {config.device}")
     if config.ep is not None:
         output_console.print(f"[bold blue]EP:[/bold blue] {config.ep}")
