@@ -23,8 +23,6 @@ Design Principles
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -33,15 +31,6 @@ from ..cache import get_cache_dir, get_cache_key, get_model_dir
 from ..config import WinMLBuildConfig
 from ..loader.task import get_task_abbrev
 from ..session import short_ep_name
-
-
-# ``..loader`` re-exports ``load_hf_model`` lazily via module ``__getattr__``
-# (typed as ``Any``), so import the concretely-typed function from the
-# submodule for type-checking while keeping the lazy re-export at runtime.
-if TYPE_CHECKING:
-    pass
-else:
-    pass
 
 # Import task mapping from winml/ subpackage
 from .winml import get_supported_tasks, get_winml_class
@@ -55,6 +44,20 @@ if TYPE_CHECKING:
     from .winml.composite_model import WinMLCompositeModel
 
 logger = logging.getLogger(__name__)
+
+
+def _get_cache_build_controls(
+    *,
+    skip_optimize: bool = False,
+    hack_max_optim_iterations: int | None = None,
+) -> dict[str, Any]:
+    """Return only the non-default artifact-changing build controls."""
+    build_controls: dict[str, Any] = {}
+    if skip_optimize:
+        build_controls["skip_optimize"] = True
+    if hack_max_optim_iterations is not None and hack_max_optim_iterations != 3:
+        build_controls["hack_max_optim_iterations"] = hack_max_optim_iterations
+    return build_controls
 
 
 # =============================================================================
@@ -244,6 +247,12 @@ class WinMLAutoModel:
         cache_key = get_cache_key(
             get_task_abbrev(cast("str", resolved_task)),
             config.generate_cache_key(),
+            _get_cache_build_controls(
+                skip_optimize=bool(kwargs.get("skip_optimize", False)),
+                hack_max_optim_iterations=cast(
+                    "int | None", kwargs.get("hack_max_optim_iterations")
+                ),
+            ),
         )
         result = build_onnx_model(
             onnx_path=onnx_path,
@@ -485,18 +494,13 @@ class WinMLAutoModel:
             force_rebuild = True
             logger.info("Cache disabled -- using temp directory: %s", cache_dir_path)
 
-        # Compute cache_key and output_dir via shared cache module
-        # ``task`` is the resolved task from ``build_config.loader.task`` at this
-        # point (never None after config generation), but is typed Optional.
-        cache_identity = {
-            "config": config.generate_cache_key(),
-            "allow_unsupported_nodes": allow_unsupported_nodes,
-            "hack_max_optim_iterations": hack_max_optim_iterations,
-            "skip_optimize": skip_optimize,
-        }
         cache_key = get_cache_key(
             get_task_abbrev(cast("str", task)),
-            hashlib.sha256(json.dumps(cache_identity, sort_keys=True).encode()).hexdigest()[:16],
+            config.generate_cache_key(),
+            _get_cache_build_controls(
+                skip_optimize=skip_optimize,
+                hack_max_optim_iterations=hack_max_optim_iterations,
+            ),
         )
         output_dir = get_model_dir(model_id, cache_dir=cache_dir_path)
 

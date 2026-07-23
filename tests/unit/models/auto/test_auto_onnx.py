@@ -426,6 +426,62 @@ class TestFromOnnxCacheDirAndKey:
         assert call_kwargs["cache_key"]
         assert "imgcls" in call_kwargs["cache_key"]
 
+    def test_build_controls_change_cache_key(self, fake_onnx: Path, tmp_path: Path):
+        """Artifact-changing build controls must produce distinct shared-helper keys."""
+        from winml.modelkit.cache import get_cache_key
+        from winml.modelkit.loader.task import get_task_abbrev
+
+        config_hash = "deadbeefdeadbeef"
+        mock_config = MagicMock()
+        mock_config.loader.task = "image-classification"
+        mock_config.generate_cache_key.return_value = config_hash
+
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+            patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="CPUExecutionProvider", device="cpu"),
+            ),
+            patch(
+                "winml.modelkit.config.precision.resolve_eps",
+                return_value=["CPUExecutionProvider"],
+            ),
+            patch("winml.modelkit.config.generate_onnx_build_config", return_value=mock_config),
+            patch("winml.modelkit.build.build_onnx_model") as mock_build,
+            patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
+        ):
+            mock_build.return_value = _make_build_result(tmp_path)
+            mock_get_class.return_value = lambda **kw: MagicMock()
+
+            WinMLAutoModel.from_onnx(
+                fake_onnx,
+                task="image-classification",
+                device="cpu",
+                skip_optimize=True,
+            )
+            WinMLAutoModel.from_onnx(
+                fake_onnx,
+                task="image-classification",
+                device="cpu",
+                hack_max_optim_iterations=0,
+            )
+
+        task_abbrev = get_task_abbrev("image-classification")
+        skip_opt_key = mock_build.call_args_list[0].kwargs["cache_key"]
+        no_analyze_key = mock_build.call_args_list[1].kwargs["cache_key"]
+        assert skip_opt_key == get_cache_key(
+            task_abbrev,
+            config_hash,
+            {"skip_optimize": True},
+        )
+        assert no_analyze_key == get_cache_key(
+            task_abbrev,
+            config_hash,
+            {"hack_max_optim_iterations": 0},
+        )
+        assert skip_opt_key != no_analyze_key
+
 
 class TestFromOnnxDictDispatch:
     """from_onnx with dict onnx_path delegates to WinMLCompositeModel.from_onnx."""

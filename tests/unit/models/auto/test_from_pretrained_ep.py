@@ -241,3 +241,65 @@ def test_cache_reuse_does_not_eagerly_load_hf_weights(
         is wrapper
     )
     assert received.get("pytorch_model") is None
+
+
+def test_cache_key_matches_shared_helper(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """API cache keys must match the shared helper and ignore non-artifact flags."""
+    from winml.modelkit.cache import get_cache_key
+    from winml.modelkit.loader.task import get_task_abbrev
+    from winml.modelkit.models import WinMLAutoModel
+    from winml.modelkit.models import auto as auto_module
+
+    config_hash = "cache-key"
+    build_config = MagicMock()
+    build_config.loader.task = "image-classification"
+    build_config.compile = None
+    build_config.generate_cache_key.return_value = config_hash
+    hf_config = SimpleNamespace(model_type="unit-type")
+    build_result = SimpleNamespace(final_onnx_path=tmp_path / "cached.onnx")
+    build_result.final_onnx_path.write_bytes(b"cached")
+    received: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(
+        "winml.modelkit.config.generate_hf_build_config",
+        lambda *_args, **_kwargs: build_config,
+    )
+    monkeypatch.setattr(
+        "winml.modelkit.loader._autoconfig.load_hf_config",
+        lambda *_args, **_kwargs: hf_config,
+    )
+    monkeypatch.setattr(auto_module, "get_cache_dir", lambda **_kwargs: tmp_path)
+    monkeypatch.setattr(auto_module, "get_model_dir", lambda *_args, **_kwargs: tmp_path)
+
+    def reuse_build(**kwargs: Any) -> SimpleNamespace:
+        received.append(kwargs)
+        return build_result
+
+    monkeypatch.setattr("winml.modelkit.build.build_hf_model", reuse_build)
+    wrapper = SimpleNamespace()
+    monkeypatch.setattr(
+        auto_module,
+        "get_winml_class",
+        lambda *_args: lambda **_kwargs: wrapper,
+    )
+
+    ep_device = MagicMock(device=MagicMock(device_type="CPU", ep_name="CPUExecutionProvider"))
+    for allow_flag in (False, True):
+        assert (
+            WinMLAutoModel.from_pretrained(
+                "unit/model",
+                ep_device=ep_device,
+                task="image-classification",
+                allow_unsupported_nodes=allow_flag,
+                skip_optimize=True,
+                hack_max_optim_iterations=0,
+            )
+            is wrapper
+        )
+
+    expected = get_cache_key(
+        get_task_abbrev("image-classification"),
+        config_hash,
+        {"skip_optimize": True, "hack_max_optim_iterations": 0},
+    )
+    assert [call["cache_key"] for call in received] == [expected, expected]
