@@ -2795,15 +2795,15 @@
 
 <h1 id="load-and-export">Load and export<a class="headerlink" href="#load-and-export" title="Permanent link">&para;</a></h1>
 <p>The first stage of the winml-cli pipeline is the most deterministic: bring a model into memory and convert it to ONNX. Everything that follows — optimization, quantization, compilation — operates on that ONNX artifact. A well-exported graph with accurate metadata travels cleanly through the rest of the pipeline without requiring patching or re-export.</p>
-<p>Loading is an internal operation: the loader module resolves model provenance, selects the right HuggingFace model class, and prepares the weights for tracing. The <code>winml export</code> command is the surface users interact with directly.</p>
+<p>Loading is an internal operation: the loader module resolves model provenance, selects the right HuggingFace model class, and prepares the weights for export. The <code>winml export</code> command is the surface users interact with directly.</p>
 <h2 id="loading-a-model">Loading a model<a class="headerlink" href="#loading-a-model" title="Permanent link">&para;</a></h2>
 <p>When you point winml-cli at a model identifier, the internal loader resolves it in one of two ways. If the identifier looks like a HuggingFace Hub path (e.g., <code>prajjwal1/bert-tiny</code>), the loader downloads the model weights and configuration to the standard HuggingFace cache at <code>~/.cache/huggingface</code>. Subsequent runs are served from that cache without re-downloading. If the identifier is a path to a local PyTorch checkpoint directory, the loader reads it directly without network access.</p>
-<p>In both cases the loader auto-detects the task — image classification, text feature extraction, and so on — and selects a corresponding HuggingFace model class. The result is a PyTorch model object ready for tracing.</p>
+<p>In both cases the loader auto-detects the task — image classification, text feature extraction, and so on — and selects a corresponding HuggingFace model class. The result is a PyTorch model object ready for export.</p>
 <p>Before committing to a full export you can verify that the loader resolved everything correctly with <code>winml inspect</code>. It prints the detected task, the HuggingFace model class, the export configuration, and the WinML inference class — all without downloading weights. Add <code>--hierarchy</code> to reconstruct the PyTorch module tree from random-weight tracing.</p>
 <p>Some community models host custom Python code in their repositories. The loader refuses to execute it by default. Pass <code>--trust-remote-code</code> to <code>winml config</code> when generating a build configuration for such a model.</p>
 <h2 id="exporting-to-onnx">Exporting to ONNX<a class="headerlink" href="#exporting-to-onnx" title="Permanent link">&para;</a></h2>
-<p><code>winml export</code> converts the loaded model to ONNX. The conversion uses TorchScript tracing by default, which follows actual execution paths and tends to produce compact, inference-oriented graphs. A <code>--dynamo</code> flag exists for the PyTorch 2.x dynamo exporter; however, <strong>Note:</strong> the <code>--dynamo</code> flag is reserved for the PyTorch 2.x dynamo exporter but is <strong>not yet functional</strong> in the current release — passing it logs a warning and the flag is ignored.</p>
-<p>By default the exporter runs an eight-step process that includes hierarchy tracing and tag injection. The result is an ONNX file enriched with structural metadata that powers downstream features such as per-module benchmarking, inspector views, and optimizer scoping.</p>
+<p><code>winml export</code> converts the loaded model to ONNX. By default it uses PyTorch's TorchDynamo ONNX exporter (<code>torch.onnx.export(dynamo=True)</code>), which records rich per-node module metadata that is used to derive the <code>winml.hierarchy.*</code> node tags. Pass <code>--no-dynamo</code> to fall back to the legacy TorchScript exporter, which follows actual execution paths and tends to produce compact inference-oriented graphs. Both exporters default to static shapes; the QNN-relevant difference is opset and op decomposition: torch's dynamo op library is built against a minimum opset of 18. When a lower opset is requested (17 by default), dynamo attempts to down-convert to it, which may succeed (the graph is saved at the requested opset) or fail (it stays at opset 18); <code>winml export</code> reports the opset actually produced and warns when it differs from the requested value. The TorchScript path always exports at the configured opset (17 by default) and lowers some ops differently (e.g. ResNet's head becomes <code>ReduceMean</code> + <code>Reshape</code> under dynamo but <code>GlobalAveragePool</code> + <code>Flatten</code> under TorchScript). Because the opset-17 TorchScript graph is what the QNN/NPU toolchain has been validated against, <code>--no-dynamo</code> remains the validated choice for QNN/NPU hand exports today.</p>
+<p>By default the exporter runs an eight-step process that includes hierarchy recovery and tag injection. The result is an ONNX file enriched with structural metadata that powers downstream features such as per-module benchmarking, inspector views, and optimizer scoping.</p>
 <h3 id="hierarchy-tagging-in-detail">Hierarchy tagging in detail<a class="headerlink" href="#hierarchy-tagging-in-detail" title="Permanent link">&para;</a></h3>
 <p>During export the HTP (Hierarchy-preserving Tags Protocol) exporter attaches two pieces of information to every ONNX graph node via <code>node.metadata_props</code>:</p>
 <table>
@@ -2828,16 +2828,17 @@
 </tbody>
 </table>
 <h4 id="how-tags-are-built">How tags are built<a class="headerlink" href="#how-tags-are-built" title="Permanent link">&para;</a></h4>
-<p>The exporter registers PyTorch forward hooks on each module. When a module executes, a pre-hook pushes its class name onto a tag stack; the post-hook pops it. This produces hierarchical paths that mirror the PyTorch module tree:</p>
+<p>The module path attached to each node is obtained differently depending on the exporter. Under the default TorchDynamo exporter, dynamo records originating-module information as ONNX metadata, and the exporter reconstructs the hierarchy directly from that metadata after export — no forward hooks are involved. Under <code>--no-dynamo</code>, the TorchScript path instead registers PyTorch forward hooks on each module: when a module executes, a pre-hook pushes its class name onto a tag stack and the post-hook pops it. Either way the result is hierarchical paths that mirror the PyTorch module tree.</p>
+<p>The hook flow below applies only to the <code>--no-dynamo</code> TorchScript path:</p>
 <pre class="mermaid"><code>flowchart LR
     A[Register hooks] --&gt; B[Run forward pass]
     B --&gt; C[Pre-hook pushes tag]
     C --&gt; D[Child modules execute]
     D --&gt; E[Post-hook pops tag]
     E --&gt; F[Tag stack → path]</code></pre>
-<p>Only modules that are actually executed during tracing receive tags — unused modules are excluded. For example, <code>prajjwal1/bert-tiny</code> has 48 registered modules but only 18 are reached during a forward pass.</p>
+<p>Under <code>--no-dynamo</code>, only modules that are actually executed during tracing receive tags — unused modules are excluded. For example, <code>prajjwal1/bert-tiny</code> has 48 registered modules but only 18 are reached during a forward pass. (Under the default dynamo path the hierarchy instead reflects the modules present in the exported graph's metadata.)</p>
 <h4 id="concrete-example-bert-tiny">Concrete example: BERT-tiny<a class="headerlink" href="#concrete-example-bert-tiny" title="Permanent link">&para;</a></h4>
-<p>Running <code>winml export -m prajjwal1/bert-tiny -o model.onnx -v</code> produces the following hierarchy tree (18 traced modules, 132 ONNX nodes, 100 % coverage):</p>
+<p>Running <code>winml export -m prajjwal1/bert-tiny -o model.onnx -v --no-dynamo</code> produces the following hierarchy tree (18 traced modules, 132 ONNX nodes, 100 % coverage) — the numbers below are from the TorchScript trace path:</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>BertModel (132 nodes)
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>├── BertEmbeddings: embeddings (7 nodes)
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>├── BertEncoder: encoder (106 nodes)
@@ -2880,7 +2881,7 @@
 </tbody>
 </table>
 <h4 id="node-to-module-mapping">Node-to-module mapping<a class="headerlink" href="#node-to-module-mapping" title="Permanent link">&para;</a></h4>
-<p>After the ONNX graph is produced by <code>torch.onnx.export</code>, a 4-priority system assigns each ONNX node to the closest matching module:</p>
+<p>Under the default dynamo path, each node is assigned directly from its <code>pkg.torch.onnx.name_scopes</code> and <code>pkg.torch.onnx.class_hierarchy</code> metadata; nodes without usable metadata receive the model-root fallback. Under <code>--no-dynamo</code>, after the ONNX graph is produced by <code>torch.onnx.export</code>, the legacy tagger instead uses a 4-priority system to assign each ONNX node to the closest traced module:</p>
 <ol>
 <li><strong>Direct match</strong> (61 %) — the node's scope name maps exactly to a traced module.</li>
 <li><strong>Parent match</strong> (24 %) — walk up the scope hierarchy until a traced module is found.</li>
@@ -2913,7 +2914,7 @@
 <p>Alongside the <code>.onnx</code> file, the exporter writes a <code>*_htp_metadata.json</code> sidecar containing:</p>
 <ul>
 <li><strong><code>nodes</code></strong> — complete mapping of every ONNX node name → hierarchy tag</li>
-<li><strong><code>modules</code></strong> — traced module information (class name, tag, execution order)</li>
+<li><strong><code>modules</code></strong> — hierarchy module information (class name, tag, discovery order)</li>
 <li><strong><code>statistics</code></strong> — export time, node counts, coverage percentage</li>
 <li><strong><code>outputs</code></strong> — I/O tensor specifications</li>
 </ul>

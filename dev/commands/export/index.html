@@ -2740,8 +2740,8 @@ pipeline. This is the entry point before <code>winml quantize</code> or <code>wi
 <td><code>--dynamo/--no-dynamo</code></td>
 <td></td>
 <td>flag</td>
-<td><code>false</code></td>
-<td>Enable PyTorch 2.9+ dynamo export for richer node metadata. (Experimental — currently logs a warning.)</td>
+<td><code>true</code></td>
+<td>Use PyTorch's TorchDynamo ONNX exporter (default) for richer per-node module metadata. Pass <code>--no-dynamo</code> for the legacy TorchScript exporter, whose opset-17 op decomposition is the validated path for QNN/NPU compilation today.</td>
 </tr>
 <tr>
 <td><code>--torch-module</code></td>
@@ -2811,9 +2811,12 @@ pipeline. This is the entry point before <code>winml quantize</code> or <code>wi
 <h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
 <p><code>winml export</code> loads the model via Hugging Face <code>transformers</code>, then runs the
 eight-step Hierarchy-preserving Tags Protocol (HTP): model preparation, input
-generation, module-hierarchy tracing, TorchScript ONNX export, node-tagger
+generation, module-hierarchy recovery, ONNX export, node-tagger
 creation, per-node tagging, tag injection into ONNX <code>metadata_props</code>, and
-optional report generation. The hierarchy metadata allows downstream tools to
+optional report generation. By default the hierarchy is reconstructed from the
+TorchDynamo exporter's per-node module metadata; with <code>--no-dynamo</code> it is
+captured by tracing the model's forward pass under the legacy TorchScript
+exporter instead. The hierarchy metadata allows downstream tools to
 reason about operators grouped by their originating module rather than flat
 graph position. When <code>--no-hierarchy</code> is specified, hierarchy steps are bypassed
 and a bare ONNX file is written, useful for third-party tools that do not
@@ -2841,18 +2844,25 @@ understand custom metadata.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Export with a hand-crafted input-spec file (skips auto-detection)</span>
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>-o<span class="w"> </span>bert.onnx<span class="w"> </span>--input-specs<span class="w"> </span>inputs.json
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Export with dynamic batch and sequence dimensions</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>-o<span class="w"> </span>bert.onnx<span class="w"> </span>--dynamic-axes<span class="w"> </span>dynamic_axes.json
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># dynamic_axes.json:</span>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># {&quot;input_ids&quot;: {&quot;0&quot;: &quot;batch&quot;, &quot;1&quot;: &quot;sequence&quot;}, &quot;attention_mask&quot;: {&quot;0&quot;: &quot;batch&quot;, &quot;1&quot;: &quot;sequence&quot;}}</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Export a fully static-shaped model (the default) for NPU/QNN compilation.</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="c1"># The default dummy inputs already produce static shapes; use --shape-config to</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># pin any symbolic dimensions to concrete sizes, or --input-specs to fully</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># specify every input tensor.</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>-o<span class="w"> </span>bert.onnx<span class="w"> </span>--shape-config<span class="w"> </span>shape_config.json
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="c1"># shape_config.json: {&quot;sequence_length&quot;: 128}</span>
+</span></code></pre></div>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Export with dynamic batch and sequence dimensions</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>-o<span class="w"> </span>bert.onnx<span class="w"> </span>--dynamic-axes<span class="w"> </span>dynamic_axes.json
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="c1"># dynamic_axes.json:</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1"># {&quot;input_ids&quot;: {&quot;0&quot;: &quot;batch&quot;, &quot;1&quot;: &quot;sequence&quot;}, &quot;attention_mask&quot;: {&quot;0&quot;: &quot;batch&quot;, &quot;1&quot;: &quot;sequence&quot;}}</span>
 </span></code></pre></div>
 <p><code>--input-specs</code> also accepts symbolic dimension names in <code>shape</code>; symbolic
 entries are used as dynamic ONNX axis names while size <code>1</code> is used for the
 dummy input tensor. For example, <code>{"input_ids": {"dtype": "int64", "shape":
 ["batch", "sequence"]}}</code> exports <code>input_ids</code> with dynamic <code>batch</code> and
 <code>sequence</code> dimensions.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Produce clean ONNX without hierarchy metadata (for third-party optimizers)</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>-o<span class="w"> </span>resnet50_clean.onnx<span class="w"> </span>--no-hierarchy
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Produce clean ONNX without hierarchy metadata (for third-party optimizers)</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>-o<span class="w"> </span>resnet50_clean.onnx<span class="w"> </span>--no-hierarchy
 </span></code></pre></div>
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
@@ -2871,9 +2881,26 @@ dummy input tensor. For example, <code>{"input_ids": {"dtype": "int64", "shape":
 <li><strong>Dynamic dimensions can reduce QNN optimization coverage.</strong> Static batch and
   static shapes remain the default because some QNN fusions require them. Use
   <code>--dynamic-axes</code> only when downstream runtime scenarios need variable sizes.</li>
-<li><strong><code>--dynamo</code> and <code>--torch-module</code> are experimental.</strong> Both flags emit a
-  warning and have no effect in the current release. Do not rely on them in
-  automated pipelines yet.</li>
+<li><strong>Dynamo is the default exporter.</strong> <code>winml export</code> uses PyTorch's TorchDynamo
+  ONNX exporter, which records rich per-node module metadata that drives the
+  hierarchy tags. Pass <code>--no-dynamo</code> to select the legacy TorchScript exporter.
+  Shape staticness is independent of the exporter: both default to static shapes
+  and only emit dynamic axes when you ask for them. The QNN-relevant
+  difference is opset and op decomposition: torch's dynamo op library is built
+  against a minimum opset of 18. When you request a lower opset (17 by default),
+  dynamo attempts to down-convert the graph to it; this can succeed (the graph is
+  saved at the requested opset) or fail (the graph stays at opset 18). <code>winml
+  export</code> reports the opset actually produced and warns when it differs from the
+  one you requested, so pass <code>--no-dynamo</code> if you need a graph natively at opset</li>
+<li>The TorchScript path always exports at the configured opset (17 by
+  default). Dynamo also
+  lowers some ops differently -- for example ResNet's classification head becomes
+  <code>ReduceMean</code> + <code>Reshape</code> under dynamo but <code>GlobalAveragePool</code> + <code>Flatten</code> under
+  TorchScript -- which can change or reduce QNN fusion coverage. Prefer
+  <code>--no-dynamo</code> for hand exports targeting QNN/NPU compilation until the dynamo
+  graph is validated for your model.</li>
+<li><strong><code>--torch-module</code> is experimental.</strong> The flag emits a warning and has no
+  effect in the current release. Do not rely on it in automated pipelines yet.</li>
 <li><strong>Output directory must be writable.</strong> The command creates parent directories
   automatically, but will fail with a permission error on read-only paths.</li>
 <li><strong>Model weights are downloaded to the Hugging Face cache.</strong> Set <code>HF_HOME</code> or
