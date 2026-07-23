@@ -84,3 +84,31 @@ class TestCompositeNativeRouting:
         assert result == "NATIVE"
         assert routing_probes["native"] == ["dummy/model"]
         assert routing_probes["variant"] == []
+
+    def test_explicit_model_type_routes_without_native_config_probe(
+        self, monkeypatch: pytest.MonkeyPatch, routing_probes: dict[str, list[str]]
+    ) -> None:
+        """An explicit model_type selects its composite before AutoConfig probes."""
+        import transformers
+
+        monkeypatch.setattr(
+            transformers.AutoConfig,
+            "from_pretrained",
+            classmethod(
+                lambda *_args, **_kwargs: pytest.fail(
+                    "AutoConfig should not run when model_type is explicit"
+                )
+            ),
+        )
+        ep_device = SimpleNamespace(device=SimpleNamespace(device_type="CPU"))
+
+        result = WinMLAutoModel.from_pretrained(
+            "dummy/model",
+            task=_SHARED_TASK,
+            model_type=_VARIANT_TYPE,
+            ep_device=ep_device,
+        )
+
+        assert result == "VARIANT"
+        assert routing_probes["native"] == []
+        assert routing_probes["variant"] == ["dummy/model"]

@@ -76,8 +76,7 @@ def build_onnx_model(
         RuntimeError: If a pipeline stage fails.
     """
     hack_max_optim_iterations: int = kwargs.pop("hack_max_optim_iterations", 3)
-    # Consumed so it doesn't leak into **kwargs; not yet threaded through run_build_stages.
-    kwargs.pop("allow_unsupported_nodes", False)
+    allow_unsupported_nodes: bool = kwargs.pop("allow_unsupported_nodes", False)
     onnx_kwargs = {
         "use_external_data": kwargs.get("use_external_data", True),
     }
@@ -163,13 +162,14 @@ def build_onnx_model(
         ep=ep,
         device=device,
         hack_max_optim_iterations=hack_max_optim_iterations,
-        skip_optimize=skip_optimize,
+        skip_optimize=skip_optimize or config.skip_optimize,
+        allow_unsupported_nodes=allow_unsupported_nodes,
+        analyze_result_path=output_dir / _name("analyze_result.json"),
         onnx_kwargs=onnx_kwargs,
     )
     stages_completed.extend(stages.stages_completed)
     stages_skipped.extend(stages.stages_skipped)
     stage_timings.update(stages.stage_timings)
-    current_path = stages.current_path
     analyze_iters = stages.analyze_iterations
     analyze_unsupported = stages.analyze_unsupported_nodes
     analyze_details = stages.analyze_details

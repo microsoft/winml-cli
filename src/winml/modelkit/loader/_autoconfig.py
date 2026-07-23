@@ -44,25 +44,42 @@ def load_hf_config(
 
     Returns:
         The resolved config. Prefers ``auto_config.from_pretrained`` (the
-        architecture-specific subclass); falls back to a base
-        ``PretrainedConfig`` only when the model omits ``model_type`` and
+        architecture-specific subclass); falls back to an identifier-inferred
+        concrete config only when the model omits ``model_type`` and
         AutoConfig would otherwise raise.
     """
     try:
         return cast(
             "PretrainedConfig",
-            auto_config.from_pretrained(
-                model_id, trust_remote_code=trust_remote_code, **kwargs
-            ),
+            auto_config.from_pretrained(model_id, trust_remote_code=trust_remote_code, **kwargs),
         )
     except ValueError as auto_err:
+        if "model_type" not in str(auto_err):
+            raise
+
         from transformers import PretrainedConfig
 
         try:
-            return PretrainedConfig.from_pretrained(
+            config_dict, unused_kwargs = PretrainedConfig.get_config_dict(
                 model_id, trust_remote_code=trust_remote_code, **kwargs
             )
         except Exception:
-            # Not the model_type case (e.g. missing/invalid model id) — surface
-            # the original, more informative AutoConfig error.
             raise auto_err from None
+
+        if "model_type" in config_dict:
+            raise
+
+        from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+
+        model_id_lower = model_id.lower()
+        candidates = sorted(
+            (name for name in CONFIG_MAPPING if name.lower() in model_id_lower),
+            key=lambda name: (-len(name), name),
+        )
+        if not candidates:
+            raise
+
+        return cast(
+            "PretrainedConfig",
+            CONFIG_MAPPING[candidates[0]].from_dict(config_dict, **unused_kwargs),
+        )

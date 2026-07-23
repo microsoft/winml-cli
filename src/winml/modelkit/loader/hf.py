@@ -273,6 +273,7 @@ def load_hf_model(
     model = loader_cls.from_pretrained(
         model_name_or_path,
         trust_remote_code=trust_remote_code,
+        config=hf_config,
     )
 
     # [5] Export Preparation

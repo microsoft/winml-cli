@@ -66,6 +66,8 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         onnx_path: str | Path,
         ep_device: WinMLEPDevice,
         config: PretrainedConfig | None = None,
+        provider_options: dict[str, str] | None = None,
+        session_options: Any | None = None,
     ) -> None:
         """Initialize inference model.
 
@@ -86,6 +88,8 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         self._session = WinMLSession(
             onnx_path=self._onnx_path,
             ep_device=ep_device,
+            provider_options=provider_options,
+            base_session_options=session_options,
         )
 
     @property

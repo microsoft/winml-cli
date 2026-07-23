@@ -88,6 +88,7 @@ def build_hf_model(
     ep: str | None = None,
     device: str | None = None,
     model_type: str | None = None,
+    hf_config: Any | None = None,
     **kwargs: Any,
 ) -> BuildResult:
     """Build an ONNX model from a HuggingFace model architecture.
@@ -135,8 +136,7 @@ def build_hf_model(
     """
     # TODO: Move hack_max_optim_iterations to global env config
     hack_max_optim_iterations: int = kwargs.pop("hack_max_optim_iterations", 3)
-    # Consumed so it doesn't leak into **kwargs; not yet threaded through run_build_stages.
-    kwargs.pop("allow_unsupported_nodes", False)
+    allow_unsupported_nodes: bool = kwargs.pop("allow_unsupported_nodes", False)
 
     # ONNX-level kwargs forwarded to export, optimize, quantize stages
     onnx_kwargs = {
@@ -208,6 +208,7 @@ def build_hf_model(
             model_id,
             trust_remote_code,
             random_init=random_init,
+            hf_config=hf_config,
             model_type=model_type,
         )
 
@@ -228,7 +229,6 @@ def build_hf_model(
         verbose=False,
         **onnx_kwargs,
     )
-    current_path = export_path
     stage_timings["export"] = time.monotonic() - t0
     stages_completed.append("export")
     logger.info("Export done (%.1fs) -> %s", stage_timings["export"], export_path)
@@ -239,7 +239,7 @@ def build_hf_model(
     # =========================================================================
     skip_optimize: bool = kwargs.pop("skip_optimize", False)
     stages = run_build_stages(
-        current_path=current_path,
+        current_path=export_path,
         optimized_path=optimized_path,
         quantized_path=quantized_path,
         compiled_path=compiled_path,
@@ -249,13 +249,14 @@ def build_hf_model(
         ep=ep,
         device=device,
         hack_max_optim_iterations=hack_max_optim_iterations,
-        skip_optimize=skip_optimize,
+        skip_optimize=skip_optimize or config.skip_optimize,
+        allow_unsupported_nodes=allow_unsupported_nodes,
+        analyze_result_path=output_dir / _name("analyze_result.json"),
         onnx_kwargs=onnx_kwargs,
     )
     stages_completed.extend(stages.stages_completed)
     stages_skipped.extend(stages.stages_skipped)
     stage_timings.update(stages.stage_timings)
-    current_path = stages.current_path
     analyze_iterations = stages.analyze_iterations
     analyze_unsupported_nodes = stages.analyze_unsupported_nodes
     analyze_details = stages.analyze_details

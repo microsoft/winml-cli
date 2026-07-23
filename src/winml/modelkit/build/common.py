@@ -64,6 +64,8 @@ def run_build_stages(
     device: str | None = None,
     hack_max_optim_iterations: int = 3,
     skip_optimize: bool = False,
+    allow_unsupported_nodes: bool = False,
+    analyze_result_path: Path | None = None,
     onnx_kwargs: dict[str, Any] | None = None,
 ) -> StagesResult:
     """Run the shared build stages: optimize -> quantize -> compile -> finalize.
@@ -117,6 +119,10 @@ def run_build_stages(
             config=config,
             ep=ep,
             device=device,
+            max_optim_iterations=hack_max_optim_iterations,
+            allow_unsupported_nodes=allow_unsupported_nodes,
+            skip_optimize=True,
+            analyze_output_path=analyze_result_path,
             **onnx_kwargs,
         )
     else:
@@ -134,6 +140,8 @@ def run_build_stages(
             ep=ep,
             device=device,
             max_optim_iterations=hack_max_optim_iterations,
+            allow_unsupported_nodes=allow_unsupported_nodes,
+            analyze_output_path=analyze_result_path,
             **onnx_kwargs,
         )
         result.stage_timings["optimize"] = opt_elapsed

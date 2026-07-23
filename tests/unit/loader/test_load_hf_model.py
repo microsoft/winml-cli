@@ -220,6 +220,56 @@ class TestModelArchitectureOverrideFast:
         assert call["task"] == "feature-extraction"
         assert call["model_class"] is None
 
+    def test_model_type_less_config_uses_identifier_inference_and_reuses_config(self, monkeypatch):
+        """Transformers 5 fallback supplies the recovered config to model loading."""
+        from types import SimpleNamespace
+
+        from transformers import AutoConfig, PretrainedConfig
+
+        import winml.modelkit.loader.resolution as resolution_module
+
+        class _Model:
+            received_config = None
+
+            @classmethod
+            def from_pretrained(cls, *_args, **kwargs):
+                cls.received_config = kwargs["config"]
+                return cls()
+
+            def eval(self):
+                return self
+
+            def parameters(self):
+                return []
+
+        monkeypatch.setattr(
+            AutoConfig,
+            "from_pretrained",
+            classmethod(
+                lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                    ValueError("Unrecognized model without model_type")
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            PretrainedConfig,
+            "get_config_dict",
+            classmethod(lambda *_args, **_kwargs: ({"hidden_size": 12}, {})),
+        )
+        monkeypatch.setattr(
+            resolution_module,
+            "resolve_task",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                task="feature-extraction", model_class=_Model
+            ),
+        )
+
+        _model, config, task = load_hf_model("unit-bert-model")
+
+        assert config.model_type == "bert"
+        assert _Model.received_config is config
+        assert task == "feature-extraction"
+
 
 class TestTasksManagerIntegration:
     """Tests for TasksManager integration with specific tasks.

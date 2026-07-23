@@ -27,7 +27,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-
 @pytest.fixture()
 def cpu_ep_device():
     """Minimal stub WinMLEPDevice for CPU used across from_onnx/from_pretrained tests."""
@@ -279,7 +278,7 @@ class TestFromOnnxCacheDirAndKey:
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
                 "winml.modelkit.session.resolve_device",
-                return_value=EPDeviceTarget(ep="auto", device="cpu"),
+                return_value=EPDeviceTarget(ep="CPUExecutionProvider", device="cpu"),
             ),
             patch(
                 "winml.modelkit.config.precision.resolve_eps",
@@ -373,7 +372,7 @@ class TestFromOnnxCacheDirAndKey:
             ),
             patch(
                 "winml.modelkit.session.resolve_device",
-                return_value=EPDeviceTarget(ep="auto", device="cpu"),
+                return_value=EPDeviceTarget(ep="CPUExecutionProvider", device="cpu"),
             ),
             patch(
                 "winml.modelkit.config.precision.resolve_eps",
@@ -403,7 +402,7 @@ class TestFromOnnxCacheDirAndKey:
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
                 "winml.modelkit.session.resolve_device",
-                return_value=EPDeviceTarget(ep="auto", device="cpu"),
+                return_value=EPDeviceTarget(ep="CPUExecutionProvider", device="cpu"),
             ),
             patch(
                 "winml.modelkit.config.precision.resolve_eps",
