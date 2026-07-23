@@ -22,6 +22,10 @@ $ winml eval [options]
 | `--precision` | | `TEXT` | `auto` | Precision used when building the model from a HuggingFace ID. One of `auto`, `fp32`, `fp16`, `int8`, `int16`, or a mixed `w{x}a{y}` spec (e.g., `w8a16`). `fp16`/`fp32` skip quantization. **Ignored** when `-m` is a pre-built `.onnx` file — the precision is already baked in. |
 | `--device` | | choice | `auto` | Target device. Choices: `auto`, `npu`, `gpu`, `cpu`. `auto` selects the best available device. Combined with `--precision`, this drives the build when `-m` is a HuggingFace ID. |
 | `--ep` / `--execution-provider` | | `TEXT` | — | Target ONNX Runtime execution provider when finer control than `--device` is needed. Full names (e.g., `QNNExecutionProvider`, `OpenVINOExecutionProvider`, `VitisAIExecutionProvider`) and aliases (`qnn`, `ov`/`openvino`, `vitis`/`vitisai`) are accepted. |
+| `--shape-config` | | `PATH` | — | JSON shape overrides used while auto-generating a Hugging Face export config, for example `{"height": 480, "width": 480}`. Applies only when `-m` is a HuggingFace ID that eval builds; **ignored for pre-built `.onnx` inputs**. |
+| `--input-specs` | | `PATH` | — | JSON input tensor specs to merge into the Hugging Face export config. Symbolic string dimensions infer dynamic axes. **Ignored for pre-built `.onnx` inputs**. |
+| `--export-config` | | `PATH` | — | JSON ONNX export config overrides (opset version, constant folding, etc.) to merge into the Hugging Face export config. **Ignored for pre-built `.onnx` inputs**. |
+| `--dynamic-axes` | | `PATH` | — | JSON dynamic axes mapping for Hugging Face ONNX export, for example `{"input_ids": {"0": "batch", "1": "sequence"}}`. **Ignored for pre-built `.onnx` inputs**. |
 | `--dataset` | | `TEXT` | task default | HuggingFace dataset path (e.g., `imagenet-1k`, `nyu-mll/glue`). If omitted, a default dataset is selected based on the task. |
 | `--dataset-name` | | `TEXT` | — | Dataset configuration name for multi-config datasets. |
 | `--dataset-revision` | | `TEXT` | — | Git revision (branch, tag, or commit) of the dataset to load. Use `refs/convert/parquet` for HF datasets that are only served via the parquet mirror. |
@@ -130,6 +134,7 @@ $ winml eval -m encoder=encoder.onnx -m decoder=decoder.onnx --model-id microsof
 - **Some dataset requires Hub credentials for gated datasets.** Some datasets (e.g., `imagenet-1k`) require a HuggingFace account with accepted terms of use. Log in with `huggingface-cli login` before running eval on gated data.
 - **`--shuffle` is on by default.** The random 100-sample slice changes between runs unless you pass `--no-shuffle`. Use `--no-shuffle` when comparing two model variants to ensure they see identical samples.
 - **`--streaming` skips the local cache.** Streaming mode avoids downloading the full split but prevents random shuffling on large datasets. For reproducible evaluation, download the split once and omit `--streaming`.
+- **Export overrides only apply when eval builds from a HuggingFace ID.** `--shape-config`, `--input-specs`, `--export-config`, and `--dynamic-axes` shape the ONNX export that `eval` generates when `-m` is a HuggingFace model ID. When `-m` is a pre-built `.onnx` file, there is no export step, so these flags are ignored and the command prints a warning.
 - **Column names vary across datasets.** If the evaluator raises a missing-column error, run `winml eval --schema --task <task>` to inspect the expected schema and use `--column` to remap dataset field names to the expected names.
 
 ## See also

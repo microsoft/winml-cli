@@ -253,7 +253,9 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCo
 
     if config.model_path is not None:
         # Pre-built ONNX: precision is already baked into the model and is
-        # ignored here (mirrors winml perf's ONNX path).
+        # ignored here (mirrors winml perf's ONNX path). Export overrides /
+        # shape_config are HuggingFace-export concepts and never reach here —
+        # the CLI warns and drops them for pre-built ONNX inputs.
         from transformers import AutoConfig
 
         hf_config = AutoConfig.from_pretrained(config.model_id)
@@ -270,6 +272,19 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCo
         model.config = hf_config
         return model
 
+    # HuggingFace build path — export overrides (--input-specs/--export-config/
+    # --dynamic-axes) are merged under the build config's ``export`` section as a
+    # sparse dict so from_pretrained routes them through merge_export_overrides
+    # (patching auto-resolved input_tensors by name / re-deriving dynamic_axes).
+    # Passing a dict rather than a WinMLBuildConfig avoids clobbering the
+    # auto-resolved export config with default fields. Mirrors winml build/perf.
+    build_override: Any = quant_override
+    if config.export_overrides:
+        override_dict: dict[str, Any] = {"export": config.export_overrides}
+        if not config.quant:
+            override_dict["quant"] = None
+        build_override = override_dict
+
     return WinMLAutoModel.from_pretrained(
         config.model_id,
         task=config.task,
@@ -277,7 +292,8 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCo
         precision=config.precision,
         ep=config.ep,
         allow_unsupported_nodes=config.allow_unsupported_nodes,
-        config=quant_override,
+        config=build_override,
+        shape_config=config.shape_config,
         **pipeline_kwargs,
     )
 
