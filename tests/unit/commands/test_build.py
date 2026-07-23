@@ -28,17 +28,11 @@ _DEVICE_TO_EPS = {
 }
 
 
-def _fake_resolve_check_device_ep(*, device: str = "auto", ep: str | None = None):
-    """Side effect for resolve_check_device_ep that honours the requested device.
-
-    The build command's --device path calls resolve_quant_compile_config which
-    in turn calls resolve_check_device_ep. Tests pass explicit devices like
-    "npu", "gpu", "cpu" -- echo them back with a canonical EP so the downstream
-    precision policy resolves deterministically.
-    """
-    resolved = device.lower() if device != "auto" else "npu"
-    eps = _DEVICE_TO_EPS.get(resolved, ["CPUExecutionProvider"])
-    return resolved, ["npu", "gpu", "cpu"], eps
+def _fake_resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
+    """Resolve test targets using the public ``resolve_device`` contract."""
+    device = "npu" if target.device == "auto" else target.device.lower()
+    ep = target.ep if target.ep != "auto" else _DEVICE_TO_EPS[device][0]
+    return EPDeviceTarget(ep=ep, device=device, source=target.source)
 
 
 @pytest.fixture(autouse=True)
@@ -51,13 +45,10 @@ def mock_resolve_device():
     mocked to avoid slow DLL scanning and WinML SDK discovery on CI runners
     without WinML installed.
     """
-    from winml.modelkit.session import EPDeviceTarget
 
     mock_registry = MagicMock()
     mock_registry._discovered = []
     mock_registry._entries_for.return_value = []
-
-    fake_cpu_ep_device = EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
 
     with (
         patch(
@@ -70,7 +61,7 @@ def mock_resolve_device():
         ),
         patch(
             "winml.modelkit.session.resolve_device",
-            return_value=fake_cpu_ep_device,
+            side_effect=_fake_resolve_device,
         ),
         patch(
             "winml.modelkit.session.ep_registry.WinMLEPRegistry.instance",
@@ -1181,7 +1172,7 @@ class TestBuildEpAutoSelection:
     """Auto-select EP when --ep is omitted: resolve device -> first compatible EP.
 
     The selection result depends on the host's available devices/EPs at runtime,
-    so resolve_device / resolve_eps are mocked to give the test a known surface.
+    so ``resolve_device`` is mocked to return a concrete target.
     Regression: hardcoded ``[QNN, OV, VitisAI]`` walk used to pick OpenVINO on a
     GPU box if OV happened to be installed, leaving black nodes that blocked a
     subsequent build for the actual device (issue #663).
@@ -1217,7 +1208,7 @@ class TestBuildEpAutoSelection:
 
         with patch(
             "winml.modelkit.session.resolve_device",
-            return_value=EPDeviceTarget(ep="auto", device="gpu"),
+            return_value=EPDeviceTarget(ep="DmlExecutionProvider", device="gpu"),
         ):
             result = runner.invoke(
                 build,
@@ -1248,7 +1239,7 @@ class TestBuildEpAutoSelection:
 
         with patch(
             "winml.modelkit.session.resolve_device",
-            return_value=EPDeviceTarget(ep="auto", device="cpu"),
+            return_value=EPDeviceTarget(ep="CPUExecutionProvider", device="cpu"),
         ):
             result = runner.invoke(
                 build,
@@ -1281,7 +1272,7 @@ class TestBuildEpAutoSelection:
         with (
             patch(
                 "winml.modelkit.session.resolve_device",
-                return_value=EPDeviceTarget(ep="auto", device="gpu"),
+                return_value=EPDeviceTarget(ep="DmlExecutionProvider", device="gpu"),
             ),
             patch("winml.modelkit.session.available_eps_for_device") as mock_resolve_eps,
         ):
@@ -1332,16 +1323,12 @@ class TestBuildEpAutoSelection:
         mock_build_api: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """First element of resolve_check_device_ep's available_eps is selected."""
+        """The concrete EP selected by ``resolve_device`` is forwarded."""
         from winml.modelkit.commands.build import build
 
         with patch(
             "winml.modelkit.session.resolve_device",
-            return_value=(
-                "gpu",
-                ["gpu", "cpu"],
-                ["DmlExecutionProvider", "OpenVINOExecutionProvider"],
-            ),
+            return_value=EPDeviceTarget(ep="DmlExecutionProvider", device="gpu"),
         ):
             result = runner.invoke(
                 build,

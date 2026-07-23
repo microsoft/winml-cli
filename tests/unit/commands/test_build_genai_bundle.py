@@ -26,12 +26,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import click
 import pytest
 from click.testing import CliRunner
+
+from winml.modelkit.session import EPDeviceTarget
 
 
 _BUNDLE_TARGET = "winml.modelkit.models.winml.build_genai_bundle"
@@ -39,9 +40,10 @@ _RUN_SINGLE_TARGET = "winml.modelkit.commands.build._run_single_build"
 _COMPOSITE_TARGET = "winml.modelkit.loader.resolution.resolve_composite_components"
 _GENERATE_TARGET = "winml.modelkit.config.generate_build_config"
 # The genai fast path resolves ``--device auto`` via ``session.resolve_device``
-# (an ``EPDeviceTarget -> EPDeviceTarget`` deducer); it reads ``.device`` off the
-# result. Explicit ``--device`` values never reach the resolver.
+# (an ``EPDeviceTarget -> EPDeviceTarget`` deducer).
 _RESOLVE_DEVICE_TARGET = "winml.modelkit.session.resolve_device"
+_NPU_TARGET = EPDeviceTarget(ep="QNNExecutionProvider", device="npu")
+_CPU_TARGET = EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
 
 
 @pytest.fixture(autouse=True)
@@ -50,7 +52,7 @@ def _mock_resolve_device():
     NPU without probing real hardware. Tests needing a different resolution
     override this patch locally.
     """
-    with patch(_RESOLVE_DEVICE_TARGET, return_value=SimpleNamespace(device="npu")):
+    with patch(_RESOLVE_DEVICE_TARGET, return_value=_NPU_TARGET):
         yield
 
 
@@ -375,7 +377,7 @@ def test_auto_qnn_resolving_to_non_npu_does_not_route(tmp_path: Path):
         patch(_BUNDLE_TARGET) as bundle,
         patch(_RUN_SINGLE_TARGET) as run_single,
         patch(_COMPOSITE_TARGET, return_value=None),
-        patch(_RESOLVE_DEVICE_TARGET, return_value=SimpleNamespace(device="cpu")),
+        patch(_RESOLVE_DEVICE_TARGET, return_value=_CPU_TARGET),
     ):
         result = _invoke(
             [
@@ -428,7 +430,7 @@ def test_qnn_without_device_resolving_to_non_npu_does_not_route(tmp_path: Path):
         patch(_BUNDLE_TARGET) as bundle,
         patch(_RUN_SINGLE_TARGET) as run_single,
         patch(_COMPOSITE_TARGET, return_value=None),
-        patch(_RESOLVE_DEVICE_TARGET, return_value=SimpleNamespace(device="cpu")),
+        patch(_RESOLVE_DEVICE_TARGET, return_value=_CPU_TARGET),
     ):
         result = _invoke(["-m", "Qwen/Qwen3-0.6B", "-o", str(tmp_path / "o"), "--ep", "qnn"])
 
@@ -561,7 +563,7 @@ def test_export_type_optimized_errors_when_resolved_target_unsupported(tmp_path:
         patch(_BUNDLE_TARGET) as bundle,
         patch(_RUN_SINGLE_TARGET) as run_single,
         patch(_COMPOSITE_TARGET, return_value=None),
-        patch(_RESOLVE_DEVICE_TARGET, return_value=SimpleNamespace(device="cpu")) as probe,
+        patch(_RESOLVE_DEVICE_TARGET, return_value=_CPU_TARGET) as probe,
     ):
         result = _invoke(
             ["-m", "Qwen/Qwen3-0.6B", "-o", str(tmp_path / "o"), "--export-type", "optimized"]
@@ -590,7 +592,7 @@ def test_export_type_optimized_explicit_target_builds_on_non_npu_host(tmp_path: 
         patch(_BUNDLE_TARGET, side_effect=_record_bundle(recorded)) as bundle,
         patch(_RUN_SINGLE_TARGET) as run_single,
         patch(_COMPOSITE_TARGET, return_value=None),
-        patch(_RESOLVE_DEVICE_TARGET, return_value=SimpleNamespace(device="cpu")),
+        patch(_RESOLVE_DEVICE_TARGET, return_value=_CPU_TARGET),
     ):
         result = _invoke(
             [

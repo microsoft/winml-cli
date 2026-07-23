@@ -28,7 +28,7 @@ _DEVICE_TO_EPS = {
 
 @pytest.fixture(autouse=True)
 def mock_functions():
-    """Mock ``resolve_eps`` + ``WinMLEPRegistry`` to avoid hardware detection.
+    """Mock available EP lookup and ``WinMLEPRegistry`` to avoid hardware detection.
 
     The compile CLI's ``_resolve_compile_provider`` calls
     ``WinMLEPRegistry.instance().is_ep_available`` to reject EPs not
@@ -141,12 +141,12 @@ class TestCompileAutoDeviceEndToEnd:
         mock_result.total_time = 1.5
 
         # ``resolve_device`` is patched at compile.py's binding site so
-        # ``auto`` deterministically becomes ``npu``; ``resolve_eps`` is
+        # ``auto`` deterministically becomes ``npu``; available EP lookup is
         # already pinned by the module-level autouse fixture.
         with (
             patch(
                 "winml.modelkit.commands.compile.resolve_device",
-                return_value=EPDeviceTarget(ep="qnn", device="npu"),
+                return_value=EPDeviceTarget(ep="QNNExecutionProvider", device="npu"),
             ),
             patch("winml.modelkit.commands.compile.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.compiler.compile_onnx", return_value=mock_result),

@@ -180,11 +180,23 @@ class TestPerfModuleParameterForwarding:
         # hits the HF Hub.
         fake_loader_cfg = MagicMock()
         fake_loader_cfg.task = "fill-mask"
+        resolved_target = EPDeviceTarget(
+            ep="QNNExecutionProvider",
+            device="npu",
+            source="pypi",
+        )
+        resolved_ep_device = MagicMock(name="resolved_ep_device")
+        fake_registry = MagicMock()
+        fake_registry.auto_device.return_value = resolved_ep_device
 
         with (
             patch(
                 "winml.modelkit.session.resolve_device",
-                return_value=EPDeviceTarget(ep="qnn", device="npu"),
+                return_value=resolved_target,
+            ),
+            patch(
+                "winml.modelkit.session.WinMLEPRegistry.instance",
+                return_value=fake_registry,
             ),
             patch(
                 "winml.modelkit.config.generate_hf_build_config",
@@ -219,7 +231,7 @@ class TestPerfModuleParameterForwarding:
                     "--device",
                     "npu",
                     "--ep",
-                    "qnn",
+                    "qnn@pypi",
                     "--iterations",
                     "1",
                     "--warmup",
@@ -233,16 +245,18 @@ class TestPerfModuleParameterForwarding:
 
         gen_kwargs = mock_gen.call_args.kwargs
         assert gen_kwargs["device"] == "npu"
-        assert gen_kwargs["ep"] == "qnn"
+        assert gen_kwargs["ep"] == "QNNExecutionProvider"
         assert gen_kwargs["precision"] == "auto"
 
         build_kwargs = mock_build.call_args.kwargs
-        assert build_kwargs["ep"] == "qnn"
+        assert build_kwargs["ep"] == "QNNExecutionProvider"
         assert build_kwargs["device"] == "npu"
 
+        fake_registry.auto_device.assert_called_once_with(resolved_target)
         session_kwargs = mock_session_cls.call_args.kwargs
-        assert session_kwargs["device"] == "npu"
-        assert session_kwargs["ep"] == "qnn"
+        assert session_kwargs["ep_device"] is resolved_ep_device
+        assert "device" not in session_kwargs
+        assert "ep" not in session_kwargs
 
     def test_running_model_path_in_module_result(self, tmp_path: Path) -> None:
         """A completed module benchmark records running_model_path in its
@@ -273,7 +287,12 @@ class TestPerfModuleParameterForwarding:
 
         running_model_path = tmp_path / "model_cpu_ctx.onnx"
         fake_session = MagicMock()
-        fake_session.perf.return_value.__enter__.return_value = fake_stats
+        # WinMLSession.perf yields a PerfContext exposing ``.stats``, so the
+        # benchmark reads ``ctx.stats`` — mirror that shape rather than yielding
+        # the PerfStats directly.
+        fake_ctx = MagicMock()
+        fake_ctx.stats = fake_stats
+        fake_session.perf.return_value.__enter__.return_value = fake_ctx
         fake_session.running_model_path = running_model_path
 
         fake_loader_cfg = MagicMock()
@@ -362,7 +381,10 @@ class TestPerfModuleMonitor:
         fake_stats.samples_ms = [1.0, 1.0]
 
         fake_session = MagicMock()
-        fake_session.perf.return_value.__enter__.return_value = fake_stats
+        # PerfContext-shaped yield: the benchmark reads ``ctx.stats``.
+        fake_ctx = MagicMock()
+        fake_ctx.stats = fake_stats
+        fake_session.perf.return_value.__enter__.return_value = fake_ctx
         fake_session.running_model_path = tmp_path / "model_cpu_ctx.onnx"
 
         fake_loader_cfg = MagicMock()

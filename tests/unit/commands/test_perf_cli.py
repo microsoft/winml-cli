@@ -340,9 +340,8 @@ class TestPerfUnifiedPipeline:
 
         with (
             patch(
-                "winml.modelkit.commands.perf._run_onnx_benchmark",
-                return_value=(MagicMock(), MagicMock()),
-            ) as mock_run,
+                "winml.modelkit.commands.perf.PerfBenchmark",
+            ) as mock_perf_cls,
             patch(
                 "winml.modelkit.commands.perf.display_console_report",
             ),
@@ -350,6 +349,7 @@ class TestPerfUnifiedPipeline:
                 "winml.modelkit.commands.perf.write_json_report",
             ),
         ):
+            mock_perf_cls.return_value.run.return_value = MagicMock()
             result = runner.invoke(
                 perf,
                 ["-m", str(onnx_file), "-o", str(tmp_path / "out.json")],
@@ -357,7 +357,7 @@ class TestPerfUnifiedPipeline:
             )
 
         assert result.exit_code == 0, result.output
-        mock_run.assert_called_once()
+        mock_perf_cls.assert_called_once()
 
     def test_cli_onnx_preserves_shape_config(self, runner: CliRunner, tmp_path: Path) -> None:
         """ONNX input with --shape-config keeps the override for dummy inputs.
@@ -751,10 +751,28 @@ class TestPerfUnifiedPipeline:
         )
         benchmark = PerfBenchmark(config)
 
-        with patch(
-            "winml.modelkit.models.auto.WinMLAutoModel.from_onnx",
-            return_value=MagicMock(),
-        ) as mock_from_onnx:
+        # The autouse fixture pins a static CPU device/registry so hardware
+        # detection never runs. Override both locally so an explicit --ep qnn
+        # resolves to a QNN ep_device (the fixture's CPU stub would otherwise
+        # mask the EP threading this test guards).
+        from winml.modelkit.session import EPDeviceTarget
+
+        fake_qnn_ep_device = MagicMock()
+        fake_qnn_ep_device.device.ep_name = "QNNExecutionProvider"
+        fake_qnn_ep_device.device.device_type = "NPU"
+
+        with (
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="QNNExecutionProvider", device="npu"),
+            ),
+            patch("winml.modelkit.session.WinMLEPRegistry") as mock_reg,
+            patch(
+                "winml.modelkit.models.auto.WinMLAutoModel.from_onnx",
+                return_value=MagicMock(),
+            ) as mock_from_onnx,
+        ):
+            mock_reg.instance.return_value.auto_device.return_value = fake_qnn_ep_device
             benchmark._load_model()
 
         kwargs = mock_from_onnx.call_args.kwargs

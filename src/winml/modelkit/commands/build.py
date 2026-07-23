@@ -819,7 +819,7 @@ def build(
     quant: bool,
     no_compile: bool | None,
     optimize: bool,
-    ep: EPNameOrAlias | None,
+    ep: tuple[str, str | None] | None,
     device: str,
     precision: str,
     export_type: str,
@@ -895,9 +895,9 @@ def build(
     # at the click boundary (the parameter's declared alias type does not capture
     # the raw click shape). _reject_ep_source collapses it back to the bare EP
     # short-name the downstream pipeline expects.
-    ep = cast(
+    ep_value = cast(
         "EPNameOrAlias | None",
-        _reject_ep_source(cast("tuple[str, str | None] | None", ep), "winml build"),
+        _reject_ep_source(ep, "winml build"),
     )
 
     # Validate mutual exclusion
@@ -931,22 +931,19 @@ def build(
         dynamic_axes=dynamic_axes,
     )
 
-    # If ep unspecified, resolve the target device only. EP selection is left
-    # to downstream generate_build_config -> resolve_precision, which derives
-    # the default EP from the concrete device (avoids the canonical-vs-alias
-    # domain-mismatch that used to bite here — see the composite-build fix
-    # in 25923f26/3b3aaa84 for context).
-    if ep is None:
+    # Resolve an omitted EP and the requested device as one target. Forwarding
+    # both concrete axes keeps analyzer/build output aligned with the target
+    # selected by the catalog-backed resolver.
+    if ep_value is None:
         from ..session import EPDeviceTarget, resolve_device
 
         try:
-            resolved_device = resolve_device(
-                EPDeviceTarget(ep="auto", device=device)
-            ).device
+            resolved_target = resolve_device(EPDeviceTarget(ep="auto", device=device))
         except ValueError as e:
             raise click.UsageError(str(e)) from e
-        device = resolved_device
-        logger.info("Auto-resolved device=%s (EP left to downstream default)", resolved_device)
+        device = resolved_target.device
+        ep_value = cast("EPNameOrAlias", resolved_target.ep)
+        logger.info("Auto-resolved device=%s, EP=%s", device, ep_value)
 
     try:
         # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
@@ -1016,7 +1013,7 @@ def build(
                     onnx_path=model,
                     device=device,
                     precision=precision,
-                    ep=ep,
+                    ep=ep_value,
                 )
             else:
                 config_or_configs = generate_build_config(
@@ -1024,7 +1021,7 @@ def build(
                     trust_remote_code=trust_remote_code,
                     device=device,
                     precision=precision,
-                    ep=ep,
+                    ep=ep_value,
                     shape_config=shape_overrides,
                     override={"export": export_overrides} if export_overrides else None,
                 )
@@ -1046,7 +1043,7 @@ def build(
                 from ..config import resolve_quant_compile_config
 
                 resolved_quant, _ = resolve_quant_compile_config(
-                    device=device, precision=precision, ep=ep
+                    device=device, precision=precision, ep=ep_value
                 )
                 if cfg.skip_optimize or not quant or resolved_quant is None:
                     cfg.quant = None
@@ -1144,7 +1141,7 @@ def build(
             output_dir=output_dir,
             use_cache=use_cache,
             device=device,
-            ep=ep,
+            ep=ep_value,
             precision=precision,
             rebuild=rebuild,
             submodel=submodel,
@@ -1191,7 +1188,7 @@ def build(
                 configs=configs,
                 output_dir=resolved_dir,
                 rebuild=rebuild,
-                ep=ep,
+                ep=ep_value,
                 device=device,
                 allow_unsupported_nodes=allow_unsupported_nodes,
             )
@@ -1339,7 +1336,7 @@ def build(
                             trust_remote_code=trust_remote_code,
                             device=device,
                             precision=precision,
-                            ep=ep,
+                            ep=ep_value,
                             shape_config=shape_overrides,
                             override={"export": export_overrides} if export_overrides else None,
                         )
@@ -1400,7 +1397,7 @@ def build(
                             resolved_dir=resolved_dir,
                             rebuild=rebuild,
                             cache_key=name,
-                            ep=ep,
+                            ep=ep_value,
                             device=device,
                             extra_kwargs=dict(extra_kwargs),
                             preloaded_hf_config=preloaded_hf_config,
@@ -1418,7 +1415,7 @@ def build(
                     resolved_dir=resolved_dir,
                     rebuild=rebuild,
                     cache_key=cache_key,
-                    ep=ep,
+                    ep=ep_value,
                     device=device,
                     extra_kwargs=extra_kwargs,
                     preloaded_hf_config=preloaded_hf_config,
