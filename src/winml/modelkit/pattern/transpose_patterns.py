@@ -403,6 +403,9 @@ class _ReshapeTransposeReshapeInputGeneratorBase(PatternInputGenerator):
         perm = item["attr_perm"]
         item["transpose_dim"] = len(transpose_shape)
         item["output_dim"] = len(item["attr_output_shape"])
+        # The trailing channel dimension is a key attention-style layout signal
+        # and remains finite under the enumerated test cases.
+        item["transpose_last_dim"] = int(transpose_shape[-1])
         merged_shape, _ = _compute_merged_transpose(transpose_shape, perm)
         item["merged_transpose_dim"] = len(merged_shape)
         return item
