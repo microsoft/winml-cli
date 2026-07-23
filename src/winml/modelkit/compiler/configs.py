@@ -154,8 +154,6 @@ class WinMLCompileConfig:
         if provider is None:
             return None
         canonical = normalize_ep_name(provider)
-        if canonical is None:
-            return None
         factories: dict[EPName, Callable[[], WinMLCompileConfig]] = {
             "QNNExecutionProvider": lambda: cls.for_qnn(device=device),
             "DmlExecutionProvider": cls.for_dml,

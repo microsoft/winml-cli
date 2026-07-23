@@ -831,7 +831,7 @@ class WinMLCatalogSource(EPSource):
     Args:
         catalog_name: The provider name reported by the WinAppSDK
             catalog (e.g. ``"VitisAI"``, ``"QNN"``, ``"OpenVINO"``,
-            ``"MIGraphX"``, ``"NvTensorRtRtx"``).
+            ``"MIGraphX"``, ``"NvTensorRTRTX"``).
         eps: Canonical EP names this source provides. Typically a single
             name, but listed as a tuple for symmetry with the other
             sources.
@@ -1277,7 +1277,7 @@ def _default_ep_sources() -> list[EPSource]:
     The ``NuGetSource`` rows are also live: they yield nothing silently
     when the relevant package is not in ``~/.nuget/packages``. Only EPs
     with a verified NuGet plugin-style package have rows here; vendors
-    that ship only via PyPI / installer / MSIX (VitisAI, NvTensorRtRtx,
+    that ship only via PyPI / installer / MSIX (VitisAI, NvTensorRTRTX,
     MIGraphX as of 2026-05) are intentionally absent.
     """
     return [
@@ -1307,7 +1307,7 @@ def _default_ep_sources() -> list[EPSource]:
         #    machine has restored them into ``~/.nuget/packages``. Vendors
         #    we have NuGet rows for are limited to those with a public
         #    plugin-style package on nuget.org as of 2026-05; VitisAI,
-        #    NvTensorRtRtx and MIGraphX have no canonical NuGet plugin
+        #    NvTensorRTRTX and MIGraphX have no canonical NuGet plugin
         #    package and are intentionally absent here. (See Phase 1
         #    research notes in the feat/update-pkg-deps PR.)
         NuGetSource(

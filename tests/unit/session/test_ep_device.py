@@ -723,7 +723,7 @@ def test_default_ep_for_device_skips_l2_incompatible_for_gpu() -> None:
     Simulates a non-Intel/non-Nvidia GPU box: DML and QNN are registered
     but vendor-incompatible; OpenVINO is L2-compatible. The next compatible
     GPU EP per EP_DEVICE_SPECS precedence (DML, QNN-secondary, OpenVINO,
-    MIGraphX, Tensorrt, NvTensorRtRtx) is OpenVINO.
+    MIGraphX, Tensorrt, NvTensorRTRTX) is OpenVINO.
     """
     import contextlib
 

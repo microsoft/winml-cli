@@ -53,9 +53,7 @@ class _RecordingSessionOptions:
 
     calls: list[tuple[list[_FakeEpDevice], dict]] = field(default_factory=list)
 
-    def add_provider_for_devices(
-        self, ep_devices: list[_FakeEpDevice], options: dict
-    ) -> None:
+    def add_provider_for_devices(self, ep_devices: list[_FakeEpDevice], options: dict) -> None:
         self.calls.append((list(ep_devices), dict(options)))
 
 
@@ -67,55 +65,38 @@ class _RecordingSessionOptions:
 class TestAddEpForDeviceExactMatch:
     """``add_ep_for_device`` is exact-match by canonical EP name (no aliasing)."""
 
-    def test_camelcase_input_binds(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # Callers pass the canonical camelCase spelling that ORT registers
-        # under (e.g. ``NvTensorRtRtxExecutionProvider``).
+    def test_canonical_input_binds(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Callers pass the exact canonical spelling that ORT registers.
         gpu = _FakeDevice(type=ort.OrtHardwareDeviceType.GPU)
-        registered = _FakeEpDevice(
-            ep_name="NvTensorRtRtxExecutionProvider", device=gpu
-        )
+        registered = _FakeEpDevice(ep_name="NvTensorRTRTXExecutionProvider", device=gpu)
         monkeypatch.setattr(ort, "get_ep_devices", lambda: [registered])
 
         opts = _RecordingSessionOptions()
 
-        add_ep_for_device(
-            opts, "NvTensorRtRtxExecutionProvider", ort.OrtHardwareDeviceType.GPU
-        )
+        add_ep_for_device(opts, "NvTensorRTRTXExecutionProvider", ort.OrtHardwareDeviceType.GPU)
 
         assert len(opts.calls) == 1
         bound_devices, bound_options = opts.calls[0]
         assert bound_devices == [registered]
         assert bound_options == {}
 
-    def test_device_type_mismatch_does_not_bind(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_device_type_mismatch_does_not_bind(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Device-type guard: a GPU EP asked for on the NPU does not bind
         # even when the EP-name string is canonical.
         gpu = _FakeDevice(type=ort.OrtHardwareDeviceType.GPU)
-        registered = _FakeEpDevice(
-            ep_name="NvTensorRtRtxExecutionProvider", device=gpu
-        )
+        registered = _FakeEpDevice(ep_name="NvTensorRTRTXExecutionProvider", device=gpu)
         monkeypatch.setattr(ort, "get_ep_devices", lambda: [registered])
 
         opts = _RecordingSessionOptions()
 
-        add_ep_for_device(
-            opts, "NvTensorRtRtxExecutionProvider", ort.OrtHardwareDeviceType.NPU
-        )
+        add_ep_for_device(opts, "NvTensorRTRTXExecutionProvider", ort.OrtHardwareDeviceType.NPU)
 
         assert opts.calls == []
 
-    def test_ep_options_are_forwarded(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_ep_options_are_forwarded(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # ep_options dict reaches add_provider_for_devices unchanged.
         gpu = _FakeDevice(type=ort.OrtHardwareDeviceType.GPU)
-        registered = _FakeEpDevice(
-            ep_name="NvTensorRtRtxExecutionProvider", device=gpu
-        )
+        registered = _FakeEpDevice(ep_name="NvTensorRTRTXExecutionProvider", device=gpu)
         monkeypatch.setattr(ort, "get_ep_devices", lambda: [registered])
 
         opts = _RecordingSessionOptions()
@@ -123,7 +104,7 @@ class TestAddEpForDeviceExactMatch:
 
         add_ep_for_device(
             opts,
-            "NvTensorRtRtxExecutionProvider",
+            "NvTensorRTRTXExecutionProvider",
             ort.OrtHardwareDeviceType.GPU,
             ep_options=ep_options,
         )
@@ -132,22 +113,16 @@ class TestAddEpForDeviceExactMatch:
         _, bound_options = opts.calls[0]
         assert bound_options == ep_options
 
-    def test_unknown_ep_name_does_not_bind_silently(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_unknown_ep_name_does_not_bind_silently(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Defensive default: an unknown EP name (typo, unsupported EP)
         # is NOT rewritten by the alias table — it falls through to ORT
         # and simply fails to match.
         gpu = _FakeDevice(type=ort.OrtHardwareDeviceType.GPU)
-        registered = _FakeEpDevice(
-            ep_name="NvTensorRtRtxExecutionProvider", device=gpu
-        )
+        registered = _FakeEpDevice(ep_name="NvTensorRTRTXExecutionProvider", device=gpu)
         monkeypatch.setattr(ort, "get_ep_devices", lambda: [registered])
 
         opts = _RecordingSessionOptions()
 
-        add_ep_for_device(
-            opts, "TotallyMadeUpExecutionProvider", ort.OrtHardwareDeviceType.GPU
-        )
+        add_ep_for_device(opts, "TotallyMadeUpExecutionProvider", ort.OrtHardwareDeviceType.GPU)
 
         assert opts.calls == []

@@ -79,7 +79,4 @@ def load_hf_config(
         if not candidates:
             raise
 
-        return cast(
-            "PretrainedConfig",
-            CONFIG_MAPPING[candidates[0]].from_dict(config_dict, **unused_kwargs),
-        )
+        return CONFIG_MAPPING[candidates[0]].from_dict(config_dict, **unused_kwargs)

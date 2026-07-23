@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, TypeAlias, cast, get_args
+from typing import Literal, TypeAlias, cast, get_args, overload
 
 
 # Canonical ORT execution provider full names (the `*ExecutionProvider` symbols).
@@ -84,7 +84,19 @@ EP_ALIAS_NAMES: tuple[EPAlias, ...] = get_args(EPAlias)
 ALL_EP_NAMES = list(SUPPORTED_EPS) + list(EP_ALIASES.keys())
 
 
-def normalize_ep_name(ep: EPNameOrAlias | None) -> EPName | None:
+@overload
+def normalize_ep_name(ep: None) -> None: ...
+
+
+@overload
+def normalize_ep_name(ep: EPNameOrAlias) -> EPName: ...
+
+
+@overload
+def normalize_ep_name(ep: str) -> str: ...
+
+
+def normalize_ep_name(ep: str | None) -> str | None:
     """Normalize EP name from shorthand to full name.
 
     Converts EP aliases to their full names (case-insensitive).
@@ -119,10 +131,9 @@ def normalize_ep_name(ep: EPNameOrAlias | None) -> EPName | None:
     if canonical is not None:
         return canonical
 
-    # Return as-is if not found (let validation catch invalid names).
-    # The value isn't in ``EPName`` at runtime; the annotation is a best-effort
-    # promise for downstream consumers, who handle the unknown case explicitly.
-    return ep  # type: ignore[return-value]
+    # Return as-is if not found so downstream consumers can report their
+    # context-specific validation error.
+    return ep
 
 
 def extract_ep_options(kwargs: dict) -> dict[str, str]:
@@ -152,12 +163,13 @@ def extract_ep_options(kwargs: dict) -> dict[str, str]:
     return ep_options
 
 
-# Supported device types
-SUPPORTED_DEVICES = [
-    "CPU",
-    "GPU",
-    "NPU",
-]
+# Device priority is shared by auto-selection and hardware monitoring.
+DeviceType = Literal["npu", "gpu", "cpu"]
+DEVICE_PRIORITY = cast("tuple[DeviceType, ...]", get_args(DeviceType))
+ACCELERATOR_DEVICE_TYPES = DEVICE_PRIORITY[:-1]
+
+# Legacy uppercase form used by model metadata and CLI output.
+SUPPORTED_DEVICES = [device.upper() for device in reversed(DEVICE_PRIORITY)]
 
 # EP -> ordered tuple of supported devices (lowercase). The FIRST element is
 # the canonical default device when only ``--ep`` is provided. Single source
@@ -169,7 +181,7 @@ SUPPORTED_DEVICES = [
 # (Nvidia -> AMD -> Qualcomm -> Intel -> Microsoft -> CPU -> Vitis), so the
 # keys are listed in that order rather than alphabetically.
 # VitisAI is placed last because it is not yet fully supported.
-EP_SUPPORTED_DEVICES: dict[EPName, tuple[str, ...]] = {
+EP_SUPPORTED_DEVICES: dict[EPName, tuple[DeviceType, ...]] = {
     "NvTensorRTRTXExecutionProvider": ("gpu",),
     "CUDAExecutionProvider": ("gpu",),
     "MIGraphXExecutionProvider": ("gpu",),

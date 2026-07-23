@@ -7,13 +7,12 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from ...utils.constants import EPNameOrAlias
     from ..models.ihv_type import IHVType
 
 
@@ -64,8 +63,8 @@ def infer_ihv_from_ep_name(ep_name: str) -> IHVType:
         "DmlExecutionProvider": IHVType.MICROSOFT,
     }
 
-    canonical = normalize_ep_name(cast("EPNameOrAlias", ep_name))
-    return ep_name_to_ihv.get(canonical, IHVType.UNKNOWN)  # type: ignore[arg-type]
+    canonical = normalize_ep_name(ep_name)
+    return ep_name_to_ihv.get(canonical, IHVType.UNKNOWN)
 
 
 def get_devices_with_rule_data(ep_name: str) -> list[str]:

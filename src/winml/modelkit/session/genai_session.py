@@ -54,7 +54,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from ..ep_path import BuiltinSource
+from ..ep_path import EP_CATALOG, BuiltinSource
 from ..utils.constants import (
     EP_NAMES,
     EP_SUPPORTED_DEVICES,
@@ -1749,7 +1749,7 @@ class GenaiSession:
 
     @staticmethod
     def _bundle_uses_hardware_ep(cfg: dict[str, Any]) -> str | None:
-        """Return the first non-CPU/DML EP name found, or ``None``.
+        """Return the first EP that requires plugin registration, or ``None``.
 
         WinML EP discovery/registration is only required when the bundle's
         ``genai_config.json`` assigns at least one pipeline stage to a hardware
@@ -1763,7 +1763,6 @@ class GenaiSession:
         2. **Flat decoder** - ``model.decoder.session_options`` (no ``pipeline``
            wrapper, used by e.g. OpenVINO exports).
         """
-        skip_eps = frozenset({"cpu", "dml"})
 
         def _first_hw_ep(so: object) -> str | None:
             if not isinstance(so, dict):
@@ -1772,8 +1771,13 @@ class GenaiSession:
                 if not isinstance(entry, dict):
                     continue
                 for name in entry:
-                    if str(name).lower() not in skip_eps:
-                        return str(name)
+                    provider_name = str(name)
+                    canonical = normalize_ep_name(provider_name)
+                    if (
+                        canonical not in EP_CATALOG.all_eps()
+                        or EP_CATALOG.dll_name_for(canonical) is not None
+                    ):
+                        return provider_name
             return None
 
         decoder = cfg.get("model", {}).get("decoder", {})

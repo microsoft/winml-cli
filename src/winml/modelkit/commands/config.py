@@ -25,19 +25,12 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any
 
 import click
 
 from ..session import VALID_DEVICES
 from ..utils import cli as cli_utils
-from ..utils.logging import configure_logging
-from ..utils.model_input import ModelInputKind, classify_model_input
-
-
-if TYPE_CHECKING:
-    from ..utils.constants import EPNameOrAlias
-
 from ..utils.console import (
     get_console,
     print_command_header,
@@ -47,6 +40,8 @@ from ..utils.console import (
     print_kv,
     print_success,
 )
+from ..utils.logging import configure_logging
+from ..utils.model_input import ModelInputKind, classify_model_input
 from ._ep_arg import EpAtSourceParamType
 
 
@@ -559,7 +554,7 @@ def config(
             if ep_name:
                 from ..utils.constants import normalize_ep_name
 
-                _ep_full = normalize_ep_name(cast("EPNameOrAlias", ep_name)) or ep_name
+                _ep_full = normalize_ep_name(ep_name)
                 console.print(f"      EP:         [cyan]{_ep_full}[/cyan]")
 
             # Quant types — display exactly what config contains

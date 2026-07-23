@@ -422,7 +422,7 @@ class WinMLAutoModel:
                 return composite_cls.from_pretrained(
                     model_id,
                     task,
-                    device=cast("WinMLEPDevice", ep_device).device.device_type.lower(),
+                    device=ep_device.device.device_type.lower(),
                     ep_device=ep_device,
                     use_cache=use_cache,
                     force_rebuild=force_rebuild,

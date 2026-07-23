@@ -35,7 +35,6 @@ from ...utils.constants import normalize_ep_name
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from ...utils.constants import EPNameOrAlias
     from .base import WinMLPreTrainedModel
     from .composite_model import WinMLCompositeModel
 
@@ -295,8 +294,8 @@ def build_genai_bundle(
     transformer_precision = (
         transformer.precision if pinned_by_finalizer else (precision or transformer.precision)
     )
-    transformer_ep = normalize_ep_name(cast("EPNameOrAlias", ep)) or ep
-    companion_ep = normalize_ep_name("cpu") or "cpu"
+    transformer_ep = normalize_ep_name(ep)
+    companion_ep = normalize_ep_name("cpu")
 
     from ..auto import WinMLAutoModel
 

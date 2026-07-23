@@ -29,6 +29,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
+from ...utils.constants import ACCELERATOR_DEVICE_TYPES, DEVICE_PRIORITY
+
 
 if TYPE_CHECKING:
     from ...utils.constants import EPName
@@ -50,7 +52,7 @@ from ...sysinfo.pdh_adapters import (  # noqa: E402
 
 
 # Device kind for hardware monitoring. "auto" probes NPU first, then GPU.
-_DEVICE_KINDS = ("npu", "gpu", "cpu", "auto")
+_DEVICE_KINDS = (*DEVICE_PRIORITY, "auto")
 
 
 # ---------------------------------------------------------------------------
@@ -508,7 +510,7 @@ class PdhPoller:
             # build_adapter_query raises ValueError; we degrade to CPU/RAM
             # rather than failing the whole monitor.
             self._query = None
-            if self._adapter_luid is not None and self._device_kind in ("npu", "gpu"):
+            if self._adapter_luid is not None and self._device_kind in ACCELERATOR_DEVICE_TYPES:
                 try:
                     if self._device_kind == "npu":
                         self._query = build_npu_query(self._adapter_luid)
@@ -525,7 +527,7 @@ class PdhPoller:
                     self._device_kind = None
 
             if self._query is None:
-                if self._requested_device in ("npu", "gpu"):
+                if self._requested_device in ACCELERATOR_DEVICE_TYPES:
                     logger.info(
                         "%s not found via PDH; monitoring CPU/RAM only",
                         self._requested_device.upper(),
@@ -627,9 +629,7 @@ class PdhPoller:
                 # Don't sum — that would exceed 100% and duplicate what the
                 # additive running-time delta already measures.
                 util_vals = [
-                    v
-                    for k, v in values.items()
-                    if k.startswith("util_") and v is not None
+                    v for k, v in values.items() if k.startswith("util_") and v is not None
                 ]
                 util = max(util_vals) if util_vals else None
                 mem_local = values.get("memory_local_bytes")

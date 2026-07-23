@@ -128,14 +128,12 @@ class TestPublicAPI:
             "QNNExecutionProvider",
             "VitisAIExecutionProvider",
             "MIGraphXExecutionProvider",
-            "NvTensorRtRtxExecutionProvider",
+            "NvTensorRTRTXExecutionProvider",
         }
 
-    def test_ep_catalog_uses_camelcase_for_nvidia(self) -> None:
-        # The canonical key follows MS Learn (camelCase). NVIDIA's
-        # PascalCase 'NvTensorRTRTX...' is the alias, not the canonical.
-        assert EP_CATALOG.dll_name_for("NvTensorRtRtxExecutionProvider") is not None
-        assert EP_CATALOG.dll_name_for("NvTensorRTRTXExecutionProvider") is None
+    def test_ep_catalog_uses_canonical_casing_for_nvidia(self) -> None:
+        assert EP_CATALOG.dll_name_for("NvTensorRTRTXExecutionProvider") is not None
+        assert EP_CATALOG.dll_name_for("NvTensorRtRtxExecutionProvider") is None
 
     def test_ep_path_is_a_list(self) -> None:
         sources = _default_ep_sources()

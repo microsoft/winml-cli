@@ -49,7 +49,7 @@ class TestVendorRequirementTable:
             "OpenVINOExecutionProvider",
             "VitisAIExecutionProvider",
             "MIGraphXExecutionProvider",
-            "NvTensorRtRtxExecutionProvider",
+            "NvTensorRTRTXExecutionProvider",
             "DmlExecutionProvider",
             "CPUExecutionProvider",
             "AzureExecutionProvider",
@@ -74,7 +74,7 @@ class TestVendorRequirementTable:
             "OpenVINOExecutionProvider",
             "VitisAIExecutionProvider",
             "MIGraphXExecutionProvider",
-            "NvTensorRtRtxExecutionProvider",
+            "NvTensorRTRTXExecutionProvider",
         ):
             entry: EPCatalog.Row = EP_CATALOG._by_name[ep]
             assert entry.vendor_requirements, f"{ep} must declare ≥1 vendor"
@@ -120,7 +120,7 @@ class TestEpIsCompatible:
         )
         assert EP_CATALOG.is_compatible("QNNExecutionProvider") is True
         assert EP_CATALOG.is_compatible("OpenVINOExecutionProvider") is False
-        assert EP_CATALOG.is_compatible("NvTensorRtRtxExecutionProvider") is False
+        assert EP_CATALOG.is_compatible("NvTensorRTRTXExecutionProvider") is False
 
     def test_intel_substring_match_case_insensitive(
         self, reset_vendor_cache: None, monkeypatch: pytest.MonkeyPatch
@@ -186,12 +186,8 @@ class TestGetDetectedVendors:
         npu.manufacturer = "Intel Corporation"
         npu.name = "Intel AI Boost"
 
-        monkeypatch.setattr(
-            "winml.modelkit.sysinfo.hardware.GPU.get_all", lambda: [gpu]
-        )
-        monkeypatch.setattr(
-            "winml.modelkit.sysinfo.hardware.NPU.get_all", lambda: [npu]
-        )
+        monkeypatch.setattr("winml.modelkit.sysinfo.hardware.GPU.get_all", lambda: [gpu])
+        monkeypatch.setattr("winml.modelkit.sysinfo.hardware.NPU.get_all", lambda: [npu])
 
         result = _get_detected_vendors()
         assert "NVIDIA Corporation" in result
@@ -207,12 +203,8 @@ class TestGetDetectedVendors:
         gpu = MagicMock(spec=["manufacturer"])
         gpu.manufacturer = "AMD"
 
-        monkeypatch.setattr(
-            "winml.modelkit.sysinfo.hardware.GPU.get_all", lambda: [gpu]
-        )
-        monkeypatch.setattr(
-            "winml.modelkit.sysinfo.hardware.NPU.get_all", list
-        )
+        monkeypatch.setattr("winml.modelkit.sysinfo.hardware.GPU.get_all", lambda: [gpu])
+        monkeypatch.setattr("winml.modelkit.sysinfo.hardware.NPU.get_all", list)
 
         result = _get_detected_vendors()
         assert result == frozenset({"AMD"})
@@ -230,12 +222,8 @@ class TestGetDetectedVendors:
         def raise_wmi() -> list:
             raise RuntimeError("WMI down")
 
-        monkeypatch.setattr(
-            "winml.modelkit.sysinfo.hardware.GPU.get_all", raise_wmi
-        )
-        monkeypatch.setattr(
-            "winml.modelkit.sysinfo.hardware.NPU.get_all", lambda: [npu]
-        )
+        monkeypatch.setattr("winml.modelkit.sysinfo.hardware.GPU.get_all", raise_wmi)
+        monkeypatch.setattr("winml.modelkit.sysinfo.hardware.NPU.get_all", lambda: [npu])
 
         with pytest.raises(RuntimeError, match=r"GPU\.get_all"):
             _get_detected_vendors()
@@ -243,12 +231,8 @@ class TestGetDetectedVendors:
     def test_no_hardware_returns_empty(
         self, reset_vendor_cache: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(
-            "winml.modelkit.sysinfo.hardware.GPU.get_all", list
-        )
-        monkeypatch.setattr(
-            "winml.modelkit.sysinfo.hardware.NPU.get_all", list
-        )
+        monkeypatch.setattr("winml.modelkit.sysinfo.hardware.GPU.get_all", list)
+        monkeypatch.setattr("winml.modelkit.sysinfo.hardware.NPU.get_all", list)
         assert _get_detected_vendors() == frozenset()
 
 
@@ -310,8 +294,8 @@ class TestSourceIsCompatible:
             lambda: frozenset({"NVIDIA Corp"}),
         )
         src = WinMLCatalogSource(
-            catalog_name="NvTensorRtRtxExecutionProvider",
-            eps=("NvTensorRtRtxExecutionProvider",),
+            catalog_name="NvTensorRTRTXExecutionProvider",
+            eps=("NvTensorRTRTXExecutionProvider",),
         )
         assert src.is_compatible() is True
 

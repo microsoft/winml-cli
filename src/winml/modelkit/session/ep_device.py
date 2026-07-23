@@ -38,7 +38,7 @@ from typing import Any, Final, NamedTuple, cast
 
 import onnxruntime as ort
 
-from ..utils.constants import EP_ALIASES, EP_NAMES, normalize_ep_name
+from ..utils.constants import DEVICE_PRIORITY, EP_ALIASES, EP_NAMES, normalize_ep_name
 
 
 logger = logging.getLogger(__name__)
@@ -241,7 +241,7 @@ def ep_short_or_none(ep_full: str) -> str | None:
 # - known_ep_short_names(): derived from EP_ALIASES (no hardcoded list,
 #   per CLAUDE.md cardinal rule #1).
 
-VALID_DEVICES: Final[frozenset[str]] = frozenset({"npu", "gpu", "cpu"})
+VALID_DEVICES: Final[frozenset[str]] = frozenset(DEVICE_PRIORITY)
 
 VALID_SOURCE_TAGS: Final[frozenset[str]] = frozenset(
     {
@@ -370,7 +370,7 @@ EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
     #
     # Within each device group ordering is:
     #   npu:  QNN → OpenVINO → VitisAI                          (no NPU built-in)
-    #   gpu:  OpenVINO → MIGraphX → Tensorrt → NvTensorRtRtx → QNN(2ary) → DML
+    #   gpu:  OpenVINO → MIGraphX → Tensorrt → NvTensorRTRTX → QNN(2ary) → DML
     #   cpu:  OpenVINO → QNN(2ary) → CPU
     # ---- Plugin EPs (vendor-optimal — preferred) ----
     EPDeviceSpec(

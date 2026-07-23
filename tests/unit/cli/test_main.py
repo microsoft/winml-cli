@@ -48,7 +48,7 @@ class TestCLIBasics:
         """Test --help shows usage information."""
         result = runner.invoke(main, ["--help"])
         assert result.exit_code == 0
-        assert "WML ModelKit" in result.output
+        assert "Windows ML" in result.output
         assert "export" in result.output.lower()
 
     def test_debug_flag(self, runner: CliRunner) -> None:

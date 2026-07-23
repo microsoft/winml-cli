@@ -120,9 +120,9 @@ def _schema_value_name(
 
     schema_values = schema.inputs if value_kind == "input" else schema.outputs
     if value_index < len(schema_values):
-        return cast("str", schema_values[value_index].name)
+        return schema_values[value_index].name
     if schema_values:
-        return cast("str", schema_values[-1].name)
+        return schema_values[-1].name
     return f"{value_kind}_{value_index}"
 
 
@@ -163,7 +163,7 @@ def _tensor_data_type_name(data_type: int) -> str:
     """Return the ONNX TensorProto datatype name for an enum value."""
     from onnx import TensorProto
 
-    return cast("str", TensorProto.DataType.Name(data_type))
+    return TensorProto.DataType.Name(data_type)
 
 
 def _serialize_attribute(attribute: Any) -> Any:

@@ -125,9 +125,7 @@ def _build_fake_binding(catalog: _FakeCatalog | Exception) -> dict[str, types.Mo
     ml.ExecutionProviderCatalog = _Catalog  # type: ignore[attr-defined]
 
     # winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap:
-    boot = types.ModuleType(
-        "winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap"
-    )
+    boot = types.ModuleType("winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap")
 
     class _Options:
         NONE = "NONE"
@@ -165,9 +163,7 @@ def _build_fake_binding(catalog: _FakeCatalog | Exception) -> dict[str, types.Mo
         if parent_name not in sys.modules:
             parents.append((parent_name, types.ModuleType(parent_name)))
 
-    boot_name = (
-        "winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap"
-    )
+    boot_name = "winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap"
     parts = boot_name.split(".")
     for i in range(1, len(parts)):
         parent_name = ".".join(parts[:i])
@@ -227,7 +223,7 @@ class TestDefaultEpPathIncludesCatalogEntries:
             "QNNExecutionProvider",
             "VitisAIExecutionProvider",
             "MIGraphXExecutionProvider",
-            "NvTensorRtRtxExecutionProvider",
+            "NvTensorRTRTXExecutionProvider",
         }
 
     def test_canonical_ep_names_match_design(self) -> None:
@@ -235,17 +231,14 @@ class TestDefaultEpPathIncludesCatalogEntries:
         # and those names must match the camelCase canonical keys used
         # in EP_CATALOG.
         ep_names_from_catalog = {
-            ep
-            for s in _default_ep_sources()
-            if isinstance(s, WinMLCatalogSource)
-            for ep in s.eps
+            ep for s in _default_ep_sources() if isinstance(s, WinMLCatalogSource) for ep in s.eps
         }
         assert ep_names_from_catalog == {
             "OpenVINOExecutionProvider",
             "QNNExecutionProvider",
             "VitisAIExecutionProvider",
             "MIGraphXExecutionProvider",
-            "NvTensorRtRtxExecutionProvider",
+            "NvTensorRTRTXExecutionProvider",
         }
 
     def test_pypi_sources_precede_catalog_entries(self) -> None:
@@ -257,9 +250,7 @@ class TestDefaultEpPathIncludesCatalogEntries:
         first_catalog_idx = next(
             i for i, s in enumerate(sources) if isinstance(s, WinMLCatalogSource)
         )
-        pypi_indices = [
-            i for i, s in enumerate(sources) if isinstance(s, PyPISource)
-        ]
+        pypi_indices = [i for i, s in enumerate(sources) if isinstance(s, PyPISource)]
         assert pypi_indices, "default EP source list must include PyPISource rows"
         assert max(pypi_indices) < first_catalog_idx
 
@@ -282,25 +273,15 @@ class TestBindingMissing:
         # ``None`` in sys.modules. Python's import machinery treats a
         # ``None`` entry in sys.modules as "module is known to be
         # unimportable" and raises ImportError on import.
-        monkeypatch.setitem(
-            sys.modules, "winui3.microsoft.windows.ai.machinelearning", None
-        )
-        source = WinMLCatalogSource(
-            catalog_name="VitisAI", eps=("VitisAIExecutionProvider",)
-        )
+        monkeypatch.setitem(sys.modules, "winui3.microsoft.windows.ai.machinelearning", None)
+        source = WinMLCatalogSource(catalog_name="VitisAI", eps=("VitisAIExecutionProvider",))
         with caplog.at_level(logging.DEBUG, logger="winml.modelkit.ep_path"):
             assert list(source.resolve()) == []
         # DEBUG-once semantics: the failure was logged at DEBUG level,
         # not WARN.
-        debug_messages = [
-            r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG
-        ]
-        assert any(
-            "WinAppSDK ML Python binding not installed" in m for m in debug_messages
-        )
-        warn_messages = [
-            r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING
-        ]
+        debug_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
+        assert any("WinAppSDK ML Python binding not installed" in m for m in debug_messages)
+        warn_messages = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
         assert not warn_messages
 
     def test_subsequent_resolves_do_not_reattempt_import(
@@ -309,9 +290,7 @@ class TestBindingMissing:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        monkeypatch.setitem(
-            sys.modules, "winui3.microsoft.windows.ai.machinelearning", None
-        )
+        monkeypatch.setitem(sys.modules, "winui3.microsoft.windows.ai.machinelearning", None)
         s1 = WinMLCatalogSource(catalog_name="VitisAI", eps=("VitisAIExecutionProvider",))
         s2 = WinMLCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))
         with caplog.at_level(logging.DEBUG, logger="winml.modelkit.ep_path"):
@@ -360,9 +339,7 @@ class TestWithFakeCatalog:
         )
         self._install_binding(monkeypatch, catalog)
 
-        source = WinMLCatalogSource(
-            catalog_name="VitisAI", eps=("VitisAIExecutionProvider",)
-        )
+        source = WinMLCatalogSource(catalog_name="VitisAI", eps=("VitisAIExecutionProvider",))
         results = list(source.resolve())
         assert len(results) == 1
         entry = results[0]
@@ -390,9 +367,7 @@ class TestWithFakeCatalog:
         )
         self._install_binding(monkeypatch, catalog)
 
-        source = WinMLCatalogSource(
-            catalog_name="VitisAI", eps=("VitisAIExecutionProvider",)
-        )
+        source = WinMLCatalogSource(catalog_name="VitisAI", eps=("VitisAIExecutionProvider",))
         # No provider with name "VitisAI" -> nothing yielded.
         assert list(source.resolve()) == []
 
@@ -412,9 +387,7 @@ class TestWithFakeCatalog:
         )
         self._install_binding(monkeypatch, catalog)
 
-        source = WinMLCatalogSource(
-            catalog_name="MIGraphX", eps=("MIGraphXExecutionProvider",)
-        )
+        source = WinMLCatalogSource(catalog_name="MIGraphX", eps=("MIGraphXExecutionProvider",))
         # NotPresent providers are skipped by default (auto_download=False).
         assert list(source.resolve()) == []
 
@@ -435,9 +408,7 @@ class TestWithFakeCatalog:
         )
         self._install_binding(monkeypatch, catalog)
 
-        source = WinMLCatalogSource(
-            catalog_name="QNN", eps=("QNNExecutionProvider",)
-        )
+        source = WinMLCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))
         assert list(source.resolve()) == []
 
     def test_non_success_status_warns_and_skips(
@@ -459,17 +430,11 @@ class TestWithFakeCatalog:
         )
         self._install_binding(monkeypatch, catalog)
 
-        source = WinMLCatalogSource(
-            catalog_name="VitisAI", eps=("VitisAIExecutionProvider",)
-        )
+        source = WinMLCatalogSource(catalog_name="VitisAI", eps=("VitisAIExecutionProvider",))
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
             assert list(source.resolve()) == []
-        warn_messages = [
-            r.getMessage() for r in caplog.records if r.levelno == logging.WARNING
-        ]
-        assert any(
-            "non-Success status" in m for m in warn_messages
-        ), warn_messages
+        warn_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("non-Success status" in m for m in warn_messages), warn_messages
 
     def test_ensure_ready_raises_warns_and_continues(
         self,
@@ -499,9 +464,7 @@ class TestWithFakeCatalog:
         )
         self._install_binding(monkeypatch, catalog)
 
-        source = WinMLCatalogSource(
-            catalog_name="OpenVINO", eps=("OpenVINOExecutionProvider",)
-        )
+        source = WinMLCatalogSource(catalog_name="OpenVINO", eps=("OpenVINOExecutionProvider",))
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
             results = list(source.resolve())
         # The good provider should still yield.
@@ -536,9 +499,7 @@ class TestWithFakeCatalog:
         source = WinMLCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
             assert list(source.resolve()) == []
-        warn_messages = [
-            r.getMessage() for r in caplog.records if r.levelno == logging.WARNING
-        ]
+        warn_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert any("find_all_providers" in m for m in warn_messages)
 
     def test_get_default_raises_yields_nothing(
@@ -551,9 +512,7 @@ class TestWithFakeCatalog:
         source = WinMLCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
             assert list(source.resolve()) == []
-        warn_messages = [
-            r.getMessage() for r in caplog.records if r.levelno == logging.WARNING
-        ]
+        warn_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert any("get_default" in m for m in warn_messages)
 
 
@@ -605,14 +564,10 @@ class TestAtexitCleanup:
         assert c2 is c1
         assert c3 is c1
         # Exactly one atexit registration.
-        cleanup_callbacks = [
-            r for r in registered if r[0] is _ep._release_winml_handle
-        ]
+        cleanup_callbacks = [r for r in registered if r[0] is _ep._release_winml_handle]
         assert len(cleanup_callbacks) == 1
 
-    def test_release_handle_swallows_exceptions(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_release_handle_swallows_exceptions(self, caplog: pytest.LogCaptureFixture) -> None:
         # Cleanup must not propagate exceptions during interpreter shutdown.
         class _BoomHandle:
             def __exit__(self, *args: Any) -> None:

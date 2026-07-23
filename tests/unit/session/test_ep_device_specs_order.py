@@ -132,7 +132,7 @@ def _mock_vendors(*vendors: str):
             ("MIGraphXExecutionProvider", "DmlExecutionProvider"),
             "MIGraphXExecutionProvider",
         ),
-        # NVIDIA host: NvTensorRtRtx wins on GPU.
+        # NVIDIA host: NvTensorRTRTX wins on GPU.
         (
             "NVIDIA Corporation",
             "gpu",

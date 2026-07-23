@@ -11,6 +11,7 @@ import logging
 
 from ..session import DEVICE_TYPE_TO_DEVICE
 from ..utils.constants import (
+    DEVICE_PRIORITY,
     EP_SUPPORTED_DEVICES,
     SUPPORTED_EPS,
     EPName,
@@ -48,12 +49,8 @@ for _ep, _devices in EP_SUPPORTED_DEVICES.items():
     for _d in _devices:
         _DEVICE_EP_MAP.setdefault(_d, []).append(_ep)
 
-# Device priority for auto-selection. Order is significant — NPU is the
-# preferred accelerator, CPU is the safe fallback. Use this whenever an
-# ordered device list is needed; ``_VALID_DEVICES`` (below) is only for
-# fast membership checks.
-_DEVICE_PRIORITY: tuple[str, ...] = ("npu", "gpu", "cpu")
-_VALID_DEVICES = frozenset(_DEVICE_PRIORITY)
+# Device priority is significant: NPU is preferred and CPU is the fallback.
+_VALID_DEVICES = frozenset(DEVICE_PRIORITY)
 
 
 # EPs that exist in ``onnxruntime.get_available_providers()`` but are not yet
@@ -128,7 +125,7 @@ def _get_available_devices() -> tuple[str, ...]:
         Tuple like ("npu", "gpu", "cpu") with only available devices.
     """
     device_ep_map = _get_device_ep_map_from_ort()
-    return tuple(d for d in _DEVICE_PRIORITY if d in device_ep_map)
+    return tuple(d for d in DEVICE_PRIORITY if d in device_ep_map)
 
 
 @functools.lru_cache(maxsize=1)
@@ -143,5 +140,3 @@ def _get_available_eps() -> frozenset[EPName]:
     ("EP X not available" while X appeared in the listed set).
     """
     return frozenset(ep for eps in _get_device_ep_map_from_ort().values() for ep in eps)
-
-

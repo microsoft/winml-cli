@@ -37,6 +37,8 @@ import textwrap
 
 import pytest
 
+from winml.modelkit.session import VALID_DEVICES, known_ep_short_names
+
 
 def _session_dir() -> pathlib.Path:
     """Absolute path to ``src/winml/modelkit/session/``."""
@@ -191,13 +193,18 @@ def test_detector_does_not_flag_allowed_forms(source: str) -> None:
 # re-building catalog data outside session/ep_device.py.
 # --------------------------------------------------------------------------
 
-_EP_SHORT_NAMES: frozenset[str] = frozenset(
-    {"qnn", "openvino", "vitisai", "migraphx", "dml", "tensorrt", "nv_tensorrt_rtx"}
-)
-_DEVICE_STRINGS: frozenset[str] = frozenset({"npu", "gpu", "cpu"})
-# ep_device.py and utils/cli.py are the only authorised homes for EP/device literals.
+_EP_SHORT_NAMES: frozenset[str] = frozenset(known_ep_short_names())
+_DEVICE_STRINGS: frozenset[str] = VALID_DEVICES
+# Catalog and CLI validation sources may contain EP/device literals.
 _INLINE_LITERAL_ALLOWLIST: frozenset[str] = frozenset(
-    {"ep_device.py", "cli.py", "conftest.py", "check_ops.py", "check_patterns.py"}
+    {
+        "ep_device.py",
+        "constants.py",
+        "cli.py",
+        "conftest.py",
+        "check_ops.py",
+        "check_patterns.py",
+    }
 )
 
 

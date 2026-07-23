@@ -21,13 +21,14 @@ optimum-onnx 0.2+ ships with transformers 5.x compatibility.
 from __future__ import annotations
 
 import sys
-from importlib.abc import MetaPathFinder
+from importlib.abc import Loader, MetaPathFinder
 from typing import TYPE_CHECKING, Any, cast
 
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from importlib.machinery import ModuleSpec
+    from types import ModuleType
 
 
 _installed = False
@@ -263,7 +264,7 @@ def _patch_model_patcher(module: Any) -> None:
     module.sdpa_mask_without_vmap = _sdpa_mask_without_vmap_tf5
 
 
-class _PatchModelPatcherLoader:
+class _PatchModelPatcherLoader(Loader):
     """Wraps model_patcher's real loader to apply the sdpa_mask_without_vmap patch.
 
     The patch is applied only once the module body has fully executed.
@@ -273,14 +274,14 @@ class _PatchModelPatcherLoader:
     the replacement.
     """
 
-    def __init__(self, wrapped: Any) -> None:
+    def __init__(self, wrapped: Loader) -> None:
         self._wrapped = wrapped
 
-    def create_module(self, spec: ModuleSpec) -> Any:
+    def create_module(self, spec: ModuleSpec) -> ModuleType | None:
         create_module = getattr(self._wrapped, "create_module", None)
         return create_module(spec) if create_module is not None else None
 
-    def exec_module(self, module: Any) -> None:
+    def exec_module(self, module: ModuleType) -> None:
         self._wrapped.exec_module(module)
         _patch_model_patcher(module)
 

@@ -135,7 +135,15 @@ class TestConfigOnnxAutoDetect:
             runner = CliRunner()
             result = runner.invoke(
                 config_command,
-                ["-m", str(onnx_file), "--device", "npu", "-o", str(output_file)],
+                [
+                    "-m",
+                    str(onnx_file),
+                    "--device",
+                    "npu",
+                    "--compile",
+                    "-o",
+                    str(output_file),
+                ],
             )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
@@ -145,38 +153,13 @@ class TestConfigOnnxAutoDetect:
         assert output_data["compile"] is not None
         assert output_data["compile"]["execution_provider"] == "qnn"
 
-    def test_config_onnx_suffix_not_exists_uses_hf(
-        self,
-        tmp_path,
-        mock_hf_config: MagicMock,
-        mock_model_class: MagicMock,
-        mock_loader_config: WinMLLoaderConfig,
-        mock_export_config: WinMLExportConfig,
-    ) -> None:
-        """An .onnx path that doesn't exist falls through to HF config generation."""
-        output_file = tmp_path / "result.json"
+    def test_config_onnx_suffix_not_exists_reports_missing_file(self) -> None:
+        """A nonexistent ONNX path reports a clear input error."""
+        runner = CliRunner()
+        result = runner.invoke(config_command, ["-m", "nonexistent.onnx"])
 
-        with (
-            patch(
-                "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
-            ),
-            patch(
-                "winml.modelkit.config.build._resolve_export_config_from_specs",
-                return_value=mock_export_config,
-            ),
-            patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
-        ):
-            runner = CliRunner()
-            result = runner.invoke(
-                config_command,
-                ["-m", "nonexistent.onnx", "-o", str(output_file)],
-            )
-
-        assert result.exit_code == 0, f"CLI failed: {result.output}"
-        output_data = json.loads(output_file.read_text())
-        # Should be HF config (export present)
-        assert output_data["export"] is not None
+        assert result.exit_code == 2
+        assert "ONNX file not found: nonexistent.onnx" in result.output
 
 
 # =============================================================================
@@ -706,8 +689,9 @@ class TestGenerateBuildConfigOnnxPath:
                 ep="migraphx",
             )
 
-        assert config.compile is not None
-        assert config.compile.ep_config.provider == "migraphx"
+        # MIGraphX does not support offline EPContext compilation. Forwarding
+        # the override prevents the GPU default (OpenVINO) from being selected.
+        assert config.compile is None
 
 
 # =============================================================================

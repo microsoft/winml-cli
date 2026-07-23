@@ -109,9 +109,7 @@ def resolve_genai_ep(device: str) -> EPNameOrAlias | None:
     # cpu/gpu support but their primary target is npu — when the user says
     # ``--device cpu`` or ``--device gpu`` they expect the native EP for that
     # device, not a cross-device accelerator that also happens to support it.
-    native = [
-        ep for ep in eps if EP_SUPPORTED_DEVICES[cast("EPName", ep)][0] == resolved_device
-    ]
+    native = [ep for ep in eps if EP_SUPPORTED_DEVICES[cast("EPName", ep)][0] == resolved_device]
     best = native[0] if native else eps[0]
     # short_ep_name returns a plain ``str``; the value is a canonical EP short
     # alias (a member of EPAlias) that GenaiSession accepts as an override.
@@ -342,8 +340,6 @@ class GenaiPerfBenchmark:
         if device and device not in ("config", "auto"):
             return device
         canonical = normalize_ep_name(ep)
-        if canonical is None:
-            return None
         devices = EP_SUPPORTED_DEVICES.get(canonical)
         return devices[0] if devices else None
 

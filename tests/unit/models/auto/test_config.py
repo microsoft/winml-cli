@@ -170,9 +170,7 @@ class TestWinMLCompileConfig:
         assert qnn_config is not None
         assert qnn_config.device == "qnn"
 
-        cpu_config = WinMLCompileConfig.for_provider("cpu")
-        assert cpu_config is not None
-        assert cpu_config.device == "cpu"
+        assert WinMLCompileConfig.for_provider("cpu") is None
 
 
 class TestWinMLConfig:
