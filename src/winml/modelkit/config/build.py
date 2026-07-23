@@ -880,6 +880,7 @@ def generate_hf_build_config(
     if policy.compile_provider is not None:
         parent_config.compile = WinMLCompileConfig.for_provider(
             cast("EPNameOrAlias", policy.compile_provider),
+            device=policy.device,
         )
     else:
         # Even in auto/auto mode, set compile provider from detected hardware
@@ -888,12 +889,10 @@ def generate_hf_build_config(
 
         _canonical = default_ep_for_device(resolved_device)
         hw_provider = ep_short_or_none(_canonical) if _canonical is not None else None
-        if hw_provider is not None:
-            parent_config.compile = WinMLCompileConfig.for_provider(
-                cast("EPNameOrAlias", hw_provider),
-            )
-        # When hw_provider is None (CPU-only), keep the default compile config
-        # so the pipeline still has a valid compile section.
+        parent_config.compile = WinMLCompileConfig.for_provider(
+            cast("EPNameOrAlias | None", hw_provider),
+            device=resolved_device,
+        )
 
     # no_compile overrides policy — applied last so it always wins
     if no_compile:

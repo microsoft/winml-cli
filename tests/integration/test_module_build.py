@@ -24,10 +24,6 @@ def mock_device_resolution() -> None:
             "winml.modelkit.session.resolve_device",
             return_value=EPDeviceTarget(ep="auto", device="cpu"),
         ),
-        patch(
-            "winml.modelkit.config.precision.resolve_eps",
-            return_value=["CPUExecutionProvider"],
-        ),
     ):
         yield
 

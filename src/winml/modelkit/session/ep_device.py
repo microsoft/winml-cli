@@ -196,6 +196,7 @@ _SHORT_TO_FULL: Final[dict[str, str]] = {
     "vitisai": "VitisAIExecutionProvider",
     "migraphx": "MIGraphXExecutionProvider",
     "nvtensorrtrtx": "NvTensorRTRTXExecutionProvider",
+    "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
     "tensorrt": "TensorrtExecutionProvider",
     "dml": "DmlExecutionProvider",
     "cpu": "CPUExecutionProvider",
@@ -203,22 +204,27 @@ _SHORT_TO_FULL: Final[dict[str, str]] = {
 
 
 def expand_ep_name(name: str) -> str:
-    """Expand a short EP name to its full form; passthrough if already full.
+    """Expand a short or canonical EP name to its canonical full form.
 
-    "xxx" is the short form of "xxxExecutionProvider" (case-folded for
-    lookup). Names that don't match a short alias are passed through
-    unchanged — downstream registration will fail loudly if the spelling
-    doesn't match ORT's canonical name.
+    Short aliases and canonical ORT provider names are matched
+    case-insensitively. Names outside the catalog pass through unchanged so
+    callers can report their own validation error.
     """
     full = _SHORT_TO_FULL.get(name.lower())
     if full is not None:
         return full
+    name_folded = name.casefold()
+    for canonical in _FULL_TO_SHORT:
+        if canonical.casefold() == name_folded:
+            return canonical
     return name
 
 
-# Inverse of _SHORT_TO_FULL — built lazily so any future additions to
-# _SHORT_TO_FULL are picked up automatically.
-_FULL_TO_SHORT: Final[dict[str, str]] = {v: k for k, v in _SHORT_TO_FULL.items()}
+# Inverse of _SHORT_TO_FULL. Reverse iteration preserves the first-declared
+# short name as canonical when public aliases share one provider.
+_FULL_TO_SHORT: Final[dict[str, str]] = {
+    full: short for short, full in reversed(tuple(_SHORT_TO_FULL.items()))
+}
 
 
 def short_ep_name(full: str) -> str:

@@ -256,9 +256,17 @@ def compile(
 
     # Import compiler (late import to speed up CLI)
     from ..compiler import WinMLCompileConfig, compile_multiple_onnx, compile_onnx
+    from ..session import expand_ep_name
 
     # Build config from the already-resolved EPDeviceTarget (ep_device is never None here).
     config = WinMLCompileConfig.for_ep_device(ep_device_resolved)
+    if config is None:
+        provider = expand_ep_name(ep_device_resolved.ep)
+        raise click.ClickException(
+            f"Provider '{provider}' does not support EPContext compilation. "
+            "Compile is only supported for providers that produce EPContext models "
+            "(e.g. qnn, openvino)."
+        )
 
     config.validate = validate
     config.verbose = bool(verbose)

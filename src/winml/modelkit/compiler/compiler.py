@@ -227,10 +227,6 @@ def compile_onnx(
             "model.onnx", "model_compiled.onnx", WinMLCompileConfig.for_provider("qnn"),
         )
 
-        # CPU compilation (no EPContext)
-        config = WinMLCompileConfig.for_provider("cpu")
-        result = compile_onnx("model.onnx", config=config)
-
         # Note: Quantization is handled by WinMLQuantizationConfig
         # in the quant module, not by the compiler. Use the build pipeline
         # (build_hf_model or build_onnx_model) for quantize+compile workflows.

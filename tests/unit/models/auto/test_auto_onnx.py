@@ -106,10 +106,6 @@ class TestFromOnnx:
                 "winml.modelkit.config.generate_onnx_build_config",
                 return_value=explicit_config,
             ),
-            patch(
-                "winml.modelkit.config.precision.resolve_eps",
-                return_value=["CPUExecutionProvider"],
-            ),
             patch("winml.modelkit.build.build_onnx_model") as mock_build,
             patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
         ):
@@ -199,10 +195,6 @@ class TestFromOnnx:
                 "winml.modelkit.config.generate_onnx_build_config",
                 return_value=mock_config,
             ),
-            patch(
-                "winml.modelkit.config.precision.resolve_eps",
-                return_value=["CPUExecutionProvider"],
-            ),
             patch("winml.modelkit.build.build_onnx_model") as mock_build,
             patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
         ):
@@ -279,10 +271,6 @@ class TestFromOnnxCacheDirAndKey:
             patch(
                 "winml.modelkit.session.resolve_device",
                 return_value=EPDeviceTarget(ep="CPUExecutionProvider", device="cpu"),
-            ),
-            patch(
-                "winml.modelkit.config.precision.resolve_eps",
-                return_value=["CPUExecutionProvider"],
             ),
             patch("winml.modelkit.build.build_onnx_model") as mock_build,
             patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
@@ -374,10 +362,6 @@ class TestFromOnnxCacheDirAndKey:
                 "winml.modelkit.session.resolve_device",
                 return_value=EPDeviceTarget(ep="CPUExecutionProvider", device="cpu"),
             ),
-            patch(
-                "winml.modelkit.config.precision.resolve_eps",
-                return_value=["CPUExecutionProvider"],
-            ),
             patch("winml.modelkit.build.build_onnx_model") as mock_build,
             patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
             patch("winml.modelkit.models.auto.get_model_dir") as mock_get_model_dir,
@@ -403,10 +387,6 @@ class TestFromOnnxCacheDirAndKey:
             patch(
                 "winml.modelkit.session.resolve_device",
                 return_value=EPDeviceTarget(ep="CPUExecutionProvider", device="cpu"),
-            ),
-            patch(
-                "winml.modelkit.config.precision.resolve_eps",
-                return_value=["CPUExecutionProvider"],
             ),
             patch("winml.modelkit.build.build_onnx_model") as mock_build,
             patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
@@ -442,10 +422,6 @@ class TestFromOnnxCacheDirAndKey:
             patch(
                 "winml.modelkit.session.resolve_device",
                 return_value=EPDeviceTarget(ep="CPUExecutionProvider", device="cpu"),
-            ),
-            patch(
-                "winml.modelkit.config.precision.resolve_eps",
-                return_value=["CPUExecutionProvider"],
             ),
             patch("winml.modelkit.config.generate_onnx_build_config", return_value=mock_config),
             patch("winml.modelkit.build.build_onnx_model") as mock_build,

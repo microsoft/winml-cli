@@ -59,8 +59,7 @@ class TestCompileConfig:
         assert config is not None
         assert config.device == "qnn"
 
-        config = WinMLCompileConfig.for_provider("cpu")
-        assert config is not None
+        config = WinMLCompileConfig.for_cpu()
         assert config.device == "cpu"
 
     def test_for_provider_no_qdq_config(self):
@@ -90,7 +89,7 @@ class TestCompileConfig:
     def test_for_nv_tensorrt_rtx(self):
         """Test NvTensorRTRTX factory method."""
         config = WinMLCompileConfig.for_nv_tensorrt_rtx()
-        assert config.ep_config.provider == "nv_tensorrt_rtx"
+        assert config.ep_config.provider == "nvtensorrtrtx"
         assert config.ep_config.enable_ep_context is True
 
     def test_for_openvino(self):
@@ -138,8 +137,7 @@ class TestCompileConfig:
 
     def test_to_dict_cpu(self):
         """Test serialization for CPU config."""
-        config = WinMLCompileConfig.for_provider("cpu")
-        assert config is not None
+        config = WinMLCompileConfig.for_cpu()
         d = config.to_dict()
 
         assert d["execution_provider"] == "cpu"
@@ -207,7 +205,7 @@ class TestForProvider:
             ("qnn", "qnn"),
             ("openvino", "openvino"),
             ("vitisai", "vitisai"),
-            ("nv_tensorrt_rtx", "nv_tensorrt_rtx"),
+            ("nv_tensorrt_rtx", "nvtensorrtrtx"),
             # EPs with enable_ep_context=False → no offline compile step → None
             ("dml", None),
             ("cpu", None),
@@ -244,26 +242,26 @@ class TestForProvider:
     def test_for_provider_custom_ep_returns_none(self):
         """Unknown/custom EPs return None — no EPContext support assumed."""
         result = WinMLCompileConfig.for_provider("custom_ep")
-        assert result is not None
-        assert result.ep_config.enable_ep_context is False
+        assert result is None
 
     @pytest.mark.parametrize(
-        "provider",
+        "provider,expected_provider",
         [
-            "qnn",
-            "cpu",
-            "cuda",
-            "dml",
-            "nv_tensorrt_rtx",
-            "openvino",
-            "vitisai",
-            "migraphx",
+            ("qnn", "qnn"),
+            ("cpu", None),
+            ("cuda", None),
+            ("dml", None),
+            ("nv_tensorrt_rtx", "nvtensorrtrtx"),
+            ("openvino", "openvino"),
+            ("vitisai", "vitisai"),
+            ("migraphx", None),
         ],
     )
     @pytest.mark.parametrize("quantize_value", [True, False])
     def test_for_provider_quantize_emits_deprecation(
         self,
         provider: str,
+        expected_provider: str | None,
         quantize_value: bool,
     ) -> None:
         """``for_provider(p, quantize=<any non-None>)`` emits ``DeprecationWarning``.
@@ -277,11 +275,12 @@ class TestForProvider:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             config = WinMLCompileConfig.for_provider(provider, quantize=quantize_value)
-            assert config is not None
-            assert config.ep_config.provider == provider
-            deprecation_warnings = [
-                x for x in w if issubclass(x.category, DeprecationWarning)
-            ]
+            if expected_provider is None:
+                assert config is None
+            else:
+                assert config is not None
+                assert config.ep_config.provider == expected_provider
+            deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
             assert len(deprecation_warnings) == 1
             assert "quantize" in str(deprecation_warnings[0].message).lower()
 
@@ -290,7 +289,17 @@ class TestForProvider:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             WinMLCompileConfig.for_provider("qnn")
-            deprecation_warnings = [
-                x for x in w if issubclass(x.category, DeprecationWarning)
-            ]
+            deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
             assert len(deprecation_warnings) == 0
+
+    def test_for_ep_device_preserves_device_provider_options(self) -> None:
+        """A resolved target must reach the device-specific factory options."""
+        from winml.modelkit.session import EPDeviceTarget
+
+        config = WinMLCompileConfig.for_ep_device(
+            EPDeviceTarget(ep="QNNExecutionProvider", device="npu")
+        )
+
+        assert config is not None
+        assert config.ep_config.device == "npu"
+        assert config.ep_config.provider_options["device_type"] == "NPU"

@@ -1155,6 +1155,7 @@ class TestBuildSubmoduleConfig:
         result = _build_submodule_config(sub_info, parent_config)
 
         # Should NOT raise — validation relaxed for submodules
+        result.compile = None
         result.validate()
 
     def test_submodule_quant_omits_task_in_json(
@@ -1661,6 +1662,9 @@ class TestModelTypeCliOverride:
     ) -> None:
         """--model-type without --task auto-detects task from resolve_loader_config."""
         output_file = tmp_path / "result.json"
+        model_dir = tmp_path / "some-model"
+        model_dir.mkdir()
+        (model_dir / "config.json").write_text('{"model_type": "bert"}')
 
         with (
             patch(
@@ -1676,7 +1680,7 @@ class TestModelTypeCliOverride:
             runner = CliRunner()
             result = runner.invoke(
                 config_command,
-                ["-m", "some-model", "--model-type", "bert", "-o", str(output_file)],
+                ["-m", str(model_dir), "--model-type", "bert", "-o", str(output_file)],
             )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
@@ -2178,7 +2182,7 @@ class TestValidate:
             export=None,  # ONNX build
             optim=WinMLOptimizationConfig(),
             quant=WinMLQuantizationConfig(task=None, model_id=None),
-            compile=WinMLCompileConfig(),
+            compile=None,
         )
         config.validate()  # Should not raise
 
@@ -2435,8 +2439,7 @@ class TestDevicePrecisionIntegration:
             # quant mode. Accept either None (no quant stage at all) or a
             # fp16-mode quant config (no QDQ weight/activation types).
             assert result.quant is None or result.quant.mode == "fp16", (
-                f"Expected no quant (or fp16 conversion) for device={device}, "
-                f"precision={precision}"
+                f"Expected no quant (or fp16 conversion) for device={device}, precision={precision}"
             )
 
         # Verify compile config
@@ -2617,19 +2620,18 @@ class TestDevicePrecisionCli:
         return result, output_file
 
     def test_device_npu_produces_qnn(self, tmp_path) -> None:
-        """--device npu → compile.provider=qnn, quant with w8a16."""
+        """An NPU without a registered EP emits no compile stage."""
         result, output_file = self._invoke(tmp_path, ["--device", "npu"])
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
-        assert data["compile"] is not None
-        assert data["compile"]["execution_provider"] == "qnn"
+        assert data["compile"] is None
         assert data["quant"] is not None
         assert data["quant"]["weight_type"] == "uint8"
         assert data["quant"]["activation_type"] == "uint16"
 
     def test_device_gpu_precision_fp16(self, tmp_path) -> None:
-        """--device gpu --precision fp16 → no quant, compile.provider=dml."""
+        """--device gpu --precision fp16 keeps the FP16 conversion policy."""
         self._patches["auto_detect"] = patch(
             "winml.modelkit.session.auto_detect_device",
             return_value="gpu",
@@ -2645,12 +2647,11 @@ class TestDevicePrecisionCli:
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
-        assert data["quant"] is None
-        assert data["compile"] is not None
-        assert data["compile"]["execution_provider"] == "openvino"
+        assert data["quant"]["mode"] == "fp16"
+        assert data["compile"] is None
 
     def test_device_cpu_precision_fp32(self, tmp_path) -> None:
-        """--device cpu --precision fp32 → no quant, compile=openvino (first plugin CPU EP)."""
+        """--device cpu --precision fp32 emits no compiler without a registered EP."""
         self._patches["auto_detect"] = patch(
             "winml.modelkit.session.auto_detect_device",
             return_value="cpu",
@@ -2667,8 +2668,7 @@ class TestDevicePrecisionCli:
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
         assert data["quant"] is None
-        assert data["compile"] is not None
-        assert data["compile"]["execution_provider"] == "openvino"
+        assert data["compile"] is None
 
     def test_default_no_flags_preserves_defaults(self, tmp_path) -> None:
         """No --device/--precision flags preserves default config."""
@@ -2676,9 +2676,9 @@ class TestDevicePrecisionCli:
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
-        # Default: quant and compile both present (backward compat)
+        # Default precision retains quantization, but no unavailable compiler.
         assert data["quant"] is not None
-        assert data["compile"] is not None
+        assert data["compile"] is None
 
     def test_auto_precision_int8_triggers_detection(self, tmp_path) -> None:
         """--device auto --precision int8 → triggers device detection."""
@@ -2689,8 +2689,7 @@ class TestDevicePrecisionCli:
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
-        # Mock resolve_device returns "npu" → qnn
-        assert data["compile"]["execution_provider"] == "qnn"
+        assert data["compile"] is None
         assert data["quant"] is not None
 
 
@@ -2754,8 +2753,7 @@ class TestConfigOnnxAutoDetect:
         output_data = json.loads(output_file.read_text())
         assert output_data["export"] is None
         assert output_data["quant"] is not None
-        assert output_data["compile"] is not None
-        assert output_data["compile"]["execution_provider"] == "qnn"
+        assert output_data["compile"] is None
 
     def test_config_onnx_suffix_not_exists_uses_hf(
         self,
@@ -2765,7 +2763,7 @@ class TestConfigOnnxAutoDetect:
         mock_loader_config: WinMLLoaderConfig,
         mock_export_config: WinMLExportConfig,
     ) -> None:
-        """An .onnx path that doesn't exist falls through to HF config generation."""
+        """A missing .onnx path is rejected instead of being treated as a HF model."""
         output_file = tmp_path / "result.json"
 
         with (
@@ -2785,10 +2783,8 @@ class TestConfigOnnxAutoDetect:
                 ["-m", "nonexistent.onnx", "-o", str(output_file)],
             )
 
-        assert result.exit_code == 0, f"CLI failed: {result.output}"
-        output_data = json.loads(output_file.read_text())
-        # Should be HF config (export present)
-        assert output_data["export"] is not None
+        assert result.exit_code != 0
+        assert "ONNX file not found" in result.output
 
 
 # =============================================================================
@@ -3318,8 +3314,7 @@ class TestGenerateBuildConfigOnnxPath:
                 ep="migraphx",
             )
 
-        assert config.compile is not None
-        assert config.compile.ep_config.provider == "migraphx"
+        assert config.compile is None
 
 
 # =============================================================================

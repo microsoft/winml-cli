@@ -22,6 +22,7 @@ from ...session import (
     WinMLSession,
     resolve_device,
 )
+from ...utils.constants import ORT_SESSION_COMPILER
 from ..configs import WinMLCompileConfig
 from .base import BaseStage
 
@@ -56,62 +57,10 @@ class CompileStage(BaseStage):
         start_time = time.time()
 
         try:
-            # Resolve session class from compiler config
-            compiler = context.config.get("compiler", "ort")
-            session_cls = COMPILER_SESSION_MAPPING[compiler]
-
-            # Determine final output directory (default: same as input model)
-            output_dir = self._get_output_dir(context)
-            context.log(f"Output directory: {output_dir}")
-
-            # Ensure model is saved to disk (may be in work_dir if modified)
-            model_path = self._ensure_model_file(context)
-            context.log(f"Model path: {model_path}")
-
-            compile_cfg = WinMLCompileConfig.from_dict(context.config)
-            ep_config = compile_cfg.ep_config
-            # Prefer ep_device threaded from the CLI boundary (resolve_device called once).
-            # Fall back to inferring from execution_provider for non-CLI invocations.
-            ep_device_dict = context.config.get("ep_device")
-            if ep_device_dict:
-                target: EPDeviceTarget = EPDeviceTarget.from_dict(ep_device_dict)
-            elif compile_cfg.ep_device is not None:
-                target = compile_cfg.ep_device
+            if context.use_inference_session or context.n_total_models > 1:
+                self._compile_shared_context(context)
             else:
-                ep_str = context.execution_provider
-                target = resolve_device(
-                    EPDeviceTarget(ep=ep_str or "auto", device="auto")
-                )
-            ep_device = WinMLEPRegistry.instance().auto_device(target)
-            context.log(
-                f"Creating {session_cls.__name__} for {target.ep}/{target.device}"
-            )
-            winml_session = session_cls(
-                onnx_path=model_path,
-                ep_device=ep_device,
-                ep_config=ep_config,
-            )
-            winml_session.compile()
-
-            # Get the underlying session for validation and info collection
-            session = winml_session._session
-            context.session = session
-
-            # Log actual providers used
-            if session is not None:
-                actual_providers = session.get_providers()
-                context.log(f"Actual providers: {actual_providers}")
-
-                # Validate if requested
-                if context.validate:
-                    self._validate_model(session, context)
-
-                # Collect model info
-                self._collect_model_info(session, context)
-
-            # Find and relocate EPContext files to output directory
-            if ep_config.enable_ep_context:
-                self._finalize_output(context, model_path, output_dir)
+                self._compile_single_model(context)
 
         except Exception as e:
             context.add_error(f"Compilation failed: {e}")
@@ -123,6 +72,118 @@ class CompileStage(BaseStage):
             context.log(f"Compilation completed in {elapsed:.2f}s")
 
         return context
+
+    def _compile_single_model(self, context: CompileContext) -> None:
+        """Compile one model through the configured ModelCompiler or QAIRT backend."""
+        compiler = context.config.get("compiler", "ort")
+        if compiler == ORT_SESSION_COMPILER:
+            raise ValueError(f"{ORT_SESSION_COMPILER!r} requires the inference-session path")
+        session_cls = COMPILER_SESSION_MAPPING[compiler]
+
+        output_dir = self._get_output_dir(context)
+        context.log(f"Output directory: {output_dir}")
+        model_path = self._ensure_model_file(context)
+        context.log(f"Model path: {model_path}")
+
+        compile_cfg = WinMLCompileConfig.from_dict(context.config)
+        ep_config = compile_cfg.ep_config
+        ep_device_dict = context.config.get("ep_device")
+        if ep_device_dict:
+            target: EPDeviceTarget = EPDeviceTarget.from_dict(ep_device_dict)
+        elif compile_cfg.ep_device is not None:
+            target = compile_cfg.ep_device
+        else:
+            ep_str = context.execution_provider
+            target = resolve_device(EPDeviceTarget(ep=ep_str or "auto", device="auto"))
+        ep_device = WinMLEPRegistry.instance().auto_device(target)
+        session_cls_name = getattr(session_cls, "__name__", session_cls.__class__.__name__)
+        context.log(f"Creating {session_cls_name} for {target.ep}/{target.device}")
+        winml_session = session_cls(
+            onnx_path=model_path,
+            ep_device=ep_device,
+            ep_config=ep_config,
+        )
+        winml_session.compile()
+
+        session = winml_session._session
+        context.session = session
+        if session is not None:
+            context.log(f"Actual providers: {session.get_providers()}")
+            if context.validate:
+                self._validate_model(session, context)
+            self._collect_model_info(session, context)
+
+        if ep_config.enable_ep_context:
+            self._finalize_output(context, model_path, output_dir)
+
+    def _compile_shared_context(self, context: CompileContext) -> None:
+        """Compile through shared SessionOptions for multi-model and ORT-session flows."""
+        import onnxruntime as ort
+
+        from ...session.session import _build_session_options
+
+        compile_cfg = WinMLCompileConfig.from_dict(context.config)
+        ep_config = compile_cfg.ep_config
+        ep_device_dict = context.config.get("ep_device")
+        if ep_device_dict:
+            target = EPDeviceTarget.from_dict(ep_device_dict)
+        elif compile_cfg.ep_device is not None:
+            target = compile_cfg.ep_device
+        else:
+            target = resolve_device(
+                EPDeviceTarget(ep=context.execution_provider or "auto", device=ep_config.device)
+            )
+        ep_device = WinMLEPRegistry.instance().auto_device(target)
+        model_path = self._ensure_model_file(context)
+        output_dir = self._get_output_dir(context)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        configured_output = context.config.get("output_path")
+        ctx_path = (
+            Path(configured_output)
+            if configured_output and Path(configured_output).suffix
+            else output_dir / f"{context.model_path.stem}_ctx.onnx"
+        )
+
+        session_options = context.shared_session_options
+        if session_options is None:
+            session_options = _build_session_options(ep_device, ep_config)
+            session_options.add_session_config_entry("ep.context_enable", "1")
+            session_options.add_session_config_entry(
+                "ep.context_embed_mode", "1" if ep_config.embed_context else "0"
+            )
+            if context.n_total_models > 1:
+                session_options.add_session_config_entry("ep.share_ep_contexts", "1")
+            context.shared_session_options = session_options
+
+        if context.n_total_models > 1 and context.n_compiled_models == context.n_total_models - 1:
+            session_options.add_session_config_entry("ep.stop_share_ep_contexts", "1")
+
+        if context.use_inference_session:
+            session_options.add_session_config_entry("ep.context_file_path", str(ctx_path))
+            session = ort.InferenceSession(str(model_path), sess_options=session_options)
+            context.session = session
+            context.log(f"Actual providers: {session.get_providers()}")
+            if context.validate:
+                self._validate_model(session, context)
+            self._collect_model_info(session, context)
+        else:
+            ort.ModelCompiler(
+                session_options,
+                str(model_path),
+                embed_compiled_data_into_model=ep_config.embed_context,
+            ).compile_to_file(str(ctx_path))
+
+        if ctx_path.exists():
+            context.output_path = ctx_path
+            binaries = [
+                path
+                for path in ctx_path.parent.glob(f"{ctx_path.stem}*.bin")
+                if not path.name.endswith("_schematic.bin")
+            ]
+            if binaries:
+                context.context_binary_path = binaries[0]
+        else:
+            context.add_warning(f"No EPContext produced for {model_path.name}")
 
     def _get_output_dir(self, context: CompileContext) -> Path:
         """Determine the output directory for compiled model.
@@ -263,10 +324,14 @@ class CompileStage(BaseStage):
             context.add_warning("EPContext model not found in work directory")
             return
 
-        # Determine final output filename using original model name
+        # An explicit output file takes precedence; directory output preserves
+        # the established derived filename behavior.
         original_stem = context.model_path.stem
-        final_ctx_name = f"{original_stem}_{device}_ctx.onnx"
-        final_ctx_path = output_dir / final_ctx_name
+        configured_output = context.config.get("output_path")
+        if configured_output and Path(configured_output).suffix:
+            final_ctx_path = Path(configured_output)
+        else:
+            final_ctx_path = output_dir / f"{original_stem}_{device}_ctx.onnx"
 
         # Ensure output directory exists
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -285,7 +350,7 @@ class CompileStage(BaseStage):
         final_bin_name = None
         for f in src_ctx_path.parent.iterdir():
             if f.name.startswith(src_ctx_path.stem) and f.suffix == ".bin":
-                final_bin_name = f"{original_stem}_{device}_ctx{f.name[len(src_ctx_path.stem) :]}"
+                final_bin_name = f"{final_ctx_path.stem}{f.name[len(src_ctx_path.stem) :]}"
                 final_bin_path = output_dir / final_bin_name
                 if f != final_bin_path:
                     shutil.copy2(f, final_bin_path)

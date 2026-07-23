@@ -21,17 +21,13 @@ from typing import Literal
 # (callers must use `from ..session import ...`).
 from ..session import (
     VALID_DEVICES,
-    VALID_EPS,
+    default_device_for_ep,
     default_ep_for_device,
     ep_short_or_none,
     ep_to_device,
     expand_ep_name,
+    lookup_device_spec,
 )
-
-# Re-export resolve_eps at the module level so tests can patch it here.
-# Aliased from session.available_eps_for_device — same shape (registered EPs
-# for a device in catalog priority order); the sysinfo shim has been removed.
-from ..session import available_eps_for_device as resolve_eps  # noqa: F401
 
 
 logger = logging.getLogger(__name__)
@@ -376,15 +372,17 @@ def resolve_precision(
             f"Expected one of {sorted(_NAMED_PRECISIONS)} or w{{x}}a{{y}} format (e.g., w8a16)."
         )
 
-    # Validate EP override
+    # Normalize and validate the EP override against the shared catalog.
     if ep is not None:
-        ep = ep.lower()
-        if ep not in VALID_EPS:
-            raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(VALID_EPS)}")
+        ep = expand_ep_name(ep)
+        if default_device_for_ep(ep) is None:
+            raise ValueError(f"Unknown EP '{ep}'.")
         # Infer device from EP when device is "auto"
         if device == "auto":
             device = ep_to_device(ep)
             logger.info("Inferred device '%s' from EP '%s'", device, ep)
+        elif lookup_device_spec(ep, device) is None:
+            raise ValueError(f"EP '{ep}' does not support device '{device}'.")
 
     # --- Both auto: no-op, keep config defaults ---
     if device == "auto" and resolved_precision == "auto":
@@ -421,20 +419,10 @@ def resolve_precision(
                 task,
             )
 
-    # EP override takes precedence over device→provider mapping.
-    # For CPU, default_ep_for_device returns "CPUExecutionProvider" → short name "cpu".
-    # compile_provider=None means "no compile stage"; CPUExecutionProvider has no
-    # compile step, so map "cpu" (the short name) to None explicitly.
+    # EP override takes precedence over device→provider mapping. The policy
+    # contract uses short aliases, with CPU represented as no offline compiler.
     if ep:
-        # Expand short aliases (e.g. "qnn" → "QNNExecutionProvider") so
-        # compile_provider matches canonical EP names test suites assert on.
-        # If the short name isn't a known alias, expand_ep_name passes through
-        # unchanged (satisfies tests that pass through non-canonical spellings).
-        _expanded = expand_ep_name(ep)
-        if _expanded == "CPUExecutionProvider":
-            compile_provider: str | None = None
-        else:
-            compile_provider = _expanded
+        compile_provider = ep_short_or_none(ep)
     else:
         _canonical = default_ep_for_device(resolved_device)
         compile_provider = ep_short_or_none(_canonical) if _canonical is not None else None

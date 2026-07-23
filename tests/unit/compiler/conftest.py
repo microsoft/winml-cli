@@ -9,11 +9,12 @@ import site so the compile CLI's auto-EP resolution is deterministic across
 hosts (e.g., OpenVINO would otherwise out-rank QNN/DML/CPU on a dev box).
 """
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from winml.modelkit.ep_path import BuiltinSource
+from winml.modelkit.ep_path import BuiltinSource, EPEntry
 from winml.modelkit.session import EPDeviceTarget, WinMLDevice, WinMLEP, WinMLEPDevice
 
 
@@ -25,7 +26,7 @@ _DEVICE_TO_EPS = {
 
 
 _EP_SUPPORTED_DEVICES = {
-    "qnn": {"npu"},
+    "qnn": {"npu", "gpu"},
     "dml": {"gpu"},
     "openvino": {"npu", "gpu", "cpu"},
     "vitisai": {"npu"},
@@ -34,7 +35,7 @@ _EP_SUPPORTED_DEVICES = {
     "tensorrt": {"gpu"},
     "cuda": {"gpu"},
     "cpu": {"cpu"},
-    "qnnexecutionprovider": {"npu"},
+    "qnnexecutionprovider": {"npu", "gpu"},
     "dmlexecutionprovider": {"gpu"},
     "openvinoexecutionprovider": {"npu", "gpu", "cpu"},
     "vitisaiexecutionprovider": {"npu"},
@@ -68,6 +69,7 @@ _SHORT_TO_FULL_EP = {
     "openvino": "OpenVINOExecutionProvider",
     "vitisai": "VitisAIExecutionProvider",
     "migraphx": "MIGraphXExecutionProvider",
+    "nvtensorrtrtx": "NvTensorRTRTXExecutionProvider",
     "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
     "tensorrt": "TensorrtExecutionProvider",
     "cuda": "CUDAExecutionProvider",
@@ -102,7 +104,15 @@ def _fake_ep_device(target: EPDeviceTarget) -> WinMLEPDevice:
     fake_ort_dev.ep_metadata = {"FULL_DEVICE_NAME": f"fake {device_type_str}"}
     fake_ort_dev.ep_vendor = "FakeVendor"
     device = WinMLDevice(fake_ort_dev)
-    ep = WinMLEP(source=BuiltinSource(ep_name=device.ep_name), devices=(device,))
+    ep = WinMLEP(
+        source=EPEntry(
+            ep_name=device.ep_name,
+            dll_path=Path(),
+            source=BuiltinSource(eps=(device.ep_name,)),
+        ),
+        devices=(device,),
+        arg0=device.ep_name,
+    )
     return WinMLEPDevice(ep=ep, device=device)
 
 
@@ -126,8 +136,7 @@ def mock_compile_resolution():
         "winml.modelkit.commands.perf.resolve_device",
     )
     _patches = [
-        patch(target, side_effect=_fake_resolve_device, create=True)
-        for target in _resolve_targets
+        patch(target, side_effect=_fake_resolve_device, create=True) for target in _resolve_targets
     ]
     _patches.append(
         patch(

@@ -346,6 +346,42 @@ def create_epcontext_onnx(path: Path, bin_name: str, embed_mode: int = 0) -> Non
 
 
 class TestCompileStageProcess:
+    def test_ort_session_uses_inference_session_path(self, tmp_path):
+        """The public ort_session compiler selects the dedicated ORT session path."""
+        from unittest.mock import MagicMock, patch
+
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        model_path = tmp_path / "model.onnx"
+        create_simple_model(model_path)
+        session = MagicMock()
+        session.get_providers.return_value = ["QNNExecutionProvider"]
+        session.get_inputs.return_value = []
+        session.get_outputs.return_value = []
+        session_options = MagicMock()
+
+        context = CompileContext(
+            model_path=model_path,
+            config={
+                "execution_provider": "qnn",
+                "compiler": "ort_session",
+                "enable_ep_context": True,
+                "validate": False,
+            },
+        )
+
+        with (
+            patch(
+                "winml.modelkit.session.session._build_session_options",
+                return_value=session_options,
+            ),
+            patch("onnxruntime.InferenceSession", return_value=session) as inference_session,
+        ):
+            CompileStage().process(context)
+
+        inference_session.assert_called_once()
+        assert context.shared_session_options is session_options
+
     def test_process_preserves_trtrtx_provider_options(self, tmp_path):
         from unittest.mock import MagicMock, patch
 
@@ -365,7 +401,7 @@ class TestCompileStageProcess:
         context = CompileContext(
             model_path=model_path,
             config={
-                "execution_provider": "nv_tensorrt_rtx",
+                "execution_provider": "nvtensorrtrtx",
                 "provider_options": {"device_type": "GPU", "precision": "fp16"},
                 "enable_ep_context": True,
                 "validate": False,
@@ -383,7 +419,57 @@ class TestCompileStageProcess:
 
         passed_ep_config = mock_session_cls.call_args.kwargs["ep_config"]
         assert passed_ep_config.provider_options == {"device_type": "GPU", "precision": "fp16"}
-        assert mock_session_cls.call_args.kwargs["ep"] == "NvTensorRTRTXExecutionProvider"
+
+    def test_multi_model_sequence_shares_options_and_closes_context(self, tmp_path):
+        """First, intermediate, and final models share one EP context in sequence."""
+        from unittest.mock import MagicMock, patch
+
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        session = MagicMock()
+        session.get_providers.return_value = ["QNNExecutionProvider"]
+        session.get_inputs.return_value = []
+        session.get_outputs.return_value = []
+        session_options = MagicMock()
+        stage = CompileStage()
+        previous_options = None
+
+        with (
+            patch(
+                "winml.modelkit.session.session._build_session_options",
+                return_value=session_options,
+            ),
+            patch("onnxruntime.InferenceSession", return_value=session) as inference_session,
+        ):
+            for index in range(3):
+                model_path = tmp_path / f"model_{index}.onnx"
+                create_simple_model(model_path)
+                context = CompileContext(
+                    model_path=model_path,
+                    config={
+                        "execution_provider": "qnn",
+                        "compiler": "ort_session",
+                        "enable_ep_context": True,
+                        "validate": False,
+                    },
+                    n_compiled_models=index,
+                    n_total_models=3,
+                    shared_session_options=previous_options,
+                )
+                stage.process(context)
+                previous_options = context.shared_session_options
+
+        assert inference_session.call_count == 3
+        assert previous_options is session_options
+        assert session_options.add_session_config_entry.call_args_list == [
+            (("ep.context_enable", "1"),),
+            (("ep.context_embed_mode", "0"),),
+            (("ep.share_ep_contexts", "1"),),
+            (("ep.context_file_path", str(tmp_path / "model_0_ctx.onnx")),),
+            (("ep.context_file_path", str(tmp_path / "model_1_ctx.onnx")),),
+            (("ep.stop_share_ep_contexts", "1"),),
+            (("ep.context_file_path", str(tmp_path / "model_2_ctx.onnx")),),
+        ]
 
 
 class TestCompileStageFinalizeOutput:
@@ -429,8 +515,8 @@ class TestCompileStageFinalizeOutput:
         stage = CompileStage()
         stage._finalize_output(context, ctx_path.parent / "model_to_compile.onnx", output_dir)
 
-        # Verify: output EPContext should preserve the source ctx filename
-        final_ctx_path = output_dir / "model_to_compile_qnn_ctx.onnx"
+        # Directory output keeps the existing filename derived from the input model.
+        final_ctx_path = output_dir / "mymodel_qnn_ctx.onnx"
         assert final_ctx_path.exists(), f"Expected {final_ctx_path} to exist"
 
         # Load and check the attribute was updated
@@ -439,10 +525,8 @@ class TestCompileStageFinalizeOutput:
             if node.op_type == "EPContext":
                 for attr in node.attribute:
                     if attr.name == "ep_cache_context":
-                        # Should be updated to new name based on the source ctx stem
-                        assert b"model_to_compile_qnn_ctx" in attr.s, (
-                            f"Expected updated name, got {attr.s}"
-                        )
+                        # Should be updated to the derived output filename.
+                        assert b"mymodel_qnn_ctx" in attr.s, f"Expected updated name, got {attr.s}"
                         break
 
     def test_skips_update_when_embedded(self, tmp_path):
@@ -478,7 +562,7 @@ class TestCompileStageFinalizeOutput:
         stage._finalize_output(context, ctx_path.parent / "model_to_compile.onnx", output_dir)
 
         # Verify: output should exist but ep_cache_context should be unchanged
-        final_ctx_path = output_dir / "model_to_compile_qnn_ctx.onnx"
+        final_ctx_path = output_dir / "mymodel_qnn_ctx.onnx"
         assert final_ctx_path.exists()
 
         model = onnx.load(str(final_ctx_path))

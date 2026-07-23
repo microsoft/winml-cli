@@ -54,13 +54,13 @@ class TestResolvePrecision:
             # After the built-ins-as-fallback catalog reorder, gpu deduces
             # to OpenVINO (first plugin) instead of DML (built-in fallback),
             # and cpu deduces to OpenVINO instead of the CPU built-in.
-            ("gpu", "auto", "gpu", "fp16", None, None, "openvino"),
+            ("gpu", "auto", "gpu", "fp32", None, None, "openvino"),
             ("gpu", "w8a16", "gpu", "w8a16", "uint8", "uint16", "openvino"),
             ("gpu", "int8", "gpu", "int8", "uint8", "uint8", "openvino"),
             ("gpu", "int16", "gpu", "int16", "int16", "uint16", "openvino"),
             ("gpu", "fp16", "gpu", "fp16", None, None, "openvino"),
             ("gpu", "fp32", "gpu", "fp32", None, None, "openvino"),
-            ("cpu", "auto", "cpu", "fp16", None, None, "openvino"),
+            ("cpu", "auto", "cpu", "fp32", None, None, "openvino"),
             ("cpu", "int8", "cpu", "int8", "uint8", "uint8", "openvino"),
             ("cpu", "int16", "cpu", "int16", "int16", "uint16", "openvino"),
             ("cpu", "fp16", "cpu", "fp16", None, None, "openvino"),
@@ -183,9 +183,9 @@ class TestEpOverride:
     """Test ep parameter in resolve_precision()."""
 
     def test_ep_overrides_compile_provider(self) -> None:
-        """ep='migraphx' should set compile_provider to canonical, not DML."""
+        """ep='migraphx' should set compile_provider to its short name, not DML."""
         policy = resolve_precision(device="gpu", ep="migraphx")
-        assert policy.compile_provider == "MIGraphXExecutionProvider"
+        assert policy.compile_provider == "migraphx"
         assert policy.device == "gpu"
 
     def test_ep_overrides_default_plugin(self) -> None:
@@ -200,32 +200,31 @@ class TestEpOverride:
         """ep='migraphx' with device='auto' should infer device='gpu'."""
         policy = resolve_precision(ep="migraphx")
         assert policy.device == "gpu"
-        assert policy.compile_provider == "MIGraphXExecutionProvider"
+        assert policy.compile_provider == "migraphx"
 
     def test_ep_infers_device_from_npu_ep(self) -> None:
         """ep='vitisai' with device='auto' should infer device='npu'."""
         policy = resolve_precision(ep="vitisai")
         assert policy.device == "npu"
-        assert policy.compile_provider == "VitisAIExecutionProvider"
+        assert policy.compile_provider == "vitisai"
 
     def test_ep_infers_device_from_qnn(self) -> None:
         """ep='qnn' should infer device='npu'."""
         policy = resolve_precision(ep="qnn")
         assert policy.device == "npu"
-        assert policy.compile_provider == "QNNExecutionProvider"
+        assert policy.compile_provider == "qnn"
 
     def test_ep_with_explicit_device(self) -> None:
-        """ep + explicit device should use the explicit device."""
-        policy = resolve_precision(device="gpu", ep="vitisai")
-        assert policy.device == "gpu"
-        assert policy.compile_provider == "VitisAIExecutionProvider"
+        """Incompatible explicit device and EP pairs are rejected."""
+        with pytest.raises(ValueError, match="does not support device"):
+            resolve_precision(device="gpu", ep="vitisai")
 
     def test_ep_preserves_precision_logic(self) -> None:
         """ep should not break precision resolution."""
         policy = resolve_precision(device="gpu", precision="int8", ep="migraphx")
         assert policy.precision == "int8"
         assert policy.weight_type == "uint8"
-        assert policy.compile_provider == "MIGraphXExecutionProvider"
+        assert policy.compile_provider == "migraphx"
 
     def test_unknown_ep_raises(self) -> None:
         """Invalid EP name should raise ValueError."""
@@ -238,22 +237,34 @@ class TestEpOverride:
 
         for ep_name in VALID_EPS:
             policy = resolve_precision(ep=ep_name)
-            assert policy.compile_provider == ep_name
+            assert policy.compile_provider == (None if ep_name == "cpu" else ep_name)
 
     def test_ep_accepts_aliases(self) -> None:
         """resolve_precision should accept shorthand aliases."""
         policy = resolve_precision(ep="qnn")
-        assert policy.compile_provider == "QNNExecutionProvider"
+        assert policy.compile_provider == "qnn"
 
     def test_ep_none_uses_default_mapping(self) -> None:
         """ep=None should use the default device→provider mapping."""
         policy = resolve_precision(device="npu")
-        assert policy.compile_provider == "QNNExecutionProvider"
+        assert policy.compile_provider == "qnn"
 
     def test_ep_case_insensitive(self) -> None:
         """EP names should be case-insensitive."""
         policy = resolve_precision(ep="MiGraphX")
-        assert policy.compile_provider == "MIGraphXExecutionProvider"
+        assert policy.compile_provider == "migraphx"
+
+    def test_ep_accepts_case_insensitive_canonical_name(self) -> None:
+        """Canonical ORT EP names normalize to PrecisionPolicy's short contract."""
+        policy = resolve_precision(ep="qNnExEcUtIoNpRoViDeR")
+
+        assert policy.device == "npu"
+        assert policy.compile_provider == "qnn"
+
+    def test_ep_rejects_incompatible_explicit_device(self) -> None:
+        """An explicit device must be supported by the selected catalog EP."""
+        with pytest.raises(ValueError, match="does not support device"):
+            resolve_precision(device="gpu", ep="vitisai")
 
 
 # =============================================================================
@@ -286,9 +297,7 @@ class TestRegistrationAwareCompileProvider:
         available = frozenset({"OpenVINOExecutionProvider", "CPUExecutionProvider"})
         with contextlib.ExitStack() as stack:
             stack.enter_context(
-                patch.object(
-                    WinMLEPRegistry, "available_eps", return_value=available
-                )
+                patch.object(WinMLEPRegistry, "available_eps", return_value=available)
             )
             policy = resolve_precision(device="npu", precision="int8")
 
@@ -313,9 +322,7 @@ class TestRegistrationAwareCompileProvider:
         available = frozenset({"MIGraphXExecutionProvider", "CPUExecutionProvider"})
         with contextlib.ExitStack() as stack:
             stack.enter_context(
-                patch.object(
-                    WinMLEPRegistry, "available_eps", return_value=available
-                )
+                patch.object(WinMLEPRegistry, "available_eps", return_value=available)
             )
             policy = resolve_precision(device="gpu", precision="fp16")
 
@@ -551,7 +558,7 @@ class TestMixedPrecisionAutoDevice:
         assert policy.precision == "w8a16"
         assert policy.weight_type == "uint8"
         assert policy.activation_type == "uint16"
-        assert policy.compile_provider == "QNNExecutionProvider"
+        assert policy.compile_provider == "qnn"
 
 
 # =============================================================================

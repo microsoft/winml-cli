@@ -124,7 +124,7 @@ def test_expand_ep_name_short_form() -> None:
     assert expand_ep_name("openvino") == "OpenVINOExecutionProvider"
     assert expand_ep_name("vitisai") == "VitisAIExecutionProvider"
     assert expand_ep_name("migraphx") == "MIGraphXExecutionProvider"
-    assert expand_ep_name("nvtensorrtrtx") == "NvTensorRtRtxExecutionProvider"
+    assert expand_ep_name("nvtensorrtrtx") == "NvTensorRTRTXExecutionProvider"
     assert expand_ep_name("dml") == "DmlExecutionProvider"
     assert expand_ep_name("cpu") == "CPUExecutionProvider"
 
@@ -913,7 +913,8 @@ def test_valid_eps_matches_known_short_names() -> None:
     """
     from winml.modelkit.session import VALID_EPS, known_ep_short_names
 
-    assert known_ep_short_names() == VALID_EPS
+    assert known_ep_short_names() >= VALID_EPS
+    assert "nv_tensorrt_rtx" in known_ep_short_names()
 
 
 class TestEpShortOrNone:

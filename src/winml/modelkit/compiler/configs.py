@@ -99,21 +99,23 @@ class WinMLCompileConfig:
         return self.ep_config.provider or ""
 
     @classmethod
-    def for_ep_device(cls, ep_device: Any) -> WinMLCompileConfig:
+    def for_ep_device(cls, ep_device: Any) -> WinMLCompileConfig | None:
         """Factory for a fully-resolved (EP, device) binding.
 
         Args:
             ep_device: EPDeviceTarget or similar with .ep / .device attrs.
 
         Returns:
-            WinMLCompileConfig bound to the given target.
+            WinMLCompileConfig bound to the given target, or None when its EP
+            has no offline EPContext compiler.
         """
         from ..session import short_ep_name
 
         # short_ep_name returns a broad str; it is a valid EP short alias here.
         provider = short_ep_name(ep_device.ep)
-        base = cls.for_provider(cast("EPNameOrAlias", provider))
-        assert base is not None  # provider non-None => for_provider returns non-None
+        base = cls.for_provider(cast("EPNameOrAlias", provider), device=ep_device.device)
+        if base is None:
+            return None
         base.ep_device = ep_device
         return base
 
@@ -135,7 +137,8 @@ class WinMLCompileConfig:
                 in provider_options so CPU and GPU builds get different cache keys.
 
         Returns:
-            WinMLCompileConfig for the provider, or None if provider is None.
+            WinMLCompileConfig for providers that support offline EPContext
+            compilation, otherwise None.
         """
         import warnings
 
@@ -167,10 +170,8 @@ class WinMLCompileConfig:
         if factory is None:
             # Custom/unknown EP — no EPContext assumed → skip offline compile.
             return None
-        # Known factory always returns a config. Callers inspect
-        # `.ep_config.enable_ep_context` to decide whether to invoke the
-        # offline compile step (CPU/CUDA/DML/MIGraphX have it False).
-        return factory()
+        config = factory()
+        return config if config.ep_config.enable_ep_context else None
 
     @classmethod
     def for_qnn(cls, device: str | None = None) -> WinMLCompileConfig:
@@ -220,7 +221,7 @@ class WinMLCompileConfig:
     def for_nv_tensorrt_rtx(cls, device: str | None = None) -> WinMLCompileConfig:
         """Factory for NvTensorRTRTX compilation."""
         ep_cfg = EPConfig(
-            provider="nv_tensorrt_rtx",
+            provider="nvtensorrtrtx",
             enable_ep_context=True,
             device=device or "auto",
         )
