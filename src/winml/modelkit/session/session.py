@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -260,7 +260,7 @@ class WinMLSession:
             else:
                 merged = dict(ep_config.provider_options or {})
                 merged.update(provider_options)
-                ep_config.provider_options = merged
+                ep_config = replace(ep_config, provider_options=merged)
 
         self._onnx_path = Path(onnx_path)
         self._ep_device = ep_device

@@ -114,7 +114,12 @@ class CompileStage(BaseStage):
             self._collect_model_info(session, context)
 
         if ep_config.enable_ep_context:
-            self._finalize_output(context, model_path, output_dir)
+            self._finalize_output(
+                context,
+                model_path,
+                output_dir,
+                device=ep_device.device.device_type.lower(),
+            )
 
     def _compile_shared_context(self, context: CompileContext) -> None:
         """Compile through shared SessionOptions for multi-model and ORT-session flows."""
@@ -282,7 +287,14 @@ class CompileStage(BaseStage):
 
         return inputs
 
-    def _finalize_output(self, context: CompileContext, model_path: Path, output_dir: Path) -> None:
+    def _finalize_output(
+        self,
+        context: CompileContext,
+        model_path: Path,
+        output_dir: Path,
+        *,
+        device: str | None = None,
+    ) -> None:
         """Find EPContext files and copy to output directory.
 
         WinMLSession saves to work_dir. This method copies the output
@@ -292,7 +304,7 @@ class CompileStage(BaseStage):
         # target EP is always set; narrow away the Optional for the type checker
         # (a None here would already have failed the compile upstream).
         execution_provider = cast("EPAlias", context.execution_provider)
-        device = execution_provider.lower()
+        output_suffix = execution_provider.lower()
 
         # WinMLSession.compile() saves ctx as {stem}_{ep_device.device}_ctx.onnx
         # (e.g. _npu_ctx.onnx), while context.execution_provider is the full
@@ -305,14 +317,19 @@ class CompileStage(BaseStage):
             ep_device_str = None
 
         # Find EPContext in work_dir (where WinMLSession saved it)
-        ctx_patterns = [
-            model_path.parent / f"{model_path.stem}_{device}_ctx.onnx",
-            model_path.parent / f"{model_path.stem}_ctx.onnx",
-        ]
+        ctx_patterns = []
+        if device:
+            ctx_patterns.append(model_path.parent / f"{model_path.stem}_{device.lower()}_ctx.onnx")
         if ep_device_str:
-            ctx_patterns.insert(
-                0, model_path.parent / f"{model_path.stem}_{ep_device_str}_ctx.onnx"
+            ctx_patterns.append(
+                model_path.parent / f"{model_path.stem}_{ep_device_str.lower()}_ctx.onnx"
             )
+        ctx_patterns.extend(
+            [
+                model_path.parent / f"{model_path.stem}_{output_suffix}_ctx.onnx",
+                model_path.parent / f"{model_path.stem}_ctx.onnx",
+            ]
+        )
 
         src_ctx_path = None
         for pattern in ctx_patterns:
@@ -331,7 +348,7 @@ class CompileStage(BaseStage):
         if configured_output and Path(configured_output).suffix:
             final_ctx_path = Path(configured_output)
         else:
-            final_ctx_path = output_dir / f"{original_stem}_{device}_ctx.onnx"
+            final_ctx_path = output_dir / f"{original_stem}_{output_suffix}_ctx.onnx"
 
         # Ensure output directory exists
         output_dir.mkdir(parents=True, exist_ok=True)

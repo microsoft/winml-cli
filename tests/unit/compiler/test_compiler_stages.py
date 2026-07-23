@@ -449,7 +449,10 @@ class TestCompileStageProcess:
 
         mock_session_cls = MagicMock(return_value=fake_winml_session)
         mock_registry = MagicMock()
-        mock_registry.auto_device.return_value = MagicMock()
+        resolved_ep_device = MagicMock()
+        resolved_ep_device.device.device_type = "GPU"
+        mock_registry.auto_device.return_value = resolved_ep_device
+        stage = CompileStage()
         with (
             patch.dict(
                 "winml.modelkit.compiler.stages.compile.COMPILER_SESSION_MAPPING",
@@ -468,10 +471,12 @@ class TestCompileStageProcess:
                     source=target.source,
                 ),
             ) as mock_resolve_device,
+            patch.object(stage, "_finalize_output") as mock_finalize_output,
         ):
-            CompileStage().process(context)
+            stage.process(context)
 
         mock_resolve_device.assert_called_once_with(EPDeviceTarget(ep="qnn", device="gpu"))
+        assert mock_finalize_output.call_args.kwargs["device"] == "gpu"
 
     def test_multi_model_sequence_shares_options_and_closes_context(self, tmp_path):
         """First, intermediate, and final models share one EP context in sequence."""
@@ -527,6 +532,41 @@ class TestCompileStageProcess:
 
 class TestCompileStageFinalizeOutput:
     """Test CompileStage._finalize_output method."""
+
+    def test_uses_resolved_nondefault_device_to_find_epcontext(self, tmp_path):
+        """The resolved device selects the EPContext artifact produced by ORT."""
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        work_dir = tmp_path / "work"
+        output_dir = tmp_path / "output"
+        work_dir.mkdir()
+        output_dir.mkdir()
+
+        original_model_path = tmp_path / "mymodel.onnx"
+        create_simple_model(original_model_path)
+
+        ctx_path = work_dir / "model_to_compile_gpu_ctx.onnx"
+        create_epcontext_onnx(ctx_path, "embedded_data", embed_mode=1)
+        context = CompileContext(
+            model_path=original_model_path,
+            config={
+                "execution_provider": "openvino",
+                "output_path": str(output_dir),
+            },
+            work_dir=work_dir,
+        )
+
+        CompileStage()._finalize_output(
+            context,
+            work_dir / "model_to_compile.onnx",
+            output_dir,
+            device="gpu",
+        )
+
+        expected = output_dir / "mymodel_openvino_ctx.onnx"
+        assert context.output_path == expected
+        assert expected.exists()
+        assert not context.warnings
 
     def test_updates_ep_cache_context_in_external_mode(self, tmp_path):
         """Test that ep_cache_context attribute is updated when bin is renamed.

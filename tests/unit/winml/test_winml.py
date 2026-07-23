@@ -129,3 +129,36 @@ def test_winml_register_get_ep_devices_failure_attempts_load():
         "QNNExecutionProvider", "C:/fake/qnn.dll"
     )
     assert "QNNExecutionProvider" in result["onnxruntime"]
+
+
+def test_get_registered_ep_devices_registers_before_enumerating():
+    """The compatibility helper loads plugin EPs before querying ORT devices."""
+    from winml.modelkit import winml as winml_mod
+
+    events: list[str] = []
+    fake_device = object()
+    winml_mod.get_registered_ep_devices.cache_clear()
+
+    with (
+        patch.object(
+            winml_mod,
+            "register_execution_providers",
+            side_effect=lambda **_kwargs: events.append("register") or {},
+        ) as mock_register,
+        patch(
+            "winml.modelkit.session.WinMLEPRegistry.instance",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "onnxruntime.get_ep_devices",
+            side_effect=lambda: events.append("enumerate") or [fake_device],
+        ),
+    ):
+        try:
+            result = winml_mod.get_registered_ep_devices()
+        finally:
+            winml_mod.get_registered_ep_devices.cache_clear()
+
+    mock_register.assert_called_once_with(ort=True)
+    assert events == ["register", "enumerate"]
+    assert result == (fake_device,)

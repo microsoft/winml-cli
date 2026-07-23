@@ -564,7 +564,7 @@ def _get_local_ep_device_pairs() -> list[tuple[EPName, str]]:
             if device_name is None:
                 continue
 
-            pairs.add((ep_name, device_name))
+            pairs.add((ep_name, device_name.upper()))
     except Exception:
         logger.debug(
             "Failed to query local EP/device pairs via ort.get_ep_devices()",

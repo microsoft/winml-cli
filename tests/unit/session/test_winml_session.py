@@ -885,6 +885,29 @@ class TestWinMLSessionExplicitProviders:
             "runtime_only": "y",
         }
 
+    def test_runtime_provider_options_do_not_mutate_ep_config(
+        self,
+        simple_matmul_onnx: Path,
+        cpu_ep_device: EPDeviceTarget,
+    ):
+        """Session-local option overrides leave the caller's config reusable."""
+        ep_config = EPConfig(
+            provider="cpu",
+            provider_options={"shared": "from_build", "build_only": "x"},
+        )
+
+        WinMLSession(
+            onnx_path=simple_matmul_onnx,
+            ep_device=cpu_ep_device,
+            ep_config=ep_config,
+            provider_options={"shared": "from_runtime", "runtime_only": "y"},
+        )
+
+        assert ep_config.provider_options == {
+            "shared": "from_build",
+            "build_only": "x",
+        }
+
     def test_explicit_unavailable_target_propagates_structured_error(
         self,
         simple_matmul_onnx: Path,

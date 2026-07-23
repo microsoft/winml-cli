@@ -16,6 +16,7 @@ Tests verify:
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, Mock, patch
 
@@ -27,7 +28,7 @@ from rich.console import Console
 if TYPE_CHECKING:
     from pathlib import Path
 
-from winml.modelkit.commands.analyze import analyze
+from winml.modelkit.commands.analyze import _get_local_ep_device_pairs, analyze
 from winml.modelkit.utils.constants import EP_SUPPORTED_DEVICES, normalize_ep_name
 
 
@@ -143,6 +144,22 @@ def _mock_has_rule_data_for_ep(monkeypatch: pytest.MonkeyPatch) -> None:
         "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
         lambda ep_name, device_name: (ep_name, str(device_name).upper()) in simulated_rule_pairs,
     )
+
+
+def test_local_ep_device_pairs_use_cli_device_casing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Local ORT devices use the same casing as the analyze execution matrix."""
+    import onnxruntime as ort
+
+    registered = SimpleNamespace(
+        ep_name="DmlExecutionProvider",
+        device=SimpleNamespace(type=ort.OrtHardwareDeviceType.GPU),
+    )
+    monkeypatch.setattr(
+        "winml.modelkit.winml.get_registered_ep_devices",
+        lambda: (registered,),
+    )
+
+    assert _get_local_ep_device_pairs() == [("DmlExecutionProvider", "GPU")]
 
 
 @pytest.fixture

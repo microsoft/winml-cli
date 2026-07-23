@@ -50,9 +50,7 @@ def get_registered_ep_devices() -> tuple[Any, ...]:
     """
     import onnxruntime as ort
 
-    from .session import WinMLEPRegistry
-
-    WinMLEPRegistry.instance()
+    register_execution_providers(ort=True)
     return tuple(ort.get_ep_devices())
 
 
