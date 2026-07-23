@@ -74,7 +74,7 @@ class LiveMonitorDisplay:
         # in when you want the legend to reflect what's actually polled (e.g.
         # "auto" that resolved to GPU). Falls back to the requested string
         # when the caller doesn't know the resolved kind yet.
-        if device_kind is _DEVICE_KIND_OMITTED:
+        if isinstance(device_kind, _OmittedDeviceKind):
             requested = (device or "").lower()
             device_kind = requested if requested in ACCELERATOR_DEVICE_TYPES else None
         # When no adapter is polled (CPU-only / auto resolved to nothing),
