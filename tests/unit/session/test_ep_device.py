@@ -285,6 +285,31 @@ def test_resolve_auto_ep_preserves_vendor_detection_failure_contract() -> None:
         resolve_device(EPDeviceTarget(ep="auto", device="gpu"))
 
 
+def test_resolve_auto_ep_skips_failed_vendor_probe_for_cpu_fallback() -> None:
+    """A plugin vendor-probe failure does not hide the vendor-free CPU fallback."""
+    from winml.modelkit.ep_path import EPCatalog
+    from winml.modelkit.session.ep_registry import WinMLEPRegistry
+
+    registry = MagicMock()
+    registry.available_eps.return_value = frozenset(
+        {"OpenVINOExecutionProvider", "CPUExecutionProvider"}
+    )
+    registry.auto_device.return_value = object()
+
+    def check_compatibility(ep_name: str) -> bool:
+        if ep_name == "OpenVINOExecutionProvider":
+            raise RuntimeError("WMI unavailable")
+        return True
+
+    with (
+        patch.object(WinMLEPRegistry, "instance", return_value=registry),
+        patch.object(EPCatalog, "is_compatible", side_effect=check_compatibility),
+    ):
+        result = resolve_device(EPDeviceTarget(ep="auto", device="cpu"))
+
+    assert result == EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
+
+
 # --- short_ep_name tests ---------------------------------------------------
 
 

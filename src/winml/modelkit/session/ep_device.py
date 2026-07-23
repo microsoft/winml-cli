@@ -689,27 +689,28 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
         registry = WinMLEPRegistry.instance()
         available_eps = registry.available_eps()
         selected_ep: str | None = None
-        try:
-            for spec in EP_DEVICE_SPECS:
-                if (
-                    spec.device != device
-                    or spec.ep not in available_eps
-                    or not EP_CATALOG.is_compatible(spec.ep)
-                ):
+        vendor_detection_failed = False
+        for spec in EP_DEVICE_SPECS:
+            if spec.device != device or spec.ep not in available_eps:
+                continue
+            try:
+                if not EP_CATALOG.is_compatible(spec.ep):
                     continue
-                candidate = EPDeviceTarget(ep=spec.ep, device=device, source=target.source)
-                try:
-                    registry.auto_device(candidate)
-                except (DeviceNotFound, WinMLEPNotDiscovered, WinMLEPRegistrationFailed):
-                    continue
-                selected_ep = spec.ep
-                break
-        except RuntimeError as e:
-            logger.warning(
-                "Hardware detection failed (%s); no compatible EP for device %r.",
-                e,
-                device,
-            )
+            except RuntimeError as e:
+                if not vendor_detection_failed:
+                    logger.warning(
+                        "Hardware detection failed (%s); skipping vendor-gated EP candidates.",
+                        e,
+                    )
+                vendor_detection_failed = True
+                continue
+            candidate = EPDeviceTarget(ep=spec.ep, device=device, source=target.source)
+            try:
+                registry.auto_device(candidate)
+            except (DeviceNotFound, WinMLEPNotDiscovered, WinMLEPRegistrationFailed):
+                continue
+            selected_ep = spec.ep
+            break
         if selected_ep is None:
             raise ValueError(
                 f"No registered EP for device {device!r}. "
