@@ -9,8 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import onnx
-from onnx import helper, numpy_helper
+from onnx import ModelProto, helper, numpy_helper
 from onnx.defs import OpSchema
 
 from ..onnx import ONNXDomain, SupportedONNXType
@@ -290,7 +289,7 @@ class FoldedConvAddPattern(Pattern):
         prefix: str = "",
         input_names: list[str] | None = None,
         output_names: list[str] | None = None,
-    ) -> onnx.ModelProto:
+    ) -> ModelProto:
         """Build the folded Conv and Add subgraph from captured constants."""
         required = (
             "conv_attributes",

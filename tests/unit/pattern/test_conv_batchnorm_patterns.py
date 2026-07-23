@@ -7,8 +7,7 @@
 from __future__ import annotations
 
 import numpy as np
-import onnx
-from onnx import TensorProto, helper, numpy_helper
+from onnx import ModelProto, TensorProto, ValueInfoProto, checker, helper, numpy_helper
 from onnx.reference import ReferenceEvaluator
 
 from winml.modelkit.optim.pipes.rewrite import RewritePipe
@@ -19,7 +18,7 @@ from winml.modelkit.pattern import (
 )
 
 
-def _value_info(name: str, shape: list[int]) -> onnx.ValueInfoProto:
+def _value_info(name: str, shape: list[int]) -> ValueInfoProto:
     return helper.make_tensor_value_info(name, TensorProto.FLOAT, shape)
 
 
@@ -31,7 +30,7 @@ def _build_model(
     dynamic_scale: bool = False,
     public_conv_output: bool = False,
     variance: np.ndarray | None = None,
-) -> tuple[onnx.ModelProto, dict[str, np.ndarray]]:
+) -> tuple[ModelProto, dict[str, np.ndarray]]:
     rng = np.random.default_rng(29)
     channels = 3
     initializers = {
@@ -101,13 +100,13 @@ def _build_model(
     return model, feeds
 
 
-def _fold(model: onnx.ModelProto) -> onnx.ModelProto:
+def _fold(model: ModelProto) -> ModelProto:
     config = RewritePipe.build_config(conv_add_batch_normalization_folding=True)
     return RewritePipe().process(model, config)
 
 
 def _run(
-    model: onnx.ModelProto,
+    model: ModelProto,
     feeds: dict[str, np.ndarray],
 ) -> list[np.ndarray]:
     return ReferenceEvaluator(model).run(None, feeds)
@@ -135,7 +134,7 @@ def test_both_add_orders_and_optional_bias_are_equivalent() -> None:
             expected = _run(model, feeds)
             transformed = _fold(model)
 
-            onnx.checker.check_model(transformed)
+            checker.check_model(transformed)
             assert [node.op_type for node in transformed.graph.node] == ["Conv", "Add"]
             assert transformed.graph.node[-1].output == ["y"]
             assert not any(node.op_type == "BatchNormalization" for node in transformed.graph.node)
