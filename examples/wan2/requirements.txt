@@ -1,0 +1,15 @@
+# ONNX export + ORT inference environment for Wan2.1-T2V-1.3B.
+# Tested with Python 3.12 on Windows (RTX 5090 D, CUDA 12.8).
+# Install torch from the CUDA 12.8 index, e.g.:
+#   uv pip install torch --index-url https://download.pytorch.org/whl/cu128
+torch==2.11.0            # +cu128 build
+diffusers==0.39.0
+transformers==5.14.1
+accelerate
+ftfy                    # T5/umt5 tokenizer text cleaning
+imageio-ffmpeg          # export_to_video encoder
+numpy
+onnx==1.22.0
+onnxruntime-gpu==1.27.0
+onnxscript==0.7.1
+onnxconverter-common==1.16.0
