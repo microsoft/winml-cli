@@ -747,20 +747,41 @@ class QNNMonitor(WinMLEPMonitor):
            occasionally drops the schematic next to the process's current
            directory rather than next to the profiling CSV.
 
-        The CWD fallback is **mtime-gated** against the profiling CSV: a
-        schematic from a prior CI run sitting in CWD would otherwise be
+        Both output-dir and CWD candidates are **mtime-gated** against the
+        profiling CSV: a schematic from a prior CI run would otherwise be
         silently consumed and produce QHAS metrics for the wrong graph
         with ``status="ok"`` — silent data corruption. The schematic must
         be at least as new as the CSV (with a 5s tolerance for filesystem
-        clock skew) to be accepted.
+        clock skew) to be accepted, while preserving the output-dir-first
+        search order.
         """
-        csv_mtime = self._csv_path.stat().st_mtime if self._csv_path.is_file() else 0.0
-        candidate = self._newest_fresh_schematic(self._output_dir, csv_mtime)
-        if candidate is not None:
-            return candidate
+        try:
+            if not self._csv_path.is_file():
+                return None
+            csv_mtime = self._csv_path.stat().st_mtime
+        except OSError as exc:
+            logger.debug(
+                (
+                    "QNNMonitor: unable to read profiling CSV metadata "
+                    "for schematic discovery (%s): %s"
+                ),
+                self._csv_path,
+                exc,
+            )
+            return None
+
+        output_candidates = self._fresh_schematic_candidates(self._output_dir, csv_mtime)
+        if output_candidates is None:
+            return None
+        if output_candidates:
+            return max(output_candidates, key=lambda candidate: (candidate[0], candidate[1]))[2]
+
         # Fallback: read-only glob of process CWD. No chdir.
-        candidate = self._newest_fresh_schematic(Path.cwd(), csv_mtime)
-        if candidate is not None:
+        cwd_candidates = self._fresh_schematic_candidates(Path.cwd(), csv_mtime)
+        if cwd_candidates is None:
+            return None
+        if cwd_candidates:
+            candidate = max(cwd_candidates, key=lambda item: (item[0], item[1]))[2]
             logger.warning(
                 "QNNMonitor: located *_schematic.bin in CWD (%s) rather than output dir (%s)",
                 candidate.parent,
@@ -770,16 +791,34 @@ class QNNMonitor(WinMLEPMonitor):
         return None
 
     @staticmethod
-    def _newest_fresh_schematic(search_dir: Path, csv_mtime: float) -> Path | None:
-        """Return the newest fresh schematic in ``search_dir`` or ``None``."""
-        fresh = [
-            candidate
-            for candidate in search_dir.glob("*_schematic.bin")
-            if candidate.stat().st_mtime >= csv_mtime - 5.0
-        ]
-        if not fresh:
+    def _fresh_schematic_candidates(
+        search_dir: Path, csv_mtime: float
+    ) -> list[tuple[int, str, Path]] | None:
+        """Return fresh schematic metadata, or ``None`` if discovery failed."""
+        try:
+            candidates = list(search_dir.glob("*_schematic.bin"))
+        except OSError as exc:
+            logger.debug(
+                "QNNMonitor: unable to iterate %s for schematic discovery: %s",
+                search_dir,
+                exc,
+            )
             return None
-        return max(fresh, key=lambda candidate: (candidate.stat().st_mtime_ns, str(candidate)))
+
+        fresh: list[tuple[int, str, Path]] = []
+        for candidate in candidates:
+            try:
+                candidate_stat = candidate.stat()
+            except OSError as exc:
+                logger.debug(
+                    "QNNMonitor: skipping schematic candidate %s: %s",
+                    candidate,
+                    exc,
+                )
+                continue
+            if candidate_stat.st_mtime >= csv_mtime - 5.0:
+                fresh.append((candidate_stat.st_mtime_ns, str(candidate), candidate))
+        return fresh
 
     def _make_failure_result(self, status: TraceStatus, error: str | None) -> OpTraceResult:
         """Build a minimal ``OpTraceResult`` for parse-time failures."""

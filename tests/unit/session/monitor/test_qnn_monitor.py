@@ -749,6 +749,7 @@ def test_find_schematic_prefers_output_dir_over_cwd(tmp_path, monkeypatch):
     cwd_dir.mkdir()
 
     monitor = QNNMonitor(level="detail", output_dir=out_dir)
+    monitor._csv_path.write_text("dummy", encoding="utf-8")
     in_out = out_dir / "graph_schematic.bin"
     in_out.write_bytes(b"")
     in_cwd = cwd_dir / "graph_schematic.bin"
@@ -827,6 +828,99 @@ def test_find_schematic_selects_newest_fresh_output_candidate(tmp_path):
     assert monitor._find_schematic() == newer
 
 
+def test_find_schematic_returns_none_when_csv_metadata_cannot_be_read(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    out_dir = tmp_path / "out"
+    cwd_dir = tmp_path / "cwd"
+    out_dir.mkdir()
+    cwd_dir.mkdir()
+
+    monitor = QNNMonitor(level="detail", output_dir=out_dir)
+    monitor._csv_path.write_text("dummy", encoding="utf-8")
+    (out_dir / "out_schematic.bin").write_bytes(b"")
+    (cwd_dir / "cwd_schematic.bin").write_bytes(b"")
+
+    original_is_file = Path.is_file
+
+    def _flaky_is_file(self: Path) -> bool:
+        if self == monitor._csv_path:
+            raise PermissionError("csv metadata unavailable")
+        return original_is_file(self)
+
+    monkeypatch.setattr(Path, "is_file", _flaky_is_file)
+    monkeypatch.chdir(cwd_dir)
+
+    assert monitor._find_schematic() is None
+
+
+def test_find_schematic_skips_stat_failing_candidate_and_reuses_captured_metadata(
+    tmp_path, monkeypatch
+):
+    from pathlib import Path
+
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    monitor = QNNMonitor(level="detail", output_dir=out_dir)
+    monitor._csv_path.write_text("dummy", encoding="utf-8")
+
+    missing = out_dir / "a_missing_schematic.bin"
+    missing.write_bytes(b"")
+    fresh = out_dir / "z_fresh_schematic.bin"
+    fresh.write_bytes(b"")
+
+    original_stat = Path.stat
+    stat_calls = {missing: 0, fresh: 0}
+
+    def _flaky_stat(self: Path, *args, **kwargs):
+        if self == missing:
+            stat_calls[missing] += 1
+            raise FileNotFoundError("schematic vanished")
+        if self == fresh:
+            stat_calls[fresh] += 1
+            if stat_calls[fresh] > 1:
+                raise AssertionError("fresh schematic stat() should only be read once")
+        return original_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", _flaky_stat)
+
+    assert monitor._find_schematic() == fresh
+    assert stat_calls[missing] == 1
+    assert stat_calls[fresh] == 1
+
+
+def test_find_schematic_returns_none_when_directory_iteration_fails(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    out_dir = tmp_path / "out"
+    cwd_dir = tmp_path / "cwd"
+    out_dir.mkdir()
+    cwd_dir.mkdir()
+
+    monitor = QNNMonitor(level="detail", output_dir=out_dir)
+    monitor._csv_path.write_text("dummy", encoding="utf-8")
+    (cwd_dir / "cwd_schematic.bin").write_bytes(b"")
+
+    original_glob = Path.glob
+
+    def _flaky_glob(self: Path, pattern: str):
+        if self == out_dir:
+            raise PermissionError("cannot iterate directory")
+        return original_glob(self, pattern)
+
+    monkeypatch.setattr(Path, "glob", _flaky_glob)
+    monkeypatch.chdir(cwd_dir)
+
+    assert monitor._find_schematic() is None
+
+
 def test_output_dir_property_exposes_path(tmp_path):
     """The output_dir property returns the directory used for artifacts."""
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
@@ -897,6 +991,48 @@ def test_detail_mode_falls_back_to_basic_when_qhas_unavailable(tmp_path):
         "expected samples_us populated from CSV per-sample rows"
     )
     # No QHAS artifact recorded; CSV artifact recorded.
+    assert "qhas" not in monitor.result.artifacts
+    assert "csv" in monitor.result.artifacts
+
+
+def test_detail_mode_uses_basic_fallback_when_schematic_stat_fails(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    monitor.__enter__()
+    _write_basic_profile(
+        monitor._csv_path,
+        [
+            {
+                "hvx_threads": 4,
+                "accel_execute_cycles": 100,
+                "accel_execute_us": 10,
+                "operator_cycles": 25,
+            }
+        ],
+    )
+    (tmp_path / "graph_qnn.log").write_text("qnn log", encoding="utf-8")
+    failing_schematic = tmp_path / "graph_schematic.bin"
+    failing_schematic.write_bytes(b"")
+
+    original_stat = Path.stat
+
+    def _flaky_stat(self: Path, *args, **kwargs):
+        if self == failing_schematic:
+            raise FileNotFoundError("schematic vanished")
+        return original_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", _flaky_stat)
+
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    assert monitor.result.status == "basic_fallback"
+    assert monitor.result.error is None
+    assert monitor.result.operators, "expected CSV-derived operators in basic_fallback result"
+    assert monitor.result.summary, "expected CSV-derived summary in basic_fallback result"
     assert "qhas" not in monitor.result.artifacts
     assert "csv" in monitor.result.artifacts
 
