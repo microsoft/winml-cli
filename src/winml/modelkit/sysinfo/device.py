@@ -49,10 +49,6 @@ for _ep, _devices in EP_SUPPORTED_DEVICES.items():
     for _d in _devices:
         _DEVICE_EP_MAP.setdefault(_d, []).append(_ep)
 
-# Device priority is significant: NPU is preferred and CPU is the fallback.
-_VALID_DEVICES = frozenset(DEVICE_PRIORITY)
-
-
 # EPs that exist in ``onnxruntime.get_available_providers()`` but are not yet
 # exposed via the new ``get_ep_devices()``/AutoEP machinery. Mapped to the
 # canonical device they target so they can still be selected via the legacy
