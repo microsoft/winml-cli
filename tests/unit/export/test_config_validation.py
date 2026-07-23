@@ -331,6 +331,12 @@ class TestOutputTensorSpecRoundtrip:
 class TestWinMLExportConfigRoundtrip:
     """WinMLExportConfig serialization roundtrip."""
 
+    def test_default_disables_dynamo(self):
+        assert WinMLExportConfig().dynamo is False
+
+    def test_empty_dict_disables_dynamo(self):
+        assert WinMLExportConfig.from_dict({}).dynamo is False
+
     def test_defaults_roundtrip(self):
         original = WinMLExportConfig()
         restored = WinMLExportConfig.from_dict(original.to_dict())

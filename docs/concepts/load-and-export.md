@@ -16,7 +16,7 @@ Some community models host custom Python code in their repositories. The loader 
 
 ## Exporting to ONNX
 
-`winml export` converts the loaded model to ONNX. By default it uses PyTorch's TorchDynamo ONNX exporter (`torch.onnx.export(dynamo=True)`), which records rich per-node module metadata that is used to derive the `winml.hierarchy.*` node tags. Pass `--no-dynamo` to fall back to the legacy TorchScript exporter, which follows actual execution paths and tends to produce compact inference-oriented graphs. Both exporters default to static shapes; the QNN-relevant difference is opset and op decomposition: torch's dynamo op library is built against a minimum opset of 18. When a lower opset is requested (17 by default), dynamo attempts to down-convert to it, which may succeed (the graph is saved at the requested opset) or fail (it stays at opset 18); `winml export` reports the opset actually produced and warns when it differs from the requested value. The TorchScript path always exports at the configured opset (17 by default) and lowers some ops differently (e.g. ResNet's head becomes `ReduceMean` + `Reshape` under dynamo but `GlobalAveragePool` + `Flatten` under TorchScript). Because the opset-17 TorchScript graph is what the QNN/NPU toolchain has been validated against, `--no-dynamo` remains the validated choice for QNN/NPU hand exports today.
+`winml export` converts the loaded model to ONNX. By default it uses the legacy TorchScript exporter (`torch.onnx.export(dynamo=False)`), which follows actual execution paths and tends to produce compact inference-oriented graphs. Pass `--dynamo` to use PyTorch's TorchDynamo ONNX exporter, which records rich per-node module metadata that is used to derive the `winml.hierarchy.*` node tags. Both exporters default to static shapes; the QNN-relevant difference is opset and op decomposition: torch's dynamo op library is built against a minimum opset of 18. When a lower opset is requested (17 by default), dynamo attempts to down-convert to it, which may succeed (the graph is saved at the requested opset) or fail (it stays at opset 18); `winml export` reports the opset actually produced and warns when it differs from the requested value. The TorchScript path always exports at the configured opset (17 by default) and lowers some ops differently (e.g. ResNet's head becomes `ReduceMean` + `Reshape` under dynamo but `GlobalAveragePool` + `Flatten` under TorchScript). The default opset-17 TorchScript graph is the path validated for QNN/NPU hand exports today.
 
 By default the exporter runs an eight-step process that includes hierarchy recovery and tag injection. The result is an ONNX file enriched with structural metadata that powers downstream features such as per-module benchmarking, inspector views, and optimizer scoping.
 
@@ -31,9 +31,9 @@ During export the HTP (Hierarchy-preserving Tags Protocol) exporter attaches two
 
 #### How tags are built
 
-The module path attached to each node is obtained differently depending on the exporter. Under the default TorchDynamo exporter, dynamo records originating-module information as ONNX metadata, and the exporter reconstructs the hierarchy directly from that metadata after export — no forward hooks are involved. Under `--no-dynamo`, the TorchScript path instead registers PyTorch forward hooks on each module: when a module executes, a pre-hook pushes its class name onto a tag stack and the post-hook pops it. Either way the result is hierarchical paths that mirror the PyTorch module tree.
+The module path attached to each node is obtained differently depending on the exporter. Under the default TorchScript exporter, the exporter registers PyTorch forward hooks on each module: when a module executes, a pre-hook pushes its class name onto a tag stack and the post-hook pops it. Under `--dynamo`, Dynamo instead records originating-module information as ONNX metadata, and the exporter reconstructs the hierarchy directly from that metadata after export — no forward hooks are involved. Either way the result is hierarchical paths that mirror the PyTorch module tree.
 
-The hook flow below applies only to the `--no-dynamo` TorchScript path:
+The hook flow below applies to the default TorchScript path:
 
 ```mermaid
 flowchart LR
@@ -44,11 +44,11 @@ flowchart LR
     E --> F[Tag stack → path]
 ```
 
-Under `--no-dynamo`, only modules that are actually executed during tracing receive tags — unused modules are excluded. For example, `prajjwal1/bert-tiny` has 48 registered modules but only 18 are reached during a forward pass. (Under the default dynamo path the hierarchy instead reflects the modules present in the exported graph's metadata.)
+Under the default TorchScript path, only modules that are actually executed during tracing receive tags — unused modules are excluded. For example, `prajjwal1/bert-tiny` has 48 registered modules but only 18 are reached during a forward pass. (Under `--dynamo`, the hierarchy instead reflects the modules present in the exported graph's metadata.)
 
 #### Concrete example: BERT-tiny
 
-Running `winml export -m prajjwal1/bert-tiny -o model.onnx -v --no-dynamo` produces the following hierarchy tree (18 traced modules, 132 ONNX nodes, 100 % coverage) — the numbers below are from the TorchScript trace path:
+Running `winml export -m prajjwal1/bert-tiny -o model.onnx -v` produces the following hierarchy tree (18 traced modules, 132 ONNX nodes, 100 % coverage) — the numbers below are from the default TorchScript trace path:
 
 ```
 BertModel (132 nodes)
@@ -77,7 +77,7 @@ Each ONNX node gets its tag from the module it belongs to. Here are a few exampl
 
 #### Node-to-module mapping
 
-Under the default dynamo path, each node is assigned directly from its `pkg.torch.onnx.name_scopes` and `pkg.torch.onnx.class_hierarchy` metadata; nodes without usable metadata receive the model-root fallback. Under `--no-dynamo`, after the ONNX graph is produced by `torch.onnx.export`, the legacy tagger instead uses a 4-priority system to assign each ONNX node to the closest traced module:
+Under `--dynamo`, each node is assigned directly from its `pkg.torch.onnx.name_scopes` and `pkg.torch.onnx.class_hierarchy` metadata; nodes without usable metadata receive the model-root fallback. Under the default TorchScript path, after the ONNX graph is produced by `torch.onnx.export`, the legacy tagger instead uses a 4-priority system to assign each ONNX node to the closest traced module:
 
 1. **Direct match** (61 %) — the node's scope name maps exactly to a traced module.
 2. **Parent match** (24 %) — walk up the scope hierarchy until a traced module is found.
