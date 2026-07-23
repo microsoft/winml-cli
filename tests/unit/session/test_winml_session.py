@@ -30,6 +30,7 @@ import pytest
 from winml.modelkit.compiler import EPConfig
 from winml.modelkit.session import (
     EPDeviceTarget,
+    WinMLEPDevice,
     WinMLEPMonitorMismatch,
     WinMLSession,
 )
@@ -93,7 +94,7 @@ class TestWinMLSessionInstantiation:
     ):
         """ep_name returns None before compile() since no providers are bound yet."""
         _stub_registry(monkeypatch, cpu_ep_device)
-        session = WinMLSession(onnx_path=simple_matmul_onnx, device="cpu")
+        session = WinMLSession(onnx_path=simple_matmul_onnx, device="cpu", ep="cpu")
         assert session.ep_name is None
 
     def test_ep_name_after_compile(
@@ -104,7 +105,7 @@ class TestWinMLSessionInstantiation:
     ):
         """ep_name returns the primary provider name once the session is built."""
         _stub_registry(monkeypatch, cpu_ep_device)
-        session = WinMLSession(onnx_path=simple_matmul_onnx, device="cpu")
+        session = WinMLSession(onnx_path=simple_matmul_onnx, device="cpu", ep="cpu")
         session.compile()
         assert isinstance(session.ep_name, str)
         assert session.ep_name.endswith("ExecutionProvider")
@@ -392,12 +393,14 @@ class TestWinMLSessionPrecisionDetection:
         save(model, str(path))
         return path
 
-    def test_precision_fp32_from_initializers(self, simple_matmul_onnx: Path):
+    def test_precision_fp32_from_initializers(
+        self, simple_matmul_onnx: Path, cpu_ep_device: WinMLEPDevice
+    ):
         """Float initializers (fp32) → 'fp32'."""
-        session = WinMLSession(onnx_path=simple_matmul_onnx, device="auto")
+        session = WinMLSession(onnx_path=simple_matmul_onnx, ep_device=cpu_ep_device)
         assert session.io_config["precision"] == "fp32"
 
-    def test_precision_fp16_from_initializers(self, tmp_path: Path):
+    def test_precision_fp16_from_initializers(self, tmp_path: Path, cpu_ep_device: WinMLEPDevice):
         """Float initializers (fp16) → 'fp16'."""
         import numpy as np
         from onnx import TensorProto, helper
@@ -412,10 +415,10 @@ class TestWinMLSessionPrecisionDetection:
         model.ir_version = 7
         path = self._save(model, tmp_path / "fp16.onnx")
 
-        session = WinMLSession(onnx_path=path, device="auto")
+        session = WinMLSession(onnx_path=path, ep_device=cpu_ep_device)
         assert session.io_config["precision"] == "fp16"
 
-    def test_precision_int8_from_qdq(self, tmp_path: Path):
+    def test_precision_int8_from_qdq(self, tmp_path: Path, cpu_ep_device: WinMLEPDevice):
         """QDQ pair with int8 zero_point on a weight initializer → 'int8'."""
         import numpy as np
         from onnx import TensorProto, helper
@@ -443,10 +446,10 @@ class TestWinMLSessionPrecisionDetection:
         model.ir_version = 7
         path = self._save(model, tmp_path / "qdq_int8.onnx")
 
-        session = WinMLSession(onnx_path=path, device="auto")
+        session = WinMLSession(onnx_path=path, ep_device=cpu_ep_device)
         assert session.io_config["precision"] == "w8a8"
 
-    def test_precision_w8a16_mixed_qdq(self, tmp_path: Path):
+    def test_precision_w8a16_mixed_qdq(self, tmp_path: Path, cpu_ep_device: WinMLEPDevice):
         """Activation quantized to uint16 + weight to int8 → 'w8a16'."""
         import numpy as np
         from onnx import TensorProto, helper
@@ -495,10 +498,17 @@ class TestWinMLSessionPrecisionDetection:
         model.ir_version = 7
         path = self._save(model, tmp_path / "qdq_w8a16.onnx")
 
-        session = WinMLSession(onnx_path=path, device="auto")
+        # Precision detection is a static read of the QDQ graph; the uint16
+        # activation zero-point is a valid w8a16 signal but ORT's CPU EP rejects
+        # it at compile time, so mock the InferenceSession — we only assert on
+        # the statically-derived io_config precision, not on a runnable session.
+        with patch("winml.modelkit.session.session.ort.InferenceSession"):
+            session = WinMLSession(onnx_path=path, ep_device=cpu_ep_device)
         assert session.io_config["precision"] == "w8a16"
 
-    def test_precision_int8_ignores_int32_bias_zp(self, tmp_path: Path):
+    def test_precision_int8_ignores_int32_bias_zp(
+        self, tmp_path: Path, cpu_ep_device: WinMLEPDevice
+    ):
         """INT32 bias DQ on the weight side must not poison the label.
 
         Mirrors the NPU-quantized ResNet-50 case: every Conv has an
@@ -561,10 +571,10 @@ class TestWinMLSessionPrecisionDetection:
         model.ir_version = 7
         path = self._save(model, tmp_path / "qdq_int32_bias.onnx")
 
-        session = WinMLSession(onnx_path=path, device="auto")
+        session = WinMLSession(onnx_path=path, ep_device=cpu_ep_device)
         assert session.io_config["precision"] == "w8a8"
 
-    def test_precision_matmulnbits_w4a16(self, tmp_path: Path):
+    def test_precision_matmulnbits_w4a16(self, tmp_path: Path, cpu_ep_device: WinMLEPDevice):
         """MatMulNBits with bits=4 + fp16 initializers → 'w4a16'."""
         import numpy as np
         from onnx import TensorProto, helper
@@ -610,10 +620,10 @@ class TestWinMLSessionPrecisionDetection:
         model.ir_version = 7
         path = self._save(model, tmp_path / "mmnbits_w4.onnx")
 
-        session = WinMLSession(onnx_path=path, device="auto")
+        session = WinMLSession(onnx_path=path, ep_device=cpu_ep_device)
         assert session.io_config["precision"] == "w4a16"
 
-    def test_precision_no_signal_returns_none(self, tmp_path: Path):
+    def test_precision_no_signal_returns_none(self, tmp_path: Path, cpu_ep_device: WinMLEPDevice):
         """No QDQ ops, no MatMulNBits, no float initializers → None."""
         from onnx import TensorProto, helper
 
@@ -626,7 +636,7 @@ class TestWinMLSessionPrecisionDetection:
         model.ir_version = 7
         path = self._save(model, tmp_path / "no_signal.onnx")
 
-        session = WinMLSession(onnx_path=path, device="auto")
+        session = WinMLSession(onnx_path=path, ep_device=cpu_ep_device)
         assert session.io_config["precision"] is None
 
 
