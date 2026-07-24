@@ -537,3 +537,256 @@ class TestConvTransposeDerivedProperties:
         }
         assert has_odd_exact_stride_case
         assert has_even_non_exact_stride_case
+
+
+class TestEinsumDeriveProperties:
+    """Test Einsum derive_properties extracts semantic features from equation."""
+
+    @pytest.fixture()
+    def einsum_generator(self):
+        """Create an Einsum generator for opset 22."""
+        domain = ONNXDomain.AI_ONNX
+        schema = domain.get_op_schema("Einsum", 22)
+        generator_class = get_runtime_checker_op("Einsum")
+        return generator_class(schema)
+
+    @pytest.mark.parametrize(
+        "equation,input_shapes,expected",
+        [
+            # Matrix multiply: contraction on j
+            (
+                "ij,jk->ik",
+                ((3, 4), (4, 5)),
+                {
+                    "has_ellipsis": False,
+                    "has_explicit_output": True,
+                    "is_full_reduction": False,
+                    "has_repeated_labels": False,
+                    "has_contraction": True,
+                    "output_num_labels": 2,
+                    "inputs_share_all_labels": False,
+                },
+            ),
+            # Bilinear: shared contraction dim k, different semantics from matmul
+            (
+                "ik,jk->ij",
+                ((3, 4), (5, 4)),
+                {
+                    "has_ellipsis": False,
+                    "has_explicit_output": True,
+                    "is_full_reduction": False,
+                    "has_repeated_labels": False,
+                    "has_contraction": True,
+                    "output_num_labels": 2,
+                    "inputs_share_all_labels": False,
+                },
+            ),
+            # Batched matmul with ellipsis (OWLv2 pattern)
+            (
+                "...pd,...qd->...pq",
+                ((2, 3, 4), (2, 5, 4)),
+                {
+                    "has_ellipsis": True,
+                    "has_explicit_output": True,
+                    "is_full_reduction": False,
+                    "has_repeated_labels": False,
+                    "has_contraction": True,
+                    "output_num_labels": 2,
+                    "inputs_share_all_labels": False,
+                },
+            ),
+            # Diagonal extraction: repeated labels
+            (
+                "ii->i",
+                ((4, 4),),
+                {
+                    "has_ellipsis": False,
+                    "has_explicit_output": True,
+                    "is_full_reduction": False,
+                    "has_repeated_labels": True,
+                    "has_contraction": False,
+                    "output_num_labels": 1,
+                    "inputs_share_all_labels": True,
+                },
+            ),
+            # Full reduction: scalar output
+            (
+                "ij->",
+                ((3, 4),),
+                {
+                    "has_ellipsis": False,
+                    "has_explicit_output": True,
+                    "is_full_reduction": True,
+                    "has_repeated_labels": False,
+                    "has_contraction": True,
+                    "output_num_labels": 0,
+                    "inputs_share_all_labels": True,
+                },
+            ),
+            # Outer product: no contraction
+            (
+                "i,j->ij",
+                ((3,), (4,)),
+                {
+                    "has_ellipsis": False,
+                    "has_explicit_output": True,
+                    "is_full_reduction": False,
+                    "has_repeated_labels": False,
+                    "has_contraction": False,
+                    "output_num_labels": 2,
+                    "inputs_share_all_labels": False,
+                },
+            ),
+            # Element-wise multiply: no contraction, inputs share all labels
+            (
+                "ij,ij->ij",
+                ((3, 4), (3, 4)),
+                {
+                    "has_ellipsis": False,
+                    "has_explicit_output": True,
+                    "is_full_reduction": False,
+                    "has_repeated_labels": False,
+                    "has_contraction": False,
+                    "output_num_labels": 2,
+                    "inputs_share_all_labels": True,
+                },
+            ),
+            # Batched matmul without ellipsis
+            (
+                "bij,bjk->bik",
+                ((2, 3, 4), (2, 4, 5)),
+                {
+                    "has_ellipsis": False,
+                    "has_explicit_output": True,
+                    "is_full_reduction": False,
+                    "has_repeated_labels": False,
+                    "has_contraction": True,
+                    "output_num_labels": 3,
+                    "inputs_share_all_labels": False,
+                },
+            ),
+        ],
+    )
+    def test_einsum_equation_semantic_properties(
+        self, einsum_generator, equation, input_shapes, expected
+    ):
+        """Verify each equation derives distinct semantic properties."""
+        properties = {
+            "Inputs_shape": input_shapes,
+            "attr_equation": equation,
+        }
+        result = einsum_generator.derive_properties(properties)
+
+        for key, value in expected.items():
+            assert result[key] == value, (
+                f"equation={equation!r}: expected {key}={value}, got {result[key]}"
+            )
+
+    def test_same_rank_different_equations_produce_different_properties(
+        self, einsum_generator
+    ):
+        """Equations with same arity and rank but different semantics must differ.
+
+        This is the core regression test for the reviewer's concern: 'bij,bjk->bik'
+        and '...pd,...qd->...pq' have the same num_inputs=2 and Inputs_dim=3 but
+        must produce different derived property sets.
+        """
+        props_batched = einsum_generator.derive_properties(
+            {
+                "Inputs_shape": ((2, 3, 4), (2, 4, 5)),
+                "attr_equation": "bij,bjk->bik",
+            }
+        )
+        props_ellipsis = einsum_generator.derive_properties(
+            {
+                "Inputs_shape": ((2, 3, 4), (2, 5, 4)),
+                "attr_equation": "...pd,...qd->...pq",
+            }
+        )
+
+        # Same arity and rank
+        assert props_batched["num_inputs"] == props_ellipsis["num_inputs"] == 2
+        assert props_batched["Inputs_dim"] == props_ellipsis["Inputs_dim"] == 3
+
+        # But different semantic properties (at minimum, has_ellipsis differs)
+        semantic_keys = [
+            "has_ellipsis",
+            "has_explicit_output",
+            "is_full_reduction",
+            "has_repeated_labels",
+            "has_contraction",
+        ]
+        batched_sig = tuple(props_batched[k] for k in semantic_keys)
+        ellipsis_sig = tuple(props_ellipsis[k] for k in semantic_keys)
+        assert batched_sig != ellipsis_sig, (
+            "Same-rank equations must produce different semantic signatures"
+        )
+
+
+class TestEinsumEquationExecution:
+    """Dedicated test that executes every Einsum equation independently.
+
+    This addresses the reviewer's concern that validate_inputs() groups cases by
+    input shape constraints, causing same-shape-different-equation cases to be
+    skipped after the first in a group passes. This test builds a real ONNX Einsum
+    node for each equation and runs inference to verify the output shape.
+    """
+
+    @pytest.mark.parametrize(
+        "equation,input_shapes,expected_output_shape",
+        [
+            # Single-input equations
+            ("ij->ji", [(3, 4)], (4, 3)),
+            ("ii->i", [(4, 4)], (4,)),
+            ("ij->", [(3, 4)], ()),
+            # Two-input equations
+            ("ij,jk->ik", [(3, 4), (4, 5)], (3, 5)),
+            ("i,i->", [(6,), (6,)], ()),
+            ("i,j->ij", [(3,), (4,)], (3, 4)),
+            ("ij,ij->ij", [(3, 4), (3, 4)], (3, 4)),
+            ("bij,bjk->bik", [(2, 3, 4), (2, 4, 5)], (2, 3, 5)),
+            ("...ij,...jk->...ik", [(2, 3, 4), (2, 4, 5)], (2, 3, 5)),
+            ("...pd,...qd->...pq", [(2, 3, 4), (2, 5, 4)], (2, 3, 5)),
+            ("abij,abjk->abik", [(2, 3, 4, 5), (2, 3, 5, 6)], (2, 3, 4, 6)),
+            ("ik,jk->ij", [(3, 4), (5, 4)], (3, 5)),
+        ],
+    )
+    def test_einsum_equation_output_shape(
+        self, equation, input_shapes, expected_output_shape
+    ):
+        """Execute each equation via ORT and verify output shape independently."""
+        import onnx
+        from onnx import TensorProto, helper
+
+        import onnxruntime as ort
+
+        # Build a minimal ONNX model with a single Einsum node
+        inputs = []
+        input_tensors = []
+        for i, shape in enumerate(input_shapes):
+            name = f"input_{i}"
+            inputs.append(helper.make_tensor_value_info(name, TensorProto.FLOAT, shape))
+            input_tensors.append(np.random.randn(*shape).astype(np.float32))
+
+        output = helper.make_tensor_value_info("output", TensorProto.FLOAT, None)
+
+        node = helper.make_node(
+            "Einsum",
+            inputs=[f"input_{i}" for i in range(len(input_shapes))],
+            outputs=["output"],
+            equation=equation,
+        )
+
+        graph = helper.make_graph([node], "test_einsum", inputs, [output])
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        model = onnx.shape_inference.infer_shapes(model)
+
+        # Run inference
+        sess = ort.InferenceSession(model.SerializeToString())
+        feed = {f"input_{i}": t for i, t in enumerate(input_tensors)}
+        result = sess.run(None, feed)
+
+        assert result[0].shape == expected_output_shape, (
+            f"equation={equation!r}: expected shape {expected_output_shape}, "
+            f"got {result[0].shape}"
+        )
