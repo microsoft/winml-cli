@@ -84,6 +84,34 @@ class TestResolveAutoDetectNewArchitectures:
         assert hasattr(r.model_class, "__name__")
 
 
+class TestResolveAmbiguousASRModelClass:
+    """Resolve ASR's CTC and seq2seq families from architecture metadata."""
+
+    @pytest.mark.parametrize("explicit_task", [False, True], ids=["auto-task", "explicit-task"])
+    def test_ctc_architecture_uses_auto_model_for_ctc(
+        self,
+        explicit_task: bool,
+        make_mock_config,
+    ) -> None:
+        config = make_mock_config("wav2vec2", ["Wav2Vec2ForCTC"])
+
+        r = resolve_task(
+            config,
+            task="automatic-speech-recognition" if explicit_task else None,
+        )
+
+        assert r.task == "automatic-speech-recognition"
+        assert r.model_class.__name__ == "AutoModelForCTC"
+
+    def test_seq2seq_architecture_keeps_speech_seq2seq_default(self, make_mock_config) -> None:
+        config = make_mock_config("whisper", ["WhisperForConditionalGeneration"])
+
+        r = resolve_task(config)
+
+        assert r.task == "automatic-speech-recognition"
+        assert r.model_class.__name__ == "AutoModelForSpeechSeq2Seq"
+
+
 class TestResolveTaskAliasPreservation:
     """User-task path: original task is returned, not the normalized form.
 
