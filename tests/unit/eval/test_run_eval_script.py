@@ -373,6 +373,67 @@ class TestRunBuildConfigOverwrite:
         assert config_call[idx + 2] == "--overwrite", config_call
 
 
+class TestRunBuildPrecisionForwarding:
+    """``_run_build`` must forward ``--precision`` to both ``winml config`` and
+    ``winml build``.
+
+    Regression guard: since the harness always passes ``--device``,
+    ``winml build -c`` re-resolves quant from device+precision and overwrites
+    the config's quant. Omitting ``--precision`` let it revert to the auto
+    default (npu → w8a16), so w8a8 and w8a16 fallback jobs collided on one
+    cached artifact.
+    """
+
+    @staticmethod
+    def _make_entry():
+        entry = MagicMock()
+        entry.hf_id = "google-bert/bert-base-uncased"
+        entry.task = "text-classification"
+        entry.perf_args = []
+        return entry
+
+    def _invoke(self, run_eval, precision, tmp_path, ep=None):
+        entry = self._make_entry()
+        (tmp_path / "build_config.json").write_text("{}", encoding="utf-8")
+        captured: list[list[str]] = []
+
+        def fake_subprocess(args, _timeout):
+            captured.append(list(args))
+            stdout = "" if "config" in args else "Build cache: model.onnx"
+            return {
+                "exit_code": 0,
+                "stdout": stdout,
+                "stderr": "",
+                "elapsed": 0.1,
+                "command": " ".join(args),
+            }
+
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=fake_subprocess),
+            patch.object(run_eval, "_extract_onnx_path", return_value=str(tmp_path / "model.onnx")),
+        ):
+            run_eval._run_build(entry, "npu", precision, 300, tmp_path, ep=ep)
+        return captured
+
+    def test_precision_forwarded_to_both_config_and_build(self, run_eval, tmp_path):
+        calls = self._invoke(run_eval, "w8a8", tmp_path)
+        config_call = next(args for args in calls if "config" in args)
+        build_call = next(args for args in calls if "build" in args)
+        for call in (config_call, build_call):
+            assert "--precision" in call, call
+            assert call[call.index("--precision") + 1] == "w8a8", call
+
+    def test_distinct_precisions_forwarded_distinctly(self, run_eval, tmp_path):
+        build_a = next(a for a in self._invoke(run_eval, "w8a8", tmp_path) if "build" in a)
+        build_b = next(a for a in self._invoke(run_eval, "w8a16", tmp_path) if "build" in a)
+        assert build_a[build_a.index("--precision") + 1] == "w8a8", build_a
+        assert build_b[build_b.index("--precision") + 1] == "w8a16", build_b
+
+    def test_precision_omitted_from_build_when_none(self, run_eval, tmp_path):
+        build_call = next(a for a in self._invoke(run_eval, None, tmp_path) if "build" in a)
+        assert "--precision" not in build_call, build_call
+
+
 class TestFeedVersionForCombo:
     """``_feed_version_for`` embeds the EP/device combo after the run-stamp."""
 
@@ -766,7 +827,9 @@ class TestRecipeConfigHelpers:
 
 
 class TestBuildJobs:
-    """``_build_jobs`` expands entries into one job per recipe precision variant."""
+    """``_build_jobs`` uses recipes on every device but drops quantized variants
+    off-NPU.
+    """
 
     def _make_single_recipe(self, recipes_dir: Path, slug: str, task: str, precisions: list[str]):
         model_dir = recipes_dir / slug
@@ -776,27 +839,88 @@ class TestBuildJobs:
                 json.dumps({"eval": {"task": task, "dataset": {"path": "x"}}}), encoding="utf-8"
             )
 
-    def test_recipe_expands_to_one_job_per_precision(self, run_eval, tmp_path):
+    def test_npu_recipe_expands_to_one_job_per_precision(self, run_eval, tmp_path):
         self._make_single_recipe(
             tmp_path, "microsoft_resnet-50", "image-classification", ["fp16", "w8a16"]
         )
         entry = _entry()
-        jobs = run_eval._build_jobs([entry], tmp_path)
+        jobs = run_eval._build_jobs([entry], tmp_path, "npu")
         assert [j.precision for j in jobs] == ["fp16", "w8a16"]
         assert all(j.entry is entry for j in jobs)
 
-    def test_no_recipe_falls_back_to_single_job(self, run_eval, tmp_path):
-        entry = _entry("some/model", "text-classification")
-        jobs = run_eval._build_jobs([entry], tmp_path)
+    def test_non_npu_keeps_only_non_quantized_variants(self, run_eval, tmp_path):
+        # A recipe with fp16 + w8a16: off-NPU keeps fp16 (for its eval config)
+        # and drops the quantized w8a16 variant.
+        self._make_single_recipe(
+            tmp_path, "microsoft_resnet-50", "image-classification", ["fp16", "w8a16"]
+        )
+        entry = _entry()
+        for device in ("cpu", "gpu", "auto"):
+            jobs = run_eval._build_jobs([entry], tmp_path, device)
+            assert [j.precision for j in jobs] == ["fp16"]
+            assert jobs[0].variant is not None
+            assert all(j.entry is entry for j in jobs)
+
+    def test_non_npu_recipe_only_quantized_falls_back(self, run_eval, tmp_path):
+        # A recipe with no non-quantized variant leaves nothing to run off-NPU,
+        # so the model builds a single winml-config fallback.
+        self._make_single_recipe(
+            tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"]
+        )
+        entry = _entry()
+        jobs = run_eval._build_jobs([entry], tmp_path, "cpu")
         assert len(jobs) == 1
         assert jobs[0].variant is None
         assert jobs[0].precision is None
 
-    def test_recipes_disabled_yields_fallback_jobs(self, run_eval, tmp_path):
+    def test_npu_no_recipe_expands_to_w8a8_and_w8a16(self, run_eval, tmp_path):
+        entry = _entry("some/model", "text-classification")
+        jobs = run_eval._build_jobs([entry], tmp_path, "npu")
+        assert [j.precision for j in jobs] == ["w8a8", "w8a16"]
+        assert all(j.variant is None for j in jobs)
+        assert all(j.entry is entry for j in jobs)
+
+    def test_npu_no_recipe_honors_explicit_precision(self, run_eval, tmp_path):
+        # An explicit per-model precision suppresses the w8a8+w8a16 expansion;
+        # the single fallback job reports that precision so its slug/label match
+        # the built artifact.
+        entry = _entry("some/model", "text-classification")
+        entry.precision = "fp16"
+        jobs = run_eval._build_jobs([entry], tmp_path, "npu")
+        assert len(jobs) == 1
+        assert jobs[0].variant is None
+        assert jobs[0].precision == "fp16"
+
+    def test_npu_skip_quant_ep_no_recipe_single_fallback(self, run_eval, tmp_path):
+        # A skip-quant EP (VitisAI) builds the model unquantized regardless of
+        # precision, so the w8a8+w8a16 expansion is suppressed to avoid two jobs
+        # collapsing onto the same unquantized artifact.
+        entry = _entry("some/model", "text-classification")
+        jobs = run_eval._build_jobs([entry], tmp_path, "npu", ep="vitisai")
+        assert len(jobs) == 1
+        assert jobs[0].variant is None
+        assert jobs[0].precision is None
+
+    def test_non_npu_no_recipe_single_fallback(self, run_eval, tmp_path):
+        entry = _entry("some/model", "text-classification")
+        jobs = run_eval._build_jobs([entry], tmp_path, "cpu")
+        assert len(jobs) == 1
+        assert jobs[0].variant is None
+        assert jobs[0].precision is None
+
+    def test_npu_recipes_disabled_yields_precision_fallback(self, run_eval, tmp_path):
         self._make_single_recipe(tmp_path, "microsoft_resnet-50", "image-classification", ["fp16"])
         entry = _entry()
-        # recipes_dir=None disables recipe discovery entirely.
-        jobs = run_eval._build_jobs([entry], None)
+        # recipes_dir=None disables recipe discovery entirely; NPU still expands
+        # the recipe-less model into the w8a8+w8a16 fallback jobs.
+        jobs = run_eval._build_jobs([entry], None, "npu")
+        assert [j.precision for j in jobs] == ["w8a8", "w8a16"]
+        assert all(j.variant is None for j in jobs)
+
+    def test_non_npu_recipes_disabled_single_fallback(self, run_eval, tmp_path):
+        self._make_single_recipe(tmp_path, "microsoft_resnet-50", "image-classification", ["fp16"])
+        entry = _entry()
+        jobs = run_eval._build_jobs([entry], None, "cpu")
         assert len(jobs) == 1
         assert jobs[0].variant is None
 
