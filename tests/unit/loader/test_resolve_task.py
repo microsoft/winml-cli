@@ -48,6 +48,14 @@ def test_seq2seq_fill_mask_is_upgraded_and_source_is_tasks_manager():
     assert r.composite == {"encoder": "feature-extraction", "decoder": "text2text-generation"}
 
 
+def test_architecture_suffix_fallback_resolves_layoutlm_question_answering():
+    r = resolve_task(_cfg("layoutlm", ["LayoutLMForQuestionAnswering"]))
+    assert r.task == "question-answering"
+    assert r.optimum_task == "question-answering"
+    assert r.model_class.__name__ == "AutoModelForQuestionAnswering"
+    assert r.source == TaskSource.TASKS_MANAGER
+
+
 def test_user_task_preserved_verbatim_no_modality_upgrade():
     r = resolve_task(_cfg("vit", ["ViTModel"]), task="feature-extraction")
     assert r.task == "feature-extraction"

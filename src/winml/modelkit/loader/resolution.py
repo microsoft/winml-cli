@@ -178,6 +178,20 @@ _FEATURE_MODALITY_BY_MAIN_INPUT: dict[str, str] = {
 }
 
 
+_ARCHITECTURE_SUFFIX_TASKS: dict[str, str] = {
+    "ForQuestionAnswering": "question-answering",
+}
+
+
+def _infer_task_from_architecture_suffix(config: PretrainedConfig) -> str | None:
+    """Infer task from architecture head suffix when Optimum has no mapping."""
+    for arch_name in getattr(config, "architectures", None) or []:
+        for suffix, task in _ARCHITECTURE_SUFFIX_TASKS.items():
+            if arch_name.endswith(suffix):
+                return task
+    return None
+
+
 def _resolve_task_modality(config: PretrainedConfig, task: str) -> str:
     """Upgrade a modality-blind ``feature-extraction`` to its modality-aware variant.
 
@@ -415,8 +429,16 @@ def _infer_task_from_architecture(config: PretrainedConfig) -> str:
 
     Includes the encoder-decoder fill-mask -> text2text-generation correction.
     """
+    model_class = _resolve_model_class_from_config(config)
+    try:
+        task = _detect_task_from_model_class(model_class)
+    except ValueError:
+        suffix_task = _infer_task_from_architecture_suffix(config)
+        if suffix_task is None:
+            raise
+        task = suffix_task
     return _upgrade_fill_mask_for_seq2seq(
-        _detect_task_from_model_class(_resolve_model_class_from_config(config)),
+        task,
         config,
     )
 
