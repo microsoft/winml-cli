@@ -69,6 +69,8 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
         "winml.modelkit.eval.tensor_similarity_evaluator:TensorSimilarityEvaluator",
     "mask-generation":
         "winml.modelkit.eval.mask_generation_evaluator:WinMLMaskGenerationEvaluator",
+    "text-generation":
+        "winml.modelkit.eval.text_generation_evaluator:WinMLTextGenerationEvaluator",
 }
 # fmt: on
 
@@ -199,6 +201,14 @@ _DEFAULT_DATASETS: dict[str, dict] = {
         "path": "mattmdjaga/human_parsing_dataset",
         "split": "train",
     },
+    "text-generation": {
+        # Raw wikitext-2 test split scored token-by-token for perplexity;
+        # ``input_column`` names the text field the corpus is built from.
+        "path": "wikitext",
+        "name": "wikitext-2-raw-v1",
+        "split": "test",
+        "columns_mapping": {"input_column": "text"},
+    },
 }
 
 
@@ -230,6 +240,9 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCo
     """
     from ..models import WinMLAutoModel
     from ..utils import cli as cli_utils
+
+    if config.task == "text-generation":
+        return _load_genai_causal_lm(config)
 
     quant_override: Any = None
     if not config.quant:
@@ -279,6 +292,51 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCo
         allow_unsupported_nodes=config.allow_unsupported_nodes,
         config=quant_override,
         **pipeline_kwargs,
+    )
+
+
+def _load_genai_causal_lm(config: WinMLEvaluationConfig) -> Any:
+    """Load a causal LM from an onnxruntime-genai bundle directory.
+
+    ``-m <bundle_dir>`` resolves to ``config.model_path`` (a local directory),
+    so the bundle directory is read from there. ``ep`` / ``device`` pass straight
+    through: an explicit ``--ep`` forces the whole decoder pipeline onto that EP,
+    while ``ep=None`` respects the bundle's ``genai_config.json`` routing. The
+    bundle is loaded as-is (``compile=False``); building or compiling a bundle is
+    ``winml build``'s job, not eval's.
+
+    Raises:
+        ValueError: no bundle directory was provided, the path is not a
+            directory, or it is missing the ``genai_config.json`` / ONNX files
+            that mark a genai bundle.
+    """
+    from pathlib import Path
+
+    from ..models.winml.genai_causal_lm import WinMLGenaiCausalLM
+
+    bundle_path = config.model_path
+    if not bundle_path or isinstance(bundle_path, dict):
+        raise ValueError(
+            "text-generation evaluation requires a genai bundle *directory* via "
+            "-m <bundle_dir>."
+        )
+
+    bundle_dir = Path(bundle_path).expanduser()
+    if not bundle_dir.is_dir():
+        raise ValueError(f"Genai bundle directory not found: {bundle_dir}")
+    if not (bundle_dir / "genai_config.json").is_file():
+        raise ValueError(
+            f"'{bundle_dir}' is not a genai bundle: no genai_config.json found. "
+            "Point -m at a bundle built with 'winml build ... --device npu --ep qnn'."
+        )
+    if not any(bundle_dir.glob("*.onnx")):
+        raise ValueError(f"'{bundle_dir}' contains no .onnx files; not a valid genai bundle.")
+
+    return WinMLGenaiCausalLM(
+        bundle_dir,
+        config.ep,
+        device=config.device,
+        compile=False,
     )
 
 

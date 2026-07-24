@@ -533,6 +533,13 @@ def _resolve_model_path(
                 "for preprocessor and config resolution."
             )
         return value, model_id
+
+    # A local directory (e.g. an onnxruntime-genai bundle) is a model *path*,
+    # not a Hub model id. Route it to model_path so downstream loaders read the
+    # bundle from disk instead of treating the directory string as a Hub ref.
+    if Path(value).expanduser().is_dir():
+        return str(Path(value).expanduser()), model_id
+
     if model_id is not None and model_id != value:
         raise click.UsageError(
             "Cannot pass both `-m <hf_id>` and `--model-id`. "
