@@ -557,7 +557,9 @@ def resolve_task(
             ) or _get_custom_model_class(model_type_norm, normalized)
         if resolved is None:
             try:
-                resolved = TasksManager.get_model_class_for_task(normalized, framework="pt")
+                resolved = TasksManager.get_model_class_for_task(
+                    normalized, framework="pt", model_type=model_type or None
+                )
             except KeyError as e:
                 if composite is not None:
                     # Pure composite (e.g. table-question-answering): no single model class
@@ -644,7 +646,9 @@ def resolve_task(
         resolved = _get_custom_model_class(model_type_norm, opt_task)
         if resolved is None:
             try:
-                resolved = TasksManager.get_model_class_for_task(opt_task, framework="pt")
+                resolved = TasksManager.get_model_class_for_task(
+                    opt_task, framework="pt", model_type=model_type or None
+                )
             except Exception:
                 resolved = _resolve_model_class_from_config(config)  # arch fallback
 
