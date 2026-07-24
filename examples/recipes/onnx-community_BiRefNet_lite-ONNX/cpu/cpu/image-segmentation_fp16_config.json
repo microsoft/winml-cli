@@ -1,0 +1,10 @@
+{
+  "skip_optimize": true,
+  "export": null,
+  "optim": {},
+  "quant": null,
+  "compile": null,
+  "loader": {
+    "task": "image-segmentation"
+  }
+}
