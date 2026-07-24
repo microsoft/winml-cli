@@ -755,10 +755,9 @@ class TestEinsumEquationExecution:
         self, equation, input_shapes, expected_output_shape
     ):
         """Execute each equation via ORT and verify output shape independently."""
+        import onnxruntime as ort
         from onnx import TensorProto, helper
         from onnx.shape_inference import infer_shapes
-
-        import onnxruntime as ort
 
         # Build a minimal ONNX model with a single Einsum node
         inputs = []
