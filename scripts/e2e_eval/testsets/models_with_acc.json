@@ -1247,6 +1247,26 @@
     }
   },
   {
+    "hf_id": "Qwen/Qwen3-0.6B",
+    "task": "text-generation",
+    "model_type": "qwen3",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Salesforce/wikitext",
+      "name": "wikitext-2-raw-v1",
+      "split": "test",
+      "samples": 100,
+      "metric": "perplexity",
+      "winml_metric_key": "perplexity",
+      "columns_mapping": {
+        "input_column": "text",
+        "num_tokens": "8192",
+        "seqlen": "2048"
+      }
+    }
+  },
+  {
     "hf_id": "FacebookAI/xlm-roberta-base",
     "task": "fill-mask",
     "model_type": "xlm-roberta",

@@ -659,6 +659,16 @@
     "elapsed": 1319.8,
     "command": "python.exe run_pytorch_baseline.py --model bert-base-uncased --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
   },
+  "Qwen/Qwen3-0.6B|text-generation|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "perplexity",
+      "value": 23.645425,
+      "num_samples": 100
+    },
+    "elapsed": 0.0,
+    "command": "python.exe run_pytorch_baseline.py --model Qwen/Qwen3-0.6B --task text-generation --device cpu --num-samples 100 --dataset Salesforce/wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\", \"num_tokens\": \"8192\", \"seqlen\": \"2048\"}"
+  },
   "distilbert/distilbert-base-uncased|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
     "status": "PASS",
     "metric": {
