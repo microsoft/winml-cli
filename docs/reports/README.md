@@ -18,9 +18,13 @@ documentation site, plus the script used to refresh it.
 ## Source
 
 The report is generated in the private `gim-home/ModelKitArtifacts` repo and
-lives at `e2e_model_coverage_result/model_accuracy_report.html` on its
-`site-src` branch. The page embeds all of its data inline, so only this one
-file needs to be published — no JSON or other assets are fetched at runtime.
+lives at `site/e2e_model_coverage_result/examples_compatibility_report.html` on
+its `main` branch. It is published here under the stable name
+`model_accuracy_report.html` so the docs URL never changes. The page embeds all
+of its data inline, so only this one file needs to be published — no JSON or
+other assets are fetched at runtime. The upstream report carries a placeholder
+version string; `download_report.py` stamps it with the winml-cli version from
+`pyproject.toml` on fetch.
 
 ## Refreshing the report
 
@@ -40,7 +44,7 @@ script:
 python docs/reports/download_report.py --account <your_gim-home_account>
 ```
 
-This sparse-clones the `site-src` branch of the private artifacts repo and copies
+This sparse-clones the `main` branch of the private artifacts repo and copies
 the single report file. Use `--out <path>` to write elsewhere. The script only
 fetches — it does not commit or push.
 
