@@ -18,6 +18,8 @@ from winml.modelkit.loader import get_supported_tasks, resolve_task
 from winml.modelkit.models.hf import MODEL_CLASS_MAPPING
 from winml.modelkit.models.hf.swin2sr import (
     MODEL_CLASS_MAPPING as SWIN2SR_MAPPING,
+)
+from winml.modelkit.models.hf.swin2sr import (
     Swin2SRIOConfig,
 )
 
