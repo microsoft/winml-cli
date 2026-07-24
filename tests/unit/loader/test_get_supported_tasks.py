@@ -29,6 +29,7 @@ class TestGetSupportedTasks:
             ("whisper", "automatic-speech-recognition"),
             ("clip", "zero-shot-image-classification"),
             ("llama", "text-generation"),
+            ("swin2sr", "image-to-image"),
         ],
         ids=[
             "bert",
@@ -41,6 +42,7 @@ class TestGetSupportedTasks:
             "whisper",
             "clip",
             "llama",
+            "swin2sr",
         ],
     )
     def test_known_model_type_contains_expected_task(self, model_type, expected_task):
