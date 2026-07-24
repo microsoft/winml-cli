@@ -294,6 +294,17 @@ TASK_REGISTRY: dict[str, TaskInputSpec] = {
         ],
         mapping=PipelineMapping(pipe_input="text"),
     ),
+    "tabular-classification": TaskInputSpec(
+        user_inputs=[
+            InputField(
+                name="features",
+                type="json",
+                required=True,
+                description="Numeric feature vector",
+            ),
+        ],
+        mapping=PipelineMapping(pipe_input="features"),
+    ),
     "token-classification": TaskInputSpec(
         user_inputs=[
             InputField(

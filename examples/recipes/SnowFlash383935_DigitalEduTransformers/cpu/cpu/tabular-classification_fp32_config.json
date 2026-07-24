@@ -1,0 +1,28 @@
+{
+  "loader": {
+    "model_type": "transformer",
+    "model_class": "TabularTransformerWrapper",
+    "task": "tabular-classification",
+    "trust_remote_code": true
+  },
+  "export": {
+    "opset_version": 17,
+    "batch_size": 1,
+    "input_tensors": [
+      {
+        "name": "features",
+        "dtype": "float32",
+        "shape": [1, 7],
+        "value_range": [0, 1000]
+      }
+    ],
+    "output_tensors": [
+      {
+        "name": "logits"
+      }
+    ]
+  },
+  "optim": {},
+  "quant": null,
+  "compile": null
+}
