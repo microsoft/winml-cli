@@ -429,6 +429,13 @@ class _ReshapeTransposeReshapeInputGeneratorBase(PatternInputGenerator):
                 "output_shape": (256, 16, 768),
             },
             {
+                # Swin-like hidden size coverage (transpose_last_dim=768), 4-D output.
+                "data": InputShapeConstraint((1, 64, 64, 768)),
+                "transpose_shape": (1, 16, 4, 16, 4, 768),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (256, 4, 4, 768),
+            },
+            {
                 # Medium hidden size coverage (transpose_last_dim=384), 3-D output.
                 "data": InputShapeConstraint((1, 64, 64, 384)),
                 "transpose_shape": (1, 16, 4, 16, 4, 384),
@@ -436,11 +443,25 @@ class _ReshapeTransposeReshapeInputGeneratorBase(PatternInputGenerator):
                 "output_shape": (256, 16, 384),
             },
             {
+                # Medium hidden size coverage (transpose_last_dim=384), 4-D output.
+                "data": InputShapeConstraint((1, 64, 64, 384)),
+                "transpose_shape": (1, 16, 4, 16, 4, 384),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (256, 4, 4, 384),
+            },
+            {
                 # Compact hidden size coverage (transpose_last_dim=192), 3-D output.
                 "data": InputShapeConstraint((1, 64, 64, 192)),
                 "transpose_shape": (1, 16, 4, 16, 4, 192),
                 "perm": (0, 1, 3, 2, 4, 5),
                 "output_shape": (256, 16, 192),
+            },
+            {
+                # Compact hidden size coverage (transpose_last_dim=192), 4-D output.
+                "data": InputShapeConstraint((1, 64, 64, 192)),
+                "transpose_shape": (1, 16, 4, 16, 4, 192),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (256, 4, 4, 192),
             },
             {
                 # Extra-large hidden size coverage (transpose_last_dim=1536), 3-D output.
