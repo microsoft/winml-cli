@@ -9,8 +9,10 @@ that has access to the gim-home org.
 
 This script downloads the single, self-contained coverage report HTML page so
 it can be published on the winml-cli documentation site. It pulls the file
-directly from the `site-src` branch of gim-home/ModelKitArtifacts; it does
-not download release assets.
+directly from the `main` branch of gim-home/ModelKitArtifacts (under `site/`);
+it does not download release assets. The upstream report carries a placeholder
+version string, which this script stamps with the winml-cli version read from
+pyproject.toml.
 
 The report, this script, and the README live together in `docs/reports/` on
 `main`. mkdocs publishes the HTML as a static asset under each docs version;
@@ -39,18 +41,33 @@ PUBLISHING (done by a maintainer via pull request):
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
+import tomllib
+
 
 SOURCE_REPO = "gim-home/ModelKitArtifacts"
-SOURCE_BRANCH = "site-src"
-SOURCE_FILE = "e2e_model_coverage_result/model_accuracy_report.html"
-REPORT_FILENAME = SOURCE_FILE.rsplit("/", 1)[-1]
+SOURCE_BRANCH = "main"
+SOURCE_FILE = "site/e2e_model_coverage_result/examples_compatibility_report.html"
+# The upstream file name differs from the published name; publish under a
+# stable name so the docs URL (.../reports/model_accuracy_report.html) never
+# changes.
+REPORT_FILENAME = "model_accuracy_report.html"
 DEFAULT_OUT = Path(__file__).resolve().parent / REPORT_FILENAME
+# winml-cli version source of truth. The upstream report ships a placeholder
+# version string that is stamped with this value on fetch.
+PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
+
+
+def _winml_cli_version() -> str:
+    """Read the winml-cli version from pyproject.toml (stdlib only)."""
+    with PYPROJECT.open("rb") as f:
+        return tomllib.load(f)["project"]["version"]
 
 
 def _get_clone_url(account: str | None = None) -> str:
@@ -156,9 +173,24 @@ def main() -> None:
             )
             sys.exit(1)
 
+        version = _winml_cli_version()
+        html, replaced = re.subn(
+            r"(WinML CLI )\d+\.\d+\.\d+",
+            rf"\g<1>{version}",
+            src_file.read_text(encoding="utf-8"),
+        )
+        if replaced:
+            print(f"Stamped report with WinML CLI {version}.")
+        else:
+            print(
+                "WARNING: version placeholder 'WinML CLI x.y.z' not found in "
+                "the report; published as-is.",
+                file=sys.stderr,
+            )
+
         out_path = args.out.resolve()
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src_file, out_path)
+        out_path.write_text(html, encoding="utf-8")
 
         size_kb = out_path.stat().st_size / 1024
         print(f"Done. Wrote {out_path} ({size_kb:.0f} KB).")
