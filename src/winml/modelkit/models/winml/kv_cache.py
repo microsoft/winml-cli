@@ -88,6 +88,7 @@ class WinMLCache(StaticCache, ABC):
         #: New-token KV captured during ``update()``, keyed by layer index.
         #: Export wrappers read ``captured[i]`` to build ONNX present outputs.
         self.captured: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
+        self._trace_position: torch.Tensor | None = None
 
     def _layer(self, idx: int) -> CacheLayerMixin:
         """Narrow ``self.layers[idx]`` to ``CacheLayerMixin`` for type checkers.
@@ -97,6 +98,10 @@ class WinMLCache(StaticCache, ABC):
         ``CacheLayerMixin`` (``StaticLayer``) layers, so this cast is sound.
         """
         return cast("CacheLayerMixin", self.layers[idx])
+
+    def set_trace_position(self, position: torch.Tensor) -> None:
+        """Provide the position tensor when a model omits cache update kwargs."""
+        self._trace_position = position
 
     # ----- Interface for WinMLEncoderDecoderModel.forward -----
 
@@ -228,9 +233,11 @@ class WinMLStaticCache(WinMLCache):
         import torch
 
         self.captured[layer_idx] = (key_states, value_states)
-        if cache_kwargs is None:
+        cache_position = cache_kwargs.get("cache_position") if cache_kwargs is not None else None
+        if cache_position is None:
+            cache_position = self._trace_position
+        if cache_position is None:
             raise ValueError("update() requires cache_kwargs with 'cache_position'")
-        cache_position = cache_kwargs["cache_position"]
 
         # keys/values are typed Tensor | None (None only pre-init); the cache is
         # always initialized before update(), so narrow to Tensor.
@@ -262,6 +269,12 @@ class WinMLStaticCache(WinMLCache):
         """Buffer index == sequence position for static cache: ``[step..step+N)``."""
         import torch
 
+        end = self.step + num_new_tokens
+        if end > max_len:
+            raise ValueError(
+                f"Static KV cache capacity {max_len} exceeded: "
+                f"step {self.step} + {num_new_tokens} new token(s)."
+            )
         return torch.arange(self.step, self.step + num_new_tokens, dtype=torch.int64)
 
     def prepare_prefill_chunk(

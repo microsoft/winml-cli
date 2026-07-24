@@ -16,6 +16,45 @@ from winml.modelkit.eval import DatasetConfig, EvalResult, WinMLEvaluationConfig
 from winml.modelkit.session import EPDeviceTarget
 
 
+class TestPreparePipeline:
+    def test_relies_on_model_framework_inference(self) -> None:
+        from winml.modelkit.eval.base_evaluator import WinMLEvaluator
+
+        evaluator = WinMLEvaluator.__new__(WinMLEvaluator)
+        evaluator.config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+        )
+        evaluator.model = MagicMock()
+        sentinel = MagicMock()
+
+        with patch("transformers.pipeline", return_value=sentinel) as mock_pipeline:
+            assert evaluator.prepare_pipeline() is sentinel
+
+        assert "framework" not in mock_pipeline.call_args.kwargs
+
+    def test_compute_supports_transformers_without_tensorflow_base_class(self) -> None:
+        from winml.modelkit.eval.base_evaluator import WinMLEvaluator
+
+        class EvaluateCompatProbe:
+            def compute(self, **_kwargs) -> dict[str, str]:
+                import transformers
+
+                return {"compat_type": transformers.TFPreTrainedModel.__name__}
+
+        evaluator = WinMLEvaluator.__new__(WinMLEvaluator)
+        evaluator.config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+        )
+        evaluator.model = MagicMock()
+        evaluator.data = MagicMock()
+        evaluator.pipe = MagicMock()
+
+        with patch("evaluate.evaluator", return_value=EvaluateCompatProbe()):
+            assert evaluator.compute() == {"compat_type": "TFPreTrainedModel"}
+
+
 class TestEvaluationConfig:
     """Tests for config and result dataclasses."""
 
@@ -1318,9 +1357,7 @@ class TestLoadModel:
                 "winml.modelkit.session.resolve_device",
                 return_value=fake_cpu,
             ),
-            patch(
-                "winml.modelkit.session.WinMLEPRegistry"
-            ) as mock_reg,
+            patch("winml.modelkit.session.WinMLEPRegistry") as mock_reg,
         ):
             mock_reg.instance.return_value.auto_device.return_value = MagicMock()
             yield
@@ -1366,6 +1403,67 @@ class TestLoadModel:
         assert call_args.args[1] is not None
         assert call_args.kwargs["task"] == "image-classification"
         assert result is mock_model
+
+    def test_auto_target_retries_cpu_after_ort_runtime_failure(self, caplog):
+        """An unusable auto-selected accelerator retries with the CPU EP."""
+        import importlib
+        import logging
+        import sys
+
+        from onnxruntime.capi.onnxruntime_pybind11_state import RuntimeException
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        mock_model = MagicMock()
+        mock_auto = MagicMock()
+        mock_auto.from_pretrained.side_effect = [
+            RuntimeException("accelerator session initialization failed"),
+            mock_model,
+        ]
+        gpu_ep_device = MagicMock()
+        gpu_ep_device.device.device_type = "GPU"
+        gpu_ep_device.device.ep_name = "DmlExecutionProvider"
+        cpu_ep_device = MagicMock()
+        cpu_ep_device.device.device_type = "CPU"
+        cpu_ep_device.device.ep_name = "CPUExecutionProvider"
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            device="gpu",
+        )
+        config._auto_device_selected = True
+
+        def resolve_target(target: EPDeviceTarget) -> EPDeviceTarget:
+            if target.device == "gpu":
+                return EPDeviceTarget(ep="DmlExecutionProvider", device=target.device)
+            return EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
+
+        with (
+            patch.dict(
+                "sys.modules",
+                {"winml.modelkit.models": MagicMock(WinMLAutoModel=mock_auto)},
+            ),
+            patch("winml.modelkit.session.resolve_device", side_effect=resolve_target),
+            patch("winml.modelkit.session.WinMLEPRegistry") as mock_registry,
+            caplog.at_level(logging.WARNING),
+        ):
+            mock_registry.instance.return_value.auto_device.side_effect = [
+                gpu_ep_device,
+                cpu_ep_device,
+            ]
+            result = eval_mod._load_model(config)
+
+        assert result is mock_model
+        assert [call.args[1] for call in mock_auto.from_pretrained.call_args_list] == [
+            gpu_ep_device,
+            cpu_ep_device,
+        ]
+        assert config.device == "cpu"
+        assert config.ep == "cpu"
+        assert config._auto_device_selected is False
+        assert "Retrying with CPUExecutionProvider" in caplog.text
 
     def test_load_model_forwards_build_flags(self):
         """--no-quant/--no-optimize/--max-optim-iterations reach from_pretrained."""

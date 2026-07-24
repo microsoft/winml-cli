@@ -314,6 +314,20 @@ class TestWinMLSessionInference:
         assert "C" in outputs
         assert outputs["C"].shape == (1, 4)
 
+    def test_inference_ignores_inputs_not_declared_by_model(
+        self,
+        cpu_winml_session: WinMLSession,
+        sample_input: dict[str, np.ndarray],
+    ):
+        inputs = {
+            **sample_input,
+            "unexpected": np.zeros((1, 4), dtype=np.int64),
+        }
+
+        outputs = cpu_winml_session.run(inputs)
+
+        assert "C" in outputs
+
     def test_inference_empty_input_raises(self, cpu_winml_session: WinMLSession):
         """Test that empty input raises ValueError."""
         session = cpu_winml_session

@@ -1269,6 +1269,102 @@ class TestBuildSubmoduleConfig:
 class TestFindSubmodulesByClass:
     """Tests for _find_submodules_by_class branches."""
 
+    def test_hook_capture_uses_resolved_model_input_names(self) -> None:
+        """Hook capture passes tensors under the resolved model input names."""
+        import torch
+        from torch import nn
+
+        from winml.modelkit.config.build import _find_submodules_by_class
+
+        class TargetLayer(nn.Module):
+            def forward(self, value: torch.Tensor) -> torch.Tensor:
+                return value + 1
+
+        class KeywordTolerantWrapper(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.layer = TargetLayer()
+
+            def forward(
+                self,
+                required_input: torch.Tensor | None = None,
+                **_kwargs,
+            ) -> torch.Tensor:
+                if required_input is None:
+                    raise ValueError("required_input was not bound")
+                return self.layer(required_input)
+
+        results = _find_submodules_by_class(
+            KeywordTolerantWrapper(),
+            "TargetLayer",
+            input_shapes=[(1, 8)],
+            input_dtypes=["float32"],
+            input_names=["required_input"],
+        )
+
+        assert len(results) == 1
+        assert results[0].input_names == ["value"]
+
+    def test_torchinfo_uses_resolved_names_for_keyword_only_input(self) -> None:
+        """The hierarchy pass must bind keyword-only model inputs by name."""
+        import torch
+        from torch import nn
+
+        from winml.modelkit.config.build import _find_submodules_by_class
+
+        class TargetLayer(nn.Module):
+            def forward(self, value: torch.Tensor) -> torch.Tensor:
+                return value + 1
+
+        class KeywordOnlyWrapper(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.layer = TargetLayer()
+
+            def forward(self, *, required_input: torch.Tensor) -> torch.Tensor:
+                return self.layer(required_input)
+
+        results = _find_submodules_by_class(
+            KeywordOnlyWrapper(),
+            "TargetLayer",
+            input_shapes=[(1, 8)],
+            input_dtypes=["float32"],
+            input_names=["required_input"],
+        )
+
+        assert len(results) == 1
+        assert results[0].input_names == ["value"]
+
+    def test_unnamed_input_uses_positional_torchinfo_binding(self) -> None:
+        """A missing tensor name must retain positional model invocation."""
+        import torch
+        from torch import nn
+
+        from winml.modelkit.config.build import _find_submodules_by_class
+
+        class TargetLayer(nn.Module):
+            def forward(self, value: torch.Tensor) -> torch.Tensor:
+                return value + 1
+
+        class PositionalOnlyWrapper(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.layer = TargetLayer()
+
+            def forward(self, required_input: torch.Tensor, /) -> torch.Tensor:
+                return self.layer(required_input)
+
+        results = _find_submodules_by_class(
+            PositionalOnlyWrapper(),
+            "TargetLayer",
+            input_shapes=[(1, 8)],
+            input_dtypes=["float32"],
+            input_names=[None],
+        )
+
+        assert len(results) == 1
+        assert results[0].input_names == ["value"]
+
     def test_signature_fallback_when_hook_data_empty(self) -> None:
         """Empty hook_data triggers inspect.signature fallback for input_names."""
         import torch

@@ -261,35 +261,56 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCo
     target = resolve_device(EPDeviceTarget(ep=config.ep or "auto", device=device))
     ep_device = WinMLEPRegistry.instance().auto_device(target)
 
-    if config.model_path is not None:
-        # Pre-built ONNX: precision is already baked into the model and is
-        # ignored here (mirrors winml perf's ONNX path).
-        from transformers import AutoConfig
+    from onnxruntime.capi.onnxruntime_pybind11_state import RuntimeException
 
-        hf_config = AutoConfig.from_pretrained(config.model_id)
-        model = WinMLAutoModel.from_onnx(
-            # ``model_path`` is narrowed to ``str | dict[str, str]`` here;
-            # cast bridges dict value-type invariance (str vs str | Path).
-            onnx_path=cast("str | dict[str, str | Path]", config.model_path),
-            ep_device=ep_device,
+    try:
+        if config.model_path is not None:
+            # Pre-built ONNX: precision is already baked into the model and is
+            # ignored here (mirrors winml perf's ONNX path).
+            from transformers import AutoConfig
+
+            hf_config = AutoConfig.from_pretrained(config.model_id)
+            model = WinMLAutoModel.from_onnx(
+                # ``model_path`` is narrowed to ``str | dict[str, str]`` here;
+                # cast bridges dict value-type invariance (str vs str | Path).
+                onnx_path=cast("str | dict[str, str | Path]", config.model_path),
+                ep_device=ep_device,
+                task=config.task,
+                skip_build=config.skip_build,
+                config=quant_override,
+                hf_config=hf_config,
+                **pipeline_kwargs,
+            )
+            model.config = hf_config
+            return model
+
+        return WinMLAutoModel.from_pretrained(
+            config.model_id,
+            ep_device,
             task=config.task,
-            skip_build=config.skip_build,
+            precision=config.precision,
+            allow_unsupported_nodes=config.allow_unsupported_nodes,
             config=quant_override,
-            hf_config=hf_config,
             **pipeline_kwargs,
         )
-        model.config = hf_config
-        return model
-
-    return WinMLAutoModel.from_pretrained(
-        config.model_id,
-        ep_device,
-        task=config.task,
-        precision=config.precision,
-        allow_unsupported_nodes=config.allow_unsupported_nodes,
-        config=quant_override,
-        **pipeline_kwargs,
-    )
+    except RuntimeException as error:
+        auto_device = (
+            config._auto_device_selected or config.device is None or config.device.lower() == "auto"
+        )
+        auto_ep = config.ep is None or config.ep.lower() == "auto"
+        if not (auto_device and auto_ep) or target.device.lower() == "cpu":
+            raise
+        logger.warning(
+            "Automatically selected %s on %s could not initialize an ORT session: %s. "
+            "Retrying with CPUExecutionProvider.",
+            target.ep,
+            target.device,
+            error,
+        )
+        config.device = "cpu"
+        config.ep = "cpu"
+        config._auto_device_selected = False
+        return _load_model(config)
 
 
 def _resolve_task(config: WinMLEvaluationConfig) -> str:

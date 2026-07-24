@@ -152,12 +152,13 @@ class WinMLDecoderWrapper(nn.Module, ABC):
             layer = cast("CacheLayerMixin", cache.layers[i])
             layer.keys = inputs[key_name]
             layer.values = inputs[value_name]
+        position = inputs.get(cache.position_input_name)
+        if position is not None:
+            cache.set_trace_position(position)
         return cache
 
     @abstractmethod
-    def _invoke_hf(
-        self, cache: WinMLCache, inputs: dict[str, torch.Tensor]
-    ) -> torch.Tensor:
+    def _invoke_hf(self, cache: WinMLCache, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
         """Call the HF decoder with ``past_key_values=<cache>``.  Returns logits."""
 
 

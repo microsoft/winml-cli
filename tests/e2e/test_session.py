@@ -17,6 +17,8 @@ import pytest
 
 from winml.modelkit.session import WinMLEPRegistry, WinMLSession
 
+from .require_ep import require_ep
+
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -99,19 +101,17 @@ class TestWinMLSessionEPSpecific:
         provider_name: str,
     ):
         """Test inference with specific EP."""
+        require_ep(ep_name, device=device)
         session = WinMLSession(
             onnx_path=simple_matmul_onnx,
             device=device,
+            ep=ep_name,
         )
 
         outputs = session.run(sample_input)
 
-        # With policy-based selection, ORT picks the best EP for the device.
-        # Verify inference succeeds and a non-CPU EP is used for gpu/npu devices.
         providers = session._session.get_providers()
-        if device != "cpu":
-            non_cpu = [p for p in providers if p != "CPUExecutionProvider"]
-            assert len(non_cpu) > 0, f"Expected non-CPU EP for device={device}, got: {providers}"
+        assert provider_name in providers, f"Expected {provider_name}, got: {providers}"
         assert "C" in outputs
         assert outputs["C"].shape == (1, 4)
 

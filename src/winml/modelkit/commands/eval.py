@@ -373,6 +373,7 @@ def _resolve_device(cfg: WinMLEvaluationConfig) -> None:
     if cfg.device and cfg.device.lower() != "auto":
         return
 
+    cfg._auto_device_selected = True
     from ..session import EPDeviceTarget, resolve_device
 
     console = Console(stderr=True)

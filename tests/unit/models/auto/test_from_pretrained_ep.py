@@ -128,8 +128,10 @@ def test_explicit_ep_overrides_compile_provider(
     assert received.get("ep") == "cpu"
 
 
-def test_both_absent_yields_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No user ep and no compile config — ep stays None (legacy behavior)."""
+def test_resolved_ep_device_used_when_compile_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The concrete runtime target keeps build analysis provider-specific."""
     from winml.modelkit.models import WinMLAutoModel
 
     received = _install_stubs(monkeypatch, compile_provider=None)
@@ -137,7 +139,7 @@ def test_both_absent_yields_none(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(_StopAfterEpCheckError):
         WinMLAutoModel.from_pretrained("microsoft/resnet-50", device="cpu")
 
-    assert received.get("ep") is None
+    assert received.get("ep") == "cpu"
 
 
 @pytest.mark.parametrize("flag", [True, False])

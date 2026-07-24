@@ -118,6 +118,10 @@ class WinMLCompositeModel(PreTrainedModel):
         self.config = config
         self._device = device
 
+    def get_experts_implementation(self) -> dict[str, None]:
+        """Report no switchable PyTorch experts for immutable ORT graphs."""
+        return {"": None}
+
     @classmethod
     def from_pretrained(
         cls,
@@ -252,7 +256,8 @@ class WinMLCompositeModel(PreTrainedModel):
             sub_model_kwargs: Per-component kwargs merged on top of
                 ``**kwargs`` for each sub-model's ``from_onnx`` call.
             **kwargs: Forwarded to ``WinMLAutoModel.from_onnx`` for every
-                component (overridden by ``sub_model_kwargs``).
+                component (overridden by ``sub_model_kwargs``). A resolved
+                ``ep_device`` also determines the composite wrapper's device.
         """
         from pathlib import Path
 
@@ -287,7 +292,13 @@ class WinMLCompositeModel(PreTrainedModel):
 
         if hf_config is None:
             raise ValueError("Composite model construction requires an HF config (hf_config).")
-        return resolved_cls(sub_models=sub_models, config=hf_config)
+        ep_device = kwargs.get("ep_device")
+        device = (
+            ep_device.device.device_type.lower()
+            if ep_device is not None
+            else str(kwargs.get("device") or "cpu").lower()
+        )
+        return resolved_cls(sub_models=sub_models, config=hf_config, device=device)
 
     @property
     def device(self) -> torch.device:

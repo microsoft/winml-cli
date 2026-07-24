@@ -270,6 +270,53 @@ class TestModelArchitectureOverrideFast:
         assert _Model.received_config is config
         assert task == "feature-extraction"
 
+    def test_composite_parent_config_passes_matching_subconfig_to_model(self, monkeypatch):
+        from types import SimpleNamespace
+
+        import winml.modelkit.loader.resolution as resolution_module
+
+        class _SubConfig:
+            pass
+
+        class _Model:
+            config_class = _SubConfig
+            received_config = None
+
+            @classmethod
+            def from_pretrained(cls, *_args, **kwargs):
+                cls.received_config = kwargs["config"]
+                return cls()
+
+            def eval(self):
+                return self
+
+            def parameters(self):
+                return []
+
+        sub_config = _SubConfig()
+        parent_config = SimpleNamespace(
+            model_type="composite",
+            unrelated=object(),
+            encoder_config=sub_config,
+        )
+        monkeypatch.setattr(
+            resolution_module,
+            "resolve_task",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                task="feature-extraction", model_class=_Model
+            ),
+        )
+
+        _model, returned_config, task = load_hf_model(
+            "unit-composite-model",
+            task="feature-extraction",
+            hf_config=parent_config,
+        )
+
+        assert _Model.received_config is sub_config
+        assert returned_config is parent_config
+        assert task == "feature-extraction"
+
 
 class TestTasksManagerIntegration:
     """Tests for TasksManager integration with specific tasks.

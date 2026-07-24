@@ -9,11 +9,14 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from winml.modelkit.eval.base_evaluator import _PIPELINE_TASK_MAP
 from winml.modelkit.eval.image_to_text_evaluator import WinMLImageToTextEvaluator
 
 
 def make_evaluator(columns_mapping=None):
     """Instantiate evaluator with mocked dataset + pipeline."""
+    import transformers
+
     from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
     mapping = columns_mapping or {}
@@ -37,22 +40,32 @@ def make_evaluator(columns_mapping=None):
         dataset=DatasetConfig(path="Teklia/IAM-line", columns_mapping=mapping),
     )
 
-    with patch("datasets.load_dataset", return_value=mock_ds), \
-         patch("transformers.pipeline", return_value=mock_pipe):
+    # Resolve the lazy Transformers export before patching it.
+    assert hasattr(transformers, "pipeline")
+    with (
+        patch("datasets.load_dataset", return_value=mock_ds),
+        patch("transformers.pipelines.pipeline", return_value=mock_pipe),
+        patch.object(transformers, "pipeline", return_value=mock_pipe),
+    ):
         return WinMLImageToTextEvaluator(config, model)
 
 
 class TestInit:
+    def test_uses_transformers_pipeline_task_name(self):
+        assert _PIPELINE_TASK_MAP["image-to-text"] == "image-text-to-text"
+
     def test_default_columns(self):
         ev = make_evaluator()
         assert ev._image_col == "image"
         assert ev._label_col == "text"
 
     def test_custom_columns(self):
-        ev = make_evaluator(columns_mapping={
-            "input_column": "img",
-            "label_column": "caption",
-        })
+        ev = make_evaluator(
+            columns_mapping={
+                "input_column": "img",
+                "label_column": "caption",
+            }
+        )
         assert ev._image_col == "img"
         assert ev._label_col == "caption"
 
@@ -88,13 +101,16 @@ class TestCompute:
             {"image": "img1", "text": "HELLO"},
             {"image": "img2", "text": "WORLD"},
         ]
-        ev.pipe = MagicMock(side_effect=[
-            [{"generated_text": "HELLO"}],
-            [{"generated_text": "WORLD"}],
-        ])
+        ev.pipe = MagicMock(
+            side_effect=[
+                [{"generated_text": "HELLO"}],
+                [{"generated_text": "WORLD"}],
+            ]
+        )
 
         result = ev.compute()
 
+        ev.pipe.assert_any_call("img1", text="")
         assert result["cer"] == 0.0
         assert result["n_samples"] == 2
         assert "cider" in result
@@ -118,10 +134,12 @@ class TestCompute:
             {"image": "img2", "text": None},
             {"image": "img3", "text": "abc"},
         ]
-        ev.pipe = MagicMock(side_effect=[
-            [{"generated_text": "abc"}],
-            [{"generated_text": "abc"}],
-        ])
+        ev.pipe = MagicMock(
+            side_effect=[
+                [{"generated_text": "abc"}],
+                [{"generated_text": "abc"}],
+            ]
+        )
 
         result = ev.compute()
 
@@ -137,10 +155,12 @@ class TestCompute:
             {"image": "img1", "text": "abc"},
             {"image": "img2", "text": "abc"},
         ]
-        ev.pipe = MagicMock(side_effect=[
-            [{"generated_text": "abc"}],
-            RuntimeError("model crashed"),
-        ])
+        ev.pipe = MagicMock(
+            side_effect=[
+                [{"generated_text": "abc"}],
+                RuntimeError("model crashed"),
+            ]
+        )
 
         result = ev.compute()
 
@@ -150,10 +170,12 @@ class TestCompute:
 
     def test_uses_custom_columns(self):
         """Image and label columns from columns_mapping are honoured."""
-        ev = make_evaluator(columns_mapping={
-            "input_column": "img",
-            "label_column": "caption",
-        })
+        ev = make_evaluator(
+            columns_mapping={
+                "input_column": "img",
+                "label_column": "caption",
+            }
+        )
         ev.data = [{"img": "x", "caption": "abc"}]
         ev.pipe = MagicMock(return_value=[{"generated_text": "abc"}])
 

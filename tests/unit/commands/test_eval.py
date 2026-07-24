@@ -494,6 +494,20 @@ class TestEvalConfigPrecedence:
         # And config-file dataset.samples (33) wins over CLI default
         assert cfg.dataset.samples == 33
 
+    def test_auto_resolution_preserves_automatic_selection_intent(self):
+        from winml.modelkit.commands.eval import _resolve_device
+        from winml.modelkit.eval import WinMLEvaluationConfig
+        from winml.modelkit.session import EPDeviceTarget
+
+        cfg = WinMLEvaluationConfig()
+        resolved = EPDeviceTarget(ep="DmlExecutionProvider", device="gpu")
+
+        with patch("winml.modelkit.session.resolve_device", return_value=resolved):
+            _resolve_device(cfg)
+
+        assert cfg.device == "gpu"
+        assert cfg._auto_device_selected is True
+
     @pytest.mark.parametrize(
         ("extra_args", "expected"),
         [(["--allow-unsupported-nodes"], True), ([], False)],

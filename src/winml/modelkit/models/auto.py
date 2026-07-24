@@ -510,9 +510,11 @@ class WinMLAutoModel:
         from ..build import build_hf_model
 
         # An explicit EP takes precedence over the compile-derived provider.
-        resolved_ep = ep or (
-            config.compile.ep_config.provider if config.compile is not None else None
-        )
+        resolved_ep = ep
+        if resolved_ep is None and config.compile is not None:
+            resolved_ep = config.compile.ep_config.provider
+        if resolved_ep is None:
+            resolved_ep = short_ep_name(ep_device.device.ep_name)
         result = build_hf_model(
             config=config,
             output_dir=output_dir,

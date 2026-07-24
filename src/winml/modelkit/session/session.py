@@ -601,6 +601,9 @@ class WinMLSession:
 
         ort_inputs = {}
         for name, value in inputs.items():
+            if name not in name_to_type:
+                continue
+
             # Convert to numpy
             if hasattr(value, "numpy"):  # torch.Tensor
                 arr = value.cpu().numpy()

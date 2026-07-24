@@ -126,6 +126,7 @@ class WinMLEvaluationConfig:
     output_path: Path | None = field(default=None, metadata={"cli_name": "output"})
     mode: EvalMode = "onnx"
     skip_build: bool = True
+    _auto_device_selected: bool = field(default=False, repr=False, compare=False, kw_only=True)
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""

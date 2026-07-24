@@ -270,10 +270,19 @@ def load_hf_model(
     # diffusers, ...); from_pretrained is a duck-typed boundary across these libs,
     # so go through an Any-typed alias rather than a static attribute access.
     loader_cls: Any = resolved_class
+    model_config = hf_config
+    expected_config_class = getattr(loader_cls, "config_class", None)
+    if isinstance(expected_config_class, type) and not isinstance(hf_config, expected_config_class):
+        matching_subconfigs = [
+            value for value in vars(hf_config).values() if isinstance(value, expected_config_class)
+        ]
+        if len(matching_subconfigs) == 1:
+            model_config = cast("PretrainedConfig", matching_subconfigs[0])
+
     model = loader_cls.from_pretrained(
         model_name_or_path,
         trust_remote_code=trust_remote_code,
-        config=hf_config,
+        config=model_config,
     )
 
     # [5] Export Preparation

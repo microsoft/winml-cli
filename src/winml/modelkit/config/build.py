@@ -922,6 +922,7 @@ def generate_hf_build_config(
         input_tensors = [t for t in (export_config.input_tensors or []) if t.shape is not None]
         input_shapes = [t.concrete_shape() for t in input_tensors]
         input_dtypes = [t.dtype for t in input_tensors]
+        input_names = [t.name for t in input_tensors]
         if not input_shapes:
             raise ValueError(
                 "Cannot extract input shapes for submodule discovery. "
@@ -933,6 +934,7 @@ def generate_hf_build_config(
             module,
             input_shapes=input_shapes,
             input_dtypes=input_dtypes,
+            input_names=input_names,
         )
         logger.info("Found %d submodules matching '%s'", len(submodules), module)
 
@@ -1305,6 +1307,7 @@ def _find_submodules_by_class(
     *,
     input_shapes: list[tuple[int, ...]],
     input_dtypes: list[str | None] | None = None,
+    input_names: list[str | None] | None = None,
 ) -> list[SubmoduleInfo]:
     """Find all submodules matching a class name using torchinfo.
 
@@ -1321,6 +1324,7 @@ def _find_submodules_by_class(
                      for each input tensor. When provided, torchinfo uses these
                      instead of defaulting to float32. Required for models with
                      integer inputs (e.g., BERT's input_ids).
+        input_names: Optional model forward argument names for each input tensor.
 
     Returns:
         List of SubmoduleInfo with I/O shapes from torchinfo
@@ -1358,14 +1362,35 @@ def _find_submodules_by_class(
             dtype_map.get(d, torch.float32) if d else torch.float32 for d in input_dtypes
         ]
 
+    dummy_inputs = _build_dummy_inputs(input_shapes, input_dtypes, input_names)
+
+    use_named_inputs = False
+    if input_names and len(input_names) == len(input_shapes):
+        keyword_names = [name for name in input_names if isinstance(name, str) and name]
+        if len(keyword_names) == len(input_names) and len(set(keyword_names)) == len(keyword_names):
+            try:
+                inspect.signature(model.forward).bind(**dummy_inputs)
+            except (TypeError, ValueError):
+                pass
+            else:
+                use_named_inputs = True
+
     # Run torchinfo to get module hierarchy with shapes
-    model_info = summary(
-        model,
-        input_size=input_size,
-        dtypes=torch_dtypes,
-        verbose=0,
-        depth=10,
-    )
+    if use_named_inputs:
+        model_info = summary(
+            model,
+            input_data=dummy_inputs,
+            verbose=0,
+            depth=10,
+        )
+    else:
+        model_info = summary(
+            model,
+            input_size=input_size,
+            dtypes=torch_dtypes,
+            verbose=0,
+            depth=10,
+        )
 
     # Collect torchinfo-discovered modules matching class_name, plus the
     # full set of executed class names — surfaced via SubmoduleClassNotFoundError
@@ -1396,7 +1421,6 @@ def _find_submodules_by_class(
     # capture ALL positional args AND keyword args.
     from ..inspect.module_io_capture import capture_module_io
 
-    dummy_inputs = _build_dummy_inputs(input_shapes, input_dtypes)
     hook_data = capture_module_io(model, dummy_inputs, target_class=class_name)
 
     results = []
@@ -1453,12 +1477,14 @@ def _find_submodules_by_class(
 def _build_dummy_inputs(
     input_shapes: list[tuple[int, ...]],
     input_dtypes: list[str | None] | None = None,
+    input_names: list[str | None] | None = None,
 ) -> dict[str, torch.Tensor]:
     """Build dummy input tensors for hook capture forward pass.
 
     Args:
         input_shapes: List of input tensor shapes.
         input_dtypes: Optional list of dtype strings per tensor.
+        input_names: Optional model forward argument names per tensor.
 
     Returns:
         Dictionary of named dummy tensors matching the given shapes and dtypes.
@@ -1467,12 +1493,14 @@ def _build_dummy_inputs(
 
     dtype_map = _get_dtype_map()
 
-    inputs = {}
+    inputs: dict[str, torch.Tensor] = {}
     for i, shape in enumerate(input_shapes):
         dtype_str = input_dtypes[i] if input_dtypes and i < len(input_dtypes) else None
         torch_dtype = dtype_map.get(dtype_str, torch.float32) if dtype_str else torch.float32
+        configured_name = input_names[i] if input_names and i < len(input_names) else None
+        input_name = configured_name or f"input_{i}"
         if torch_dtype in (torch.int8, torch.int16, torch.int32, torch.int64, torch.uint8):
-            inputs[f"input_{i}"] = torch.ones(shape, dtype=torch_dtype)
+            inputs[input_name] = torch.ones(shape, dtype=torch_dtype)
         else:
-            inputs[f"input_{i}"] = torch.randn(shape, dtype=torch_dtype)
+            inputs[input_name] = torch.randn(shape, dtype=torch_dtype)
     return inputs
