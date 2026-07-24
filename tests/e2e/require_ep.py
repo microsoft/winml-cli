@@ -30,15 +30,51 @@ Parametrized fan-out — follow the codebase convention of flat
 
 from __future__ import annotations
 
+from functools import cache
+from typing import TYPE_CHECKING
+
 import pytest
 
 
-def require_ep(ep: str) -> str:
+if TYPE_CHECKING:
+    from winml.modelkit.session import WinMLEPRegistry
+
+
+def _registered_device_types(provider: str) -> frozenset[str]:
+    """Return device classes exposed by successfully registered EP sources."""
+    from winml.modelkit.session import WinMLEPRegistry
+
+    registry = WinMLEPRegistry.get_instance()
+    return _registered_device_types_for_registry(provider, registry)
+
+
+@cache
+def _registered_device_types_for_registry(
+    provider: str, registry: WinMLEPRegistry
+) -> frozenset[str]:
+    """Return cached device classes for one registry instance."""
+    from winml.modelkit.session import WinMLEPRegistrationFailed
+
+    device_types: set[str] = set()
+    for entry in registry.all_discovered():
+        if entry.ep_name != provider:
+            continue
+        try:
+            registered = registry.register_ep(entry)
+        except WinMLEPRegistrationFailed:
+            continue
+        device_types.update(device.device_type.lower() for device in registered.devices)
+    return frozenset(device_types)
+
+
+def require_ep(ep: str, *, device: str | None = None) -> str:
     """Skip the current test unless the requested EP is available.
 
     Args:
         ep: EP name. CLI alias (``"qnn"``) or full ORT provider name
             (``"QNNExecutionProvider"``); both accepted.
+        device: Optional required device class (``"cpu"``, ``"gpu"``,
+            or ``"npu"``).
 
     Returns:
         The full ORT provider name (e.g. ``"QNNExecutionProvider"``) that
@@ -49,25 +85,29 @@ def require_ep(ep: str) -> str:
         pytest.skip.Exception: When ``ep`` is unknown or the corresponding
             provider is not available on the host.
     """
-    from winml.modelkit.session import WinMLEPRegistry
     from winml.modelkit.utils import normalize_ep_name
 
     provider = normalize_ep_name(ep)
     if provider is None:
         pytest.skip(f"Unknown EP: {ep!r}")
 
-    # CPU, DML are always available via ORT itself but is not enumerated by
-    # WinMLEPRegistry, which only tracks WinML-discoverable backend EPs
-    # (QNN, OpenVINO, ...). Short-circuit before consulting the
-    # registry so `require_ep("cpu")` doesn't spuriously skip.
-    if provider in ("CPUExecutionProvider", "DmlExecutionProvider"):
-        return provider
-
-    # Singleton — first call probes; subsequent calls are free.
-    if not WinMLEPRegistry.get_instance().is_ep_available(provider):
-        pytest.skip(f"EP not available on this host: {provider}")
+    device_types = _registered_device_types(provider)
+    required_device = device.lower() if device is not None else None
+    if not device_types or (required_device is not None and required_device not in device_types):
+        suffix = f" on {required_device}" if required_device is not None else ""
+        pytest.skip(f"EP not available on this host{suffix}: {provider}")
 
     return provider
+
+
+def require_device(device: str) -> None:
+    """Skip the current test unless any registered EP exposes ``device``."""
+    from winml.modelkit.session import WinMLEPRegistry
+
+    required_device = device.lower()
+    providers = {entry.ep_name for entry in WinMLEPRegistry.get_instance().all_discovered()}
+    if not any(required_device in _registered_device_types(provider) for provider in providers):
+        pytest.skip(f"No registered EP is available on {required_device}")
 
 
 def require_not_ep(ep: str) -> None:
@@ -77,17 +117,13 @@ def require_not_ep(ep: str) -> None:
     "EP not registered" rejection path (e.g. ``winml compile --ep qnn``
     on a host without QNN).
     """
-    from winml.modelkit.session import WinMLEPRegistry
     from winml.modelkit.utils import normalize_ep_name
 
     provider = normalize_ep_name(ep)
     if provider is None:
         pytest.skip(f"Unknown EP: {ep!r}")
 
-    if provider == "CPUExecutionProvider":
-        pytest.skip("CPU is always available on this host")
-
-    if WinMLEPRegistry.get_instance().is_ep_available(provider):
+    if _registered_device_types(provider):
         pytest.skip(f"EP is available on this host (test requires it absent): {provider}")
 
 
@@ -99,12 +135,9 @@ def is_host(ep: str) -> bool:
     where quantization preserves accuracy, while still running the rest
     of the test on every EP for pipeline-regression coverage).
     """
-    from winml.modelkit.session import WinMLEPRegistry
     from winml.modelkit.utils import normalize_ep_name
 
     provider = normalize_ep_name(ep)
     if provider is None:
         return False
-    if provider in ("CPUExecutionProvider", "DmlExecutionProvider"):
-        return True
-    return WinMLEPRegistry.get_instance().is_ep_available(provider)
+    return bool(_registered_device_types(provider))

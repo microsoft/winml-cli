@@ -15,13 +15,15 @@ from __future__ import annotations
 
 import inspect
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from winml.modelkit.inference.pipeline import (
     _HF_PIPELINE_TASK_MAP,
     _adapt_image_processor_size,
     _adapt_tokenizer_padding,
     _detect_tokenizer_dict_param,
+    _pipeline_component_kwargs,
+    create_pipeline,
 )
 
 
@@ -34,8 +36,54 @@ class TestHFPipelineTaskMap:
     def test_sentence_similarity_maps_to_feature_extraction(self) -> None:
         assert _HF_PIPELINE_TASK_MAP["sentence-similarity"] == "feature-extraction"
 
+    def test_image_to_text_maps_to_transformers_5_name(self) -> None:
+        assert _HF_PIPELINE_TASK_MAP["image-to-text"] == "image-text-to-text"
+
     def test_unknown_task_not_in_map(self) -> None:
         assert "image-classification" not in _HF_PIPELINE_TASK_MAP
+
+
+class TestPipelineComponentKwargs:
+    def test_omits_components_disabled_by_pipeline(self) -> None:
+        class ProcessorOnlyPipeline:
+            _load_tokenizer = False
+            _load_feature_extractor = False
+            _load_image_processor = False
+            _load_processor = True
+
+        with patch(
+            "transformers.pipelines.check_task",
+            return_value=("resolved", {"impl": ProcessorOnlyPipeline}, None),
+        ):
+            result = _pipeline_component_kwargs("test-task", "model-id")
+
+        assert result == {"processor": "model-id"}
+
+
+class TestCreatePipeline:
+    def test_constructs_real_transformers_pipeline(self) -> None:
+        from transformers import ViTConfig, ViTForImageClassification, ViTImageProcessor
+        from transformers.pipelines import ImageClassificationPipeline
+
+        config = ViTConfig(
+            image_size=16,
+            patch_size=8,
+            hidden_size=16,
+            num_hidden_layers=1,
+            num_attention_heads=2,
+            intermediate_size=32,
+            num_labels=2,
+        )
+        model = ViTForImageClassification(config)
+        image_processor = ViTImageProcessor(size={"height": 16, "width": 16})
+
+        with patch(
+            "winml.modelkit.inference.pipeline._pipeline_component_kwargs",
+            return_value={"image_processor": image_processor},
+        ):
+            result = create_pipeline("image-classification", model)
+
+        assert isinstance(result, ImageClassificationPipeline)
 
 
 # ---------------------------------------------------------------------------

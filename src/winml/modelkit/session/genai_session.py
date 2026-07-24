@@ -54,12 +54,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from ..ep_path import EP_CATALOG, BuiltinSource
 from ..utils.constants import (
-    EP_NAME_TO_ALIAS,
     EP_NAMES,
     EP_SUPPORTED_DEVICES,
     normalize_ep_name,
 )
+from .ep_device import VALID_EPS, short_ep_name
 from .ep_registry import WinMLEPRegistry
 
 
@@ -410,6 +411,7 @@ class GenaiSession:
         self._verbose = verbose
         self._compile = compile
         self._compile_timeout = compile_timeout
+        self._genai_registered_paths: set[Path] = set()
 
         # Resolved at load() time.
         self._context_length: int | None = None
@@ -449,7 +451,7 @@ class GenaiSession:
             return None
         normalized = normalize_ep_name(ep)
         if normalized not in EP_NAMES:
-            valid = ", ".join(sorted(EP_NAME_TO_ALIAS.values()))
+            valid = ", ".join(sorted(VALID_EPS))
             raise ValueError(
                 f"Unknown execution provider {ep!r} for GenaiSession ep override. "
                 f"Pass one of: {valid} (or a full *ExecutionProvider name), or None "
@@ -493,7 +495,7 @@ class GenaiSession:
                 "EP override %r was requested but did not take effect (flat/empty "
                 "pipeline, or every stage runs on CPU); the run follows the "
                 "bundle's genai_config.json instead.",
-                EP_NAME_TO_ALIAS[self._ep_override],
+                short_ep_name(self._ep_override),
             )
 
         # Register WinML EPs only when the *effective* config routes at least one
@@ -503,7 +505,7 @@ class GenaiSession:
         hw_ep = self._bundle_uses_hardware_ep(effective_cfg)
         logger.info("Hardware EP detected in effective genai_config: %s", hw_ep)
         if hw_ep is not None:
-            self._register_eps()
+            self._register_eps(og, hw_ep)
 
         if self._verbose:
             og.set_log_options(enabled=True, model_input_values=True, model_output_shapes=True)
@@ -815,7 +817,7 @@ class GenaiSession:
         """
         if self._ep_override is None:
             return None
-        return EP_NAME_TO_ALIAS[self._ep_override]
+        return cast("EPAlias", short_ep_name(self._ep_override))
 
     @property
     def effective_ep(self) -> EPAlias | None:
@@ -828,7 +830,7 @@ class GenaiSession:
         """
         if self._ep_override is None or not self._override_effective:
             return None
-        return EP_NAME_TO_ALIAS[self._ep_override]
+        return cast("EPAlias", short_ep_name(self._ep_override))
 
     @property
     def context_length(self) -> int | None:
@@ -958,7 +960,7 @@ class GenaiSession:
         if not (isinstance(current_po, list) and self._provider_list_has_hardware_ep(current_po)):
             return
 
-        alias = EP_NAME_TO_ALIAS[ep]
+        alias = short_ep_name(ep)
         if self._stage_targets_ep(current_po, ep):
             # Re-selecting the stage's own EP: preserve its shipped options
             # verbatim (even when empty) — this is a byte-for-byte no-op.
@@ -991,7 +993,7 @@ class GenaiSession:
                 "QNN options. QNN will fall back to its default backend and may "
                 "not target the intended device. Point --ep/--device at a bundle "
                 "whose config already defines QNN, or rebuild it for this EP.",
-                EP_NAME_TO_ALIAS[ep],
+                short_ep_name(ep),
             )
         return {}
 
@@ -1713,16 +1715,31 @@ class GenaiSession:
                 "platform-incompatible build)."
             ) from exc
 
-    def _register_eps(self) -> None:
-        """Register WinML EPs with ORT GenAI (idempotent, best-effort)."""
-        try:
-            registry = WinMLEPRegistry.get_instance()
-            if registry.winml_available:
-                result = registry.register_execution_providers(ort_genai=True)
-                registered = result.get("onnxruntime_genai", [])
-                logger.info("WinML EPs registered for ORT GenAI: %s", registered)
-        except Exception as exc:
-            logger.warning("WinML EP registration skipped: %s", exc)
+    def _register_eps(self, og: Any, required_ep: str) -> None:
+        """Register the effective bundle's plugin EP with ORT GenAI."""
+        canonical = normalize_ep_name(required_ep)
+        if canonical not in EP_NAMES:
+            logger.warning("Skipping unknown ORT GenAI EP from bundle config: %r", required_ep)
+            return
+
+        registry = WinMLEPRegistry.instance()
+        for entry in registry.all_discovered():
+            if entry.ep_name != canonical or isinstance(entry.source, BuiltinSource):
+                continue
+            if entry.dll_path in self._genai_registered_paths:
+                continue
+            try:
+                og.register_execution_provider_library(entry.ep_name, str(entry.dll_path))
+            except Exception as exc:
+                logger.warning(
+                    "Failed to register %s with ORT GenAI from %s: %s",
+                    entry.ep_name,
+                    entry.dll_path,
+                    exc,
+                )
+                continue
+            self._genai_registered_paths.add(entry.dll_path)
+            logger.info("Registered %s with ORT GenAI from %s.", entry.ep_name, entry.dll_path)
 
     def _read_genai_config(self) -> dict[str, Any]:
         """Parse and return the bundle's ``genai_config.json``."""
@@ -1732,7 +1749,7 @@ class GenaiSession:
 
     @staticmethod
     def _bundle_uses_hardware_ep(cfg: dict[str, Any]) -> str | None:
-        """Return the first non-CPU/DML EP name found, or ``None``.
+        """Return the first EP that requires plugin registration, or ``None``.
 
         WinML EP discovery/registration is only required when the bundle's
         ``genai_config.json`` assigns at least one pipeline stage to a hardware
@@ -1746,7 +1763,6 @@ class GenaiSession:
         2. **Flat decoder** - ``model.decoder.session_options`` (no ``pipeline``
            wrapper, used by e.g. OpenVINO exports).
         """
-        skip_eps = frozenset({"cpu", "dml"})
 
         def _first_hw_ep(so: object) -> str | None:
             if not isinstance(so, dict):
@@ -1755,8 +1771,13 @@ class GenaiSession:
                 if not isinstance(entry, dict):
                     continue
                 for name in entry:
-                    if str(name).lower() not in skip_eps:
-                        return str(name)
+                    provider_name = str(name)
+                    canonical = normalize_ep_name(provider_name)
+                    if (
+                        canonical not in EP_CATALOG.all_eps()
+                        or EP_CATALOG.dll_name_for(canonical) is not None
+                    ):
+                        return provider_name
             return None
 
         decoder = cfg.get("model", {}).get("decoder", {})

@@ -15,10 +15,10 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ..optim.config import WinMLOptimizationConfig
-from ..utils.constants import EP_SUPPORTED_DEVICES, EPName, EPNameOrAlias, normalize_ep_name
+from ..utils.constants import normalize_ep_name
 from .models.information import Information
 from .models.output import RuntimeDebugSummaryEntry
 from .models.support_level import SupportLevel
@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
     import onnx
 
+    from ..utils.constants import EPName, EPNameOrAlias
     from .models.information import Action
     from .models.output import AnalysisOutput
     from .models.runtime_checks import PatternRuntime, RuntimeTestResult
@@ -186,7 +187,7 @@ class AnalysisResult:
         pattern_count = sum(self.output.metadata.detected_pattern_count.values())
         return f"AnalysisResult(patterns={pattern_count})"
 
-    def is_fully_supported(self, ep: EPNameOrAlias | None = None) -> bool:
+    def is_fully_supported(self, ep: str | None = None) -> bool:
         """Check if model is fully supported on the target EP and device.
 
         Args:
@@ -214,7 +215,7 @@ class AnalysisResult:
             return False
 
         # Normalize EP if specified
-        ep_normalized = normalize_ep_name(ep) if ep else None
+        ep_normalized = normalize_ep_name(cast("EPNameOrAlias", ep)) if ep else None
 
         # Track if we found the target EP when filtering
         found_target = ep_normalized is None  # True if not filtering
@@ -227,7 +228,7 @@ class AnalysisResult:
                 return False
         return found_target
 
-    def has_errors(self, ep: EPNameOrAlias | None = None) -> bool:
+    def has_errors(self, ep: str | None = None) -> bool:
         """Check if there are any unsupported patterns (blocking errors).
 
         Args:
@@ -251,7 +252,7 @@ class AnalysisResult:
             return False
 
         # Normalize EP if specified
-        ep_normalized = normalize_ep_name(ep) if ep else None
+        ep_normalized = normalize_ep_name(cast("EPNameOrAlias", ep)) if ep else None
 
         for ep_support in self.output.results:
             if ep_normalized and ep_support.ep_type != ep_normalized:
@@ -260,7 +261,7 @@ class AnalysisResult:
                 return True
         return False
 
-    def has_warnings(self, ep: EPNameOrAlias | None = None) -> bool:
+    def has_warnings(self, ep: str | None = None) -> bool:
         """Check if there are any partial patterns (warnings/optimization opportunities).
 
         Args:
@@ -284,7 +285,7 @@ class AnalysisResult:
             return False
 
         # Normalize EP if specified
-        ep_normalized = normalize_ep_name(ep) if ep else None
+        ep_normalized = normalize_ep_name(cast("EPNameOrAlias", ep)) if ep else None
 
         for ep_support in self.output.results:
             if ep_normalized and ep_support.ep_type != ep_normalized:
@@ -293,7 +294,7 @@ class AnalysisResult:
                 return True
         return False
 
-    def get_lint_result(self, ep: EPNameOrAlias | None = None) -> LintResult:
+    def get_lint_result(self, ep: str | None = None) -> LintResult:
         """Get lint-style result with error/warning/info counts.
 
         Args:
@@ -332,7 +333,7 @@ class AnalysisResult:
             )
 
         # Normalize EP if specified
-        ep_normalized = normalize_ep_name(ep) if ep else None
+        ep_normalized = normalize_ep_name(cast("EPNameOrAlias", ep)) if ep else None
 
         # Aggregate counts and lists
         error_patterns: list[str] = []
@@ -374,7 +375,7 @@ class AnalysisResult:
             optimization_config=optimization_config,
         )
 
-    def get_unsupported_operators(self, ep: EPNameOrAlias | None = None) -> list[str]:
+    def get_unsupported_operators(self, ep: str | None = None) -> list[str]:
         """Get list of unsupported operators for the target EP and device.
 
         Args:
@@ -395,7 +396,7 @@ class AnalysisResult:
             ...     print(f"Unsupported: {op_name}")
         """
         # Normalize EP if specified
-        ep_normalized = normalize_ep_name(ep) if ep else None
+        ep_normalized = normalize_ep_name(cast("EPNameOrAlias", ep)) if ep else None
 
         unsupported = []
         for ep_support in self.output.results:
@@ -409,7 +410,7 @@ class AnalysisResult:
 
         return unsupported
 
-    def get_optimization_opportunities(self, ep: EPNameOrAlias | None = None) -> list[Action]:
+    def get_optimization_opportunities(self, ep: str | None = None) -> list[Action]:
         """Get actions for patterns that could be optimized (UNSUPPORTED or PARTIAL status).
 
         Args:
@@ -432,7 +433,7 @@ class AnalysisResult:
             ...     print(f"Optimize: {action.pattern_from_id} -> {action.action}")
         """
         # Normalize EP if specified
-        ep_normalized = normalize_ep_name(ep) if ep else None
+        ep_normalized = normalize_ep_name(cast("EPNameOrAlias", ep)) if ep else None
 
         actions: list[Action] = []
         seen_patterns: set[tuple[str, str]] = set()
@@ -452,7 +453,7 @@ class AnalysisResult:
                             seen_patterns.add(pattern_key)
         return actions
 
-    def get_optimization_config(self, ep: EPNameOrAlias | None = None) -> WinMLOptimizationConfig:
+    def get_optimization_config(self, ep: str | None = None) -> WinMLOptimizationConfig:
         """Generate WinML optimization configuration based on action items.
 
         This method extracts optimization settings from action_items in Actions,
@@ -594,7 +595,7 @@ class ONNXStaticAnalyzer:
     def analyze(
         self,
         model_path: str,
-        ep: EPNameOrAlias | None = None,
+        ep: str | None = None,
         device: str | None = None,
         enable_information: bool = True,
         htp_metadata_path: str | None = None,
@@ -675,7 +676,7 @@ class ONNXStaticAnalyzer:
         total_start = time.perf_counter()
 
         # Normalize EP name (convert aliases to full names)
-        ep_normalized = normalize_ep_name(ep)
+        ep_normalized = normalize_ep_name(cast("EPNameOrAlias | None", ep))
         if ep != ep_normalized:
             logger.debug("EP alias '%s' normalized to '%s'", ep, ep_normalized)
 
@@ -728,7 +729,7 @@ class ONNXStaticAnalyzer:
     def analyze_from_proto(
         self,
         model_proto: onnx.ModelProto,
-        ep: EPNameOrAlias | None = None,
+        ep: str | None = None,
         device: str | None = None,
         enable_information: bool = True,
         model_path: str | None = None,
@@ -785,7 +786,7 @@ class ONNXStaticAnalyzer:
 
         # Normalize EP name (convert aliases to full names)
         total_start = time.perf_counter()
-        ep_normalized = normalize_ep_name(ep)
+        ep_normalized = normalize_ep_name(cast("EPNameOrAlias | None", ep))
         if ep != ep_normalized:
             logger.debug("EP alias '%s' normalized to '%s'", ep, ep_normalized)
 
@@ -793,10 +794,9 @@ class ONNXStaticAnalyzer:
 
         # Resolve device — rule files are device-specific (CPU/GPU/NPU).
         if device is not None and device.lower() == "auto":
-            from ..sysinfo import resolve_device
+            from ..session import auto_detect_device
 
-            resolved, _ = resolve_device("auto", ep=ep_normalized)
-            device_to_use = resolved.upper()
+            device_to_use = auto_detect_device().upper()
             logger.info("Device 'auto' resolved to: %s", device_to_use)
         else:
             device_to_use = device if device is not None else "NPU"
@@ -805,13 +805,18 @@ class ONNXStaticAnalyzer:
         # Determine which EPs to analyze
         eps_to_analyze: list[EPName] = []
         if ep_normalized is None:
-            # Analyze all EPs that support the target device
-            eps_to_analyze = [
-                ep_name
-                for ep_name, supported_devices in EP_SUPPORTED_DEVICES.items()
-                if device_to_use.lower() in supported_devices
-            ]
-            logger.info("No EP specified, analyzing all supported EPs: %s", eps_to_analyze)
+            # Derive the EP list from the catalog so future EP additions
+            # are automatically included. sorted() gives deterministic order.
+            from ..session import eps_for_device
+
+            # eps_for_device returns EP full names as ``str``; they are members of
+            # the ``EPName`` Literal by construction (catalog parity is test-enforced).
+            eps_to_analyze = cast("list[EPName]", sorted(eps_for_device(device_to_use.lower())))
+            logger.info(
+                "No EP specified, analyzing all %s-capable EPs: %s",
+                device_to_use,
+                eps_to_analyze,
+            )
         else:
             eps_to_analyze = [ep_normalized]
 
@@ -964,7 +969,7 @@ class AnalyzeResult:
 def analyze_onnx(
     model: str | Path,
     *,
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     device: str | None = None,
     autoconf: bool = True,
     run_unknown_op: bool = False,

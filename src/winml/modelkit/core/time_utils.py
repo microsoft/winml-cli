@@ -4,7 +4,7 @@
 # --------------------------------------------------------------------------
 """Simple timestamp formatting utility."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import overload
 
 
@@ -25,5 +25,5 @@ def format_timestamp_iso(epoch_time: float | None) -> str | None:
     """
     if epoch_time is None:
         return None
-    dt = datetime.fromtimestamp(epoch_time, tz=timezone.utc)
+    dt = datetime.fromtimestamp(epoch_time, tz=UTC)
     return dt.isoformat(timespec="milliseconds").replace("+00:00", "Z")

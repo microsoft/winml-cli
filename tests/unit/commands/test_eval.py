@@ -234,13 +234,8 @@ class TestComposite:
         enc_local.write_bytes(b"")
         dec_local = tmp_path / "prompt_encoder_mask_decoder_int8.onnx"
         dec_local.write_bytes(b"")
-        enc_ref = (
-            "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
-        )
-        dec_ref = (
-            "onnx-community/sam3-tracker-ONNX/onnx/"
-            "prompt_encoder_mask_decoder_int8.onnx"
-        )
+        enc_ref = "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
+        dec_ref = "onnx-community/sam3-tracker-ONNX/onnx/prompt_encoder_mask_decoder_int8.onnx"
 
         # Map each Hub ref to its (different) local cache location.
         def fake_resolve(ref, **kwargs):
@@ -271,9 +266,7 @@ class TestComposite:
         """One role is a Hub ref, the other is a local path -- both work."""
         dec_local = tmp_path / "decoder.onnx"
         dec_local.write_bytes(b"")
-        enc_ref = (
-            "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
-        )
+        enc_ref = "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
 
         # ``resolve_hf_onnx_path`` is the underlying downloader; the
         # unified classifier+resolver only calls it for hub_onnx inputs.
@@ -500,6 +493,20 @@ class TestEvalConfigPrecedence:
         assert cfg.device == "gpu"
         # And config-file dataset.samples (33) wins over CLI default
         assert cfg.dataset.samples == 33
+
+    def test_auto_resolution_preserves_automatic_selection_intent(self):
+        from winml.modelkit.commands.eval import _resolve_device
+        from winml.modelkit.eval import WinMLEvaluationConfig
+        from winml.modelkit.session import EPDeviceTarget
+
+        cfg = WinMLEvaluationConfig()
+        resolved = EPDeviceTarget(ep="DmlExecutionProvider", device="gpu")
+
+        with patch("winml.modelkit.session.resolve_device", return_value=resolved):
+            _resolve_device(cfg)
+
+        assert cfg.device == "gpu"
+        assert cfg._auto_device_selected is True
 
     @pytest.mark.parametrize(
         ("extra_args", "expected"),
@@ -849,6 +856,7 @@ class TestPrebuiltOnnxIgnoredBuildFlags:
 
         with (
             patch("winml.modelkit.eval.evaluate", return_value=object()),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
             patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
         ):
             return runner.invoke(eval_cmd, args, obj={"debug": False})

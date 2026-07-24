@@ -25,17 +25,12 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import click
 
+from ..session import VALID_DEVICES
 from ..utils import cli as cli_utils
-from ..utils.logging import configure_logging
-from ..utils.model_input import ModelInputKind, classify_model_input
-
-
-if TYPE_CHECKING:
-    from ..utils.constants import EPNameOrAlias
 from ..utils.console import (
     get_console,
     print_command_header,
@@ -45,6 +40,9 @@ from ..utils.console import (
     print_kv,
     print_success,
 )
+from ..utils.logging import configure_logging
+from ..utils.model_input import ModelInputKind, classify_model_input
+from ._ep_arg import EpAtSourceParamType
 
 
 logger = logging.getLogger(__name__)
@@ -128,16 +126,25 @@ def _merge_export_overrides(cfg: Any, export_overrides: dict[str, Any]) -> Any:
         '(e.g., {"input_ids": {"0": "batch", "1": "sequence"}}).'
     )
 )
-@cli_utils.device_option(
-    required=False,
-    optional_message="Affects quant/compile config.",
+@click.option(
+    "-d",
+    "--device",
+    "device",
+    type=click.Choice(["auto", *sorted(VALID_DEVICES)], case_sensitive=False),
     default="auto",
-    include_auto=True,
+    help="Target device (affects quant/compile config). Default: auto (no changes to config).",
 )
-@cli_utils.ep_option(
-    required=False,
-    optional_message="Overrides device-to-provider mapping. "
-    "When used without --device, device is inferred from EP.",
+@click.option(
+    "--ep",
+    "ep",
+    type=EpAtSourceParamType(),
+    default=None,
+    help="Force specific execution provider "
+    "(qnn, dml, migraphx, nv_tensorrt_rtx, vitisai, openvino, cpu). "
+    "Overrides device-to-provider mapping. "
+    "When used without --device, device is inferred from EP. "
+    "(Source-pinning ``@<source-tag>`` is rejected: config's pipeline "
+    "takes a bare EP short-name.)",
 )
 @cli_utils.precision_option()
 @cli_utils.output_option("Output JSON file path (default: stdout)")
@@ -173,7 +180,7 @@ def config(
     export_config: Path | None,
     dynamic_axes: Path | None,
     device: str,
-    ep: EPNameOrAlias | None,
+    ep: tuple[str, str | None] | None,
     precision: str,
     output: Path | None,
     overwrite: bool,
@@ -249,6 +256,17 @@ def config(
         raise click.UsageError(
             "At least one of -m/--model, --model-type, or --model-class is required."
         )
+
+    # --ep arrives pre-split as (ep, source) or None thanks to the
+    # EpAtSourceParamType. config.py doesn't yet honor source pinning
+    # (its pipeline takes a bare EP short-name); _reject_ep_source raises
+    # at the CLI boundary if @<source> was given, else returns the bare
+    # ep short name (or None when --ep was not supplied).
+    from ._ep_arg import _reject_ep_source
+
+    # Collapse the pre-split (ep, source) tuple to the bare EP short-name that
+    # the config pipeline consumes (source pinning is rejected here).
+    ep_name = _reject_ep_source(ep, "winml config")
 
     try:
         from ..config import (
@@ -341,7 +359,7 @@ def config(
                 task=task,
                 device=device,
                 precision=precision,
-                ep=ep,
+                ep=ep_name,
                 override=override,
             )
 
@@ -389,7 +407,7 @@ def config(
                     device=device,
                     precision=precision,
                     trust_remote_code=trust_remote_code,
-                    ep=ep,
+                    ep=ep_name,
                     no_quant=not quant,
                     no_compile=no_compile,
                     output=output,
@@ -423,7 +441,7 @@ def config(
                 device=device,
                 precision=precision,
                 trust_remote_code=trust_remote_code,
-                ep=ep,
+                ep=ep_name,
             )
             if isinstance(result, list):
                 # --module + export overrides is rejected up front, so
@@ -525,12 +543,19 @@ def config(
 
             console.print("   \u2699\ufe0f  [bold]Resolution:[/bold]")
 
-            # Use the same resolution logic as the config generation to determine what to display
-            from ..sysinfo import resolve_check_device_ep
+            # Fix #4: Device from auto_detect_device (resolves "auto"
+            # to a concrete category without registering EPs).
+            from ..session import auto_detect_device
 
-            _resolved_dev, _, _resolved_eps = resolve_check_device_ep(device=device, ep=ep)
+            _resolved_dev = auto_detect_device() if device.lower() == "auto" else device.lower()
             console.print(f"      Device:     [cyan]{_resolved_dev.upper()}[/cyan]")
-            console.print(f"      EP:         [cyan]{_resolved_eps[0]}[/cyan]")
+
+            # EP — only shown when user explicitly passed --ep
+            if ep_name:
+                from ..utils.constants import normalize_ep_name
+
+                _ep_full = normalize_ep_name(ep_name)
+                console.print(f"      EP:         [cyan]{_ep_full}[/cyan]")
 
             # Quant types — display exactly what config contains
             if _quant:
@@ -612,7 +637,7 @@ def _generate_pipeline_configs(
     device: str,
     precision: str,
     trust_remote_code: bool,
-    ep: EPNameOrAlias | None,
+    ep: str | None,
     no_quant: bool,
     no_compile: bool,
     output: Path | None,

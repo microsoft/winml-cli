@@ -35,7 +35,7 @@ knowledge lives in one place.  A per-family subclass only has to:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import torch
 import torch.nn as nn
@@ -43,6 +43,10 @@ from optimum.exporters.onnx import OnnxConfig
 from transformers import PreTrainedModel
 
 from ..winml.kv_cache import WinMLCache, WinMLStaticCache
+
+
+if TYPE_CHECKING:
+    from transformers.cache_utils import CacheLayerMixin
 
 
 class WinMLDecoderWrapper(nn.Module, ABC):
@@ -142,14 +146,19 @@ class WinMLDecoderWrapper(nn.Module, ABC):
         # an op on the named graph input — that's how the cache becomes
         # "visible" at the ONNX boundary.
         for i, (key_name, value_name) in enumerate(zip(key_names, value_names, strict=True)):
-            cache.layers[i].keys = inputs[key_name]
-            cache.layers[i].values = inputs[value_name]
+            # ``Cache.layers`` is typed as a union including
+            # ``LinearAttentionCacheLayerMixin`` (no keys/values); a WinML static
+            # cache always holds ``CacheLayerMixin`` layers, so narrow the type.
+            layer = cast("CacheLayerMixin", cache.layers[i])
+            layer.keys = inputs[key_name]
+            layer.values = inputs[value_name]
+        position = inputs.get(cache.position_input_name)
+        if position is not None:
+            cache.set_trace_position(position)
         return cache
 
     @abstractmethod
-    def _invoke_hf(
-        self, cache: WinMLCache, inputs: dict[str, torch.Tensor]
-    ) -> torch.Tensor:
+    def _invoke_hf(self, cache: WinMLCache, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
         """Call the HF decoder with ``past_key_values=<cache>``.  Returns logits."""
 
 

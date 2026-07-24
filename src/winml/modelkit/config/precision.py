@@ -15,8 +15,19 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-from ..sysinfo import resolve_eps
-from ..utils.constants import EP_SUPPORTED_DEVICES, EPName, EPNameOrAlias, normalize_ep_name
+# EP / device taxonomy — single source of truth lives in session/ep_device.py,
+# exposed through the session/ facade.  These names are used within this
+# module's logic; they are NOT re-exported from config/__init__.py
+# (callers must use `from ..session import ...`).
+from ..session import (
+    VALID_DEVICES,
+    default_device_for_ep,
+    default_ep_for_device,
+    ep_short_or_none,
+    ep_to_device,
+    expand_ep_name,
+    lookup_device_spec,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -66,9 +77,6 @@ _BITS_TO_ACTIVATION_TYPE: dict[int, QuantType] = {
     8: "uint8",
     16: "uint16",
 }
-
-
-_VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})
 
 # Named precision presets (non-mixed)
 _NAMED_PRECISIONS = frozenset({"auto", "fp32", "fp16", "int4", "int8", "int16"})
@@ -308,21 +316,21 @@ class PrecisionPolicy:
         precision: Resolved precision string (e.g., "int8", "w8a16", "fp16").
         weight_type: Quantization weight type, or None for fp32/fp16.
         activation_type: Quantization activation type, or None for fp32/fp16.
-        compile_provider: Canonical EP name (e.g., "QNNExecutionProvider"), or None.
+        compile_provider: Short EP name (e.g. "qnn", "dml") or None for CPU.
     """
 
     device: str
     precision: str
     weight_type: QuantType | None
     activation_type: QuantType | None
-    compile_provider: EPName | None
+    compile_provider: str | None
 
 
 def resolve_precision(
     *,
     device: str = "auto",
     precision: str = "auto",
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     available_devices: list[str] | None = None,
     task: str | None = None,
 ) -> PrecisionPolicy:
@@ -343,7 +351,7 @@ def resolve_precision(
         ep: Explicit EP override (e.g., "migraphx", "nv_tensorrt_rtx"). When set,
             overrides the default device→provider mapping. If device is
             "auto", the device is inferred from the EP.
-        available_devices: Prioritized device list from resolve_device().
+        available_devices: Prioritized device list from sysinfo.get_available_devices().
             Used when device="auto" + precision is explicit.
         task: Optional task name for LLM-specific warnings.
 
@@ -364,16 +372,17 @@ def resolve_precision(
             f"Expected one of {sorted(_NAMED_PRECISIONS)} or w{{x}}a{{y}} format (e.g., w8a16)."
         )
 
-    # Validate EP override (normalize aliases → canonical name before lookup).
-    ep_canonical: EPName | None = None
+    # Normalize and validate the EP override against the shared catalog.
     if ep is not None:
-        ep_canonical = normalize_ep_name(ep)
-        if ep_canonical not in EP_SUPPORTED_DEVICES:
-            raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SUPPORTED_DEVICES)}")
-        # Infer device from EP when device is "auto" — first supported device.
+        ep = expand_ep_name(ep)
+        if default_device_for_ep(ep) is None:
+            raise ValueError(f"Unknown EP '{ep}'.")
+        # Infer device from EP when device is "auto"
         if device == "auto":
-            device = EP_SUPPORTED_DEVICES[ep_canonical][0]
-            logger.info("Inferred device '%s' from EP '%s'", device, ep_canonical)
+            device = ep_to_device(ep)
+            logger.info("Inferred device '%s' from EP '%s'", device, ep)
+        elif lookup_device_spec(ep, device) is None:
+            raise ValueError(f"EP '{ep}' does not support device '{device}'.")
 
     # --- Both auto: no-op, keep config defaults ---
     if device == "auto" and resolved_precision == "auto":
@@ -387,10 +396,8 @@ def resolve_precision(
 
     # --- Device is explicit ---
     if device != "auto":
-        if device not in _VALID_DEVICES:
-            raise ValueError(
-                f"Unknown device '{device}'. Expected one of: {sorted(_VALID_DEVICES)}"
-            )
+        if device not in VALID_DEVICES:
+            raise ValueError(f"Unknown device '{device}'. Expected one of: {sorted(VALID_DEVICES)}")
         resolved_device = device
     else:
         # Device is "auto" but precision is explicit — pick best device
@@ -412,14 +419,13 @@ def resolve_precision(
                 task,
             )
 
-    # ep=CPUExecutionProvider means no EPContext compilation needed.
-    # For all other explicit EPs (canonical names), use ep as the provider.
-    compile_provider: EPName | None = ep_canonical
-    if not compile_provider:
-        eps = resolve_eps(resolved_device)
-        compile_provider = eps[0] if eps else None
-    if compile_provider == "CPUExecutionProvider":
-        compile_provider = None
+    # EP override takes precedence over device→provider mapping. The policy
+    # contract uses short aliases, with CPU represented as no offline compiler.
+    if ep:
+        compile_provider = ep_short_or_none(ep)
+    else:
+        _canonical = default_ep_for_device(resolved_device)
+        compile_provider = ep_short_or_none(_canonical) if _canonical is not None else None
 
     # Resolve weight/activation types — supports named presets and w{x}a{y}.
     # Weight-only precisions (int4, w4a16) use RTN, not QDQ — they have no

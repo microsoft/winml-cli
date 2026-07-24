@@ -150,22 +150,22 @@ def _fake_build_genai_bundle(captured: dict):
 
 
 class TestResolveGenaiEp:
-    """``resolve_genai_ep`` reuses the shared resolve_device/resolve_eps path.
+    """``resolve_genai_ep`` reuses the shared session resolve_device / available_eps_for_device.
 
-    ``resolve_genai_ep`` imports them from ``..sysinfo`` at call time, so the
-    tests patch ``winml.modelkit.sysinfo`` and assert the *device -> best
+    ``resolve_genai_ep`` imports them from ``..session`` at call time, so the
+    tests patch ``winml.modelkit.session`` and assert the *device -> best
     available EP alias* mapping without probing real hardware.
     """
 
     def test_config_short_circuits_without_resolving(self, monkeypatch) -> None:
         # "config" means "respect the bundle": no device resolution happens.
-        import winml.modelkit.sysinfo as sysinfo
+        import winml.modelkit.session as session
 
         def _must_not_run(*_args: object, **_kwargs: object) -> object:
             raise AssertionError("resolve_device must not be called for 'config'")
 
-        monkeypatch.setattr(sysinfo, "resolve_device", _must_not_run)
-        monkeypatch.setattr(sysinfo, "resolve_eps", _must_not_run)
+        monkeypatch.setattr(session, "resolve_device", _must_not_run)
+        monkeypatch.setattr(session, "available_eps_for_device", _must_not_run)
         assert resolve_genai_ep("config") is None
 
     @pytest.mark.parametrize(
@@ -195,32 +195,40 @@ class TestResolveGenaiEp:
         eps: list[str],
         expected: str,
     ) -> None:
-        import winml.modelkit.sysinfo as sysinfo
+        import winml.modelkit.session as session
+        from winml.modelkit.session import EPDeviceTarget
 
         monkeypatch.setattr(
-            sysinfo, "resolve_device", lambda **_kwargs: (resolved_device, [resolved_device])
+            session,
+            "resolve_device",
+            lambda _target: EPDeviceTarget(ep="auto", device=resolved_device),
         )
-        monkeypatch.setattr(sysinfo, "resolve_eps", lambda _device: list(eps))
+        monkeypatch.setattr(
+            session, "available_eps_for_device", lambda _device: list(eps)
+        )
         assert resolve_genai_ep(device) == expected
 
     def test_no_available_ep_returns_none(self, monkeypatch) -> None:
         # A device that resolves to an empty EP list falls back to None
         # (respect config) rather than raising.
-        import winml.modelkit.sysinfo as sysinfo
+        import winml.modelkit.session as session
+        from winml.modelkit.session import EPDeviceTarget
 
-        monkeypatch.setattr(sysinfo, "resolve_device", lambda **_kwargs: ("npu", ["npu"]))
-        monkeypatch.setattr(sysinfo, "resolve_eps", lambda _device: [])
+        monkeypatch.setattr(
+            session, "resolve_device", lambda _target: EPDeviceTarget(ep="auto", device="npu")
+        )
+        monkeypatch.setattr(session, "available_eps_for_device", lambda _device: [])
         assert resolve_genai_ep("npu") is None
 
     def test_unavailable_device_propagates_valueerror(self, monkeypatch) -> None:
         # resolve_device raises for an unavailable device; genai fails fast
         # (matches the ONNX path) instead of silently respecting config.
-        import winml.modelkit.sysinfo as sysinfo
+        import winml.modelkit.session as session
 
-        def _raise(**_kwargs: object) -> object:
+        def _raise(_target: object) -> object:
             raise ValueError("Device 'npu' requested but no compatible EP is available.")
 
-        monkeypatch.setattr(sysinfo, "resolve_device", _raise)
+        monkeypatch.setattr(session, "resolve_device", _raise)
         with pytest.raises(ValueError, match="no compatible EP"):
             resolve_genai_ep("npu")
 
@@ -616,11 +624,16 @@ class TestCliDispatch:
         self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
     ) -> None:
         # A concrete --device resolves to the best available EP for that device
-        # via the shared resolve_device/resolve_eps path (here: npu -> qnn).
-        import winml.modelkit.sysinfo as sysinfo
+        # via the shared session resolve_device / available_eps_for_device path.
+        import winml.modelkit.session as session
+        from winml.modelkit.session import EPDeviceTarget
 
-        monkeypatch.setattr(sysinfo, "resolve_device", lambda **_k: ("npu", ["npu"]))
-        monkeypatch.setattr(sysinfo, "resolve_eps", lambda _d: ["QNNExecutionProvider"])
+        monkeypatch.setattr(
+            session, "resolve_device", lambda _t: EPDeviceTarget(ep="auto", device="npu")
+        )
+        monkeypatch.setattr(
+            session, "available_eps_for_device", lambda _d: ["QNNExecutionProvider"]
+        )
         bundle = _make_bundle(tmp_path)
         result = runner.invoke(
             perf, ["-m", str(bundle), "--runtime", "winml-genai", "--device", "npu"]
@@ -636,10 +649,15 @@ class TestCliDispatch:
     ) -> None:
         # Explicit --device auto matches the ONNX path: pick the best device +
         # its best available EP and force the whole pipeline onto it.
-        import winml.modelkit.sysinfo as sysinfo
+        import winml.modelkit.session as session
+        from winml.modelkit.session import EPDeviceTarget
 
-        monkeypatch.setattr(sysinfo, "resolve_device", lambda **_k: ("gpu", ["gpu"]))
-        monkeypatch.setattr(sysinfo, "resolve_eps", lambda _d: ["DmlExecutionProvider"])
+        monkeypatch.setattr(
+            session, "resolve_device", lambda _t: EPDeviceTarget(ep="auto", device="gpu")
+        )
+        monkeypatch.setattr(
+            session, "available_eps_for_device", lambda _d: ["DmlExecutionProvider"]
+        )
         bundle = _make_bundle(tmp_path)
         result = runner.invoke(
             perf, ["-m", str(bundle), "--runtime", "winml-genai", "--device", "auto"]

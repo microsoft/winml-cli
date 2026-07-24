@@ -6,17 +6,7 @@
 
 from __future__ import annotations
 
-import sys
-from typing import Literal, TypeAlias, cast, get_args
-
-
-if sys.platform == "win32":
-    from .native_stderr import suppress_native_stderr
-
-    with suppress_native_stderr():
-        import onnxruntime as ort
-else:
-    import onnxruntime as ort
+from typing import Literal, TypeAlias, cast, get_args, overload
 
 
 # Canonical ORT execution provider full names (the `*ExecutionProvider` symbols).
@@ -29,6 +19,7 @@ EPName = Literal[
     "NvTensorRTRTXExecutionProvider",
     "OpenVINOExecutionProvider",
     "QNNExecutionProvider",
+    "TensorrtExecutionProvider",
     "VitisAIExecutionProvider",
 ]
 
@@ -43,6 +34,7 @@ EPAlias = Literal[
     "nvtensorrtrtx",
     "nv_tensorrt_rtx",
     "migraphx",
+    "tensorrt",
 ]
 
 # Either an alias or a full name — what user-facing entry points accept before normalization.
@@ -81,21 +73,7 @@ EP_ALIASES: dict[EPAlias, EPName] = {
     "nvtensorrtrtx": "NvTensorRTRTXExecutionProvider",
     "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
     "migraphx": "MIGraphXExecutionProvider",
-}
-
-# Reverse mapping: canonical EP name -> primary shorthand alias.
-# Every canonical name has exactly one primary alias (the "preferred" one when
-# multiple aliases share a canonical, e.g. ``openvino``/``ov`` -> ``openvino``).
-# Use this to convert a canonical name back to the alias domain without `cast`.
-EP_NAME_TO_ALIAS: dict[EPName, EPAlias] = {
-    "QNNExecutionProvider": "qnn",
-    "OpenVINOExecutionProvider": "openvino",
-    "VitisAIExecutionProvider": "vitisai",
-    "CPUExecutionProvider": "cpu",
-    "CUDAExecutionProvider": "cuda",
-    "DmlExecutionProvider": "dml",
-    "NvTensorRTRTXExecutionProvider": "nv_tensorrt_rtx",
-    "MIGraphXExecutionProvider": "migraphx",
+    "tensorrt": "TensorrtExecutionProvider",
 }
 
 # Runtime-iterable forms of the Literal types above (for membership checks, choice lists).
@@ -106,7 +84,19 @@ EP_ALIAS_NAMES: tuple[EPAlias, ...] = get_args(EPAlias)
 ALL_EP_NAMES = list(SUPPORTED_EPS) + list(EP_ALIASES.keys())
 
 
-def normalize_ep_name(ep: EPNameOrAlias | None) -> EPName | None:
+@overload
+def normalize_ep_name(ep: None) -> None: ...
+
+
+@overload
+def normalize_ep_name(ep: EPNameOrAlias) -> EPName: ...
+
+
+@overload
+def normalize_ep_name(ep: str) -> str: ...
+
+
+def normalize_ep_name(ep: str | None) -> str | None:
     """Normalize EP name from shorthand to full name.
 
     Converts EP aliases to their full names (case-insensitive).
@@ -127,26 +117,23 @@ def normalize_ep_name(ep: EPNameOrAlias | None) -> EPName | None:
     if ep is None:
         return None
 
-    # Check if it's already a full name.
-    # ``EP_NAMES`` is the runtime tuple of canonical names from the EPName Literal,
-    # so membership narrowing here gives the type checker an EPName directly.
-    if ep in EP_NAMES:
-        return ep
+    ep_folded = ep.casefold()
+    for canonical_name in EP_NAMES:
+        if canonical_name.casefold() == ep_folded:
+            return canonical_name
 
     # Try to find in aliases (case-insensitive). ``.get()`` returns Optional, but
     # the prior membership check narrowed ``ep_lower`` so the alias mapping is
     # total in this branch.
-    ep_lower = ep.lower()
-    # ep_lower is an arbitrary lowercased string; cast to the key type for the
+    # ep_folded is an arbitrary folded string; cast to the key type for the
     # lookup (.get tolerates non-alias keys, returning None).
-    canonical = EP_ALIASES.get(cast("EPAlias", ep_lower))
+    canonical = EP_ALIASES.get(cast("EPAlias", ep_folded))
     if canonical is not None:
         return canonical
 
-    # Return as-is if not found (let validation catch invalid names).
-    # The value isn't in ``EPName`` at runtime; the annotation is a best-effort
-    # promise for downstream consumers, who handle the unknown case explicitly.
-    return ep  # type: ignore[return-value]
+    # Return as-is if not found so downstream consumers can report their
+    # context-specific validation error.
+    return ep
 
 
 def extract_ep_options(kwargs: dict) -> dict[str, str]:
@@ -176,12 +163,13 @@ def extract_ep_options(kwargs: dict) -> dict[str, str]:
     return ep_options
 
 
-# Supported device types
-SUPPORTED_DEVICES = [
-    "CPU",
-    "GPU",
-    "NPU",
-]
+# Device priority is shared by auto-selection and hardware monitoring.
+DeviceType = Literal["npu", "gpu", "cpu"]
+DEVICE_PRIORITY = cast("tuple[DeviceType, ...]", get_args(DeviceType))
+ACCELERATOR_DEVICE_TYPES = DEVICE_PRIORITY[:-1]
+
+# Legacy uppercase form used by model metadata and CLI output.
+SUPPORTED_DEVICES = [device.upper() for device in reversed(DEVICE_PRIORITY)]
 
 # EP -> ordered tuple of supported devices (lowercase). The FIRST element is
 # the canonical default device when only ``--ep`` is provided. Single source
@@ -193,26 +181,14 @@ SUPPORTED_DEVICES = [
 # (Nvidia -> AMD -> Qualcomm -> Intel -> Microsoft -> CPU -> Vitis), so the
 # keys are listed in that order rather than alphabetically.
 # VitisAI is placed last because it is not yet fully supported.
-EP_SUPPORTED_DEVICES: dict[EPName, tuple[str, ...]] = {
+EP_SUPPORTED_DEVICES: dict[EPName, tuple[DeviceType, ...]] = {
     "NvTensorRTRTXExecutionProvider": ("gpu",),
     "CUDAExecutionProvider": ("gpu",),
     "MIGraphXExecutionProvider": ("gpu",),
     "QNNExecutionProvider": ("npu", "gpu"),
     "OpenVINOExecutionProvider": ("npu", "gpu", "cpu"),
+    "TensorrtExecutionProvider": ("gpu",),
     "DmlExecutionProvider": ("gpu",),
     "CPUExecutionProvider": ("cpu",),
     "VitisAIExecutionProvider": ("npu",),
-}
-
-# Device string to ORT device type mapping
-DEVICE_TO_DEVICE_TYPE = {
-    "CPU": ort.OrtHardwareDeviceType.CPU,
-    "GPU": ort.OrtHardwareDeviceType.GPU,
-    "NPU": ort.OrtHardwareDeviceType.NPU,
-}
-
-DEVICE_TYPE_TO_DEVICE = {
-    ort.OrtHardwareDeviceType.CPU: "CPU",
-    ort.OrtHardwareDeviceType.GPU: "GPU",
-    ort.OrtHardwareDeviceType.NPU: "NPU",
 }

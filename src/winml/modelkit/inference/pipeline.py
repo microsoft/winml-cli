@@ -34,8 +34,32 @@ logger = logging.getLogger(__name__)
 # Tasks that WinML recognises but HF ``transformers.pipeline`` does not.
 # Mapped to their HF pipeline equivalent before calling ``pipeline()``.
 _HF_PIPELINE_TASK_MAP: dict[str, str] = {
+    "image-to-text": "image-text-to-text",
     "sentence-similarity": "feature-extraction",
 }
+
+_PIPELINE_COMPONENT_FLAGS = (
+    ("tokenizer", "_load_tokenizer"),
+    ("feature_extractor", "_load_feature_extractor"),
+    ("image_processor", "_load_image_processor"),
+    ("processor", "_load_processor"),
+)
+
+
+def _pipeline_component_kwargs(task: str, model_id: str | None) -> dict[str, str]:
+    """Select model components from the resolved pipeline's capabilities."""
+    if model_id is None:
+        return {}
+
+    from transformers.pipelines import check_task
+
+    _, targeted_task, _ = check_task(task)
+    pipeline_class = targeted_task["impl"]
+    return {
+        argument: model_id
+        for argument, flag in _PIPELINE_COMPONENT_FLAGS
+        if getattr(pipeline_class, flag, None) is not False
+    }
 
 
 def create_pipeline(
@@ -59,19 +83,14 @@ def create_pipeline(
     """
     from transformers import pipeline
 
+    hf_task = _HF_PIPELINE_TASK_MAP.get(task, task)
     kwargs: dict[str, Any] = {
-        "framework": "pt",
         # "device" is for HF pipeline tensor placement, not ORT EP.
         # WinMLSession handles device delegation internally.
         "device": "cpu",
+        **_pipeline_component_kwargs(hf_task, model_id),
     }
-    if model_id:
-        kwargs["tokenizer"] = model_id
-        kwargs["feature_extractor"] = model_id
-        kwargs["image_processor"] = model_id
-        kwargs["processor"] = model_id
 
-    hf_task = _HF_PIPELINE_TASK_MAP.get(task, task)
     # transformers.pipeline has 60+ Literal overloads — runtime task strings can't
     # be statically matched. The string-task fallback handles unknown tasks safely.
     pipe = pipeline(hf_task, model=model, **kwargs)  # type: ignore[call-overload]

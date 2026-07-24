@@ -331,18 +331,20 @@ def resolve_composite_components(
     """
     from transformers import AutoConfig
 
+    from ._autoconfig import load_hf_config
+
     if task is not None:
         resolved_type = model_type
         if resolved_type is None and hf_model is not None:
-            resolved_type = AutoConfig.from_pretrained(
-                hf_model, trust_remote_code=trust_remote_code
+            resolved_type = load_hf_config(
+                AutoConfig, hf_model, trust_remote_code=trust_remote_code
             ).model_type
         if resolved_type is None:
             return None
         return resolve_composite(resolved_type, task)
 
     if hf_model is not None:
-        config = AutoConfig.from_pretrained(hf_model, trust_remote_code=trust_remote_code)
+        config = load_hf_config(AutoConfig, hf_model, trust_remote_code=trust_remote_code)
     elif model_type is not None:
         config = AutoConfig.for_model(model_type)
     else:
@@ -389,9 +391,11 @@ def resolve_composite_load_task(
     """
     from transformers import AutoConfig
 
+    from ._autoconfig import load_hf_config
+
     if hf_model is None:
         return None
-    config = AutoConfig.from_pretrained(hf_model, trust_remote_code=trust_remote_code)
+    config = load_hf_config(AutoConfig, hf_model, trust_remote_code=trust_remote_code)
     if resolve_task(config).composite is None:
         return None
     model_type = getattr(config, "model_type", None)

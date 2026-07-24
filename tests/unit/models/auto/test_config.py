@@ -163,14 +163,14 @@ class TestWinMLCompileConfig:
             assert config.device == provider
 
     def test_factory_methods(self):
-        """Test factory methods for common providers."""
+        """Test ``for_provider`` factory across common providers."""
         from winml.modelkit.compiler import WinMLCompileConfig
 
-        qnn_config = WinMLCompileConfig.for_qnn()
+        qnn_config = WinMLCompileConfig.for_provider("qnn")
+        assert qnn_config is not None
         assert qnn_config.device == "qnn"
 
-        cpu_config = WinMLCompileConfig.for_cpu()
-        assert cpu_config.device == "cpu"
+        assert WinMLCompileConfig.for_provider("cpu") is None
 
 
 class TestWinMLConfig:

@@ -39,6 +39,7 @@ from ..utils.console import (
 )
 from ..utils.logging import configure_logging
 from ..utils.model_input import ModelInputKind, classify_model_input
+from ._ep_arg import EpAtSourceParamType
 
 
 if TYPE_CHECKING:
@@ -491,7 +492,7 @@ def _resolve_optimized_target(
     otherwise the optimized export is unavailable for that ``(ep, device)`` and a
     fail-fast error names it ("what you see is what you get").
     """
-    from .. import sysinfo
+    from ..session import EPDeviceTarget, resolve_device
     from ..utils.constants import normalize_ep_name
 
     resolved_device = device.lower()
@@ -500,7 +501,7 @@ def _resolve_optimized_target(
         # that EP the same way the generic path would (a missing accelerator
         # raises, surfaced as a UsageError).
         try:
-            resolved_device, _ = sysinfo.resolve_device(device, ep=ep)
+            resolved_device = resolve_device(EPDeviceTarget(ep=ep or "auto", device="auto")).device
         except ValueError as e:
             raise click.UsageError(str(e)) from e
 
@@ -605,10 +606,14 @@ def _maybe_build_genai_bundle(
 
         device_target = device.lower()
         if device_target == "auto":
-            from .. import sysinfo
+            from ..session import EPDeviceTarget, resolve_device
 
             try:
-                device_target, _ = sysinfo.resolve_device(device, ep=ep)
+                # ep is guaranteed non-None here: the normalize_ep_name(ep) ==
+                # "QNNExecutionProvider" check above returns False for a None ep.
+                device_target = resolve_device(
+                    EPDeviceTarget(ep=cast("str", ep), device="auto")
+                ).device
             except ValueError:
                 return False
         if device_target != "npu":
@@ -744,9 +749,13 @@ def _maybe_build_genai_bundle(
     "--no-compile forces skip. Default: inherit from config; when auto-generating "
     "config (no -c), compilation is off unless --compile is passed.",
 )
-@cli_utils.ep_option(
-    required=False,
-    optional_message="Falls back to compile config EP if not set.",
+@click.option(
+    "--ep",
+    "ep",
+    type=EpAtSourceParamType(),
+    default=None,
+    help="Force specific execution provider (falls back to compile config EP if not set). "
+    "The ``<ep>@<source>`` form is not yet supported on the build path — pass a bare EP name.",
 )
 @cli_utils.device_option(
     required=False,
@@ -810,7 +819,7 @@ def build(
     quant: bool,
     no_compile: bool | None,
     optimize: bool,
-    ep: EPNameOrAlias | None,
+    ep: tuple[str, str | None] | None,
     device: str,
     precision: str,
     export_type: str,
@@ -875,6 +884,22 @@ def build(
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
 
+    # --ep arrives pre-split as (ep, source) or None thanks to
+    # EpAtSourceParamType. build.py doesn't yet honor source pinning
+    # (its pipeline takes a bare EP short-name); _reject_ep_source raises
+    # at the CLI boundary if @<source> was given, else returns the bare
+    # ep short name (or None when --ep was not supplied).
+    from ._ep_arg import _reject_ep_source
+
+    # --ep is delivered by EpAtSourceParamType as a ``(ep, source) | None`` tuple
+    # at the click boundary (the parameter's declared alias type does not capture
+    # the raw click shape). _reject_ep_source collapses it back to the bare EP
+    # short-name the downstream pipeline expects.
+    ep_value = cast(
+        "EPNameOrAlias | None",
+        _reject_ep_source(ep, "winml build"),
+    )
+
     # Validate mutual exclusion
     if output_dir and use_cache:
         raise click.UsageError("--output-dir and --use-cache are mutually exclusive.")
@@ -906,30 +931,19 @@ def build(
         dynamic_axes=dynamic_axes,
     )
 
-    # If ep unspecified, resolve the target device and pick the highest-priority
-    # EP compatible with it. Avoids selecting an EP that does not match the host
-    # hardware -- analyzing for the wrong EP leaves black nodes that block a
-    # later build targeting the actual device (#663).
-    #
-    # resolve_check_device_ep() either returns a device with >=1 available EP
-    # (auto-mode walks the priority list, falls back to cpu which is always
-    # valid), or raises ValueError for an explicit device with no compatible EP.
-    # So the following available_eps[0] is safe whenever it returns.
-    #
-    # ``--export-type optimized`` resolves the target the same way the generic
-    # build does (explicit ``--ep``/``--device`` or the hardware probe below),
-    # then errors if the recipe has no matching target -- so the optimized bundle
-    # is built for the hardware the user is actually on.
-    if ep is None:
-        from ..sysinfo import resolve_check_device_ep
+    # Resolve an omitted EP and the requested device as one target. Forwarding
+    # both concrete axes keeps analyzer/build output aligned with the target
+    # selected by the catalog-backed resolver.
+    if ep_value is None:
+        from ..session import EPDeviceTarget, resolve_device
 
         try:
-            resolved_device, _, available_eps = resolve_check_device_ep(device=device, ep=ep)
+            resolved_target = resolve_device(EPDeviceTarget(ep="auto", device=device))
         except ValueError as e:
             raise click.UsageError(str(e)) from e
-        device = resolved_device
-        ep = available_eps[0]
-        logger.info("Auto-resolved device=%s, EP=%s", resolved_device, ep)
+        device = resolved_target.device
+        ep_value = cast("EPNameOrAlias", resolved_target.ep)
+        logger.info("Auto-resolved device=%s, EP=%s", device, ep_value)
 
     try:
         # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
@@ -999,7 +1013,7 @@ def build(
                     onnx_path=model,
                     device=device,
                     precision=precision,
-                    ep=ep,
+                    ep=ep_value,
                 )
             else:
                 config_or_configs = generate_build_config(
@@ -1007,7 +1021,7 @@ def build(
                     trust_remote_code=trust_remote_code,
                     device=device,
                     precision=precision,
-                    ep=ep,
+                    ep=ep_value,
                     shape_config=shape_overrides,
                     override={"export": export_overrides} if export_overrides else None,
                 )
@@ -1029,7 +1043,7 @@ def build(
                 from ..config import resolve_quant_compile_config
 
                 resolved_quant, _ = resolve_quant_compile_config(
-                    device=device, precision=precision, ep=ep
+                    device=device, precision=precision, ep=ep_value
                 )
                 if cfg.skip_optimize or not quant or resolved_quant is None:
                     cfg.quant = None
@@ -1127,7 +1141,7 @@ def build(
             output_dir=output_dir,
             use_cache=use_cache,
             device=device,
-            ep=ep,
+            ep=ep_value,
             precision=precision,
             rebuild=rebuild,
             submodel=submodel,
@@ -1174,7 +1188,7 @@ def build(
                 configs=configs,
                 output_dir=resolved_dir,
                 rebuild=rebuild,
-                ep=ep,
+                ep=ep_value,
                 device=device,
                 allow_unsupported_nodes=allow_unsupported_nodes,
             )
@@ -1322,7 +1336,7 @@ def build(
                             trust_remote_code=trust_remote_code,
                             device=device,
                             precision=precision,
-                            ep=ep,
+                            ep=ep_value,
                             shape_config=shape_overrides,
                             override={"export": export_overrides} if export_overrides else None,
                         )
@@ -1383,7 +1397,7 @@ def build(
                             resolved_dir=resolved_dir,
                             rebuild=rebuild,
                             cache_key=name,
-                            ep=ep,
+                            ep=ep_value,
                             device=device,
                             extra_kwargs=dict(extra_kwargs),
                             preloaded_hf_config=preloaded_hf_config,
@@ -1401,7 +1415,7 @@ def build(
                     resolved_dir=resolved_dir,
                     rebuild=rebuild,
                     cache_key=cache_key,
-                    ep=ep,
+                    ep=ep_value,
                     device=device,
                     extra_kwargs=extra_kwargs,
                     preloaded_hf_config=preloaded_hf_config,
@@ -1657,15 +1671,17 @@ def _run_optimize_stage(
             _header_shown[0] = False
 
         # Resolve "auto" to a concrete device once so that has_rule_data_for_ep
-        # doesn't search for non-existent "*_AUTO_*.parquet" files. Use
-        # resolve_check_device_ep so an explicit device+ep is validated
-        # statically (no availability cross-check): a --no-compile build may
-        # target a device absent on this machine (cross-compile), and this call
-        # only needs a concrete device name for the rule-data lookup.
+        # doesn't search for non-existent "*_AUTO_*.parquet" files. Uses the
+        # session resolver (catalog-based, no ORT-availability requirement) so
+        # a --no-compile cross-compile build targeting a device absent on this
+        # machine still gets a concrete device name for the rule-data lookup.
         from ..analyze.utils.ep_utils import has_rule_data_for_ep
-        from ..sysinfo import resolve_check_device_ep
+        from ..session import EPDeviceTarget
+        from ..session import resolve_device as _resolve_device
 
-        _resolved_device, _, _ = resolve_check_device_ep(device=device or "auto", ep=ep)
+        _resolved_device = _resolve_device(
+            EPDeviceTarget(ep=ep or "auto", device=device or "auto")
+        ).device
 
         def _on_ep_start(ep_name: EPName, operator_counts: dict) -> None:
             nonlocal _current_ep

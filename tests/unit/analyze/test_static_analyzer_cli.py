@@ -16,6 +16,7 @@ Tests verify:
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, Mock, patch
 
@@ -27,7 +28,8 @@ from rich.console import Console
 if TYPE_CHECKING:
     from pathlib import Path
 
-from winml.modelkit.commands.analyze import analyze
+from winml.modelkit.commands.analyze import _get_local_ep_device_pairs, analyze
+from winml.modelkit.utils.constants import EP_SUPPORTED_DEVICES, normalize_ep_name
 
 
 # Fixed simulated local availability derived from `ort.get_ep_devices()` after
@@ -64,10 +66,8 @@ def _mock_local_ep_device_pairs(monkeypatch: pytest.MonkeyPatch) -> None:
         "winml.modelkit.sysinfo.device._get_available_eps",
         lambda: simulated_eps,
     )
-    # The analyze command now resolves a single `auto` target via the shared
-    # sysinfo helpers (resolve_device / resolve_eps), which read the ORT device
-    # -> EP map directly. Mirror the simulated local matrix here so resolution is
-    # deterministic and hardware-independent.
+    # Keep the legacy sysinfo shims aligned with the simulated matrix for any
+    # indirect callers that still read them.
     device_ep_map: dict[str, list[str]] = {}
     for _ep, _device in SIMULATED_LOCAL_EP_DEVICE_PAIRS:
         device_ep_map.setdefault(_device.lower(), []).append(_ep)
@@ -75,6 +75,39 @@ def _mock_local_ep_device_pairs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "winml.modelkit.sysinfo.device._get_device_ep_map_from_ort",
         lambda: simulated_device_ep_map,
+    )
+
+    local_pairs_by_device = {
+        device_name.lower(): [
+            ep_name
+            for ep_name in EP_SUPPORTED_DEVICES
+            if (ep_name, device_name.upper()) in SIMULATED_LOCAL_EP_DEVICE_PAIRS
+        ]
+        for device_name in {"cpu", "gpu", "npu"}
+    }
+
+    def _resolve_target(target):
+        requested_ep = target.ep
+        if target.device != "auto":
+            return target
+
+        if requested_ep == "auto":
+            for device_name in ("npu", "gpu", "cpu"):
+                eps = local_pairs_by_device.get(device_name, [])
+                if eps:
+                    return type(target)(ep=eps[0], device=device_name, source=target.source)
+            raise ValueError("No execution provider is available on this system.")
+
+        canonical_ep = normalize_ep_name(requested_ep)
+        for device_name in ("npu", "gpu", "cpu"):
+            if canonical_ep in local_pairs_by_device.get(device_name, []):
+                return type(target)(ep=canonical_ep, device=device_name, source=target.source)
+        raise ValueError(f"{requested_ep} is not available on this system.")
+
+    monkeypatch.setattr("winml.modelkit.session.resolve_device", _resolve_target)
+    monkeypatch.setattr(
+        "winml.modelkit.session.available_eps_for_device",
+        lambda device_name: list(local_pairs_by_device.get(str(device_name).lower(), [])),
     )
 
 
@@ -104,12 +137,29 @@ def _mock_has_rule_data_for_ep(monkeypatch: pytest.MonkeyPatch) -> None:
         ("OpenVINOExecutionProvider", "CPU"),
         ("QNNExecutionProvider", "NPU"),
         ("NvTensorRTRTXExecutionProvider", "GPU"),
+        ("TensorrtExecutionProvider", "GPU"),
     }
 
     monkeypatch.setattr(
         "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
         lambda ep_name, device_name: (ep_name, str(device_name).upper()) in simulated_rule_pairs,
     )
+
+
+def test_local_ep_device_pairs_use_cli_device_casing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Local ORT devices use the same casing as the analyze execution matrix."""
+    import onnxruntime as ort
+
+    registered = SimpleNamespace(
+        ep_name="DmlExecutionProvider",
+        device=SimpleNamespace(type=ort.OrtHardwareDeviceType.GPU),
+    )
+    monkeypatch.setattr(
+        "winml.modelkit.winml.get_registered_ep_devices",
+        lambda: (registered,),
+    )
+
+    assert _get_local_ep_device_pairs() == [("DmlExecutionProvider", "GPU")]
 
 
 @pytest.fixture
@@ -205,9 +255,7 @@ class TestAnalyzeCommandArguments:
         model_file.write_bytes(b"dummy")
 
         # Command without --device should not fail due to missing argument
-        result = runner.invoke(
-            analyze, ["--model", str(model_file), "--ep", "QNNExecutionProvider"]
-        )
+        result = runner.invoke(analyze, ["--model", str(model_file), "--ep", "qnn"])
         # Should not complain about missing --device argument
         assert "device" not in result.output.lower() or "missing" not in result.output.lower()
 
@@ -240,7 +288,7 @@ class TestAnalyzeCommandArguments:
                 "--model",
                 str(model_file),
                 "--ep",
-                "QNNExecutionProvider",
+                "qnn",
                 "--device",
                 "INVALID",
             ],
@@ -256,7 +304,7 @@ class TestAnalyzeCommandArguments:
                 "--model",
                 "nonexistent.onnx",
                 "--ep",
-                "QNNExecutionProvider",
+                "qnn",
                 "--device",
                 "NPU",
             ],
@@ -319,7 +367,7 @@ class TestAnalyzeCommandExecution:
                 "--model",
                 str(model_file),
                 "--ep",
-                "QNNExecutionProvider",
+                "qnn",
                 "--device",
                 "NPU",
             ],
@@ -351,7 +399,7 @@ class TestAnalyzeCommandExecution:
                 "--model",
                 str(model_file),
                 "--ep",
-                "QNNExecutionProvider",
+                "qnn",
                 "--device",
                 "NPU",
             ],
@@ -378,7 +426,7 @@ class TestAnalyzeCommandExecution:
                 "--model",
                 str(model_file),
                 "--ep",
-                "QNNExecutionProvider",
+                "qnn",
                 "--device",
                 "NPU",
             ],
@@ -412,7 +460,7 @@ class TestAnalyzeCommandOptions:
                 "--model",
                 str(model_file),
                 "--ep",
-                "QNNExecutionProvider",
+                "qnn",
                 "--device",
                 "NPU",
                 "--information",
@@ -445,7 +493,7 @@ class TestAnalyzeCommandOptions:
                 "--model",
                 str(model_file),
                 "--ep",
-                "QNNExecutionProvider",
+                "qnn",
                 "--device",
                 "NPU",
                 "--no-information",
@@ -573,7 +621,7 @@ class TestAnalyzeCommandOptions:
                 "--model",
                 str(model_file),
                 "--ep",
-                "QNNExecutionProvider",
+                "qnn",
                 "--device",
                 "NPU",
                 "--verbose",
@@ -678,7 +726,7 @@ class TestAnalyzeCommandOptions:
                 "--model",
                 str(model_file),
                 "--ep",
-                "QNNExecutionProvider",
+                "qnn",
                 "--device",
                 "NPU",
                 "--quiet",
@@ -713,7 +761,7 @@ class TestAnalyzeCommandOutput:
                 "--model",
                 str(model_file),
                 "--ep",
-                "QNNExecutionProvider",
+                "qnn",
                 "--device",
                 "NPU",
             ],
@@ -747,7 +795,7 @@ class TestAnalyzeCommandOutput:
                 "--model",
                 str(model_file),
                 "--ep",
-                "QNNExecutionProvider",
+                "qnn",
                 "--device",
                 "NPU",
                 "--output",
@@ -781,7 +829,7 @@ class TestAnalyzeCommandOutput:
                 "--model",
                 str(model_file),
                 "--ep",
-                "QNNExecutionProvider",
+                "qnn",
                 "--device",
                 "NPU",
                 "--output",
@@ -931,7 +979,7 @@ class TestAnalyzeCommandIntegration:
         mock_instance.analyze.return_value = mock_analyzer_result
         mock_analyzer_class.return_value = mock_instance
 
-        eps = ["QNNExecutionProvider", "OpenVINOExecutionProvider"]
+        eps = ["qnn", "openvino", "vitisai"]
 
         for ep in eps:
             result = runner.invoke(
@@ -960,7 +1008,7 @@ class TestAnalyzeCommandIntegration:
         tmp_path: Path,
         mock_analyzer_result: Mock,
     ) -> None:
-        """Test all supported device types (with rule data validation bypassed)."""
+        """QNN only succeeds on its catalogued device pairs."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
@@ -968,21 +1016,25 @@ class TestAnalyzeCommandIntegration:
         mock_instance.analyze.return_value = mock_analyzer_result
         mock_analyzer_class.return_value = mock_instance
 
-        devices = ["CPU", "GPU", "NPU"]
+        expected_exit_by_device = {
+            "CPU": 2,
+            "GPU": 0,
+            "NPU": 0,
+        }
 
-        for device in devices:
+        for device, expected_exit in expected_exit_by_device.items():
             result = runner.invoke(
                 analyze,
                 [
                     "--model",
                     str(model_file),
                     "--ep",
-                    "OpenVINOExecutionProvider",
+                    "qnn",
                     "--device",
                     device,
                 ],
             )
-            assert result.exit_code == 0, f"Failed for device: {device}"
+            assert result.exit_code == expected_exit, f"Unexpected result for device: {device}"
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
     def test_analyze_called_with_correct_parameters(
@@ -1006,7 +1058,7 @@ class TestAnalyzeCommandIntegration:
                 "--model",
                 str(model_file),
                 "--ep",
-                "OpenVINOExecutionProvider",
+                "openvino",
                 "--device",
                 "GPU",
                 "--information",
@@ -1253,6 +1305,7 @@ class TestAnalyzeEPDeviceSelectionMatrix:
                     ("OpenVINOExecutionProvider", "NPU"),
                     ("OpenVINOExecutionProvider", "GPU"),
                     ("OpenVINOExecutionProvider", "CPU"),
+                    ("TensorrtExecutionProvider", "GPU"),
                     ("DmlExecutionProvider", "GPU"),
                     ("CPUExecutionProvider", "CPU"),
                     ("VitisAIExecutionProvider", "NPU"),
@@ -1293,6 +1346,7 @@ class TestAnalyzeEPDeviceSelectionMatrix:
             ("NvTensorRTRTXExecutionProvider", "GPU"),
             ("QNNExecutionProvider", "NPU"),
             ("QNNExecutionProvider", "GPU"),
+            ("TensorrtExecutionProvider", "GPU"),
         }
         monkeypatch.setattr(
             "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",

@@ -31,6 +31,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from ..utils.constants import ACCELERATOR_DEVICE_TYPES
+
 
 if TYPE_CHECKING:
     from ..utils.constants import EPName
@@ -267,7 +269,7 @@ def resolve_adapter_luid(
         ORT nor the PDH fallback found a matching adapter.
     """
     kind = (device_kind or "").lower()
-    if kind not in ("npu", "gpu"):
+    if kind not in ACCELERATOR_DEVICE_TYPES:
         return None
 
     luid = _resolve_via_ort(kind, ep_name)

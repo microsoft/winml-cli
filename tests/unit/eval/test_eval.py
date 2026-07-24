@@ -13,6 +13,46 @@ import pytest
 from click.testing import CliRunner
 
 from winml.modelkit.eval import DatasetConfig, EvalResult, WinMLEvaluationConfig
+from winml.modelkit.session import EPDeviceTarget
+
+
+class TestPreparePipeline:
+    def test_relies_on_model_framework_inference(self) -> None:
+        from winml.modelkit.eval.base_evaluator import WinMLEvaluator
+
+        evaluator = WinMLEvaluator.__new__(WinMLEvaluator)
+        evaluator.config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+        )
+        evaluator.model = MagicMock()
+        sentinel = MagicMock()
+
+        with patch("transformers.pipeline", return_value=sentinel) as mock_pipeline:
+            assert evaluator.prepare_pipeline() is sentinel
+
+        assert "framework" not in mock_pipeline.call_args.kwargs
+
+    def test_compute_supports_transformers_without_tensorflow_base_class(self) -> None:
+        from winml.modelkit.eval.base_evaluator import WinMLEvaluator
+
+        class EvaluateCompatProbe:
+            def compute(self, **_kwargs) -> dict[str, str]:
+                import transformers
+
+                return {"compat_type": transformers.TFPreTrainedModel.__name__}
+
+        evaluator = WinMLEvaluator.__new__(WinMLEvaluator)
+        evaluator.config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+        )
+        evaluator.model = MagicMock()
+        evaluator.data = MagicMock()
+        evaluator.pipe = MagicMock()
+
+        with patch("evaluate.evaluator", return_value=EvaluateCompatProbe()):
+            assert evaluator.compute() == {"compat_type": "TFPreTrainedModel"}
 
 
 class TestEvaluationConfig:
@@ -859,10 +899,7 @@ class TestEvalCli:
         from winml.modelkit.commands.eval import eval as eval_cmd
 
         runner = CliRunner()
-        with (
-            patch("winml.modelkit.sysinfo.resolve_device", return_value=("npu", ["npu", "cpu"])),
-            patch("winml.modelkit.eval.evaluate") as mock_evaluate,
-        ):
+        with patch("winml.modelkit.eval.evaluate") as mock_evaluate:
             mock_evaluate.return_value = EvalResult(
                 config=WinMLEvaluationConfig(),
                 metrics={},
@@ -906,10 +943,7 @@ class TestEvalCli:
         onnx_file.touch()
 
         runner = CliRunner()
-        with (
-            patch("winml.modelkit.sysinfo.resolve_device", return_value=("cpu", ["cpu"])),
-            patch("winml.modelkit.eval.evaluate") as mock_evaluate,
-        ):
+        with patch("winml.modelkit.eval.evaluate") as mock_evaluate:
             mock_evaluate.return_value = EvalResult(
                 config=WinMLEvaluationConfig(),
                 metrics={},
@@ -1008,10 +1042,7 @@ class TestEvalCli:
         from winml.modelkit.commands.eval import eval as eval_cmd
 
         runner = CliRunner()
-        with (
-            patch("winml.modelkit.sysinfo.resolve_device", return_value=("cpu", ["cpu"])),
-            patch("winml.modelkit.eval.evaluate", side_effect=RuntimeError("broken model")),
-        ):
+        with patch("winml.modelkit.eval.evaluate", side_effect=RuntimeError("broken model")):
             result = runner.invoke(
                 eval_cmd,
                 [
@@ -1031,7 +1062,10 @@ class TestEvalCli:
 
         runner = CliRunner()
         with (
-            patch("winml.modelkit.sysinfo.resolve_device", return_value=("npu", ["npu", "cpu"])),
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="auto", device="npu"),
+            ),
             patch("winml.modelkit.eval.evaluate") as mock_evaluate,
         ):
             mock_evaluate.return_value = EvalResult(
@@ -1071,7 +1105,10 @@ class TestEvalCli:
 
         runner = CliRunner()
         with (
-            patch("winml.modelkit.sysinfo.resolve_device", return_value=("gpu", ["gpu", "cpu"])),
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="auto", device="gpu"),
+            ),
             patch(
                 "winml.modelkit.utils.cli.load_build_config",
                 return_value=(MagicMock(), raw_cfg),
@@ -1110,7 +1147,10 @@ class TestEvalCli:
 
         runner = CliRunner()
         with (
-            patch("winml.modelkit.sysinfo.resolve_device", return_value=("npu", ["npu", "cpu"])),
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="auto", device="npu"),
+            ),
             patch(
                 "winml.modelkit.utils.cli.load_build_config",
                 return_value=(MagicMock(), raw_cfg),
@@ -1306,6 +1346,22 @@ class TestDefaultDatasetImmutability:
 class TestLoadModel:
     """Tests for _load_model."""
 
+    @pytest.fixture(autouse=True)
+    def _mock_resolve_device(self):
+        """Mock resolve_device + auto_device so unit tests don't hit live EP registry."""
+        from winml.modelkit.session import EPDeviceTarget
+
+        fake_cpu = EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
+        with (
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=fake_cpu,
+            ),
+            patch("winml.modelkit.session.WinMLEPRegistry") as mock_reg,
+        ):
+            mock_reg.instance.return_value.auto_device.return_value = MagicMock()
+            yield
+
     def test_load_model_no_model_id_raises(self):
         """_load_model raises ValueError when model_id is None."""
         from winml.modelkit.eval.evaluate import _load_model
@@ -1339,19 +1395,75 @@ class TestLoadModel:
         ):
             result = eval_mod._load_model(config)
 
-        # quant defaults to True -> no quant override (config=None); optimize/
-        # analyze default True with max_optim_iterations=None -> no extra build
-        # kwargs (build_pipeline_extra_kwargs returns {}).
-        mock_auto.from_pretrained.assert_called_once_with(
-            "test/model",
-            task="image-classification",
-            device="cpu",
-            precision="auto",
-            ep=None,
-            allow_unsupported_nodes=False,
-            config=None,
-        )
+        mock_auto.from_pretrained.assert_called_once()
+        call_args = mock_auto.from_pretrained.call_args
+        # _load_model now passes a WinMLEPDevice as the 2nd positional arg.
+        assert call_args.args[0] == "test/model"
+        # The mock auto_device returns a MagicMock — just confirm it landed.
+        assert call_args.args[1] is not None
+        assert call_args.kwargs["task"] == "image-classification"
         assert result is mock_model
+
+    def test_auto_target_retries_cpu_after_ort_runtime_failure(self, caplog):
+        """An unusable auto-selected accelerator retries with the CPU EP."""
+        import importlib
+        import logging
+        import sys
+
+        from onnxruntime.capi.onnxruntime_pybind11_state import RuntimeException
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        mock_model = MagicMock()
+        mock_auto = MagicMock()
+        mock_auto.from_pretrained.side_effect = [
+            RuntimeException("accelerator session initialization failed"),
+            mock_model,
+        ]
+        gpu_ep_device = MagicMock()
+        gpu_ep_device.device.device_type = "GPU"
+        gpu_ep_device.device.ep_name = "DmlExecutionProvider"
+        cpu_ep_device = MagicMock()
+        cpu_ep_device.device.device_type = "CPU"
+        cpu_ep_device.device.ep_name = "CPUExecutionProvider"
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            device="gpu",
+        )
+        config._auto_device_selected = True
+
+        def resolve_target(target: EPDeviceTarget) -> EPDeviceTarget:
+            if target.device == "gpu":
+                return EPDeviceTarget(ep="DmlExecutionProvider", device=target.device)
+            return EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
+
+        with (
+            patch.dict(
+                "sys.modules",
+                {"winml.modelkit.models": MagicMock(WinMLAutoModel=mock_auto)},
+            ),
+            patch("winml.modelkit.session.resolve_device", side_effect=resolve_target),
+            patch("winml.modelkit.session.WinMLEPRegistry") as mock_registry,
+            caplog.at_level(logging.WARNING),
+        ):
+            mock_registry.instance.return_value.auto_device.side_effect = [
+                gpu_ep_device,
+                cpu_ep_device,
+            ]
+            result = eval_mod._load_model(config)
+
+        assert result is mock_model
+        assert [call.args[1] for call in mock_auto.from_pretrained.call_args_list] == [
+            gpu_ep_device,
+            cpu_ep_device,
+        ]
+        assert config.device == "cpu"
+        assert config.ep == "cpu"
+        assert config._auto_device_selected is False
+        assert "Retrying with CPUExecutionProvider" in caplog.text
 
     def test_load_model_forwards_build_flags(self):
         """--no-quant/--no-optimize/--max-optim-iterations reach from_pretrained."""

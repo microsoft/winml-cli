@@ -20,13 +20,21 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import click
 from rich.console import Console
 
 from ..onnx import is_compiled_onnx
-from ..sysinfo import resolve_device, resolve_eps
+from ..session import (
+    VALID_DEVICES,
+    DeviceNotFound,
+    EPDeviceTarget,
+    WinMLEPNotDiscovered,
+    WinMLEPRegistrationFailed,
+    available_eps_for_device,
+    resolve_device,
+)
 from ..utils import cli as cli_utils
 from ..utils.constants import COMPILER_NAMES, ORT_SESSION_COMPILER, normalize_ep_name
 
@@ -34,6 +42,20 @@ from ..utils.constants import COMPILER_NAMES, ORT_SESSION_COMPILER, normalize_ep
 if TYPE_CHECKING:
     from ..utils.constants import CompilerName, EPName, EPNameOrAlias
 from ..utils.logging import configure_logging
+from ._ep_arg import EpAtSourceParamType
+
+
+def _resolve_compile_provider(resolved_device: str, ep: EPNameOrAlias | None) -> EPName:
+    """Resolve the compile provider from device + ep flags.
+
+    ``ep`` overrides the device mapping. Returns the canonical EP name.
+    Device/EP compatibility is enforced upstream; this only normalizes.
+    """
+    if ep is not None:
+        normalized = normalize_ep_name(ep)
+        if normalized is not None:
+            return normalized
+    return cast("EPName", available_eps_for_device(resolved_device)[0])
 
 
 logger = logging.getLogger(__name__)
@@ -55,14 +77,19 @@ console = Console()
     default=None,
     help="Output directory (default: same as input model)",
 )
-@cli_utils.device_option(
-    required=False,
-    default="auto",
-    include_auto=True,
+@click.option(
+    "--device",
+    "-d",
+    type=click.Choice(["auto", *sorted(VALID_DEVICES)], case_sensitive=False),
+    default=None,
+    help="Target device (default: deduced from --ep, or 'npu' if neither given)",
 )
-@cli_utils.ep_option(
-    required=False,
-    optional_message="Overrides device-to-provider mapping.",
+@click.option(
+    "--ep",
+    type=EpAtSourceParamType(),
+    default=None,
+    help="Force specific EP, optionally pinned to a source (e.g. 'openvino@pypi'). "
+    "Overrides device-to-provider mapping.",
 )
 @click.option(
     "--validate/--no-validate",
@@ -105,8 +132,8 @@ def compile(
     output: Path | None,
     output_dir: Path | None,
     overwrite: bool,
-    device: str,
-    ep: EPNameOrAlias | None,
+    device: str | None,
+    ep: tuple[str, str | None] | None,
     validate: bool,
     verbose: int,
     quiet: bool,
@@ -138,6 +165,15 @@ def compile(
     # Merge top-level -v/-q with subcommand-level flags so either position works.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
 
+    # --ep is parsed by EpAtSourceParamType at click parse time and
+    # arrives as (ep, source) or None — feeds the EPDeviceTarget's
+    # `source` axis (Scenarios A.5/A.6 per 2_coreloop.md §6.2). Unpack
+    # at entry so the local ``ep`` is a bare ``str | None`` for the rest
+    # of the function — this keeps the Rich pre-run block from leaking
+    # the raw tuple into user-visible output (T-01 regression pin).
+    ep_part, source_part = ep if ep else (None, None)
+    ep_name: str | None = ep_part
+
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
     config_provider_options: dict[str, str] = {}
@@ -148,7 +184,7 @@ def compile(
         if "provider_options" in cc:
             config_provider_options = dict(cc["provider_options"])
         if not cli_utils.is_cli_provided(ctx, "ep") and "execution_provider" in cc:
-            ep = cc["execution_provider"]
+            ep_name = cc["execution_provider"]
         if not cli_utils.is_cli_provided(ctx, "compiler") and "compiler" in cc:
             compiler = cc["compiler"]
         if not cli_utils.is_cli_provided(ctx, "embed") and "embed_context" in cc:
@@ -167,17 +203,34 @@ def compile(
 
     configure_logging(verbosity=verbose, quiet=quiet)
 
+    # Resolve EP+device at the CLI boundary (plan §C / Decision B).
+    # device=None or "auto" both signal auto-detect via the resolver.
+    _device_arg = "auto" if (device is None or device.lower() == "auto") else device.lower()
     try:
-        resolved_device, _ = resolve_device(device, ep=ep)
-    except ValueError as exc:
-        raise click.UsageError(str(exc)) from exc
+        ep_device_resolved = resolve_device(
+            EPDeviceTarget(
+                ep=ep_name or "auto",
+                device=_device_arg,
+                source=source_part,
+            )
+        )
+    except DeviceNotFound as e:
+        raise click.ClickException(str(e)) from e
+    except WinMLEPNotDiscovered as e:
+        raise click.ClickException(
+            f"EP plugin not found: {e}. Install the required EP package (e.g. onnxruntime-qnn)."
+        ) from e
+    except WinMLEPRegistrationFailed as e:
+        raise click.ClickException(f"EP registration failed: {e}") from e
+    except ValueError as e:
+        raise click.UsageError(str(e)) from e
+    logger.info("Resolved to: %s", ep_device_resolved)
 
     # Handle --list
     if list_compilers_flag:
         from ..compiler import list_compilers
 
-        provider = _resolve_compile_provider(resolved_device, ep)
-        click.echo(list_compilers(provider))
+        click.echo(list_compilers(cast("EPName", ep_device_resolved.ep)))
         return
 
     # Validate model(s) provided when not listing
@@ -203,12 +256,12 @@ def compile(
 
     # Import compiler (late import to speed up CLI)
     from ..compiler import WinMLCompileConfig, compile_multiple_onnx, compile_onnx
+    from ..session import expand_ep_name
 
-    # Resolve EP from device + ep flags
-    provider = _resolve_compile_provider(resolved_device, ep)
-    config = WinMLCompileConfig.for_provider(provider, device=resolved_device)
-
+    # Build config from the already-resolved EPDeviceTarget (ep_device is never None here).
+    config = WinMLCompileConfig.for_ep_device(ep_device_resolved)
     if config is None:
+        provider = expand_ep_name(ep_device_resolved.ep)
         raise click.ClickException(
             f"Provider '{provider}' does not support EPContext compilation. "
             "Compile is only supported for providers that produce EPContext models "
@@ -227,12 +280,12 @@ def compile(
     if config_provider_options:
         config.ep_config.provider_options.update(config_provider_options)
 
-    # Show info
+    # Show info — device and provider come directly from the resolved EPDeviceTarget.
     console.print(f"[bold blue]Input:[/bold blue] {', '.join(str(m) for m in models)}")
-    console.print(f"[bold blue]Device:[/bold blue] {resolved_device}")
-    if ep:
-        console.print(f"[bold blue]EP:[/bold blue] {ep}")
-    console.print(f"[bold blue]Provider:[/bold blue] {provider}")
+    console.print(f"[bold blue]Device:[/bold blue] {ep_device_resolved.device}")
+    if ep_name:
+        console.print(f"[bold blue]EP:[/bold blue] {ep_name}")
+    console.print(f"[bold blue]Provider:[/bold blue] {ep_device_resolved.ep}")
     console.print(f"[bold blue]Compiler:[/bold blue] {compiler}")
     if len(models) > 1:
         console.print(f"[bold blue]Shared EP context:[/bold blue] yes ({len(models)} models)")
@@ -298,19 +351,3 @@ def compile(
         console.print(f"\n[bold red]Compilation failed:[/bold red] {e}")
         logger.exception("Compilation failed")
         raise click.ClickException(f"Compilation failed: {e}") from e
-
-
-def _resolve_compile_provider(resolved_device: str, ep: EPNameOrAlias | None) -> EPName:
-    """Resolve the compile provider from device + ep flags.
-
-    ``ep`` overrides the device mapping. Returns
-    the canonical EP name (e.g., ``"QNNExecutionProvider"``).
-
-    Device/EP policy compatibility is enforced upstream by ``resolve_device``;
-    this helper trusts its inputs and only normalizes.
-    """
-    if ep is not None:
-        normalized = normalize_ep_name(ep)
-        if normalized is not None:
-            return normalized
-    return resolve_eps(resolved_device)[0]

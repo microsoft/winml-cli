@@ -350,13 +350,25 @@ class TestInspectErrors:
 
     def test_bogus_hf_id_repository_not_found_error(self, runner: CliRunner) -> None:
         """RepositoryNotFoundError surfaced directly also maps to 'Model not found'."""
-        from huggingface_hub.utils import RepositoryNotFoundError
+        import httpx
+        from huggingface_hub.errors import RepositoryNotFoundError
 
         from winml.modelkit.commands.inspect import inspect
 
+        response = httpx.Response(
+            404,
+            request=httpx.Request(
+                "GET",
+                "https://huggingface.co/api/models/totally-bogus/does-not-exist",
+            ),
+        )
         with patch(
             "transformers.AutoConfig.from_pretrained",
-            side_effect=RepositoryNotFoundError("totally-bogus/does-not-exist"),
+            side_effect=RepositoryNotFoundError(
+                "Repository Not Found",
+                response=response,
+                server_message="Repository Not Found",
+            ),
         ):
             result = runner.invoke(inspect, ["-m", "totally-bogus/does-not-exist"], obj={})
             assert result.exit_code != 0

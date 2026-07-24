@@ -59,6 +59,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
+from winml.modelkit.session import EPDeviceTarget
+
 
 # =============================================================================
 # Shared helpers
@@ -252,10 +254,14 @@ def _run_compile(
         ),
         patch(
             "winml.modelkit.commands.compile.resolve_device",
-            return_value=("npu", None),
+            side_effect=lambda target: EPDeviceTarget(
+                ep=(target.ep if target.ep and target.ep != "auto" else "qnn"),
+                device=("npu" if target.device == "auto" else target.device),
+                source=target.source,
+            ),
         ),
         patch(
-            "winml.modelkit.commands.compile.resolve_eps",
+            "winml.modelkit.commands.compile.available_eps_for_device",
             return_value=["QNNExecutionProvider"],
         ),
         patch(
@@ -373,14 +379,11 @@ def _run_analyze(
             return_value=True,
         ),
         # Deterministic Tier-3 default: when ep stays "auto" through the merge
-        # block, analyze resolves it via resolve_eps(resolved_device)[0]. Pin the
-        # ORT device->EP map so npu -> QNN, fixing the resolved target EP.
+        # block, analyze resolves it via available_eps_for_device(resolved_device).
+        # Patch the registry-backed helper (imported into analyze at call time
+        # from ..session) so npu -> QNN, fixing the resolved target EP.
         patch(
-            "winml.modelkit.sysinfo.device._get_device_ep_map_from_ort",
-            return_value={"npu": ("QNNExecutionProvider",)},
-        ),
-        patch(
-            "winml.modelkit.sysinfo.device._get_available_eps",
+            "winml.modelkit.session.available_eps_for_device",
             return_value=["QNNExecutionProvider"],
         ),
         patch(

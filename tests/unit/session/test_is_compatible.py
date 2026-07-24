@@ -21,13 +21,22 @@ if TYPE_CHECKING:
 
 @pytest.fixture()
 def cpu_session(tmp_path: Path) -> WinMLSession:
-    """Create a WinMLSession with CPU device using a minimal ONNX model.
+    """Create a WinMLSession bound to CPUExecutionProvider using a minimal ONNX model.
 
-    The session needs a real ONNX file to construct.
-    We build a tiny Relu model on disk, then create the session.
-    WinML EP registry is mocked to avoid slow PowerShell queries on CI.
+    Wraps the real CPU OrtEpDevice in a stub :class:`WinMLEPDevice` so
+    add_provider_for_devices() receives a genuine handle and ORT can run
+    is_compatible() probes.
     """
-    from unittest.mock import patch
+    import onnx
+    import onnxruntime as _ort
+
+    from .conftest import make_stub_winml_ep_device
+
+    cpu_ort_devs = [d for d in _ort.get_ep_devices() if d.ep_name == "CPUExecutionProvider"]
+    if not cpu_ort_devs:
+        pytest.skip("CPUExecutionProvider not available in ort.get_ep_devices()")
+    real_cpu_dev = cpu_ort_devs[0]
+    cpu_ep_device = make_stub_winml_ep_device(real_cpu_dev, "CPUExecutionProvider")
 
     # Build minimal Relu model
     node = helper.make_node("Relu", inputs=["X"], outputs=["Y"])
@@ -40,14 +49,10 @@ def cpu_session(tmp_path: Path) -> WinMLSession:
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
     model.ir_version = 8
 
-    import onnx
-
     model_path = tmp_path / "stub.onnx"
     onnx.save(model, str(model_path))
 
-    # Mock EP registry to avoid slow WMI/PowerShell queries on CI
-    with patch.object(WinMLSession, "_init_winml_eps_once"):
-        return WinMLSession(onnx_path=model_path, device="cpu")
+    return WinMLSession(onnx_path=model_path, ep_device=cpu_ep_device)
 
 
 class TestIsCompatible:

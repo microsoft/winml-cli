@@ -22,14 +22,12 @@ from onnx import TensorProto
 
 
 # =============================================================================
-# WINML SDK INITIALIZATION GUARD
+# WINML EP INITIALIZATION GUARD
 # =============================================================================
 # winml.modelkit.models.winml.base imports WinMLSession at module level,
-# which triggers WinMLEPRegistry._discover_eps() → WinML SDK runtime init.
-# This can hang on CI environments without the SDK installed.
-# Apply this guard to CI-covered fast suites (unit/regression/cli) so
-# WinML SDK runtime initialization does not add environment-dependent
-# hangs/flakiness. Integration and e2e tests use real initialization.
+# which triggers WinMLEPRegistry plugin discovery on the registered ORT
+# EP plugins. Mock it globally for non-e2e tests to keep them fast and
+# to avoid loading EP DLLs; e2e tests use real initialization.
 
 
 @pytest.fixture(autouse=True)
@@ -74,35 +72,6 @@ def _skip_winml_ep_init(request: pytest.FixtureRequest, monkeypatch: pytest.Monk
     # Keep CI fast/stable for the matrix groups that run by default.
     if not nodeid.startswith(("tests/unit/", "tests/regression/", "tests/cli/")):
         return
-    try:
-        from winml.modelkit.session import ep_registry as ep_registry_mod
-
-        def _mock_discover_eps(registry) -> None:
-            registry._ep_paths = {}
-            registry._registered_eps = []
-            registry._winml_available = False
-            registry._catalog = None
-
-        monkeypatch.setattr(ep_registry_mod, "_winml_ep_registry", None)
-        monkeypatch.setattr(
-            ep_registry_mod.WinMLEPRegistry,
-            "_discover_eps",
-            _mock_discover_eps,
-        )
-    except ImportError as e:
-        import warnings
-
-        warnings.warn(f"Could not mock WinMLEPRegistry discovery: {e}", stacklevel=2)
-
-    try:
-        monkeypatch.setattr(
-            "winml.modelkit.session.session.WinMLSession._init_winml_eps_once",
-            classmethod(lambda cls: None),
-        )
-    except ImportError as e:
-        import warnings
-
-        warnings.warn(f"Could not mock _init_winml_eps_once: {e}", stacklevel=2)
 
     try:
         monkeypatch.setattr(

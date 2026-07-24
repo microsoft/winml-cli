@@ -25,15 +25,22 @@ from click.testing import CliRunner, Result
 
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
-    """Mock resolve_check_device_ep to avoid hardware detection in CLI tests.
+    """Mock auto_detect_device / get_available_devices to avoid hardware detection.
 
-    The config command calls resolve_check_device_ep() (lazy import) for
-    device/EP resolution and display. We mock at the source module since the
-    import happens at call time.
+    The config command calls auto_detect_device() (via commands/config.py) and
+    get_available_devices() / auto_detect_device() (via config/build.py) for
+    device/precision resolution. We mock both at their source modules since
+    they are lazy imports.
     """
-    with patch(
-        "winml.modelkit.sysinfo.resolve_check_device_ep",
-        return_value=("npu", ["npu", "gpu", "cpu"], ["QNNExecutionProvider"]),
+    with (
+        patch(
+            "winml.modelkit.session.auto_detect_device",
+            return_value="npu",
+        ),
+        patch(
+            "winml.modelkit.sysinfo.hardware.get_available_devices",
+            return_value=["npu", "gpu", "cpu"],
+        ),
     ):
         yield
 

@@ -221,7 +221,7 @@ class TestBuildProviders:
         import onnxruntime as ort
 
         monkeypatch.setattr(
-            "winml.modelkit.sysinfo.resolve_eps",
+            "winml.modelkit.session.available_eps_for_device",
             lambda device: ["QNNExecutionProvider"] if device == "npu" else [],
         )
         monkeypatch.setattr(

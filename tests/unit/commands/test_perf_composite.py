@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
+from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 from rich.console import Console
@@ -28,13 +31,14 @@ from winml.modelkit.commands.perf import (
     PerfBenchmark,
     report_composite_results,
 )
+from winml.modelkit.ep_path import EPEntry, PyPISource
 from winml.modelkit.models.winml import WinMLCompositeModel
+from winml.modelkit.session import WinMLDevice, WinMLEP, WinMLEPDevice
 from winml.modelkit.session.stats import PerfStats
 
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-    from pathlib import Path
 
 
 class _FakeSession:
@@ -53,10 +57,13 @@ class _FakeSession:
         self.compiled = True
 
     @contextmanager
-    def perf(self, warmup: int = 0) -> Generator[PerfStats, None, None]:
+    def perf(self, warmup: int = 0) -> Generator[Any, None, None]:
+        # WinMLSession.perf yields a PerfContext (``.stats`` + ``.monitor``),
+        # not the PerfStats directly. Mirror that shape so the benchmark's
+        # ``ctx.stats`` access works against the fake.
         self._perf_stats = PerfStats(warmup=warmup)
         try:
-            yield self._perf_stats
+            yield SimpleNamespace(stats=self._perf_stats, monitor=None)
         finally:
             self._perf_stats = None
 
@@ -154,6 +161,34 @@ def _siglip_like() -> _FakeComposite:
     return _FakeComposite({"image-encoder": image_encoder, "text-encoder": text_encoder})
 
 
+def _resolved_ep_device() -> WinMLEPDevice:
+    ep_name = "OpenVINOExecutionProvider"
+    ort_device = MagicMock()
+    ort_device.ep_name = ep_name
+    ort_device.device = SimpleNamespace(
+        type=SimpleNamespace(name="GPU"),
+        metadata={"Description": "Fake GPU"},
+    )
+    ort_device.ep_metadata = {"FULL_DEVICE_NAME": "Fake GPU"}
+    ort_device.ep_vendor = "Intel"
+    device = WinMLDevice(ort_device)
+    ep = WinMLEP(
+        source=EPEntry(
+            ep_name=ep_name,
+            dll_path=Path("fake-openvino.dll"),
+            source=PyPISource(
+                distribution="fake-openvino",
+                relative_dll="fake-openvino.dll",
+                eps=(ep_name,),
+            ),
+            version="1.2.3",
+        ),
+        devices=(device,),
+        arg0=ep_name,
+    )
+    return WinMLEPDevice(ep=ep, device=device)
+
+
 def _composite_benchmark() -> tuple[PerfBenchmark, _FakeComposite]:
     config = BenchmarkConfig(
         model_id="google/siglip-base-patch16-224",
@@ -165,6 +200,9 @@ def _composite_benchmark() -> tuple[PerfBenchmark, _FakeComposite]:
     bench = PerfBenchmark(config)
     model = _siglip_like()
     bench._model = model  # bypass _load_model (no HF download in unit tests)
+    bench._ep_device = _resolved_ep_device()
+    bench._resolved_device = "gpu"
+    bench._resolved_ep = "OpenVINOExecutionProvider"
     return bench, model
 
 
@@ -206,6 +244,18 @@ class TestPerfBenchmarkComposite:
         for result in results.values():
             assert result.actual_device == "GPU"
             assert result.actual_ep == "OpenVINOExecutionProvider"
+
+    def test_each_sub_model_inherits_parent_ep_identity(self) -> None:
+        bench, _ = _composite_benchmark()
+
+        with patch("winml.modelkit.commands.perf.print_pre_bench_block") as print_block:
+            bench._run_sub_models()
+
+        assert len(print_block.call_args_list) == 2
+        for call in print_block.call_args_list:
+            assert call.kwargs["ep_source"] == "pypi"
+            assert call.kwargs["ep_version"] == "1.2.3"
+            assert call.kwargs["hardware_name"] == "Fake GPU"
 
     def test_compiles_and_runs_every_sub_session(self) -> None:
         bench, model = _composite_benchmark()

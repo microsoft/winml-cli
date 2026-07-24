@@ -245,6 +245,7 @@ class TestPreparePipeline:
             WinMLZeroShotClassificationEvaluator(config, model)
 
         assert mock_pipe.tokenizer.model_max_length == 256
+        assert "framework" not in mock_pipeline.call_args.kwargs
 
     @patch("transformers.pipeline")
     @patch("datasets.load_dataset")

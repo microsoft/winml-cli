@@ -49,7 +49,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any, cast, overload
 
 from ..compiler.configs import WinMLCompileConfig
 from ..export.config import (
@@ -324,7 +324,7 @@ def resolve_quant_compile_config(
     *,
     device: str = "auto",
     precision: str = "auto",
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     task: str | None = None,
 ) -> tuple[WinMLQuantizationConfig | None, WinMLCompileConfig | None]:
     """Resolve quantization and compilation config from device/precision policy.
@@ -344,14 +344,17 @@ def resolve_quant_compile_config(
         Tuple of (quant_config, compile_config). Either may be None when the
         policy does not require that stage (e.g., CPU with fp32).
     """
-    from ..sysinfo import resolve_check_device_ep
+    from ..session import auto_detect_device
+    from ..sysinfo.hardware import get_available_devices
     from .precision import (
         extract_weight_bits,
         is_weight_only_precision,
         resolve_precision,
     )
 
-    resolved_device, available_devices, resolved_eps = resolve_check_device_ep(device=device, ep=ep)
+    requested_device = device.lower()
+    available_devices = get_available_devices()
+    resolved_device = auto_detect_device() if requested_device == "auto" else requested_device
     logger.info(
         "Device resolved: %s (available: %s)",
         resolved_device,
@@ -359,9 +362,9 @@ def resolve_quant_compile_config(
     )
 
     policy = resolve_precision(
-        device=resolved_device,
+        device=requested_device if ep is not None else resolved_device,
         precision=precision,
-        ep=resolved_eps[0],
+        ep=ep,
         available_devices=available_devices,
         task=task,
     )
@@ -386,7 +389,9 @@ def resolve_quant_compile_config(
         )
 
     # Compile config
-    compile_config = WinMLCompileConfig.for_provider(policy.compile_provider, device=policy.device)
+    compile_config = WinMLCompileConfig.for_provider(
+        cast("EPNameOrAlias | None", policy.compile_provider), device=policy.device
+    )
 
     return quant_config, compile_config
 
@@ -402,7 +407,7 @@ def generate_onnx_build_config(
     task: str | None = None,
     device: str = "auto",
     precision: str = "auto",
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     override: BuildConfigOverride | None = None,
     no_compile: bool = False,
 ) -> WinMLBuildConfig:
@@ -588,7 +593,7 @@ def generate_hf_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     no_compile: bool = False,
 ) -> WinMLBuildConfig: ...
 
@@ -607,7 +612,7 @@ def generate_hf_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     no_compile: bool = False,
 ) -> list[WinMLBuildConfig]: ...
 
@@ -630,7 +635,7 @@ def generate_hf_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     no_compile: bool = False,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]: ...
 
@@ -648,7 +653,7 @@ def generate_hf_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     no_compile: bool = False,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Generate WinMLBuildConfig for a HuggingFace model (Scenarios A/B/C).
@@ -815,7 +820,8 @@ def generate_hf_build_config(
     # =========================================================================
     # STEP 4.5: Apply device/precision policy (affects quant + compile only)
     # =========================================================================
-    from ..sysinfo import resolve_check_device_ep
+    from ..session import auto_detect_device
+    from ..sysinfo.hardware import get_available_devices
     from .precision import (
         extract_weight_bits,
         is_weight_only_precision,
@@ -823,8 +829,13 @@ def generate_hf_build_config(
     )
 
     # ALWAYS detect hardware — even when device="auto" — so we don't
-    # blindly default to QNN on machines without an NPU (#412).
-    resolved_device, available_devices, resolved_eps = resolve_check_device_ep(device=device, ep=ep)
+    # blindly default to QNN on machines without an NPU (#412). Explicit EP
+    # requests still keep device="auto" for policy resolution so the catalog can
+    # reconstruct that EP's default device instead of inheriting unrelated host
+    # detection.
+    requested_device = device.lower()
+    available_devices = get_available_devices()
+    resolved_device = auto_detect_device() if requested_device == "auto" else requested_device
     logger.info(
         "Device resolved: %s (available: %s)",
         resolved_device,
@@ -832,9 +843,9 @@ def generate_hf_build_config(
     )
 
     policy = resolve_precision(
-        device=resolved_device,
+        device=requested_device if ep is not None else resolved_device,
         precision=precision,
-        ep=resolved_eps[0],
+        ep=ep,
         available_devices=available_devices,
         task=parent_config.loader.task,
     )
@@ -870,11 +881,23 @@ def generate_hf_build_config(
     # Store resolved precision for multi-pass expansion.
     parent_config.precision = policy.precision  # type: ignore[attr-defined]
 
-    # Compile config
-    parent_config.compile = WinMLCompileConfig.for_provider(
-        policy.compile_provider,
-        device=policy.device,
-    )
+    # Compile config: use policy or fall back to detected hardware
+    if policy.compile_provider is not None:
+        parent_config.compile = WinMLCompileConfig.for_provider(
+            cast("EPNameOrAlias", policy.compile_provider),
+            device=policy.device,
+        )
+    else:
+        # Even in auto/auto mode, set compile provider from detected hardware
+        # instead of preserving the hardcoded EPConfig default (#412).
+        from ..session import default_ep_for_device, ep_short_or_none
+
+        _canonical = default_ep_for_device(resolved_device)
+        hw_provider = ep_short_or_none(_canonical) if _canonical is not None else None
+        parent_config.compile = WinMLCompileConfig.for_provider(
+            cast("EPNameOrAlias | None", hw_provider),
+            device=resolved_device,
+        )
 
     # no_compile overrides policy — applied last so it always wins
     if no_compile:
@@ -899,6 +922,7 @@ def generate_hf_build_config(
         input_tensors = [t for t in (export_config.input_tensors or []) if t.shape is not None]
         input_shapes = [t.concrete_shape() for t in input_tensors]
         input_dtypes = [t.dtype for t in input_tensors]
+        input_names = [t.name for t in input_tensors]
         if not input_shapes:
             raise ValueError(
                 "Cannot extract input shapes for submodule discovery. "
@@ -910,6 +934,7 @@ def generate_hf_build_config(
             module,
             input_shapes=input_shapes,
             input_dtypes=input_dtypes,
+            input_names=input_names,
         )
         logger.info("Found %d submodules matching '%s'", len(submodules), module)
 
@@ -937,7 +962,7 @@ def generate_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     onnx_path: str | Path | None = None,
 ) -> WinMLBuildConfig: ...
 
@@ -956,7 +981,7 @@ def generate_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     onnx_path: str | Path | None = None,
 ) -> list[WinMLBuildConfig]: ...
 
@@ -974,7 +999,7 @@ def generate_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     onnx_path: str | Path | None = None,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Generate WinMLBuildConfig by orchestrating existing modules.
@@ -1282,6 +1307,7 @@ def _find_submodules_by_class(
     *,
     input_shapes: list[tuple[int, ...]],
     input_dtypes: list[str | None] | None = None,
+    input_names: list[str | None] | None = None,
 ) -> list[SubmoduleInfo]:
     """Find all submodules matching a class name using torchinfo.
 
@@ -1298,6 +1324,7 @@ def _find_submodules_by_class(
                      for each input tensor. When provided, torchinfo uses these
                      instead of defaulting to float32. Required for models with
                      integer inputs (e.g., BERT's input_ids).
+        input_names: Optional model forward argument names for each input tensor.
 
     Returns:
         List of SubmoduleInfo with I/O shapes from torchinfo
@@ -1335,14 +1362,35 @@ def _find_submodules_by_class(
             dtype_map.get(d, torch.float32) if d else torch.float32 for d in input_dtypes
         ]
 
+    dummy_inputs = _build_dummy_inputs(input_shapes, input_dtypes, input_names)
+
+    use_named_inputs = False
+    if input_names and len(input_names) == len(input_shapes):
+        keyword_names = [name for name in input_names if isinstance(name, str) and name]
+        if len(keyword_names) == len(input_names) and len(set(keyword_names)) == len(keyword_names):
+            try:
+                inspect.signature(model.forward).bind(**dummy_inputs)
+            except (TypeError, ValueError):
+                pass
+            else:
+                use_named_inputs = True
+
     # Run torchinfo to get module hierarchy with shapes
-    model_info = summary(
-        model,
-        input_size=input_size,
-        dtypes=torch_dtypes,
-        verbose=0,
-        depth=10,
-    )
+    if use_named_inputs:
+        model_info = summary(
+            model,
+            input_data=dummy_inputs,
+            verbose=0,
+            depth=10,
+        )
+    else:
+        model_info = summary(
+            model,
+            input_size=input_size,
+            dtypes=torch_dtypes,
+            verbose=0,
+            depth=10,
+        )
 
     # Collect torchinfo-discovered modules matching class_name, plus the
     # full set of executed class names — surfaced via SubmoduleClassNotFoundError
@@ -1373,7 +1421,6 @@ def _find_submodules_by_class(
     # capture ALL positional args AND keyword args.
     from ..inspect.module_io_capture import capture_module_io
 
-    dummy_inputs = _build_dummy_inputs(input_shapes, input_dtypes)
     hook_data = capture_module_io(model, dummy_inputs, target_class=class_name)
 
     results = []
@@ -1430,12 +1477,14 @@ def _find_submodules_by_class(
 def _build_dummy_inputs(
     input_shapes: list[tuple[int, ...]],
     input_dtypes: list[str | None] | None = None,
+    input_names: list[str | None] | None = None,
 ) -> dict[str, torch.Tensor]:
     """Build dummy input tensors for hook capture forward pass.
 
     Args:
         input_shapes: List of input tensor shapes.
         input_dtypes: Optional list of dtype strings per tensor.
+        input_names: Optional model forward argument names per tensor.
 
     Returns:
         Dictionary of named dummy tensors matching the given shapes and dtypes.
@@ -1444,12 +1493,14 @@ def _build_dummy_inputs(
 
     dtype_map = _get_dtype_map()
 
-    inputs = {}
+    inputs: dict[str, torch.Tensor] = {}
     for i, shape in enumerate(input_shapes):
         dtype_str = input_dtypes[i] if input_dtypes and i < len(input_dtypes) else None
         torch_dtype = dtype_map.get(dtype_str, torch.float32) if dtype_str else torch.float32
+        configured_name = input_names[i] if input_names and i < len(input_names) else None
+        input_name = configured_name or f"input_{i}"
         if torch_dtype in (torch.int8, torch.int16, torch.int32, torch.int64, torch.uint8):
-            inputs[f"input_{i}"] = torch.ones(shape, dtype=torch_dtype)
+            inputs[input_name] = torch.ones(shape, dtype=torch_dtype)
         else:
-            inputs[f"input_{i}"] = torch.randn(shape, dtype=torch_dtype)
+            inputs[input_name] = torch.randn(shape, dtype=torch_dtype)
     return inputs

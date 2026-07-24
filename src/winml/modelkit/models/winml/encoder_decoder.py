@@ -16,9 +16,10 @@ How ``forward()`` works:
 1. Encoder runs once (via ``get_encoder()``), hidden states cached by
    GenerationMixin across decode steps.
 
-2. Each decode step: ``_resolve_cache`` unwraps GenerationMixin's
+2. Each decode call: ``_resolve_cache`` unwraps GenerationMixin's
    ``EncoderDecoderCache`` wrapper (or creates a fresh ``WinMLCache``
-   on first call).  Cache type is determined by ``get_cache_class()``.
+   on first call). Multi-token prompts are prefetched token by token when
+   the exported decoder has a single-token static input.
 
 3. Feeds are built from ``model_kwargs`` (decoder_input_ids, attention_mask)
    plus generated inputs (encoder_hidden_states, decoder_attention_mask,
@@ -181,8 +182,9 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
         self,
         sub_models: dict[str, Any],
         config: PretrainedConfig,
+        device: str = "cpu",
     ) -> None:
-        super().__init__(sub_models, config)
+        super().__init__(sub_models, config, device)
         raw_encoder = sub_models["encoder"]
         self._decoder = sub_models["decoder"]
 
@@ -191,6 +193,7 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
         enc_expected = dict(
             zip(enc_io.get("input_names", []), enc_io.get("input_shapes", []), strict=False)
         )
+        self._encoder_input_names = frozenset(enc_expected)
         # Wrap encoder with auto-padding so all callsites just use self._encoder(...)
         self._encoder = self._EncoderWithInputPadding(raw_encoder, enc_expected)
 
@@ -247,27 +250,41 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
     def can_generate(self) -> bool:  # noqa: D102
         return True
 
+    def _validate_model_kwargs(self, model_kwargs: dict[str, Any]) -> None:
+        """Allow inputs declared by the encoder ONNX graph during generation."""
+        remaining_kwargs = {
+            name: value
+            for name, value in model_kwargs.items()
+            if name not in self._encoder_input_names
+        }
+        GenerationMixin._validate_model_kwargs(cast("Any", self), remaining_kwargs)
+
     def prepare_inputs_for_generation(  # type: ignore[override]  # GenerationMixin's base signature differs; static-cache flow
         self,
         input_ids: torch.LongTensor,
         past_key_values: Cache | None = None,
         attention_mask: torch.Tensor | None = None,
         encoder_outputs: BaseModelOutput | None = None,
+        decoder_attention_mask: torch.Tensor | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Build decoder inputs for each generate() step."""
         from .kv_cache import WinMLCache
 
-        if isinstance(past_key_values, WinMLCache) and past_key_values.get_seq_length() > 0:
+        active_cache = getattr(past_key_values, "self_attention_cache", past_key_values)
+        if isinstance(active_cache, WinMLCache) and active_cache.get_seq_length() > 0:
             decoder_input_ids = input_ids[:, -1:]
         else:
             decoder_input_ids = input_ids
-        return {
+        prepared = {
             "decoder_input_ids": decoder_input_ids,
             "encoder_outputs": encoder_outputs,
             "attention_mask": attention_mask,
             "past_key_values": past_key_values,
         }
+        if decoder_attention_mask is not None:
+            prepared["decoder_attention_mask"] = decoder_attention_mask
+        return prepared
 
     # ----- Cache management -----
 
@@ -299,6 +316,77 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
         cache.reset()
         return cache
 
+    def _run_decoder(
+        self,
+        feeds: dict[str, Any],
+        cache: WinMLCache,
+        num_new_tokens: int,
+    ) -> dict[str, Any]:
+        """Run one decoder chunk and advance its KV cache."""
+        first_position = cache.step
+        runtime_feeds = dict(feeds)
+        cache_mask = cache.build_decoder_mask(self._max_dec, num_new_tokens)
+        decoder_attention_mask = runtime_feeds.get("decoder_attention_mask")
+        runtime_feeds["decoder_attention_mask"] = (
+            self._align_decoder_attention_mask(cache_mask, decoder_attention_mask)
+            if isinstance(decoder_attention_mask, torch.Tensor)
+            else cache_mask
+        )
+        runtime_feeds.setdefault(
+            "cache_position",
+            cache.get_query_cache_position(self._max_dec, num_new_tokens).to(torch.int64),
+        )
+        runtime_feeds.setdefault(
+            "position_id",
+            torch.arange(
+                first_position,
+                first_position + num_new_tokens,
+                dtype=torch.int64,
+            ),
+        )
+        for i in range(self._num_kv_layers):
+            layer = cache._layer(i)
+            runtime_feeds[f"past_{i}_key"] = cast("torch.Tensor", layer.keys).detach()
+            runtime_feeds[f"past_{i}_value"] = cast("torch.Tensor", layer.values).detach()
+
+        outputs = self._decoder(
+            **pad_inputs(
+                runtime_feeds,
+                self._dec_expected,
+                mode="left",
+            )
+        )
+        cache.update_all_layers(outputs)
+        return cast("dict[str, Any]", outputs)
+
+    @staticmethod
+    def _align_decoder_attention_mask(
+        cache_mask: torch.Tensor,
+        sequence_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Project a sequence-length mask onto the cache's active buffer slots."""
+        if cache_mask.ndim != 2 or sequence_mask.ndim != 2:
+            raise ValueError("decoder_attention_mask must be a 2D tensor")
+        if cache_mask.shape[0] != sequence_mask.shape[0]:
+            raise ValueError(
+                "decoder_attention_mask batch size does not match the decoder cache mask"
+            )
+
+        sequence_mask = sequence_mask.to(device=cache_mask.device, dtype=cache_mask.dtype)
+        if sequence_mask.shape == cache_mask.shape:
+            return cache_mask * sequence_mask
+
+        aligned = cache_mask.clone()
+        for batch_index in range(cache_mask.shape[0]):
+            active_slots = torch.nonzero(
+                cache_mask[batch_index],
+                as_tuple=False,
+            ).flatten()
+            count = min(active_slots.numel(), sequence_mask.shape[1])
+            if count:
+                aligned[batch_index, active_slots[-count:]] = sequence_mask[batch_index, -count:]
+        return aligned
+
     # ----- Forward (decoder via WinMLAutoModel + KV cache) -----
 
     def forward(
@@ -307,6 +395,8 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
         encoder_outputs: BaseModelOutput | tuple | None = None,
         past_key_values: Cache | None = None,
         input_ids: torch.Tensor | None = None,
+        decoder_input_ids: torch.Tensor | None = None,
+        decoder_attention_mask: torch.Tensor | None = None,
         **model_kwargs: Any,
     ) -> Seq2SeqLMOutput:
         """Run decoder with a WinML KV cache.
@@ -319,9 +409,11 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
             past_key_values: ``WinMLCache`` (or ``EncoderDecoderCache``
                 wrapper) from previous step.
             input_ids: Fallback — run encoder if encoder_outputs is None.
+            decoder_input_ids: Decoder prompt or next generated token.
+            decoder_attention_mask: Optional mask over the decoder sequence.
             **model_kwargs: Remaining kwargs forwarded to the decoder ONNX
-                (e.g., decoder_input_ids, attention_mask). Each tensor is
-                auto-padded to match the ONNX model's expected input shape.
+                (e.g., attention_mask). Each tensor is auto-padded to match
+                the ONNX model's expected input shape.
         """
         # Encoder hidden states
         if encoder_outputs is None and input_ids is not None:
@@ -335,34 +427,44 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
         # Resolve or create cache (subclasses override get_cache_class).
         cache = self._resolve_cache(past_key_values)
 
-        fc = cache.step
-        dec_mask = cache.build_decoder_mask(self._max_dec)
-
         feeds: dict[str, Any] = dict(model_kwargs)
+        if decoder_input_ids is not None:
+            feeds["decoder_input_ids"] = decoder_input_ids
+        if decoder_attention_mask is not None:
+            feeds["decoder_attention_mask"] = decoder_attention_mask
         feeds.setdefault("encoder_hidden_states", enc_h.detach())
-        feeds.setdefault("decoder_attention_mask", dec_mask)
-        # Feed all position-like names; pad_inputs filters to self._dec_expected.
-        # Decouples the cache class from the decoder ONNX's chosen input name.
-        #
-        # "cache_position": buffer index of the query token — used by HF's
-        #   create_causal_mask (``kv_idx <= q_idx``) and by T5.compute_bias.
-        #   For WinMLStaticCache this equals ``step`` (buffer == seq position);
-        #   for WinMLSlidingWindowCache it is the rightmost buffer slot(s).
-        # "position_id": absolute sequence position — used by RoPE-based models
-        #   (Mu2) that compute positional encoding from the actual seq position.
-        cache_pos = cache.get_query_cache_position(self._max_dec).to(torch.int64)
-        seq_pos = torch.tensor([fc], dtype=torch.int64)
-        feeds.setdefault("cache_position", cache_pos)
-        feeds.setdefault("position_id", seq_pos)
-        for i in range(self._num_kv_layers):
-            feeds[f"past_{i}_key"] = cache.layers[i].keys.detach()
-            feeds[f"past_{i}_value"] = cache.layers[i].values.detach()
 
-        # Run decoder ONNX (pad_inputs filters to expected names + pads)
-        outputs = self._decoder(**pad_inputs(feeds, self._dec_expected))
+        num_new_tokens = decoder_input_ids.shape[1] if decoder_input_ids is not None else 1
+        decoder_shape = self._dec_expected.get("decoder_input_ids")
+        static_seq_len = (
+            decoder_shape[1]
+            if decoder_shape is not None
+            and len(decoder_shape) > 1
+            and isinstance(decoder_shape[1], int)
+            else None
+        )
 
-        # Write present KV back and advance step
-        cache.update_all_layers(outputs)
+        if num_new_tokens > 1 and static_seq_len == 1 and decoder_input_ids is not None:
+            prompt_logits: list[torch.Tensor] = []
+            outputs: dict[str, Any] = {}
+            prompt_mask = feeds.get("decoder_attention_mask")
+            for token_index, token_ids in enumerate(decoder_input_ids.split(1, dim=1)):
+                token_feeds = {**feeds, "decoder_input_ids": token_ids}
+                if isinstance(prompt_mask, torch.Tensor):
+                    token_feeds["decoder_attention_mask"] = prompt_mask[:, : token_index + 1]
+                outputs = self._run_decoder(token_feeds, cache, 1)
+                logits = outputs["logits"]
+                prompt_logits.append(
+                    logits if isinstance(logits, torch.Tensor) else torch.as_tensor(logits)
+                )
+            outputs["logits"] = torch.cat(prompt_logits, dim=1)
+        else:
+            if static_seq_len is not None and num_new_tokens > static_seq_len:
+                raise ValueError(
+                    f"Decoder prompt length {num_new_tokens} exceeds its static input "
+                    f"length {static_seq_len}."
+                )
+            outputs = self._run_decoder(feeds, cache, num_new_tokens)
 
         return Seq2SeqLMOutput(
             logits=outputs["logits"],

@@ -73,7 +73,7 @@ class WinMLImageToTextEvaluator(WinMLEvaluator):
                 continue
 
             try:
-                out = self.pipe(image)
+                out = self.pipe(image, text="")
             except Exception as e:
                 logger.warning("Pipeline call failed (skipping): %s", e)
                 skipped += 1

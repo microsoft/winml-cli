@@ -11,23 +11,128 @@ EP Markers:
 
     Example:
         @pytest.mark.ep("qnn")
-        def test_qnn_inference(self, simple_matmul_onnx):
-            session = WinMLSession(onnx_path=simple_matmul_onnx, device="npu")
+        def test_qnn_inference(self, simple_matmul_onnx, qnn_npu_ep_device, fake_ort_npu):
+            with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
+                mock_reg.instance.return_value.register_ep.return_value = [fake_ort_npu]
+                session = WinMLSession(onnx_path=simple_matmul_onnx, ep_device=qnn_npu_ep_device)
             ...
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import numpy as np
-
-
-if TYPE_CHECKING:
-    from pathlib import Path
 import onnx
+import onnxruntime as ort
 import pytest
 from onnx import TensorProto, helper
+
+from winml.modelkit.ep_path import EPEntry, PyPISource
+from winml.modelkit.session import EPDeviceTarget, WinMLDevice, WinMLEP, WinMLEPDevice
+from winml.modelkit.session.session import WinMLSession
+
+
+# Qualcomm vendor ID used in test fixtures — 0x4D4F is the 16-bit prefix from Qualcomm's
+# device identification scheme. Centralised here so all session tests share one definition.
+QNN_VENDOR_ID: int = 0x4D4F
+
+
+def _stub_ep_entry(ep_name: str) -> EPEntry:
+    """Build a minimal EPEntry suitable for wrapping a mocked OrtEpDevice.
+
+    The dll_path is fictional — tests never load the DLL because they
+    construct WinMLEP/WinMLEPDevice directly.
+    """
+    return EPEntry(
+        ep_name=ep_name,
+        dll_path=Path(f"C:/fake/{ep_name}.dll"),
+        source=PyPISource(
+            distribution="fake-dist",
+            relative_dll="fake.dll",
+            eps=(ep_name,),
+        ),
+    )
+
+
+def make_stub_winml_ep_device(ort_device: object, ep_name: str) -> WinMLEPDevice:
+    """Wrap an :class:`ort.OrtEpDevice` (real or mocked) into a :class:`WinMLEPDevice`.
+
+    Tests use this when they need to hand a fully-resolved (source, device)
+    pair to :class:`WinMLSession` without going through the discovery layer.
+    """
+    winml_device = WinMLDevice(ort_device)  # type: ignore[arg-type]
+    entry = _stub_ep_entry(ep_name)
+    winml_ep = WinMLEP(source=entry, devices=(winml_device,), arg0=ep_name)
+    return WinMLEPDevice(ep=winml_ep, device=winml_device)
+
+
+@pytest.fixture
+def fresh_registry():
+    """Singleton with EMPTY discovery + cleared registration caches + teardown.
+
+    Centralised here (per ``tests/CLAUDE.md`` "shared fixtures belong in
+    conftest.py") so test_ep_registry.py and test_auto_device.py can
+    share one definition. Each consumer test patches discovery state
+    (``reg._discovered``) and the per-DLL cache (``reg._registered``) as
+    needed; tests that need a pre-loaded entry should append to
+    ``reg._discovered`` themselves, or use the ``fresh_registry_with_qnn``
+    helper defined alongside the registry-method tests.
+
+    Teardown drops the singleton so downstream tests (e.g. the CLI
+    ``--list-ep`` e2e in ``tests/unit/commands/test_cli.py``) don't
+    observe MagicMock-based ``WinMLEP`` rows that this fixture's
+    consumers leave in ``_registered`` when ``register_ep`` is exercised
+    through the real code path.
+    """
+    from winml.modelkit.session.ep_registry import WinMLEPRegistry
+
+    reg = WinMLEPRegistry.instance()
+    reg._discovered = []
+    reg._registered = {}
+    reg._registration_count = {}
+    reg._builtin_registered = {}
+    reg._available_eps_cache = None
+    yield reg
+    WinMLEPRegistry._instance = None
+
+
+@pytest.fixture(autouse=True)
+def _all_eps_available_and_compatible_by_default():
+    """Pretend every catalog EP is BOTH L0 (registered) AND L2 (vendor-compatible).
+
+    Two filters protect against host-dependent results:
+
+    1. ``WinMLEPRegistry.available_eps`` stubbed to the full catalog set —
+       guards against dev boxes where the catalog default isn't installed
+       (docs/design/session/3_design_ep.md §6.4).
+    2. ``EPCatalog.is_compatible`` stubbed to ``True`` — guards against the
+       L2 filter ``default_ep_for_device`` / ``auto_detect_device`` now apply
+       (post-v2.8 bugfix). Without this, on e.g. an Intel host, QNN's vendor
+       check returns False even though the test asserts QNN is the pick.
+
+    Tests that want to exercise a specific L0 subset OR L2 verdict override
+    by patching the same target inside the test body.
+    """
+    from winml.modelkit.ep_path import EPCatalog
+    from winml.modelkit.session import EP_DEVICE_SPECS
+    from winml.modelkit.session.ep_registry import WinMLEPRegistry
+
+    all_eps = frozenset(s.ep for s in EP_DEVICE_SPECS)
+    with (
+        patch.object(
+            WinMLEPRegistry,
+            "available_eps",
+            return_value=all_eps,
+        ),
+        patch.object(
+            EPCatalog,
+            "is_compatible",
+            return_value=True,
+        ),
+    ):
+        yield
 
 
 # =============================================================================
@@ -40,7 +145,8 @@ EP_NAME_MAP = {
     "openvino": "OpenVINOExecutionProvider",
     "dml": "DmlExecutionProvider",
     "cuda": "CUDAExecutionProvider",
-    "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
+    "tensorrt": "TensorrtExecutionProvider",
+    "tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
     "vitisai": "VitisAIExecutionProvider",
     "coreml": "CoreMLExecutionProvider",
     "rocm": "ROCMExecutionProvider",
@@ -52,7 +158,7 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
         "ep(name): mark test to run only when specific EP is available "
-        "(qnn, openvino, dml, cuda, nv_tensorrt_rtx, vitisai, coreml, rocm)",
+        "(qnn, openvino, dml, cuda, tensorrt, tensorrt_rtx, vitisai, coreml, rocm)",
     )
 
 
@@ -75,11 +181,18 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
     import onnxruntime as ort
 
-    from winml.modelkit.session import WinMLEPRegistry
+    from winml.modelkit.session import WinMLEPRegistrationFailed, WinMLEPRegistry
 
-    # Register WinML EPs so ort.get_ep_devices() includes them
-    registry = WinMLEPRegistry.get_instance()
-    registry.register_to_ort()
+    # Register WinML EPs so ort.get_ep_devices() includes them. Walk the cached
+    # entries one-by-one — the legacy bulk register_to_ort() helper is gone.
+    registry = WinMLEPRegistry.instance()
+    for entry in registry._discovered:
+        try:
+            registry.register_ep(entry)
+        except WinMLEPRegistrationFailed:  # noqa: PERF203
+            # Best-effort: an individual EP failure must not skip every
+            # ep-marked test in the collection.
+            continue
 
     # Use ort.get_ep_devices() for hardware-accurate availability (only returns
     # EPs backed by actual hardware, not just library-present registrations).
@@ -87,9 +200,9 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         available_providers = {d.ep_name for d in ort.get_ep_devices()}
     except Exception:
         available_providers = set()
-    # Only add CPUExecutionProvider as guaranteed fallback.
-    # Do NOT add all ORT providers here — get_ort_available_providers() returns
-    # library-present EPs (e.g., DmlExecutionProvider) even without hardware.
+    # Only add CPUExecutionProvider as guaranteed fallback. Avoid adding every
+    # provider ORT reports as available — library-present EPs (e.g. DmlEP) can
+    # be visible to ORT without the hardware actually being usable.
     available_providers.add("CPUExecutionProvider")
 
     for item in items_with_ep_markers:
@@ -229,3 +342,79 @@ def sample_input() -> dict[str, np.ndarray]:
     """Create sample input for MatMul model."""
     np.random.seed(123)
     return {"A": np.random.randn(1, 4).astype(np.float32)}
+
+
+# =============================================================================
+# Task 7+: EPDeviceTarget fixtures (shared across Tasks 10-11 callsite sweeps)
+# =============================================================================
+
+
+@pytest.fixture
+def qnn_npu_ep_device(fake_ort_npu: MagicMock) -> WinMLEPDevice:
+    """Pre-resolved WinMLEPDevice for QNN NPU built around the fake_ort_npu handle."""
+    return make_stub_winml_ep_device(fake_ort_npu, "QNNExecutionProvider")
+
+
+@pytest.fixture
+def qnn_npu_target() -> EPDeviceTarget:
+    """Pure-intent target — useful for tests that exercise the deduction path."""
+    return EPDeviceTarget(ep="QNNExecutionProvider", device="npu")
+
+
+@pytest.fixture
+def fake_ort_npu() -> MagicMock:
+    d = MagicMock()
+    d.ep_name = "QNNExecutionProvider"
+    d.device.type.name = "NPU"
+    d.device.vendor_id = QNN_VENDOR_ID
+    d.device.device_id = 0x0001
+    return d
+
+
+# =============================================================================
+# CPU EPDeviceTarget fixtures — use real OrtEpDevice so ORT inference actually runs
+# =============================================================================
+
+# Cached at module-scope so we only call get_ep_devices() once per test session.
+_REAL_CPU_ORT_DEVICE: ort.OrtEpDevice | None = None
+
+
+def _get_real_cpu_ort_device() -> ort.OrtEpDevice:
+    """Return the CPUExecutionProvider OrtEpDevice from ort.get_ep_devices()."""
+    global _REAL_CPU_ORT_DEVICE
+    if _REAL_CPU_ORT_DEVICE is None:
+        devices = ort.get_ep_devices()
+        matches = [d for d in devices if d.ep_name == "CPUExecutionProvider"]
+        if not matches:
+            pytest.skip("CPUExecutionProvider not available in ort.get_ep_devices()")
+        _REAL_CPU_ORT_DEVICE = matches[0]
+    return _REAL_CPU_ORT_DEVICE
+
+
+@pytest.fixture
+def real_cpu_ort_device() -> ort.OrtEpDevice:
+    """Real OrtEpDevice for CPUExecutionProvider (from ort.get_ep_devices())."""
+    return _get_real_cpu_ort_device()
+
+
+@pytest.fixture
+def cpu_ep_device(real_cpu_ort_device: ort.OrtEpDevice) -> WinMLEPDevice:
+    """Pre-resolved WinMLEPDevice for CPUExecutionProvider wrapping the real OrtEpDevice."""
+    return make_stub_winml_ep_device(real_cpu_ort_device, "CPUExecutionProvider")
+
+
+@pytest.fixture
+def cpu_target() -> EPDeviceTarget:
+    """Pure-intent target for CPU — used by tests exercising the resolver."""
+    return EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
+
+
+@pytest.fixture
+def cpu_winml_session(
+    simple_matmul_onnx: Path,
+    cpu_ep_device: WinMLEPDevice,
+) -> WinMLSession:
+    """WinMLSession bound to CPU. cpu_ep_device wraps the real OrtEpDevice so
+    add_provider_for_devices() receives a genuine handle and ORT can run.
+    """
+    return WinMLSession(simple_matmul_onnx, ep_device=cpu_ep_device)

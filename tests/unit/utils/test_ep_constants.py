@@ -2,121 +2,23 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for EP constants, normalize_ep_name, and extract_ep_options."""
+"""Tests for ``normalize_ep_name`` and ``extract_ep_options``.
+
+T-16 migrated these helpers from ``utils.constants`` (deleted) into
+``utils.cli``; the previous ``utils.constants`` module also exported
+``ALL_EP_NAMES`` / ``EP_ALIASES`` / ``SUPPORTED_EPS`` constants in an
+earlier refactor that this test file's pre-existing ``TestSupportedEPs``,
+``TestEPAliases``, and ``TestAllEPNames`` classes targeted — those
+symbols were already gone at the T-16 baseline (collection-time
+ImportError on HEAD), so the broken classes are dropped here together
+with the module move.
+"""
 
 from __future__ import annotations
 
 import pytest
 
-from winml.modelkit.utils.constants import (
-    ALL_EP_NAMES,
-    EP_ALIAS_NAMES,
-    EP_ALIASES,
-    EP_NAME_TO_ALIAS,
-    EP_NAMES,
-    SUPPORTED_EPS,
-    extract_ep_options,
-    normalize_ep_name,
-)
-
-
-class TestSupportedEPs:
-    """Tests for SUPPORTED_EPS derived from sysinfo EP device map."""
-
-    def test_matches_ep_device_map_keys(self) -> None:
-        """SUPPORTED_EPS must exactly match the keys in _EP_DEVICE_MAP."""
-        from winml.modelkit.sysinfo.device import get_ep_device_map
-
-        assert set(SUPPORTED_EPS) == set(get_ep_device_map().keys())
-
-    def test_contains_known_eps(self) -> None:
-        """Spot-check that well-known EPs are present."""
-        for ep in (
-            "QNNExecutionProvider",
-            "OpenVINOExecutionProvider",
-            "VitisAIExecutionProvider",
-            "CPUExecutionProvider",
-            "DmlExecutionProvider",
-            "NvTensorRTRTXExecutionProvider",
-            "MIGraphXExecutionProvider",
-        ):
-            assert ep in SUPPORTED_EPS
-
-
-class TestEPAliases:
-    """Tests for EP_ALIASES mapping."""
-
-    def test_all_alias_values_are_supported_eps(self) -> None:
-        """Every alias must resolve to an EP in SUPPORTED_EPS."""
-        for alias, full_name in EP_ALIASES.items():
-            assert full_name in SUPPORTED_EPS, (
-                f"Alias '{alias}' maps to '{full_name}' which is not in SUPPORTED_EPS"
-            )
-
-    def test_alias_keys_are_lowercase(self) -> None:
-        """Alias keys must be lowercase for case-insensitive lookup."""
-        for alias in EP_ALIASES:
-            assert alias == alias.lower()
-
-    def test_covers_every_ep_alias_literal(self) -> None:
-        """Every value in the `EPAlias` Literal must have a mapping."""
-        missing = set(EP_ALIAS_NAMES) - set(EP_ALIASES)
-        assert not missing, f"EP_ALIASES is missing entries for: {sorted(missing)}"
-
-    def test_no_extra_keys_outside_literal(self) -> None:
-        """EP_ALIASES must not contain keys absent from the `EPAlias` Literal."""
-        extra = set(EP_ALIASES) - set(EP_ALIAS_NAMES)
-        assert not extra, f"EP_ALIASES has unexpected aliases: {sorted(extra)}"
-
-    def test_values_are_subset_of_ep_names(self) -> None:
-        """Every alias value must be a canonical EPName Literal value."""
-        invalid = set(EP_ALIASES.values()) - set(EP_NAMES)
-        assert not invalid, f"EP_ALIASES maps to non-EPName values: {sorted(invalid)}"
-
-
-class TestEPNameToAlias:
-    """Tests for EP_NAME_TO_ALIAS reverse mapping."""
-
-    def test_covers_every_ep_name_literal(self) -> None:
-        """Every value in the `EPName` Literal must have a reverse mapping."""
-        missing = set(EP_NAMES) - set(EP_NAME_TO_ALIAS)
-        assert not missing, f"EP_NAME_TO_ALIAS is missing entries for: {sorted(missing)}"
-
-    def test_no_extra_keys_outside_literal(self) -> None:
-        """EP_NAME_TO_ALIAS must not contain keys absent from the `EPName` Literal."""
-        extra = set(EP_NAME_TO_ALIAS) - set(EP_NAMES)
-        assert not extra, f"EP_NAME_TO_ALIAS has unexpected canonical names: {sorted(extra)}"
-
-    def test_values_are_subset_of_ep_aliases(self) -> None:
-        """Every reverse-mapped value must be a valid EPAlias Literal value."""
-        invalid = set(EP_NAME_TO_ALIAS.values()) - set(EP_ALIAS_NAMES)
-        assert not invalid, f"EP_NAME_TO_ALIAS maps to non-EPAlias values: {sorted(invalid)}"
-
-    def test_round_trip_through_ep_aliases(self) -> None:
-        """For every canonical name, EP_ALIASES[EP_NAME_TO_ALIAS[name]] == name."""
-        for name, alias in EP_NAME_TO_ALIAS.items():
-            assert EP_ALIASES[alias] == name, (
-                f"Round-trip failed: EP_NAME_TO_ALIAS[{name!r}]={alias!r}, "
-                f"but EP_ALIASES[{alias!r}]={EP_ALIASES[alias]!r}"
-            )
-
-
-class TestAllEPNames:
-    """Tests for ALL_EP_NAMES (full names + aliases)."""
-
-    def test_contains_all_supported_eps(self) -> None:
-        """ALL_EP_NAMES must include every full EP name."""
-        for ep in SUPPORTED_EPS:
-            assert ep in ALL_EP_NAMES
-
-    def test_contains_all_aliases(self) -> None:
-        """ALL_EP_NAMES must include every alias key."""
-        for alias in EP_ALIASES:
-            assert alias in ALL_EP_NAMES
-
-    def test_no_duplicates(self) -> None:
-        """No entry should appear more than once."""
-        assert len(ALL_EP_NAMES) == len(set(ALL_EP_NAMES))
+from winml.modelkit.utils.constants import extract_ep_options, normalize_ep_name
 
 
 class TestNormalizeEPName:
@@ -142,7 +44,6 @@ class TestNormalizeEPName:
             ("vitisai", "VitisAIExecutionProvider"),
             ("cpu", "CPUExecutionProvider"),
             ("dml", "DmlExecutionProvider"),
-            ("nvtensorrtrtx", "NvTensorRTRTXExecutionProvider"),
             ("nv_tensorrt_rtx", "NvTensorRTRTXExecutionProvider"),
             ("migraphx", "MIGraphXExecutionProvider"),
         ],

@@ -39,7 +39,7 @@ import onnx
 import pytest
 from click.testing import CliRunner
 
-from tests.e2e.require_ep import require_ep
+from tests.e2e.require_ep import require_device, require_ep
 from winml.modelkit.commands.perf import perf
 from winml.modelkit.utils.constants import EP_ALIASES
 
@@ -58,23 +58,25 @@ NON_CPU_EPS = ("qnn", "vitisai", "dml", "nv_tensorrt_rtx", "migraphx")
 
 
 def _require_gpu() -> None:
-    """Skip the current test unless a GPU is discoverable via PDH."""
+    """Skip unless GPU hardware and a GPU-capable EP are available."""
     if sys.platform != "win32":
         pytest.skip("GPU discovery via PDH is Windows-only")
     from winml.modelkit.session.monitor._pdh import PdhPoller
 
     if not PdhPoller.is_gpu_available():
         pytest.skip("No GPU detected via PDH")
+    require_device("gpu")
 
 
 def _require_npu() -> None:
-    """Skip the current test unless an NPU is discoverable via PDH."""
+    """Skip unless NPU hardware and an NPU-capable EP are available."""
     if sys.platform != "win32":
         pytest.skip("NPU discovery via PDH is Windows-only")
     from winml.modelkit.session.monitor._pdh import PdhPoller
 
     if not PdhPoller.is_npu_available():
         pytest.skip("No NPU detected via PDH")
+    require_device("npu")
 
 
 def _assert_hw_monitor_section(
@@ -84,7 +86,7 @@ def _assert_hw_monitor_section(
 
     Checks the section emitted by HWMonitor when --monitor is passed:
     presence, ``device_kind`` match, a non-null ``adapter_luid``, and a
-    positive ``mean_pct`` for the per-device utilization block.
+    positive ``mean_pct`` for the selected-adapter utilization block.
     """
     assert "hw_monitor" in data, "hw_monitor section missing with --monitor"
     hw = data["hw_monitor"]
@@ -96,7 +98,8 @@ def _assert_hw_monitor_section(
         assert hw["device_kind"] == device_kind
         assert hw["adapter_luid"] is not None
         if require_utilization:
-            assert hw[device_kind]["mean_pct"] > 0
+            adapter = hw.get("adapter") or hw[device_kind]
+            assert adapter["mean_pct"] > 0
 
 
 def _build_perf_args(
@@ -508,7 +511,7 @@ class _PerfBenchmarkSuite:
 
         Skipped if the specified EP is unavailable on the host.
         """
-        require_ep(ep)
+        require_ep(ep, device="cpu")
 
         output_file = tmp_path / f"perf_{ep}_cpu.json"
 
@@ -533,7 +536,7 @@ class _PerfBenchmarkSuite:
 
         Skipped if the specified EP or a GPU is unavailable on the host.
         """
-        require_ep(ep)
+        require_ep(ep, device="gpu")
         _require_gpu()
 
         output_file = tmp_path / f"perf_{ep}_gpu.json"
@@ -560,7 +563,7 @@ class _PerfBenchmarkSuite:
 
         Skipped if the specified EP or a NPU is unavailable on the host.
         """
-        require_ep(ep)
+        require_ep(ep, device="npu")
         _require_npu()
 
         output_file = tmp_path / f"perf_{ep}_npu.json"
@@ -605,7 +608,7 @@ class TestPerfHuggingFace:
     @pytest.mark.parametrize("ep", CPU_EPS)
     def test_benchmark_ep_cpu(self, ep: str, tmp_path: Path, model_arg: str):
         """Benchmark with --ep <ep>."""
-        require_ep(ep)
+        require_ep(ep, device="cpu")
 
         output_file = tmp_path / f"perf_hf_{ep}_cpu.json"
 
@@ -628,7 +631,7 @@ class TestPerfHuggingFace:
     @pytest.mark.parametrize("ep", GPU_EPS)
     def test_benchmark_ep_gpu(self, ep: str, tmp_path: Path, model_arg: str):
         """Benchmark with --ep <ep>."""
-        require_ep(ep)
+        require_ep(ep, device="gpu")
         _require_gpu()
 
         output_file = tmp_path / f"perf_hf_{ep}_gpu.json"
@@ -654,7 +657,7 @@ class TestPerfHuggingFace:
     @pytest.mark.parametrize("ep", NPU_EPS)
     def test_benchmark_ep_npu(self, ep: str, tmp_path: Path, model_arg: str):
         """Benchmark with --ep <ep>."""
-        require_ep(ep)
+        require_ep(ep, device="npu")
         _require_npu()
 
         output_file = tmp_path / f"perf_hf_{ep}_npu.json"

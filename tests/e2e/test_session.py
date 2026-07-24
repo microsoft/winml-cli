@@ -17,6 +17,8 @@ import pytest
 
 from winml.modelkit.session import WinMLEPRegistry, WinMLSession
 
+from .require_ep import require_ep
+
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -28,18 +30,20 @@ class TestWinMLRegistryEPDiscovery:
     @pytest.mark.e2e
     def test_winml_registry_ep_discovery(self):
         """Test that WinMLEPRegistry can discover EPs when WinML SDK is present."""
-        registry = WinMLEPRegistry.get_instance()
+        registry = WinMLEPRegistry.instance()
 
         # Registry should be accessible
         assert registry is not None
 
-        # Skip if WinML SDK is not available on this environment
-        if not registry.winml_available:
-            pytest.skip("WinML SDK not available")
+        plugin_entries = [entry for entry in registry._discovered if not entry.is_built_in()]
 
-        eps = registry.get_available_eps()
-        # If WinML is available, should have at least one EP
-        assert len(eps) > 0, "WinML available but no EPs discovered"
+        # Skip if no real plugin EP was discovered on this environment.
+        if not plugin_entries:
+            pytest.skip("No plugin EPs discovered in this environment")
+
+        assert len({entry.ep_name for entry in plugin_entries}) > 0, (
+            "WinML available but no plugin EPs discovered"
+        )
 
 
 @pytest.mark.e2e
@@ -97,19 +101,17 @@ class TestWinMLSessionEPSpecific:
         provider_name: str,
     ):
         """Test inference with specific EP."""
+        require_ep(ep_name, device=device)
         session = WinMLSession(
             onnx_path=simple_matmul_onnx,
             device=device,
+            ep=ep_name,
         )
 
         outputs = session.run(sample_input)
 
-        # With policy-based selection, ORT picks the best EP for the device.
-        # Verify inference succeeds and a non-CPU EP is used for gpu/npu devices.
         providers = session._session.get_providers()
-        if device != "cpu":
-            non_cpu = [p for p in providers if p != "CPUExecutionProvider"]
-            assert len(non_cpu) > 0, f"Expected non-CPU EP for device={device}, got: {providers}"
+        assert provider_name in providers, f"Expected {provider_name}, got: {providers}"
         assert "C" in outputs
         assert outputs["C"].shape == (1, 4)
 

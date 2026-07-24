@@ -14,6 +14,7 @@ The fix prefers ``kwargs["ep"]`` over the compile-derived value.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -33,6 +34,8 @@ def _install_stubs(monkeypatch: pytest.MonkeyPatch, *, compile_provider: str | N
 
     from winml.modelkit import build as build_pkg
     from winml.modelkit import config as config_pkg
+    from winml.modelkit import session as session_pkg
+    from winml.modelkit.session import EPDeviceTarget
 
     fake_build_config = MagicMock()
     if compile_provider is None:
@@ -43,6 +46,23 @@ def _install_stubs(monkeypatch: pytest.MonkeyPatch, *, compile_provider: str | N
     fake_build_config.loader.trust_remote_code = False
     fake_build_config.generate_cache_key.return_value = "deadbeef"
     monkeypatch.setattr(config_pkg, "generate_hf_build_config", lambda *a, **k: fake_build_config)
+
+    fake_ep_device = MagicMock()
+    fake_ep_device.device.device_type = "CPU"
+    fake_ep_device.device.ep_name = "CPUExecutionProvider"
+    monkeypatch.setattr(
+        session_pkg,
+        "resolve_device",
+        lambda target: EPDeviceTarget(
+            ep=target.ep if target.ep != "auto" else "QNNExecutionProvider",
+            device=target.device,
+        ),
+    )
+    monkeypatch.setattr(
+        session_pkg.WinMLEPRegistry,
+        "instance",
+        classmethod(lambda _cls: MagicMock(auto_device=lambda _target: fake_ep_device)),
+    )
 
     fake_hf_config = MagicMock()
     fake_hf_config.model_type = "resnet"
@@ -108,8 +128,10 @@ def test_explicit_ep_overrides_compile_provider(
     assert received.get("ep") == "cpu"
 
 
-def test_both_absent_yields_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No user ep and no compile config — ep stays None (legacy behavior)."""
+def test_resolved_ep_device_used_when_compile_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The concrete runtime target keeps build analysis provider-specific."""
     from winml.modelkit.models import WinMLAutoModel
 
     received = _install_stubs(monkeypatch, compile_provider=None)
@@ -117,7 +139,7 @@ def test_both_absent_yields_none(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(_StopAfterEpCheckError):
         WinMLAutoModel.from_pretrained("microsoft/resnet-50", device="cpu")
 
-    assert received.get("ep") is None
+    assert received.get("ep") == "cpu"
 
 
 @pytest.mark.parametrize("flag", [True, False])
@@ -170,3 +192,116 @@ def test_allow_unsupported_nodes_reaches_composite(monkeypatch: pytest.MonkeyPat
 
     assert result == "COMPOSITE_SENTINEL"
     assert received.get("allow_unsupported_nodes") is True
+
+
+def test_cache_reuse_does_not_eagerly_load_hf_weights(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """The build API owns cache reuse, so AutoModel must not preload weights."""
+    from winml.modelkit.models import WinMLAutoModel
+    from winml.modelkit.models import auto as auto_module
+
+    build_config = MagicMock()
+    build_config.loader.task = "image-classification"
+    build_config.compile = None
+    build_config.generate_cache_key.return_value = "cache-key"
+    hf_config = SimpleNamespace(model_type="unit-type")
+    build_result = SimpleNamespace(final_onnx_path=tmp_path / "cached.onnx")
+    build_result.final_onnx_path.write_bytes(b"cached")
+
+    monkeypatch.setattr(
+        "winml.modelkit.config.generate_hf_build_config",
+        lambda *_args, **_kwargs: build_config,
+    )
+    monkeypatch.setattr(
+        "winml.modelkit.loader._autoconfig.load_hf_config",
+        lambda *_args, **_kwargs: hf_config,
+    )
+    monkeypatch.setattr(auto_module, "get_cache_dir", lambda **_kwargs: tmp_path)
+    monkeypatch.setattr(auto_module, "get_model_dir", lambda *_args, **_kwargs: tmp_path)
+    received: dict[str, Any] = {}
+
+    def reuse_build(**kwargs: Any) -> SimpleNamespace:
+        received.update(kwargs)
+        return build_result
+
+    monkeypatch.setattr(
+        "winml.modelkit.build.build_hf_model",
+        reuse_build,
+    )
+    wrapper = SimpleNamespace()
+    monkeypatch.setattr(auto_module, "get_winml_class", lambda *_args: lambda **_kwargs: wrapper)
+
+    assert (
+        WinMLAutoModel.from_pretrained(
+            "unit/model",
+            ep_device=MagicMock(
+                device=MagicMock(device_type="CPU", ep_name="CPUExecutionProvider")
+            ),
+            task="image-classification",
+        )
+        is wrapper
+    )
+    assert received.get("pytorch_model") is None
+
+
+def test_cache_key_matches_shared_helper(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """API cache keys must match the shared helper and ignore non-artifact flags."""
+    from winml.modelkit.cache import get_cache_key
+    from winml.modelkit.loader.task import get_task_abbrev
+    from winml.modelkit.models import WinMLAutoModel
+    from winml.modelkit.models import auto as auto_module
+
+    config_hash = "cache-key"
+    build_config = MagicMock()
+    build_config.loader.task = "image-classification"
+    build_config.compile = None
+    build_config.generate_cache_key.return_value = config_hash
+    hf_config = SimpleNamespace(model_type="unit-type")
+    build_result = SimpleNamespace(final_onnx_path=tmp_path / "cached.onnx")
+    build_result.final_onnx_path.write_bytes(b"cached")
+    received: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(
+        "winml.modelkit.config.generate_hf_build_config",
+        lambda *_args, **_kwargs: build_config,
+    )
+    monkeypatch.setattr(
+        "winml.modelkit.loader._autoconfig.load_hf_config",
+        lambda *_args, **_kwargs: hf_config,
+    )
+    monkeypatch.setattr(auto_module, "get_cache_dir", lambda **_kwargs: tmp_path)
+    monkeypatch.setattr(auto_module, "get_model_dir", lambda *_args, **_kwargs: tmp_path)
+
+    def reuse_build(**kwargs: Any) -> SimpleNamespace:
+        received.append(kwargs)
+        return build_result
+
+    monkeypatch.setattr("winml.modelkit.build.build_hf_model", reuse_build)
+    wrapper = SimpleNamespace()
+    monkeypatch.setattr(
+        auto_module,
+        "get_winml_class",
+        lambda *_args: lambda **_kwargs: wrapper,
+    )
+
+    ep_device = MagicMock(device=MagicMock(device_type="CPU", ep_name="CPUExecutionProvider"))
+    for allow_flag in (False, True):
+        assert (
+            WinMLAutoModel.from_pretrained(
+                "unit/model",
+                ep_device=ep_device,
+                task="image-classification",
+                allow_unsupported_nodes=allow_flag,
+                skip_optimize=True,
+                hack_max_optim_iterations=0,
+            )
+            is wrapper
+        )
+
+    expected = get_cache_key(
+        get_task_abbrev("image-classification"),
+        config_hash,
+        {"skip_optimize": True, "hack_max_optim_iterations": 0},
+    )
+    assert [call["cache_key"] for call in received] == [expected, expected]
