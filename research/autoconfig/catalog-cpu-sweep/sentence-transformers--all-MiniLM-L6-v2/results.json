@@ -1,0 +1,16 @@
+{
+  "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+  "task": "sentence-similarity",
+  "model_type": "bert",
+  "timestamp": "2026-06-18T16:52:49",
+  "ep": "cpu",
+  "device": "cpu",
+  "hypotheses": {},
+  "baseline_p50_ms": null,
+  "best_p50_ms": null,
+  "best_hypothesis": null,
+  "best_gain_pct": null,
+  "errors": [
+    "base config generation failed"
+  ]
+}
