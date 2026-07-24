@@ -1,0 +1,52 @@
+{
+  "export": {
+    "opset_version": 18,
+    "batch_size": 1,
+    "export_params": true,
+    "do_constant_folding": true,
+    "verbose": false,
+    "dynamo": true,
+    "enable_hierarchy_tags": true,
+    "clean_onnx": false,
+    "hierarchy_tag_format": "full",
+    "input_tensors": [
+      {
+        "name": "pixel_values",
+        "dtype": "float32",
+        "shape": [1, 3, 640, 640],
+        "value_range": [0, 1]
+      }
+    ],
+    "output_tensors": [
+      { "name": "logits" },
+      { "name": "pred_boxes" }
+    ]
+  },
+  "optim": {},
+  "quant": null,
+  "compile": null,
+  "loader": {
+    "task": "object-detection",
+    "model_class": "AutoModelForObjectDetection",
+    "model_type": "rt_detr"
+  },
+  "eval": {
+    "task": "object-detection",
+    "dataset": {
+      "path": "detection-datasets/coco",
+      "split": "val",
+      "samples": 10,
+      "shuffle": false,
+      "seed": 42,
+      "streaming": true,
+      "columns_mapping": {
+        "input_column": "image",
+        "annotation_column": "objects",
+        "bbox_key": "bbox",
+        "category_key": "category",
+        "box_format": "xywh",
+        "box_coords": "absolute"
+      }
+    }
+  }
+}
