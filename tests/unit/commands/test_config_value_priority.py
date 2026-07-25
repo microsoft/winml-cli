@@ -379,16 +379,15 @@ def _run_analyze(
             return_value=True,
         ),
         # Deterministic Tier-3 default: when ep stays "auto" through the merge
-        # block, analyze resolves it via available_eps_for_device(resolved_device).
-        # Patch the registry-backed helper (imported into analyze at call time
-        # from ..session) so npu -> QNN, fixing the resolved target EP.
+        # block, analyze intersects the ranked providers with exact local pairs.
+        # Patch both inputs so NPU resolves to QNN without querying hardware.
         patch(
             "winml.modelkit.session.available_eps_for_device",
             return_value=["QNNExecutionProvider"],
         ),
         patch(
             "winml.modelkit.commands.analyze._get_local_ep_device_pairs",
-            return_value=[("QNNExecutionProvider", "npu")],
+            return_value=[("QNNExecutionProvider", "NPU")],
         ),
         patch("winml.modelkit.analyze.ONNXStaticAnalyzer") as mock_analyzer_cls,
     ):
@@ -612,8 +611,8 @@ ANALYZE_CASES = [
         json_key="execution_provider",
         json_value="vitisai",
         json_value_effective="VitisAIExecutionProvider",
-        # CLI default is ``"auto"``, expanded to ``_get_available_eps()`` which
-        # the adapter mocks to ``["QNNExecutionProvider"]``.
+        # CLI default is ``"auto"``, resolved from the exact local pair and EP
+        # ranking mocked by the adapter.
         cli_default_effective="QNNExecutionProvider",
     ),
 ]
