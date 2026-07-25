@@ -9,15 +9,11 @@ from __future__ import annotations
 import csv
 import io
 import json
-from typing import TYPE_CHECKING
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from onnx import AttributeProto, TensorProto, TypeProto, helper, load, save_model
-
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def _write_basic_profile(
@@ -164,6 +160,22 @@ def _write_minimal_qhas(path: Path, *, qnn_op: str = "/graph/FreshOp") -> None:
     )
 
 
+def _profiling_csv_path(monitor) -> Path:
+    return Path(monitor.get_provider_options()["profiling_file_path"])
+
+
+def _qnn_log_for_csv(csv_path: Path) -> Path:
+    return csv_path.with_name(f"{csv_path.stem}_qnn.log")
+
+
+def _schematic_for_csv(csv_path: Path) -> Path:
+    return csv_path.with_name(f"{csv_path.stem}_schematic.bin")
+
+
+def _qhas_output_for_csv(csv_path: Path) -> Path:
+    return csv_path.with_name(f"{csv_path.stem}_qhas_output.json")
+
+
 def test_ctor_defaults():
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
@@ -279,6 +291,50 @@ def test_get_provider_options_idempotent():
     assert m.get_provider_options() == m.get_provider_options()
 
 
+def test_same_output_dir_monitors_get_distinct_csv_paths(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    first = QNNMonitor(output_dir=tmp_path)
+    second = QNNMonitor(output_dir=tmp_path)
+
+    first_csv = _profiling_csv_path(first)
+    second_csv = _profiling_csv_path(second)
+
+    assert first_csv.parent == tmp_path
+    assert second_csv.parent == tmp_path
+    assert first_csv != second_csv
+    assert first_csv.name.endswith(".csv")
+    assert second_csv.name.endswith(".csv")
+
+
+def test_consecutive_monitors_do_not_reuse_prior_csv_samples(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    first = QNNMonitor(output_dir=tmp_path)
+    first_csv = _profiling_csv_path(first)
+    _write_basic_profile(
+        first_csv,
+        [
+            {
+                "hvx_threads": 4,
+                "accel_execute_cycles": 100,
+                "accel_execute_us": 10,
+                "operator_cycles": 25,
+            }
+        ],
+    )
+
+    second = QNNMonitor(output_dir=tmp_path)
+    second_csv = _profiling_csv_path(second)
+    assert second_csv != first_csv
+
+    second.__enter__()
+    second.__exit__(None, None, None)
+
+    assert second.result is not None
+    assert second.result.status == "no_data"
+
+
 def test_get_session_options_idempotent():
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
@@ -329,10 +385,9 @@ def test_basic_metrics_use_each_samples_own_cycle_ratio(tmp_path):
             "operator_cycles": 100,
         },
     ]
-    csv_path = tmp_path / "profiling_output.csv"
     monitor = QNNMonitor(output_dir=tmp_path)
     monitor.__enter__()
-    _write_basic_profile(csv_path, samples)
+    _write_basic_profile(_profiling_csv_path(monitor), samples)
     monitor.__exit__(None, None, None)
 
     assert monitor.result is not None
@@ -589,7 +644,7 @@ def test_exit_parse_failure_caught(tmp_path):
 
     m = QNNMonitor(output_dir=tmp_path)
     m.__enter__()
-    csv = tmp_path / "profiling_output.csv"
+    csv = _profiling_csv_path(m)
     csv.write_text("this is not a valid qnn csv\n", encoding="utf-8")
     m.__exit__(None, None, None)
 
@@ -728,19 +783,8 @@ def test_no_os_chdir():
     assert Path.cwd() == cwd_before
 
 
-def test_find_schematic_rejects_stale_cwd_candidate(tmp_path, monkeypatch):
-    """A *_schematic.bin in CWD older than the profiling CSV must NOT be returned.
-
-    Setup:
-      - output_dir = tmp_path/out  (no schematic in it → exercise CWD fallback)
-      - cwd        = tmp_path/cwd  (contains a STALE schematic)
-      - csv        = tmp_path/out/profiling_output.csv (FRESH, written 'now')
-    Expected: the stale CWD schematic is older than the CSV by >5s, so the
-    mtime gate rejects it and _find_schematic() returns None.
-    """
-    import os
-    import time
-
+def test_find_schematic_accepts_only_csv_bound_sibling(tmp_path, monkeypatch):
+    """Detail mode must not bind another run's fresh schematic."""
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
     out_dir = tmp_path / "out"
@@ -749,146 +793,107 @@ def test_find_schematic_rejects_stale_cwd_candidate(tmp_path, monkeypatch):
     cwd_dir.mkdir()
 
     monitor = QNNMonitor(level="detail", output_dir=out_dir)
-    # Fresh CSV (now)
-    monitor._csv_path.write_text("dummy")
-    # Stale schematic in CWD (1 hour old)
-    stale = cwd_dir / "stale_schematic.bin"
-    stale.write_bytes(b"")
-    old = time.time() - 3600
-    os.utime(stale, (old, old))
+    csv_path = _profiling_csv_path(monitor)
+    csv_path.write_text("dummy", encoding="utf-8")
+    exact = _schematic_for_csv(csv_path)
+    exact.write_bytes(b"")
+    unrelated_output = out_dir / "other_schematic.bin"
+    unrelated_output.write_bytes(b"")
+    unrelated_cwd = cwd_dir / "other_schematic.bin"
+    unrelated_cwd.write_bytes(b"")
 
     monkeypatch.chdir(cwd_dir)
-    # CWD glob would surface 'stale', but mtime guard rejects.
-    assert monitor._find_schematic() is None
+    assert monitor._find_schematic() == exact
 
 
-def test_find_schematic_accepts_fresh_cwd_candidate(tmp_path, monkeypatch):
-    """A *_schematic.bin in CWD newer than the profiling CSV is accepted (mtime gate)."""
-    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
-
-    out_dir = tmp_path / "out"
-    cwd_dir = tmp_path / "cwd"
-    out_dir.mkdir()
-    cwd_dir.mkdir()
-
-    monitor = QNNMonitor(level="detail", output_dir=out_dir)
-    # CSV first, then a fresh schematic — the schematic mtime >= CSV mtime.
-    monitor._csv_path.write_text("dummy")
-    fresh = cwd_dir / "fresh_schematic.bin"
-    fresh.write_bytes(b"")
-
-    monkeypatch.chdir(cwd_dir)
-    assert monitor._find_schematic() == fresh
-
-
-def test_find_schematic_prefers_output_dir_over_cwd(tmp_path, monkeypatch):
-    """When output_dir contains a schematic, CWD is never consulted."""
-    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
-
-    out_dir = tmp_path / "out"
-    cwd_dir = tmp_path / "cwd"
-    out_dir.mkdir()
-    cwd_dir.mkdir()
-
-    monitor = QNNMonitor(level="detail", output_dir=out_dir)
-    monitor._csv_path.write_text("dummy", encoding="utf-8")
-    in_out = out_dir / "graph_schematic.bin"
-    in_out.write_bytes(b"")
-    in_cwd = cwd_dir / "graph_schematic.bin"
-    in_cwd.write_bytes(b"")
-
-    monkeypatch.chdir(cwd_dir)
-    assert monitor._find_schematic() == in_out
-
-
-def test_find_schematic_skips_stale_output_dir_candidate(tmp_path):
-    import os
-    import time
-
-    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
-
-    out_dir = tmp_path / "out"
-    out_dir.mkdir()
-
-    monitor = QNNMonitor(level="detail", output_dir=out_dir)
-    monitor._csv_path.write_text("dummy", encoding="utf-8")
-    stale = out_dir / "stale_schematic.bin"
-    stale.write_bytes(b"")
-    old = time.time() - 3600
-    os.utime(stale, (old, old))
-
-    assert monitor._find_schematic() is None
-
-
-def test_find_schematic_falls_back_to_fresh_cwd_when_output_dir_is_stale(tmp_path, monkeypatch):
-    import os
-    import time
-
-    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
-
-    out_dir = tmp_path / "out"
-    cwd_dir = tmp_path / "cwd"
-    out_dir.mkdir()
-    cwd_dir.mkdir()
-
-    monitor = QNNMonitor(level="detail", output_dir=out_dir)
-    monitor._csv_path.write_text("dummy", encoding="utf-8")
-
-    stale = out_dir / "stale_schematic.bin"
-    stale.write_bytes(b"")
-    old = time.time() - 3600
-    os.utime(stale, (old, old))
-
-    fresh = cwd_dir / "fresh_schematic.bin"
-    fresh.write_bytes(b"")
-
-    monkeypatch.chdir(cwd_dir)
-    assert monitor._find_schematic() == fresh
-
-
-def test_find_schematic_selects_newest_fresh_output_candidate(tmp_path):
-    import os
-    import time
-
-    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
-
-    out_dir = tmp_path / "out"
-    out_dir.mkdir()
-
-    monitor = QNNMonitor(level="detail", output_dir=out_dir)
-    monitor._csv_path.write_text("dummy", encoding="utf-8")
-
-    older = out_dir / "older_schematic.bin"
-    older.write_bytes(b"")
-    newer = out_dir / "newer_schematic.bin"
-    newer.write_bytes(b"")
-
-    now = time.time()
-    os.utime(older, (now - 1, now - 1))
-    os.utime(newer, (now, now))
-
-    assert monitor._find_schematic() == newer
-
-
-def test_try_qhas_ignores_stale_qnn_log_and_uses_fresh_log(tmp_path, monkeypatch):
+def test_find_schematic_accepts_exact_sibling_older_than_csv(tmp_path):
     import os
     import time
 
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
     monitor = QNNMonitor(level="detail", output_dir=tmp_path)
-    monitor._csv_path.write_text("dummy", encoding="utf-8")
-    stale = tmp_path / "a_stale_qnn.log"
-    stale.write_text("stale", encoding="utf-8")
+    csv_path = _profiling_csv_path(monitor)
+    exact = _schematic_for_csv(csv_path)
+    exact.write_bytes(b"")
     old = time.time() - 3600
-    os.utime(stale, (old, old))
+    os.utime(exact, (old, old))
+    csv_path.write_text("dummy", encoding="utf-8")
 
+    assert monitor._find_schematic() == exact
+
+
+def test_find_schematic_rejects_unbound_fresh_candidates(tmp_path, monkeypatch):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    out_dir = tmp_path / "out"
+    cwd_dir = tmp_path / "cwd"
+    out_dir.mkdir()
+    cwd_dir.mkdir()
+
+    monitor = QNNMonitor(level="detail", output_dir=out_dir)
+    _profiling_csv_path(monitor).write_text("dummy", encoding="utf-8")
+    (out_dir / "fresh_schematic.bin").write_bytes(b"")
+    (cwd_dir / "fresh_schematic.bin").write_bytes(b"")
+
+    monkeypatch.chdir(cwd_dir)
+    assert monitor._find_schematic() is None
+
+
+def test_try_qhas_uses_csv_bound_artifacts(tmp_path, monkeypatch):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    csv_path = _profiling_csv_path(monitor)
+    csv_path.write_text("dummy", encoding="utf-8")
     monitor.__enter__()
-    fresh = tmp_path / "z_fresh_qnn.log"
-    fresh.write_text("fresh", encoding="utf-8")
-    schematic = tmp_path / "graph_schematic.bin"
+    qnn_log = _qnn_log_for_csv(csv_path)
+    qnn_log.write_text("fresh", encoding="utf-8")
+    schematic = _schematic_for_csv(csv_path)
     schematic.write_bytes(b"")
-    qhas_output = tmp_path / "qhas_output.json"
+    qhas_output = _qhas_output_for_csv(csv_path)
+
+    seen_logs: list[Path] = []
+    seen_schematics: list[Path] = []
+    seen_outputs: list[Path] = []
+
+    def _run_qhas_viewer(log: Path, selected_schematic: Path, output: Path, *, sdk_root: Path):
+        seen_logs.append(log)
+        seen_schematics.append(selected_schematic)
+        seen_outputs.append(output)
+        _write_minimal_qhas(output)
+        return output
+
+    monkeypatch.setattr(
+        "winml.modelkit.session.monitor.qnn_monitor.find_qnn_sdk",
+        lambda: tmp_path,
+    )
+    monkeypatch.setattr(
+        "winml.modelkit.session.monitor.qnn_monitor.run_qhas_viewer",
+        _run_qhas_viewer,
+    )
+
+    summary, operators, result_path = monitor._try_qhas({})
+
+    assert seen_logs == [qnn_log]
+    assert seen_schematics == [schematic]
+    assert seen_outputs == [qhas_output]
+    assert summary is not None
+    assert operators is not None
+    assert result_path == qhas_output
+
+
+def test_try_qhas_ignores_other_runs_newer_qnn_log(tmp_path, monkeypatch):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    csv_path = _profiling_csv_path(monitor)
+    csv_path.write_text("dummy", encoding="utf-8")
+    monitor.__enter__()
+
+    other_log = tmp_path / "other_run_qnn.log"
+    other_log.write_text("newer unrelated run", encoding="utf-8")
+    _schematic_for_csv(csv_path).write_bytes(b"")
 
     seen_logs: list[Path] = []
 
@@ -908,50 +913,10 @@ def test_try_qhas_ignores_stale_qnn_log_and_uses_fresh_log(tmp_path, monkeypatch
 
     summary, operators, result_path = monitor._try_qhas({})
 
-    assert seen_logs == [fresh]
-    assert summary is not None
-    assert operators is not None
-    assert result_path == qhas_output
-
-
-def test_try_qhas_selects_newest_fresh_qnn_log_deterministically(tmp_path, monkeypatch):
-    import os
-    import time
-
-    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
-
-    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
-    monitor._csv_path.write_text("dummy", encoding="utf-8")
-    monitor.__enter__()
-
-    older = tmp_path / "a_older_qnn.log"
-    newer = tmp_path / "z_newer_qnn.log"
-    older.write_text("older", encoding="utf-8")
-    newer.write_text("newer", encoding="utf-8")
-    now = time.time()
-    os.utime(older, (now - 1, now - 1))
-    os.utime(newer, (now, now))
-    (tmp_path / "graph_schematic.bin").write_bytes(b"")
-
-    seen_logs: list[Path] = []
-
-    def _run_qhas_viewer(qnn_log: Path, _schematic: Path, output: Path, *, sdk_root: Path):
-        seen_logs.append(qnn_log)
-        _write_minimal_qhas(output)
-        return output
-
-    monkeypatch.setattr(
-        "winml.modelkit.session.monitor.qnn_monitor.find_qnn_sdk",
-        lambda: tmp_path,
-    )
-    monkeypatch.setattr(
-        "winml.modelkit.session.monitor.qnn_monitor.run_qhas_viewer",
-        _run_qhas_viewer,
-    )
-
-    monitor._try_qhas({})
-
-    assert seen_logs == [newer]
+    assert seen_logs == []
+    assert summary is None
+    assert operators is None
+    assert result_path is None
 
 
 def test_find_schematic_returns_none_when_csv_metadata_cannot_be_read(tmp_path, monkeypatch):
@@ -982,9 +947,7 @@ def test_find_schematic_returns_none_when_csv_metadata_cannot_be_read(tmp_path, 
     assert monitor._find_schematic() is None
 
 
-def test_find_schematic_skips_stat_failing_candidate_and_reuses_captured_metadata(
-    tmp_path, monkeypatch
-):
+def test_find_schematic_reuses_exact_candidate_metadata(tmp_path, monkeypatch):
     from pathlib import Path
 
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
@@ -993,56 +956,47 @@ def test_find_schematic_skips_stat_failing_candidate_and_reuses_captured_metadat
     out_dir.mkdir()
 
     monitor = QNNMonitor(level="detail", output_dir=out_dir)
-    monitor._csv_path.write_text("dummy", encoding="utf-8")
+    csv_path = _profiling_csv_path(monitor)
+    csv_path.write_text("dummy", encoding="utf-8")
 
-    missing = out_dir / "a_missing_schematic.bin"
-    missing.write_bytes(b"")
-    fresh = out_dir / "z_fresh_schematic.bin"
+    fresh = _schematic_for_csv(csv_path)
     fresh.write_bytes(b"")
 
     original_stat = Path.stat
-    stat_calls = {missing: 0, fresh: 0}
+    stat_calls = {fresh: 0}
 
     def _flaky_stat(self: Path, *args, **kwargs):
-        if self == missing:
-            stat_calls[missing] += 1
-            raise FileNotFoundError("schematic vanished")
         if self == fresh:
             stat_calls[fresh] += 1
             if stat_calls[fresh] > 1:
-                raise AssertionError("fresh schematic stat() should only be read once")
+                raise AssertionError("exact schematic stat() should only be read once")
         return original_stat(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "stat", _flaky_stat)
 
     assert monitor._find_schematic() == fresh
-    assert stat_calls[missing] == 1
     assert stat_calls[fresh] == 1
 
 
-def test_find_schematic_returns_none_when_directory_iteration_fails(tmp_path, monkeypatch):
+def test_find_schematic_returns_none_when_exact_candidate_stat_fails(tmp_path, monkeypatch):
     from pathlib import Path
 
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
-    out_dir = tmp_path / "out"
-    cwd_dir = tmp_path / "cwd"
-    out_dir.mkdir()
-    cwd_dir.mkdir()
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    csv_path = _profiling_csv_path(monitor)
+    csv_path.write_text("dummy", encoding="utf-8")
+    exact = _schematic_for_csv(csv_path)
+    exact.write_bytes(b"")
 
-    monitor = QNNMonitor(level="detail", output_dir=out_dir)
-    monitor._csv_path.write_text("dummy", encoding="utf-8")
-    (cwd_dir / "cwd_schematic.bin").write_bytes(b"")
+    original_stat = Path.stat
 
-    original_glob = Path.glob
+    def _flaky_stat(self: Path, *args, **kwargs):
+        if self == exact:
+            raise PermissionError("cannot stat exact schematic")
+        return original_stat(self, *args, **kwargs)
 
-    def _flaky_glob(self: Path, pattern: str):
-        if self == out_dir:
-            raise PermissionError("cannot iterate directory")
-        return original_glob(self, pattern)
-
-    monkeypatch.setattr(Path, "glob", _flaky_glob)
-    monkeypatch.chdir(cwd_dir)
+    monkeypatch.setattr(Path, "stat", _flaky_stat)
 
     assert monitor._find_schematic() is None
 
@@ -1128,8 +1082,9 @@ def test_detail_mode_uses_basic_fallback_when_schematic_stat_fails(tmp_path, mon
 
     monitor = QNNMonitor(level="detail", output_dir=tmp_path)
     monitor.__enter__()
+    csv_path = _profiling_csv_path(monitor)
     _write_basic_profile(
-        monitor._csv_path,
+        csv_path,
         [
             {
                 "hvx_threads": 4,
@@ -1139,8 +1094,8 @@ def test_detail_mode_uses_basic_fallback_when_schematic_stat_fails(tmp_path, mon
             }
         ],
     )
-    (tmp_path / "graph_qnn.log").write_text("qnn log", encoding="utf-8")
-    failing_schematic = tmp_path / "graph_schematic.bin"
+    _qnn_log_for_csv(csv_path).write_text("qnn log", encoding="utf-8")
+    failing_schematic = _schematic_for_csv(csv_path)
     failing_schematic.write_bytes(b"")
 
     original_stat = Path.stat

@@ -22,6 +22,7 @@ import json
 import logging
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
@@ -139,7 +140,9 @@ class QNNMonitor(WinMLEPMonitor):
             else Path(tempfile.mkdtemp(prefix="qnn_profile_"))
         )
         self._output_dir.mkdir(parents=True, exist_ok=True)
-        self._csv_path: Path = (self._output_dir / "profiling_output.csv").resolve()
+        self._csv_path: Path = (
+            self._output_dir / f"profiling_output_{uuid.uuid4().hex}.csv"
+        ).resolve()
         self._extra: dict[str, str] = dict(extra_provider_options or {})
         self._entered: bool = False
         self._result: OpTraceResult | None = None
@@ -462,8 +465,7 @@ class QNNMonitor(WinMLEPMonitor):
         csv_path = Path(csv_path)
         output_dir = csv_path.parent
         instance = cls(level=level, output_dir=output_dir)
-        # The constructor pinned _csv_path to "<output_dir>/profiling_output.csv";
-        # honour the caller's explicit path instead so this works for fixtures
+        # Honour the caller's explicit path so this works for offline fixtures
         # with arbitrary names.
         instance._csv_path = csv_path.resolve()
         instance.set_onnx_op_types(onnx_op_types or {})
@@ -657,10 +659,10 @@ class QNNMonitor(WinMLEPMonitor):
         Returns ``(summary, operators, qhas_path)`` on success, or
         ``(None, None, None)`` on any failure. Never raises.
 
-        Per C-5 / FR-12 this method does NOT call :func:`os.chdir`. The
-        ``*_schematic.bin`` is located via :py:meth:`Path.glob` in the
-        output directory first, then the process CWD as a read-only
-        fallback.
+        Per C-5 / FR-12 this method does NOT call :func:`os.chdir`.
+        Live-path artifacts are bound by the profiling CSV stem: ORT writes
+        ``<csv_stem>_qnn.log`` next to the CSV, and QHAS is attempted only
+        when the matching ``<csv_stem>_schematic.bin`` is present.
 
         Args:
             artifacts: Mutable artifact map; receives the schematic path
@@ -682,7 +684,7 @@ class QNNMonitor(WinMLEPMonitor):
                 logger.debug("QNNMonitor: no *_qnn.log found for QHAS")
                 return None, None, None
 
-            # Find the schematic (glob, never chdir).
+            # Find the schematic by the same CSV stem (never chdir).
             schematic = self._find_schematic()
             if schematic is None:
                 logger.debug("QNNMonitor: no *_schematic.bin found for QHAS")
@@ -693,7 +695,7 @@ class QNNMonitor(WinMLEPMonitor):
                 logger.debug("QNNMonitor: QNN SDK not located; skipping QHAS")
                 return None, None, None
 
-            qhas_output = self._output_dir / "qhas_output.json"
+            qhas_output = self._qhas_output_path()
             viewer_output = run_qhas_viewer(qnn_log, schematic, qhas_output, sdk_root=sdk_root)
             if viewer_output is None or not viewer_output.is_file():
                 logger.debug("QNNMonitor: QHAS viewer produced no output")
@@ -741,82 +743,48 @@ class QNNMonitor(WinMLEPMonitor):
         return parsed.get("summary"), operators, result_path
 
     def _snapshot_qnn_log_signatures(self) -> dict[Path, tuple[int, int, int, int, int]]:
-        """Capture existing QNN log metadata at monitor entry."""
-        try:
-            candidates = list(self._output_dir.glob("*_qnn.log"))
-        except OSError as exc:
-            logger.debug(
-                "QNNMonitor: unable to snapshot QNN logs in %s: %s",
-                self._output_dir,
-                exc,
-            )
-            return {}
-
+        """Capture this run's QNN log metadata at monitor entry."""
+        candidate = self._qnn_log_path()
+        signature = self._artifact_signature(candidate)
         signatures: dict[Path, tuple[int, int, int, int, int]] = {}
-        for candidate in candidates:
-            signature = self._artifact_signature(candidate)
-            if signature is not None:
-                signatures[candidate.resolve()] = signature
+        if signature is not None:
+            signatures[candidate.resolve()] = signature
         return signatures
 
     def _select_fresh_qnn_log(self) -> Path | None:
-        """Return the freshest QNN log from this monitor window."""
-        try:
-            candidates = list(self._output_dir.glob("*_qnn.log"))
-        except OSError as exc:
-            logger.debug(
-                "QNNMonitor: unable to iterate %s for QNN log discovery: %s",
-                self._output_dir,
-                exc,
-            )
+        """Return this run's QNN log, derived from the profiling CSV path."""
+        candidate = self._qnn_log_path()
+        signature = self._artifact_signature(candidate)
+        if signature is None:
             return None
 
-        fresh: list[tuple[int, str, Path]] = []
-        for candidate in candidates:
-            signature = self._artifact_signature(candidate)
-            if signature is None:
-                continue
-
-            resolved = candidate.resolve()
-            previous_signature = self._qnn_log_signatures_at_enter.get(resolved)
-            if previous_signature == signature:
-                continue
-
-            if self._monitor_enter_time_ns is not None:
-                # Reject files copied into the directory after entry but carrying
-                # an old filesystem mtime from a previous monitor run.
-                mtime_ns = signature[3]
-                if mtime_ns < self._monitor_enter_time_ns - 5_000_000_000:
-                    continue
-
-            fresh.append((signature[3], str(resolved), candidate))
-
-        if not fresh:
+        resolved = candidate.resolve()
+        previous_signature = self._qnn_log_signatures_at_enter.get(resolved)
+        if previous_signature == signature:
             return None
-        return max(fresh, key=lambda item: (item[0], item[1]))[2]
+
+        if self._monitor_enter_time_ns is not None:
+            # Reject files copied into the directory after entry but carrying
+            # an old filesystem mtime from a previous monitor run.
+            mtime_ns = signature[3]
+            if mtime_ns < self._monitor_enter_time_ns - 5_000_000_000:
+                return None
+
+        return candidate
+
+    def _qnn_log_path(self) -> Path:
+        """QNN EP names the log by appending ``_qnn.log`` to the CSV stem."""
+        return self._csv_path.with_name(f"{self._csv_path.stem}_qnn.log")
+
+    def _qhas_output_path(self) -> Path:
+        """Per-run QHAS JSON path paired with the profiling CSV stem."""
+        return self._csv_path.with_name(f"{self._csv_path.stem}_qhas_output.json")
 
     def _find_schematic(self) -> Path | None:
-        """Locate ``*_schematic.bin`` without mutating CWD.
-
-        Search order:
-
-        1. :attr:`_output_dir` (where ``profiling_file_path`` points).
-        2. Process CWD (glob-only; no :func:`os.chdir`) — the QNN SDK
-           occasionally drops the schematic next to the process's current
-           directory rather than next to the profiling CSV.
-
-        Both output-dir and CWD candidates are **mtime-gated** against the
-        profiling CSV: a schematic from a prior CI run would otherwise be
-        silently consumed and produce QHAS metrics for the wrong graph
-        with ``status="ok"`` — silent data corruption. The schematic must
-        be at least as new as the CSV (with a 5s tolerance for filesystem
-        clock skew) to be accepted, while preserving the output-dir-first
-        search order.
-        """
+        """Locate the schematic bound to this run's profiling CSV."""
         try:
             if not self._csv_path.is_file():
                 return None
-            csv_mtime = self._csv_path.stat().st_mtime
         except OSError as exc:
             logger.debug(
                 (
@@ -828,55 +796,22 @@ class QNNMonitor(WinMLEPMonitor):
             )
             return None
 
-        output_candidates = self._fresh_schematic_candidates(self._output_dir, csv_mtime)
-        if output_candidates is None:
-            return None
-        if output_candidates:
-            return max(output_candidates, key=lambda candidate: (candidate[0], candidate[1]))[2]
-
-        # Fallback: read-only glob of process CWD. No chdir.
-        cwd_candidates = self._fresh_schematic_candidates(Path.cwd(), csv_mtime)
-        if cwd_candidates is None:
-            return None
-        if cwd_candidates:
-            candidate = max(cwd_candidates, key=lambda item: (item[0], item[1]))[2]
-            logger.warning(
-                "QNNMonitor: located *_schematic.bin in CWD (%s) rather than output dir (%s)",
-                candidate.parent,
-                self._output_dir,
-            )
-            return candidate
-        return None
+        candidate = self._csv_path.with_name(f"{self._csv_path.stem}_schematic.bin")
+        return self._schematic_candidate(candidate)
 
     @staticmethod
-    def _fresh_schematic_candidates(
-        search_dir: Path, csv_mtime: float
-    ) -> list[tuple[int, str, Path]] | None:
-        """Return fresh schematic metadata, or ``None`` if discovery failed."""
+    def _schematic_candidate(candidate: Path) -> Path | None:
+        """Return candidate when the exact run-bound schematic exists."""
         try:
-            candidates = list(search_dir.glob("*_schematic.bin"))
+            candidate.stat()
         except OSError as exc:
             logger.debug(
-                "QNNMonitor: unable to iterate %s for schematic discovery: %s",
-                search_dir,
+                "QNNMonitor: schematic candidate %s unavailable: %s",
+                candidate,
                 exc,
             )
             return None
-
-        fresh: list[tuple[int, str, Path]] = []
-        for candidate in candidates:
-            try:
-                candidate_stat = candidate.stat()
-            except OSError as exc:
-                logger.debug(
-                    "QNNMonitor: skipping schematic candidate %s: %s",
-                    candidate,
-                    exc,
-                )
-                continue
-            if candidate_stat.st_mtime >= csv_mtime - 5.0:
-                fresh.append((candidate_stat.st_mtime_ns, str(candidate), candidate))
-        return fresh
+        return candidate
 
     def _make_failure_result(self, status: TraceStatus, error: str | None) -> OpTraceResult:
         """Build a minimal ``OpTraceResult`` for parse-time failures."""

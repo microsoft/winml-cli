@@ -101,8 +101,7 @@ def test_parse_existing_artifacts_default_onnx_map_is_empty(tmp_path):
 
 
 def test_parse_existing_artifacts_honors_explicit_csv_filename(tmp_path):
-    """The constructor pins ``profiling_output.csv``; the classmethod must
-    honour the caller's explicit filename so non-default names work."""
+    """Offline parsing honours explicit filenames so non-live names work."""
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
     # Name the fixture something other than the constructor's default.
@@ -195,11 +194,12 @@ def test_exit_and_parse_existing_share_parse_failed_contract(tmp_path):
 
     corrupt_bytes = b"\xff\xfe\x00not\x00a\x00real\x00csv\xff"
 
-    # Live path: write corrupt CSV at the constructor-pinned filename.
+    # Live path: write corrupt CSV at the provider-option filename.
     live_dir = tmp_path / "live"
     live_dir.mkdir()
-    (live_dir / "profiling_output.csv").write_bytes(corrupt_bytes)
     m = QNNMonitor(output_dir=live_dir)
+    live_csv = Path(m.get_provider_options()["profiling_file_path"])
+    live_csv.write_bytes(corrupt_bytes)
     m.__enter__()
     m.__exit__(None, None, None)
     assert m.result is not None
