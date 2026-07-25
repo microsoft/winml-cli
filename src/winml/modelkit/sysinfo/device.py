@@ -159,7 +159,7 @@ def _warn_deprecated_sysinfo_device_helper(symbol: str) -> None:
         "winml.modelkit.session (EPDeviceTarget, resolve_device, "
         "available_eps_for_device) instead.",
         DeprecationWarning,
-        stacklevel=2,
+        stacklevel=3,
     )
 
 
@@ -182,6 +182,15 @@ def resolve_device(
 ) -> tuple[str, list[str]]:
     """Deprecated sysinfo resolver returning ``(device, available_devices)``."""
     _warn_deprecated_sysinfo_device_helper("resolve_device")
+    return _resolve_device_compat(device=device, ep=ep)
+
+
+def _resolve_device_compat(
+    device: str = "auto",
+    *,
+    ep: EPNameOrAlias | str | None = None,
+) -> tuple[str, list[str]]:
+    """Implementation for the deprecated sysinfo resolver without warning."""
     device = device.lower()
 
     if device != "auto" and device not in _VALID_DEVICES:
@@ -238,6 +247,11 @@ def resolve_device(
 def resolve_eps(resolved_device: str) -> list[EPName]:
     """Deprecated sysinfo helper returning available EPs for a device."""
     _warn_deprecated_sysinfo_device_helper("resolve_eps")
+    return _resolve_eps_compat(resolved_device)
+
+
+def _resolve_eps_compat(resolved_device: str) -> list[EPName]:
+    """Implementation for the deprecated EP list helper without warning."""
     device = resolved_device.lower()
     available_eps = set(_get_device_ep_map_from_ort().get(device, ()))
     return [ep for ep in _DEVICE_EP_MAP.get(device, []) if ep in available_eps]
@@ -251,8 +265,10 @@ def resolve_check_device_ep(
     device = device.lower()
     ep_name = normalize_ep_name(ep)
     if device == "auto" or ep_name is None:
-        resolved_device, _ = resolve_device(device=device, ep=ep_name)
-        available_eps: list[EPName] = resolve_eps(resolved_device) if ep_name is None else [ep_name]
+        resolved_device, _ = _resolve_device_compat(device=device, ep=ep_name)
+        available_eps: list[EPName] = (
+            _resolve_eps_compat(resolved_device) if ep_name is None else [ep_name]
+        )
         supported_devices = EP_SUPPORTED_DEVICES[available_eps[0]]
         return resolved_device, list(supported_devices), available_eps
 

@@ -102,7 +102,7 @@ def _monitor_to_json_dict(monitor: WinMLEPMonitor) -> dict[str, Any]:
         if result is not None:
             return result.to_dict()
         if hasattr(monitor, "to_dict"):
-            return cast("dict[str, Any]", monitor.to_dict())
+            return monitor.to_dict()
     except Exception as exc:
         logger.warning(
             "Monitor JSON serialization failed for %s: %s",
@@ -2925,10 +2925,10 @@ def perf(
             console.print(f"[green]Results saved to:[/green] {output}")
             return
 
-        # Display text results immediately. JSON stdout is deferred until after
-        # op-trace failure validation so exit-4 paths cannot emit success-shaped
-        # benchmark JSON.
-        if not json_mode:
+        # Display non-op-tracing text results immediately. Op-tracing reports
+        # are deferred until after status validation so exit-4 paths cannot
+        # emit success-shaped console or JSON output.
+        if not json_mode and not op_tracing:
             display_console_report(result, console)
 
         # =================================================================
@@ -2960,16 +2960,22 @@ def perf(
                     "compiled successfully."
                 )
                 sys.exit(4)
-            if trace_result.status == "no_data":
-                detail = trace_result.error or "no CSV written"
+            if trace_result.status not in ("ok", "basic_fallback"):
+                if trace_result.status == "no_data":
+                    detail = trace_result.error or "no CSV written"
+                    console.print(
+                        f"[red]Error:[/red] Op-tracing produced no profiling data "
+                        f"({detail}). The EP may have silently fallen back to CPU."
+                    )
+                    sys.exit(4)
+                if trace_result.status == "parse_failed":
+                    console.print(
+                        f"[red]Error:[/red] Op-tracing artifact parse failed: {trace_result.error}"
+                    )
+                    sys.exit(4)
                 console.print(
-                    f"[red]Error:[/red] Op-tracing produced no profiling data "
-                    f"({detail}). The EP may have silently fallen back to CPU."
-                )
-                sys.exit(4)
-            if trace_result.status == "parse_failed":
-                console.print(
-                    f"[red]Error:[/red] Op-tracing artifact parse failed: {trace_result.error}"
+                    "[red]Error:[/red] Op-tracing did not complete successfully "
+                    f"(status={trace_result.status!r})."
                 )
                 sys.exit(4)
             if trace_result.status == "basic_fallback":
@@ -2980,6 +2986,8 @@ def perf(
 
             if json_mode:
                 click.echo(json.dumps(result.to_dict(), indent=2))
+            else:
+                display_console_report(result, console)
 
             # Op-trace status is valid (ok or basic_fallback) — safe to write
             # the benchmark JSON now.  Writing after the guard means a failed

@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import warnings
+from pathlib import Path
+
 import pytest
 
 
@@ -120,3 +123,60 @@ def test_public_compat_resolve_check_device_ep(monkeypatch: pytest.MonkeyPatch) 
         pytest.raises(ValueError, match="does not support device"),
     ):
         resolve_check_device_ep(device="cpu", ep="qnn")
+
+
+def _capture_deprecation(call):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", DeprecationWarning)
+        result = call()
+    return result, [warning for warning in caught if warning.category is DeprecationWarning]
+
+
+@pytest.mark.parametrize(
+    ("name", "call_factory"),
+    [
+        ("get_ep_device_map", lambda sysinfo: sysinfo.get_ep_device_map),
+        ("get_device_ep_map", lambda sysinfo: sysinfo.get_device_ep_map),
+        ("resolve_device", lambda sysinfo: lambda: sysinfo.resolve_device("auto", ep="qnn")),
+        ("resolve_eps", lambda sysinfo: lambda: sysinfo.resolve_eps("npu")),
+    ],
+)
+def test_public_compat_deprecation_warning_points_to_caller(
+    monkeypatch: pytest.MonkeyPatch, name: str, call_factory
+) -> None:
+    from winml.modelkit import sysinfo
+
+    _patch_registered_ep_map(monkeypatch)
+
+    _result, warning_records = _capture_deprecation(call_factory(sysinfo))
+
+    assert len(warning_records) == 1
+    warning = warning_records[0]
+    assert f"sysinfo.{name}" in str(warning.message)
+    assert Path(warning.filename) == Path(__file__)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({"device": "auto", "ep": "qnn"}, ("npu", ["QNNExecutionProvider"])),
+        ({"device": "auto", "ep": None}, ("npu", ["QNNExecutionProvider"])),
+    ],
+)
+def test_resolve_check_device_ep_emits_single_caller_warning(
+    monkeypatch: pytest.MonkeyPatch, kwargs: dict[str, str | None], expected
+) -> None:
+    from winml.modelkit import sysinfo
+
+    _patch_registered_ep_map(monkeypatch)
+
+    result, warning_records = _capture_deprecation(
+        lambda: sysinfo.resolve_check_device_ep(**kwargs)
+    )
+
+    resolved_device, _supported_devices, available_eps = result
+    assert (resolved_device, available_eps) == expected
+    assert len(warning_records) == 1
+    warning = warning_records[0]
+    assert "sysinfo.resolve_check_device_ep" in str(warning.message)
+    assert Path(warning.filename) == Path(__file__)

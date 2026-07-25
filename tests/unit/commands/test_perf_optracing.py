@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -386,14 +386,17 @@ def _benchmark_result_for_json():
     )
 
 
-def _invoke_json_op_trace_failure(tmp_path: Path, trace_result):
-    from unittest.mock import MagicMock
-
+def _mock_benchmark_with_trace(trace_result):
     mock_ctx = MagicMock()
     mock_ctx.monitor.result = trace_result
     mock_benchmark = MagicMock()
     mock_benchmark.run.return_value = _benchmark_result_for_json()
     mock_benchmark._perf_ctx = mock_ctx
+    return mock_benchmark
+
+
+def _invoke_json_op_trace_failure(tmp_path: Path, trace_result):
+    mock_benchmark = _mock_benchmark_with_trace(trace_result)
 
     runner = CliRunner()
     with (
@@ -421,6 +424,38 @@ def _invoke_json_op_trace_failure(tmp_path: Path, trace_result):
         )
 
 
+def _invoke_text_op_trace_failure(tmp_path: Path, trace_result):
+    mock_benchmark = _mock_benchmark_with_trace(trace_result)
+
+    runner = CliRunner()
+    with (
+        patch(
+            "winml.modelkit.commands.perf.PerfBenchmark",
+            return_value=mock_benchmark,
+        ),
+        patch("winml.modelkit.commands.perf.display_console_report") as display_report,
+        patch("winml.modelkit.commands.perf.write_json_report") as write_json,
+        patch("winml.modelkit.session.monitor.report.display_op_trace_report") as display_trace,
+        patch("winml.modelkit.session.monitor.report.write_op_trace_json") as write_trace,
+    ):
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                "fake/model",
+                "--device",
+                "npu",
+                "--op-tracing",
+                "basic",
+                "-o",
+                str(tmp_path / "perf_result.json"),
+            ],
+            obj={},
+        )
+
+    return result, display_report, write_json, display_trace, write_trace
+
+
 class TestCliOpTracingDispatch:
     """CLI-level integration tests for --op-tracing dispatch (mocked benchmark)."""
 
@@ -429,10 +464,11 @@ class TestCliOpTracingDispatch:
         [
             ("no_data", "profiler CSV missing"),
             ("parse_failed", "invalid CSV header"),
+            ("not_run", None),
         ],
     )
     def test_json_mode_failure_status_does_not_emit_benchmark_json(
-        self, tmp_path: Path, status: str, error: str
+        self, tmp_path: Path, status: str, error: str | None
     ) -> None:
         from winml.modelkit.session.monitor.op_metrics import OpTraceResult
 
@@ -450,6 +486,27 @@ class TestCliOpTracingDispatch:
         assert "benchmark_info" not in result.output
         with pytest.raises(json.JSONDecodeError):
             json.loads(result.output)
+
+    def test_text_mode_not_run_status_exits_before_success_reports(self, tmp_path: Path) -> None:
+        from winml.modelkit.session.monitor.op_metrics import OpTraceResult
+
+        trace = OpTraceResult(
+            model="fake/model",
+            device="npu",
+            tracing_level="basic",
+            status="not_run",
+        )
+
+        result, display_report, write_json, display_trace, write_trace = (
+            _invoke_text_op_trace_failure(tmp_path, trace)
+        )
+
+        assert result.exit_code == 4
+        assert "not_run" in result.output
+        display_report.assert_not_called()
+        write_json.assert_not_called()
+        display_trace.assert_not_called()
+        write_trace.assert_not_called()
 
     def test_json_mode_missing_trace_result_does_not_emit_benchmark_json(
         self, tmp_path: Path

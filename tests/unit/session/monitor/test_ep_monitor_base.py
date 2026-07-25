@@ -34,6 +34,52 @@ def test_null_monitor_to_dict_is_empty_dict():
     assert NullEPMonitor().to_dict() == {}
 
 
+def test_ep_monitor_base_to_dict_returns_result_dict() -> None:
+    """Legacy callers can serialize a monitor through the base alias surface."""
+    from winml.modelkit.session.monitor.op_metrics import OpTraceResult
+
+    class _ResultMonitor(WinMLEPMonitor):
+        def __init__(self) -> None:
+            self._result = OpTraceResult(
+                model="fake/model",
+                device="npu",
+                tracing_level="basic",
+                status="ok",
+            )
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return None
+
+        @classmethod
+        def is_available(cls):
+            return True
+
+    monitor = _ResultMonitor()
+
+    assert EPMonitor.to_dict(monitor) == monitor.result.to_dict()
+    assert monitor.to_dict()["status"] == "ok"
+
+
+def test_ep_monitor_base_to_dict_without_result_is_empty_dict() -> None:
+    """A non-null monitor with no typed result keeps the legacy empty-dict fallback."""
+
+    class _NoResultMonitor(WinMLEPMonitor):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return None
+
+        @classmethod
+        def is_available(cls):
+            return True
+
+    assert _NoResultMonitor().to_dict() == {}
+
+
 def test_null_monitor_default_requires_teardown():
     """NullEPMonitor.requires_session_teardown is False by default."""
     assert NullEPMonitor.requires_session_teardown is False

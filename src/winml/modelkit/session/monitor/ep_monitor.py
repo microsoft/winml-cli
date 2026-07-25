@@ -155,6 +155,16 @@ class WinMLEPMonitor(ABC):
         """
         return getattr(self, "_result", None)
 
+    def to_dict(self) -> dict[str, Any]:
+        """Legacy serializer surface.
+
+        New op-tracing monitors expose data through :attr:`result`; legacy
+        callers may still ask monitors for a dict directly. Delegate to the
+        typed result when one exists and otherwise report no monitor data.
+        """
+        result = self.result
+        return {} if result is None else result.to_dict()
+
     # ---- Mandatory contract ----
 
     @abstractmethod
