@@ -355,7 +355,7 @@ class _ExtractiveQuestionAnsweringPipeline:
             None,
         )
 
-        answers_by_text: dict[str, dict[str, Any]] = {}
+        answers_by_span: dict[tuple[int, int], dict[str, Any]] = {}
         best_no_answer_score: float | None = None
         feature_count = len(offsets)
         for batch_start in range(0, feature_count, model_batch_size):
@@ -460,20 +460,18 @@ class _ExtractiveQuestionAnsweringPipeline:
                             start_probabilities[start_index] * end_probabilities[end_index]
                         )
                         answer_text = context[char_start:char_end]
-                        answer_key = answer_text.lower()
-                        existing_answer = answers_by_text.get(answer_key)
-                        if existing_answer is None:
-                            answers_by_text[answer_key] = {
+                        answer_key = (char_start, char_end)
+                        existing_answer = answers_by_span.get(answer_key)
+                        if existing_answer is None or score > existing_answer["score"]:
+                            answers_by_span[answer_key] = {
                                 "score": score,
                                 "start": char_start,
                                 "end": char_end,
                                 "answer": answer_text,
                             }
-                        else:
-                            existing_answer["score"] += score
 
         no_answer_score = best_no_answer_score if best_no_answer_score is not None else 0.0
-        answers = list(answers_by_text.values())
+        answers = list(answers_by_span.values())
         if handle_impossible_answer:
             answers.append({"score": no_answer_score, "start": 0, "end": 0, "answer": ""})
         if not answers:

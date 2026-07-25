@@ -52,6 +52,7 @@ _LATENCY_WINDOW = 200
 
 # Sentinel for "parameter not provided" (distinct from None)
 _UNSET: Any = object()
+_PIPELINE_KEYWORD_INPUTS: Any = object()
 
 # ---------------------------------------------------------------------------
 # Binary decoders — keyed by InputField.type
@@ -554,13 +555,28 @@ class InferenceEngine:
             # the UI can send a generic param set (e.g. top_k) without
             # breaking pipelines that don't support it.
             accepted = self._accepted_pipeline_kwargs()
+            mapped_input_names = (
+                frozenset(effective_mapping.pipe_input)
+                if effective_mapping is not None
+                and effective_mapping.pipe_input_as_kwargs
+                and isinstance(effective_mapping.pipe_input, dict)
+                else frozenset()
+            )
             filtered_kwargs = (
-                {k: v for k, v in pipeline_kwargs.items() if k in accepted}
+                {
+                    k: v
+                    for k, v in pipeline_kwargs.items()
+                    if k in accepted or k in mapped_input_names
+                }
                 if accepted is not None
                 else pipeline_kwargs
             )
             try:
-                raw_result = self._pipeline(pipe_input, **filtered_kwargs)
+                raw_result = (
+                    self._pipeline(**filtered_kwargs)
+                    if pipe_input is _PIPELINE_KEYWORD_INPUTS
+                    else self._pipeline(pipe_input, **filtered_kwargs)
+                )
             finally:
                 for p in temp_paths:
                     Path(p).unlink(missing_ok=True)
@@ -845,6 +861,17 @@ class InferenceEngine:
         # 3. Build the positional argument
         if isinstance(mapping.pipe_input, str):
             return decoded[mapping.pipe_input]
+
+        if isinstance(mapping.pipe_input, dict):
+            mapped_inputs = {
+                pipeline_name: decoded[input_name]
+                for pipeline_name, input_name in mapping.pipe_input.items()
+                if input_name in decoded
+            }
+            if mapping.pipe_input_as_kwargs:
+                pipeline_kwargs.update(mapped_inputs)
+                return _PIPELINE_KEYWORD_INPUTS
+            return mapped_inputs
 
         result = {k: decoded[k] for k in mapping.pipe_input if k in decoded}
         if mapping.pipe_input_as_list:

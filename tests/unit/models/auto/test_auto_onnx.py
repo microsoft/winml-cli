@@ -252,6 +252,39 @@ class TestFromPretrainedDelegatesToFromOnnx:
         # the (now nested) device.ep_name attribute on the stub MagicMock.
         assert call_kwargs["ep_device"] is cpu_ep_device
 
+    def test_resolves_hub_onnx_reference_before_hf_dispatch(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        fake_onnx: Path,
+        cpu_ep_device: EPDeviceTarget,
+    ) -> None:
+        """Hub ONNX references must take the programmatic ONNX fast path."""
+        from winml.modelkit.utils.model_input import ModelInput, ModelInputKind
+
+        hub_ref = "org/repository/path/model.onnx"
+        monkeypatch.setattr(
+            "winml.modelkit.utils.model_input.resolve_model_input",
+            lambda _value: ModelInput(
+                kind=ModelInputKind.HUB_ONNX,
+                raw=hub_ref,
+                local_path=str(fake_onnx),
+                hf_id="org/repository",
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.config.generate_hf_build_config",
+            lambda *_args, **_kwargs: pytest.fail("Hub ONNX reference reached HF config dispatch."),
+        )
+
+        with patch.object(WinMLAutoModel, "from_onnx", return_value=MagicMock()) as from_onnx:
+            WinMLAutoModel.from_pretrained(
+                hub_ref,
+                ep_device=cpu_ep_device,
+                task="image-classification",
+            )
+
+        assert from_onnx.call_args.kwargs["onnx_path"] == fake_onnx
+
 
 # =============================================================================
 # from_onnx cache dir and cache_key tests
@@ -510,6 +543,52 @@ class TestFromOnnxDictDispatch:
             call_kwargs = mock_from_onnx.call_args.kwargs
             assert call_kwargs["task"] == "translation"
             assert call_kwargs["skip_build"] is True
+
+    def test_dict_dispatch_forwards_no_compile(
+        self,
+        tmp_path: Path,
+        cpu_ep_device: EPDeviceTarget,
+    ) -> None:
+        """Composite ONNX loading preserves the caller's no-compile request."""
+        with patch(
+            "winml.modelkit.models.winml.composite_model.WinMLCompositeModel.from_onnx"
+        ) as mock_from_onnx:
+            mock_from_onnx.return_value = MagicMock()
+
+            WinMLAutoModel.from_onnx(
+                {"encoder": str(tmp_path / "enc.onnx"), "decoder": str(tmp_path / "dec.onnx")},
+                task="translation",
+                ep_device=cpu_ep_device,
+                no_compile=True,
+            )
+
+        assert mock_from_onnx.call_args.kwargs["no_compile"] is True
+
+    def test_mapping_dispatches_to_composite(
+        self,
+        tmp_path: Path,
+        cpu_ep_device: EPDeviceTarget,
+    ) -> None:
+        """Public Mapping implementations must use composite ONNX dispatch."""
+        from collections import UserDict
+
+        with patch(
+            "winml.modelkit.models.winml.composite_model.WinMLCompositeModel.from_onnx"
+        ) as mock_from_onnx:
+            mock_from_onnx.return_value = MagicMock()
+
+            WinMLAutoModel.from_onnx(
+                UserDict(
+                    {
+                        "encoder": str(tmp_path / "enc.onnx"),
+                        "decoder": str(tmp_path / "dec.onnx"),
+                    }
+                ),
+                task="translation",
+                ep_device=cpu_ep_device,
+            )
+
+        assert isinstance(mock_from_onnx.call_args.args[0], UserDict)
 
     def test_hf_config_dispatches_composite_via_registry(
         self, tmp_path: Path, cpu_ep_device: EPDeviceTarget

@@ -250,6 +250,37 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
     def can_generate(self) -> bool:  # noqa: D102
         return True
 
+    def generate(self, *args: Any, **kwargs: Any) -> Any:
+        """Limit generation to the unoccupied portion of the static KV cache."""
+        from .kv_cache import WinMLStaticCache
+
+        if not issubclass(self.get_cache_class(), WinMLStaticCache):
+            return GenerationMixin.generate(cast("Any", self), *args, **kwargs)
+
+        decoder_input_ids = kwargs.get("decoder_input_ids")
+        prompt_length = (
+            decoder_input_ids.shape[1]
+            if isinstance(decoder_input_ids, torch.Tensor) and decoder_input_ids.ndim == 2
+            else 1
+        )
+        remaining_capacity = self._max_dec - prompt_length
+        if remaining_capacity < 1:
+            raise ValueError(
+                "Decoder prompt length exhausts the static KV cache; "
+                "no generation capacity remains."
+            )
+
+        requested_max_new_tokens = kwargs.get("max_new_tokens")
+        if requested_max_new_tokens is None:
+            generation_config = kwargs.get("generation_config") or self.generation_config
+            requested_max_new_tokens = getattr(generation_config, "max_new_tokens", None)
+        kwargs["max_new_tokens"] = (
+            min(requested_max_new_tokens, remaining_capacity)
+            if isinstance(requested_max_new_tokens, int)
+            else remaining_capacity
+        )
+        return GenerationMixin.generate(cast("Any", self), *args, **kwargs)
+
     def _validate_model_kwargs(self, model_kwargs: dict[str, Any]) -> None:
         """Allow inputs declared by the encoder ONNX graph during generation."""
         remaining_kwargs = {

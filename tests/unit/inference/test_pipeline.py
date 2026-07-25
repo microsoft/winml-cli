@@ -734,7 +734,7 @@ class TestCreatePipeline:
             ["delta", "delta epsilon"],
         ]
 
-    def test_deduplicates_overflow_candidates_and_adds_one_null_answer(self) -> None:
+    def test_deduplicates_same_span_across_overflow_without_summing_scores(self) -> None:
         tokenizer = _make_fast_qa_tokenizer()
         target_token_id = tokenizer.convert_tokens_to_ids("gamma")
         model, input_name = _make_qa_model(tokenizer)
@@ -756,9 +756,40 @@ class TestCreatePipeline:
         )
 
         answers = [answer["answer"].lower() for answer in result]
+        gamma_candidates = [answer for answer in result if answer["answer"].lower() == "gamma"]
         assert answers[0] == "gamma"
-        assert len(answers) == len(set(answers))
+        assert len(gamma_candidates) == 1
+        assert gamma_candidates[0]["score"] <= 1.0
         assert answers.count("") == 1
+
+    def test_preserves_identical_answer_text_at_distinct_context_spans(self) -> None:
+        tokenizer = _make_fast_qa_tokenizer()
+        target_token_id = tokenizer.convert_tokens_to_ids("gamma")
+        model, input_name = _make_qa_model(tokenizer)
+
+        def rank_repeated_target(**inputs):
+            token_ids = inputs[input_name]
+            logits = torch.zeros(token_ids.shape, dtype=torch.float32)
+            logits[token_ids == target_token_id] = 10.0
+            return SimpleNamespace(start_logits=logits, end_logits=logits)
+
+        model.side_effect = rank_repeated_target
+        pipe = _create_qa_compat_pipe(tokenizer, model)
+        context = "alpha beta gamma delta gamma epsilon"
+
+        result = pipe(
+            question="which",
+            context=context,
+            top_k=20,
+        )
+
+        gamma_candidates = [answer for answer in result if answer["answer"].lower() == "gamma"]
+        expected_spans = {
+            (context.index("gamma"), context.index("gamma") + len("gamma")),
+            (context.rindex("gamma"), context.rindex("gamma") + len("gamma")),
+        }
+        assert {(answer["start"], answer["end"]) for answer in gamma_candidates} == expected_spans
+        assert all(answer["score"] <= 1.0 for answer in gamma_candidates)
 
     def test_returns_impossible_answer_from_cls_score(self) -> None:
         tokenizer = _make_fast_qa_tokenizer()

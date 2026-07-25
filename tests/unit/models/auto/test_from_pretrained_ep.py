@@ -37,6 +37,7 @@ def _install_stubs(monkeypatch: pytest.MonkeyPatch, *, compile_provider: str | N
     from winml.modelkit import session as session_pkg
     from winml.modelkit.session import EPDeviceTarget
 
+    received: dict[str, Any] = {}
     fake_build_config = MagicMock()
     if compile_provider is None:
         fake_build_config.compile = None
@@ -45,7 +46,12 @@ def _install_stubs(monkeypatch: pytest.MonkeyPatch, *, compile_provider: str | N
     fake_build_config.loader.task = "image-classification"
     fake_build_config.loader.trust_remote_code = False
     fake_build_config.generate_cache_key.return_value = "deadbeef"
-    monkeypatch.setattr(config_pkg, "generate_hf_build_config", lambda *a, **k: fake_build_config)
+
+    def generate_config(*_args: Any, **kwargs: Any) -> MagicMock:
+        received["generate_hf_build_config"] = kwargs
+        return fake_build_config
+
+    monkeypatch.setattr(config_pkg, "generate_hf_build_config", generate_config)
 
     fake_ep_device = MagicMock()
     fake_ep_device.device.device_type = "CPU"
@@ -71,8 +77,6 @@ def _install_stubs(monkeypatch: pytest.MonkeyPatch, *, compile_provider: str | N
         "AutoConfig",
         MagicMock(from_pretrained=lambda *a, **k: fake_hf_config),
     )
-
-    received: dict[str, Any] = {}
 
     def stub_build(**kwargs: Any) -> None:
         received.update(kwargs)
@@ -155,6 +159,22 @@ def test_allow_unsupported_nodes_reaches_build(monkeypatch: pytest.MonkeyPatch, 
         )
 
     assert received.get("allow_unsupported_nodes") is flag
+
+
+def test_trust_remote_code_reaches_config_generation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Config resolution must receive the caller's custom-code opt-in exactly."""
+    from winml.modelkit.models import WinMLAutoModel
+
+    received = _install_stubs(monkeypatch, compile_provider=None)
+
+    with pytest.raises(_StopAfterEpCheckError):
+        WinMLAutoModel.from_pretrained(
+            "microsoft/resnet-50",
+            device="cpu",
+            trust_remote_code=True,
+        )
+
+    assert received["generate_hf_build_config"]["trust_remote_code"] is True
 
 
 def test_allow_unsupported_nodes_reaches_composite(monkeypatch: pytest.MonkeyPatch) -> None:

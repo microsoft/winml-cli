@@ -129,6 +129,7 @@ class WinMLCompositeModel(PreTrainedModel):
         task: str,
         *,
         device: str = "cpu",
+        ep: str | None = None,
         ep_device: WinMLEPDevice | None = None,
         use_cache: bool = True,
         force_rebuild: bool = False,
@@ -151,6 +152,8 @@ class WinMLCompositeModel(PreTrainedModel):
             device: Target device short name (e.g. ``"npu"``, ``"cpu"``).
                 Forwarded to ``__init__`` so ``self._device`` reflects the
                 caller's intent.
+            ep: Explicit execution provider short name used to resolve
+                ``ep_device`` when one is not supplied.
             ep_device: Optional pre-resolved ``WinMLEPDevice`` handle. When
                 ``None``, derived from ``device`` via
                 ``resolve_device`` + ``WinMLEPRegistry.auto_device`` so the
@@ -191,6 +194,7 @@ class WinMLCompositeModel(PreTrainedModel):
                 model_id,
                 task,
                 device=device,
+                ep=ep,
                 ep_device=ep_device,
                 use_cache=use_cache,
                 force_rebuild=force_rebuild,
@@ -205,7 +209,7 @@ class WinMLCompositeModel(PreTrainedModel):
         if ep_device is None:
             from ...session import EPDeviceTarget, WinMLEPRegistry, resolve_device
 
-            target = resolve_device(EPDeviceTarget(ep="auto", device=device))
+            target = resolve_device(EPDeviceTarget(ep=ep or "auto", device=device))
             ep_device = WinMLEPRegistry.instance().auto_device(target)
 
         per_component = sub_model_kwargs or {}

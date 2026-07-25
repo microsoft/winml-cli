@@ -24,6 +24,7 @@ Design Principles
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -116,7 +117,7 @@ class WinMLAutoModel:
     @classmethod
     def from_onnx(
         cls,
-        onnx_path: str | Path | dict[str, str | Path],
+        onnx_path: str | Path | Mapping[str, str | Path],
         *,
         ep_device: WinMLEPDevice | None = None,
         device: str | None = None,
@@ -167,7 +168,7 @@ class WinMLAutoModel:
             )
             ep_device = WinMLEPRegistry.instance().auto_device(target)
 
-        if isinstance(onnx_path, dict):
+        if isinstance(onnx_path, Mapping):
             from .winml.composite_model import WinMLCompositeModel
 
             return WinMLCompositeModel.from_onnx(
@@ -180,6 +181,7 @@ class WinMLAutoModel:
                 use_cache=use_cache,
                 force_rebuild=force_rebuild,
                 skip_build=skip_build,
+                no_compile=no_compile,
                 provider_options=provider_options,
                 session_options=session_options,
                 **kwargs,
@@ -344,7 +346,10 @@ class WinMLAutoModel:
             ValueError: If task cannot be detected or is not supported, or if
                 an ONNX file is given without a config containing loader.task.
         """
-        model_id = str(model_id_or_path)  # Ensure string for Path inputs
+        from ..utils.model_input import resolve_model_input
+
+        model_input = resolve_model_input(str(model_id_or_path))
+        model_id = model_input.local_path or model_input.raw
         logger.info("Loading WinML model from: %s", model_id)
 
         # Resolve a concrete target before every dispatch path, including
@@ -456,6 +461,7 @@ class WinMLAutoModel:
             precision=precision,
             ep=short_ep_name(ep_device.device.ep_name),
             model_type=model_type,
+            trust_remote_code=trust_remote_code,
             no_compile=no_compile,
         )
 

@@ -120,6 +120,37 @@ def test_device_is_forwarded_from_from_pretrained() -> None:
     assert result._device == "npu"
 
 
+def test_from_pretrained_resolves_explicit_ep_without_ep_device() -> None:
+    """Direct composite construction must not discard an explicit EP request."""
+    hf_cfg = SimpleNamespace(model_type="_test_model_type")
+    fake_ep_device = _fake_ep_device()
+    targets: list[object] = []
+
+    def resolve_target(target: object) -> object:
+        targets.append(target)
+        return target
+
+    with (
+        patch("transformers.AutoConfig.from_pretrained", return_value=hf_cfg),
+        patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
+            return_value=MagicMock(),
+        ),
+        patch("winml.modelkit.session.resolve_device", side_effect=resolve_target),
+        patch("winml.modelkit.session.WinMLEPRegistry.instance") as mock_instance,
+    ):
+        mock_instance.return_value.auto_device.return_value = fake_ep_device
+        _StubComposite.from_pretrained(
+            "hf/id",
+            task="_test_task",
+            device="npu",
+            ep="qnn",
+        )
+
+    assert targets
+    assert targets[0].ep == "qnn"
+
+
 def test_device_is_forwarded_from_from_onnx() -> None:
     """The resolved component target must also reach the composite wrapper."""
     fake_ep_device = _fake_ep_device()
@@ -330,6 +361,67 @@ def test_blip_composite_accepts_resolved_device() -> None:
     )
 
     assert model._device == "gpu"
+
+
+def test_blip_generation_bounds_default_to_remaining_static_cache_capacity() -> None:
+    """Multi-token decoder prompts leave only the remaining KV capacity to generate."""
+    from transformers import BlipConfig
+    from transformers.generation.utils import GenerationMixin
+
+    model_cls = COMPOSITE_MODEL_REGISTRY[("blip", "image-to-text")]
+    decoder = SimpleNamespace(
+        io_config={
+            "input_names": ["past_0_key"],
+            "input_shapes": [[1, 2, 8, 4]],
+            "input_types": [np.float32],
+        }
+    )
+    model = model_cls(
+        {"encoder": SimpleNamespace(io_config={}), "decoder": decoder},
+        BlipConfig(),
+    )
+    received: dict[str, object] = {}
+
+    def record_generation(_self, *_args, **kwargs):
+        received.update(kwargs)
+        return torch.tensor([[0]])
+
+    with patch.object(GenerationMixin, "generate", record_generation):
+        model.generate(decoder_input_ids=torch.tensor([[11, 22, 33]]))
+
+    assert received["max_new_tokens"] == 5
+
+
+def test_sliding_window_generation_preserves_requested_budget() -> None:
+    """A sliding-window cache evicts history instead of imposing a hard generation limit."""
+    from transformers.generation.utils import GenerationMixin
+
+    from winml.modelkit.models.hf.mu2 import WinMLMu2Model
+
+    decoder = SimpleNamespace(
+        io_config={
+            "input_names": ["past_0_key"],
+            "input_shapes": [[1, 2, 8, 4]],
+            "input_types": [np.float32],
+        }
+    )
+    model = WinMLMu2Model(
+        {"encoder": SimpleNamespace(io_config={}), "decoder": decoder},
+        MagicMock(),
+    )
+    received: dict[str, object] = {}
+
+    def record_generation(_self, *_args, **kwargs):
+        received.update(kwargs)
+        return torch.tensor([[0]])
+
+    with patch.object(GenerationMixin, "generate", record_generation):
+        model.generate(
+            decoder_input_ids=torch.tensor([[11, 22, 33]]),
+            max_new_tokens=12,
+        )
+
+    assert received["max_new_tokens"] == 12
 
 
 def test_decoder_only_accepts_resolved_device() -> None:

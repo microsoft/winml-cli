@@ -66,10 +66,16 @@ class PipelineMapping:
     pipe_input semantics:
         "image"                → pipeline(inputs["image"])                  single value
         ["question","context"] → pipeline({"question":..,"context":..})     dict passthrough
+        {"images": "image"}    → pipeline(images=inputs["image"])            named argument
 
     pipe_input_as_list:
         When True and pipe_input is a list, the dict is unpacked to a list
         (e.g., keypoint-matching expects [img0, img1], not a dict).
+
+    pipe_input_as_kwargs:
+        When True and pipe_input is a dict, keys are pipeline argument names
+        and values are user input names. The engine calls the pipeline with
+        those arguments as keywords.
 
     pipe_kwargs:
         Input names routed to pipeline(**kwargs) instead of positional arg.
@@ -79,9 +85,10 @@ class PipelineMapping:
     automatically from InputField.type — no explicit decode mapping needed.
     """
 
-    pipe_input: str | list[str]
+    pipe_input: str | list[str] | dict[str, str]
     pipe_kwargs: list[str] = field(default_factory=list)
     pipe_input_as_list: bool = False
+    pipe_input_as_kwargs: bool = False
 
 
 @dataclass
@@ -446,10 +453,17 @@ TASK_REGISTRY: dict[str, TaskInputSpec] = {
         user_inputs=[
             InputField(name="image", type="image", required=True, description="Image to describe"),
             InputField(
-                name="prompt", type="text", required=False, description="Optional text prompt"
+                name="prompt",
+                type="text",
+                required=False,
+                default="",
+                description="Optional text prompt",
             ),
         ],
-        mapping=PipelineMapping(pipe_input="image", pipe_kwargs=["prompt"]),
+        mapping=PipelineMapping(
+            pipe_input={"images": "image", "text": "prompt"},
+            pipe_input_as_kwargs=True,
+        ),
     ),
     "zero-shot-image-classification": TaskInputSpec(
         user_inputs=[
