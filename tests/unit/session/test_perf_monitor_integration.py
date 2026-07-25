@@ -255,6 +255,61 @@ def test_failed_monitored_rebuild_restores_baseline_without_entering_monitor(mon
         assert ctx is not None
 
 
+def test_running_model_hook_failure_restores_rebuilt_session_state():
+    """A pre-enter monitor hook failure rolls back the temporary perf session."""
+    from unittest.mock import MagicMock, patch
+
+    from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
+
+    class _FailingPathMonitor(WinMLEPMonitor):
+        def __init__(self):
+            self.entered = 0
+
+        @classmethod
+        def is_available(cls):
+            return True
+
+        def get_provider_options(self):
+            return {"profiling_level": "detailed"}
+
+        def set_running_model_path(self, running_model_path) -> None:
+            raise RuntimeError(f"path hook failed: {running_model_path}")
+
+        def __enter__(self):
+            self.entered += 1
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    session = _make_cpu_session(get_minimal_onnx_model_path())
+    session.compile()
+    baseline_session = session._session
+    baseline_provider_options = dict(session._provider_options)
+    baseline_session_options = dict(session._active_session_option_entries)
+    monitor = _FailingPathMonitor()
+
+    with (
+        patch(
+            "winml.modelkit.session.session.ort.SessionOptions",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "winml.modelkit.session.session.ort.InferenceSession",
+            return_value=MagicMock(),
+        ),
+        pytest.raises(RuntimeError, match="path hook failed"),
+        session.perf(monitor=monitor),
+    ):
+        pass
+
+    assert session._session is baseline_session
+    assert session._provider_options == baseline_provider_options
+    assert session._active_session_option_entries == baseline_session_options
+    assert session._perf_stats is None
+    assert monitor.entered == 0
+
+
 def test_monitored_rebuild_and_baseline_restore_use_running_model_path():
     """Monitored perf rebuilds preserve the compiled runtime model path."""
     from pathlib import Path
@@ -860,6 +915,82 @@ def test_perf_injects_running_model_path_for_compiled_and_runtime_sessions():
         "set_running_model_path",
         "__enter__",
     ]
+
+
+def test_perf_rebuild_keeps_monitor_bound_to_active_running_model():
+    """Monitor-contributed options must rebuild and trace the compiled artifact."""
+    from pathlib import Path
+    from unittest.mock import MagicMock, patch
+
+    from winml.modelkit.session.monitor.ep_monitor import NullEPMonitor
+
+    class _RebuildingMonitor(NullEPMonitor):
+        def __init__(self):
+            self.running_model_paths: list[Path] = []
+
+        def get_provider_options(self):
+            return {"profiling_level": "detailed"}
+
+        def set_running_model_path(self, running_model_path: Path) -> None:
+            self.running_model_paths.append(Path(running_model_path))
+
+    original_path = Path(get_minimal_onnx_model_path())
+    compiled_path = original_path.with_name(f"{original_path.stem}_ctx.onnx")
+    session = _make_cpu_session(original_path)
+    session._running_model_path = compiled_path
+    monitor = _RebuildingMonitor()
+
+    with (
+        patch(
+            "winml.modelkit.session.session.ort.SessionOptions",
+            side_effect=[MagicMock(), MagicMock()],
+        ),
+        patch(
+            "winml.modelkit.session.session.ort.InferenceSession",
+            side_effect=[MagicMock(), MagicMock()],
+        ) as inference_session,
+        session.perf(monitor=monitor),
+    ):
+        pass
+
+    assert monitor.running_model_paths == [compiled_path]
+    assert [call.args[0] for call in inference_session.call_args_list] == [
+        compiled_path,
+        compiled_path,
+    ]
+
+
+def test_perf_after_reset_rebuilds_from_source_model():
+    """A reset session must not reopen its previous runtime artifact."""
+    from pathlib import Path
+    from unittest.mock import MagicMock, patch
+
+    from winml.modelkit.session.monitor.ep_monitor import NullEPMonitor
+
+    class _RebuildingMonitor(NullEPMonitor):
+        def get_provider_options(self):
+            return {"profiling_level": "detailed"}
+
+    source_path = Path(get_minimal_onnx_model_path())
+    stale_context_path = source_path.with_name(f"{source_path.stem}_stale_ctx.onnx")
+    session = _make_cpu_session(source_path)
+    session._running_model_path = stale_context_path
+    session.reset()
+
+    with (
+        patch(
+            "winml.modelkit.session.session.ort.SessionOptions",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "winml.modelkit.session.session.ort.InferenceSession",
+            return_value=MagicMock(),
+        ) as inference_session,
+        session.perf(monitor=_RebuildingMonitor()),
+    ):
+        pass
+
+    assert inference_session.call_args_list[0].args[0] == source_path
 
 
 def test_perf_provides_completed_window_before_monitor_exit():

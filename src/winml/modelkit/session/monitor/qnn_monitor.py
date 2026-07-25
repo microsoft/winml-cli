@@ -810,7 +810,7 @@ class QNNMonitor(WinMLEPMonitor):
         search_dirs: list[Path] = []
         if self._running_model_path is not None:
             search_dirs.append(self._running_model_path.parent)
-        search_dirs.extend([self._output_dir, Path.cwd()])
+        search_dirs.append(Path.cwd())
 
         seen: set[Path] = set()
         for search_dir in search_dirs:

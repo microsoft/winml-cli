@@ -1296,7 +1296,9 @@ class TestCompileStageSalvage:
         onnx.save(model, str(path))
 
     @staticmethod
-    def _make_multipartition_epcontext(path: Path, bin_name: str) -> None:
+    def _make_multipartition_epcontext(
+        path: Path, bin_name: str, secondary_bin_name: str | None = None
+    ) -> None:
         """Code-generate a QNN-style multi-partition EPContext model.
 
         One ``main_context=1`` node carries the external ``.bin`` reference for
@@ -1317,14 +1319,16 @@ class TestCompileStageSalvage:
             ep_cache_context=bin_name,
             main_context=1,
         )
+        secondary_attrs: dict[str, int | str] = {"embed_mode": 0, "main_context": 0}
+        if secondary_bin_name is not None:
+            secondary_attrs["ep_cache_context"] = secondary_bin_name
         secondary = helper.make_node(
             "EPContext",
             inputs=[],
             outputs=["secondary_out"],
             name="ep_context_secondary",
             domain="com.microsoft",
-            embed_mode=0,
-            main_context=0,
+            **secondary_attrs,
         )
         main_info = helper.make_tensor_value_info("main_out", TensorProto.FLOAT, [1, 4])
         secondary_info = helper.make_tensor_value_info("secondary_out", TensorProto.FLOAT, [1, 4])
@@ -1618,6 +1622,70 @@ class TestCompileStageSalvage:
         def _write() -> None:
             # Multi-partition graph, but the main context's .bin is never written.
             self._make_multipartition_epcontext(auto_onnx, "ctx_auto_ctx_qnn.bin")
+
+        with patch(
+            "multiprocessing.get_context", return_value=self._crash_context(on_start=_write)
+        ):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is False
+        assert not ctx_out.exists()
+
+    def test_salvages_explicit_secondary_epcontext_sidecar(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """An explicit secondary cache reference is moved with the main sidecar."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+
+        auto_onnx = bundle_dir_with_pipeline / "ctx_auto_ctx.onnx"
+        main_bin = bundle_dir_with_pipeline / "ctx_auto_ctx_qnn.bin"
+        secondary_bin = bundle_dir_with_pipeline / "secondary_partition.bin"
+
+        def _write() -> None:
+            main_bin.write_bytes(b"main weights")
+            secondary_bin.write_bytes(b"secondary weights")
+            self._make_multipartition_epcontext(
+                auto_onnx,
+                main_bin.name,
+                secondary_bin.name,
+            )
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
+
+        with patch(
+            "multiprocessing.get_context", return_value=self._crash_context(on_start=_write)
+        ):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is True
+        assert (compiled_dir / main_bin.name).read_bytes() == b"main weights"
+        assert (compiled_dir / secondary_bin.name).read_bytes() == b"secondary weights"
+        assert not secondary_bin.exists()
+
+    def test_rejects_missing_explicit_secondary_epcontext_sidecar(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """A declared secondary cache reference must resolve before salvage."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+
+        auto_onnx = bundle_dir_with_pipeline / "ctx_auto_ctx.onnx"
+        main_bin = bundle_dir_with_pipeline / "ctx_auto_ctx_qnn.bin"
+
+        def _write() -> None:
+            main_bin.write_bytes(b"main weights")
+            self._make_multipartition_epcontext(
+                auto_onnx,
+                main_bin.name,
+                "missing_secondary.bin",
+            )
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
 
         with patch(
             "multiprocessing.get_context", return_value=self._crash_context(on_start=_write)

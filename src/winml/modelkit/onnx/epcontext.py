@@ -21,11 +21,15 @@ class EPContextPartition:
 
     partition_name: str | None
     main_context: int | None
+    main_context_present: bool
 
 
 def _string_attr(value: Any) -> str | None:
     if isinstance(value, bytes):
-        return value.decode("utf-8")
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
     if isinstance(value, str):
         return value
     return None
@@ -59,6 +63,7 @@ def epcontext_partitions(model_path: Path) -> list[EPContextPartition]:
             EPContextPartition(
                 partition_name=partition_name,
                 main_context=_int_attr(attrs.get("main_context")),
+                main_context_present="main_context" in attrs,
             )
         )
     return partitions
@@ -79,6 +84,6 @@ def select_main_epcontext_partition_name(model_path: Path) -> str | None:
         return main_partitions[0]
     if len(main_partitions) > 1:
         return None
-    if len(safe_partitions) == 1:
+    if len(safe_partitions) == 1 and not safe_partitions[0].main_context_present:
         return safe_partitions[0].partition_name
     return None

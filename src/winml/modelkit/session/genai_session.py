@@ -1585,23 +1585,20 @@ class GenaiSession:
     def _epcontext_is_valid(candidate: Path) -> bool:
         """True if *candidate* is an EPContext graph with its weights present.
 
-        Beyond the structural check (an ``EPContext`` node exists), the *main
-        context* node (``main_context=1``, the default) with ``embed_mode=0``
-        stores its compiled blob in an external file named by
-        ``ep_cache_context``; that file must exist and be non-empty next to the
-        graph, otherwise the salvaged stage would reference a missing binary and
-        crash at load time. ``embed_mode=1`` (or an absent attribute) embeds the
-        blob inline, so only the structural check applies — the
+        Beyond the structural check (an ``EPContext`` node exists), every
+        explicit ``embed_mode=0`` cache reference must resolve to a non-empty
+        sidecar beside the graph. ``embed_mode=1`` (or an absent attribute)
+        embeds the blob inline, so only the structural check applies — the
         ``ep_cache_context`` bytes are the raw blob, not a path, and must not be
         treated as a filename.
 
         Secondary partition nodes (``main_context=0``) legitimately omit
         ``ep_cache_context`` per the EPContext schema — a single QNN context can
         hold all partitions, with only the ``main_context=1`` node carrying the
-        external reference — so they are skipped here, mirroring the compiler's
-        own ``main_context`` handling.
+        external reference. A secondary that does declare its own reference must
+        have that sidecar available just like any other external context.
         """
-        from ..onnx import is_compiled_onnx, load_onnx
+        from ..onnx import is_compiled_onnx
 
         # Structural gate. ``is_compiled_onnx`` normalises a corrupt / unreadable
         # file to ValueError (missing → OSError), so a garbage leftover from a
@@ -1612,51 +1609,84 @@ class GenaiSession:
         except (ValueError, OSError):
             return False
 
-        # Parseable and structurally an EPContext; verify the main context's
-        # external weights file is present (the load below cannot raise a parse
-        # error now that the structural gate has passed).
-        model = load_onnx(str(candidate), load_weights=False, validate=False)
-        for node in model.graph.node:
-            if node.op_type != "EPContext":
-                continue
-            embed_mode = 1
-            main_context = 1
-            cache_ref = ""
-            for attr in node.attribute:
-                if attr.name == "embed_mode":
-                    embed_mode = attr.i
-                elif attr.name == "main_context":
-                    main_context = attr.i
-                elif attr.name == "ep_cache_context":
-                    cache_ref = attr.s.decode("utf-8", "ignore")
-            # Secondary partitions share the main context's blob and carry no
-            # external reference of their own — nothing to validate.
-            if main_context == 0:
-                continue
-            if embed_mode == 0:
-                if not cache_ref:
-                    return False
-                ref_path = candidate.parent / cache_ref
-                try:
-                    if not ref_path.is_file() or ref_path.stat().st_size == 0:
-                        return False
-                except OSError:
-                    return False
+        try:
+            GenaiSession._epcontext_external_sidecars(candidate)
+        except (ValueError, OSError):
+            return False
         return True
 
     @staticmethod
-    def _promote_epcontext(src_ctx: Path, ctx_out: Path) -> None:
-        """Move a salvaged EPContext graph and its ``.bin`` sidecars to *ctx_out*.
+    def _epcontext_external_sidecars(candidate: Path) -> tuple[Path, ...]:
+        """Return validated external sidecars declared by an EPContext graph."""
+        from onnx import AttributeProto
 
-        External-weights sidecars are moved first, keeping their original names
-        so the graph's ``ep_cache_context`` reference resolves once everything
-        lives in *ctx_out*'s directory.
+        from ..onnx import load_onnx
+
+        model = load_onnx(str(candidate), load_weights=False, validate=False)
+        source_root = candidate.parent.resolve()
+        sidecars: dict[Path, None] = {}
+        for node in model.graph.node:
+            if node.op_type != "EPContext":
+                continue
+            attrs = {attr.name: attr for attr in node.attribute}
+            embed_mode = attrs.get("embed_mode")
+            if embed_mode is None:
+                continue
+            if embed_mode.type != AttributeProto.INT:
+                raise ValueError("EPContext embed_mode must be an integer")
+            if embed_mode.i != 0:
+                continue
+
+            main_context = attrs.get("main_context")
+            cache_attr = attrs.get("ep_cache_context")
+            is_secondary = (
+                main_context is not None
+                and main_context.type == AttributeProto.INT
+                and main_context.i == 0
+            )
+            if cache_attr is None and is_secondary:
+                continue
+            if cache_attr is None or cache_attr.type != AttributeProto.STRING:
+                raise ValueError("External EPContext node must have a string ep_cache_context")
+
+            try:
+                cache_ref = cache_attr.s.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ValueError("EPContext cache reference must be valid UTF-8") from exc
+            relative_ref = Path(cache_ref)
+            if not cache_ref or relative_ref.is_absolute() or relative_ref.drive:
+                raise ValueError(f"unsafe EPContext cache reference: {cache_ref!r}")
+
+            try:
+                sidecar = (source_root / relative_ref).resolve()
+                sidecar.relative_to(source_root)
+            except (OSError, ValueError) as exc:
+                raise ValueError(f"unsafe EPContext cache reference: {cache_ref!r}") from exc
+            if not sidecar.is_file() or sidecar.stat().st_size == 0:
+                raise FileNotFoundError(f"EPContext sidecar is unavailable: {sidecar}")
+            sidecars.setdefault(sidecar, None)
+
+        return tuple(sidecars)
+
+    @staticmethod
+    def _promote_epcontext(src_ctx: Path, ctx_out: Path) -> None:
+        """Move a salvaged EPContext graph and its external sidecars to *ctx_out*.
+
+        Sidecars are moved first while preserving each declared relative path so
+        every ``ep_cache_context`` reference resolves from the promoted graph.
         """
-        compiled_dir = ctx_out.parent
-        for sidecar in sorted(src_ctx.parent.glob(f"{src_ctx.stem}*.bin")):
-            dst_bin = compiled_dir / sidecar.name
-            if sidecar != dst_bin:
-                sidecar.replace(dst_bin)
+        source_root = src_ctx.parent.resolve()
+        compiled_root = ctx_out.parent.resolve()
+        for sidecar in GenaiSession._epcontext_external_sidecars(src_ctx):
+            relative_ref = sidecar.relative_to(source_root)
+            destination = (compiled_root / relative_ref).resolve()
+            try:
+                destination.relative_to(compiled_root)
+            except ValueError as exc:
+                raise ValueError(f"unsafe EPContext destination: {relative_ref}") from exc
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if sidecar != destination:
+                sidecar.replace(destination)
         src_ctx.replace(ctx_out)
 
     @classmethod

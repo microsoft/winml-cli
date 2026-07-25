@@ -894,6 +894,28 @@ def test_find_schematic_rejects_unbound_fresh_candidates(tmp_path, monkeypatch):
     assert monitor._find_schematic() is None
 
 
+def test_find_schematic_does_not_bind_exact_name_from_output_dir(tmp_path, monkeypatch):
+    """Profiling output may contain a stale sidecar from another context model."""
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    context_dir = tmp_path / "context"
+    output_dir = tmp_path / "output"
+    cwd_dir = tmp_path / "cwd"
+    context_dir.mkdir()
+    output_dir.mkdir()
+    cwd_dir.mkdir()
+    context_model = context_dir / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [("reused_partition_name", 1)])
+
+    monitor = QNNMonitor(level="detail", output_dir=output_dir)
+    monitor.set_running_model_path(context_model)
+    _profiling_csv_path(monitor).write_text("dummy", encoding="utf-8")
+    _schematic_for_partition(output_dir, "reused_partition_name").write_bytes(b"stale")
+
+    monkeypatch.chdir(cwd_dir)
+    assert monitor._find_schematic() is None
+
+
 def test_find_schematic_falls_back_to_exact_partition_in_cwd(tmp_path, monkeypatch):
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
@@ -1016,6 +1038,36 @@ def test_find_schematic_single_partition_without_main_context_is_accepted(tmp_pa
     exact.write_bytes(b"")
 
     assert monitor._find_schematic() == exact
+
+
+def test_find_schematic_single_non_main_partition_falls_back_to_basic(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    context_model = tmp_path / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [("secondary_partition", 0)])
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    monitor.set_running_model_path(context_model)
+    _profiling_csv_path(monitor).write_text("dummy", encoding="utf-8")
+    _schematic_for_partition(tmp_path, "secondary_partition").write_bytes(b"")
+
+    assert monitor._find_schematic() is None
+
+
+def test_find_schematic_malformed_main_context_falls_back_to_basic(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    context_model = tmp_path / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [("malformed_main_partition", None)])
+    model = load(str(context_model), load_external_data=False)
+    model.graph.node[0].attribute.append(helper.make_attribute("main_context", "not-an-integer"))
+    save_model(model, context_model)
+
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    monitor.set_running_model_path(context_model)
+    _profiling_csv_path(monitor).write_text("dummy", encoding="utf-8")
+    _schematic_for_partition(tmp_path, "malformed_main_partition").write_bytes(b"")
+
+    assert monitor._find_schematic() is None
 
 
 def test_try_qhas_uses_csv_bound_artifacts(tmp_path, monkeypatch):

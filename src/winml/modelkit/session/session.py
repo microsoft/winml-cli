@@ -555,6 +555,7 @@ class WinMLSession:
         Clears compiled session and error state.
         """
         self._session = None
+        self._running_model_path = None
         self._state = SessionState.INITIALIZED
         self._last_error = None
         logger.info("Session reset")
@@ -783,13 +784,16 @@ class WinMLSession:
         saved_state = self._state
         saved_last_error = self._last_error
         saved_running_model_path = self._running_model_path
-        active_model_path = saved_running_model_path or self._onnx_path
+        active_model_path = (
+            saved_running_model_path
+            if saved_session is not None and saved_running_model_path is not None
+            else self._onnx_path
+        )
 
-        # Inject ONNX context into the monitor *before* __enter__ so
-        # op-tracing monitors can prepare their state.
+        # Inject source ONNX context before rebuilding; the active runtime
+        # model path is injected after the monitored session is ready.
         effective_monitor.set_onnx_model_path(self._onnx_path)
         effective_monitor.set_onnx_op_types(self._build_op_type_map(self._onnx_path))
-        effective_monitor.set_running_model_path(active_model_path)
 
         desired_sess_entries = _overlay_options(
             saved_sess_entries,
@@ -829,6 +833,7 @@ class WinMLSession:
                 self._session = ort.InferenceSession(active_model_path, sess_options=so)
                 self._provider_options = new_prov
                 self._active_session_option_entries = desired_sess_entries
+            effective_monitor.set_running_model_path(active_model_path)
         except Exception:
             self._active_session_option_entries = saved_sess_entries
             self._provider_options = saved_prov
@@ -839,10 +844,6 @@ class WinMLSession:
             self._running_model_path = saved_running_model_path
             self._perf_stats = None
             raise
-
-        set_running_model_path = getattr(effective_monitor, "set_running_model_path", None)
-        if callable(set_running_model_path):
-            set_running_model_path(self._running_model_path or self._onnx_path)
 
         self._perf_stats = stats
 
@@ -911,13 +912,9 @@ class WinMLSession:
             self._perf_stats = None
             restore_error: Exception | None = None
 
-            # Rebuild baseline session only when we created a new session at
-            # the start of perf() (i.e. _session_rebuilt=True).  When the
-            # monitor contributed no options we reused the existing session —
-            # no teardown/rebuild needed (preserves the pre-perf InferenceSession
-            # object identity, which tests assert on). If the perf window was
-            # built from a no-session baseline, restore the exact no-session
-            # snapshot so the next compile() call really rebuilds.
+            # Rebuild a saved baseline only when monitor options caused an
+            # entry-time rebuild. A teardown-only monitor intentionally leaves
+            # the session reset; otherwise preserve the pre-perf identity.
             if _session_rebuilt and saved_session is not None:
                 try:
                     self._session = ort.InferenceSession(

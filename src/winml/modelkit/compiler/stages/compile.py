@@ -13,9 +13,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, cast
 
 import numpy as np
+from onnx import AttributeProto
 
 from ...onnx import load_onnx, save_onnx
-from ...onnx.epcontext import epcontext_partitions
+from ...onnx.epcontext import select_main_epcontext_partition_name
 from ...session import (
     EPDeviceTarget,
     WinMLEPRegistry,
@@ -356,56 +357,124 @@ class CompileStage(BaseStage):
         # Ensure output directory exists
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Copy EPContext to final location (if different)
-        if src_ctx_path != final_ctx_path:
+        # Validate every external context reference before publishing the final
+        # ONNX. The compiler work directory is temporary, so a skipped reference
+        # would leave a success-shaped model pointing at a deleted sidecar.
+        model = load_onnx(src_ctx_path, validate=False)
+        external_refs: dict[bytes, list[AttributeProto]] = {}
+        for node in model.graph.node:
+            if node.op_type != "EPContext":
+                continue
+            attrs = {a.name: a for a in node.attribute}
+            embed_mode = attrs.get("embed_mode")
+            main_context = attrs.get("main_context")
+            ep_cache_context = attrs.get("ep_cache_context")
+            if embed_mode is None:
+                continue
+            if embed_mode.type != AttributeProto.INT:
+                raise ValueError("EPContext embed_mode must be an integer")
+            if embed_mode.i != 0:
+                continue
+            is_secondary = (
+                main_context is not None
+                and main_context.type == AttributeProto.INT
+                and main_context.i == 0
+            )
+            if ep_cache_context is None and is_secondary:
+                continue
+            if ep_cache_context is None or ep_cache_context.type != AttributeProto.STRING:
+                raise ValueError("External EPContext node must have a string ep_cache_context")
+            external_refs.setdefault(ep_cache_context.s, []).append(ep_cache_context)
+
+        source_root = src_ctx_path.parent.resolve()
+        output_root = output_dir.resolve()
+        binary_exports: list[tuple[Path, Path, bytes, list[AttributeProto]]] = []
+        sources_by_final_binary: dict[Path, Path] = {}
+        for raw_ref, cache_attrs in external_refs.items():
+            try:
+                cache_ref = raw_ref.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ValueError("EPContext binary reference must be valid UTF-8") from exc
+
+            relative_ref = Path(cache_ref)
+            if not cache_ref or relative_ref.is_absolute() or relative_ref.drive:
+                raise ValueError(f"unsafe EPContext binary reference: {cache_ref!r}")
+
+            try:
+                source_binary = (source_root / relative_ref).resolve()
+                source_binary.relative_to(source_root)
+            except (OSError, ValueError) as exc:
+                raise ValueError(f"unsafe EPContext binary reference: {cache_ref!r}") from exc
+
+            try:
+                source_exists = source_binary.is_file()
+            except OSError as exc:
+                raise FileNotFoundError(
+                    f"EPContext binary is unavailable: {source_binary}"
+                ) from exc
+            if not source_exists:
+                raise FileNotFoundError(f"EPContext binary not found: {source_binary}")
+
+            final_relative_ref = relative_ref
+            if relative_ref.name.startswith(src_ctx_path.stem):
+                suffix = relative_ref.name[len(src_ctx_path.stem) :]
+                final_relative_ref = relative_ref.with_name(f"{final_ctx_path.stem}{suffix}")
+
+            final_binary = (output_root / final_relative_ref).resolve()
+            try:
+                final_binary.relative_to(output_root)
+            except ValueError as exc:
+                raise ValueError(f"unsafe EPContext binary reference: {cache_ref!r}") from exc
+
+            existing_source = sources_by_final_binary.get(final_binary)
+            if existing_source is not None and existing_source != source_binary:
+                raise ValueError(
+                    "Distinct EPContext binaries map to the same output path: "
+                    f"{existing_source}, {source_binary} -> {final_binary}"
+                )
+            sources_by_final_binary[final_binary] = source_binary
+            binary_exports.append(
+                (
+                    source_binary,
+                    final_binary,
+                    final_relative_ref.as_posix().encode("utf-8"),
+                    cache_attrs,
+                )
+            )
+
+        cache_refs_updated = False
+        first_final_binary: Path | None = None
+        for source_binary, final_binary, final_ref_bytes, cache_attrs in binary_exports:
+            final_binary.parent.mkdir(parents=True, exist_ok=True)
+            if source_binary != final_binary:
+                shutil.copy2(source_binary, final_binary)
+                context.log(f"Copied binary to: {final_binary}")
+            if first_final_binary is None:
+                first_final_binary = final_binary
+
+            for cache_attr in cache_attrs:
+                if cache_attr.s != final_ref_bytes:
+                    cache_attr.s = final_ref_bytes
+                    cache_refs_updated = True
+
+        if cache_refs_updated:
+            save_onnx(model, final_ctx_path)
+            context.log("Updated external EPContext binary references")
+        elif src_ctx_path != final_ctx_path:
             shutil.copy2(src_ctx_path, final_ctx_path)
             context.log(f"Copied EPContext to: {final_ctx_path}")
         else:
             context.log(f"EPContext already at: {final_ctx_path}")
 
         context.output_path = final_ctx_path
+        context.context_binary_path = first_final_binary
 
-        # Find and copy binary files (.bin, .onnx.bin, etc.)
-        bin_renamed = False
-        final_bin_name = None
-        for f in src_ctx_path.parent.iterdir():
-            if f.name.startswith(src_ctx_path.stem) and f.suffix == ".bin":
-                final_bin_name = f"{final_ctx_path.stem}{f.name[len(src_ctx_path.stem) :]}"
-                final_bin_path = output_dir / final_bin_name
-                if f != final_bin_path:
-                    shutil.copy2(f, final_bin_path)
-                    context.log(f"Copied binary to: {final_bin_path}")
-                    bin_renamed = True
-                context.context_binary_path = final_bin_path
-                break
-
-        # Update ep_cache_context in ONNX if bin was renamed (external mode)
-        if bin_renamed and final_bin_name:
-            model = load_onnx(final_ctx_path, validate=False)
-            for node in model.graph.node:
-                if node.op_type != "EPContext":
-                    continue
-                attrs = {a.name: a for a in node.attribute}
-                if "embed_mode" not in attrs or attrs["embed_mode"].i != 0:
-                    continue
-                if attrs.get("main_context") and attrs["main_context"].i == 0:
-                    continue
-                ep_cache_context = attrs.get("ep_cache_context")
-                if ep_cache_context:
-                    ep_cache_context.s = final_bin_name.encode("utf-8")
-                    save_onnx(model, final_ctx_path)
-                    context.log(f"Updated ep_cache_context: {final_bin_name}")
-                break
-
-        for partition in epcontext_partitions(final_ctx_path):
-            if partition.partition_name is None:
-                continue
-            schematic_name = f"{partition.partition_name}_schematic.bin"
+        partition_name = select_main_epcontext_partition_name(final_ctx_path)
+        if partition_name is not None:
+            schematic_name = f"{partition_name}_schematic.bin"
             src_schematic = src_ctx_path.parent / schematic_name
-            if not src_schematic.is_file():
-                continue
             final_schematic = output_dir / schematic_name
-            if src_schematic != final_schematic:
+            if src_schematic.is_file() and src_schematic != final_schematic:
                 shutil.copy2(src_schematic, final_schematic)
                 context.log(f"Copied schematic to: {final_schematic}")
 

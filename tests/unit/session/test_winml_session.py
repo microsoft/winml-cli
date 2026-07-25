@@ -429,10 +429,12 @@ class TestWinMLSessionStateManagement:
         # Run to transition to COMPILED
         session.run(sample_input)
         assert session.is_compiled
+        assert session._running_model_path is not None
 
         session.reset()
         assert session.state == SessionState.INITIALIZED
         assert not session.is_compiled
+        assert session._running_model_path is None
 
 
 class TestWinMLSessionMetadata:
