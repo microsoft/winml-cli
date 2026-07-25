@@ -1272,6 +1272,44 @@ class TestAnalyzeEPDeviceSelectionMatrix:
         assert mock_instance.analyze.call_args.kwargs["device"] == "GPU"
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_all_device_static_targets_do_not_require_local_inventory(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A static ``all`` fan-out must not depend on installed local EPs."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        inventory = Mock(side_effect=RuntimeError("registration failed"))
+        monkeypatch.setattr(
+            "winml.modelkit.commands.analyze._get_local_ep_device_pairs",
+            inventory,
+        )
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        result = runner.invoke(
+            analyze,
+            ["--model", str(model_file), "--ep", "qnn", "--device", "all"],
+        )
+
+        assert result.exit_code == 0
+        inventory.assert_not_called()
+        assert {
+            (call.kwargs["ep"], call.kwargs["device"])
+            for call in mock_instance.analyze.call_args_list
+        } == {
+            ("QNNExecutionProvider", "GPU"),
+            ("QNNExecutionProvider", "NPU"),
+        }
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
     def test_concrete_ep_auto_device_uses_exact_local_binding(
         self,
         mock_analyzer_class: MagicMock,
@@ -1560,14 +1598,17 @@ class TestAnalyzeEPDeviceSelectionMatrix:
                 [],
                 "no supported local binding",
             ),
-            # ep=qnn, device=all: expand only exact QNN bindings available locally.
-            # QNN is absent from the simulated local matrix.
+            # ep=qnn, device=all: `all` keeps the full static fan-out, so
+            # both catalog-supported QNN devices run without a local check.
             (
                 "qnn",
                 "all",
-                2,
-                [],
-                "no ep/device combination matched",
+                0,
+                [
+                    ("QNNExecutionProvider", "NPU"),
+                    ("QNNExecutionProvider", "GPU"),
+                ],
+                None,
             ),
             ("openvino", "gpu", 0, [("OpenVINOExecutionProvider", "GPU")], None),
             # ep=auto, device=all: best available EP *per device* rather than one
@@ -1584,17 +1625,24 @@ class TestAnalyzeEPDeviceSelectionMatrix:
                 ],
                 None,
             ),
-            # ep=all, device=all: all exact supported pairs available locally.
+            # ep=all, device=all: every static catalog-supported pair.
             (
                 "all",
                 "all",
                 0,
                 [
                     ("NvTensorRTRTXExecutionProvider", "GPU"),
+                    ("CUDAExecutionProvider", "GPU"),
+                    ("MIGraphXExecutionProvider", "GPU"),
+                    ("QNNExecutionProvider", "NPU"),
+                    ("QNNExecutionProvider", "GPU"),
                     ("OpenVINOExecutionProvider", "NPU"),
+                    ("OpenVINOExecutionProvider", "GPU"),
                     ("OpenVINOExecutionProvider", "CPU"),
+                    ("TensorrtExecutionProvider", "GPU"),
                     ("DmlExecutionProvider", "GPU"),
                     ("CPUExecutionProvider", "CPU"),
+                    ("VitisAIExecutionProvider", "NPU"),
                 ],
                 None,
             ),

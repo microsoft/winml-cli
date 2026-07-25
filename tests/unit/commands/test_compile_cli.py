@@ -11,6 +11,7 @@ No actual compilation or hardware EP registration is needed.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
@@ -316,4 +317,85 @@ class TestCompileCliConfigPriority:
         _assert_successful_compile_call(result, compile_cli_mocks, fake_onnx)
         compile_cli_mocks.resolve_device.assert_called_once_with(
             EPDeviceTarget(ep="auto", device="npu")
+        )
+
+    def test_serialized_config_target_preserves_source(
+        self, runner: CliRunner, fake_onnx: Path, compile_cli_mocks: CompileCliMocks
+    ) -> None:
+        """A serialized target source must survive the compile CLI config merge."""
+        target = EPDeviceTarget(
+            ep="OpenVINOExecutionProvider",
+            device="npu",
+            source="pypi",
+        )
+        config_path = fake_onnx.parent / "compile.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "compile": {
+                        "execution_provider": "openvino",
+                        "device": "npu",
+                        "ep_device": target.to_dict(),
+                    }
+                }
+            )
+        )
+
+        result = runner.invoke(compile, ["-m", str(fake_onnx), "--config", str(config_path)])
+
+        _assert_successful_compile_call(result, compile_cli_mocks, fake_onnx)
+        compile_cli_mocks.resolve_device.assert_called_once_with(
+            EPDeviceTarget(ep="openvino", device="npu", source="pypi")
+        )
+
+    def test_invalid_config_device_type_is_usage_error(
+        self, runner: CliRunner, fake_onnx: Path, compile_cli_mocks: CompileCliMocks
+    ) -> None:
+        """Non-string JSON devices must fail as user input, not an internal exception."""
+        config_path = fake_onnx.parent / "compile.json"
+        config_path.write_text(json.dumps({"compile": {"device": 1}}))
+
+        result = runner.invoke(compile, ["-m", str(fake_onnx), "--config", str(config_path)])
+
+        assert result.exit_code == 2
+        assert "compile.device must be a string" in result.output
+        compile_cli_mocks.resolve_device.assert_not_called()
+
+    def test_cli_ep_source_overrides_serialized_config_source(
+        self, runner: CliRunner, fake_onnx: Path, compile_cli_mocks: CompileCliMocks
+    ) -> None:
+        """An explicit CLI EP replaces both EP and source from serialized config."""
+        config_target = EPDeviceTarget(
+            ep="OpenVINOExecutionProvider",
+            device="npu",
+            source="pypi",
+        )
+        config_path = fake_onnx.parent / "compile.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "compile": {
+                        "execution_provider": "openvino",
+                        "device": "npu",
+                        "ep_device": config_target.to_dict(),
+                    }
+                }
+            )
+        )
+
+        result = runner.invoke(
+            compile,
+            [
+                "-m",
+                str(fake_onnx),
+                "--config",
+                str(config_path),
+                "--ep",
+                "qnn@nuget",
+            ],
+        )
+
+        _assert_successful_compile_call(result, compile_cli_mocks, fake_onnx)
+        compile_cli_mocks.resolve_device.assert_called_once_with(
+            EPDeviceTarget(ep="qnn", device="npu", source="nuget")
         )

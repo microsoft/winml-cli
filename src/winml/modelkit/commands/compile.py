@@ -178,15 +178,30 @@ def compile(
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
     config_provider_options: dict[str, str] = {}
     if config_file is not None:
-        _, raw_cfg = cli_utils.load_build_config(config_file)
+        try:
+            build_cfg, raw_cfg = cli_utils.load_build_config(config_file)
+        except (AttributeError, KeyError, TypeError, ValueError) as e:
+            raise click.UsageError(f"Invalid compile configuration: {e}") from e
         cc = raw_cfg.get("compile") or {}
+        configured_target = (
+            build_cfg.compile.ep_device
+            if build_cfg.compile is not None and "ep_device" in cc
+            else None
+        )
         # EP provider options (e.g. QNN htp_arch/soc_model/vtcm_mb) for the compile session.
         if "provider_options" in cc:
             config_provider_options = dict(cc["provider_options"])
-        if not cli_utils.is_cli_provided(ctx, "device") and "device" in cc:
-            device = cc["device"]
-        if not cli_utils.is_cli_provided(ctx, "ep") and "execution_provider" in cc:
-            ep_name = cc["execution_provider"]
+        if not cli_utils.is_cli_provided(ctx, "device"):
+            if configured_target is not None:
+                device = configured_target.device
+            if "device" in cc:
+                device = cc["device"]
+        if not cli_utils.is_cli_provided(ctx, "ep"):
+            if configured_target is not None:
+                ep_name = configured_target.ep
+                source_part = configured_target.source
+            if "execution_provider" in cc:
+                ep_name = cc["execution_provider"]
         if not cli_utils.is_cli_provided(ctx, "compiler") and "compiler" in cc:
             compiler = cc["compiler"]
         if not cli_utils.is_cli_provided(ctx, "embed") and "embed_context" in cc:
@@ -207,6 +222,12 @@ def compile(
 
     # Resolve EP+device at the CLI boundary (plan §C / Decision B).
     # device=None or "auto" both signal auto-detect via the resolver.
+    if device is not None and not isinstance(device, str):
+        raise click.UsageError(f"compile.device must be a string, got {type(device).__name__}")
+    if ep_name is not None and not isinstance(ep_name, str):
+        raise click.UsageError(
+            f"compile.execution_provider must be a string, got {type(ep_name).__name__}"
+        )
     _device_arg = "auto" if (device is None or device.lower() == "auto") else device.lower()
     try:
         ep_device_resolved = resolve_device(

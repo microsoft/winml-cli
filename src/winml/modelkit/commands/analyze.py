@@ -951,9 +951,7 @@ def analyze(
             None if ep in ("auto", "all") or ep is None else cast("EPNameOrAlias", ep)
         )
         concrete_requested_ep = None if ep_hint is None else normalize_ep_name(ep_hint)
-        needs_local_inventory = (
-            ep in (None, "auto", "all") or device in (None, "auto", "all") or run_unknown_op
-        )
+        needs_local_inventory = ep in (None, "auto") or device in (None, "auto") or run_unknown_op
         local_pair_list = (
             _sort_ep_device_pairs(_get_local_ep_device_pairs()) if needs_local_inventory else []
         )
@@ -1049,8 +1047,6 @@ def analyze(
                         for candidate_device in devices
                         if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
                     )
-                if ep == "all" or device == "all":
-                    execution_pairs = [pair for pair in execution_pairs if pair in local_pairs]
                 execution_pairs = _sort_ep_device_pairs(execution_pairs)
 
         if not execution_pairs:
