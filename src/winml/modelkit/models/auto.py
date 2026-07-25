@@ -403,8 +403,10 @@ class WinMLAutoModel:
                 if model_type is None:
                     from transformers import AutoConfig
 
-                    _hf_cfg = AutoConfig.from_pretrained(
-                        model_id, trust_remote_code=trust_remote_code
+                    from ..loader import load_hf_config
+
+                    _hf_cfg = load_hf_config(
+                        AutoConfig, model_id, trust_remote_code=trust_remote_code
                     )
                     _model_type = getattr(_hf_cfg, "model_type", None)
                 else:
@@ -477,7 +479,7 @@ class WinMLAutoModel:
         )
         from transformers import AutoConfig
 
-        from ..loader._autoconfig import load_hf_config
+        from ..loader import load_hf_config
 
         hf_config = load_hf_config(
             AutoConfig,

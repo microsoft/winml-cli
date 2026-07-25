@@ -22,6 +22,7 @@ import logging
 
 from transformers import AutoConfig
 
+from ..loader import load_hf_config
 from .resolver import (
     build_tensor_infos_from_io_specs,
     compile_support_status,
@@ -98,7 +99,7 @@ def inspect_model(
 
     # Step 1: Fetch HF config (no model download)
     try:
-        hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=False)
+        hf_config = load_hf_config(AutoConfig, model_id, trust_remote_code=False)
     except OSError as e:
         if "404" in str(e) or "not found" in str(e).lower():
             raise ModelNotFoundError(f"Model '{model_id}' not found on HuggingFace Hub") from e

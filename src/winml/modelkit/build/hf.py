@@ -351,10 +351,12 @@ def _load_model(
     if random_init:
         from transformers import AutoConfig
 
+        from ..loader import load_hf_config
+
         if hf_config is not None:
             pass
         elif model_id is not None:
-            hf_config = AutoConfig.from_pretrained(model_id)
+            hf_config = load_hf_config(AutoConfig, model_id, trust_remote_code=trust_remote_code)
         else:
             logger.warning(
                 "--random-init without --model falls back to AutoConfig.for_model() "

@@ -245,8 +245,10 @@ def save_local_model_configs(model_name_or_path: str, output_dir: Path, metadata
     try:
         from transformers import AutoConfig
 
+        from ..loader import load_hf_config
+
         # Save config
-        config = AutoConfig.from_pretrained(model_name_or_path)
+        config = load_hf_config(AutoConfig, model_name_or_path)
         config.save_pretrained(output_dir)
         logger.info(f"Saved config.json to {output_dir}")
 
@@ -368,7 +370,9 @@ def load_hf_components_from_onnx(onnx_path: str) -> tuple[Any, Any]:
             raise ValueError("ONNX model marked as Hub model but missing hf_hub_id metadata")
 
         # Load config from Hub
-        config = AutoConfig.from_pretrained(hf_hub_id, revision=hf_revision)
+        from ..loader import load_hf_config
+
+        config = load_hf_config(AutoConfig, hf_hub_id, revision=hf_revision)
 
         # Try to load preprocessor from Hub
         preprocessor = None
@@ -399,7 +403,7 @@ def load_hf_components_from_onnx(onnx_path: str) -> tuple[Any, Any]:
             )
 
         # Load config from local file
-        config = AutoConfig.from_pretrained(onnx_dir)
+        config = load_hf_config(AutoConfig, str(onnx_dir))
 
         # Try to load preprocessor from local files
         preprocessor = None

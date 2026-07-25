@@ -234,7 +234,7 @@ def test_cache_reuse_does_not_eagerly_load_hf_weights(
         lambda *_args, **_kwargs: build_config,
     )
     monkeypatch.setattr(
-        "winml.modelkit.loader._autoconfig.load_hf_config",
+        "winml.modelkit.loader.load_hf_config",
         lambda *_args, **_kwargs: hf_config,
     )
     monkeypatch.setattr(auto_module, "get_cache_dir", lambda **_kwargs: tmp_path)
@@ -287,7 +287,7 @@ def test_cache_key_matches_shared_helper(monkeypatch: pytest.MonkeyPatch, tmp_pa
         lambda *_args, **_kwargs: build_config,
     )
     monkeypatch.setattr(
-        "winml.modelkit.loader._autoconfig.load_hf_config",
+        "winml.modelkit.loader.load_hf_config",
         lambda *_args, **_kwargs: hf_config,
     )
     monkeypatch.setattr(auto_module, "get_cache_dir", lambda **_kwargs: tmp_path)

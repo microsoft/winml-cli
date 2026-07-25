@@ -211,10 +211,10 @@ def _resolve_hf_task(model_id: str, task: str | None) -> str | None:
     try:
         from transformers import AutoConfig
 
-        config = AutoConfig.from_pretrained(model_id)
-
+        from ..loader import load_hf_config
         from ..loader.resolution import resolve_task
 
+        config = load_hf_config(AutoConfig, model_id)
         return resolve_task(config).task
     except Exception as exc:
         logger.warning("Could not detect task for %s: %s", model_id, exc)

@@ -308,12 +308,14 @@ def _validate_task_supported_for_model(
         ValueError: If the task is not supported for the model architecture.
     """
     from ..export.io import ensure_hf_models_registered
+    from ..loader import load_hf_config
     from ..loader.task import TASK_SYNONYM_EXTENSIONS, get_supported_tasks, normalize_task
 
     if hf_config is None:
         from transformers import AutoConfig
 
-        hf_config = AutoConfig.from_pretrained(
+        hf_config = load_hf_config(
+            AutoConfig,
             model_id,
             trust_remote_code=trust_remote_code,
         )

@@ -269,7 +269,9 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCo
             # ignored here (mirrors winml perf's ONNX path).
             from transformers import AutoConfig
 
-            hf_config = AutoConfig.from_pretrained(config.model_id)
+            from ..loader import load_hf_config
+
+            hf_config = load_hf_config(AutoConfig, config.model_id)
             model = WinMLAutoModel.from_onnx(
                 # ``model_path`` is narrowed to ``str | dict[str, str]`` here;
                 # cast bridges dict value-type invariance (str vs str | Path).
@@ -333,9 +335,10 @@ def _resolve_task(config: WinMLEvaluationConfig) -> str:
 
         from transformers import AutoConfig
 
+        from ..loader import load_hf_config
         from ..loader.resolution import resolve_task
 
-        hf_config = AutoConfig.from_pretrained(config.model_id)
+        hf_config = load_hf_config(AutoConfig, config.model_id)
         task = resolve_task(hf_config).task
 
     console.print(f"[dim]Use[/dim] {task} [dim]to evaluate[/dim]")
