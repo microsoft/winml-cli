@@ -348,6 +348,7 @@ def load_hf_components_from_onnx(onnx_path: str) -> tuple[Any, Any]:
         AutoTokenizer,
     )
 
+    from ..loader import load_hf_config
     from ..onnx import load_onnx
 
     # Load ONNX model and extract metadata
@@ -370,8 +371,6 @@ def load_hf_components_from_onnx(onnx_path: str) -> tuple[Any, Any]:
             raise ValueError("ONNX model marked as Hub model but missing hf_hub_id metadata")
 
         # Load config from Hub
-        from ..loader import load_hf_config
-
         config = load_hf_config(AutoConfig, hf_hub_id, revision=hf_revision)
 
         # Try to load preprocessor from Hub

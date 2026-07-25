@@ -13,9 +13,10 @@ guard and ``except`` fallthrough are covered.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from winml.modelkit.utils import get_pipeline_tag
+from winml.modelkit.utils import get_pipeline_tag, load_hf_components_from_onnx
 
 
 _HF_API = "huggingface_hub.HfApi"
@@ -54,3 +55,23 @@ def test_get_pipeline_tag_swallows_api_error_and_returns_none() -> None:
     api.model_info.side_effect = ConnectionError("offline")
     with patch(_HF_API, return_value=api):
         assert get_pipeline_tag("someone/some-model") is None
+
+
+def test_load_hf_components_from_local_onnx_uses_compat_config_loader(tmp_path) -> None:
+    """Local metadata must reach the same Transformers 5-compatible config loader."""
+    onnx_path = tmp_path / "model.onnx"
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+    onnx_model = SimpleNamespace(
+        metadata_props=[SimpleNamespace(key="hf_model_type", value="local")]
+    )
+    config = object()
+    preprocessor = object()
+
+    with (
+        patch("winml.modelkit.onnx.load_onnx", return_value=onnx_model),
+        patch("winml.modelkit.loader.load_hf_config", return_value=config) as load_config,
+        patch("transformers.AutoProcessor.from_pretrained", return_value=preprocessor),
+    ):
+        assert load_hf_components_from_onnx(str(onnx_path)) == (config, preprocessor)
+
+    assert load_config.call_args.args[1] == str(tmp_path)
