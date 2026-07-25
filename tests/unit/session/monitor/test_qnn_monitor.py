@@ -122,6 +122,48 @@ def _write_named_profile(path: Path, operator_name: str) -> None:
     )
 
 
+def _write_minimal_qhas(path: Path, *, qnn_op: str = "/graph/FreshOp") -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "data": {
+                    "htp_overall_summary": {
+                        "data": [
+                            {
+                                "time_us": 10,
+                                "graph_execute_us": 10,
+                                "inf_per_s": 100,
+                                "timeline_cycles": 100,
+                                "percent_utilization": 25,
+                                "total_dram_read": 0,
+                                "total_dram_write": 0,
+                                "total_vtcm_read": 0,
+                                "total_vtcm_write": 0,
+                                "peak_vtcm_alloc": 0,
+                                "qnn_nodes": 1,
+                                "htp_nodes": 1,
+                                "unique_qnn_ops": 1,
+                                "unique_htp_ops": 1,
+                            }
+                        ]
+                    },
+                    "qnn_op_instances_nodes": {
+                        "data": [
+                            {
+                                "qnn_op": qnn_op,
+                                "qnn_op_type": "FreshOp",
+                                "cycles": 25,
+                                "percent_active_cycles": 25,
+                            }
+                        ]
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_ctor_defaults():
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
@@ -826,6 +868,90 @@ def test_find_schematic_selects_newest_fresh_output_candidate(tmp_path):
     os.utime(newer, (now, now))
 
     assert monitor._find_schematic() == newer
+
+
+def test_try_qhas_ignores_stale_qnn_log_and_uses_fresh_log(tmp_path, monkeypatch):
+    import os
+    import time
+
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    monitor._csv_path.write_text("dummy", encoding="utf-8")
+    stale = tmp_path / "a_stale_qnn.log"
+    stale.write_text("stale", encoding="utf-8")
+    old = time.time() - 3600
+    os.utime(stale, (old, old))
+
+    monitor.__enter__()
+    fresh = tmp_path / "z_fresh_qnn.log"
+    fresh.write_text("fresh", encoding="utf-8")
+    schematic = tmp_path / "graph_schematic.bin"
+    schematic.write_bytes(b"")
+    qhas_output = tmp_path / "qhas_output.json"
+
+    seen_logs: list[Path] = []
+
+    def _run_qhas_viewer(qnn_log: Path, _schematic: Path, output: Path, *, sdk_root: Path):
+        seen_logs.append(qnn_log)
+        _write_minimal_qhas(output)
+        return output
+
+    monkeypatch.setattr(
+        "winml.modelkit.session.monitor.qnn_monitor.find_qnn_sdk",
+        lambda: tmp_path,
+    )
+    monkeypatch.setattr(
+        "winml.modelkit.session.monitor.qnn_monitor.run_qhas_viewer",
+        _run_qhas_viewer,
+    )
+
+    summary, operators, result_path = monitor._try_qhas({})
+
+    assert seen_logs == [fresh]
+    assert summary is not None
+    assert operators is not None
+    assert result_path == qhas_output
+
+
+def test_try_qhas_selects_newest_fresh_qnn_log_deterministically(tmp_path, monkeypatch):
+    import os
+    import time
+
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    monitor._csv_path.write_text("dummy", encoding="utf-8")
+    monitor.__enter__()
+
+    older = tmp_path / "a_older_qnn.log"
+    newer = tmp_path / "z_newer_qnn.log"
+    older.write_text("older", encoding="utf-8")
+    newer.write_text("newer", encoding="utf-8")
+    now = time.time()
+    os.utime(older, (now - 1, now - 1))
+    os.utime(newer, (now, now))
+    (tmp_path / "graph_schematic.bin").write_bytes(b"")
+
+    seen_logs: list[Path] = []
+
+    def _run_qhas_viewer(qnn_log: Path, _schematic: Path, output: Path, *, sdk_root: Path):
+        seen_logs.append(qnn_log)
+        _write_minimal_qhas(output)
+        return output
+
+    monkeypatch.setattr(
+        "winml.modelkit.session.monitor.qnn_monitor.find_qnn_sdk",
+        lambda: tmp_path,
+    )
+    monkeypatch.setattr(
+        "winml.modelkit.session.monitor.qnn_monitor.run_qhas_viewer",
+        _run_qhas_viewer,
+    )
+
+    monitor._try_qhas({})
+
+    assert seen_logs == [newer]
 
 
 def test_find_schematic_returns_none_when_csv_metadata_cannot_be_read(tmp_path, monkeypatch):

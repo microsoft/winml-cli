@@ -144,6 +144,8 @@ class QNNMonitor(WinMLEPMonitor):
         self._entered: bool = False
         self._result: OpTraceResult | None = None
         self._csv_signature_at_enter: tuple[int, int, int, int, int] | None = None
+        self._qnn_log_signatures_at_enter: dict[Path, tuple[int, int, int, int, int]] = {}
+        self._monitor_enter_time_ns: int | None = None
         self._warmup_samples: int = 0
         self._expected_measured_samples: int | None = None
         # v2.4: ONNX node.name -> node.op_type map injected by WinMLSession.perf
@@ -270,6 +272,8 @@ class QNNMonitor(WinMLEPMonitor):
         if self._entered:
             raise RuntimeError("QNNMonitor already entered")
         self._csv_signature_at_enter = self._artifact_signature(self._csv_path)
+        self._qnn_log_signatures_at_enter = self._snapshot_qnn_log_signatures()
+        self._monitor_enter_time_ns = time.time_ns()
         self._entered = True
         return self
 
@@ -673,11 +677,10 @@ class QNNMonitor(WinMLEPMonitor):
             result_path = qhas_override
         else:
             # Live path: locate inputs and shell out to the QHAS viewer.
-            qnn_logs = list(self._output_dir.glob("*_qnn.log"))
-            if not qnn_logs:
+            qnn_log = self._select_fresh_qnn_log()
+            if qnn_log is None:
                 logger.debug("QNNMonitor: no *_qnn.log found for QHAS")
                 return None, None, None
-            qnn_log = qnn_logs[0]
 
             # Find the schematic (glob, never chdir).
             schematic = self._find_schematic()
@@ -736,6 +739,61 @@ class QNNMonitor(WinMLEPMonitor):
             for op in parsed.get("operators", [])
         ]
         return parsed.get("summary"), operators, result_path
+
+    def _snapshot_qnn_log_signatures(self) -> dict[Path, tuple[int, int, int, int, int]]:
+        """Capture existing QNN log metadata at monitor entry."""
+        try:
+            candidates = list(self._output_dir.glob("*_qnn.log"))
+        except OSError as exc:
+            logger.debug(
+                "QNNMonitor: unable to snapshot QNN logs in %s: %s",
+                self._output_dir,
+                exc,
+            )
+            return {}
+
+        signatures: dict[Path, tuple[int, int, int, int, int]] = {}
+        for candidate in candidates:
+            signature = self._artifact_signature(candidate)
+            if signature is not None:
+                signatures[candidate.resolve()] = signature
+        return signatures
+
+    def _select_fresh_qnn_log(self) -> Path | None:
+        """Return the freshest QNN log from this monitor window."""
+        try:
+            candidates = list(self._output_dir.glob("*_qnn.log"))
+        except OSError as exc:
+            logger.debug(
+                "QNNMonitor: unable to iterate %s for QNN log discovery: %s",
+                self._output_dir,
+                exc,
+            )
+            return None
+
+        fresh: list[tuple[int, str, Path]] = []
+        for candidate in candidates:
+            signature = self._artifact_signature(candidate)
+            if signature is None:
+                continue
+
+            resolved = candidate.resolve()
+            previous_signature = self._qnn_log_signatures_at_enter.get(resolved)
+            if previous_signature == signature:
+                continue
+
+            if self._monitor_enter_time_ns is not None:
+                # Reject files copied into the directory after entry but carrying
+                # an old filesystem mtime from a previous monitor run.
+                mtime_ns = signature[3]
+                if mtime_ns < self._monitor_enter_time_ns - 5_000_000_000:
+                    continue
+
+            fresh.append((signature[3], str(resolved), candidate))
+
+        if not fresh:
+            return None
+        return max(fresh, key=lambda item: (item[0], item[1]))[2]
 
     def _find_schematic(self) -> Path | None:
         """Locate ``*_schematic.bin`` without mutating CWD.

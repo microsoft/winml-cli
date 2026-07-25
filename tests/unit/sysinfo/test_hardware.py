@@ -23,6 +23,7 @@ they execute deterministically on any host (no real hardware required).
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -123,6 +124,27 @@ class TestGetAvailableDevices:
 
         assert "cpu" in devices
         assert devices == ["cpu"]
+
+    def test_probe_failures_warn_and_preserve_cpu_fallback(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """NPU/GPU probe exceptions must be visible at default warning level."""
+        with (
+            patch(
+                "winml.modelkit.sysinfo.hardware.NPU.get_all",
+                side_effect=RuntimeError("NPU WMI failed"),
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.GPU.get_all",
+                side_effect=RuntimeError("GPU WMI failed"),
+            ),
+            caplog.at_level(logging.WARNING, logger="winml.modelkit.sysinfo.hardware"),
+        ):
+            devices = get_available_devices()
+
+        assert devices == ["cpu"]
+        assert "NPU detection failed" in caplog.text
+        assert "GPU detection failed" in caplog.text
 
     def test_npu_detection_failure_falls_through(self) -> None:
         """If NPU detection raises, GPU and CPU still appear."""

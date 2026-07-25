@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from winml.modelkit.session.monitor.ep_monitor import NullEPMonitor, WinMLEPMonitor
+from winml.modelkit.session.monitor.ep_monitor import EPMonitor, NullEPMonitor, WinMLEPMonitor
 
 
 def test_null_monitor_default_get_session_options():
@@ -19,6 +19,19 @@ def test_null_monitor_default_get_session_options():
 def test_null_monitor_default_get_provider_options():
     """NullEPMonitor inherits empty provider-options default."""
     assert NullEPMonitor().get_provider_options() == {}
+
+
+def test_ep_monitor_alias_points_to_winml_ep_monitor():
+    """Legacy EPMonitor imports remain source-compatible."""
+    from winml.modelkit.session import EPMonitor as PublicEPMonitor
+
+    assert EPMonitor is WinMLEPMonitor
+    assert PublicEPMonitor is WinMLEPMonitor
+
+
+def test_null_monitor_to_dict_is_empty_dict():
+    """Legacy JSON callers treat NullEPMonitor as no monitor data."""
+    assert NullEPMonitor().to_dict() == {}
 
 
 def test_null_monitor_default_requires_teardown():

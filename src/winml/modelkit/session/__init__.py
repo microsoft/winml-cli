@@ -43,7 +43,7 @@ from .genai_session import (
     GenerationConfig,
     GenerationTiming,
 )
-from .monitor.ep_monitor import NullEPMonitor, WinMLEPMonitor
+from .monitor.ep_monitor import EPMonitor, NullEPMonitor, WinMLEPMonitor
 from .monitor.hw_monitor import HWMonitor
 from .monitor.qnn_monitor import QNNMonitor
 from .monitor.vitisai_monitor import VitisAIMonitor
@@ -64,6 +64,7 @@ __all__ = [
     "EPDeviceSpec",
     "EPDeviceTarget",
     "EPEntry",
+    "EPMonitor",
     "GenaiLoadError",
     "GenaiNotInstalledError",
     "GenaiSession",

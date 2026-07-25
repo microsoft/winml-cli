@@ -288,6 +288,21 @@ class TestPerfBenchmarkComposite:
             bench._run_sub_models()
         assert isinstance(excinfo.value.__cause__, ValueError)
 
+    def test_children_clear_op_tracing_when_composite_skips_it(self) -> None:
+        bench, _ = _composite_benchmark()
+        bench.config.op_tracing = "basic"
+
+        with patch.object(
+            PerfBenchmark,
+            "_run_benchmark_monitored",
+            side_effect=AssertionError("child should not run op-tracing"),
+        ):
+            results = bench._run_sub_models()
+
+        assert bench.config.op_tracing == "basic"
+        assert results
+        assert all(result.config.op_tracing is None for result in results.values())
+
     def test_empty_sub_models_returns_empty_dict(self) -> None:
         # Boundary: a composite with zero sub-models must not crash; it
         # yields an empty mapping that downstream reporting handles.

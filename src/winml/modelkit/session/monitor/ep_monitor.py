@@ -198,3 +198,10 @@ class NullEPMonitor(WinMLEPMonitor):
     def is_available(cls) -> bool:
         """Always available (it does nothing)."""
         return True
+
+    def to_dict(self) -> dict[str, Any]:
+        """Legacy serializer: Null monitor contributes no data."""
+        return {}
+
+
+EPMonitor = WinMLEPMonitor

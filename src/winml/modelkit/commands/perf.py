@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast, get_args
@@ -831,7 +831,7 @@ class PerfBenchmark:
         for name, sub in self._sub_models.items():
             logger.info("Benchmarking sub-model '%s'", name)
             Console(stderr=True).print(f"\n[bold]Sub-model:[/bold] {name}")
-            child = PerfBenchmark(self.config)
+            child = PerfBenchmark(replace(self.config, op_tracing=None))
             child._model = sub
             # A composite is resolved once (via the parent's _load_model); each
             # sub-model shares that resolved target. Copy the parent's resolved
@@ -2925,10 +2925,10 @@ def perf(
             console.print(f"[green]Results saved to:[/green] {output}")
             return
 
-        # Display results
-        if json_mode:
-            click.echo(json.dumps(result.to_dict(), indent=2))
-        else:
+        # Display text results immediately. JSON stdout is deferred until after
+        # op-trace failure validation so exit-4 paths cannot emit success-shaped
+        # benchmark JSON.
+        if not json_mode:
             display_console_report(result, console)
 
         # =================================================================
@@ -2978,6 +2978,9 @@ def perf(
                     "(QHAS unavailable; set QNN_SDK_ROOT to enable)."
                 )
 
+            if json_mode:
+                click.echo(json.dumps(result.to_dict(), indent=2))
+
             # Op-trace status is valid (ok or basic_fallback) — safe to write
             # the benchmark JSON now.  Writing after the guard means a failed
             # op-trace (exit 4 above) leaves no JSON artifact on disk.
@@ -3001,6 +3004,8 @@ def perf(
                 profiling_csv=profiling_csv,
             )
         else:
+            if json_mode:
+                click.echo(json.dumps(result.to_dict(), indent=2))
             # No op-tracing: write JSON immediately after the console report.
             write_json_report(result, output)
             console.print(f"[green]Results saved to:[/green] {output}")

@@ -2,6 +2,13 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+from .device import (
+    get_device_ep_map,
+    get_ep_device_map,
+    resolve_check_device_ep,
+    resolve_device,
+    resolve_eps,
+)
 from .hardware import CPU, GPU, NPU, get_available_devices
 from .software import OS
 from .sysinfo import SysInfo
@@ -14,4 +21,9 @@ __all__ = [
     "OS",
     "SysInfo",
     "get_available_devices",
+    "get_device_ep_map",
+    "get_ep_device_map",
+    "resolve_check_device_ep",
+    "resolve_device",
+    "resolve_eps",
 ]

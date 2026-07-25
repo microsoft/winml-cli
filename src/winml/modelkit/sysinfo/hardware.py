@@ -25,13 +25,13 @@ def get_available_devices() -> list[str]:
         if NPU.get_all():
             devices.append("npu")
     except Exception:
-        logger.debug("NPU detection failed or unavailable")
+        logger.warning("NPU detection failed or unavailable; continuing without NPU", exc_info=True)
 
     try:
         if GPU.get_all():
             devices.append("gpu")
     except Exception:
-        logger.debug("GPU detection failed or unavailable")
+        logger.warning("GPU detection failed or unavailable; continuing without GPU", exc_info=True)
 
     devices.append("cpu")  # CPU always available
     return devices
