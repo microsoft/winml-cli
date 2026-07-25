@@ -543,33 +543,27 @@ def _get_local_ep_device_pairs() -> list[tuple[EPName, str]]:
     """
     pairs: set[tuple[EPName, str]] = set()
 
-    try:
-        from .. import winml
+    from .. import winml
 
-        for registered_ep_device in winml.get_registered_ep_devices():
-            ep_name_raw = str(getattr(registered_ep_device, "ep_name", ""))
-            if not ep_name_raw or ep_name_raw.endswith(".AUTO"):
-                continue
+    for registered_ep_device in winml.get_registered_ep_devices():
+        ep_name_raw = str(getattr(registered_ep_device, "ep_name", ""))
+        if not ep_name_raw or ep_name_raw.endswith(".AUTO"):
+            continue
 
-            # ep_name_raw is an arbitrary attribute string from ORT; cast lets
-            # normalize_ep_name (typed for EPNameOrAlias | None) accept it.
-            # Unknown values return None and get filtered below.
-            ep_name = normalize_ep_name(cast("EPNameOrAlias", ep_name_raw))
-            if ep_name is None or ep_name not in SUPPORTED_EPS:
-                continue
+        # ep_name_raw is an arbitrary attribute string from ORT; cast lets
+        # normalize_ep_name (typed for EPNameOrAlias | None) accept it.
+        # Unknown values return None and get filtered below.
+        ep_name = normalize_ep_name(cast("EPNameOrAlias", ep_name_raw))
+        if ep_name is None or ep_name not in SUPPORTED_EPS:
+            continue
 
-            device_obj = getattr(registered_ep_device, "device", None)
-            device_type = getattr(device_obj, "type", None)
-            device_name = DEVICE_TYPE_TO_DEVICE.get(device_type)
-            if device_name is None:
-                continue
+        device_obj = getattr(registered_ep_device, "device", None)
+        device_type = getattr(device_obj, "type", None)
+        device_name = DEVICE_TYPE_TO_DEVICE.get(device_type)
+        if device_name is None:
+            continue
 
-            pairs.add((ep_name, device_name.upper()))
-    except Exception:
-        logger.debug(
-            "Failed to query local EP/device pairs via ort.get_ep_devices()",
-            exc_info=True,
-        )
+        pairs.add((ep_name, device_name.upper()))
 
     return _sort_ep_device_pairs(pairs)
 
@@ -957,7 +951,12 @@ def analyze(
             None if ep in ("auto", "all") or ep is None else cast("EPNameOrAlias", ep)
         )
         concrete_requested_ep = None if ep_hint is None else normalize_ep_name(ep_hint)
-        local_pair_list = _sort_ep_device_pairs(_get_local_ep_device_pairs())
+        needs_local_inventory = (
+            ep in (None, "auto", "all") or device in (None, "auto", "all") or run_unknown_op
+        )
+        local_pair_list = (
+            _sort_ep_device_pairs(_get_local_ep_device_pairs()) if needs_local_inventory else []
+        )
         supported_local_pair_list = _sort_ep_device_pairs(
             _filter_supported_local_ep_device_pairs(local_pair_list)
         )
@@ -1050,19 +1049,22 @@ def analyze(
                         for candidate_device in devices
                         if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
                     )
+                if ep == "all" or device == "all":
+                    execution_pairs = [pair for pair in execution_pairs if pair in local_pairs]
                 execution_pairs = _sort_ep_device_pairs(execution_pairs)
 
         if not execution_pairs:
             raise click.UsageError("No EP/device combination matched the current selection.")
 
         logger.info("Analyzing model: %s", model)
-        logger.info(
-            "Local targets: %s",
-            ", ".join(
-                _ep_name_device_display_name(candidate_ep, candidate_device)
-                for candidate_ep, candidate_device in local_pair_list
-            ),
-        )
+        if needs_local_inventory:
+            logger.info(
+                "Local targets: %s",
+                ", ".join(
+                    _ep_name_device_display_name(candidate_ep, candidate_device)
+                    for candidate_ep, candidate_device in local_pair_list
+                ),
+            )
         logger.info(
             "Execution targets: %s",
             ", ".join(

@@ -94,6 +94,14 @@ class WinMLCompileConfig:
     # EPContext filenames with the actual runtime-resolved device).
     ep_device: "EPDeviceTarget | None" = None
 
+    def __post_init__(self) -> None:
+        """Normalize serialized resolved-target overrides at construction."""
+        raw_ep_device: Any = self.ep_device
+        if isinstance(raw_ep_device, dict):
+            from ..session import EPDeviceTarget
+
+            self.ep_device = EPDeviceTarget.from_dict(raw_ep_device)
+
     @property
     def device(self) -> str:
         """Get device/provider name for backward compatibility."""

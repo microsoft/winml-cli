@@ -12,6 +12,7 @@ from winml.modelkit.compiler import (
     EPConfig,
     WinMLCompileConfig,
 )
+from winml.modelkit.config import merge_config
 
 
 class TestEPConfig:
@@ -185,6 +186,23 @@ class TestCompileConfig:
 
         restored = WinMLCompileConfig.from_dict(serialized)
         assert restored.ep_device == target
+
+    def test_merge_config_deserializes_ep_device_override(self) -> None:
+        """Dictionary overrides retain a typed resolved EP/device/source binding."""
+        from winml.modelkit.session import EPDeviceTarget
+
+        target = EPDeviceTarget(
+            ep="QNNExecutionProvider",
+            device="npu",
+            source="bundled",
+        )
+        merged = merge_config(
+            WinMLCompileConfig.for_qnn(),
+            {"ep_device": target.to_dict()},
+        )
+
+        assert merged.ep_device == target
+        assert merged.to_dict()["ep_device"] == target.to_dict()
 
 
 class TestCompileConfigUsagePatterns:

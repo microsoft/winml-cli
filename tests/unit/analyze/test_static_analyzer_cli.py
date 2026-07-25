@@ -162,6 +162,19 @@ def test_local_ep_device_pairs_use_cli_device_casing(monkeypatch: pytest.MonkeyP
     assert _get_local_ep_device_pairs() == [("DmlExecutionProvider", "GPU")]
 
 
+def test_local_ep_device_pair_query_propagates_registration_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Registration failures must not be reported as an empty local inventory."""
+    monkeypatch.setattr(
+        "winml.modelkit.winml.get_registered_ep_devices",
+        Mock(side_effect=RuntimeError("registration failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="registration failed"):
+        _get_local_ep_device_pairs()
+
+
 @pytest.fixture
 def runner() -> CliRunner:
     """Create a CLI test runner."""
@@ -1225,6 +1238,40 @@ class TestAnalyzeEPDeviceSelectionMatrix:
     """Matrix tests for EP/device resolution with fixed local availability."""
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_explicit_pair_does_not_require_local_inventory(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A concrete static target remains usable when local registration fails."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        inventory = Mock(side_effect=RuntimeError("registration failed"))
+        monkeypatch.setattr(
+            "winml.modelkit.commands.analyze._get_local_ep_device_pairs",
+            inventory,
+        )
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        result = runner.invoke(
+            analyze,
+            ["--model", str(model_file), "--ep", "openvino", "--device", "gpu"],
+        )
+
+        assert result.exit_code == 0
+        inventory.assert_not_called()
+        mock_instance.analyze.assert_called_once()
+        assert mock_instance.analyze.call_args.kwargs["ep"] == "OpenVINOExecutionProvider"
+        assert mock_instance.analyze.call_args.kwargs["device"] == "GPU"
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
     def test_concrete_ep_auto_device_uses_exact_local_binding(
         self,
         mock_analyzer_class: MagicMock,
@@ -1513,17 +1560,14 @@ class TestAnalyzeEPDeviceSelectionMatrix:
                 [],
                 "no supported local binding",
             ),
-            # ep=qnn, device=all: `all` keeps the full fan-out (no local check),
-            # so both QNN-supported devices run unchanged.
+            # ep=qnn, device=all: expand only exact QNN bindings available locally.
+            # QNN is absent from the simulated local matrix.
             (
                 "qnn",
                 "all",
-                0,
-                [
-                    ("QNNExecutionProvider", "NPU"),
-                    ("QNNExecutionProvider", "GPU"),
-                ],
-                None,
+                2,
+                [],
+                "no ep/device combination matched",
             ),
             ("openvino", "gpu", 0, [("OpenVINOExecutionProvider", "GPU")], None),
             # ep=auto, device=all: best available EP *per device* rather than one
@@ -1540,24 +1584,17 @@ class TestAnalyzeEPDeviceSelectionMatrix:
                 ],
                 None,
             ),
-            # ep=all, device=all: every (ep, device) combo allowed by EP_SUPPORTED_DEVICES.
+            # ep=all, device=all: all exact supported pairs available locally.
             (
                 "all",
                 "all",
                 0,
                 [
                     ("NvTensorRTRTXExecutionProvider", "GPU"),
-                    ("CUDAExecutionProvider", "GPU"),
-                    ("MIGraphXExecutionProvider", "GPU"),
-                    ("QNNExecutionProvider", "NPU"),
-                    ("QNNExecutionProvider", "GPU"),
                     ("OpenVINOExecutionProvider", "NPU"),
-                    ("OpenVINOExecutionProvider", "GPU"),
                     ("OpenVINOExecutionProvider", "CPU"),
-                    ("TensorrtExecutionProvider", "GPU"),
                     ("DmlExecutionProvider", "GPU"),
                     ("CPUExecutionProvider", "CPU"),
-                    ("VitisAIExecutionProvider", "NPU"),
                 ],
                 None,
             ),
