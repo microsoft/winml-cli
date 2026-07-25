@@ -57,6 +57,7 @@ Cache-type gotchas (lessons learned):
 
 from __future__ import annotations
 
+import copy
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
@@ -259,26 +260,108 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
 
         decoder_input_ids = kwargs.get("decoder_input_ids")
         prompt_length = (
-            decoder_input_ids.shape[1]
+            int(decoder_input_ids.shape[1])
             if isinstance(decoder_input_ids, torch.Tensor) and decoder_input_ids.ndim == 2
             else 1
         )
-        remaining_capacity = self._max_dec - prompt_length
+        cache_capacity = int(self._max_dec)
+        remaining_capacity = cache_capacity - prompt_length
         if remaining_capacity < 1:
             raise ValueError(
                 "Decoder prompt length exhausts the static KV cache; "
                 "no generation capacity remains."
             )
 
+        caller_generation_config = kwargs.get("generation_config")
+        direct_max_new_tokens_supplied = "max_new_tokens" in kwargs
         requested_max_new_tokens = kwargs.get("max_new_tokens")
-        if requested_max_new_tokens is None:
-            generation_config = kwargs.get("generation_config") or self.generation_config
-            requested_max_new_tokens = getattr(generation_config, "max_new_tokens", None)
-        kwargs["max_new_tokens"] = (
-            min(requested_max_new_tokens, remaining_capacity)
-            if isinstance(requested_max_new_tokens, int)
-            else remaining_capacity
+        if isinstance(requested_max_new_tokens, int):
+            kwargs["max_new_tokens"] = min(requested_max_new_tokens, remaining_capacity)
+            return GenerationMixin.generate(cast("Any", self), *args, **kwargs)
+
+        caller_max_new_tokens = (
+            getattr(caller_generation_config, "max_new_tokens", None)
+            if caller_generation_config is not None
+            else None
         )
+        if not direct_max_new_tokens_supplied and isinstance(caller_max_new_tokens, int):
+            if caller_max_new_tokens > remaining_capacity:
+                assert caller_generation_config is not None
+                bounded_config = copy.deepcopy(caller_generation_config)
+                bounded_config.max_new_tokens = min(caller_max_new_tokens, remaining_capacity)
+                kwargs["generation_config"] = bounded_config
+            return GenerationMixin.generate(cast("Any", self), *args, **kwargs)
+
+        def _budget_for_max_length(max_length: int) -> int:
+            budget = min(max_length, cache_capacity) - prompt_length
+            if budget < 1:
+                raise ValueError("max_length must exceed the decoder prompt length for generation.")
+            return budget
+
+        direct_max_length_supplied = "max_length" in kwargs
+        requested_max_length = kwargs.get("max_length")
+        if isinstance(requested_max_length, int):
+            budget = _budget_for_max_length(requested_max_length)
+            if caller_generation_config is not None:
+                bounded_config = copy.deepcopy(caller_generation_config)
+                bounded_config.max_length = None
+                bounded_config.max_new_tokens = budget
+                kwargs["generation_config"] = bounded_config
+                kwargs["max_length"] = None
+            else:
+                kwargs.pop("max_length")
+                kwargs["max_new_tokens"] = budget
+            return GenerationMixin.generate(cast("Any", self), *args, **kwargs)
+
+        caller_max_length = (
+            getattr(caller_generation_config, "max_length", None)
+            if caller_generation_config is not None
+            else None
+        )
+        if not direct_max_length_supplied and isinstance(caller_max_length, int):
+            assert caller_generation_config is not None
+            bounded_config = copy.deepcopy(caller_generation_config)
+            bounded_config.max_length = None
+            bounded_config.max_new_tokens = _budget_for_max_length(caller_max_length)
+            kwargs["generation_config"] = bounded_config
+            return GenerationMixin.generate(cast("Any", self), *args, **kwargs)
+
+        model_max_new_tokens = getattr(self.generation_config, "max_new_tokens", None)
+        if not direct_max_new_tokens_supplied and isinstance(model_max_new_tokens, int):
+            if model_max_new_tokens > remaining_capacity:
+                if caller_generation_config is not None:
+                    bounded_config = copy.deepcopy(caller_generation_config)
+                    bounded_config.max_new_tokens = remaining_capacity
+                    kwargs["generation_config"] = bounded_config
+                else:
+                    kwargs["max_new_tokens"] = remaining_capacity
+            return GenerationMixin.generate(cast("Any", self), *args, **kwargs)
+
+        from transformers import GenerationConfig
+
+        model_max_length = getattr(self.generation_config, "max_length", None)
+        default_max_length = GenerationConfig().max_length
+        if (
+            not direct_max_length_supplied
+            and isinstance(model_max_length, int)
+            and model_max_length != default_max_length
+        ):
+            bounded_config = copy.deepcopy(
+                caller_generation_config
+                if caller_generation_config is not None
+                else self.generation_config
+            )
+            bounded_config.max_length = None
+            bounded_config.max_new_tokens = _budget_for_max_length(model_max_length)
+            kwargs["generation_config"] = bounded_config
+            return GenerationMixin.generate(cast("Any", self), *args, **kwargs)
+
+        if caller_generation_config is not None:
+            bounded_config = copy.deepcopy(caller_generation_config)
+            bounded_config.max_new_tokens = remaining_capacity
+            kwargs["generation_config"] = bounded_config
+        else:
+            kwargs["max_new_tokens"] = remaining_capacity
         return GenerationMixin.generate(cast("Any", self), *args, **kwargs)
 
     def _validate_model_kwargs(self, model_kwargs: dict[str, Any]) -> None:
