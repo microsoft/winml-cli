@@ -120,9 +120,9 @@ def run_qhas_viewer(
         logger.warning("Schematic file not found: %s", schematic)
         return None
 
-    # Write config to a temporary JSON next to the output.
+    # Write the config next to the output and bind it to that run's artifact stem.
     cfg = config if config is not None else _DEFAULT_CONFIG
-    config_path = output.parent / "optrace_config.json"
+    config_path = output.with_name(f"{output.stem}_optrace_config.json")
     config_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
     cmd = [
