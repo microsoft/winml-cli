@@ -789,6 +789,7 @@ class WinMLSession:
         # op-tracing monitors can prepare their state.
         effective_monitor.set_onnx_model_path(self._onnx_path)
         effective_monitor.set_onnx_op_types(self._build_op_type_map(self._onnx_path))
+        effective_monitor.set_running_model_path(active_model_path)
 
         desired_sess_entries = _overlay_options(
             saved_sess_entries,

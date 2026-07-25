@@ -15,6 +15,9 @@ v2.4 additions (purely additive — see design spec
 * :meth:`WinMLEPMonitor.set_onnx_op_types` — concrete no-op default; op-tracing
   monitors override to receive an injected ``node.name -> node.op_type`` map
   built once by :class:`WinMLSession`.
+* :meth:`WinMLEPMonitor.set_running_model_path` — concrete no-op default;
+  artifact resolvers override to receive the actual runtime model separately
+  from the original graph used for metadata enrichment.
 * :meth:`WinMLEPMonitor.set_perf_window` — concrete no-op default; monitors
   that emit one artifact sample per run can align their parsing with
   ``PerfStats`` warmup exclusion.
@@ -125,6 +128,13 @@ class WinMLEPMonitor(ABC):
 
         Default: no-op. Monitors that optionally inspect the full graph
         override this hook; all other monitors remain unaffected.
+        """
+
+    def set_running_model_path(self, running_model_path: Path) -> None:  # noqa: B027 - intentional no-op default; artifact monitors override
+        """Inject the model artifact loaded by the runtime before monitor entry.
+
+        Default: no-op. Artifact resolvers override this hook when the active
+        EPContext or cached model may differ from the original ONNX graph.
         """
 
     def set_perf_window(self, warmup: int, measured_iterations: int) -> None:  # noqa: B027 - intentional no-op default; sampling monitors override

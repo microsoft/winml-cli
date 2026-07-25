@@ -808,6 +808,60 @@ def test_perf_injects_onnx_model_path_before_monitor_enter():
     assert order == ["set_onnx_model_path", "__enter__"]
 
 
+def test_perf_injects_running_model_path_for_compiled_and_runtime_sessions():
+    """Monitors receive the active artifact separately from the original graph."""
+    from pathlib import Path
+
+    from winml.modelkit.session.monitor.ep_monitor import NullEPMonitor
+
+    class _RecordingMonitor(NullEPMonitor):
+        def __init__(self):
+            self.onnx_model_paths: list[Path] = []
+            self.running_model_paths: list[Path] = []
+            self.order: list[str] = []
+
+        def set_onnx_model_path(self, onnx_model_path: Path) -> None:
+            self.onnx_model_paths.append(Path(onnx_model_path))
+            self.order.append("set_onnx_model_path")
+
+        def set_running_model_path(self, running_model_path: Path) -> None:
+            self.running_model_paths.append(Path(running_model_path))
+            self.order.append("set_running_model_path")
+
+        def __enter__(self):
+            self.order.append("__enter__")
+            return self
+
+    original_path = Path(get_minimal_onnx_model_path())
+    compiled_path = original_path.with_name(f"{original_path.stem}_ctx.onnx")
+
+    compiled_session = _make_cpu_session(original_path)
+    compiled_session._running_model_path = compiled_path
+    compiled_monitor = _RecordingMonitor()
+    with compiled_session.perf(monitor=compiled_monitor):
+        pass
+
+    runtime_session = _make_cpu_session(original_path)
+    runtime_monitor = _RecordingMonitor()
+    with runtime_session.perf(monitor=runtime_monitor):
+        pass
+
+    assert compiled_monitor.onnx_model_paths == [original_path]
+    assert compiled_monitor.running_model_paths == [compiled_path]
+    assert compiled_monitor.order == [
+        "set_onnx_model_path",
+        "set_running_model_path",
+        "__enter__",
+    ]
+    assert runtime_monitor.onnx_model_paths == [original_path]
+    assert runtime_monitor.running_model_paths == [original_path]
+    assert runtime_monitor.order == [
+        "set_onnx_model_path",
+        "set_running_model_path",
+        "__enter__",
+    ]
+
+
 def test_perf_provides_completed_window_before_monitor_exit():
     from winml.modelkit.session.monitor.ep_monitor import NullEPMonitor
 
