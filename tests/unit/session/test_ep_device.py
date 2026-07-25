@@ -676,6 +676,90 @@ def test_resolve_device_device_only_picks_registered_ep() -> None:
     assert result.device == "npu"
 
 
+def test_resolve_device_both_auto_skips_unknown_listing_pick_and_keeps_source() -> None:
+    """UnknownListingPick should skip a source-missing candidate in auto/auto."""
+    import contextlib
+
+    from winml.modelkit.session import EP_DEVICE_SPECS, UnknownListingPick
+    from winml.modelkit.session.ep_registry import WinMLEPRegistry
+
+    device = "npu"
+    source = "pypi"
+    device_candidates = list(
+        dict.fromkeys(spec.ep for spec in EP_DEVICE_SPECS if spec.device == device)
+    )
+    first_ep, second_ep = device_candidates[:2]
+    available = frozenset({first_ep, second_ep})
+    compatibility = {first_ep: True, second_ep: True}
+    registry = MagicMock()
+    registry.available_eps.return_value = available
+    seen: list[EPDeviceTarget] = []
+
+    def validate_device(candidate: EPDeviceTarget) -> object:
+        seen.append(candidate)
+        if candidate.ep == first_ep:
+            raise UnknownListingPick(candidate.ep, source)
+        if candidate.ep == second_ep:
+            return object()
+        raise AssertionError(f"Unexpected candidate {candidate!r}")
+
+    registry.auto_device.side_effect = validate_device
+
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(patch.object(WinMLEPRegistry, "instance", return_value=registry))
+        for cm in _patch_ep_catalog_compat(compatibility):
+            stack.enter_context(cm)
+        result = resolve_device(EPDeviceTarget(ep="auto", device="auto", source=source))
+
+    assert seen == [
+        EPDeviceTarget(ep=first_ep, device=device, source=source),
+        EPDeviceTarget(ep=second_ep, device=device, source=source),
+    ]
+    assert result == EPDeviceTarget(ep=second_ep, device=device, source=source)
+
+
+def test_resolve_device_ep_auto_skips_unknown_listing_pick_and_keeps_source() -> None:
+    """UnknownListingPick should skip a source-missing candidate in ep/auto."""
+    import contextlib
+
+    from winml.modelkit.session import EP_DEVICE_SPECS, UnknownListingPick
+    from winml.modelkit.session.ep_registry import WinMLEPRegistry
+
+    device = "npu"
+    source = "pypi"
+    device_candidates = list(
+        dict.fromkeys(spec.ep for spec in EP_DEVICE_SPECS if spec.device == device)
+    )
+    first_ep, second_ep = device_candidates[:2]
+    available = frozenset({first_ep, second_ep})
+    compatibility = {first_ep: True, second_ep: True}
+    registry = MagicMock()
+    registry.available_eps.return_value = available
+    seen: list[EPDeviceTarget] = []
+
+    def validate_device(candidate: EPDeviceTarget) -> object:
+        seen.append(candidate)
+        if candidate.ep == first_ep:
+            raise UnknownListingPick(candidate.ep, source)
+        if candidate.ep == second_ep:
+            return object()
+        raise AssertionError(f"Unexpected candidate {candidate!r}")
+
+    registry.auto_device.side_effect = validate_device
+
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(patch.object(WinMLEPRegistry, "instance", return_value=registry))
+        for cm in _patch_ep_catalog_compat(compatibility):
+            stack.enter_context(cm)
+        result = resolve_device(EPDeviceTarget(ep="auto", device=device, source=source))
+
+    assert seen == [
+        EPDeviceTarget(ep=first_ep, device=device, source=source),
+        EPDeviceTarget(ep=second_ep, device=device, source=source),
+    ]
+    assert result == EPDeviceTarget(ep=second_ep, device=device, source=source)
+
+
 def test_ep_device_spec_is_frozen() -> None:
     """EPDeviceSpec is frozen — mutation raises FrozenInstanceError."""
     from dataclasses import FrozenInstanceError

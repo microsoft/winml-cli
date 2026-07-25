@@ -159,6 +159,7 @@ class TestCompileConfig:
         assert config.ep_config.provider_options == {"htp_performance_mode": "default"}
         assert config.ep_config.enable_ep_context is True
         assert config.validate is True
+        assert config.ep_device is None
 
     def test_roundtrip(self):
         """Test to_dict -> from_dict roundtrip."""
@@ -170,6 +171,20 @@ class TestCompileConfig:
         assert restored.ep_config.provider == original.ep_config.provider
         assert restored.ep_config.enable_ep_context == original.ep_config.enable_ep_context
         assert restored.validate == original.validate
+
+    def test_roundtrip_preserves_ep_device(self) -> None:
+        """Round-trip retains the resolved EP/device/source binding."""
+        from winml.modelkit.session import EPDeviceTarget
+
+        target = EPDeviceTarget(ep="QNNExecutionProvider", device="npu", source="bundled")
+        config = WinMLCompileConfig.for_ep_device(target)
+
+        assert config is not None
+        serialized = config.to_dict()
+        assert serialized["ep_device"] == target.to_dict()
+
+        restored = WinMLCompileConfig.from_dict(serialized)
+        assert restored.ep_device == target
 
 
 class TestCompileConfigUsagePatterns:
@@ -303,3 +318,18 @@ class TestForProvider:
         assert config is not None
         assert config.ep_config.device == "npu"
         assert config.ep_config.provider_options["device_type"] == "NPU"
+
+    def test_for_ep_device_normalizes_duck_typed_target_for_serialization(self) -> None:
+        """Duck-typed targets accepted by the factory remain serializable."""
+        from types import SimpleNamespace
+
+        config = WinMLCompileConfig.for_ep_device(
+            SimpleNamespace(ep="QNNExecutionProvider", device="npu", source="pypi")
+        )
+
+        assert config is not None
+        assert config.to_dict()["ep_device"] == {
+            "ep": "QNNExecutionProvider",
+            "device": "npu",
+            "source": "pypi",
+        }

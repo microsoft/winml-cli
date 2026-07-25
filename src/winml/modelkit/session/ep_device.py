@@ -664,7 +664,12 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
             candidate = EPDeviceTarget(ep=spec.ep, device=spec.device, source=target.source)
             try:
                 registry.auto_device(candidate)
-            except (DeviceNotFound, WinMLEPNotDiscovered, WinMLEPRegistrationFailed):
+            except (
+                DeviceNotFound,
+                WinMLEPNotDiscovered,
+                WinMLEPRegistrationFailed,
+                UnknownListingPick,
+            ):
                 continue
             return candidate
         raise ValueError("No registered EP/device pair is available for automatic selection.")
@@ -707,7 +712,12 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
             candidate = EPDeviceTarget(ep=spec.ep, device=device, source=target.source)
             try:
                 registry.auto_device(candidate)
-            except (DeviceNotFound, WinMLEPNotDiscovered, WinMLEPRegistrationFailed):
+            except (
+                DeviceNotFound,
+                WinMLEPNotDiscovered,
+                WinMLEPRegistrationFailed,
+                UnknownListingPick,
+            ):
                 continue
             selected_ep = spec.ep
             break

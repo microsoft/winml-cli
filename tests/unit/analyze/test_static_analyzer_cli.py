@@ -1224,6 +1224,255 @@ class TestAnalyzeEPDeviceValidation:
 class TestAnalyzeEPDeviceSelectionMatrix:
     """Matrix tests for EP/device resolution with fixed local availability."""
 
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_concrete_ep_auto_device_uses_exact_local_binding(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Concrete EP + auto device must use an exact local binding for that EP."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        monkeypatch.setattr(
+            "winml.modelkit.commands.analyze._get_local_ep_device_pairs",
+            lambda: [("OpenVINOExecutionProvider", "CPU")],
+        )
+
+        def _wrong_resolve_device(target):
+            raise RuntimeError(f"wrong auto-resolution target: {target.ep}/{target.device}")
+
+        monkeypatch.setattr("winml.modelkit.session.resolve_device", _wrong_resolve_device)
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        result = runner.invoke(analyze, ["--model", str(model_file), "--ep", "openvino"])
+        assert result.exit_code == 0
+
+        actual_calls = [
+            (call.kwargs["ep"], call.kwargs["device"])
+            for call in mock_instance.analyze.call_args_list
+        ]
+        assert actual_calls == [("OpenVINOExecutionProvider", "CPU")]
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_auto_ep_all_device_uses_best_exact_local_binding_per_device(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """auto + all must derive one best locally bound pair per represented device."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        monkeypatch.setattr(
+            "winml.modelkit.commands.analyze._get_local_ep_device_pairs",
+            lambda: [
+                ("OpenVINOExecutionProvider", "CPU"),
+                ("DmlExecutionProvider", "GPU"),
+                ("NvTensorRTRTXExecutionProvider", "GPU"),
+                ("OpenVINOExecutionProvider", "NPU"),
+            ],
+        )
+
+        available_eps_calls: list[str] = []
+        fabricated_eps_by_device = {
+            "cpu": ["CPUExecutionProvider"],
+            "gpu": ["TensorrtExecutionProvider"],
+            "npu": ["QNNExecutionProvider"],
+        }
+
+        def _fabricated_available_eps_for_device(device_name: str) -> list[str]:
+            available_eps_calls.append(str(device_name).lower())
+            return list(fabricated_eps_by_device.get(str(device_name).lower(), []))
+
+        monkeypatch.setattr(
+            "winml.modelkit.session.available_eps_for_device",
+            _fabricated_available_eps_for_device,
+        )
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        result = runner.invoke(analyze, ["--model", str(model_file), "--device", "all"])
+        assert result.exit_code == 0
+
+        actual_calls = [
+            (call.kwargs["ep"], call.kwargs["device"])
+            for call in mock_instance.analyze.call_args_list
+        ]
+        assert actual_calls == [
+            ("NvTensorRTRTXExecutionProvider", "GPU"),
+            ("OpenVINOExecutionProvider", "NPU"),
+            ("OpenVINOExecutionProvider", "CPU"),
+        ]
+        assert available_eps_calls == ["cpu", "gpu", "npu"]
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_auto_ep_all_device_ignores_unsupported_local_bindings(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """auto + all must skip unsupported local bindings and keep supported ones."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        monkeypatch.setattr(
+            "winml.modelkit.commands.analyze._get_local_ep_device_pairs",
+            lambda: [
+                ("QNNExecutionProvider", "CPU"),
+                ("OpenVINOExecutionProvider", "CPU"),
+            ],
+        )
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        result = runner.invoke(analyze, ["--model", str(model_file), "--device", "all"])
+        assert result.exit_code == 0
+
+        actual_calls = [
+            (call.kwargs["ep"], call.kwargs["device"])
+            for call in mock_instance.analyze.call_args_list
+        ]
+        assert actual_calls == [("OpenVINOExecutionProvider", "CPU")]
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_concrete_ep_auto_device_requires_supported_local_binding(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Concrete EP + auto device should fail when only unsupported local bindings exist."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        monkeypatch.setattr(
+            "winml.modelkit.commands.analyze._get_local_ep_device_pairs",
+            lambda: [("QNNExecutionProvider", "CPU")],
+        )
+
+        result = runner.invoke(analyze, ["--model", str(model_file), "--ep", "qnn"])
+        assert result.exit_code == 2
+        assert "no supported local binding" in result.output.lower()
+        assert "available on this system" in result.output.lower()
+        assert not mock_analyzer_class.called
+
+    @pytest.mark.parametrize(
+        "ranked_gpu_eps",
+        [
+            pytest.param(
+                ["OpenVINOExecutionProvider", "DmlExecutionProvider"],
+                id="fabricated-leading-ep",
+            )
+        ],
+    )
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_auto_ep_concrete_device_uses_only_exact_local_supported_pairs(
+        self,
+        mock_analyzer_class: MagicMock,
+        ranked_gpu_eps: list[str],
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """auto + concrete device must ignore ranked EPs without an exact local binding."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        monkeypatch.setattr(
+            "winml.modelkit.commands.analyze._get_local_ep_device_pairs",
+            lambda: [
+                ("OpenVINOExecutionProvider", "NPU"),
+                ("DmlExecutionProvider", "GPU"),
+            ],
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.session.available_eps_for_device",
+            lambda device_name: list(ranked_gpu_eps) if str(device_name).lower() == "gpu" else [],
+        )
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        result = runner.invoke(analyze, ["--model", str(model_file), "--device", "gpu"])
+        assert result.exit_code == 0
+
+        actual_calls = [
+            (call.kwargs["ep"], call.kwargs["device"])
+            for call in mock_instance.analyze.call_args_list
+        ]
+        assert actual_calls == [("DmlExecutionProvider", "GPU")]
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_auto_ep_concrete_and_all_device_share_same_exact_local_ranking(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """auto + gpu and auto + all should choose the same exact local GPU pair."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        monkeypatch.setattr(
+            "winml.modelkit.commands.analyze._get_local_ep_device_pairs",
+            lambda: [
+                ("TensorrtExecutionProvider", "GPU"),
+                ("DmlExecutionProvider", "GPU"),
+            ],
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.session.available_eps_for_device",
+            lambda device_name: (
+                ["DmlExecutionProvider", "TensorrtExecutionProvider"]
+                if str(device_name).lower() == "gpu"
+                else []
+            ),
+        )
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        concrete_result = runner.invoke(analyze, ["--model", str(model_file), "--device", "gpu"])
+        assert concrete_result.exit_code == 0
+        concrete_calls = [
+            (call.kwargs["ep"], call.kwargs["device"])
+            for call in mock_instance.analyze.call_args_list
+        ]
+        assert concrete_calls == [("DmlExecutionProvider", "GPU")]
+
+        mock_instance.analyze.reset_mock()
+
+        all_result = runner.invoke(analyze, ["--model", str(model_file), "--device", "all"])
+        assert all_result.exit_code == 0
+        all_calls = [
+            (call.kwargs["ep"], call.kwargs["device"])
+            for call in mock_instance.analyze.call_args_list
+        ]
+        assert all_calls == [("DmlExecutionProvider", "GPU")]
+
     @pytest.mark.parametrize(
         ("ep_arg", "device_arg", "expect_exit", "expect_calls", "expect_error"),
         [
@@ -1262,7 +1511,7 @@ class TestAnalyzeEPDeviceSelectionMatrix:
                 None,
                 2,
                 [],
-                "not available on this system",
+                "no supported local binding",
             ),
             # ep=qnn, device=all: `all` keeps the full fan-out (no local check),
             # so both QNN-supported devices run unchanged.
@@ -1430,7 +1679,7 @@ class TestAnalyzeEPDeviceSelectionMatrix:
 
         result = runner.invoke(analyze, ["--model", str(model_file), "--ep", "qnn"])
         assert result.exit_code == 2
-        assert "not available on this system" in result.output.lower()
+        assert "no supported local binding" in result.output.lower()
         assert not mock_instance.analyze.called
 
     @patch(

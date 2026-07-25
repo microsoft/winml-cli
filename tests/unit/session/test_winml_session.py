@@ -198,6 +198,62 @@ class TestWinMLSessionCompilation:
         model_compiler.assert_not_called()
         assert not (simple_matmul_onnx.parent / "compile.log").exists()
 
+    def test_runtime_compile_after_reset_reuses_constructor_monitor_baseline(
+        self,
+        simple_matmul_onnx: Path,
+        cpu_ep_device: EPDeviceTarget,
+    ):
+        """reset()+compile() rebuilds with constructor baseline provider/session options."""
+        from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
+
+        baseline_session_entries = {"baseline.session.entry": "enabled"}
+
+        class _BaselineMonitor(WinMLEPMonitor):
+            @classmethod
+            def is_available(cls):
+                return True
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+            def to_dict(self):
+                return {"ep": "baseline"}
+
+            def get_provider_options(self):
+                return {"baseline_provider_key": "baseline"}
+
+            def get_session_options(self):
+                return dict(baseline_session_entries)
+
+        initial_so = MagicMock()
+        rebuilt_so = MagicMock()
+        factory = MagicMock(side_effect=[initial_so, rebuilt_so])
+
+        with patch(
+            "winml.modelkit.session.session.ort.InferenceSession",
+            side_effect=[MagicMock(), MagicMock()],
+        ):
+            session = WinMLSession(
+                onnx_path=simple_matmul_onnx,
+                ep_device=cpu_ep_device,
+                ep_monitor=_BaselineMonitor(),
+                session_options=factory,
+            )
+            baseline_provider_options = dict(session._provider_options)
+
+            session.reset()
+            session.compile()
+
+        rebuilt_so.add_session_config_entry.assert_called_once_with(
+            "baseline.session.entry",
+            "enabled",
+        )
+        assert rebuilt_so.add_provider_for_devices.call_args.args[1] == baseline_provider_options
+        assert session._active_session_option_entries == baseline_session_entries
+
     def test_run_uses_epcontext_after_compile(self, cpu_winml_session: WinMLSession):
         """Test that run() works after compile() was called."""
         session = cpu_winml_session

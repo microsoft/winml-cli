@@ -23,6 +23,7 @@ from ..utils.constants import CompilerName, EPAlias, EPName
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from ..session import EPDeviceTarget
     from ..utils.constants import EPNameOrAlias
 
 
@@ -91,7 +92,7 @@ class WinMLCompileConfig:
 
     # Optional resolved EP+device binding (used by stages/compile.py to align
     # EPContext filenames with the actual runtime-resolved device).
-    ep_device: Any = None  # EPDeviceTarget | None — avoid cyclic import
+    ep_device: "EPDeviceTarget | None" = None
 
     @property
     def device(self) -> str:
@@ -109,14 +110,24 @@ class WinMLCompileConfig:
             WinMLCompileConfig bound to the given target, or None when its EP
             has no offline EPContext compiler.
         """
-        from ..session import short_ep_name
+        from ..session import EPDeviceTarget, short_ep_name
+
+        target = (
+            ep_device
+            if isinstance(ep_device, EPDeviceTarget)
+            else EPDeviceTarget(
+                ep=ep_device.ep,
+                device=ep_device.device,
+                source=getattr(ep_device, "source", None),
+            )
+        )
 
         # short_ep_name returns a broad str; it is a valid EP short alias here.
-        provider = short_ep_name(ep_device.ep)
-        base = cls.for_provider(cast("EPNameOrAlias", provider), device=ep_device.device)
+        provider = short_ep_name(target.ep)
+        base = cls.for_provider(cast("EPNameOrAlias", provider), device=target.device)
         if base is None:
             return None
-        base.ep_device = ep_device
+        base.ep_device = target
         return base
 
     @classmethod
@@ -293,12 +304,15 @@ class WinMLCompileConfig:
                 str(self.ep_config.qnn_sdk_root) if self.ep_config.qnn_sdk_root else None
             ),
             "device": self.ep_config.device,
+            "ep_device": self.ep_device.to_dict() if self.ep_device is not None else None,
             "validate": self.validate,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WinMLCompileConfig:
         """Create from dictionary. Unknown keys are ignored."""
+        from ..session import EPDeviceTarget
+
         ep_config = EPConfig(
             provider=data.get("execution_provider"),
             provider_options=data.get("provider_options", {}),
@@ -313,4 +327,9 @@ class WinMLCompileConfig:
             ep_config=ep_config,
             validate=data.get("validate", True),
             verbose=data.get("verbose", False),
+            ep_device=(
+                EPDeviceTarget.from_dict(data["ep_device"])
+                if data.get("ep_device") is not None
+                else None
+            ),
         )

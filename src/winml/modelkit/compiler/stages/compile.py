@@ -57,7 +57,9 @@ class CompileStage(BaseStage):
         start_time = time.time()
 
         try:
-            if context.use_inference_session or context.n_total_models > 1:
+            if context.use_inference_session or (
+                context.enable_ep_context and context.n_total_models > 1
+            ):
                 self._compile_shared_context(context)
             else:
                 self._compile_single_model(context)

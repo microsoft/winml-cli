@@ -529,6 +529,53 @@ class TestCompileStageProcess:
             (("ep.context_file_path", str(tmp_path / "model_2_ctx.onnx")),),
         ]
 
+    def test_multi_model_runtime_only_config_skips_shared_epcontext(self, tmp_path):
+        """Runtime-only multi-model configs should not force shared EPContext setup."""
+        from unittest.mock import MagicMock, patch
+
+        from winml.modelkit.compiler import CompileContext, CompileStage, WinMLCompileConfig
+
+        model_path = tmp_path / "model.onnx"
+        create_simple_model(model_path)
+
+        session = MagicMock()
+        session.get_providers.return_value = ["CPUExecutionProvider"]
+        session.get_inputs.return_value = []
+        session.get_outputs.return_value = []
+        session_options = MagicMock()
+        ep_device = MagicMock()
+        ep_device.device.device_type = "CPU"
+        ep_device.device.ep_name = "CPUExecutionProvider"
+        ep_device.device.hardware_name = "cpu"
+
+        context = CompileContext(
+            model_path=model_path,
+            config=WinMLCompileConfig.for_cpu().to_dict() | {"validate": False},
+            n_total_models=2,
+        )
+
+        with (
+            patch(
+                "winml.modelkit.session.session._build_session_options",
+                return_value=session_options,
+            ),
+            patch("onnxruntime.InferenceSession", return_value=session) as inference_session,
+            patch("onnxruntime.ModelCompiler") as model_compiler,
+            patch(
+                "winml.modelkit.compiler.stages.compile.WinMLEPRegistry.instance",
+            ) as mock_registry,
+        ):
+            mock_registry.return_value.auto_device.return_value = ep_device
+            CompileStage().process(context)
+
+        assert session_options.add_session_config_entry.call_args_list == []
+        model_compiler.assert_not_called()
+        inference_session.assert_called_once()
+        assert context.shared_session_options is None
+        assert context.output_path is None
+        assert context.context_binary_path is None
+        assert context.warnings == []
+
 
 class TestCompileStageFinalizeOutput:
     """Test CompileStage._finalize_output method."""

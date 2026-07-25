@@ -214,6 +214,12 @@ class TestEpOverride:
         assert policy.device == "npu"
         assert policy.compile_provider == "qnn"
 
+    def test_ep_cuda_auto_infers_gpu_and_compile_provider(self) -> None:
+        """ep='cuda' with device='auto' should infer gpu and keep cuda provider."""
+        policy = resolve_precision(device="auto", ep="cuda")
+        assert policy.device == "gpu"
+        assert policy.compile_provider == "cuda"
+
     def test_ep_with_explicit_device(self) -> None:
         """Incompatible explicit device and EP pairs are rejected."""
         with pytest.raises(ValueError, match="does not support device"):

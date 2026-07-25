@@ -13,21 +13,17 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
-# EP / device taxonomy — single source of truth lives in session/ep_device.py,
-# exposed through the session/ facade.  These names are used within this
-# module's logic; they are NOT re-exported from config/__init__.py
-# (callers must use `from ..session import ...`).
 from ..session import (
     VALID_DEVICES,
-    default_device_for_ep,
     default_ep_for_device,
     ep_short_or_none,
-    ep_to_device,
-    expand_ep_name,
-    lookup_device_spec,
 )
+
+# New session selection stays on EP_DEVICE_SPECS; this legacy build-policy
+# surface intentionally keeps using EP_SUPPORTED_DEVICES for compatibility.
+from ..utils.constants import EP_SUPPORTED_DEVICES, EPNameOrAlias, normalize_ep_name
 
 
 logger = logging.getLogger(__name__)
@@ -374,14 +370,16 @@ def resolve_precision(
 
     # Normalize and validate the EP override against the shared catalog.
     if ep is not None:
-        ep = expand_ep_name(ep)
-        if default_device_for_ep(ep) is None:
+        ep_canonical = normalize_ep_name(cast("EPNameOrAlias", ep))
+        if ep_canonical not in EP_SUPPORTED_DEVICES:
             raise ValueError(f"Unknown EP '{ep}'.")
+        ep = ep_canonical
+        supported_devices = EP_SUPPORTED_DEVICES[ep_canonical]
         # Infer device from EP when device is "auto"
         if device == "auto":
-            device = ep_to_device(ep)
+            device = supported_devices[0]
             logger.info("Inferred device '%s' from EP '%s'", device, ep)
-        elif lookup_device_spec(ep, device) is None:
+        elif device not in supported_devices:
             raise ValueError(f"EP '{ep}' does not support device '{device}'.")
 
     # --- Both auto: no-op, keep config defaults ---

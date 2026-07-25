@@ -37,6 +37,7 @@ def _winml_mod():
 
     try:
         from winml.modelkit import winml as winml_mod
+
         return winml_mod
     except ModuleNotFoundError:
         # Evict the shadow test-package binding of ``winml`` so the next
@@ -45,7 +46,11 @@ def _winml_mod():
         for key in [k for k in list(sys.modules) if k == "winml" or k.startswith("winml.")]:
             sys.modules.pop(key, None)
         from winml.modelkit import winml as winml_mod
+
         return winml_mod
+
+
+_winml_mod()
 
 
 def _reset_winml_singleton() -> None:
@@ -105,12 +110,10 @@ def test_module_level_register_execution_providers_emits_warning(
     # the inner ``WinML.__init__`` warning at a deeper stack frame; we
     # accept either pointer in the message.
     matching = [
-        w for w in record
+        w
+        for w in record
         if w.filename == __file__
-        and (
-            "WinMLEPRegistry" in str(w.message)
-            or "session/2_coreloop.md" in str(w.message)
-        )
+        and ("WinMLEPRegistry" in str(w.message) or "session/2_coreloop.md" in str(w.message))
     ]
     assert matching, (
         "Expected at least one DeprecationWarning attributed to the test "
@@ -121,7 +124,7 @@ def test_module_level_register_execution_providers_emits_warning(
 def test_add_ep_for_device_emits_deprecation_warning() -> None:
     """``add_ep_for_device`` emits DeprecationWarning(stacklevel=2)."""
     winml_mod = _winml_mod()
-    fake_ort = SimpleNamespace(get_ep_devices=list)
+    fake_ort = SimpleNamespace(get_ep_devices=list, get_available_providers=list)
 
     with (
         patch.dict(sys.modules, {"onnxruntime": fake_ort}),

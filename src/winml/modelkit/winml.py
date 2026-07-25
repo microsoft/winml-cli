@@ -19,7 +19,8 @@ Migration:
   build :class:`EPDeviceTarget` → :func:`resolve_device` →
   :meth:`WinMLEPRegistry.auto_device` → call
   ``sess_options.add_provider_for_devices([ep_device.device._ort], options)``
-  inline.
+  inline, or fall back to ``sess_options.add_provider(ep_name, options)``
+  when only the provider name is available.
 
 This module exists only to support in-tree ``analyze/*`` callers that
 have not yet migrated. New code MUST NOT depend on these symbols.
@@ -27,6 +28,7 @@ have not yet migrated. New code MUST NOT depend on these symbols.
 
 from __future__ import annotations
 
+import logging
 import sys
 import warnings
 from typing import TYPE_CHECKING, Any
@@ -59,6 +61,8 @@ _DEPRECATION_MSG = (
     "(WinMLEPRegistry, EPDeviceTarget, resolve_device) instead. "
     "See docs/design/session/2_coreloop.md."
 )
+
+logger = logging.getLogger(__name__)
 
 
 _winml_instance: WinML | None = None
@@ -195,7 +199,7 @@ def add_ep_for_device(
     ep_name: str,
     device_type: Any,
     ep_options: dict | None = None,
-) -> None:
+) -> bool:
     """DEPRECATED. Bind one (EP, device) ``OrtEpDevice`` to a ``SessionOptions``.
 
     Use the typed session-layer path instead::
@@ -203,9 +207,7 @@ def add_ep_for_device(
         target = EPDeviceTarget(ep=short_ep_name(ep_name), device=device_type.name.lower())
         resolved = resolve_device(target)
         ep_device = WinMLEPRegistry.instance().auto_device(resolved)
-        session_options.add_provider_for_devices(
-            [ep_device.device._ort], ep_options or {},
-        )
+        session_options.add_provider_for_devices([ep_device.device._ort], ep_options or {})
 
     See ``docs/design/session/2_coreloop.md`` for the full Path A flow.
 
@@ -217,9 +219,10 @@ def add_ep_for_device(
         ep_options: Optional per-EP provider options dict; ``None`` is
             treated as ``{}``.
 
-    Silently no-ops when no ``OrtEpDevice`` matches the
-    ``(ep_name, device_type)`` pair (loud failure semantics live in the
-    new session-layer path via :meth:`WinMLEPRegistry.auto_device`).
+    Returns ``True`` when the provider is added via the exact
+    ``OrtEpDevice`` match or the provider-name fallback, and ``False`` when
+    neither path is available. Loud failure semantics live in the new
+    session-layer path via :meth:`WinMLEPRegistry.auto_device`.
     """
     warnings.warn(_DEPRECATION_MSG, DeprecationWarning, stacklevel=2)
     import onnxruntime as ort
@@ -229,11 +232,19 @@ def add_ep_for_device(
     ep_devices = ort.get_ep_devices()
     for ep_device in ep_devices:
         if ep_device.ep_name == ep_name and ep_device.device.type == device_type:
-            print(f"Adding {ep_name} for {device_type}")
+            logger.debug("Adding %s for %s via OrtEpDevice", ep_name, device_type)
             session_options.add_provider_for_devices(
                 [ep_device], {} if ep_options is None else ep_options
             )
-            break
+            return True
+
+    if ep_name in ort.get_available_providers():
+        options = {str(key): str(value) for key, value in (ep_options or {}).items()}
+        logger.debug("Adding %s via provider fallback", ep_name)
+        session_options.add_provider(ep_name, options)
+        return True
+
+    return False
 
 
 __all__ = [

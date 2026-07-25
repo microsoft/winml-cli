@@ -255,6 +255,425 @@ def test_failed_monitored_rebuild_restores_baseline_without_entering_monitor(mon
         assert ctx is not None
 
 
+def test_monitored_rebuild_and_baseline_restore_use_running_model_path():
+    """Monitored perf rebuilds preserve the compiled runtime model path."""
+    from pathlib import Path
+    from unittest.mock import MagicMock, patch
+
+    from winml.modelkit.session import SessionState
+    from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
+
+    class _ContributingMonitor(WinMLEPMonitor):
+        @classmethod
+        def is_available(cls):
+            return True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def to_dict(self):
+            return {"ep": "test"}
+
+        def get_provider_options(self):
+            return {"profiling_level": "detailed"}
+
+    session = _make_cpu_session(get_minimal_onnx_model_path())
+    session._running_model_path = Path("C:/fake/compiled_ctx.onnx")
+    session._state = SessionState.COMPILED
+
+    with (
+        patch(
+            "winml.modelkit.session.session.ort.InferenceSession",
+            side_effect=[MagicMock(), MagicMock()],
+        ) as inference_session,
+        session.perf(monitor=_ContributingMonitor()),
+    ):
+        pass
+
+    assert inference_session.call_count == 2
+    assert [Path(call.args[0]) for call in inference_session.call_args_list] == [
+        session._running_model_path,
+        session._running_model_path,
+    ]
+    assert session.state is SessionState.COMPILED
+
+
+def test_requires_session_teardown_monitor_restores_baseline_after_monitor_exit():
+    """Teardown monitors rebuild the baseline after __exit__ when perf rebuilt the session."""
+    from pathlib import Path
+    from unittest.mock import MagicMock, patch
+
+    from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
+
+    observations: dict[str, object] = {}
+
+    class _TeardownContributingMonitor(WinMLEPMonitor):
+        requires_session_teardown = True
+
+        def __init__(self):
+            self.session_ref = None
+            self.inference_session = None
+
+        @classmethod
+        def is_available(cls):
+            return True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            observations["session_during_exit"] = self.session_ref._session
+            observations["call_count_during_exit"] = self.inference_session.call_count
+
+        def to_dict(self):
+            return {"ep": "test"}
+
+        def get_provider_options(self):
+            return {"profiling_level": "detailed"}
+
+    session = _make_cpu_session(get_minimal_onnx_model_path())
+    session._running_model_path = Path(r"C:\fake\compiled_ctx.onnx")
+    monitored_session = MagicMock(name="monitored_session")
+    restored_session = MagicMock(name="restored_session")
+    monitor = _TeardownContributingMonitor()
+    monitor.session_ref = session
+
+    with patch(
+        "winml.modelkit.session.session.ort.InferenceSession",
+        side_effect=[monitored_session, restored_session],
+    ) as inference_session:
+        monitor.inference_session = inference_session
+        with session.perf(monitor=monitor):
+            assert session._session is monitored_session
+
+    assert observations == {
+        "session_during_exit": None,
+        "call_count_during_exit": 1,
+    }
+    assert inference_session.call_count == 2
+    assert [Path(call.args[0]) for call in inference_session.call_args_list] == [
+        session._running_model_path,
+        session._running_model_path,
+    ]
+    assert session._session is restored_session
+
+
+def test_rebuilt_perf_with_no_saved_session_restores_exact_no_session_state():
+    """A rebuilt perf window over a no-session baseline restores exact no-session state."""
+    from unittest.mock import MagicMock, patch
+
+    from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
+    from winml.modelkit.session.session import WinMLSession
+
+    from .conftest import make_stub_winml_ep_device
+
+    class _SessionOnlyMonitor(WinMLEPMonitor):
+        @classmethod
+        def is_available(cls):
+            return True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def to_dict(self):
+            return {"ep": "test"}
+
+        def get_session_options(self):
+            return {"profiling_level": "detailed"}
+
+    cpu_ep_device = make_stub_winml_ep_device(_get_real_cpu_ort_device(), "CPUExecutionProvider")
+    session = WinMLSession(get_minimal_onnx_model_path(), ep_device=cpu_ep_device)
+    session.reset()
+    baseline_state = session.state
+    monitor = _SessionOnlyMonitor()
+    monitored_session = MagicMock(name="monitored_session")
+    restored_session = MagicMock(name="restored_session")
+
+    with patch(
+        "winml.modelkit.session.session.ort.InferenceSession",
+        side_effect=[monitored_session, restored_session],
+    ) as inference_session:
+        with session.perf(monitor=monitor):
+            assert session._session is monitored_session
+
+        assert session._session is None
+        assert session._state is baseline_state
+        assert session._provider_options == {}
+        assert session._active_session_option_entries == {}
+
+        session.compile()
+
+    assert inference_session.call_count == 2
+    assert session._session is restored_session
+
+
+def test_baseline_restore_failure_does_not_mask_perf_body_error(caplog):
+    """Baseline restore failures are logged while the perf-body error remains primary."""
+    from unittest.mock import MagicMock, patch
+
+    from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
+
+    class _ContributingMonitor(WinMLEPMonitor):
+        @classmethod
+        def is_available(cls):
+            return True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def to_dict(self):
+            return {"ep": "test"}
+
+        def get_provider_options(self):
+            return {"profiling_level": "detailed"}
+
+    session = _make_cpu_session(get_minimal_onnx_model_path())
+    baseline_session = session._session
+    baseline_provider_options = dict(session._provider_options)
+    baseline_session_entries = dict(session._active_session_option_entries)
+
+    with (
+        patch(
+            "winml.modelkit.session.session.ort.InferenceSession",
+            side_effect=[MagicMock(name="monitored_session"), RuntimeError("restore failed")],
+        ),
+        caplog.at_level("ERROR"),
+        pytest.raises(ValueError, match="body failed"),
+        session.perf(monitor=_ContributingMonitor()),
+    ):
+        raise ValueError("body failed")
+
+    assert "Restoring baseline InferenceSession failed" in caplog.text
+    assert "restore failed" in caplog.text
+    assert session._session is baseline_session
+    assert session._provider_options == baseline_provider_options
+    assert session._active_session_option_entries == baseline_session_entries
+
+
+def test_constructor_monitor_baseline_is_reused_for_perf_without_monitor():
+    """Constructor baseline monitor config remains active when perf() adds no overrides."""
+    from unittest.mock import MagicMock, patch
+
+    from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
+    from winml.modelkit.session.session import WinMLSession
+
+    from .conftest import make_stub_winml_ep_device
+
+    baseline_session_entries = {"baseline.session.entry": "enabled"}
+
+    class _BaselineMonitor(WinMLEPMonitor):
+        @classmethod
+        def is_available(cls):
+            return True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def to_dict(self):
+            return {"ep": "baseline"}
+
+        def get_provider_options(self):
+            return {"baseline_provider_key": "baseline"}
+
+        def get_session_options(self):
+            return dict(baseline_session_entries)
+
+    options = [MagicMock() for _ in range(3)]
+    factory = MagicMock(side_effect=options)
+    baseline_session = MagicMock()
+    cpu_ep_device = make_stub_winml_ep_device(_get_real_cpu_ort_device(), "CPUExecutionProvider")
+
+    with patch(
+        "winml.modelkit.session.session.ort.InferenceSession",
+        side_effect=[baseline_session, MagicMock(), MagicMock()],
+    ) as inference_session:
+        session = WinMLSession(
+            get_minimal_onnx_model_path(),
+            ep_device=cpu_ep_device,
+            ep_monitor=_BaselineMonitor(),
+            session_options=factory,
+        )
+        baseline_provider_options = dict(session._provider_options)
+
+        with session.perf():
+            assert session._session is baseline_session
+            assert session._provider_options == baseline_provider_options
+            assert session._active_session_option_entries == baseline_session_entries
+
+    assert inference_session.call_count == 1
+    assert factory.call_count == 1
+    options[0].add_session_config_entry.assert_called_once_with(
+        "baseline.session.entry",
+        "enabled",
+    )
+    assert session._session is baseline_session
+    assert session._provider_options == baseline_provider_options
+    assert session._active_session_option_entries == baseline_session_entries
+
+
+def test_constructor_monitor_snapshots_restore_after_perf_rebuild():
+    """Constructor-applied monitor options are tracked and restored after perf rebuilds."""
+    from unittest.mock import MagicMock, patch
+
+    from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
+    from winml.modelkit.session.session import WinMLSession
+
+    from .conftest import make_stub_winml_ep_device
+
+    baseline_session_entries = {"baseline.session.entry": "enabled"}
+    perf_session_entries = {"perf.session.entry": "enabled"}
+    expected_perf_session_entries = {
+        "baseline.session.entry": "enabled",
+        "perf.session.entry": "enabled",
+    }
+
+    class _BaselineMonitor(WinMLEPMonitor):
+        @classmethod
+        def is_available(cls):
+            return True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def to_dict(self):
+            return {"ep": "baseline"}
+
+        def get_provider_options(self):
+            return {"baseline_provider_key": "baseline"}
+
+        def get_session_options(self):
+            return dict(baseline_session_entries)
+
+    class _PerfMonitor(WinMLEPMonitor):
+        @classmethod
+        def is_available(cls):
+            return True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def to_dict(self):
+            return {"ep": "perf"}
+
+        def get_provider_options(self):
+            return {"perf_provider_key": "perf"}
+
+        def get_session_options(self):
+            return dict(perf_session_entries)
+
+    options = [MagicMock() for _ in range(3)]
+    factory = MagicMock(side_effect=options)
+    cpu_ep_device = make_stub_winml_ep_device(_get_real_cpu_ort_device(), "CPUExecutionProvider")
+
+    with patch(
+        "winml.modelkit.session.session.ort.InferenceSession",
+        side_effect=[MagicMock(), MagicMock(), MagicMock()],
+    ):
+        session = WinMLSession(
+            get_minimal_onnx_model_path(),
+            ep_device=cpu_ep_device,
+            ep_monitor=_BaselineMonitor(),
+            session_options=factory,
+        )
+        baseline_provider_options = dict(session._provider_options)
+
+        assert session._active_session_option_entries == baseline_session_entries
+
+        with session.perf(monitor=_PerfMonitor()):
+            assert session._active_session_option_entries == expected_perf_session_entries
+
+    initial_so, perf_so, restored_so = options
+    initial_so.add_session_config_entry.assert_called_once_with(
+        "baseline.session.entry",
+        "enabled",
+    )
+    assert [call.args for call in perf_so.add_session_config_entry.call_args_list] == [
+        ("baseline.session.entry", "enabled"),
+        ("perf.session.entry", "enabled"),
+    ]
+    restored_so.add_session_config_entry.assert_called_once_with(
+        "baseline.session.entry",
+        "enabled",
+    )
+    assert initial_so.add_provider_for_devices.call_args.args[1] == baseline_provider_options
+    assert perf_so.add_provider_for_devices.call_args.args[1] == {
+        **baseline_provider_options,
+        "perf_provider_key": "perf",
+    }
+    assert restored_so.add_provider_for_devices.call_args.args[1] == baseline_provider_options
+    assert session._active_session_option_entries == baseline_session_entries
+
+
+def test_perf_rebuilds_for_monitor_session_options_without_provider_changes():
+    """Session-only monitor options trigger rebuilds and active-option tracking."""
+    from unittest.mock import MagicMock, patch
+
+    from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
+
+    class _SessionOptionMonitor(WinMLEPMonitor):
+        @classmethod
+        def is_available(cls):
+            return True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def to_dict(self):
+            return {"ep": "test"}
+
+        def get_provider_options(self):
+            return {}
+
+        def get_session_options(self):
+            return {"session.disable_cpu_ep_fallback": "1"}
+
+    session = _make_cpu_session(get_minimal_onnx_model_path())
+    monitor_so = MagicMock()
+    baseline_so = MagicMock()
+
+    with (
+        patch(
+            "winml.modelkit.session.session.ort.SessionOptions",
+            side_effect=[monitor_so, baseline_so],
+        ),
+        patch(
+            "winml.modelkit.session.session.ort.InferenceSession",
+            side_effect=[MagicMock(), MagicMock()],
+        ) as inference_session,
+        session.perf(monitor=_SessionOptionMonitor()),
+    ):
+        assert session._active_session_option_entries == {"session.disable_cpu_ep_fallback": "1"}
+
+    assert inference_session.call_count == 2
+    monitor_so.add_session_config_entry.assert_called_once_with(
+        "session.disable_cpu_ep_fallback",
+        "1",
+    )
+    baseline_so.add_session_config_entry.assert_not_called()
+    assert session._active_session_option_entries == {}
+
+
 def test_monitored_rebuild_uses_fresh_session_options_factory_outputs():
     """Monitor and baseline rebuilds bind providers on distinct configured options."""
     from unittest.mock import MagicMock, patch

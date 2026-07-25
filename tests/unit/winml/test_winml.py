@@ -11,6 +11,22 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 
+def _winml_mod():
+    try:
+        from winml.modelkit import winml as winml_mod
+
+        return winml_mod
+    except ModuleNotFoundError:
+        for key in [k for k in list(sys.modules) if k == "winml" or k.startswith("winml.")]:
+            sys.modules.pop(key, None)
+        from winml.modelkit import winml as winml_mod
+
+        return winml_mod
+
+
+_winml_mod()
+
+
 def _make_winml_instance() -> object:
     """Return a fresh WinML instance with a clean _registered_eps state.
 
@@ -162,3 +178,93 @@ def test_get_registered_ep_devices_registers_before_enumerating():
     mock_register.assert_called_once_with(ort=True)
     assert events == ["register", "enumerate"]
     assert result == (fake_device,)
+
+
+def test_add_ep_for_device_exact_match_returns_true_and_uses_device_api():
+    winml_mod = _winml_mod()
+
+    ep_device = SimpleNamespace(
+        ep_name="QNNExecutionProvider",
+        device=SimpleNamespace(type=object()),
+    )
+    session_options = SimpleNamespace(
+        add_provider_for_devices=MagicMock(),
+        add_provider=MagicMock(),
+    )
+    device_type = ep_device.device.type
+    fake_ort = SimpleNamespace(
+        get_ep_devices=MagicMock(return_value=[ep_device]),
+        get_available_providers=MagicMock(return_value=[]),
+    )
+
+    with patch.dict(sys.modules, {"onnxruntime": fake_ort}):
+        result = winml_mod.add_ep_for_device(
+            session_options=session_options,
+            ep_name="QNNExecutionProvider",
+            device_type=device_type,
+            ep_options={"backend_type": "htp"},
+        )
+
+    assert result is True
+    session_options.add_provider_for_devices.assert_called_once_with(
+        [ep_device],
+        {"backend_type": "htp"},
+    )
+    session_options.add_provider.assert_not_called()
+
+
+def test_add_ep_for_device_provider_fallback_returns_true_and_stringifies_options():
+    winml_mod = _winml_mod()
+
+    ep_device = SimpleNamespace(
+        ep_name="OtherExecutionProvider",
+        device=SimpleNamespace(type=object()),
+    )
+    session_options = SimpleNamespace(
+        add_provider_for_devices=MagicMock(),
+        add_provider=MagicMock(),
+    )
+    fake_ort = SimpleNamespace(
+        get_ep_devices=MagicMock(return_value=[ep_device]),
+        get_available_providers=MagicMock(return_value=["QNNExecutionProvider"]),
+    )
+
+    with patch.dict(sys.modules, {"onnxruntime": fake_ort}):
+        result = winml_mod.add_ep_for_device(
+            session_options=session_options,
+            ep_name="QNNExecutionProvider",
+            device_type=object(),
+            ep_options={"device_id": 7, "enabled": True},
+        )
+
+    assert result is True
+    session_options.add_provider_for_devices.assert_not_called()
+    session_options.add_provider.assert_called_once_with(
+        "QNNExecutionProvider",
+        {"device_id": "7", "enabled": "True"},
+    )
+
+
+def test_add_ep_for_device_missing_provider_returns_false():
+    winml_mod = _winml_mod()
+
+    session_options = SimpleNamespace(
+        add_provider_for_devices=MagicMock(),
+        add_provider=MagicMock(),
+    )
+    fake_ort = SimpleNamespace(
+        get_ep_devices=MagicMock(return_value=[]),
+        get_available_providers=MagicMock(return_value=["CPUExecutionProvider"]),
+    )
+
+    with patch.dict(sys.modules, {"onnxruntime": fake_ort}):
+        result = winml_mod.add_ep_for_device(
+            session_options=session_options,
+            ep_name="QNNExecutionProvider",
+            device_type=object(),
+            ep_options={"device_id": 7},
+        )
+
+    assert result is False
+    session_options.add_provider_for_devices.assert_not_called()
+    session_options.add_provider.assert_not_called()
