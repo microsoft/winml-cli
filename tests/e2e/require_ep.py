@@ -37,6 +37,7 @@ import pytest
 
 
 if TYPE_CHECKING:
+    from winml.modelkit.ep_path import EPEntry
     from winml.modelkit.session import WinMLEPRegistry
 
 
@@ -48,22 +49,65 @@ def _registered_device_types(provider: str) -> frozenset[str]:
     return _registered_device_types_for_registry(provider, registry)
 
 
+def _device_types_from_registered_ep_devices(devices: object) -> frozenset[str]:
+    return frozenset(device.device_type.lower() for device in devices)
+
+
+def _device_types_from_ep_dict(ep_dict: dict[str, object]) -> frozenset[str]:
+    devices = ep_dict.get("devices", ())
+    if not isinstance(devices, list):
+        return frozenset()
+    return frozenset(
+        str(device.get("device_type", "")).lower()
+        for device in devices
+        if isinstance(device, dict) and device.get("device_type")
+    )
+
+
+def _probe_builtin_device_types(entry: EPEntry, registry: WinMLEPRegistry) -> frozenset[str]:
+    from winml.modelkit.session import WinMLEPRegistrationFailed
+
+    builtin_registered = getattr(registry, "_builtin_registered", None)
+    had_cached_registration = (
+        isinstance(builtin_registered, dict) and entry.ep_name in builtin_registered
+    )
+    try:
+        registered = registry.register_ep(entry)
+    except WinMLEPRegistrationFailed:
+        return frozenset()
+    try:
+        return _device_types_from_registered_ep_devices(registered.devices)
+    finally:
+        if not had_cached_registration and isinstance(builtin_registered, dict):
+            builtin_registered.pop(entry.ep_name, None)
+
+
+def _probe_discovered_entry_device_types(
+    entry: EPEntry, registry: WinMLEPRegistry
+) -> frozenset[str]:
+    from winml.modelkit.commands.sys import isolated_ep_register
+    from winml.modelkit.session import WinMLEPRegistrationFailed
+
+    if entry.is_built_in():
+        return _probe_builtin_device_types(entry, registry)
+    try:
+        with isolated_ep_register(entry.ep_name, entry.dll_path) as ep_dict:
+            return _device_types_from_ep_dict(ep_dict)
+    except WinMLEPRegistrationFailed:
+        return frozenset()
+
+
 @cache
 def _registered_device_types_for_registry(
     provider: str, registry: WinMLEPRegistry
 ) -> frozenset[str]:
     """Return cached device classes for one registry instance."""
-    from winml.modelkit.session import WinMLEPRegistrationFailed
 
     device_types: set[str] = set()
     for entry in registry.all_discovered():
         if entry.ep_name != provider:
             continue
-        try:
-            registered = registry.register_ep(entry)
-        except WinMLEPRegistrationFailed:
-            continue
-        device_types.update(device.device_type.lower() for device in registered.devices)
+        device_types.update(_probe_discovered_entry_device_types(entry, registry))
     return frozenset(device_types)
 
 
