@@ -3555,7 +3555,7 @@ requires-dist = [
     { name = "torchmetrics", extras = ["detection"], specifier = ">=1.0" },
     { name = "torchvision", specifier = ">=0.24" },
     { name = "tqdm", specifier = ">=4.67" },
-    { name = "transformers", specifier = ">=5" },
+    { name = "transformers", specifier = ">=4.57" },
     { name = "types-colorama", marker = "extra == 'dev'", specifier = ">=0.4.15.20250801" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.42.0" },
     { name = "windowsml", marker = "sys_platform == 'win32'", specifier = "==2.0.300" },

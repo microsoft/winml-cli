@@ -79,7 +79,7 @@ dependencies = [
   "torchmetrics[detection]>=1.0",
   "torchvision>=0.24",
   "tqdm>=4.67",
-  "transformers>=5",
+  "transformers>=4.57",
   "uvicorn[standard]>=0.42.0",
   "windowsml==2.0.300 ; sys_platform == 'win32'",
 ]
@@ -138,9 +138,10 @@ environments = [
   "sys_platform == 'win32' and platform_machine == 'AMD64'",
 ]
 # Overrides:
-# 1. Force transformers 5.x over optimum-onnx 0.1.0's `transformers<4.58.0` ceiling
-#    (it predates the transformers-5 API; the transformers_compat shim bridges the
-#    few 4.x internals optimum-onnx reaches for).
+# 1. Exercise transformers 5.x in development while keeping the published
+#    `transformers>=4.57` metadata compatible with optimum-onnx 0.1.0's
+#    `transformers<4.58.0` ceiling. The transformers_compat shim bridges the
+#    few 4.x internals optimum-onnx reaches for under transformers 5.
 # 2. Neutralize onnxruntime-qnn's transitive standard `onnxruntime` requirement.
 #    onnxruntime-windowsml ships the same `onnxruntime/` module; installing plain
 #    onnxruntime alongside it overwrites windowsml's files on disk and kills the
