@@ -81,6 +81,39 @@ def _find_viewer_exe(sdk_root: Path | None = None) -> Path | None:
     return None
 
 
+def run_basic_viewer(
+    qnn_log: Path,
+    output: Path,
+    *,
+    sdk_root: Path | None = None,
+) -> Path | None:
+    """Run qnn-profile-viewer for basic CSV output."""
+    viewer = _find_viewer_exe(sdk_root)
+    if viewer is None:
+        logger.warning("qnn-profile-viewer not found; skipping basic viewer")
+        return None
+
+    cmd = [
+        str(viewer),
+        "--input_log",
+        str(qnn_log),
+        "--output",
+        str(output),
+    ]
+    logger.info("Running basic viewer: %s", " ".join(cmd))
+
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)  # noqa: S603
+    except subprocess.CalledProcessError as exc:
+        logger.error("Basic viewer failed: %s", exc.stderr)
+        return None
+    except FileNotFoundError:
+        logger.error("qnn-profile-viewer executable not found at %s", viewer)
+        return None
+
+    return output if output.is_file() else None
+
+
 def run_qhas_viewer(
     qnn_log: Path,
     schematic: Path,

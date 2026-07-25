@@ -56,6 +56,7 @@ class QNNProfiler(_OpTracer):
 
     def run(self, iterations: int = 5, warmup: int = 2) -> OpTraceResult:
         """Trace a QNN-backed session and return the structured op-tracing result."""
+        from ...compiler import EPConfig
         from ...session import WinMLSession
         from ...session.monitor.qnn_monitor import QNNMonitor
 
@@ -67,7 +68,22 @@ class QNNProfiler(_OpTracer):
             level=cast("Literal['basic', 'detail']", level),
             output_dir=self.output_dir,
         )
-        session = WinMLSession(self.onnx_path, device="npu", ep="qnn")
+        ep_config = EPConfig(provider="qnn") if level == "detail" else None
+        session = WinMLSession(
+            self.onnx_path,
+            device="npu",
+            ep="qnn",
+            ep_config=ep_config,
+        )
+        if level == "detail":
+            from ...onnx import is_compiled_onnx
+
+            session.compile()
+            if not is_compiled_onnx(session.running_model_path):
+                raise RuntimeError(
+                    "QNN detail profiling requires an EPContext model, but compilation "
+                    f"fell back to the original ONNX model: {session.running_model_path}"
+                )
 
         with session.perf(warmup=warmup, monitor=monitor) as ctx:
             inputs = self._resolve_inputs(session)
