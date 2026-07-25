@@ -532,11 +532,23 @@ def test_static_generation_caps_config_max_new_tokens_without_mutating_caller() 
     assert "max_new_tokens" not in received
 
 
-def test_static_generation_preserves_native_mixed_direct_lengths() -> None:
+def test_static_generation_drops_redundant_direct_max_length() -> None:
     received = _capture_generation_kwargs(
         _make_blip_generation_model(),
         max_new_tokens=4,
         max_length=5,
+    )
+
+    assert received["max_new_tokens"] == 4
+    assert "max_length" not in received
+
+
+def test_static_generation_preserves_direct_lengths_for_string_custom_generate() -> None:
+    received = _capture_generation_kwargs(
+        _make_blip_generation_model(),
+        max_new_tokens=4,
+        max_length=5,
+        custom_generate="local-generator",
     )
 
     assert received["max_new_tokens"] == 4

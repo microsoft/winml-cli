@@ -277,6 +277,8 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
         requested_max_new_tokens = kwargs.get("max_new_tokens")
         if isinstance(requested_max_new_tokens, int):
             kwargs["max_new_tokens"] = min(requested_max_new_tokens, remaining_capacity)
+            if not isinstance(kwargs.get("custom_generate"), str):
+                kwargs.pop("max_length", None)
             return GenerationMixin.generate(cast("Any", self), *args, **kwargs)
 
         caller_max_new_tokens = (
