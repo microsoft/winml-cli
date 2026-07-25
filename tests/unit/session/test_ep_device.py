@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from winml.modelkit.session import (
+    DeviceNotFound,
     EPDeviceTarget,
     expand_ep_name,
     resolve_device,
@@ -674,6 +675,34 @@ def test_resolve_device_device_only_picks_registered_ep() -> None:
         "'OpenVINOExecutionProvider' (the only registered NPU EP on this stub host)."
     )
     assert result.device == "npu"
+
+
+def test_resolve_device_ep_only_uses_runtime_bound_device() -> None:
+    """device='auto' + concrete ep must follow the EP's actual registered device bindings."""
+    from winml.modelkit.session.ep_registry import WinMLEPRegistry
+
+    registry = MagicMock()
+    registry.available_eps.return_value = frozenset({"QNNExecutionProvider"})
+    seen: list[EPDeviceTarget] = []
+
+    def validate_device(candidate: EPDeviceTarget) -> object:
+        seen.append(candidate)
+        if candidate.device == "npu":
+            raise DeviceNotFound("QNN source exposes no NPU device")
+        if candidate.device == "gpu":
+            return object()
+        raise AssertionError(f"Unexpected candidate {candidate!r}")
+
+    registry.auto_device.side_effect = validate_device
+
+    with patch.object(WinMLEPRegistry, "instance", return_value=registry):
+        result = resolve_device(EPDeviceTarget(ep="qnn", device="auto"))
+
+    assert seen == [
+        EPDeviceTarget(ep="QNNExecutionProvider", device="npu"),
+        EPDeviceTarget(ep="QNNExecutionProvider", device="gpu"),
+    ]
+    assert result == EPDeviceTarget(ep="QNNExecutionProvider", device="gpu")
 
 
 def test_resolve_device_both_auto_skips_unknown_listing_pick_and_keeps_source() -> None:

@@ -282,3 +282,38 @@ class TestCompileCliDeviceEpFlags:
         """Unknown EP string is rejected by Click."""
         result = runner.invoke(compile, ["-m", str(fake_onnx), "--ep", "unknown_ep"])
         assert result.exit_code != 0
+
+
+class TestCompileCliConfigPriority:
+    """Verify compile CLI device precedence across CLI and JSON config."""
+
+    def test_config_device_used_when_cli_device_omitted(
+        self, runner: CliRunner, fake_onnx: Path, compile_cli_mocks: CompileCliMocks
+    ) -> None:
+        """compile.device from JSON config must feed resolve_device when CLI omits --device."""
+        config_path = fake_onnx.parent / "compile.json"
+        config_path.write_text('{"compile": {"device": "gpu"}}')
+
+        result = runner.invoke(compile, ["-m", str(fake_onnx), "--config", str(config_path)])
+
+        _assert_successful_compile_call(result, compile_cli_mocks, fake_onnx)
+        compile_cli_mocks.resolve_device.assert_called_once_with(
+            EPDeviceTarget(ep="auto", device="gpu")
+        )
+
+    def test_cli_device_overrides_config_device(
+        self, runner: CliRunner, fake_onnx: Path, compile_cli_mocks: CompileCliMocks
+    ) -> None:
+        """Explicit CLI --device must continue to override compile.device from JSON."""
+        config_path = fake_onnx.parent / "compile.json"
+        config_path.write_text('{"compile": {"device": "gpu"}}')
+
+        result = runner.invoke(
+            compile,
+            ["-m", str(fake_onnx), "--config", str(config_path), "--device", "npu"],
+        )
+
+        _assert_successful_compile_call(result, compile_cli_mocks, fake_onnx)
+        compile_cli_mocks.resolve_device.assert_called_once_with(
+            EPDeviceTarget(ep="auto", device="npu")
+        )

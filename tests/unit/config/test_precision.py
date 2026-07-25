@@ -260,6 +260,28 @@ class TestEpOverride:
         policy = resolve_precision(ep="MiGraphX")
         assert policy.compile_provider == "migraphx"
 
+    def test_ep_auto_uses_first_available_supported_device(self) -> None:
+        """device='auto' + ep must honor available_devices, not the EP's catalog default."""
+        policy = resolve_precision(
+            device="auto",
+            precision="fp16",
+            ep="qnn",
+            available_devices=["gpu", "cpu"],
+        )
+
+        assert policy.device == "gpu"
+        assert policy.compile_provider == "qnn"
+
+    def test_ep_auto_raises_when_ep_supports_no_available_device(self) -> None:
+        """A concrete EP with no compatible available device must fail early."""
+        with pytest.raises(ValueError, match="does not support any available devices"):
+            resolve_precision(
+                device="auto",
+                precision="fp16",
+                ep="vitisai",
+                available_devices=["gpu", "cpu"],
+            )
+
     def test_ep_accepts_case_insensitive_canonical_name(self) -> None:
         """Canonical ORT EP names normalize to PrecisionPolicy's short contract."""
         policy = resolve_precision(ep="qNnExEcUtIoNpRoViDeR")

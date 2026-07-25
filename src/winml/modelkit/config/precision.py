@@ -377,7 +377,11 @@ def resolve_precision(
         supported_devices = EP_SUPPORTED_DEVICES[ep_canonical]
         # Infer device from EP when device is "auto"
         if device == "auto":
-            device = supported_devices[0]
+            device = _pick_available_device_for_ep(
+                ep=ep_canonical,
+                supported_devices=supported_devices,
+                available_devices=available_devices,
+            )
             logger.info("Inferred device '%s' from EP '%s'", device, ep)
         elif device not in supported_devices:
             raise ValueError(f"EP '{ep}' does not support device '{device}'.")
@@ -471,3 +475,31 @@ def _pick_device_for_precision(
 
     # Fallback: first available device
     return available_devices[0] if available_devices else "cpu"
+
+
+def _pick_available_device_for_ep(
+    *,
+    ep: str,
+    supported_devices: tuple[str, ...],
+    available_devices: list[str] | None,
+) -> str:
+    """Pick the first available device that the EP can actually target.
+
+    ``resolve_precision`` is intentionally pure/offline: it must not query the
+    runtime registry. When the caller provides ``available_devices``, that list
+    is the only host signal available, so auto-device inference for an explicit
+    EP must stay within its intersection with the EP's static device support.
+    """
+    if available_devices is None:
+        return supported_devices[0]
+
+    available_order = [candidate.lower() for candidate in available_devices]
+    for candidate in available_order:
+        if candidate in supported_devices:
+            return candidate
+
+    raise ValueError(
+        f"EP '{ep}' does not support any available devices. "
+        f"Supported devices: {', '.join(supported_devices)}. "
+        f"Available devices: {', '.join(available_order) or '<none>'}."
+    )

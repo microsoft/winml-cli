@@ -438,6 +438,11 @@ def default_device_for_ep(ep: str) -> str | None:
     return next((s.device for s in EP_DEVICE_SPECS if s.ep == ep), None)
 
 
+def _devices_for_ep(ep: str) -> tuple[str, ...]:
+    """Catalog-supported devices for *ep*, preserving declaration order."""
+    return tuple(dict.fromkeys(spec.device for spec in EP_DEVICE_SPECS if spec.ep == ep))
+
+
 def default_ep_for_device(device: str) -> str | None:
     """First catalog variant whose device matches AND whose EP is registered on this host.
 
@@ -676,10 +681,30 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
 
     # --- Resolve device axis first --------------------------------------
     if device == "auto":
-        deduced = default_device_for_ep(expand_ep_name(ep))
-        if deduced is None:
+        ep_full = expand_ep_name(ep)
+        candidate_devices = _devices_for_ep(ep_full)
+        if not candidate_devices:
             raise ValueError(f"Cannot deduce device for EP '{ep}'. Known EPs: {sorted(VALID_EPS)}")
-        device = deduced
+        from .ep_registry import WinMLEPRegistry
+
+        registry = WinMLEPRegistry.instance()
+        last_error: Exception | None = None
+        for candidate_device in candidate_devices:
+            candidate = EPDeviceTarget(ep=ep_full, device=candidate_device, source=target.source)
+            try:
+                registry.auto_device(candidate)
+            except UnknownListingPick as e:
+                raise ValueError(str(e)) from e
+            except (DeviceNotFound, WinMLEPNotDiscovered, WinMLEPRegistrationFailed) as e:
+                last_error = e
+                continue
+            device = candidate_device
+            break
+        else:
+            detail = (
+                str(last_error) if last_error is not None else "no compatible local binding found"
+            )
+            raise ValueError(f"Cannot deduce device for EP '{ep}': {detail}")
         logger.debug("Deduced device=%r from ep=%r", device, ep)
     else:
         device = device.lower()

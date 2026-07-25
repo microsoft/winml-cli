@@ -183,6 +183,8 @@ def compile(
         # EP provider options (e.g. QNN htp_arch/soc_model/vtcm_mb) for the compile session.
         if "provider_options" in cc:
             config_provider_options = dict(cc["provider_options"])
+        if not cli_utils.is_cli_provided(ctx, "device") and "device" in cc:
+            device = cc["device"]
         if not cli_utils.is_cli_provided(ctx, "ep") and "execution_provider" in cc:
             ep_name = cc["execution_provider"]
         if not cli_utils.is_cli_provided(ctx, "compiler") and "compiler" in cc:
