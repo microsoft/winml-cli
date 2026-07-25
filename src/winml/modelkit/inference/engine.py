@@ -1092,8 +1092,10 @@ _WELL_KNOWN_PARAMS: dict[str, tuple[str, Any]] = {
     "max_length": ("integer", 512),
     "num_beams": ("integer", 4),
     # QA
+    "topk": ("integer", 5),
     "doc_stride": ("integer", 128),
     "max_answer_len": ("integer", 15),
+    "align_to_words": ("boolean", True),
     # General
     "batch_size": ("integer", 1),
 }

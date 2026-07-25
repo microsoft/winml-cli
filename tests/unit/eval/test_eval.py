@@ -669,12 +669,12 @@ class TestSequenceClassificationEvaluator:
     """Tests for text classification evaluator padding."""
 
     @patch("evaluate.evaluator")
-    @patch("transformers.pipeline")
+    @patch("winml.modelkit.inference.pipeline.create_pipeline")
     @patch("datasets.load_dataset")
     def test_sets_padding_for_text_model(
         self,
         mock_load_ds,
-        mock_pipeline,
+        mock_create_pipeline,
         mock_hf_eval,
     ):
         from winml.modelkit.eval import (
@@ -690,7 +690,7 @@ class TestSequenceClassificationEvaluator:
         mock_pipe = MagicMock()
         mock_pipe.tokenizer = MagicMock()
         mock_pipe._preprocess_params = {}
-        mock_pipeline.return_value = mock_pipe
+        mock_create_pipeline.return_value = mock_pipe
 
         mock_eval_inst = MagicMock()
         mock_eval_inst.compute.return_value = {"accuracy": 0.9}
@@ -759,12 +759,12 @@ class TestTokenClassificationEvaluator:
     """Tests for token classification evaluator padding."""
 
     @patch("evaluate.evaluator")
-    @patch("transformers.pipeline")
+    @patch("winml.modelkit.inference.pipeline.create_pipeline")
     @patch("datasets.load_dataset")
     def test_sets_tokenizer_params_nesting(
         self,
         mock_load_ds,
-        mock_pipeline,
+        mock_create_pipeline,
         mock_hf_eval,
     ):
         """Padding is set via tokenizer_params dict, not top-level."""
@@ -781,7 +781,7 @@ class TestTokenClassificationEvaluator:
         mock_pipe = MagicMock()
         mock_pipe.tokenizer = MagicMock()
         mock_pipe._preprocess_params = {}
-        mock_pipeline.return_value = mock_pipe
+        mock_create_pipeline.return_value = mock_pipe
 
         mock_eval_inst = MagicMock()
         mock_eval_inst.compute.return_value = {"f1": 0.85}

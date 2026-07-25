@@ -23,12 +23,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Tasks not supported as HF pipeline tasks, mapped to their pipeline equivalent.
-_PIPELINE_TASK_MAP: dict[str, str] = {
-    "image-to-text": "image-text-to-text",
-    "sentence-similarity": "feature-extraction",
-}
-
 
 def _ensure_evaluate_transformers_compat() -> None:
     """Restore the TensorFlow model marker expected by ``evaluate``."""
@@ -151,28 +145,12 @@ class WinMLEvaluator:
 
     def prepare_pipeline(self) -> Pipeline:
         """Create HF pipeline for inference. Subclasses override to configure."""
-        from transformers import pipeline
-
-        from ..inference.pipeline import _pipeline_component_kwargs
+        from ..inference.pipeline import create_pipeline
 
         assert self.config.task is not None, "config.task is required to build pipeline"
-        pipeline_task = _PIPELINE_TASK_MAP.get(self.config.task, self.config.task)
-        component_kwargs = _pipeline_component_kwargs(
-            pipeline_task,
-            self.config.model_id,
-        )
-        # transformers.pipeline has 60+ Literal overloads — runtime task strings
-        # can't be statically matched. The string-task fallback handles unknown tasks.
         return cast(
             "Pipeline",
-            pipeline(  # type: ignore[call-overload]  # 60+ Literal overloads + union model arg
-                pipeline_task,
-                model=self.model,
-                **component_kwargs,
-                # "device" is for HF pipeline pytorch tensors, not ORT EP.
-                # WinMLSession handles device delegation for ORT.
-                device="cpu",
-            ),
+            create_pipeline(self.config.task, self.model, self.config.model_id),
         )
 
     def _fixed_seq_length(self) -> int | None:

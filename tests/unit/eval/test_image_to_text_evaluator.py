@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from winml.modelkit.eval.base_evaluator import _PIPELINE_TASK_MAP
 from winml.modelkit.eval.image_to_text_evaluator import WinMLImageToTextEvaluator
+from winml.modelkit.inference.pipeline import _HF_PIPELINE_TASK_MAP
 
 
 def make_evaluator(columns_mapping=None):
@@ -52,7 +52,7 @@ def make_evaluator(columns_mapping=None):
 
 class TestInit:
     def test_uses_transformers_pipeline_task_name(self):
-        assert _PIPELINE_TASK_MAP["image-to-text"] == "image-text-to-text"
+        assert _HF_PIPELINE_TASK_MAP["image-to-text"] == "image-text-to-text"
 
     def test_default_columns(self):
         ev = make_evaluator()
