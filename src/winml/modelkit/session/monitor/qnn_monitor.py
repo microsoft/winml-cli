@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from ..._env import env_flag_enabled
+from ...onnx.epcontext import select_main_epcontext_partition_name
 from ._onnx_metadata import _load_onnx_operator_data
 from .ep_monitor import WinMLEPMonitor
 from .op_metrics import OperatorMetrics, OpTraceResult, TraceStatus
@@ -158,6 +159,7 @@ class QNNMonitor(WinMLEPMonitor):
         # in :py:meth:`_resolve_op_type`.
         self._onnx_op_types: dict[str, str] = {}
         self._onnx_model_path: Path | None = None
+        self._running_model_path: Path | None = None
 
     # ------------------------------------------------------------------
     # Public read-only accessors
@@ -346,6 +348,10 @@ class QNNMonitor(WinMLEPMonitor):
     def set_onnx_model_path(self, onnx_model_path: Path) -> None:
         """Store a defensive path copy for opt-in basic-trace enrichment."""
         self._onnx_model_path = Path(onnx_model_path)
+
+    def set_running_model_path(self, running_model_path: Path) -> None:
+        """Store the ONNX model path ORT actually runs for sidecar binding."""
+        self._running_model_path = Path(running_model_path)
 
     def set_perf_window(self, warmup: int, measured_iterations: int) -> None:
         """Record completed run counts for warmup filtering and validation."""
@@ -660,9 +666,10 @@ class QNNMonitor(WinMLEPMonitor):
         ``(None, None, None)`` on any failure. Never raises.
 
         Per C-5 / FR-12 this method does NOT call :func:`os.chdir`.
-        Live-path artifacts are bound by the profiling CSV stem: ORT writes
-        ``<csv_stem>_qnn.log`` next to the CSV, and QHAS is attempted only
-        when the matching ``<csv_stem>_schematic.bin`` is present.
+        Live-path QNN logs are bound by the profiling CSV stem: ORT writes
+        ``<csv_stem>_qnn.log`` next to the CSV. QHAS is attempted only when
+        an exact ``<partition_name>_schematic.bin`` can be selected from the
+        running EPContext model metadata.
 
         Args:
             artifacts: Mutable artifact map; receives the schematic path
@@ -684,7 +691,7 @@ class QNNMonitor(WinMLEPMonitor):
                 logger.debug("QNNMonitor: no *_qnn.log found for QHAS")
                 return None, None, None
 
-            # Find the schematic by the same CSV stem (never chdir).
+            # Find the schematic by EPContext partition metadata (never chdir).
             schematic = self._find_schematic()
             if schematic is None:
                 logger.debug("QNNMonitor: no *_schematic.bin found for QHAS")
@@ -781,7 +788,7 @@ class QNNMonitor(WinMLEPMonitor):
         return self._csv_path.with_name(f"{self._csv_path.stem}_qhas_output.json")
 
     def _find_schematic(self) -> Path | None:
-        """Locate the schematic bound to this run's profiling CSV."""
+        """Locate the schematic bound to this run's EPContext partition."""
         try:
             if not self._csv_path.is_file():
                 return None
@@ -796,14 +803,47 @@ class QNNMonitor(WinMLEPMonitor):
             )
             return None
 
-        candidate = self._csv_path.with_name(f"{self._csv_path.stem}_schematic.bin")
-        return self._schematic_candidate(candidate)
+        partition_name = self._schematic_partition_name()
+        if partition_name is None:
+            return None
+
+        search_dirs: list[Path] = []
+        if self._running_model_path is not None:
+            search_dirs.append(self._running_model_path.parent)
+        search_dirs.extend([self._output_dir, Path.cwd()])
+
+        seen: set[Path] = set()
+        for search_dir in search_dirs:
+            resolved_dir = search_dir.resolve()
+            if resolved_dir in seen:
+                continue
+            seen.add(resolved_dir)
+            candidate = search_dir / f"{partition_name}_schematic.bin"
+            schematic = self._schematic_candidate(candidate)
+            if schematic is not None:
+                return schematic
+        return None
+
+    def _schematic_partition_name(self) -> str | None:
+        """Resolve the exact EPContext partition name for schematic lookup."""
+        if self._running_model_path is None:
+            return None
+        try:
+            return select_main_epcontext_partition_name(self._running_model_path)
+        except Exception as exc:
+            logger.debug(
+                "QNNMonitor: unable to inspect EPContext partition metadata from %s: %s",
+                self._running_model_path,
+                exc,
+            )
+            return None
 
     @staticmethod
     def _schematic_candidate(candidate: Path) -> Path | None:
         """Return candidate when the exact run-bound schematic exists."""
         try:
-            candidate.stat()
+            if not candidate.is_file():
+                return None
         except OSError as exc:
             logger.debug(
                 "QNNMonitor: schematic candidate %s unavailable: %s",

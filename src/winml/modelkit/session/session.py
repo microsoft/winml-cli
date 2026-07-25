@@ -840,6 +840,10 @@ class WinMLSession:
             self._perf_stats = None
             raise
 
+        set_running_model_path = getattr(effective_monitor, "set_running_model_path", None)
+        if callable(set_running_model_path):
+            set_running_model_path(self._running_model_path or self._onnx_path)
+
         self._perf_stats = stats
 
         ctx = PerfContext(stats=stats, monitor=effective_monitor)

@@ -302,7 +302,13 @@ class TestCompileResult:
         assert "qdq_time" not in s
 
 
-def create_epcontext_onnx(path: Path, bin_name: str, embed_mode: int = 0) -> None:
+def create_epcontext_onnx(
+    path: Path,
+    bin_name: str,
+    embed_mode: int = 0,
+    *,
+    partition_name: str | None = None,
+) -> None:
     """Create mock EPContext ONNX model for testing.
 
     Args:
@@ -311,6 +317,10 @@ def create_epcontext_onnx(path: Path, bin_name: str, embed_mode: int = 0) -> Non
         embed_mode: 0=external binary, 1=embedded
     """
     # Create EPContext node with attributes
+    attrs: dict[str, object] = {}
+    if partition_name is not None:
+        attrs["partition_name"] = partition_name
+
     ep_context_node = helper.make_node(
         "EPContext",
         inputs=[],
@@ -320,6 +330,7 @@ def create_epcontext_onnx(path: Path, bin_name: str, embed_mode: int = 0) -> Non
         embed_mode=embed_mode,
         ep_cache_context=bin_name,
         main_context=1,  # This is the main context
+        **attrs,
     )
 
     # Input/output
@@ -668,6 +679,85 @@ class TestCompileStageFinalizeOutput:
                         # Should be updated to the derived output filename.
                         assert b"mymodel_qnn_ctx" in attr.s, f"Expected updated name, got {attr.s}"
                         break
+
+    def test_finalize_output_copies_partition_schematic_sidecar(self, tmp_path):
+        """Persist the exact QNN schematic named by EPContext partition metadata."""
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        work_dir = tmp_path / "work"
+        output_dir = tmp_path / "output"
+        work_dir.mkdir()
+        output_dir.mkdir()
+
+        original_model_path = tmp_path / "mymodel.onnx"
+        create_simple_model(original_model_path)
+
+        partition_name = "unit_test_partition_123"
+        ctx_path = work_dir / "model_to_compile_qnn_ctx.onnx"
+        create_epcontext_onnx(
+            ctx_path,
+            "model_to_compile_qnn_ctx.bin",
+            embed_mode=0,
+            partition_name=partition_name,
+        )
+        (work_dir / "model_to_compile_qnn_ctx.bin").write_bytes(b"fake binary")
+        (work_dir / f"{partition_name}_schematic.bin").write_bytes(b"schematic")
+        (work_dir / "unrelated_schematic.bin").write_bytes(b"unrelated")
+
+        context = CompileContext(
+            model_path=original_model_path,
+            config={
+                "execution_provider": "qnn",
+                "output_path": str(output_dir),
+            },
+            work_dir=work_dir,
+        )
+
+        CompileStage()._finalize_output(
+            context, ctx_path.parent / "model_to_compile.onnx", output_dir
+        )
+
+        assert (output_dir / f"{partition_name}_schematic.bin").read_bytes() == b"schematic"
+        assert not (output_dir / "unrelated_schematic.bin").exists()
+
+    def test_finalize_output_rejects_path_like_partition_schematic_name(self, tmp_path):
+        """EPContext partition metadata must not escape sidecar directories."""
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        work_dir = tmp_path / "work"
+        output_dir = tmp_path / "output"
+        escaped_dir = tmp_path / "escaped"
+        work_dir.mkdir()
+        output_dir.mkdir()
+        escaped_dir.mkdir()
+
+        original_model_path = tmp_path / "mymodel.onnx"
+        create_simple_model(original_model_path)
+
+        ctx_path = work_dir / "model_to_compile_qnn_ctx.onnx"
+        create_epcontext_onnx(
+            ctx_path,
+            "model_to_compile_qnn_ctx.bin",
+            embed_mode=0,
+            partition_name="../escaped/not_a_stem",
+        )
+        (work_dir / "model_to_compile_qnn_ctx.bin").write_bytes(b"fake binary")
+        (escaped_dir / "not_a_stem_schematic.bin").write_bytes(b"escaped")
+
+        context = CompileContext(
+            model_path=original_model_path,
+            config={
+                "execution_provider": "qnn",
+                "output_path": str(output_dir),
+            },
+            work_dir=work_dir,
+        )
+
+        CompileStage()._finalize_output(
+            context, ctx_path.parent / "model_to_compile.onnx", output_dir
+        )
+
+        assert not (output_dir / "not_a_stem_schematic.bin").exists()
 
     def test_skips_update_when_embedded(self, tmp_path):
         """Test that ep_cache_context is not modified when embed_mode=1.

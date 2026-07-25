@@ -103,6 +103,41 @@ def _write_transpose_model(path: Path) -> None:
     save_model(model, path)
 
 
+def _write_epcontext_model(
+    path: Path,
+    partitions: list[tuple[str | None, int | None]],
+) -> None:
+    nodes = []
+    for index, (partition_name, main_context) in enumerate(partitions):
+        attrs: dict[str, object] = {}
+        if partition_name is not None:
+            attrs["partition_name"] = partition_name
+        if main_context is not None:
+            attrs["main_context"] = main_context
+        nodes.append(
+            helper.make_node(
+                "EPContext",
+                inputs=[],
+                outputs=[f"output_{index}"],
+                name=f"ep_context_{index}",
+                domain="com.microsoft",
+                **attrs,
+            )
+        )
+    outputs = [
+        helper.make_tensor_value_info(f"output_{index}", TensorProto.FLOAT, [1])
+        for index in range(len(nodes))
+    ]
+    graph = helper.make_graph(nodes, "epcontext_graph", [], outputs)
+    model = helper.make_model(
+        graph,
+        opset_imports=[helper.make_opsetid("", 17), helper.make_opsetid("com.microsoft", 1)],
+    )
+    model.ir_version = 9
+    path.parent.mkdir(parents=True, exist_ok=True)
+    save_model(model, path)
+
+
 def _write_named_profile(path: Path, operator_name: str) -> None:
     _write_basic_profile(
         path,
@@ -170,6 +205,10 @@ def _qnn_log_for_csv(csv_path: Path) -> Path:
 
 def _schematic_for_csv(csv_path: Path) -> Path:
     return csv_path.with_name(f"{csv_path.stem}_schematic.bin")
+
+
+def _schematic_for_partition(directory: Path, partition_name: str) -> Path:
+    return directory / f"{partition_name}_schematic.bin"
 
 
 def _qhas_output_for_csv(csv_path: Path) -> Path:
@@ -783,20 +822,27 @@ def test_no_os_chdir():
     assert Path.cwd() == cwd_before
 
 
-def test_find_schematic_accepts_only_csv_bound_sibling(tmp_path, monkeypatch):
+def test_find_schematic_accepts_only_partition_bound_sibling(tmp_path, monkeypatch):
     """Detail mode must not bind another run's fresh schematic."""
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
     out_dir = tmp_path / "out"
+    context_dir = tmp_path / "context"
     cwd_dir = tmp_path / "cwd"
     out_dir.mkdir()
+    context_dir.mkdir()
     cwd_dir.mkdir()
+    context_model = context_dir / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [("test_partition_123", 1)])
 
     monitor = QNNMonitor(level="detail", output_dir=out_dir)
+    monitor.set_running_model_path(context_model)
     csv_path = _profiling_csv_path(monitor)
     csv_path.write_text("dummy", encoding="utf-8")
-    exact = _schematic_for_csv(csv_path)
+    exact = _schematic_for_partition(context_dir, "test_partition_123")
     exact.write_bytes(b"")
+    csv_stem = _schematic_for_csv(csv_path)
+    csv_stem.write_bytes(b"")
     unrelated_output = out_dir / "other_schematic.bin"
     unrelated_output.write_bytes(b"")
     unrelated_cwd = cwd_dir / "other_schematic.bin"
@@ -806,15 +852,18 @@ def test_find_schematic_accepts_only_csv_bound_sibling(tmp_path, monkeypatch):
     assert monitor._find_schematic() == exact
 
 
-def test_find_schematic_accepts_exact_sibling_older_than_csv(tmp_path):
+def test_find_schematic_accepts_partition_schematic_older_than_csv(tmp_path):
     import os
     import time
 
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
+    context_model = tmp_path / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [("old_partition", 1)])
     monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    monitor.set_running_model_path(context_model)
     csv_path = _profiling_csv_path(monitor)
-    exact = _schematic_for_csv(csv_path)
+    exact = _schematic_for_partition(tmp_path, "old_partition")
     exact.write_bytes(b"")
     old = time.time() - 3600
     os.utime(exact, (old, old))
@@ -827,11 +876,16 @@ def test_find_schematic_rejects_unbound_fresh_candidates(tmp_path, monkeypatch):
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
     out_dir = tmp_path / "out"
+    context_dir = tmp_path / "context"
     cwd_dir = tmp_path / "cwd"
     out_dir.mkdir()
+    context_dir.mkdir()
     cwd_dir.mkdir()
+    context_model = context_dir / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [("bound_partition", 1)])
 
     monitor = QNNMonitor(level="detail", output_dir=out_dir)
+    monitor.set_running_model_path(context_model)
     _profiling_csv_path(monitor).write_text("dummy", encoding="utf-8")
     (out_dir / "fresh_schematic.bin").write_bytes(b"")
     (cwd_dir / "fresh_schematic.bin").write_bytes(b"")
@@ -840,16 +894,143 @@ def test_find_schematic_rejects_unbound_fresh_candidates(tmp_path, monkeypatch):
     assert monitor._find_schematic() is None
 
 
+def test_find_schematic_falls_back_to_exact_partition_in_cwd(tmp_path, monkeypatch):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    context_dir = tmp_path / "context"
+    output_dir = tmp_path / "output"
+    cwd_dir = tmp_path / "cwd"
+    context_dir.mkdir()
+    output_dir.mkdir()
+    cwd_dir.mkdir()
+    context_model = context_dir / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [("cwd_partition", 1)])
+
+    monitor = QNNMonitor(level="detail", output_dir=output_dir)
+    monitor.set_running_model_path(context_model)
+    _profiling_csv_path(monitor).write_text("dummy", encoding="utf-8")
+    exact = _schematic_for_partition(cwd_dir, "cwd_partition")
+    exact.write_bytes(b"")
+    (output_dir / "other_schematic.bin").write_bytes(b"")
+
+    monkeypatch.chdir(cwd_dir)
+
+    assert monitor._find_schematic() == exact
+
+
+def test_find_schematic_directory_candidate_does_not_block_later_valid_file(tmp_path, monkeypatch):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    context_dir = tmp_path / "context"
+    output_dir = tmp_path / "output"
+    cwd_dir = tmp_path / "cwd"
+    context_dir.mkdir()
+    output_dir.mkdir()
+    cwd_dir.mkdir()
+    context_model = context_dir / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [("dir_partition", 1)])
+
+    monitor = QNNMonitor(level="detail", output_dir=output_dir)
+    monitor.set_running_model_path(context_model)
+    _profiling_csv_path(monitor).write_text("dummy", encoding="utf-8")
+    _schematic_for_partition(output_dir, "dir_partition").mkdir()
+    exact = _schematic_for_partition(cwd_dir, "dir_partition")
+    exact.write_bytes(b"schematic")
+
+    monkeypatch.chdir(cwd_dir)
+
+    assert monitor._find_schematic() == exact
+
+
+def test_find_schematic_missing_partition_metadata_falls_back_to_basic(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    context_model = tmp_path / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [(None, 1)])
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    monitor.set_running_model_path(context_model)
+    csv_path = _profiling_csv_path(monitor)
+    csv_path.write_text("dummy", encoding="utf-8")
+    _schematic_for_csv(csv_path).write_bytes(b"")
+
+    assert monitor._find_schematic() is None
+
+
+def test_find_schematic_rejects_path_like_partition_name(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    context_dir = tmp_path / "context"
+    output_dir = tmp_path / "output"
+    escaped_dir = tmp_path / "escaped"
+    context_dir.mkdir()
+    output_dir.mkdir()
+    escaped_dir.mkdir()
+    context_model = context_dir / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [("../escaped/not_a_stem", 1)])
+    (escaped_dir / "not_a_stem_schematic.bin").write_bytes(b"escaped")
+
+    monitor = QNNMonitor(level="detail", output_dir=output_dir)
+    monitor.set_running_model_path(context_model)
+    _profiling_csv_path(monitor).write_text("dummy", encoding="utf-8")
+
+    assert monitor._find_schematic() is None
+
+
+def test_find_schematic_invalid_main_partition_does_not_fall_back_to_non_main(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    context_model = tmp_path / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [("../escaped/not_a_stem", 1), ("safe_non_main", 0)])
+    _schematic_for_partition(tmp_path, "safe_non_main").write_bytes(b"safe")
+
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    monitor.set_running_model_path(context_model)
+    _profiling_csv_path(monitor).write_text("dummy", encoding="utf-8")
+
+    assert monitor._find_schematic() is None
+
+
+def test_find_schematic_ambiguous_main_context_falls_back_to_basic(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    context_model = tmp_path / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [("first_partition", 1), ("second_partition", 1)])
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    monitor.set_running_model_path(context_model)
+    _profiling_csv_path(monitor).write_text("dummy", encoding="utf-8")
+    _schematic_for_partition(tmp_path, "first_partition").write_bytes(b"")
+    _schematic_for_partition(tmp_path, "second_partition").write_bytes(b"")
+
+    assert monitor._find_schematic() is None
+
+
+def test_find_schematic_single_partition_without_main_context_is_accepted(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    context_model = tmp_path / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [("single_partition", None)])
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    monitor.set_running_model_path(context_model)
+    _profiling_csv_path(monitor).write_text("dummy", encoding="utf-8")
+    exact = _schematic_for_partition(tmp_path, "single_partition")
+    exact.write_bytes(b"")
+
+    assert monitor._find_schematic() == exact
+
+
 def test_try_qhas_uses_csv_bound_artifacts(tmp_path, monkeypatch):
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
+    context_model = tmp_path / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [("qhas_partition", 1)])
     monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    monitor.set_running_model_path(context_model)
     csv_path = _profiling_csv_path(monitor)
     csv_path.write_text("dummy", encoding="utf-8")
     monitor.__enter__()
     qnn_log = _qnn_log_for_csv(csv_path)
     qnn_log.write_text("fresh", encoding="utf-8")
-    schematic = _schematic_for_csv(csv_path)
+    schematic = _schematic_for_partition(tmp_path, "qhas_partition")
     schematic.write_bytes(b"")
     qhas_output = _qhas_output_for_csv(csv_path)
 
@@ -886,14 +1067,17 @@ def test_try_qhas_uses_csv_bound_artifacts(tmp_path, monkeypatch):
 def test_try_qhas_ignores_other_runs_newer_qnn_log(tmp_path, monkeypatch):
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
+    context_model = tmp_path / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [("other_log_partition", 1)])
     monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    monitor.set_running_model_path(context_model)
     csv_path = _profiling_csv_path(monitor)
     csv_path.write_text("dummy", encoding="utf-8")
     monitor.__enter__()
 
     other_log = tmp_path / "other_run_qnn.log"
     other_log.write_text("newer unrelated run", encoding="utf-8")
-    _schematic_for_csv(csv_path).write_bytes(b"")
+    _schematic_for_partition(tmp_path, "other_log_partition").write_bytes(b"")
 
     seen_logs: list[Path] = []
 
@@ -955,11 +1139,14 @@ def test_find_schematic_reuses_exact_candidate_metadata(tmp_path, monkeypatch):
     out_dir = tmp_path / "out"
     out_dir.mkdir()
 
+    context_model = out_dir / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [("stat_partition", 1)])
     monitor = QNNMonitor(level="detail", output_dir=out_dir)
+    monitor.set_running_model_path(context_model)
     csv_path = _profiling_csv_path(monitor)
     csv_path.write_text("dummy", encoding="utf-8")
 
-    fresh = _schematic_for_csv(csv_path)
+    fresh = _schematic_for_partition(out_dir, "stat_partition")
     fresh.write_bytes(b"")
 
     original_stat = Path.stat
@@ -983,10 +1170,13 @@ def test_find_schematic_returns_none_when_exact_candidate_stat_fails(tmp_path, m
 
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
+    context_model = tmp_path / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [("failing_stat_partition", 1)])
     monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    monitor.set_running_model_path(context_model)
     csv_path = _profiling_csv_path(monitor)
     csv_path.write_text("dummy", encoding="utf-8")
-    exact = _schematic_for_csv(csv_path)
+    exact = _schematic_for_partition(tmp_path, "failing_stat_partition")
     exact.write_bytes(b"")
 
     original_stat = Path.stat
@@ -1081,6 +1271,9 @@ def test_detail_mode_uses_basic_fallback_when_schematic_stat_fails(tmp_path, mon
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
     monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    context_model = tmp_path / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [("fallback_partition", 1)])
+    monitor.set_running_model_path(context_model)
     monitor.__enter__()
     csv_path = _profiling_csv_path(monitor)
     _write_basic_profile(
@@ -1095,7 +1288,7 @@ def test_detail_mode_uses_basic_fallback_when_schematic_stat_fails(tmp_path, mon
         ],
     )
     _qnn_log_for_csv(csv_path).write_text("qnn log", encoding="utf-8")
-    failing_schematic = _schematic_for_csv(csv_path)
+    failing_schematic = _schematic_for_partition(tmp_path, "fallback_partition")
     failing_schematic.write_bytes(b"")
 
     original_stat = Path.stat

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, ClassVar, cast
 import numpy as np
 
 from ...onnx import load_onnx, save_onnx
+from ...onnx.epcontext import epcontext_partitions
 from ...session import (
     EPDeviceTarget,
     WinMLEPRegistry,
@@ -395,6 +396,18 @@ class CompileStage(BaseStage):
                     save_onnx(model, final_ctx_path)
                     context.log(f"Updated ep_cache_context: {final_bin_name}")
                 break
+
+        for partition in epcontext_partitions(final_ctx_path):
+            if partition.partition_name is None:
+                continue
+            schematic_name = f"{partition.partition_name}_schematic.bin"
+            src_schematic = src_ctx_path.parent / schematic_name
+            if not src_schematic.is_file():
+                continue
+            final_schematic = output_dir / schematic_name
+            if src_schematic != final_schematic:
+                shutil.copy2(src_schematic, final_schematic)
+                context.log(f"Copied schematic to: {final_schematic}")
 
     def _collect_model_info(self, session: ort.InferenceSession, context: CompileContext) -> None:
         """Collect model input/output information."""
