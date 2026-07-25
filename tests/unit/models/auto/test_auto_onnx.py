@@ -285,6 +285,64 @@ class TestFromPretrainedDelegatesToFromOnnx:
 
         assert from_onnx.call_args.kwargs["onnx_path"] == fake_onnx
 
+    def test_resolves_uppercase_hub_onnx_reference_before_hf_dispatch(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cpu_ep_device: EPDeviceTarget,
+    ) -> None:
+        """An uppercase Hub ONNX reference must take the ONNX fast path."""
+        from winml.modelkit.utils.model_input import ModelInput, ModelInputKind
+
+        local_onnx = tmp_path / "model.ONNX"
+        local_onnx.write_bytes(b"fake-onnx")
+        hub_ref = "org/repository/path/model.ONNX"
+        monkeypatch.setattr(
+            "winml.modelkit.utils.model_input.resolve_model_input",
+            lambda _value: ModelInput(
+                kind=ModelInputKind.HUB_ONNX,
+                raw=hub_ref,
+                local_path=str(local_onnx),
+                hf_id="org/repository",
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.config.generate_hf_build_config",
+            lambda *_args, **_kwargs: pytest.fail("Hub ONNX reference reached HF config dispatch."),
+        )
+
+        with patch.object(WinMLAutoModel, "from_onnx", return_value=MagicMock()) as from_onnx:
+            WinMLAutoModel.from_pretrained(
+                hub_ref,
+                ep_device=cpu_ep_device,
+                task="image-classification",
+            )
+
+        assert from_onnx.call_args.kwargs["onnx_path"] == local_onnx
+
+    def test_delegates_uppercase_local_onnx_to_from_onnx(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cpu_ep_device: EPDeviceTarget,
+    ) -> None:
+        """An uppercase local ONNX path must use the same fast path as lowercase."""
+        local_onnx = tmp_path / "model.ONNX"
+        local_onnx.write_bytes(b"fake-onnx")
+        monkeypatch.setattr(
+            "winml.modelkit.config.generate_hf_build_config",
+            lambda *_args, **_kwargs: pytest.fail("Local ONNX path reached HF config dispatch."),
+        )
+
+        with patch.object(WinMLAutoModel, "from_onnx", return_value=MagicMock()) as from_onnx:
+            WinMLAutoModel.from_pretrained(
+                local_onnx,
+                ep_device=cpu_ep_device,
+                task="image-classification",
+            )
+
+        assert from_onnx.call_args.kwargs["onnx_path"] == local_onnx
+
 
 # =============================================================================
 # from_onnx cache dir and cache_key tests

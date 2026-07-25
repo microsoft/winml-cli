@@ -366,7 +366,7 @@ class WinMLAutoModel:
         # ONNX FAST PATH -- skip HF loading and export when given an .onnx file
         # =====================================================================
         onnx_file = Path(model_id)
-        if onnx_file.suffix == ".onnx" and onnx_file.exists():
+        if onnx_file.suffix.lower() == ".onnx" and onnx_file.exists():
             if config is not None and not isinstance(config, WinMLBuildConfig):
                 raise TypeError("ONNX builds require config to be a WinMLBuildConfig.")
             return cls.from_onnx(
