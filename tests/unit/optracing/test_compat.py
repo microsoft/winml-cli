@@ -139,6 +139,32 @@ def test_legacy_registry_restores_builtin_qnn_default() -> None:
     assert issubclass(tracer_class, op_tracer)
 
 
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        "winml.modelkit.optracing.qnn",
+        "winml.modelkit.optracing.qnn.profiler",
+    ],
+)
+def test_legacy_qnn_profiler_import_warns_at_caller(module_name: str) -> None:
+    _reset_optracing_modules()
+    namespace: dict[str, object] = {}
+    statement = compile(
+        f"from {module_name} import QNNProfiler",
+        __file__,
+        "exec",
+    )
+
+    _, warning_records = _capture_deprecation(
+        lambda: exec(statement, namespace)  # noqa: S102
+    )
+
+    profiler = namespace["QNNProfiler"]
+    assert profiler.__name__ == "QNNProfiler"
+    assert len(warning_records) == 1
+    assert Path(warning_records[0].filename) == Path(__file__)
+
+
 def test_legacy_tracer_registry_round_trips_with_substring_match() -> None:
     _reset_optracing_modules()
     base_module = importlib.import_module("winml.modelkit.optracing.base")

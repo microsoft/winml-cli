@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 
+from .._compat import warn_deprecated
 from ..base import _OpTracer
 
 
@@ -111,3 +112,27 @@ class QNNProfiler(_OpTracer):
             dtype = _ort_type_to_numpy(inp.type)
             inputs[inp.name] = np.random.rand(*shape).astype(dtype)
         return inputs
+
+
+def __getattr__(name: str) -> Any:
+    if name != "QNNProfiler":
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    warn_deprecated(
+        "qnn.profiler.QNNProfiler",
+        "winml.modelkit.session.monitor.QNNMonitor",
+        stacklevel=2,
+    )
+    globals()[name] = _QNNProfiler
+    return _QNNProfiler
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))
+
+
+__all__ = ["QNNProfiler"]
+
+
+_QNNProfiler = QNNProfiler
+del QNNProfiler

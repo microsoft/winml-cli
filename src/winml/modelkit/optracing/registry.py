@@ -24,10 +24,10 @@ def _ensure_defaults() -> None:
     if "basic" in qnn_levels and "detail" in qnn_levels:
         return
 
-    from .qnn import QNNProfiler
+    from .qnn.profiler import _QNNProfiler
 
-    qnn_levels.setdefault("basic", QNNProfiler)
-    qnn_levels.setdefault("detail", QNNProfiler)
+    qnn_levels.setdefault("basic", _QNNProfiler)
+    qnn_levels.setdefault("detail", _QNNProfiler)
 
 
 def _register_tracer(ep_pattern: str, level: str, tracer_class: type[OpTracer]) -> None:
