@@ -52,7 +52,13 @@ def _mock_resolve_device():
     NPU without probing real hardware. Tests needing a different resolution
     override this patch locally.
     """
-    with patch(_RESOLVE_DEVICE_TARGET, return_value=_NPU_TARGET):
+    with (
+        patch(_RESOLVE_DEVICE_TARGET, return_value=_NPU_TARGET),
+        patch(
+            "winml.modelkit.sysinfo.hardware.get_available_devices",
+            return_value=["npu", "gpu", "cpu"],
+        ),
+    ):
         yield
 
 

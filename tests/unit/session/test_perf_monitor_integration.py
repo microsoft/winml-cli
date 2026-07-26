@@ -125,6 +125,8 @@ def test_teardown_ordering_reset_before_monitor_exit():
 
 def test_exception_transparency():
     """Exception in `with session.perf()` body propagates; monitor.__exit__ sees exc_info."""
+    from unittest.mock import MagicMock
+
     from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
 
     captured: dict = {}
@@ -145,9 +147,10 @@ def test_exception_transparency():
 
     session = _make_cpu_session(get_minimal_onnx_model_path())
     mon = _CapturingMonitor()
+    raise_error = MagicMock(side_effect=ValueError("boom"))
 
     with pytest.raises(ValueError, match="boom"), session.perf(monitor=mon):
-        raise ValueError("boom")
+        raise_error()
 
     assert captured.get("exc_type") is ValueError
 
@@ -495,6 +498,7 @@ def test_baseline_restore_failure_does_not_mask_perf_body_error(caplog):
     session = _make_cpu_session(get_minimal_onnx_model_path())
     baseline_provider_options = dict(session._provider_options)
     baseline_session_entries = dict(session._active_session_option_entries)
+    raise_error = MagicMock(side_effect=ValueError("body failed"))
 
     with (
         patch(
@@ -505,7 +509,7 @@ def test_baseline_restore_failure_does_not_mask_perf_body_error(caplog):
         pytest.raises(ValueError, match="body failed"),
         session.perf(monitor=_ContributingMonitor()),
     ):
-        raise ValueError("body failed")
+        raise_error()
 
     assert "Restoring baseline InferenceSession failed" in caplog.text
     assert "restore failed" in caplog.text
@@ -778,6 +782,8 @@ def test_monitored_rebuild_uses_fresh_session_options_factory_outputs():
 
 def test_monitor_exit_failure_is_logged_without_replacing_body_error(caplog):
     """A monitor teardown error is logged while the perf-body error propagates."""
+    from unittest.mock import MagicMock
+
     from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
 
     class _FailingExitMonitor(WinMLEPMonitor):
@@ -795,13 +801,14 @@ def test_monitor_exit_failure_is_logged_without_replacing_body_error(caplog):
             return {"ep": "test"}
 
     session = _make_cpu_session(get_minimal_onnx_model_path())
+    raise_error = MagicMock(side_effect=ValueError("body failed"))
 
     with (
         caplog.at_level("ERROR"),
         pytest.raises(ValueError, match="body failed"),
         session.perf(monitor=_FailingExitMonitor()),
     ):
-        raise ValueError("body failed")
+        raise_error()
 
     assert "monitor exit failed" in caplog.text
 

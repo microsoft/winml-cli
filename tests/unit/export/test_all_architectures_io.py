@@ -81,11 +81,13 @@ def test_get_onnx_config_for_all_architectures(arch_key, arch_info):
     model_type = arch_key.split(":")[0] if ":" in arch_key else arch_key
     first_task = arch_info.tasks[0]
 
+    hf_config = None
     try:
         hf_config = AutoConfig.for_model(model_type)
     except (KeyError, ValueError):
         pytest.skip(f"AutoConfig.for_model('{model_type}') not available")
 
+    assert hf_config is not None
     onnx_config = _get_onnx_config(
         model_type,
         first_task,

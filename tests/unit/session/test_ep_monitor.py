@@ -1377,16 +1377,18 @@ class TestMonitorExceptionSafety:
         from winml.modelkit.session import HWMonitor
 
         monitor = HWMonitor(poll_interval_ms=50)
+        raise_error = MagicMock(side_effect=RuntimeError("simulated error"))
         with pytest.raises(RuntimeError), monitor:
-            raise RuntimeError("simulated error")
+            raise_error()
 
         # After exception, thread should be stopped
         assert monitor._pdh.is_active is False
 
     def test_vitisai_monitor_cleans_up_on_exception(self):
         monitor = VitisAIMonitor()
+        raise_error = MagicMock(side_effect=RuntimeError("simulated error"))
         with pytest.raises(RuntimeError), monitor:
-            raise RuntimeError("simulated error")
+            raise_error()
 
         # VitisAI has no background thread — just verify it exited cleanly
         assert monitor.command_submissions == 0

@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...session.monitor.qnn import parse_qhas as _parse_current_qhas
 from .._compat import warn_deprecated
@@ -61,6 +61,8 @@ def __dir__() -> list[str]:
     return sorted(set(globals()) | set(__all__))
 
 
-parse_qhas = _parse_qhas
+if TYPE_CHECKING:
+    parse_qhas = _parse_qhas
+
+
 __all__ = ["parse_qhas"]
-del parse_qhas

@@ -153,6 +153,12 @@ def mock_compile_resolution():
     )
     _patches.append(
         patch(
+            "winml.modelkit.ep_path.EPCatalog.is_compatible",
+            return_value=True,
+        )
+    )
+    _patches.append(
+        patch(
             "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",
             return_value=mock_registry,
         )

@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...session.monitor.qnn.viewer import (
     find_qnn_sdk as _find_qnn_sdk,
@@ -44,8 +44,10 @@ def __dir__() -> list[str]:
     return sorted(set(globals()) | set(__all__))
 
 
-find_qnn_sdk = _find_qnn_sdk
-run_basic_viewer = _run_basic_viewer
-run_qhas_viewer = _run_qhas_viewer
+if TYPE_CHECKING:
+    find_qnn_sdk = _find_qnn_sdk
+    run_basic_viewer = _run_basic_viewer
+    run_qhas_viewer = _run_qhas_viewer
+
+
 __all__ = ["find_qnn_sdk", "run_basic_viewer", "run_qhas_viewer"]
-del find_qnn_sdk, run_basic_viewer, run_qhas_viewer

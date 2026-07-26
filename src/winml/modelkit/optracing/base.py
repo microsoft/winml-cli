@@ -61,3 +61,6 @@ __all__ = ["OpTracer"]
 
 _OpTracer = OpTracer
 del OpTracer
+
+if TYPE_CHECKING:
+    OpTracer = _OpTracer  # type: ignore[misc]  # Static-only compatibility export.

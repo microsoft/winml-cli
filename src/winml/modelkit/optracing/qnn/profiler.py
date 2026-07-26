@@ -152,3 +152,6 @@ __all__ = ["QNNProfiler"]
 
 _QNNProfiler = QNNProfiler
 del QNNProfiler
+
+if TYPE_CHECKING:
+    QNNProfiler = _QNNProfiler  # type: ignore[misc]  # Static-only compatibility export.

@@ -50,6 +50,8 @@ def __dir__() -> list[str]:
     return sorted(set(globals()) | set(__all__))
 
 
-parse_qnn_profiling_csv = _parse_qnn_profiling_csv
+if TYPE_CHECKING:
+    parse_qnn_profiling_csv = _parse_qnn_profiling_csv
+
+
 __all__ = ["parse_qnn_profiling_csv"]
-del parse_qnn_profiling_csv

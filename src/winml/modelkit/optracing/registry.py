@@ -42,6 +42,11 @@ def _get_tracer(ep_name: EPName | str, level: str) -> type[OpTracer] | None:
     return None
 
 
+if TYPE_CHECKING:
+    get_tracer = _get_tracer
+    register_tracer = _register_tracer
+
+
 def __getattr__(name: str) -> Any:
     if name == "register_tracer":
         warn_deprecated(
@@ -64,4 +69,4 @@ def __dir__() -> list[str]:
     return sorted(set(globals()) | set(__all__))
 
 
-__all__ = ["get_tracer", "register_tracer"]  # noqa: F822
+__all__ = ["get_tracer", "register_tracer"]

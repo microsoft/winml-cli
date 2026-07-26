@@ -6,11 +6,16 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..session.monitor.op_metrics import OperatorMetrics as _OperatorMetrics
 from ..session.monitor.op_metrics import OpTraceResult as _OpTraceResult
 from ._compat import warn_deprecated
+
+
+if TYPE_CHECKING:
+    OperatorMetrics = _OperatorMetrics
+    OpTraceResult = _OpTraceResult
 
 
 def __getattr__(name: str) -> Any:
@@ -35,4 +40,4 @@ def __dir__() -> list[str]:
     return sorted(set(globals()) | set(__all__))
 
 
-__all__ = ["OpTraceResult", "OperatorMetrics"]  # noqa: F822
+__all__ = ["OpTraceResult", "OperatorMetrics"]

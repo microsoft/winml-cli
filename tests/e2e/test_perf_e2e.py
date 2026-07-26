@@ -181,11 +181,11 @@ def _assert_monitor_result(
 
 
 class _PerfBenchmarkSuite:
-    """Shared perf-CLI tests. Subclasses override ``model_arg`` fixture."""
+    """Shared perf-CLI tests for a pre-exported ONNX model."""
 
     @pytest.fixture
-    def model_arg(self) -> str:
-        raise NotImplementedError("Subclasses must override model_arg fixture")
+    def model_arg(self, onnx_model_path: Path) -> str:
+        return str(onnx_model_path)
 
     def test_benchmark_cpu(self, tmp_path: Path, model_arg: str):
         """Benchmark on CPU with minimal iterations.
@@ -592,10 +592,6 @@ class _PerfBenchmarkSuite:
 
 class TestPerfONNXDirect(_PerfBenchmarkSuite):
     """Benchmark a pre-exported ONNX file directly via WinMLSession."""
-
-    @pytest.fixture
-    def model_arg(self, onnx_model_path: Path) -> str:
-        return str(onnx_model_path)
 
 
 class TestPerfHuggingFace:
