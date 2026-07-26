@@ -12,13 +12,12 @@ from typing import ClassVar
 from unittest.mock import patch
 
 import numpy as np
-import onnx
 import pytest
 import soundfile as sf
 import torch
 from click.testing import CliRunner
 from datasets import ClassLabel, Dataset, Features, Sequence, Value
-from onnx import TensorProto, helper
+from onnx import TensorProto, helper, save
 from transformers import Wav2Vec2Config
 
 from winml.modelkit.commands.eval import eval as eval_command
@@ -129,7 +128,7 @@ def _save_sign_classifier(path):
         opset_imports=[helper.make_opsetid("", 17)],
         ir_version=9,
     )
-    onnx.save(model, path)
+    save(model, path)
 
 
 class TestAudioPreprocessing:
