@@ -65,7 +65,11 @@ class WinMLTranslationEvaluator(WinMLEvaluator):
             self._pipeline_kwargs["tgt_lang"] = self._tokenizer_target_lang
 
         max_encoder_length = getattr(model, "max_encoder_length", None)
-        if isinstance(max_encoder_length, int) and max_encoder_length > 0:
+        if (
+            isinstance(max_encoder_length, int)
+            and max_encoder_length > 0
+            and self.pipe.tokenizer is not None
+        ):
             self.pipe.tokenizer.model_max_length = max_encoder_length
 
         max_decode_length = getattr(model, "max_decode_length", None)

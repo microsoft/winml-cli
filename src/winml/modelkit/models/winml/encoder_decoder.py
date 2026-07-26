@@ -206,7 +206,12 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
         )
 
         # Max decode length and KV dtype from decoder ONNX metadata
-        self._max_dec = self._dec_expected["past_0_key"][2]
+        max_decode_length = self._dec_expected["past_0_key"][2]
+        if not isinstance(max_decode_length, int) or max_decode_length <= 0:
+            raise ValueError(
+                "Decoder input 'past_0_key' must have a positive static cache length"
+            )
+        self._max_dec = max_decode_length
         self._num_kv_layers = sum(
             1 for n in self._dec_expected if n.startswith("past_") and n.endswith("_key")
         )
