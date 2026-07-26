@@ -38,6 +38,22 @@ from winml.modelkit.quant import WinMLQuantizationConfig
 from winml.modelkit.utils.config_utils import merge_config
 
 
+def test_loader_component_name_round_trips() -> None:
+    config = WinMLBuildConfig.from_dict(
+        {
+            "export": None,
+            "loader": {
+                "task": "mask-generation",
+                "model_type": "sam",
+                "component_name": "prompt-decoder",
+            },
+        }
+    )
+
+    assert config.loader.component_name == "prompt-decoder"
+    assert config.to_dict()["loader"]["component_name"] == "prompt-decoder"
+
+
 # =============================================================================
 # Fixtures
 # =============================================================================

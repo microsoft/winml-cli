@@ -1,0 +1,10 @@
+{
+  "export": null,
+  "optim": {},
+  "quant": null,
+  "compile": null,
+  "loader": {
+    "task": "image-feature-extraction",
+    "component_name": "image-encoder"
+  }
+}

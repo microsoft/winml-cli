@@ -211,6 +211,107 @@ class TestConfigCliInterface:
         result = runner.invoke(config, ["-m", "test", "-o", str(output_file)])
         assert result.exit_code == 0, f"Output to file should succeed: {result.output}"
 
+
+class TestSamConfigSourceSelection:
+    """SAM config routing distinguishes PyTorch and published-ONNX checkpoints."""
+
+    @staticmethod
+    def _single_sam_config() -> MagicMock:
+        cfg = MagicMock()
+        cfg.loader.task = "mask-generation"
+        cfg.loader.model_class = "SAMMaskGeneration"
+        cfg.export = None
+        cfg.quant = None
+        cfg.to_dict.return_value = {
+            "loader": {
+                "task": "mask-generation",
+                "model_class": "SAMMaskGeneration",
+                "model_type": "sam",
+            },
+            "export": None,
+            "optim": {},
+            "quant": None,
+            "compile": None,
+        }
+        return cfg
+
+    def test_pytorch_sam_uses_existing_single_config_path(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        from transformers import SamConfig
+
+        from winml.modelkit.commands.config import config
+
+        output = tmp_path / "sam.json"
+        with (
+            patch("transformers.AutoConfig.from_pretrained", return_value=SamConfig()),
+            patch(
+                "winml.modelkit.models.hf.sam.WinMLSAMModel.resolve_pretrained_onnx",
+                return_value=None,
+            ),
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=self._single_sam_config(),
+            ) as generate_hf,
+            patch("winml.modelkit.commands.config._generate_pipeline_configs") as pipeline,
+        ):
+            result = runner.invoke(
+                config,
+                [
+                    "-m",
+                    "facebook/sam-vit-base",
+                    "--task",
+                    "mask-generation",
+                    "--no-compile",
+                    "-o",
+                    str(output),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(output.read_text())["loader"]["model_class"] == "SAMMaskGeneration"
+        generate_hf.assert_called_once()
+        pipeline.assert_not_called()
+
+    def test_published_onnx_sam_uses_composite_config_path(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        from transformers import SamConfig
+
+        from winml.modelkit.commands.config import config
+
+        sources = {
+            "image-encoder": "encoder.onnx",
+            "prompt-decoder": "decoder.onnx",
+        }
+        with (
+            patch("transformers.AutoConfig.from_pretrained", return_value=SamConfig()),
+            patch(
+                "winml.modelkit.models.hf.sam.WinMLSAMModel.resolve_pretrained_onnx",
+                return_value=sources,
+            ),
+            patch("winml.modelkit.commands.config._generate_pipeline_configs") as pipeline,
+        ):
+            result = runner.invoke(
+                config,
+                [
+                    "-m",
+                    "Xenova/slimsam-77-uniform",
+                    "--task",
+                    "mask-generation",
+                    "--no-compile",
+                    "-o",
+                    str(tmp_path / "slimsam.json"),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert pipeline.call_args.kwargs["component_sources"] == sources
+
+
+class TestConfigCliInterfaceContinued:
+    """Remaining config CLI interface and override tests."""
+
     def test_model_type_without_model(
         self,
         runner: CliRunner,
