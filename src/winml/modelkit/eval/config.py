@@ -174,6 +174,7 @@ class WinMLEvaluationConfig:
             shuffle=ds_data.get("shuffle", True),
             seed=ds_data.get("seed", 42),
             columns_mapping=ds_data.get("columns_mapping", {}),
+            label_mapping=ds_data.get("label_mapping"),
             streaming=ds_data.get("streaming", False),
             revision=ds_data.get("revision"),
             build_script=ds_data.get("build_script"),
