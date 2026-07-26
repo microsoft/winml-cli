@@ -2,26 +2,89 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""HF config loading with transformers-4-style tolerance for model_type-less configs.
+"""HF config loading with tolerance for model_type-less configs.
 
 transformers>=5 dropped the lenient fallback that let ``AutoConfig.from_pretrained``
 load a config lacking a ``model_type`` key (older Hub models such as
 ``prajjwal1/bert-tiny``); it now raises ``ValueError: Unrecognized model ...``.
-transformers 4 returned a base :class:`~transformers.PretrainedConfig` in that
-case. :func:`load_hf_config` restores that behavior so such models stay loadable.
-
-There is no architecture-specific inference here — a generic ``PretrainedConfig``
-simply carries the raw config fields, and downstream resolution keys off the
-task / model_class rather than ``model_type`` for these inputs.
+:func:`load_hf_config` first applies the former identifier-based inference to a
+trusted model-name segment, then returns a tagged generic config when no
+concrete architecture can be inferred safely.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
+
+
+def _fallback_identifiers(config_dict: dict[str, Any], model_id: str) -> list[str]:
+    """Return trusted model-name segments for fallback config inference."""
+    from ..utils.hub_utils import _is_local_path, _is_valid_hub_model_id
+
+    def _model_name(value: str) -> str:
+        normalized = value.strip().rstrip("\\/").replace("\\", "/")
+        return normalized.rsplit("/", 1)[-1]
+
+    model_id_is_local = _is_local_path(model_id)
+    saved_model_id = config_dict.get("_name_or_path")
+    normalized_saved_model_id = (
+        _model_name(saved_model_id)
+        if (
+            isinstance(saved_model_id, str)
+            and saved_model_id.strip()
+            and _is_valid_hub_model_id(saved_model_id.strip())
+        )
+        else None
+    )
+    normalized_model_id = _model_name(model_id)
+    preferred = (
+        (normalized_saved_model_id, normalized_model_id)
+        if model_id_is_local
+        else (normalized_model_id, normalized_saved_model_id)
+    )
+
+    identifiers: list[str] = []
+    for identifier in preferred:
+        if identifier and identifier not in identifiers:
+            identifiers.append(identifier)
+    return identifiers
+
+
+@overload
+def load_hf_config(
+    auto_config: Any,
+    model_id: str,
+    *,
+    trust_remote_code: bool = False,
+    return_unused_kwargs: Literal[True],
+    **kwargs: Any,
+) -> tuple[PretrainedConfig, dict[str, Any]]: ...
+
+
+@overload
+def load_hf_config(
+    auto_config: Any,
+    model_id: str,
+    *,
+    trust_remote_code: bool = False,
+    return_unused_kwargs: Literal[False] = False,
+    **kwargs: Any,
+) -> PretrainedConfig: ...
+
+
+@overload
+def load_hf_config(
+    auto_config: Any,
+    model_id: str,
+    *,
+    trust_remote_code: bool = False,
+    return_unused_kwargs: bool,
+    **kwargs: Any,
+) -> PretrainedConfig | tuple[PretrainedConfig, dict[str, Any]]: ...
 
 
 def load_hf_config(
@@ -29,8 +92,9 @@ def load_hf_config(
     model_id: str,
     *,
     trust_remote_code: bool = False,
+    return_unused_kwargs: bool = False,
     **kwargs: Any,
-) -> PretrainedConfig:
+) -> PretrainedConfig | tuple[PretrainedConfig, dict[str, Any]]:
     """Load an HF config, tolerating configs that omit a ``model_type`` key.
 
     Args:
@@ -44,39 +108,84 @@ def load_hf_config(
 
     Returns:
         The resolved config. Prefers ``auto_config.from_pretrained`` (the
-        architecture-specific subclass); falls back to an identifier-inferred
-        concrete config only when the model omits ``model_type`` and
-        AutoConfig would otherwise raise.
+        architecture-specific subclass); when the model omits ``model_type``,
+        first tries identifier-based concrete config inference and otherwise
+        returns a tagged generic config.
     """
-    try:
-        return cast(
-            "PretrainedConfig",
-            auto_config.from_pretrained(model_id, trust_remote_code=trust_remote_code, **kwargs),
-        )
-    except ValueError as auto_err:
-        if "model_type" not in str(auto_err):
-            raise
+    from transformers import PretrainedConfig, __version__
 
-        from transformers import PretrainedConfig
+    load_kwargs = kwargs.copy()
+    if return_unused_kwargs:
+        load_kwargs["return_unused_kwargs"] = True
+    is_transformers4 = __version__.startswith("4.")
+    if is_transformers4:
+        use_auth_token = load_kwargs.pop("use_auth_token", None)
+        if use_auth_token is not None:
+            import warnings
 
-        try:
-            config_dict, unused_kwargs = PretrainedConfig.get_config_dict(
-                model_id, trust_remote_code=trust_remote_code, **kwargs
+            warnings.warn(
+                "The `use_auth_token` argument is deprecated and will be removed in v5 of "
+                "Transformers. Please use `token` instead.",
+                FutureWarning,
+                stacklevel=2,
             )
-        except Exception:
-            raise auto_err from None
+            if load_kwargs.get("token") is not None:
+                raise ValueError(
+                    "`token` and `use_auth_token` are both specified. Please set only the "
+                    "argument `token`."
+                )
+            load_kwargs["token"] = use_auth_token
 
-        if "model_type" in config_dict:
-            raise
+    auto_error: ValueError | None = None
+    if not is_transformers4:
+        try:
+            return cast(
+                "PretrainedConfig | tuple[PretrainedConfig, dict[str, Any]]",
+                auto_config.from_pretrained(
+                    model_id,
+                    trust_remote_code=trust_remote_code,
+                    **load_kwargs,
+                ),
+            )
+        except ValueError as e:
+            if "model_type" not in str(e):
+                raise
+            auto_error = e
 
-        from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+    fallback_kwargs = load_kwargs.copy()
+    fallback_kwargs["_from_auto"] = True
+    fallback_kwargs["name_or_path"] = model_id
+    fallback_kwargs.pop("code_revision", None)
+    config_dict, unused_kwargs = PretrainedConfig.get_config_dict(model_id, **fallback_kwargs)
+    auto_map = config_dict.get("auto_map")
+    has_remote_config = isinstance(auto_map, dict) and isinstance(auto_map.get("AutoConfig"), str)
+    if "model_type" in config_dict or has_remote_config:
+        if auto_error is not None:
+            raise auto_error
+        return cast(
+            "PretrainedConfig | tuple[PretrainedConfig, dict[str, Any]]",
+            auto_config.from_pretrained(
+                model_id,
+                trust_remote_code=trust_remote_code,
+                **load_kwargs,
+            ),
+        )
 
-        model_id_lower = model_id.lower()
+    from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+
+    for identifier in _fallback_identifiers(config_dict, model_id):
+        identifier_lower = identifier.lower()
         candidates = sorted(
-            (name for name in CONFIG_MAPPING if name.lower() in model_id_lower),
+            (name for name in CONFIG_MAPPING if name.lower() in identifier_lower),
             key=lambda name: (-len(name), name),
         )
-        if not candidates:
-            raise
+        if candidates:
+            return CONFIG_MAPPING[candidates[0]].from_dict(config_dict, **unused_kwargs)
 
-        return CONFIG_MAPPING[candidates[0]].from_dict(config_dict, **unused_kwargs)
+    generic_result = PretrainedConfig.from_dict(config_dict, **unused_kwargs)
+    if return_unused_kwargs:
+        generic_config, returned_unused_kwargs = generic_result
+        generic_config._winml_generic_fallback = True
+        return generic_config, returned_unused_kwargs
+    generic_result._winml_generic_fallback = True
+    return generic_result

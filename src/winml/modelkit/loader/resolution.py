@@ -491,6 +491,13 @@ def resolve_task(
     (e.g. ``qwen3_transformer_only``) without mutating the loaded HF config; when
     ``None`` the architecture's native ``config.model_type`` is used.
     """
+    if getattr(config, "_winml_generic_fallback", False) is True:
+        raise ValueError(
+            "Cannot resolve a concrete architecture from a model_type-less generic config. "
+            "Provide a config or model ID whose architecture can be inferred; explicit task "
+            "or model_type overrides are not enough."
+        )
+
     from optimum.exporters.tasks import TasksManager
 
     model_type = model_type_override or getattr(config, "model_type", None)

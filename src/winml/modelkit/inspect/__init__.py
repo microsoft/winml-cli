@@ -104,6 +104,12 @@ def inspect_model(
         if "404" in str(e) or "not found" in str(e).lower():
             raise ModelNotFoundError(f"Model '{model_id}' not found on HuggingFace Hub") from e
         raise NetworkError(f"Unable to fetch model config: {e}") from e
+    if getattr(hf_config, "_winml_generic_fallback", False) is True:
+        raise InspectError(
+            "Cannot resolve a concrete architecture from a model_type-less generic config. "
+            "Provide a config or model ID whose architecture can be inferred; explicit task "
+            "or model_type overrides are not enough."
+        )
 
     model_type = getattr(hf_config, "model_type", "unknown")
     architectures = getattr(hf_config, "architectures", [])
@@ -123,7 +129,10 @@ def inspect_model(
     else:
         from ..loader.resolution import resolve_task
 
-        _resolution = resolve_task(hf_config)
+        try:
+            _resolution = resolve_task(hf_config)
+        except ValueError as e:
+            raise InspectError(str(e)) from e
         task, task_source = _resolution.task, _resolution.source.value
         detected_composite = _resolution.composite
         logger.debug("Detected task: %s (source: %s)", task, task_source)
