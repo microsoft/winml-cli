@@ -134,24 +134,18 @@ def test_model_type_less_config_bypasses_transformers_path_fallback(
 def test_inferred_config_accepts_matching_declared_architectures() -> None:
     from transformers import BertConfig
 
-    raw_config_loader = MagicMock(
-        return_value=(
-            {
-                "architectures": ["BertForMaskedLM", "BertForSequenceClassification"],
-                "hidden_size": 128,
-            },
-            {},
-        )
-    )
+    config_dict = {
+        "architectures": ["BertForMaskedLM", "BertForSequenceClassification"],
+        "hidden_size": 128,
+    }
 
     with patch(
         "transformers.PretrainedConfig.get_config_dict",
-        side_effect=AssertionError("global raw retrieval must not run"),
-    ):
+        return_value=(config_dict, {}),
+    ) as raw_config_loader:
         config = load_hf_config(
             _FailingAutoConfig,
             "owner/bert-neutral",
-            raw_config_loader=raw_config_loader,
         )
 
     assert isinstance(config, BertConfig)
@@ -182,21 +176,15 @@ def test_inferred_config_rejects_incompatible_declared_architectures(
 ) -> None:
     from transformers import PretrainedConfig
 
-    raw_config_loader = MagicMock(
-        return_value=(
-            {"architectures": architectures, "hidden_size": 128},
-            {},
-        )
-    )
+    config_dict = {"architectures": architectures, "hidden_size": 128}
 
     with patch(
         "transformers.PretrainedConfig.get_config_dict",
-        side_effect=AssertionError("global raw retrieval must not run"),
-    ):
+        return_value=(config_dict, {}),
+    ) as raw_config_loader:
         config = load_hf_config(
             _FailingAutoConfig,
             "owner/bert-neutral",
-            raw_config_loader=raw_config_loader,
         )
 
     assert type(config) is PretrainedConfig
