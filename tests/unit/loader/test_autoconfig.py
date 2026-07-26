@@ -101,7 +101,10 @@ def test_hub_model_id_wins_over_stale_saved_identifier() -> None:
     assert config[0] == "specific"
 
 
-def test_model_type_less_config_bypasses_transformers_path_fallback() -> None:
+@pytest.mark.parametrize("transformers_version", ["4.57.1", "5.0.0", "5.14.1"])
+def test_model_type_less_config_bypasses_transformers_path_fallback(
+    transformers_version: str,
+) -> None:
     config_dict = {"hidden_size": 128}
     generic_config = type("GenericConfig", (), {})()
     auto_config = MagicMock()
@@ -120,12 +123,127 @@ def test_model_type_less_config_bypasses_transformers_path_fallback() -> None:
             "transformers.PretrainedConfig.from_dict",
             return_value=generic_config,
         ),
-        patch("transformers.__version__", "4.57.1"),
+        patch("transformers.__version__", transformers_version),
     ):
-        config = load_hf_config(auto_config, "specific-owner/neutral-model")
+        config = load_hf_config(auto_config, r"C:\specific-parent\neutral-model")
 
     assert config is generic_config
     auto_config.from_pretrained.assert_not_called()
+
+
+def test_inferred_config_accepts_matching_declared_architectures() -> None:
+    from transformers import BertConfig
+
+    raw_config_loader = MagicMock(
+        return_value=(
+            {
+                "architectures": ["BertForMaskedLM", "BertForSequenceClassification"],
+                "hidden_size": 128,
+            },
+            {},
+        )
+    )
+
+    with patch(
+        "transformers.PretrainedConfig.get_config_dict",
+        side_effect=AssertionError("global raw retrieval must not run"),
+    ):
+        config = load_hf_config(
+            _FailingAutoConfig,
+            "owner/bert-neutral",
+            raw_config_loader=raw_config_loader,
+        )
+
+    assert isinstance(config, BertConfig)
+    raw_config_loader.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "architectures",
+    [
+        ["RobertaForMaskedLM"],
+        ["UnknownModel"],
+        "BertModel",
+        [],
+        ["BertModel", 42],
+        ["BertModel", "RobertaModel"],
+    ],
+    ids=[
+        "conflicting",
+        "unknown",
+        "not-a-list",
+        "empty",
+        "non-string",
+        "mixed-family",
+    ],
+)
+def test_inferred_config_rejects_incompatible_declared_architectures(
+    architectures: object,
+) -> None:
+    from transformers import PretrainedConfig
+
+    raw_config_loader = MagicMock(
+        return_value=(
+            {"architectures": architectures, "hidden_size": 128},
+            {},
+        )
+    )
+
+    with patch(
+        "transformers.PretrainedConfig.get_config_dict",
+        side_effect=AssertionError("global raw retrieval must not run"),
+    ):
+        config = load_hf_config(
+            _FailingAutoConfig,
+            "owner/bert-neutral",
+            raw_config_loader=raw_config_loader,
+        )
+
+    assert type(config) is PretrainedConfig
+    assert config._winml_generic_fallback is True
+    raw_config_loader.assert_called_once()
+
+
+def test_injected_raw_config_loader_is_used_once_without_global_raw_fetch() -> None:
+    auth_token = object()
+    raw_config_loader = MagicMock(
+        return_value=(
+            {"hidden_size": 128},
+            {"return_unused_kwargs": True, "sentinel": "unused"},
+        )
+    )
+
+    with patch(
+        "transformers.PretrainedConfig.get_config_dict",
+        side_effect=AssertionError("global raw retrieval must not run"),
+    ) as global_raw_loader:
+        config, unused_kwargs = load_hf_config(
+            _FailingAutoConfig,
+            "owner/neutral-model",
+            raw_config_loader=raw_config_loader,
+            return_unused_kwargs=True,
+            revision="raw-revision",
+            subfolder="export",
+            force_download=True,
+            token=auth_token,
+            code_revision="code-revision",
+            sentinel="unused",
+        )
+
+    assert config._winml_generic_fallback is True
+    assert unused_kwargs == {"sentinel": "unused"}
+    raw_config_loader.assert_called_once_with(
+        "owner/neutral-model",
+        return_unused_kwargs=True,
+        revision="raw-revision",
+        subfolder="export",
+        force_download=True,
+        token=auth_token,
+        sentinel="unused",
+        _from_auto=True,
+        name_or_path="owner/neutral-model",
+    )
+    global_raw_loader.assert_not_called()
 
 
 @pytest.mark.parametrize(

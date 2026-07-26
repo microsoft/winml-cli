@@ -62,7 +62,7 @@ def test_from_pretrained_does_not_raise_typeerror() -> None:
 
     with (
         patch(
-            "transformers.AutoConfig.from_pretrained",
+            "winml.modelkit.loader.load_hf_config",
             return_value=hf_cfg,
         ),
         patch(
@@ -101,7 +101,7 @@ def test_device_is_forwarded_from_from_pretrained() -> None:
 
     with (
         patch(
-            "transformers.AutoConfig.from_pretrained",
+            "winml.modelkit.loader.load_hf_config",
             return_value=hf_cfg,
         ),
         patch(
@@ -131,7 +131,7 @@ def test_from_pretrained_resolves_explicit_ep_without_ep_device() -> None:
         return target
 
     with (
-        patch("transformers.AutoConfig.from_pretrained", return_value=hf_cfg),
+        patch("winml.modelkit.loader.load_hf_config", return_value=hf_cfg),
         patch(
             "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
             return_value=MagicMock(),
@@ -363,39 +363,16 @@ def test_blip_composite_accepts_resolved_device() -> None:
     assert model._device == "gpu"
 
 
-def test_blip_generation_bounds_default_to_remaining_static_cache_capacity() -> None:
-    """Multi-token decoder prompts leave only the remaining KV capacity to generate."""
-    from transformers import BlipConfig
-    from transformers.generation.utils import GenerationMixin
-
-    model_cls = COMPOSITE_MODEL_REGISTRY[("blip", "image-to-text")]
-    decoder = SimpleNamespace(
-        io_config={
-            "input_names": ["past_0_key"],
-            "input_shapes": [[1, 2, 8, 4]],
-            "input_types": [np.float32],
-        }
-    )
-    model = model_cls(
-        {"encoder": SimpleNamespace(io_config={}), "decoder": decoder},
-        BlipConfig(),
-    )
-    received: dict[str, object] = {}
-
-    def record_generation(_self, *_args, **kwargs):
-        received.update(kwargs)
-        return torch.tensor([[0]])
-
-    with patch.object(GenerationMixin, "generate", record_generation):
-        model.generate(decoder_input_ids=torch.tensor([[11, 22, 33]]))
-
-    assert received["max_new_tokens"] == 5
-
-
 def _make_blip_generation_model() -> object:
     from transformers import BlipConfig
 
     model_cls = COMPOSITE_MODEL_REGISTRY[("blip", "image-to-text")]
+    encoder = MagicMock()
+    encoder.io_config = {
+        "input_names": ["pixel_values"],
+        "input_shapes": [[1, 3, 2, 2]],
+    }
+    encoder.return_value = BaseModelOutput(last_hidden_state=torch.zeros(1, 4, 8))
     decoder = SimpleNamespace(
         io_config={
             "input_names": ["past_0_key"],
@@ -404,196 +381,129 @@ def _make_blip_generation_model() -> object:
         }
     )
     return model_cls(
-        {"encoder": SimpleNamespace(io_config={}), "decoder": decoder},
+        {"encoder": encoder, "decoder": decoder},
         BlipConfig(),
     )
 
 
-def _capture_generation_kwargs(model: object, **generation_kwargs: object) -> dict[str, object]:
-    from transformers.generation.utils import GenerationMixin
+class _GenerationLengthPreparedError(Exception):
+    """Stop generation after Hugging Face has normalized decoder lengths."""
 
-    received: dict[str, object] = {}
 
-    def record_generation(_self, *_args, **kwargs):
-        received.update(kwargs)
-        return torch.tensor([[0]])
+def _capture_prepared_generation(
+    model: object,
+    *generate_args: object,
+    **generation_kwargs: object,
+) -> tuple[int, object]:
+    original_prepare = model._prepare_generated_length  # type: ignore[attr-defined]
+    captured: dict[str, object] = {}
 
-    with patch.object(GenerationMixin, "generate", record_generation):
-        model.generate(  # type: ignore[attr-defined]
-            decoder_input_ids=torch.tensor([[11, 22, 33]]),
-            **generation_kwargs,
+    def capture(
+        generation_config,
+        has_default_max_length,
+        has_default_min_length,
+        model_input_name,
+        input_ids_length,
+        inputs_tensor,
+    ):
+        prepared = original_prepare(
+            generation_config=generation_config,
+            has_default_max_length=has_default_max_length,
+            has_default_min_length=has_default_min_length,
+            model_input_name=model_input_name,
+            input_ids_length=input_ids_length,
+            inputs_tensor=inputs_tensor,
         )
-    return received
+        captured["input_ids_length"] = input_ids_length
+        captured["generation_config"] = prepared
+        raise _GenerationLengthPreparedError
+
+    with (
+        patch.object(model, "_prepare_generated_length", side_effect=capture),
+        pytest.raises(_GenerationLengthPreparedError),
+    ):
+        model.generate(*generate_args, **generation_kwargs)  # type: ignore[attr-defined]
+
+    return int(captured["input_ids_length"]), captured["generation_config"]
 
 
-def test_static_generation_preserves_direct_max_length() -> None:
-    received = _capture_generation_kwargs(_make_blip_generation_model(), max_length=5)
-
-    assert "max_length" not in received
-    assert received["max_new_tokens"] == 2
-
-
-def test_static_generation_preserves_mixed_call_signal_for_direct_max_length() -> None:
-    from transformers import GenerationConfig
-
-    generation_config = GenerationConfig(do_sample=True)
-    original_max_length = generation_config.max_length
-    original_max_new_tokens = generation_config.max_new_tokens
-    received = _capture_generation_kwargs(
-        _make_blip_generation_model(),
-        generation_config=generation_config,
-        max_length=5,
-    )
-
-    bounded_config = received["generation_config"]
-    assert isinstance(bounded_config, GenerationConfig)
-    assert bounded_config is not generation_config
-    assert bounded_config.max_length is None
-    assert bounded_config.max_new_tokens == 2
-    assert received["max_length"] is None
-    assert generation_config.max_length == original_max_length
-    assert generation_config.max_new_tokens == original_max_new_tokens
-
-
-def test_static_generation_preserves_generation_config_max_length() -> None:
-    from transformers import GenerationConfig
-
-    generation_config = GenerationConfig(max_length=5)
-    received = _capture_generation_kwargs(
-        _make_blip_generation_model(),
-        generation_config=generation_config,
-    )
-
-    bounded_config = received["generation_config"]
-    assert isinstance(bounded_config, GenerationConfig)
-    assert bounded_config is not generation_config
-    assert bounded_config.max_length is None
-    assert bounded_config.max_new_tokens == 2
-    assert generation_config.max_length == 5
-    assert "max_new_tokens" not in received
-
-
-def test_static_generation_preserves_model_generation_config_max_length() -> None:
+def test_static_generation_budgets_normalized_decoder_input_alias() -> None:
     model = _make_blip_generation_model()
-    model.generation_config.max_length = 5  # type: ignore[attr-defined]
-    model.generation_config.max_new_tokens = None  # type: ignore[attr-defined]
-    received = _capture_generation_kwargs(model)
 
-    from transformers import GenerationConfig
-
-    bounded_config = received["generation_config"]
-    assert isinstance(bounded_config, GenerationConfig)
-    assert bounded_config.max_length is None
-    assert bounded_config.max_new_tokens == 2
-    assert model.generation_config.max_length == 5  # type: ignore[attr-defined]
-    assert model.generation_config.max_new_tokens is None  # type: ignore[attr-defined]
-    assert "max_new_tokens" not in received
-
-
-def test_static_generation_caps_direct_max_length_to_cache_capacity() -> None:
-    received = _capture_generation_kwargs(_make_blip_generation_model(), max_length=20)
-
-    assert "max_length" not in received
-    assert received["max_new_tokens"] == 5
-
-
-def test_static_generation_caps_config_without_mutating_caller() -> None:
-    from transformers import GenerationConfig
-
-    generation_config = GenerationConfig(max_length=12)
-    received = _capture_generation_kwargs(
-        _make_blip_generation_model(),
-        generation_config=generation_config,
+    input_ids_length, prepared_config = _capture_prepared_generation(
+        model,
+        pixel_values=torch.zeros(1, 3, 2, 2),
+        input_ids=torch.tensor([[11, 22]]),
+        max_new_tokens=100,
     )
 
-    bounded_config = received["generation_config"]
-    assert isinstance(bounded_config, GenerationConfig)
-    assert bounded_config is not generation_config
-    assert bounded_config.max_length is None
-    assert bounded_config.max_new_tokens == 5
-    assert generation_config.max_length == 12
-    assert "max_new_tokens" not in received
+    assert input_ids_length == 3
+    assert prepared_config.max_new_tokens == 5
+    assert prepared_config.max_length == 8
 
 
-def test_static_generation_caps_config_max_new_tokens_without_mutating_caller() -> None:
+def test_static_generation_honors_positional_generation_config() -> None:
     from transformers import GenerationConfig
 
-    generation_config = GenerationConfig(max_new_tokens=12)
-    received = _capture_generation_kwargs(
-        _make_blip_generation_model(),
-        generation_config=generation_config,
+    model = _make_blip_generation_model()
+    model.generation_config.max_new_tokens = 100
+    generation_config = GenerationConfig(
+        max_new_tokens=2,
+        decoder_start_token_id=model.generation_config.decoder_start_token_id,
+    )
+    original_max_length = generation_config.max_length
+
+    input_ids_length, prepared_config = _capture_prepared_generation(
+        model,
+        torch.zeros(1, 3, 2, 2),
+        generation_config,
+        input_ids=torch.tensor([[11, 22]]),
     )
 
-    bounded_config = received["generation_config"]
-    assert isinstance(bounded_config, GenerationConfig)
-    assert bounded_config is not generation_config
-    assert bounded_config.max_new_tokens == 5
-    assert generation_config.max_new_tokens == 12
-    assert "max_new_tokens" not in received
+    assert input_ids_length == 3
+    assert prepared_config.max_new_tokens == 2
+    assert prepared_config.max_length == 5
+    assert generation_config.max_new_tokens == 2
+    assert generation_config.max_length == original_max_length
 
 
-def test_static_generation_drops_redundant_direct_max_length() -> None:
-    received = _capture_generation_kwargs(
-        _make_blip_generation_model(),
+def test_static_generation_preserves_hf_length_conflict_precedence() -> None:
+    from transformers import GenerationConfig
+
+    model = _make_blip_generation_model()
+    generation_config = GenerationConfig(
+        max_length=6,
         max_new_tokens=4,
+        decoder_start_token_id=model.generation_config.decoder_start_token_id,
+    )
+    _, prepared_config = _capture_prepared_generation(
+        model,
+        torch.zeros(1, 3, 2, 2),
+        generation_config,
+        input_ids=torch.tensor([[model.generation_config.decoder_start_token_id, 22, 33]]),
         max_length=5,
     )
 
-    assert received["max_new_tokens"] == 4
-    assert "max_length" not in received
-
-
-def test_static_generation_preserves_direct_lengths_for_string_custom_generate() -> None:
-    received = _capture_generation_kwargs(
-        _make_blip_generation_model(),
-        max_new_tokens=4,
-        max_length=5,
-        custom_generate="local-generator",
-    )
-
-    assert received["max_new_tokens"] == 4
-    assert received["max_length"] == 5
-
-
-def test_static_generation_preserves_native_direct_and_config_lengths() -> None:
-    from transformers import GenerationConfig
-
-    generation_config = GenerationConfig(max_length=5)
-    received = _capture_generation_kwargs(
-        _make_blip_generation_model(),
-        generation_config=generation_config,
-        max_new_tokens=4,
-    )
-
-    assert received["generation_config"] is generation_config
-    assert generation_config.max_length == 5
-    assert received["max_new_tokens"] == 4
-
-
-def test_static_generation_caps_config_max_new_tokens_and_preserves_native_mixed_lengths() -> None:
-    from transformers import GenerationConfig
-
-    generation_config = GenerationConfig(max_length=6, max_new_tokens=12)
-    received = _capture_generation_kwargs(
-        _make_blip_generation_model(),
-        generation_config=generation_config,
-        max_length=5,
-    )
-
-    bounded_config = received["generation_config"]
-    assert isinstance(bounded_config, GenerationConfig)
-    assert bounded_config is not generation_config
-    assert bounded_config.max_length == 6
-    assert bounded_config.max_new_tokens == 5
+    assert prepared_config.max_new_tokens == 4
+    assert prepared_config.max_length == 7
     assert generation_config.max_length == 6
-    assert generation_config.max_new_tokens == 12
-    assert received["max_length"] == 5
+    assert generation_config.max_new_tokens == 4
+
+
+def test_static_generation_rejects_normalized_prompt_at_capacity() -> None:
+    model = _make_blip_generation_model()
+
+    with pytest.raises(ValueError, match="exhausts the static KV cache"):
+        _capture_prepared_generation(
+            model,
+            pixel_values=torch.zeros(1, 3, 2, 2),
+            decoder_input_ids=torch.tensor([[11, 22, 33, 44, 55, 66, 77]]),
+            max_new_tokens=1,
+        )
 
 
 def test_sliding_window_generation_preserves_requested_budget() -> None:
     """A sliding-window cache evicts history instead of imposing a hard generation limit."""
-    from transformers.generation.utils import GenerationMixin
-
     from winml.modelkit.models.hf.mu2 import WinMLMu2Model
 
     decoder = SimpleNamespace(
@@ -607,19 +517,20 @@ def test_sliding_window_generation_preserves_requested_budget() -> None:
         {"encoder": SimpleNamespace(io_config={}), "decoder": decoder},
         MagicMock(),
     )
-    received: dict[str, object] = {}
+    from transformers import GenerationConfig
 
-    def record_generation(_self, *_args, **kwargs):
-        received.update(kwargs)
-        return torch.tensor([[0]])
+    generation_config = GenerationConfig(max_new_tokens=12)
+    prepared_config = model._prepare_generated_length(
+        generation_config=generation_config,
+        has_default_max_length=True,
+        has_default_min_length=True,
+        model_input_name="input_ids",
+        input_ids_length=3,
+        inputs_tensor=torch.tensor([[11, 22, 33]]),
+    )
 
-    with patch.object(GenerationMixin, "generate", record_generation):
-        model.generate(
-            decoder_input_ids=torch.tensor([[11, 22, 33]]),
-            max_new_tokens=12,
-        )
-
-    assert received["max_new_tokens"] == 12
+    assert prepared_config.max_new_tokens == 12
+    assert prepared_config.max_length == 15
 
 
 def test_decoder_only_accepts_resolved_device() -> None:

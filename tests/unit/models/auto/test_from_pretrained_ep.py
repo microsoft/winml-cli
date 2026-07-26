@@ -179,8 +179,7 @@ def test_trust_remote_code_reaches_config_generation(monkeypatch: pytest.MonkeyP
 
 def test_allow_unsupported_nodes_reaches_composite(monkeypatch: pytest.MonkeyPatch) -> None:
     """``allow_unsupported_nodes`` reaches the composite-model dispatch path."""
-    import transformers
-
+    import winml.modelkit.loader as loader
     from winml.modelkit.models import WinMLAutoModel
     from winml.modelkit.models.winml import composite_model as cm_mod
 
@@ -203,7 +202,9 @@ def test_allow_unsupported_nodes_reaches_composite(monkeypatch: pytest.MonkeyPat
     fake_cfg = MagicMock()
     fake_cfg.model_type = "faketype"
     monkeypatch.setattr(
-        transformers, "AutoConfig", MagicMock(from_pretrained=lambda *a, **k: fake_cfg)
+        loader,
+        "load_hf_config",
+        lambda *args, **kwargs: fake_cfg,
     )
 
     result = WinMLAutoModel.from_pretrained(

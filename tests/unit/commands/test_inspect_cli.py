@@ -337,9 +337,15 @@ class TestInspectErrors:
             "to this repo either by logging in with `hf auth login` or by passing "
             "`token=<your_token>`"
         )
-        with patch(
-            "transformers.AutoConfig.from_pretrained",
-            side_effect=hf_oserror,
+        with (
+            patch(
+                "winml.modelkit.loader.load_hf_config",
+                side_effect=hf_oserror,
+            ),
+            patch(
+                "winml.modelkit.loader._autoconfig.load_hf_config",
+                side_effect=hf_oserror,
+            ),
         ):
             result = runner.invoke(inspect, ["-m", "totally-bogus/does-not-exist"], obj={})
             assert result.exit_code != 0
@@ -362,12 +368,19 @@ class TestInspectErrors:
                 "https://huggingface.co/api/models/totally-bogus/does-not-exist",
             ),
         )
-        with patch(
-            "transformers.AutoConfig.from_pretrained",
-            side_effect=RepositoryNotFoundError(
-                "Repository Not Found",
-                response=response,
-                server_message="Repository Not Found",
+        repository_error = RepositoryNotFoundError(
+            "Repository Not Found",
+            response=response,
+            server_message="Repository Not Found",
+        )
+        with (
+            patch(
+                "winml.modelkit.loader.load_hf_config",
+                side_effect=repository_error,
+            ),
+            patch(
+                "winml.modelkit.loader._autoconfig.load_hf_config",
+                side_effect=repository_error,
             ),
         ):
             result = runner.invoke(inspect, ["-m", "totally-bogus/does-not-exist"], obj={})
@@ -379,9 +392,16 @@ class TestInspectErrors:
         """HF IDs with version dots (e.g. Phi-3.5) must not be classified as local paths."""
         from winml.modelkit.commands.inspect import inspect
 
-        with patch(
-            "transformers.AutoConfig.from_pretrained",
-            side_effect=RuntimeError("intentional — proves we reached the Hub path"),
+        intentional_error = RuntimeError("intentional — proves we reached the Hub path")
+        with (
+            patch(
+                "winml.modelkit.loader.load_hf_config",
+                side_effect=intentional_error,
+            ),
+            patch(
+                "winml.modelkit.loader._autoconfig.load_hf_config",
+                side_effect=intentional_error,
+            ),
         ):
             result = runner.invoke(inspect, ["-m", "microsoft/Phi-3.5-mini-instruct"], obj={})
         assert "does not exist" not in result.output, (

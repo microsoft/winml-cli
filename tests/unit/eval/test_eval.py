@@ -131,7 +131,7 @@ class TestResolveTask:
         config = WinMLEvaluationConfig(model_id="microsoft/resnet-50")
         with (
             patch(
-                "transformers.AutoConfig.from_pretrained",
+                "winml.modelkit.loader.load_hf_config",
                 return_value=fake_hf_config,
             ),
             patch(
@@ -166,7 +166,7 @@ class TestResolveTask:
         fake_resolution.task = "image-feature-extraction"
         config = WinMLEvaluationConfig(model_id="facebook/dinov2-base")  # no explicit task
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=MagicMock()),
+            patch("winml.modelkit.loader.load_hf_config", return_value=MagicMock()),
             patch(
                 "winml.modelkit.loader.resolution.resolve_task",
                 return_value=fake_resolution,
@@ -1529,7 +1529,7 @@ class TestLoadModel:
                 {"winml.modelkit.models": MagicMock(WinMLAutoModel=mock_auto)},
             ),
             patch(
-                "transformers.AutoConfig.from_pretrained",
+                "winml.modelkit.loader.load_hf_config",
                 return_value=mock_hf_config,
             ),
         ):

@@ -131,6 +131,10 @@ class TestModelArchitectureOverrideFast:
         import winml.modelkit.loader.hf as hf_module
 
         monkeypatch.setattr(resolution_module, "resolve_task", mock_resolve)
+        monkeypatch.setattr(
+            "transformers.PretrainedConfig.get_config_dict",
+            lambda *args, **kwargs: ({"model_type": "unit"}, {}),
+        )
         mock_auto_config = MagicMock(from_pretrained=lambda *a, **kw: mock_config)
         monkeypatch.setattr(hf_module, "AutoConfig", mock_auto_config)
 
@@ -173,6 +177,10 @@ class TestModelArchitectureOverrideFast:
         import winml.modelkit.loader.hf as hf_module
 
         monkeypatch.setattr(resolution_module, "resolve_task", mock_resolve)
+        monkeypatch.setattr(
+            "transformers.PretrainedConfig.get_config_dict",
+            lambda *args, **kwargs: ({"model_type": "unit"}, {}),
+        )
         mock_auto_config = MagicMock(from_pretrained=lambda *a, **kw: mock_config)
         monkeypatch.setattr(hf_module, "AutoConfig", mock_auto_config)
 
@@ -210,6 +218,10 @@ class TestModelArchitectureOverrideFast:
         import winml.modelkit.loader.hf as hf_module
 
         monkeypatch.setattr(resolution_module, "resolve_task", mock_resolve)
+        monkeypatch.setattr(
+            "transformers.PretrainedConfig.get_config_dict",
+            lambda *args, **kwargs: ({"model_type": "unit"}, {}),
+        )
         mock_auto_config = MagicMock(from_pretrained=lambda *a, **kw: mock_config)
         monkeypatch.setattr(hf_module, "AutoConfig", mock_auto_config)
 

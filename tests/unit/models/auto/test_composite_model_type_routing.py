@@ -65,15 +65,15 @@ class TestCompositeNativeRouting:
         # The factory derives the native model_type from the HF config; stub that
         # lookup so the native composite is selected. A pre-resolved ep_device is
         # threaded in so dispatch does not probe real hardware.
-        import transformers
+        import winml.modelkit.loader as loader
 
         class _Cfg:
             model_type = _NATIVE_TYPE
 
         monkeypatch.setattr(
-            transformers.AutoConfig,
-            "from_pretrained",
-            classmethod(lambda cls, *a, **k: _Cfg()),
+            loader,
+            "load_hf_config",
+            lambda *args, **kwargs: _Cfg(),
         )
 
         ep_device = SimpleNamespace(device=SimpleNamespace(device_type="CPU"))

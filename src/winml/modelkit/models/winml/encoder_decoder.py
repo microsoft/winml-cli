@@ -57,7 +57,6 @@ Cache-type gotchas (lessons learned):
 
 from __future__ import annotations
 
-import copy
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
@@ -251,120 +250,47 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
     def can_generate(self) -> bool:  # noqa: D102
         return True
 
-    def generate(self, *args: Any, **kwargs: Any) -> Any:
-        """Limit generation to the unoccupied portion of the static KV cache."""
+    def _prepare_generated_length(
+        self,
+        generation_config: Any,
+        has_default_max_length: bool,
+        has_default_min_length: bool,
+        model_input_name: str,
+        input_ids_length: int,
+        inputs_tensor: torch.Tensor,
+    ) -> Any:
+        """Apply static-cache bounds after Hugging Face normalizes decoder inputs."""
+        generation_config = GenerationMixin._prepare_generated_length(
+            cast("Any", self),
+            generation_config=generation_config,
+            has_default_max_length=has_default_max_length,
+            has_default_min_length=has_default_min_length,
+            model_input_name=model_input_name,
+            input_ids_length=input_ids_length,
+            inputs_tensor=inputs_tensor,
+        )
+
         from .kv_cache import WinMLStaticCache
 
         if not issubclass(self.get_cache_class(), WinMLStaticCache):
-            return GenerationMixin.generate(cast("Any", self), *args, **kwargs)
+            return generation_config
 
-        decoder_input_ids = kwargs.get("decoder_input_ids")
-        prompt_length = (
-            int(decoder_input_ids.shape[1])
-            if isinstance(decoder_input_ids, torch.Tensor) and decoder_input_ids.ndim == 2
-            else 1
-        )
         cache_capacity = int(self._max_dec)
-        remaining_capacity = cache_capacity - prompt_length
+        remaining_capacity = cache_capacity - input_ids_length
         if remaining_capacity < 1:
             raise ValueError(
                 "Decoder prompt length exhausts the static KV cache; "
                 "no generation capacity remains."
             )
 
-        caller_generation_config = kwargs.get("generation_config")
-        direct_max_new_tokens_supplied = "max_new_tokens" in kwargs
-        requested_max_new_tokens = kwargs.get("max_new_tokens")
-        if isinstance(requested_max_new_tokens, int):
-            kwargs["max_new_tokens"] = min(requested_max_new_tokens, remaining_capacity)
-            if not isinstance(kwargs.get("custom_generate"), str):
-                kwargs.pop("max_length", None)
-            return GenerationMixin.generate(cast("Any", self), *args, **kwargs)
-
-        caller_max_new_tokens = (
-            getattr(caller_generation_config, "max_new_tokens", None)
-            if caller_generation_config is not None
-            else None
-        )
-        if not direct_max_new_tokens_supplied and isinstance(caller_max_new_tokens, int):
-            if caller_max_new_tokens > remaining_capacity:
-                assert caller_generation_config is not None
-                bounded_config = copy.deepcopy(caller_generation_config)
-                bounded_config.max_new_tokens = min(caller_max_new_tokens, remaining_capacity)
-                kwargs["generation_config"] = bounded_config
-            return GenerationMixin.generate(cast("Any", self), *args, **kwargs)
-
-        def _budget_for_max_length(max_length: int) -> int:
-            budget = min(max_length, cache_capacity) - prompt_length
-            if budget < 1:
-                raise ValueError("max_length must exceed the decoder prompt length for generation.")
-            return budget
-
-        direct_max_length_supplied = "max_length" in kwargs
-        requested_max_length = kwargs.get("max_length")
-        if isinstance(requested_max_length, int):
-            budget = _budget_for_max_length(requested_max_length)
-            if caller_generation_config is not None:
-                bounded_config = copy.deepcopy(caller_generation_config)
-                bounded_config.max_length = None
-                bounded_config.max_new_tokens = budget
-                kwargs["generation_config"] = bounded_config
-                kwargs["max_length"] = None
-            else:
-                kwargs.pop("max_length")
-                kwargs["max_new_tokens"] = budget
-            return GenerationMixin.generate(cast("Any", self), *args, **kwargs)
-
-        caller_max_length = (
-            getattr(caller_generation_config, "max_length", None)
-            if caller_generation_config is not None
-            else None
-        )
-        if not direct_max_length_supplied and isinstance(caller_max_length, int):
-            assert caller_generation_config is not None
-            bounded_config = copy.deepcopy(caller_generation_config)
-            bounded_config.max_length = None
-            bounded_config.max_new_tokens = _budget_for_max_length(caller_max_length)
-            kwargs["generation_config"] = bounded_config
-            return GenerationMixin.generate(cast("Any", self), *args, **kwargs)
-
-        model_max_new_tokens = getattr(self.generation_config, "max_new_tokens", None)
-        if not direct_max_new_tokens_supplied and isinstance(model_max_new_tokens, int):
-            if model_max_new_tokens > remaining_capacity:
-                if caller_generation_config is not None:
-                    bounded_config = copy.deepcopy(caller_generation_config)
-                    bounded_config.max_new_tokens = remaining_capacity
-                    kwargs["generation_config"] = bounded_config
-                else:
-                    kwargs["max_new_tokens"] = remaining_capacity
-            return GenerationMixin.generate(cast("Any", self), *args, **kwargs)
-
-        from transformers import GenerationConfig
-
-        model_max_length = getattr(self.generation_config, "max_length", None)
-        default_max_length = GenerationConfig().max_length
-        if (
-            not direct_max_length_supplied
-            and isinstance(model_max_length, int)
-            and model_max_length != default_max_length
-        ):
-            bounded_config = copy.deepcopy(
-                caller_generation_config
-                if caller_generation_config is not None
-                else self.generation_config
+        if generation_config.max_length is not None:
+            generation_config.max_length = min(generation_config.max_length, cache_capacity)
+        if generation_config.max_new_tokens is not None:
+            generation_config.max_new_tokens = min(
+                generation_config.max_new_tokens,
+                remaining_capacity,
             )
-            bounded_config.max_length = None
-            bounded_config.max_new_tokens = _budget_for_max_length(model_max_length)
-            kwargs["generation_config"] = bounded_config
-            return GenerationMixin.generate(cast("Any", self), *args, **kwargs)
-
-        if caller_generation_config is not None:
-            bounded_config = copy.deepcopy(caller_generation_config)
-            bounded_config.max_new_tokens = remaining_capacity
-            kwargs["generation_config"] = bounded_config
-        else:
-            kwargs["max_new_tokens"] = remaining_capacity
-        return GenerationMixin.generate(cast("Any", self), *args, **kwargs)
+        return generation_config
 
     def _validate_model_kwargs(self, model_kwargs: dict[str, Any]) -> None:
         """Allow inputs declared by the encoder ONNX graph during generation."""
