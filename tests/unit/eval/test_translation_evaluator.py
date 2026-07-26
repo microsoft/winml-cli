@@ -16,7 +16,7 @@ from winml.modelkit.eval.translation_evaluator import WinMLTranslationEvaluator
 from winml.modelkit.utils.eval_utils import DatasetValidationError
 
 
-def make_evaluator(rows, columns_mapping=None):
+def make_evaluator(rows, columns_mapping=None, pipeline=None):
     from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
     dataset = Dataset.from_list(rows)
@@ -38,7 +38,7 @@ def make_evaluator(rows, columns_mapping=None):
         patch("datasets.load_dataset", return_value=dataset),
         patch(
             "winml.modelkit.eval.base_evaluator.WinMLEvaluator.prepare_pipeline",
-            return_value=MagicMock(),
+            return_value=pipeline or MagicMock(),
         ),
     ):
         return WinMLTranslationEvaluator(config, model)
@@ -97,6 +97,18 @@ class TestTranslationMetric:
 
 
 class TestTranslationEvaluator:
+    def test_static_encoder_capacity_allows_pipeline_without_tokenizer(self):
+        pipeline = MagicMock()
+        pipeline.tokenizer = None
+
+        evaluator = make_evaluator(
+            [{"source": "texte", "reference": "text"}],
+            {"source_column": "source", "reference_column": "reference"},
+            pipeline,
+        )
+
+        assert evaluator.pipe.tokenizer is None
+
     def test_nested_translation_dict_uses_explicit_language_keys(self):
         evaluator = make_evaluator(
             [{"translation": {"fr": "Bonjour le monde", "en": "Hello world"}}],
