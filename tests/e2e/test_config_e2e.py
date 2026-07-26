@@ -35,6 +35,8 @@ from click.testing import CliRunner
 
 from tests.e2e.require_ep import require_ep
 from winml.modelkit.commands.config import config
+from winml.modelkit.session import default_device_for_ep
+from winml.modelkit.utils import normalize_ep_name
 
 
 if TYPE_CHECKING:
@@ -269,6 +271,7 @@ class TestConfigDETR:
 # so the exercise is about flag plumbing, not model coverage.
 # ===========================================================================
 
+
 class TestConfigONNX:
     """Config generation for pre-exported ONNX files."""
 
@@ -344,7 +347,8 @@ class TestConfigFlagVariations:
     )
     def test_every_ep_choice(self, ep: str) -> None:
         """Every documented --ep alias should be accepted."""
-        # Use auto precision so device-specific constraints don't bite.
+        device = default_device_for_ep(normalize_ep_name(ep))
+        assert device is not None
         data = _run_config(
             "-m",
             self.MODEL,
@@ -352,6 +356,8 @@ class TestConfigFlagVariations:
             self.TASK,
             "--ep",
             ep,
+            "--device",
+            device,
             "-p",
             "auto",
         )
