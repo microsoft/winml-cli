@@ -452,8 +452,8 @@ class WinMLAutoModel:
         # =====================================================================
         from ..config import generate_hf_build_config
 
-        # Device/precision resolution is handled inside generate_hf_build_config().
-        # When config is provided, it merges as Tier-1 override on top of defaults.
+        # Config fields merge on top of defaults, while the already resolved
+        # runtime target remains authoritative for quant/compile policy.
         build_config = generate_hf_build_config(
             model_id,
             task=task,
@@ -464,6 +464,7 @@ class WinMLAutoModel:
             ep=short_ep_name(ep_device.device.ep_name),
             model_type=model_type,
             trust_remote_code=trust_remote_code,
+            policy_overrides_config=True,
             no_compile=no_compile,
         )
 

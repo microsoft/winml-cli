@@ -382,6 +382,77 @@ def _resolve_policy_target(device: str, ep: str | None) -> tuple[str, str | None
     )
 
 
+def _apply_target_policy(
+    config: WinMLBuildConfig,
+    *,
+    device: str,
+    precision: str,
+    ep: str | None,
+) -> None:
+    """Apply resolved device/precision policy to quant and compile sections."""
+    from ..sysinfo.hardware import get_available_devices
+    from .precision import (
+        extract_weight_bits,
+        is_weight_only_precision,
+        resolve_precision,
+    )
+
+    requested_device = device.lower()
+    available_devices = get_available_devices()
+    resolved_device, resolved_ep = _resolve_policy_target(device, ep)
+    logger.info(
+        "Device resolved: %s (available: %s)",
+        resolved_device,
+        ", ".join(available_devices),
+    )
+
+    policy = resolve_precision(
+        device=requested_device if ep is not None else resolved_device,
+        precision=precision,
+        ep=resolved_ep,
+        available_devices=available_devices,
+        task=config.loader.task,
+    )
+
+    # Mutate quant in place so calibration identity fields stamped by
+    # _assemble_config survive policy resolution.
+    if policy.weight_type is not None and policy.activation_type is not None:
+        if config.quant is None:
+            config.quant = WinMLQuantizationConfig()
+        config.quant.mode = "static"
+        config.quant.weight_type = policy.weight_type
+        config.quant.activation_type = policy.activation_type
+    elif policy.precision == "fp16":
+        if config.quant is None:
+            config.quant = WinMLQuantizationConfig()
+        config.quant.mode = "fp16"
+    elif policy.precision and is_weight_only_precision(policy.precision):
+        if config.quant is None:
+            config.quant = WinMLQuantizationConfig()
+        config.quant.mode = "rtn"
+        config.quant.rtn_bits = extract_weight_bits(policy.precision)
+    else:
+        config.quant = None
+
+    # Store resolved precision for multi-pass expansion.
+    config.precision = policy.precision  # type: ignore[attr-defined]
+
+    if policy.compile_provider is not None:
+        config.compile = WinMLCompileConfig.for_provider(
+            cast("EPNameOrAlias", policy.compile_provider),
+            device=policy.device,
+        )
+    else:
+        from ..session import default_ep_for_device, ep_short_or_none
+
+        canonical = resolved_ep or default_ep_for_device(resolved_device)
+        provider = ep_short_or_none(canonical) if canonical is not None else None
+        config.compile = WinMLCompileConfig.for_provider(
+            cast("EPNameOrAlias | None", provider),
+            device=resolved_device,
+        )
+
+
 def resolve_quant_compile_config(
     *,
     device: str = "auto",
@@ -617,6 +688,75 @@ def merge_export_overrides(
     return merged
 
 
+def _merge_compile_override(
+    config: WinMLBuildConfig,
+    override: WinMLCompileConfig | dict[str, Any] | None,
+) -> WinMLBuildConfig:
+    """Merge a serialized compile section through its public flat schema."""
+    if override is None:
+        config.compile = None
+        return config
+    if isinstance(override, WinMLCompileConfig):
+        config.compile = copy.deepcopy(override)
+        return config
+    if not isinstance(override, dict):
+        raise TypeError(
+            "compile override must be a mapping, WinMLCompileConfig, or None, "
+            f"got {type(override).__name__}"
+        )
+
+    merged = config.compile.to_dict() if config.compile is not None else {}
+    merged.update(override)
+    config.compile = WinMLCompileConfig.from_dict(merged)
+    return config
+
+
+def _deserialize_sparse_section(
+    data: dict[str, Any],
+    parsed: Any,
+    *,
+    aliases: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Keep sparse key presence while using a section's public deserializer."""
+    aliases = aliases or {}
+    normalized: dict[str, Any] = {}
+    for key, value in data.items():
+        field_name = aliases.get(key, key)
+        normalized[field_name] = (
+            copy.deepcopy(getattr(parsed, field_name)) if hasattr(parsed, field_name) else value
+        )
+    return normalized
+
+
+def _deserialize_sparse_build_override(override: dict[str, Any]) -> dict[str, Any]:
+    """Deserialize present nested sections without filling absent sections."""
+    normalized = dict(override)
+
+    loader_data = normalized.get("loader")
+    if isinstance(loader_data, dict):
+        normalized["loader"] = _deserialize_sparse_section(
+            loader_data,
+            WinMLLoaderConfig.from_dict(loader_data),
+        )
+
+    export_data = normalized.get("export")
+    if isinstance(export_data, dict):
+        normalized["export"] = _deserialize_sparse_section(
+            export_data,
+            WinMLExportConfig.from_dict(export_data),
+        )
+
+    quant_data = normalized.get("quant")
+    if isinstance(quant_data, dict):
+        normalized["quant"] = _deserialize_sparse_section(
+            quant_data,
+            WinMLQuantizationConfig.from_dict(quant_data),
+            aliases={"calibration_samples": "samples"},
+        )
+
+    return normalized
+
+
 def _get_export_batch_size_override(override: BuildConfigOverride | None) -> int | None:
     """Return a user-specified export batch size before I/O resolution."""
     export_override: WinMLExportConfig | dict[str, Any] | None
@@ -655,6 +795,7 @@ def generate_hf_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    policy_overrides_config: bool = False,
     no_compile: bool = False,
 ) -> WinMLBuildConfig: ...
 
@@ -674,6 +815,7 @@ def generate_hf_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    policy_overrides_config: bool = False,
     no_compile: bool = False,
 ) -> list[WinMLBuildConfig]: ...
 
@@ -697,6 +839,7 @@ def generate_hf_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    policy_overrides_config: bool = False,
     no_compile: bool = False,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]: ...
 
@@ -715,6 +858,7 @@ def generate_hf_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    policy_overrides_config: bool = False,
     no_compile: bool = False,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Generate WinMLBuildConfig for a HuggingFace model (Scenarios A/B/C).
@@ -754,6 +898,10 @@ def generate_hf_build_config(
             "int16", or "w{x}a{y}" e.g. "w8a16").
         trust_remote_code: Allow running custom code from model repository.
         ep: Explicit execution provider override.
+        policy_overrides_config: Apply device/precision/EP policy after
+            ``override``. CLI callers set this only when a target option was
+            explicitly supplied; otherwise sparse config values remain higher
+            priority than command defaults.
 
     Returns:
         - When module=None: WinMLBuildConfig (single config)
@@ -763,6 +911,9 @@ def generate_hf_build_config(
         ValueError: If neither model_id nor model_type is provided, task
                     detection fails, or model_type has no supported tasks.
     """
+    if isinstance(override, dict):
+        override = _deserialize_sparse_build_override(override)
+
     # STEP 1: Resolve loader config (ALL loader concerns)
     if isinstance(override, WinMLBuildConfig):
         override_trust_remote_code = override.loader.trust_remote_code if override.loader else False
@@ -860,7 +1011,26 @@ def generate_hf_build_config(
         model_id=model_id,
         model_type=hf_config.model_type,
     )
+    generated_quant = copy.deepcopy(parent_config.quant)
+
+    # Generated target policy is a default tier. A sparse user override normally
+    # wins by merging afterward; explicit CLI target flags opt into the reverse
+    # order through policy_overrides_config.
+    if not policy_overrides_config:
+        _apply_target_policy(
+            parent_config,
+            device=device,
+            precision=precision,
+            ep=ep,
+        )
+
     if override:
+        quant_override_enabled = (
+            isinstance(override, dict) and "quant" in override and override["quant"] is not None
+        ) or (isinstance(override, WinMLBuildConfig) and override.quant is not None)
+        if parent_config.quant is None and quant_override_enabled:
+            parent_config.quant = copy.deepcopy(generated_quant)
+
         # Export CLI overrides (--export-config/--dynamic-axes/--input-specs) arrive
         # under override["export"] as a plain dict. Route them through
         # merge_export_overrides so --input-specs patches the auto-resolved
@@ -868,95 +1038,33 @@ def generate_hf_build_config(
         # re-derived from symbolic dims. Any other override keys (e.g. quant) are
         # merged normally.
         export_overrides = None
+        compile_override_present = False
+        compile_override: WinMLCompileConfig | dict[str, Any] | None = None
         if isinstance(override, dict) and isinstance(override.get("export"), dict):
             export_overrides = override["export"]
             override = {k: v for k, v in override.items() if k != "export"}
+        if isinstance(override, dict) and "compile" in override:
+            compile_override_present = True
+            compile_override = override["compile"]
+            override = {k: v for k, v in override.items() if k != "compile"}
+        elif isinstance(override, WinMLBuildConfig):
+            compile_override_present = True
+            compile_override = override.compile
 
         if override:
             parent_config = merge_config(parent_config, override)
 
         if export_overrides is not None:
             parent_config = merge_export_overrides(parent_config, export_overrides)
+        if compile_override_present:
+            parent_config = _merge_compile_override(parent_config, compile_override)
 
-    # =========================================================================
-    # STEP 4.5: Apply device/precision policy (affects quant + compile only)
-    # =========================================================================
-    from ..sysinfo.hardware import get_available_devices
-    from .precision import (
-        extract_weight_bits,
-        is_weight_only_precision,
-        resolve_precision,
-    )
-
-    # ALWAYS detect hardware — even when device="auto" — so we don't
-    # blindly default to QNN on machines without an NPU (#412). Explicit EP
-    # requests still keep device="auto" for policy resolution so the catalog can
-    # reconstruct that EP's default device instead of inheriting unrelated host
-    # detection.
-    requested_device = device.lower()
-    available_devices = get_available_devices()
-    resolved_device, resolved_ep = _resolve_policy_target(device, ep)
-    logger.info(
-        "Device resolved: %s (available: %s)",
-        resolved_device,
-        ", ".join(available_devices),
-    )
-
-    policy = resolve_precision(
-        device=requested_device if ep is not None else resolved_device,
-        precision=precision,
-        ep=resolved_ep,
-        available_devices=available_devices,
-        task=parent_config.loader.task,
-    )
-
-    # Apply policy: resolve_device() always returns a concrete device so
-    # policy.device is never "auto" here.
-    # Quant config (weight_type and activation_type are always both-None or both-set).
-    # NOTE: mutate parent_config.quant in place (never replace it) so the
-    # calibration identity fields _assemble_config stamped on it — model_type,
-    # task, model_id — survive the precision policy. quantize_onnx dispatches a
-    # registered model-type quant finalizer off config.model_type; replacing the
-    # object here silently drops it and skips the finalizer.
-    if policy.weight_type is not None and policy.activation_type is not None:
-        if parent_config.quant is None:
-            parent_config.quant = WinMLQuantizationConfig()
-        parent_config.quant.weight_type = policy.weight_type
-        parent_config.quant.activation_type = policy.activation_type
-    elif policy.precision == "fp16":
-        # Pure FP16: no QDQ, only FP16 conversion via quantize stage
-        if parent_config.quant is None:
-            parent_config.quant = WinMLQuantizationConfig()
-        parent_config.quant.mode = "fp16"
-    elif policy.precision and is_weight_only_precision(policy.precision):
-        # RTN weight-only quantization (e.g. int4, w4a16, w4a32)
-        if parent_config.quant is None:
-            parent_config.quant = WinMLQuantizationConfig()
-        parent_config.quant.mode = "rtn"
-        parent_config.quant.rtn_bits = extract_weight_bits(policy.precision)
-    else:
-        # CPU/GPU: precision is float (fp32) — no quantization
-        parent_config.quant = None
-
-    # Store resolved precision for multi-pass expansion.
-    parent_config.precision = policy.precision  # type: ignore[attr-defined]
-
-    # Compile config: use policy or fall back to detected hardware
-    if policy.compile_provider is not None:
-        parent_config.compile = WinMLCompileConfig.for_provider(
-            cast("EPNameOrAlias", policy.compile_provider),
-            device=policy.device,
-        )
-    else:
-        # Even in auto/auto mode, set compile provider from detected hardware
-        # instead of preserving the hardcoded EPConfig default (#412).
-        from ..session import default_ep_for_device, ep_short_or_none
-
-        _canonical = resolved_ep or default_ep_for_device(resolved_device)
-        hw_provider = ep_short_or_none(_canonical) if _canonical is not None else None
-        parent_config.compile = WinMLCompileConfig.for_provider(
-            cast("EPNameOrAlias | None", hw_provider),
-            device=resolved_device,
+    if policy_overrides_config:
+        _apply_target_policy(
+            parent_config,
+            device=device,
+            precision=precision,
+            ep=ep,
         )
 
     # no_compile overrides policy — applied last so it always wins
@@ -1116,6 +1224,7 @@ def generate_build_config(
         precision=precision,
         trust_remote_code=trust_remote_code,
         ep=ep,
+        policy_overrides_config=True,
     )
 
 
@@ -1195,10 +1304,14 @@ def _build_submodule_config(
         # Submodule builds use RandomDataset for calibration:
         # quantize_onnx() falls back to "random" when task/model_id are None,
         # and RandomDataset reads input specs from the ONNX model file.
-        quant=WinMLQuantizationConfig(
-            samples=1,
-            task=None,
-            model_id=None,
+        quant=(
+            WinMLQuantizationConfig(
+                samples=1,
+                task=None,
+                model_id=None,
+            )
+            if parent_config.quant is not None
+            else None
         ),
         compile=copy.deepcopy(parent_config.compile),
     )

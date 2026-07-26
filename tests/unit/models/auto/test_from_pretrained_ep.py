@@ -146,6 +146,25 @@ def test_resolved_ep_device_used_when_compile_is_none(
     assert received.get("ep") == "cpu"
 
 
+def test_resolved_target_outranks_supplied_build_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The runtime-bound target must be applied after a supplied build config."""
+    from winml.modelkit.models import WinMLAutoModel
+
+    received = _install_stubs(monkeypatch, compile_provider=None)
+
+    with pytest.raises(_StopAfterEpCheckError):
+        WinMLAutoModel.from_pretrained(
+            "microsoft/resnet-50",
+            task="image-classification",
+            device="cpu",
+            config=MagicMock(),
+        )
+
+    assert received["generate_hf_build_config"]["policy_overrides_config"] is True
+
+
 @pytest.mark.parametrize("flag", [True, False])
 def test_allow_unsupported_nodes_reaches_build(monkeypatch: pytest.MonkeyPatch, flag: bool) -> None:
     """``allow_unsupported_nodes`` propagates to build_hf_model (HF path)."""

@@ -96,9 +96,7 @@ class TestCommandTypoSuggestion:
         assert result.exit_code != 0
         assert "Did you mean 'export'?" in result.output
 
-    def test_unknown_command_with_no_close_match_is_unchanged(
-        self, runner: CliRunner
-    ) -> None:
+    def test_unknown_command_with_no_close_match_is_unchanged(self, runner: CliRunner) -> None:
         """Garbage input -> original error, no spurious suggestion."""
         result = runner.invoke(main, ["xyzzy"])
         assert result.exit_code != 0
@@ -137,16 +135,22 @@ class TestExportCommand:
         assert "-o" in result.output
         assert "-v" in result.output
 
+    @patch("winml.modelkit.loader._autoconfig.load_hf_config")
     @patch("winml.modelkit.loader.load_hf_model")
     @patch("winml.modelkit.export.export_pytorch")
     def test_export_calls_api(
         self,
         mock_export_onnx: MagicMock,
         mock_load_hf_model: MagicMock,
+        mock_load_hf_config: MagicMock,
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
         """Test export command delegates to export_onnx correctly."""
+        from transformers import BertConfig
+
+        mock_load_hf_config.return_value = BertConfig()
+
         # Setup mock model loader
         mock_model = MagicMock()
         mock_load_hf_model.return_value = (mock_model, None, "image-classification")
@@ -319,9 +323,7 @@ class TestSysListEpEndToEnd:
         # source_kind carries the class name like every other source.
         assert first["source_kind"] == "BuiltinSource"
 
-    def test_incompatible_ep_section_marks_entries(
-        self, runner: CliRunner, monkeypatch
-    ) -> None:
+    def test_incompatible_ep_section_marks_entries(self, runner: CliRunner, monkeypatch) -> None:
         # Inject a PyPISource for OpenVINO into the default EP source list;
         # with detected vendors = {"Qualcomm Inc"}, OpenVINO must be marked
         # incompatible at the section level AND at every entry level.
@@ -332,9 +334,7 @@ class TestSysListEpEndToEnd:
         # onnxruntime-ep-openvino is installed in this venv.
         ov_source = PyPISource(
             distribution="onnxruntime-ep-openvino",
-            relative_dll=(
-                "onnxruntime_ep_openvino/onnxruntime_providers_openvino_plugin.dll"
-            ),
+            relative_dll=("onnxruntime_ep_openvino/onnxruntime_providers_openvino_plugin.dll"),
             eps=("OpenVINOExecutionProvider",),
         )
         monkeypatch.setattr(_ep, "_default_ep_sources", lambda: [ov_source])

@@ -15,7 +15,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from winml.modelkit.ep_path import BuiltinSource, EPEntry
-from winml.modelkit.session import EPDeviceTarget, WinMLDevice, WinMLEP, WinMLEPDevice
+from winml.modelkit.session import (
+    EP_DEVICE_SPECS,
+    EPDeviceTarget,
+    WinMLDevice,
+    WinMLEP,
+    WinMLEPDevice,
+)
 
 
 _DEVICE_TO_EPS = {
@@ -120,12 +126,13 @@ def _fake_ep_device(target: EPDeviceTarget) -> WinMLEPDevice:
 def mock_compile_resolution():
     """Mock device + EP resolution for tests under ``tests/unit/compiler/``.
 
-    ``WinMLEPRegistry.is_ep_available`` is also stubbed so the compile CLI's
-    host-availability check passes for every EP — tests that exercise the
-    negative path patch the registry singleton locally with a tighter mock.
+    Registry availability is also stubbed so compile/build policy checks pass
+    for every catalog EP. Tests that exercise a negative path patch the
+    registry singleton locally with a tighter mock.
     """
     mock_registry = MagicMock()
     mock_registry.is_ep_available.return_value = True
+    mock_registry.available_eps.return_value = frozenset(spec.ep for spec in EP_DEVICE_SPECS)
     mock_registry.auto_device.side_effect = _fake_ep_device
 
     # Patch resolve_device at every command that imports it — the

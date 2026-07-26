@@ -27,6 +27,7 @@ from winml.modelkit.config import (
     SubmoduleClassNotFoundError,
     WinMLBuildConfig,
     generate_build_config,
+    generate_hf_build_config,
     generate_onnx_build_config,
 )
 from winml.modelkit.config.build import (
@@ -588,6 +589,263 @@ class TestStep45PreservesModelType:
 
 
 # =============================================================================
+# TestHfOverridePolicyPrecedence - config override vs target policy ordering
+# =============================================================================
+
+
+class TestHfOverridePolicyPrecedence:
+    """JSON/config overrides beat defaults; explicit CLI policy can beat JSON."""
+
+    @staticmethod
+    def _run(
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+        *,
+        use_legacy_dispatcher: bool = False,
+        override_data: dict | None = None,
+        policy_data: dict | None = None,
+        **kwargs,
+    ) -> WinMLBuildConfig:
+        from winml.modelkit.config.precision import PrecisionPolicy
+
+        policy = PrecisionPolicy(
+            **(
+                policy_data
+                or {
+                    "device": "npu",
+                    "precision": "int8",
+                    "weight_type": "uint8",
+                    "activation_type": "uint8",
+                    "compile_provider": "qnn",
+                }
+            )
+        )
+        effective_override = (
+            {
+                "quant": None,
+                "compile": {
+                    "execution_provider": "openvino",
+                    "device": "npu",
+                },
+            }
+            if override_data is None
+            else override_data
+        )
+        with (
+            patch(
+                "winml.modelkit.config.build.resolve_loader_config",
+                return_value=(
+                    mock_loader_config,
+                    mock_hf_config,
+                    mock_model_class,
+                    MagicMock(),
+                ),
+            ),
+            patch(
+                "winml.modelkit.config.build._resolve_export_config_from_specs",
+                return_value=mock_export_config,
+            ),
+            patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+            patch(
+                "winml.modelkit.config.build._resolve_policy_target",
+                return_value=("npu", "QNNExecutionProvider"),
+            ),
+            patch(
+                "winml.modelkit.config.precision.resolve_precision",
+                return_value=policy,
+            ),
+        ):
+            generator = generate_build_config if use_legacy_dispatcher else generate_hf_build_config
+            return generator(
+                "some/model",
+                override=effective_override,
+                **kwargs,
+            )
+
+    def test_override_beats_default_target_policy(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        result = self._run(
+            mock_hf_config,
+            mock_model_class,
+            mock_loader_config,
+            mock_export_config,
+        )
+
+        assert result.quant is None
+        assert result.compile is not None
+        assert result.compile.ep_config.provider == "openvino"
+
+    def test_explicit_cli_target_policy_beats_override(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        result = self._run(
+            mock_hf_config,
+            mock_model_class,
+            mock_loader_config,
+            mock_export_config,
+            policy_overrides_config=True,
+        )
+
+        assert result.quant is not None
+        assert result.quant.weight_type == "uint8"
+        assert result.compile is not None
+        assert result.compile.ep_config.provider == "qnn"
+
+    def test_sparse_json_deserializes_tensor_specs(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        result = self._run(
+            mock_hf_config,
+            mock_model_class,
+            mock_loader_config,
+            mock_export_config,
+            override_data={
+                "export": {
+                    "input_tensors": [
+                        {
+                            "name": "input_ids",
+                            "dtype": "int64",
+                            "shape": [1, 8],
+                        }
+                    ],
+                    "output_tensors": [{"name": "logits"}],
+                }
+            },
+        )
+
+        assert result.export is not None
+        assert result.export.input_tensors is not None
+        assert isinstance(result.export.input_tensors[0], InputTensorSpec)
+        assert result.export.output_tensors is not None
+        assert isinstance(result.export.output_tensors[0], OutputTensorSpec)
+        assert result.to_dict()["export"]["output_tensors"] == [{"name": "logits"}]
+
+    def test_sparse_json_uses_quant_compat_deserializer(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        result = self._run(
+            mock_hf_config,
+            mock_model_class,
+            mock_loader_config,
+            mock_export_config,
+            override_data={"quant": {"mode": "qdq"}},
+        )
+
+        assert result.quant is not None
+        assert result.quant.mode == "static"
+
+    def test_sparse_json_deserializes_eval_once(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        result = self._run(
+            mock_hf_config,
+            mock_model_class,
+            mock_loader_config,
+            mock_export_config,
+            override_data={"eval": {"dataset": {"samples": 5}}},
+        )
+
+        assert result.eval is not None
+        assert result.eval.dataset.samples == 5
+
+    def test_sparse_quant_reenabled_after_fp32_policy_preserves_identity(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        result = self._run(
+            mock_hf_config,
+            mock_model_class,
+            mock_loader_config,
+            mock_export_config,
+            override_data={"quant": {"samples": 5}},
+            policy_data={
+                "device": "cpu",
+                "precision": "fp32",
+                "weight_type": None,
+                "activation_type": None,
+                "compile_provider": None,
+            },
+        )
+
+        assert result.quant is not None
+        assert result.quant.samples == 5
+        assert result.quant.task == mock_loader_config.task
+        assert result.quant.model_id == "some/model"
+        assert result.quant.model_type == mock_loader_config.model_type
+        result.validate()
+
+    def test_explicit_qdq_policy_resets_conflicting_quant_mode(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        result = self._run(
+            mock_hf_config,
+            mock_model_class,
+            mock_loader_config,
+            mock_export_config,
+            override_data={"quant": {"mode": "fp16"}},
+            policy_overrides_config=True,
+        )
+
+        assert result.quant is not None
+        assert result.quant.mode == "static"
+        assert result.quant.weight_type == "uint8"
+        assert result.quant.activation_type == "uint8"
+
+    def test_legacy_dispatcher_preserves_explicit_target_precedence(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        result = self._run(
+            mock_hf_config,
+            mock_model_class,
+            mock_loader_config,
+            mock_export_config,
+            use_legacy_dispatcher=True,
+            device="npu",
+            precision="int8",
+            ep="qnn",
+        )
+
+        assert result.quant is not None
+        assert result.quant.weight_type == "uint8"
+        assert result.compile is not None
+        assert result.compile.ep_config.provider == "qnn"
+
+
+# =============================================================================
 # TestRegistryShortCircuit - Registry-before-Optimum export config resolution
 # =============================================================================
 
@@ -1134,6 +1392,24 @@ class TestBuildSubmoduleConfig:
         assert result.quant.task is None
         assert result.quant.model_id is None
         assert result.quant.samples == 1
+
+    def test_disabled_parent_quant_stays_disabled(
+        self,
+        parent_config: WinMLBuildConfig,
+    ) -> None:
+        parent_config.quant = None
+        sub_info = SubmoduleInfo(
+            class_name="Linear",
+            module_path="encoder.proj",
+            input_shapes=[[1, 8]],
+            output_shapes=[[1, 8]],
+            input_dtypes=["float32"],
+            output_dtypes=["float32"],
+        )
+
+        result = _build_submodule_config(sub_info, parent_config)
+
+        assert result.quant is None
 
     def test_submodule_config_with_quant_passes_validate(
         self,

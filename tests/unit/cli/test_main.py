@@ -105,16 +105,22 @@ class TestExportCommand:
         assert "-o" in result.output
         assert "-v" in result.output
 
+    @patch("winml.modelkit.loader._autoconfig.load_hf_config")
     @patch("winml.modelkit.loader.load_hf_model")
     @patch("winml.modelkit.export.export_pytorch")
     def test_export_calls_api(
         self,
         mock_export_onnx: MagicMock,
         mock_load_hf_model: MagicMock,
+        mock_load_hf_config: MagicMock,
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
         """Test export command delegates to export_onnx correctly."""
+        from transformers import BertConfig
+
+        mock_load_hf_config.return_value = BertConfig()
+
         # Setup mock model loader
         mock_model = MagicMock()
         mock_load_hf_model.return_value = (mock_model, None, "image-classification")

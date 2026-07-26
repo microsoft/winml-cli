@@ -280,7 +280,7 @@ def config(
         hf_model = cli_utils.normalize_model_arg(hf_model)
 
         # Load override config from JSON file if provided
-        override = None
+        override: dict[str, Any] | None = None
         _override_file: str | None = None
         _shape_config_file: str | None = None
         if config_file:
@@ -295,7 +295,7 @@ def config(
                         f"Config file must contain a JSON object, "
                         f"got {type(data).__name__}: {config_path}"
                     )
-                override = WinMLBuildConfig.from_dict(data)
+                override = data
             except json.JSONDecodeError as e:
                 raise click.UsageError(f"Invalid JSON in config file {config_path}: {e}") from e
             _override_file = config_path.name
@@ -353,14 +353,18 @@ def config(
 
         config_obj: WinMLBuildConfig | None = None
         output_data: dict[str, Any] | list[Any]
+        policy_overrides_config = any(
+            cli_utils.is_cli_provided(ctx, name) for name in ("device", "precision", "ep")
+        )
         if hf_model and _hf_is_onnx:
+            onnx_override = WinMLBuildConfig.from_dict(override) if override is not None else None
             config_obj = generate_onnx_build_config(
                 hf_model,
                 task=task,
                 device=device,
                 precision=precision,
                 ep=ep_name,
-                override=override,
+                override=onnx_override,
             )
 
             # Apply --no-quant / --no-compile overrides
@@ -410,6 +414,7 @@ def config(
                     ep=ep_name,
                     no_quant=not quant,
                     no_compile=no_compile,
+                    policy_overrides_config=policy_overrides_config,
                     output=output,
                     overwrite=overwrite,
                     console=console,
@@ -442,6 +447,7 @@ def config(
                 precision=precision,
                 trust_remote_code=trust_remote_code,
                 ep=ep_name,
+                policy_overrides_config=policy_overrides_config,
             )
             if isinstance(result, list):
                 # --module + export overrides is rejected up front, so
@@ -640,6 +646,7 @@ def _generate_pipeline_configs(
     ep: str | None,
     no_quant: bool,
     no_compile: bool,
+    policy_overrides_config: bool,
     output: Path | None,
     overwrite: bool,
     console: Any,
@@ -665,6 +672,7 @@ def _generate_pipeline_configs(
             precision=precision,
             trust_remote_code=trust_remote_code,
             ep=ep,
+            policy_overrides_config=policy_overrides_config,
         )
         _apply_stage_overrides(cfg, no_quant=no_quant, no_compile=no_compile)
 
