@@ -254,14 +254,15 @@ def build_hf_model(
     is_pre_quantized = config.skip_optimize
 
     if is_pre_quantized:
-        logger.info("Skipping optimize + quantize stages (config.skip_optimize=True)")
+        logger.info("Skipping optimize stage (config.skip_optimize=True)")
         stages_skipped.append("optimize")
         # Skip the ORT-based graph optimization (no kernel for QOperator
         # ops like ConvInteger on the host EP). The autoconf re-optim/
         # analyze loop is disabled too -- ``run_optimize_analyze_loop``
         # forces ``max_optim_iterations=0`` when ``skip_optimize=True``,
         # so ``_run_analyze_loop`` is not invoked. The model still flows
-        # through later stages (quantize-skip + compile) for validation.
+        # through later stages. In particular, an explicit FP16 conversion
+        # still converts the graph's remaining float tensors before compile.
         current_path, _, analyze_iterations, analyze_unsupported_nodes, analyze_details = (
             run_optimize_analyze_loop(
                 model_path=current_path,
@@ -304,15 +305,14 @@ def build_hf_model(
     # =========================================================================
     # [4] QUANTIZE (optional — config.quant=None means skip)
     # =========================================================================
-    # No defensive ``is_quantized_onnx`` re-check here: when the model is
-    # pre-quantized, ``ensure_pre_quantized_stamped`` has already set
-    # ``config.quant = None`` at stage [3], so this branch naturally
-    # falls through to the ``quant is None`` skip path.
+    # No defensive ``is_quantized_onnx`` re-check here. The stage-[3]
+    # stamping suppresses incompatible integer quantization while preserving
+    # an explicit FP16 conversion of the graph's remaining float tensors.
     quant_result = None
-    if is_pre_quantized:
+    if is_pre_quantized and (config.quant is None or config.quant.mode != "fp16"):
         if "quantize" not in stages_skipped:
             stages_skipped.append("quantize")
-        logger.info("Quantize skipped (pre-quantized model)")
+        logger.info("Quantize skipped (incompatible with pre-quantized model)")
     elif config.quant is not None:
         logger.info("Quantizing model...")
         t0 = time.monotonic()
@@ -399,6 +399,7 @@ def build_hf_model(
         source="hf",
         model_id=model_label,
         task=task,
+        runtime=config.runtime.to_dict() if config.runtime is not None else None,
         cache_key=cache_key,
         config_hash=cache_key.rsplit("_", 1)[-1] if cache_key and "_" in cache_key else None,
         timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),

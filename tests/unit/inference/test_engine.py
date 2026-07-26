@@ -366,15 +366,8 @@ class TestLoadSchemaOnly:
         engine.load_schema_only(tmp_path, task="image-classification")
         assert engine._task == "image-classification"
 
-    def test_hub_onnx_ref_is_resolved_before_routing(self, tmp_path: Any) -> None:
-        """A Hub-style ONNX ref (``<org>/<repo>/<path>.onnx``) must be
-        resolved to a local path BEFORE the .onnx-suffix-and-exists check,
-        otherwise it falls through to the HF model-id branch and tries to
-        load a Hub-ONNX path string as if it were a transformers config.
-
-        Regression test for ``winml run`` and ``winml serve`` on Hub refs
-        like ``onnx-community/sam3-tracker-ONNX/onnx/...``.
-        """
+    def test_explicit_task_does_not_download_hub_onnx_ref(self, tmp_path: Any) -> None:
+        """Schema-only display must not download an explicit Hub ONNX artifact."""
         from unittest.mock import patch
 
         local = tmp_path / "vision_encoder_int8.onnx"
@@ -382,22 +375,44 @@ class TestLoadSchemaOnly:
         hub_ref = "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
 
         engine = InferenceEngine()
-        # ``WinMLSession.load_schema_only`` now routes Hub-ONNX resolution
-        # through the unified ``resolve_model_input`` (in
-        # ``winml.modelkit.utils.model_input``). Patch the underlying
-        # downloader so the lazy ``from ..loader.onnx_hub import
-        # resolve_hf_onnx_path`` picks up the mock at call time.
         with patch(
             "winml.modelkit.loader.onnx_hub.resolve_hf_onnx_path",
             return_value=local,
         ) as mock_resolve:
             engine.load_schema_only(hub_ref, task="mask-generation")
-        mock_resolve.assert_called_once()
-        # After resolution the engine should treat the input as a local
-        # ONNX file (not as an HF model id), which means _model_id is the
-        # resolved local path string, not the original Hub ref.
-        assert engine._model_id == str(local)
+        mock_resolve.assert_not_called()
+        assert engine._model_id == hub_ref
         assert engine._task == "mask-generation"
+
+    def test_explicit_task_does_not_download_bare_repo_onnx(self) -> None:
+        """Schema-only needs only the explicit task, never repository weights."""
+        engine = InferenceEngine()
+        with patch("winml.modelkit.loader.onnx_hub.resolve_hf_onnx_path") as mock_download:
+            engine.load_schema_only("opencv/inpainting_lama", task="inpainting")
+
+        mock_download.assert_not_called()
+        assert engine._model_id == "opencv/inpainting_lama"
+        assert engine._task == "inpainting"
+
+    def test_build_dir_preserves_runtime_contract(self, tmp_path: Any) -> None:
+        """Build-directory loading attaches the manifest's runtime contract."""
+        import json
+
+        runtime = {"pipeline": "inpainting", "options": {"contract": "test"}}
+        (tmp_path / "build_manifest.json").write_text(
+            json.dumps({"task": "inpainting", "runtime": runtime})
+        )
+        (tmp_path / "model.onnx").write_bytes(b"fake")
+        fake_model = MagicMock()
+
+        with patch(
+            "winml.modelkit.models.winml.get_winml_class",
+            return_value=lambda **_kwargs: fake_model,
+        ):
+            engine = InferenceEngine()
+            engine._load_from_build_dir(tmp_path, task=None, device="cpu", ep=None)
+
+        assert fake_model._runtime_config == runtime
 
 
 # ---------------------------------------------------------------------------

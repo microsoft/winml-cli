@@ -74,6 +74,7 @@ class TestWinMLManifestRoundTrip:
             source="hf",
             model_id="microsoft/resnet-50",
             task="image-classification",
+            runtime={"pipeline": "custom", "options": {"threshold": 0.5}},
             final_artifact="model.onnx",
             elapsed_seconds=12.345,
             stages=[
@@ -91,6 +92,7 @@ class TestWinMLManifestRoundTrip:
         assert restored.source == original.source
         assert restored.model_id == original.model_id
         assert restored.task == original.task
+        assert restored.runtime == original.runtime
         assert restored.elapsed_seconds == original.elapsed_seconds
         assert len(restored.stages) == 2
         assert restored.stages[0].name == "export"

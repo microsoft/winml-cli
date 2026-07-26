@@ -38,7 +38,7 @@ from ..utils.console import (
     print_stages_header,
 )
 from ..utils.logging import configure_logging
-from ..utils.model_input import ModelInputKind, classify_model_input
+from ..utils.model_input import ModelInputKind, classify_model_input, resolve_model_input
 
 
 if TYPE_CHECKING:
@@ -935,12 +935,7 @@ def build(
         # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
         # is downloaded once and treated as a local .onnx file thereafter.
         model_input = None
-        if model:
-            model = cli_utils.normalize_model_arg(model)
-            if model:
-                model_input = classify_model_input(model)
-                if model_input.kind is ModelInputKind.INVALID:
-                    raise click.UsageError(model_input.error or f"Invalid model input: {model}")
+        source_model_input = None
 
         # Load or auto-generate config
         if config_file is not None:
@@ -949,6 +944,20 @@ def build(
                 no_quant=not quant,
                 no_compile=no_compile,
             )
+            if model:
+                direct_onnx = (
+                    not isinstance(config_or_configs, list) and config_or_configs.export is None
+                )
+                source_model_input = resolve_model_input(
+                    model,
+                    discover_repo_onnx=direct_onnx,
+                )
+                if source_model_input.kind is ModelInputKind.INVALID:
+                    raise click.UsageError(
+                        source_model_input.error or f"Invalid model input: {model}"
+                    )
+                model = source_model_input.local_path or model
+                model_input = classify_model_input(model)
             if export_overrides:
                 from ..config import merge_export_overrides
 
@@ -976,6 +985,12 @@ def build(
         else:
             if not model:
                 raise click.UsageError("-m/--model is required when -c is not provided.")
+            source_model_input = resolve_model_input(model, discover_repo_onnx=True)
+            if source_model_input.kind is ModelInputKind.INVALID:
+                invalid_message = source_model_input.error or f"Invalid model input: {model}"
+                raise click.UsageError(invalid_message)
+            model = source_model_input.local_path or model
+            model_input = classify_model_input(model)
             from ..config import generate_build_config
 
             # When ``model`` resolves to an .onnx file (either a local path or
@@ -1031,7 +1046,11 @@ def build(
                 resolved_quant, _ = resolve_quant_compile_config(
                     device=device, precision=precision, ep=ep
                 )
-                if cfg.skip_optimize or not quant or resolved_quant is None:
+                if (
+                    not quant
+                    or resolved_quant is None
+                    or (cfg.skip_optimize and resolved_quant.mode != "fp16")
+                ):
                     cfg.quant = None
                 elif cfg.quant is None:
                     # Populate calibration identifiers from the loader/model
@@ -1103,6 +1122,12 @@ def build(
         # on the key being present, matching the module-mode path which passes
         # allow_unsupported_nodes explicitly regardless of its value.
         extra_kwargs["allow_unsupported_nodes"] = allow_unsupported_nodes
+        source_kind = source_model_input.kind if source_model_input is not None else None
+        if source_kind is ModelInputKind.HUB_ONNX:
+            assert source_model_input is not None
+            extra_kwargs["source_model_id"] = source_model_input.hf_id
+            extra_kwargs["source_onnx_file"] = source_model_input.artifact_path
+            extra_kwargs["source_revision"] = source_model_input.revision
 
         # ---- OPTIMIZED (GENAI BUNDLE) EXPORT ----
         # ``--export-type optimized`` builds the family's registered
@@ -1779,7 +1804,7 @@ def _run_quantize_stage(
     from ..quant import quantize_onnx
     from ..utils.console import StageLive
 
-    if config.skip_optimize:
+    if config.skip_optimize and (config.quant is None or config.quant.mode != "fp16"):
         config.quant = None
         return current_path
 
@@ -2116,6 +2141,9 @@ def _build_onnx_pipeline(
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
     allow_unsupported_nodes: bool = extra_kwargs.pop("allow_unsupported_nodes", False)
+    source_model_id: str | None = extra_kwargs.pop("source_model_id", None)
+    source_onnx_file: str | None = extra_kwargs.pop("source_onnx_file", None)
+    source_revision: str | None = extra_kwargs.pop("source_revision", None)
 
     # ── Validate + setup ─────────────────────────────────────────
     if not onnx_path.exists():
@@ -2203,5 +2231,25 @@ def _build_onnx_pipeline(
     # ── Finalize ─────────────────────────────────────────────────
     if current_path != final_path:
         copy_onnx_model(current_path, final_path)
+
+    from ..utils import MANIFEST_FILENAME, WinMLManifest
+
+    manifest = WinMLManifest(
+        source="onnx",
+        model_id=source_model_id,
+        task=config.loader.task,
+        runtime=config.runtime.to_dict() if config.runtime is not None else None,
+        input_onnx=str(onnx_path),
+        final_artifact=final_path.name,
+        extras={
+            key: value
+            for key, value in {
+                "hub_onnx_file": source_onnx_file,
+                "hub_revision": source_revision,
+            }.items()
+            if value is not None
+        },
+    )
+    manifest.save(output_dir / MANIFEST_FILENAME)
 
     return stage_timings

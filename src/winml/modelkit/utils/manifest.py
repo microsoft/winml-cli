@@ -118,6 +118,7 @@ class WinMLManifest:
 
     model_id: str | None = None
     task: str | None = None
+    runtime: dict[str, Any] | None = None
     cache_key: str | None = None
     config_hash: str | None = None
     input_onnx: str | None = None

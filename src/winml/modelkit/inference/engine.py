@@ -323,11 +323,12 @@ class InferenceEngine:
                 no effect on raw .onnx files or pre-built build directories
                 (no build/analyze step runs in those paths).
         """
-        # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
-        # is downloaded once and treated as a local .onnx path thereafter.
+        # Hub-hosted ONNX is downloaded once and treated as a local path.
         from ..utils.model_input import resolve_model_input
 
-        model_path = resolve_model_input(str(model_path)).local_path or str(model_path)
+        model_path = resolve_model_input(
+            str(model_path), discover_repo_onnx=True
+        ).local_path or str(model_path)
 
         self._model_path = str(model_path)
         self._ep = ep
@@ -404,11 +405,15 @@ class InferenceEngine:
         Falls back to ``load()`` only when the task cannot be determined
         without a full model load.
         """
-        # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
-        # is downloaded once and treated as a local .onnx path thereafter.
-        from ..utils.model_input import resolve_model_input
+        # An explicit task is sufficient to display its schema. Do not run
+        # optional bare-repository discovery here: a single-ONNX repository
+        # discovery downloads model weights, violating schema-only's contract.
+        if task is None:
+            from ..utils.model_input import resolve_model_input
 
-        model_path = resolve_model_input(str(model_path)).local_path or str(model_path)
+            model_path = resolve_model_input(
+                str(model_path), discover_repo_onnx=True
+            ).local_path or str(model_path)
 
         self._model_path = str(model_path)
         self._device = device
@@ -967,7 +972,8 @@ class InferenceEngine:
         from ..models.winml import get_winml_class
 
         winml_class = get_winml_class(None, task or "")
-        self._model = winml_class(onnx_path=onnx_path, config=None, device=device)
+        self._model = winml_class(onnx_path=onnx_path, config=None, device=device, ep=ep)
+        self._model._runtime_config = manifest.get("runtime") if manifest is not None else None
         self._task = task or getattr(self._model, "task", None)
 
         if model_id:

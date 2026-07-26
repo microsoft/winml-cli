@@ -81,6 +81,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "WinMLBuildConfig",
+    "WinMLRuntimeConfig",
     "generate_build_config",
     "generate_hf_build_config",
     "generate_onnx_build_config",
@@ -93,6 +94,38 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # WINML BUILD CONFIG DATACLASS
 # =============================================================================
+
+
+@dataclass
+class WinMLRuntimeConfig:
+    """Runtime adapter selection and task-specific options.
+
+    The build system persists this data unchanged into the artifact manifest.
+    Runtime adapters own validation of their option schema, which keeps this
+    plumbing reusable without introducing model- or task-specific branches.
+    """
+
+    pipeline: str
+    options: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> WinMLRuntimeConfig:
+        """Create runtime configuration from a recipe dictionary."""
+        return cls(
+            pipeline=data.get("pipeline", ""),
+            options=dict(data.get("options", {})),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert runtime configuration to a JSON-safe dictionary."""
+        return {"pipeline": self.pipeline, "options": copy.deepcopy(self.options)}
+
+    def validate(self) -> None:
+        """Validate the generic runtime envelope."""
+        if not self.pipeline.strip():
+            raise ValueError("runtime.pipeline must be a non-empty string")
+        if not isinstance(self.options, dict):
+            raise TypeError("runtime.options must be an object")
 
 
 @dataclass
@@ -137,6 +170,7 @@ class WinMLBuildConfig:
     quant: WinMLQuantizationConfig | None = field(default_factory=WinMLQuantizationConfig)
     compile: WinMLCompileConfig | None = field(default_factory=WinMLCompileConfig)
     eval: WinMLEvaluationConfig | None = None
+    runtime: WinMLRuntimeConfig | None = None
     auto: bool = True
     # Stamped True by generate_*_build_config (or by the build_*_model
     # entry-point defensive fallback) when the input ONNX is already
@@ -164,6 +198,7 @@ class WinMLBuildConfig:
         quant_data = config_dict.get("quant")
         compile_data = config_dict.get("compile")
         eval_data = config_dict.get("eval")
+        runtime_data = config_dict.get("runtime")
         eval_cfg = None
         if eval_data is not None:
             eval_cfg = WinMLEvaluationConfig.from_dict(eval_data)
@@ -178,6 +213,9 @@ class WinMLBuildConfig:
                 WinMLCompileConfig.from_dict(compile_data) if compile_data is not None else None
             ),
             eval=eval_cfg,
+            runtime=(
+                WinMLRuntimeConfig.from_dict(runtime_data) if runtime_data is not None else None
+            ),
             auto=config_dict.get("auto", True),
             skip_optimize=config_dict.get("skip_optimize", False),
         )
@@ -203,6 +241,8 @@ class WinMLBuildConfig:
             result["loader"] = loader_dict
         if self.eval is not None:
             result["eval"] = self.eval.to_dict()
+        if self.runtime is not None:
+            result["runtime"] = self.runtime.to_dict()
         return result
 
     def validate(self) -> None:
@@ -253,6 +293,12 @@ class WinMLBuildConfig:
             not self.compile.ep_config or not self.compile.ep_config.provider
         ):
             errors.append("compile.ep_config.provider is required when compile is enabled")
+
+        if self.runtime is not None:
+            try:
+                self.runtime.validate()
+            except (TypeError, ValueError) as exc:
+                errors.append(str(exc))
 
         if errors:
             raise ValueError("Invalid WinMLBuildConfig:\n" + "\n".join(f"  - {e}" for e in errors))
@@ -459,10 +505,15 @@ def generate_onnx_build_config(
         )
 
         if is_quantized_onnx(onnx_path_resolved):
-            # Skip optimize+quantize, compile with resolved policy.
+            # Skip graph optimization and incompatible re-quantization, but
+            # preserve explicit FP16 conversion of the graph's float tensors.
             # ``skip_optimize`` is the single source of truth — downstream
             # pipelines must read this flag and not re-detect.
-            config.quant = None
+            config.quant = (
+                resolved_quant
+                if resolved_quant is not None and resolved_quant.mode == "fp16"
+                else None
+            )
             config.skip_optimize = True
             config.compile = resolved_compile
             logger.info("Quantized model (QDQ) detected")

@@ -89,6 +89,7 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
 
         # Set by WinMLAutoModel.from_pretrained() after construction
         self._build_config: Any = None
+        self._runtime_config: dict[str, Any] | None = None
 
         # Create WinMLSession (delegates ORT operations)
         self._session = WinMLSession(
@@ -257,6 +258,11 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         TODO: derive from _build_config.quant.weight_type when ready.
         """
         return None
+
+    @property
+    def runtime_config(self) -> dict[str, Any] | None:
+        """Data-driven runtime adapter contract attached by build/load plumbing."""
+        return self._runtime_config
 
     @property
     def dtype(self) -> torch.dtype:
