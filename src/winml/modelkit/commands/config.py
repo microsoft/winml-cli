@@ -543,8 +543,8 @@ def config(
 
             console.print("   \u2699\ufe0f  [bold]Resolution:[/bold]")
 
-            # Fix #4: Device from auto_detect_device (resolves "auto"
-            # to a concrete category without registering EPs).
+            # Device from auto_detect_device, which validates that a local EP
+            # actually exposes the selected device class.
             from ..session import auto_detect_device
 
             _resolved_dev = auto_detect_device() if device.lower() == "auto" else device.lower()

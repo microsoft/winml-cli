@@ -41,10 +41,19 @@ def mock_resolve_device():
             return_value=["npu", "gpu", "cpu"],
         ),
         patch.object(
-            WinMLEPRegistry, "available_eps", return_value=all_eps,
+            WinMLEPRegistry,
+            "available_eps",
+            return_value=all_eps,
         ),
         patch.object(
-            EPCatalog, "is_compatible", return_value=True,
+            WinMLEPRegistry,
+            "auto_device",
+            return_value=object(),
+        ),
+        patch.object(
+            EPCatalog,
+            "is_compatible",
+            return_value=True,
         ),
     ):
         yield

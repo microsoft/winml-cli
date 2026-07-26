@@ -2580,16 +2580,29 @@ def perf(
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
     if config_file is not None:
-        _, raw_cfg = cli_utils.load_build_config(config_file)
+        build_cfg, raw_cfg = cli_utils.load_build_config(config_file)
         lc = raw_cfg.get("loader") or {}
         cc = raw_cfg.get("compile") or {}
+        configured_target = (
+            build_cfg.compile.ep_device
+            if build_cfg.compile is not None and "ep_device" in cc
+            else None
+        )
         if not cli_utils.is_cli_provided(ctx, "task") and "task" in lc:
             task = lc["task"]
-        if not cli_utils.is_cli_provided(ctx, "ep") and "execution_provider" in cc:
+        if not cli_utils.is_cli_provided(ctx, "device"):
+            if configured_target is not None:
+                device = configured_target.device
+            elif "device" in cc:
+                device = cc["device"]
+        if not cli_utils.is_cli_provided(ctx, "ep"):
             # Normalize to the (ep, source) tuple shape that EpAtSourceParamType
             # produces at parse time, so the downstream unpack is uniform
             # regardless of whether --ep came from the CLI or the config file.
-            ep = (cc["execution_provider"], None)
+            if configured_target is not None:
+                ep = (configured_target.ep, configured_target.source)
+            elif "execution_provider" in cc:
+                ep = (cc["execution_provider"], None)
 
     # Merge top-level -v/-q with subcommand-level flags so either position works.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
@@ -2979,6 +2992,18 @@ def perf(
                 )
                 sys.exit(4)
             if trace_result.status == "basic_fallback":
+                from ..onnx import is_compiled_onnx
+
+                try:
+                    running_model_is_epcontext = is_compiled_onnx(Path(result.running_model_path))
+                except (OSError, ValueError):
+                    running_model_is_epcontext = False
+                if not running_model_is_epcontext:
+                    console.print(
+                        "[red]Error:[/red] Detail op-tracing requires a compiled "
+                        "EPContext model, but the benchmark ran the original ONNX model."
+                    )
+                    sys.exit(4)
                 console.print(
                     "[yellow]Notice:[/yellow] Detail mode degraded to basic CSV "
                     "(QHAS unavailable; set QNN_SDK_ROOT to enable)."

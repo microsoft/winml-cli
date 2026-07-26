@@ -6,7 +6,29 @@
 
 from __future__ import annotations
 
-from typing import Literal, TypeAlias, cast, get_args, overload
+from typing import Any, Literal, TypeAlias, cast, get_args, overload
+
+
+__all__ = [
+    "ACCELERATOR_DEVICE_TYPES",
+    "ALL_EP_NAMES",
+    "COMPILER_NAMES",
+    "DEVICE_PRIORITY",
+    "EP_ALIASES",
+    "EP_ALIAS_NAMES",
+    "EP_NAMES",
+    "EP_SUPPORTED_DEVICES",
+    "ORT_SESSION_COMPILER",
+    "SUPPORTED_DEVICES",
+    "SUPPORTED_EPS",
+    "CompilerName",
+    "DeviceType",
+    "EPAlias",
+    "EPName",
+    "EPNameOrAlias",
+    "extract_ep_options",
+    "normalize_ep_name",
+]
 
 
 # Canonical ORT execution provider full names (the `*ExecutionProvider` symbols).
@@ -192,3 +214,50 @@ EP_SUPPORTED_DEVICES: dict[EPName, tuple[DeviceType, ...]] = {
     "CPUExecutionProvider": ("cpu",),
     "VitisAIExecutionProvider": ("npu",),
 }
+
+
+_COMPAT_CONSTANTS = frozenset(
+    {
+        "EP_NAME_TO_ALIAS",
+        "DEVICE_TO_DEVICE_TYPE",
+        "DEVICE_TYPE_TO_DEVICE",
+    }
+)
+__all__.extend(sorted(_COMPAT_CONSTANTS))
+
+
+def __getattr__(name: str) -> Any:
+    """Lazily expose constants moved during the session refactor."""
+    if name not in _COMPAT_CONSTANTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    import warnings
+
+    value: Any
+    if name == "EP_NAME_TO_ALIAS":
+        value = {canonical: alias for alias, canonical in EP_ALIASES.items()}
+        replacement = "EP_ALIASES"
+    else:
+        from ..session import DEVICE_TO_DEVICE_TYPE, DEVICE_TYPE_TO_DEVICE
+
+        if name == "DEVICE_TO_DEVICE_TYPE":
+            value = {
+                device.upper(): device_type for device, device_type in DEVICE_TO_DEVICE_TYPE.items()
+            }
+        else:
+            value = {
+                device_type: device.upper() for device_type, device in DEVICE_TYPE_TO_DEVICE.items()
+            }
+        replacement = f"winml.modelkit.session.{name}"
+
+    warnings.warn(
+        f"winml.modelkit.utils.constants.{name} is deprecated; use {replacement} instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | _COMPAT_CONSTANTS)

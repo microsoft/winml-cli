@@ -563,31 +563,49 @@ def auto_detect_device() -> str:
     """Pick the strongest hardware-and-EP-backed device on this host.
 
     Walks sysinfo's available-devices priority list, returning the first
-    entry whose catalog EPs are actually registered. Falls back to "cpu"
-    when no plugin EPs are discovered.
+    entry whose catalog EPs are discovered, vendor-compatible, and expose
+    that device after registration. Falls back to "cpu" when no usable
+    EP/device binding is found.
     """
     from ..ep_path import EP_CATALOG
     from ..sysinfo import get_available_devices
     from .ep_registry import WinMLEPRegistry
 
     available_devices = get_available_devices()
-    _eps = WinMLEPRegistry.instance().available_eps()
+    registry = WinMLEPRegistry.instance()
+    available_eps = registry.available_eps()
 
-    if not _eps:
+    if not available_eps:
         logger.warning(
             "No execution providers detected. Falling back to CPU. "
             "Install onnxruntime or Windows App SDK for EP discovery."
         )
 
-    # Pick the strongest device with at least one EP that is both
-    # discovered (L0) AND vendor-compatible (L2 — EP_CATALOG.is_compatible).
+    # Pick the strongest device with at least one EP that is discovered (L0),
+    # registerable with the requested device binding (L1), and
+    # vendor-compatible (L2).
     # is_compatible transitively calls _get_detected_vendors which raises
     # RuntimeError on headless servers where GPU/NPU WMI queries fail; treat
     # that as "no compatibility signal → CPU fallback" so the click command
     # layer never sees an unhandled traceback.
     try:
         for dev in available_devices:
-            if any(ep in _eps and EP_CATALOG.is_compatible(ep) for ep in eps_for_device(dev)):
+            for spec in EP_DEVICE_SPECS:
+                if (
+                    spec.device != dev
+                    or spec.ep not in available_eps
+                    or not EP_CATALOG.is_compatible(spec.ep)
+                ):
+                    continue
+                try:
+                    registry.auto_device(EPDeviceTarget(ep=spec.ep, device=dev))
+                except (
+                    DeviceNotFound,
+                    WinMLEPNotDiscovered,
+                    WinMLEPRegistrationFailed,
+                    UnknownListingPick,
+                ):
+                    continue
                 return dev
     except RuntimeError as e:
         logger.warning(

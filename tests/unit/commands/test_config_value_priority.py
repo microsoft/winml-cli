@@ -333,7 +333,12 @@ def _run_perf(
     )
 
     cfg = captured["config"]
-    return {"ep": cfg.ep, "skip_build": cfg.skip_build}
+    return {
+        "device": cfg.device,
+        "ep": cfg.ep,
+        "ep_source": cfg.ep_source,
+        "skip_build": cfg.skip_build,
+    }
 
 
 def _run_analyze(
@@ -752,16 +757,52 @@ class TestPerfPriority:
     def test_t3_not_shadowed_by_absent_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_absent_section(_run_perf, case, tmp_path)
 
+    def test_serialized_ep_device_target_preserves_device_and_source(self, tmp_path: Path) -> None:
+        effective = _run_perf(
+            [],
+            {
+                "compile": {
+                    "ep_device": {
+                        "ep": "QNNExecutionProvider",
+                        "device": "gpu",
+                        "source": "pypi",
+                    }
+                }
+            },
+            tmp_path,
+        )
+
+        assert effective["ep"] == "QNNExecutionProvider"
+        assert effective["device"] == "gpu"
+        assert effective["ep_source"] == "pypi"
+
+    def test_cli_target_overrides_serialized_ep_device_target(self, tmp_path: Path) -> None:
+        effective = _run_perf(
+            ["--ep", "openvino@pypi", "--device", "cpu"],
+            {
+                "compile": {
+                    "ep_device": {
+                        "ep": "QNNExecutionProvider",
+                        "device": "gpu",
+                        "source": "nuget",
+                    }
+                }
+            },
+            tmp_path,
+        )
+
+        assert effective["ep"] == "openvino"
+        assert effective["device"] == "cpu"
+        assert effective["ep_source"] == "pypi"
+
     # ------------------------------------------------------------------
     # Targeted tests for the ``--skip-build/--no-skip-build`` toggle.
-    # Unlike ``ep``, ``skip_build`` has NO JSON config source: perf's merge
-    # block (perf.py) only reads ``task`` and ``execution_provider`` from
-    # the ``-c`` file, so ``skip_build`` flows CLI -> BenchmarkConfig
-    # directly with no Tier-2 path. That, plus the boolean flag not fitting
-    # the FieldCase ``[flag, value]`` shape, is why it's tested explicitly
-    # here rather than as a PERF_CASES FieldCase. These guard against a
-    # param-name mismatch in the ``perf()`` signature and against the CLI
-    # option default drifting from the BenchmarkConfig field default.
+    # Unlike ``ep`` and ``device``, ``skip_build`` has NO JSON config source,
+    # so it flows CLI -> BenchmarkConfig directly with no Tier-2 path. That,
+    # plus the boolean flag not fitting the FieldCase ``[flag, value]`` shape,
+    # is why it's tested explicitly here rather than as a PERF_CASES FieldCase.
+    # These guard against a param-name mismatch in the ``perf()`` signature and
+    # against the CLI option default drifting from the BenchmarkConfig default.
     # ------------------------------------------------------------------
 
     def test_skip_build_default_is_true(self, tmp_path: Path) -> None:

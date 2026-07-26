@@ -77,7 +77,7 @@ if TYPE_CHECKING:
     from torch import nn
 
     from ..eval.config import WinMLEvaluationConfig  # noqa: TC004
-    from ..utils.constants import EPNameOrAlias
+    from ..utils.constants import EPName, EPNameOrAlias
 
 __all__ = [
     "WinMLBuildConfig",
@@ -320,6 +320,68 @@ class SubmoduleInfo:
 # =============================================================================
 # DEVICE / PRECISION POLICY (shared by HF and ONNX paths)
 # =============================================================================
+def _resolve_policy_target(device: str, ep: str | None) -> tuple[str, str | None]:
+    """Resolve an unpinned auto device to its validated EP/device binding."""
+    requested_device = device.lower()
+    if requested_device != "auto" or ep is not None:
+        return requested_device, ep
+
+    from ..ep_path import EP_CATALOG
+    from ..session import (
+        EP_DEVICE_SPECS,
+        DeviceNotFound,
+        EPDeviceTarget,
+        UnknownListingPick,
+        WinMLEPNotDiscovered,
+        WinMLEPRegistrationFailed,
+        WinMLEPRegistry,
+        auto_detect_device,
+    )
+    from ..utils.constants import EP_SUPPORTED_DEVICES
+
+    detected_device = auto_detect_device()
+    if detected_device == "auto":
+        return detected_device, None
+
+    registry = WinMLEPRegistry.instance()
+    available_eps = registry.available_eps()
+    detection_error: RuntimeError | None = None
+    for spec in EP_DEVICE_SPECS:
+        policy_devices = EP_SUPPORTED_DEVICES.get(cast("EPName", spec.ep), ())
+        if (
+            spec.device != detected_device
+            or detected_device not in policy_devices
+            or spec.ep not in available_eps
+        ):
+            continue
+        try:
+            if not EP_CATALOG.is_compatible(spec.ep):
+                continue
+        except RuntimeError as e:
+            detection_error = e
+            logger.debug("Hardware compatibility probe failed for %s: %s", spec.ep, e)
+            continue
+        target = EPDeviceTarget(ep=spec.ep, device=detected_device)
+        try:
+            registry.auto_device(target)
+        except (
+            DeviceNotFound,
+            WinMLEPNotDiscovered,
+            WinMLEPRegistrationFailed,
+            UnknownListingPick,
+        ):
+            continue
+        return target.device, target.ep
+    if detection_error is not None:
+        raise ValueError(
+            f"Hardware detection failed while resolving build target: {detection_error}"
+        ) from detection_error
+    raise ValueError(
+        f"No build-compatible EP/device pair is available for automatic {detected_device!r} "
+        "selection."
+    )
+
+
 def resolve_quant_compile_config(
     *,
     device: str = "auto",
@@ -344,7 +406,6 @@ def resolve_quant_compile_config(
         Tuple of (quant_config, compile_config). Either may be None when the
         policy does not require that stage (e.g., CPU with fp32).
     """
-    from ..session import auto_detect_device
     from ..sysinfo.hardware import get_available_devices
     from .precision import (
         extract_weight_bits,
@@ -354,7 +415,7 @@ def resolve_quant_compile_config(
 
     requested_device = device.lower()
     available_devices = get_available_devices()
-    resolved_device = auto_detect_device() if requested_device == "auto" else requested_device
+    resolved_device, resolved_ep = _resolve_policy_target(device, ep)
     logger.info(
         "Device resolved: %s (available: %s)",
         resolved_device,
@@ -364,7 +425,7 @@ def resolve_quant_compile_config(
     policy = resolve_precision(
         device=requested_device if ep is not None else resolved_device,
         precision=precision,
-        ep=ep,
+        ep=resolved_ep,
         available_devices=available_devices,
         task=task,
     )
@@ -820,7 +881,6 @@ def generate_hf_build_config(
     # =========================================================================
     # STEP 4.5: Apply device/precision policy (affects quant + compile only)
     # =========================================================================
-    from ..session import auto_detect_device
     from ..sysinfo.hardware import get_available_devices
     from .precision import (
         extract_weight_bits,
@@ -835,7 +895,7 @@ def generate_hf_build_config(
     # detection.
     requested_device = device.lower()
     available_devices = get_available_devices()
-    resolved_device = auto_detect_device() if requested_device == "auto" else requested_device
+    resolved_device, resolved_ep = _resolve_policy_target(device, ep)
     logger.info(
         "Device resolved: %s (available: %s)",
         resolved_device,
@@ -845,7 +905,7 @@ def generate_hf_build_config(
     policy = resolve_precision(
         device=requested_device if ep is not None else resolved_device,
         precision=precision,
-        ep=ep,
+        ep=resolved_ep,
         available_devices=available_devices,
         task=parent_config.loader.task,
     )
@@ -892,7 +952,7 @@ def generate_hf_build_config(
         # instead of preserving the hardcoded EPConfig default (#412).
         from ..session import default_ep_for_device, ep_short_or_none
 
-        _canonical = default_ep_for_device(resolved_device)
+        _canonical = resolved_ep or default_ep_for_device(resolved_device)
         hw_provider = ep_short_or_none(_canonical) if _canonical is not None else None
         parent_config.compile = WinMLCompileConfig.for_provider(
             cast("EPNameOrAlias | None", hw_provider),

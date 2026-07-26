@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from unittest.mock import patch
 
-from winml.modelkit.session import auto_detect_device
+from winml.modelkit.session import WinMLEPRegistrationFailed, auto_detect_device
 from winml.modelkit.session.ep_registry import WinMLEPRegistry
 
 
@@ -34,6 +34,7 @@ class TestAutoDetectDevice:
                     }
                 ),
             ),
+            patch.object(WinMLEPRegistry, "auto_device", return_value=object()),
         ):
             device = auto_detect_device()
 
@@ -56,6 +57,7 @@ class TestAutoDetectDevice:
                     }
                 ),
             ),
+            patch.object(WinMLEPRegistry, "auto_device", return_value=object()),
         ):
             device = auto_detect_device()
 
@@ -73,6 +75,7 @@ class TestAutoDetectDevice:
                 "available_eps",
                 return_value=frozenset({"CPUExecutionProvider"}),
             ),
+            patch.object(WinMLEPRegistry, "auto_device", return_value=object()),
         ):
             device = auto_detect_device()
 
@@ -112,6 +115,84 @@ class TestAutoDetectDevice:
             auto_detect_device()
 
         assert any("No execution providers detected" in record.message for record in caplog.records)
+
+    def test_auto_detect_skips_discovered_ep_that_cannot_register(self) -> None:
+        """A discovered plugin must not influence policy when ORT cannot load it."""
+        from winml.modelkit.ep_path import EPCatalog
+
+        def _probe(target):
+            if target.ep == "QNNExecutionProvider":
+                raise WinMLEPRegistrationFailed("QNN DLL dependencies are unavailable")
+            return object()
+
+        with (
+            patch(
+                "winml.modelkit.sysinfo.get_available_devices",
+                return_value=["npu", "gpu", "cpu"],
+            ),
+            patch.object(
+                WinMLEPRegistry,
+                "available_eps",
+                return_value=frozenset(
+                    {
+                        "QNNExecutionProvider",
+                        "DmlExecutionProvider",
+                        "CPUExecutionProvider",
+                    }
+                ),
+            ),
+            patch.object(WinMLEPRegistry, "auto_device", side_effect=_probe),
+            patch.object(EPCatalog, "is_compatible", return_value=True),
+        ):
+            device = auto_detect_device()
+
+        assert device == "gpu"
+
+    def test_auto_detect_uses_catalog_order_for_same_device_fallback(self) -> None:
+        """Registration failure falls through to the next NPU EP in catalog order."""
+        from winml.modelkit.ep_path import EPCatalog
+
+        seen: list[tuple[str, str]] = []
+
+        def _probe(target):
+            seen.append((target.ep, target.device))
+            if target.ep == "QNNExecutionProvider":
+                raise WinMLEPRegistrationFailed("QNN DLL dependencies are unavailable")
+            return object()
+
+        with (
+            patch(
+                "winml.modelkit.sysinfo.get_available_devices",
+                return_value=["npu", "cpu"],
+            ),
+            patch.object(
+                WinMLEPRegistry,
+                "available_eps",
+                return_value=frozenset(
+                    {
+                        "QNNExecutionProvider",
+                        "OpenVINOExecutionProvider",
+                        "CPUExecutionProvider",
+                    }
+                ),
+            ),
+            patch(
+                "winml.modelkit.session.ep_device.eps_for_device",
+                return_value=(
+                    "OpenVINOExecutionProvider",
+                    "QNNExecutionProvider",
+                ),
+            ),
+            patch.object(WinMLEPRegistry, "auto_device", side_effect=_probe),
+            patch.object(EPCatalog, "is_compatible", return_value=True),
+        ):
+            device = auto_detect_device()
+
+        assert device == "npu"
+        assert seen[:2] == [
+            ("QNNExecutionProvider", "npu"),
+            ("OpenVINOExecutionProvider", "npu"),
+        ]
 
 
 def test_auto_detect_device_returns_string() -> None:

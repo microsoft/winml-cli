@@ -794,9 +794,15 @@ class ONNXStaticAnalyzer:
 
         # Resolve device — rule files are device-specific (CPU/GPU/NPU).
         if device is not None and device.lower() == "auto":
-            from ..session import auto_detect_device
+            if ep_normalized is None:
+                from ..session import auto_detect_device
 
-            device_to_use = auto_detect_device().upper()
+                device_to_use = auto_detect_device().upper()
+            else:
+                from ..session import EPDeviceTarget, resolve_device
+
+                resolved_target = resolve_device(EPDeviceTarget(ep=ep_normalized, device="auto"))
+                device_to_use = resolved_target.device.upper()
             logger.info("Device 'auto' resolved to: %s", device_to_use)
         else:
             device_to_use = device if device is not None else "NPU"

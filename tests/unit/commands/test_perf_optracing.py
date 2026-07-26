@@ -634,6 +634,7 @@ class TestCliOpTracingDispatch:
         config.batch_size = 1
         config.task = None
         bench_result = BenchmarkResult(config=config)
+        bench_result.running_model_path = str(tmp_path / "model_ctx.onnx")
 
         trace = OpTraceResult(
             model="fake/model",
@@ -657,6 +658,7 @@ class TestCliOpTracingDispatch:
             patch("winml.modelkit.commands.perf.write_json_report"),
             patch("winml.modelkit.session.monitor.report.display_op_trace_report"),
             patch("winml.modelkit.session.monitor.report.write_op_trace_json"),
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=True),
         ):
             result = runner.invoke(
                 perf,
@@ -666,6 +668,57 @@ class TestCliOpTracingDispatch:
 
         assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}: {result.output}"
         assert "degraded" in result.output.lower() or "notice" in result.output.lower()
+
+    def test_basic_fallback_status_rejects_raw_running_model(self, tmp_path: Path):
+        """Detail tracing cannot degrade successfully when ORT ran the raw model."""
+        from unittest.mock import MagicMock
+
+        from winml.modelkit.commands.perf import BenchmarkResult
+        from winml.modelkit.session.monitor.op_metrics import OpTraceResult
+
+        config = MagicMock()
+        config.model_id = "fake/model"
+        config.device = "npu"
+        config.precision = "auto"
+        config.iterations = 1
+        config.warmup = 0
+        config.batch_size = 1
+        config.task = None
+        bench_result = BenchmarkResult(config=config)
+        bench_result.running_model_path = str(tmp_path / "raw.onnx")
+
+        trace = OpTraceResult(
+            model="fake/model",
+            device="npu",
+            tracing_level="detail",
+            status="basic_fallback",
+        )
+        mock_ctx = MagicMock()
+        mock_ctx.monitor.result = trace
+        mock_benchmark = MagicMock()
+        mock_benchmark.run.return_value = bench_result
+        mock_benchmark._perf_ctx = mock_ctx
+
+        runner = CliRunner()
+        with (
+            patch(
+                "winml.modelkit.commands.perf.PerfBenchmark",
+                return_value=mock_benchmark,
+            ),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+            patch("winml.modelkit.session.monitor.report.display_op_trace_report"),
+            patch("winml.modelkit.session.monitor.report.write_op_trace_json"),
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+        ):
+            result = runner.invoke(
+                perf,
+                ["-m", "fake/model", "--device", "npu", "--op-tracing", "detail"],
+                obj={},
+            )
+
+        assert result.exit_code == 4
+        assert "epcontext" in result.output.lower()
 
     def test_no_data_status_does_not_write_json(self, tmp_path: Path):
         """A3: when op-tracing returns status='no_data', the benchmark JSON

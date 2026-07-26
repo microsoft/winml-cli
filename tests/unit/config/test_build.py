@@ -2620,6 +2620,59 @@ class TestDevicePrecisionIntegration:
 
         mock_rd.assert_called_once_with()
 
+    def test_auto_cpu_target_does_not_reselect_unusable_plugin(self) -> None:
+        from winml.modelkit.ep_path import EPCatalog
+        from winml.modelkit.session import WinMLEPRegistrationFailed, WinMLEPRegistry
+
+        def _probe(target):
+            if target.ep == "OpenVINOExecutionProvider":
+                raise WinMLEPRegistrationFailed("OpenVINO DLL dependencies are unavailable")
+            return object()
+
+        with (
+            patch(
+                "winml.modelkit.config.build.resolve_loader_config",
+                return_value=(
+                    self._mock_loader_config,
+                    self._mock_hf_config,
+                    self._mock_model_class,
+                    MagicMock(),
+                ),
+            ),
+            patch(
+                "winml.modelkit.config.build._resolve_export_config_from_specs",
+                return_value=self._mock_export_config,
+            ),
+            patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="cpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["cpu"],
+            ),
+            patch.object(
+                WinMLEPRegistry,
+                "available_eps",
+                return_value=frozenset(
+                    {
+                        "OpenVINOExecutionProvider",
+                        "CPUExecutionProvider",
+                    }
+                ),
+            ),
+            patch.object(WinMLEPRegistry, "auto_device", side_effect=_probe),
+            patch.object(EPCatalog, "is_compatible", return_value=True),
+        ):
+            result = generate_build_config(
+                "bert-base-uncased",
+                device="auto",
+                precision="auto",
+            )
+
+        assert result.compile is None
+
     def test_explicit_precision_triggers_resolve_device(self) -> None:
         """device='auto' + precision='int8' DOES call resolve_device."""
         with (
@@ -3436,6 +3489,113 @@ class TestResolveQuantCompileConfig:
                 "winml.modelkit.sysinfo.hardware.get_available_devices",
                 return_value=["npu", "gpu", "cpu"],
             ),
+        ):
+            quant, compile_cfg = resolve_quant_compile_config()
+
+        assert quant is None
+        assert compile_cfg is None
+
+    def test_auto_target_keeps_registration_validated_provider(self) -> None:
+        """Policy selection must not reselect an unloadable EP for the detected device."""
+        from winml.modelkit.ep_path import EPCatalog
+        from winml.modelkit.session import WinMLEPRegistrationFailed, WinMLEPRegistry
+
+        def _probe(target):
+            if target.ep == "QNNExecutionProvider":
+                raise WinMLEPRegistrationFailed("QNN DLL dependencies are unavailable")
+            return object()
+
+        with (
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="npu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["npu", "cpu"],
+            ),
+            patch.object(
+                WinMLEPRegistry,
+                "available_eps",
+                return_value=frozenset(
+                    {
+                        "QNNExecutionProvider",
+                        "OpenVINOExecutionProvider",
+                        "CPUExecutionProvider",
+                    }
+                ),
+            ),
+            patch.object(WinMLEPRegistry, "auto_device", side_effect=_probe),
+            patch.object(EPCatalog, "is_compatible", return_value=True),
+        ):
+            _quant, compile_cfg = resolve_quant_compile_config()
+
+        assert compile_cfg is not None
+        assert compile_cfg.ep_config.provider == "openvino"
+
+    def test_auto_cpu_skips_runtime_pair_unsupported_by_build_policy(self) -> None:
+        """Auto policy skips valid runtime pairs outside the legacy build support table."""
+        from winml.modelkit.ep_path import EPCatalog
+        from winml.modelkit.session import WinMLEPRegistry
+
+        with (
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="cpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["cpu"],
+            ),
+            patch.object(
+                WinMLEPRegistry,
+                "available_eps",
+                return_value=frozenset(
+                    {
+                        "QNNExecutionProvider",
+                        "CPUExecutionProvider",
+                    }
+                ),
+            ),
+            patch.object(WinMLEPRegistry, "auto_device", return_value=object()),
+            patch.object(EPCatalog, "is_compatible", return_value=True),
+        ):
+            quant, compile_cfg = resolve_quant_compile_config()
+
+        assert quant is None
+        assert compile_cfg is None
+
+    def test_auto_cpu_survives_vendor_probe_failure(self) -> None:
+        """A vendor-gated CPU candidate must not block the built-in CPU fallback."""
+        from winml.modelkit.ep_path import EPCatalog
+        from winml.modelkit.session import WinMLEPRegistry
+
+        def _compatible(ep: str) -> bool:
+            if ep == "OpenVINOExecutionProvider":
+                raise RuntimeError("WMI unavailable")
+            return True
+
+        with (
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="cpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["cpu"],
+            ),
+            patch.object(
+                WinMLEPRegistry,
+                "available_eps",
+                return_value=frozenset(
+                    {
+                        "OpenVINOExecutionProvider",
+                        "CPUExecutionProvider",
+                    }
+                ),
+            ),
+            patch.object(WinMLEPRegistry, "auto_device", return_value=object()),
+            patch.object(EPCatalog, "is_compatible", side_effect=_compatible),
         ):
             quant, compile_cfg = resolve_quant_compile_config()
 
