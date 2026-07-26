@@ -26,6 +26,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _require_string(value: str | None, field: str) -> str:
+    """Return a required configured string or fail with an actionable error."""
+    if value is None:
+        raise ValueError(f"zero-shot object detection requires '{field}' configuration")
+    return value
+
+
 @dataclass(frozen=True)
 class QueryChunk:
     """One model invocation's ordered query vocabulary."""
@@ -206,15 +213,29 @@ class WinMLZeroShotObjectDetectionEvaluator(WinMLEvaluator):
 
         mapping = config.dataset.columns_mapping
         task = "zero-shot-object-detection"
-        self._image_col = mapping.get("input_column", get_default(task, "input_column"))
-        self._annotation_col = mapping.get(
-            "annotation_column", get_default(task, "annotation_column")
+        self._image_col = _require_string(
+            mapping.get("input_column", get_default(task, "input_column")), "input_column"
         )
-        self._bbox_key = mapping.get("bbox_key", get_default(task, "bbox_key"))
-        self._category_key = mapping.get("category_key", get_default(task, "category_key"))
-        self._image_id_col = mapping.get("image_id_column", get_default(task, "image_id_column"))
-        self._box_format = mapping.get("box_format", get_default(task, "box_format"))
-        self._box_coords = mapping.get("box_coords", get_default(task, "box_coords"))
+        self._annotation_col = _require_string(
+            mapping.get("annotation_column", get_default(task, "annotation_column")),
+            "annotation_column",
+        )
+        self._bbox_key = _require_string(
+            mapping.get("bbox_key", get_default(task, "bbox_key")), "bbox_key"
+        )
+        self._category_key = _require_string(
+            mapping.get("category_key", get_default(task, "category_key")), "category_key"
+        )
+        self._image_id_col = _require_string(
+            mapping.get("image_id_column", get_default(task, "image_id_column")),
+            "image_id_column",
+        )
+        self._box_format = _require_string(
+            mapping.get("box_format", get_default(task, "box_format")), "box_format"
+        )
+        self._box_coords = _require_string(
+            mapping.get("box_coords", get_default(task, "box_coords")), "box_coords"
+        )
         self._prompt_template = _validate_prompt_template(
             mapping.get("prompt_template", get_default(task, "prompt_template")) or ""
         )
@@ -317,10 +338,13 @@ class WinMLZeroShotObjectDetectionEvaluator(WinMLEvaluator):
 
         from .metrics import MAPMetric
 
-        capacity = _query_capacity(self.model.io_config)
+        io_config = getattr(self.model, "io_config", None)
+        if not isinstance(io_config, dict):
+            raise TypeError("zero-shot object detection model requires I/O configuration")
+        capacity = _query_capacity(io_config)
         chunks = _make_query_chunks(self._vocabulary, self._prompt_template, capacity)
-        seq_length = _sequence_length(self.model.io_config)
-        accepted_inputs = set(self.model.io_config.get("input_names", []))
+        seq_length = _sequence_length(io_config)
+        accepted_inputs = set(io_config.get("input_names", []))
         predictions: list[dict[str, Any]] = []
         references: list[dict[str, Any]] = []
         decoded = processed = query_passes = 0
@@ -339,7 +363,11 @@ class WinMLZeroShotObjectDetectionEvaluator(WinMLEvaluator):
                     f"column '{self._image_col}' must contain decoded PIL images",
                 )
             decoded += 1
-            image_predictions = {"boxes": [], "scores": [], "labels": []}
+            image_predictions: dict[str, list[Any]] = {
+                "boxes": [],
+                "scores": [],
+                "labels": [],
+            }
             for chunk in chunks:
                 text_kwargs: dict[str, Any] = {
                     "return_tensors": "pt",
@@ -369,6 +397,9 @@ class WinMLZeroShotObjectDetectionEvaluator(WinMLEvaluator):
                     image_predictions[key].extend(remapped[key])
             predictions.append(image_predictions)
             processed += 1
+
+        if processed == 0:
+            raise DatasetValidationError("evaluation processed no images")
 
         metrics = MAPMetric().compute(
             predictions=predictions,

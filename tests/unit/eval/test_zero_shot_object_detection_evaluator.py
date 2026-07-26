@@ -289,6 +289,23 @@ class TestComputeAndAccounting:
         assert metric.call_args.kwargs["predictions"][0]["boxes"] == []
         assert metric.call_args.kwargs["references"][0]["boxes"] == []
 
+    def test_zero_processed_images_fail_closed_without_computing_metric(self):
+        evaluator, _model, _processor = _compute_evaluator()
+        evaluator.data = []
+        evaluator._selection_accounting["selected"] = 0
+        metric = MagicMock(return_value={"map": -1.0})
+
+        with (
+            patch(
+                "winml.modelkit.eval.metrics.mean_average_precision.MAPMetric.compute",
+                metric,
+            ),
+            pytest.raises(DatasetValidationError, match="processed no images"),
+        ):
+            evaluator.compute()
+
+        metric.assert_not_called()
+
     def test_runtime_failure_propagates_instead_of_becoming_skipped(self):
         evaluator, _model, _processor = _compute_evaluator(
             model_side_effect=RuntimeError("ORT inference failed")
