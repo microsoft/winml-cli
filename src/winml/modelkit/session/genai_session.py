@@ -49,6 +49,7 @@ import copy
 import json
 import logging
 import shutil
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -71,6 +72,11 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+# Native ORT GenAI registration is process-wide. Cache only successful calls;
+# failed calls remain retryable because a later candidate may become available.
+_GENAI_REGISTRATION_LOCK = threading.Lock()
+_GENAI_REGISTERED_PATHS: set[Path] = set()
 
 # EPs whose hardware target is selected by a ``device_type`` provider option
 # (rather than a backend path/library).  When forcing one of these onto a stage
@@ -411,8 +417,6 @@ class GenaiSession:
         self._verbose = verbose
         self._compile = compile
         self._compile_timeout = compile_timeout
-        self._genai_registered_paths: set[Path] = set()
-
         # Resolved at load() time.
         self._context_length: int | None = None
 
@@ -502,10 +506,10 @@ class GenaiSession:
         # stage to a hardware EP.  Reading it from the post-override config means
         # a "force cpu" override skips registration and a "force <hw ep>" override
         # triggers it — all without a hardcoded EP short-name → behavior map.
-        hw_ep = self._bundle_uses_hardware_ep(effective_cfg)
-        logger.info("Hardware EP detected in effective genai_config: %s", hw_ep)
-        if hw_ep is not None:
-            self._register_eps(og, hw_ep)
+        plugin_eps = self._bundle_plugin_eps(effective_cfg)
+        logger.info("Plugin EPs detected in effective genai_config: %s", plugin_eps)
+        if plugin_eps:
+            self._register_eps(og, plugin_eps)
 
         if self._verbose:
             og.set_log_options(enabled=True, model_input_values=True, model_output_shapes=True)
@@ -1745,37 +1749,90 @@ class GenaiSession:
                 "platform-incompatible build)."
             ) from exc
 
-    def _register_eps(self, og: Any, required_ep: str) -> None:
-        """Register the effective bundle's plugin EP with ORT GenAI."""
-        canonical = normalize_ep_name(required_ep)
-        if canonical not in EP_NAMES:
-            logger.warning("Skipping unknown ORT GenAI EP from bundle config: %r", required_ep)
-            return
-
+    def _register_eps(self, og: Any, required_eps: tuple[str, ...]) -> None:
+        """Register each required plugin EP from its selected discovery entries."""
+        required = {normalize_ep_name(ep) for ep in required_eps}
         registry = WinMLEPRegistry.instance()
+        entries_by_ep: dict[str, list] = {ep: [] for ep in required}
         for entry in registry.all_discovered():
-            if entry.ep_name != canonical or isinstance(entry.source, BuiltinSource):
-                continue
-            if entry.dll_path in self._genai_registered_paths:
-                continue
-            try:
-                og.register_execution_provider_library(entry.ep_name, str(entry.dll_path))
-            except Exception as exc:
-                logger.warning(
-                    "Failed to register %s with ORT GenAI from %s: %s",
-                    entry.ep_name,
-                    entry.dll_path,
-                    exc,
-                )
-                continue
-            self._genai_registered_paths.add(entry.dll_path)
-            logger.info("Registered %s with ORT GenAI from %s.", entry.ep_name, entry.dll_path)
+            if (
+                entry.ep_name in entries_by_ep
+                and not isinstance(entry.source, BuiltinSource)
+                and entry.status != "shadowed"
+            ):
+                entries_by_ep[entry.ep_name].append(entry)
+
+        for ep in required_eps:
+            canonical = normalize_ep_name(ep)
+            for entry in entries_by_ep.get(canonical, []):
+                with _GENAI_REGISTRATION_LOCK:
+                    if entry.dll_path in _GENAI_REGISTERED_PATHS:
+                        registered = True
+                    else:
+                        try:
+                            og.register_execution_provider_library(
+                                entry.ep_name, str(entry.dll_path)
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "Failed to register %s with ORT GenAI from %s: %s",
+                                entry.ep_name,
+                                entry.dll_path,
+                                exc,
+                            )
+                            registered = False
+                        else:
+                            _GENAI_REGISTERED_PATHS.add(entry.dll_path)
+                            logger.info(
+                                "Registered %s with ORT GenAI from %s.",
+                                entry.ep_name,
+                                entry.dll_path,
+                            )
+                            registered = True
+                if registered:
+                    break
 
     def _read_genai_config(self) -> dict[str, Any]:
         """Parse and return the bundle's ``genai_config.json``."""
         config_src = self._bundle_dir / "genai_config.json"
         cfg: dict[str, Any] = json.loads(config_src.read_text(encoding="utf-8"))
         return cfg
+
+    @staticmethod
+    def _bundle_plugin_eps(cfg: dict[str, Any]) -> tuple[str, ...]:
+        """Return unique catalog-defined plugin EPs in effective config order."""
+
+        def _plugin_eps(session_options: object) -> Iterator[str]:
+            if not isinstance(session_options, dict):
+                return
+            provider_options = session_options.get("provider_options", [])
+            if not isinstance(provider_options, list):
+                return
+            for entry in provider_options:
+                if not isinstance(entry, dict):
+                    continue
+                for name in entry:
+                    canonical = normalize_ep_name(str(name))
+                    if EP_CATALOG.dll_name_for(canonical) is not None:
+                        yield canonical
+
+        decoder = cfg.get("model", {}).get("decoder", {})
+        if not isinstance(decoder, dict):
+            return ()
+
+        discovered: dict[str, None] = {}
+        for ep in _plugin_eps(decoder.get("session_options")):
+            discovered.setdefault(ep, None)
+        pipeline_list = decoder.get("pipeline", [])
+        if isinstance(pipeline_list, list):
+            for stage_entry in pipeline_list:
+                if not isinstance(stage_entry, dict):
+                    continue
+                for stage_cfg in stage_entry.values():
+                    if isinstance(stage_cfg, dict):
+                        for ep in _plugin_eps(stage_cfg.get("session_options")):
+                            discovered.setdefault(ep, None)
+        return tuple(discovered)
 
     @staticmethod
     def _bundle_uses_hardware_ep(cfg: dict[str, Any]) -> str | None:

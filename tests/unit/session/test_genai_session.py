@@ -380,6 +380,12 @@ class TestGenaiSessionLoad:
 
 
 class TestEPRegistration:
+    @staticmethod
+    def _reset_process_registration_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+        import winml.modelkit.session.genai_session as genai_session
+
+        monkeypatch.setattr(genai_session, "_GENAI_REGISTERED_PATHS", set())
+
     def test_cpu_skips_winml_registration(self, bundle_dir: Path, mock_og: MagicMock) -> None:
         with (
             _patch_og(mock_og),
@@ -390,9 +396,10 @@ class TestEPRegistration:
         mock_reg_cls.assert_not_called()
 
     def test_hardware_ep_bundle_registers_winml_eps(
-        self, bundle_dir_with_pipeline: Path, fresh_registry
+        self, bundle_dir_with_pipeline: Path, fresh_registry, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Bundle routing uses the registry discovery contract and GenAI API."""
+        self._reset_process_registration_cache(monkeypatch)
         fresh_registry._discovered = [_plugin_entry("QNNExecutionProvider", "C:/fake/qnn.dll")]
         og, registered = _fake_og_module()
         with _patch_og(og):
@@ -401,9 +408,10 @@ class TestEPRegistration:
         assert registered == [("QNNExecutionProvider", "C:\\fake\\qnn.dll")]
 
     def test_hardware_ep_bundle_registers_only_required_ep_idempotently(
-        self, bundle_dir_with_pipeline: Path, fresh_registry
+        self, bundle_dir_with_pipeline: Path, fresh_registry, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """GenAI uses its actual registration API and skips repeat loads."""
+        self._reset_process_registration_cache(monkeypatch)
         qnn_entry = _plugin_entry("QNNExecutionProvider", "C:/fake/qnn.dll")
         openvino_entry = _plugin_entry("OpenVINOExecutionProvider", "C:/fake/openvino.dll")
         fresh_registry._discovered = [qnn_entry, openvino_entry]
@@ -418,9 +426,10 @@ class TestEPRegistration:
         assert registered == [("QNNExecutionProvider", "C:\\fake\\qnn.dll")]
 
     def test_hardware_ep_bundle_skips_matching_builtin_entry(
-        self, bundle_dir_with_pipeline: Path, fresh_registry
+        self, bundle_dir_with_pipeline: Path, fresh_registry, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Built-in entries are ignored even when they match the effective EP."""
+        self._reset_process_registration_cache(monkeypatch)
         builtin_qnn = _builtin_entry("QNNExecutionProvider")
         plugin_qnn = _plugin_entry("QNNExecutionProvider", "C:/fake/qnn.dll")
         fresh_registry._discovered = [builtin_qnn, plugin_qnn]
@@ -432,13 +441,80 @@ class TestEPRegistration:
 
         assert registered == [("QNNExecutionProvider", "C:\\fake\\qnn.dll")]
 
+    def test_two_sessions_register_a_plugin_once_process_wide(
+        self, bundle_dir_with_pipeline: Path, fresh_registry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Successful native registration is shared by independent GenAI sessions."""
+        self._reset_process_registration_cache(monkeypatch)
+        fresh_registry._discovered = [_plugin_entry("QNNExecutionProvider", "C:/fake/qnn.dll")]
+        og, registered = _fake_og_module()
+
+        with _patch_og(og):
+            GenaiSession(bundle_dir_with_pipeline).load()
+            GenaiSession(bundle_dir_with_pipeline).load()
+
+        assert registered == [("QNNExecutionProvider", "C:\\fake\\qnn.dll")]
+
+    def test_registration_ignores_shadowed_discovery_entry(
+        self, bundle_dir_with_pipeline: Path, fresh_registry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only the discovery winner is passed to ORT GenAI registration."""
+        from dataclasses import replace
+
+        self._reset_process_registration_cache(monkeypatch)
+        primary = _plugin_entry("QNNExecutionProvider", "C:/fake/primary-qnn.dll")
+        shadowed = replace(
+            _plugin_entry("QNNExecutionProvider", "C:/fake/shadowed-qnn.dll"),
+            status="shadowed",
+        )
+        fresh_registry._discovered = [primary, shadowed]
+        og, registered = _fake_og_module()
+
+        with _patch_og(og):
+            GenaiSession(bundle_dir_with_pipeline).load()
+
+        assert registered == [("QNNExecutionProvider", "C:\\fake\\primary-qnn.dll")]
+
+    def test_multi_stage_bundle_registers_each_unique_plugin_in_config_order(
+        self, bundle_dir_with_pipeline: Path, fresh_registry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """All unique plugin EPs used by pipeline stages register before model load."""
+        self._reset_process_registration_cache(monkeypatch)
+        config_path = bundle_dir_with_pipeline / "genai_config.json"
+        cfg = json.loads(config_path.read_text(encoding="utf-8"))
+        pipeline = cfg["model"]["decoder"]["pipeline"]
+        pipeline.append(
+            {
+                "third": {
+                    "filename": "third.onnx",
+                    "session_options": {"provider_options": [{"openvino": {}}, {"qnn": {}}]},
+                }
+            }
+        )
+        config_path.write_text(json.dumps(cfg), encoding="utf-8")
+        fresh_registry._discovered = [
+            _plugin_entry("QNNExecutionProvider", "C:/fake/qnn.dll"),
+            _plugin_entry("OpenVINOExecutionProvider", "C:/fake/openvino.dll"),
+        ]
+        og, registered = _fake_og_module()
+
+        with _patch_og(og):
+            GenaiSession(bundle_dir_with_pipeline).load()
+
+        assert registered == [
+            ("QNNExecutionProvider", "C:\\fake\\qnn.dll"),
+            ("OpenVINOExecutionProvider", "C:\\fake\\openvino.dll"),
+        ]
+
     def test_failed_registration_logs_and_is_retried(
         self,
         bundle_dir_with_pipeline: Path,
         fresh_registry,
         caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Failed GenAI registrations are logged and not cached as successes."""
+        self._reset_process_registration_cache(monkeypatch)
         qnn_entry = _plugin_entry("QNNExecutionProvider", "C:/fake/qnn.dll")
         fresh_registry._discovered = [qnn_entry]
 
@@ -464,7 +540,9 @@ class TestEPRegistration:
             ("QNNExecutionProvider", "C:\\fake\\qnn.dll"),
             ("QNNExecutionProvider", "C:\\fake\\qnn.dll"),
         ]
-        assert Path("C:/fake/qnn.dll") not in session._genai_registered_paths
+        import winml.modelkit.session.genai_session as genai_session
+
+        assert Path("C:/fake/qnn.dll") not in genai_session._GENAI_REGISTERED_PATHS
         assert (
             "Failed to register QNNExecutionProvider with ORT GenAI from C:\\fake\\qnn.dll: boom"
         ) in caplog.text

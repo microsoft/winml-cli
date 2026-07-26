@@ -115,8 +115,9 @@ def test_teardown_ordering_reset_before_monitor_exit():
         # Force run so reset has something to tear down
         session.run({"input": np.zeros((1, 4), dtype=np.float32)})
 
-    # After perf exit, session._session should be None (reset happened)
-    assert session._session is None
+    # After perf exit, the baseline is reconstructed from its snapshots.
+    # The monitor observed reset before its own teardown.
+    assert session._session is not None
     # And the observation captured by monitor.__exit__ should also be None
     # (meaning reset fired before __exit__)
     assert observations.get("session_at_exit") is None
@@ -232,7 +233,6 @@ def test_failed_monitored_rebuild_restores_baseline_without_entering_monitor(mon
             return {"some_key": "1"}
 
     session = _make_cpu_session(get_minimal_onnx_model_path())
-    baseline = session._session
     baseline_provider_options = dict(session._provider_options)
     monitor = _ContributingMonitor()
 
@@ -246,7 +246,7 @@ def test_failed_monitored_rebuild_restores_baseline_without_entering_monitor(mon
             pass
 
     assert session._perf_stats is None
-    assert session._session is baseline
+    assert session._session is None
     assert session._provider_options == baseline_provider_options
     assert session._ep == "CPUExecutionProvider"
     assert monitor.entered == 0
@@ -303,7 +303,8 @@ def test_running_model_hook_failure_restores_rebuilt_session_state():
     ):
         pass
 
-    assert session._session is baseline_session
+    assert session._session is not baseline_session
+    assert session._session is not None
     assert session._provider_options == baseline_provider_options
     assert session._active_session_option_entries == baseline_session_options
     assert session._perf_stats is None
@@ -492,7 +493,6 @@ def test_baseline_restore_failure_does_not_mask_perf_body_error(caplog):
             return {"profiling_level": "detailed"}
 
     session = _make_cpu_session(get_minimal_onnx_model_path())
-    baseline_session = session._session
     baseline_provider_options = dict(session._provider_options)
     baseline_session_entries = dict(session._active_session_option_entries)
 
@@ -509,7 +509,7 @@ def test_baseline_restore_failure_does_not_mask_perf_body_error(caplog):
 
     assert "Restoring baseline InferenceSession failed" in caplog.text
     assert "restore failed" in caplog.text
-    assert session._session is baseline_session
+    assert session._session is None
     assert session._provider_options == baseline_provider_options
     assert session._active_session_option_entries == baseline_session_entries
 

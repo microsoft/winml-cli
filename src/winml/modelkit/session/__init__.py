@@ -49,7 +49,7 @@ from .monitor.openvino_monitor import OpenVinoMonitor
 from .monitor.qnn_monitor import QNNMonitor
 from .monitor.vitisai_monitor import VitisAIMonitor
 from .qairt.qairt_session import WinMLQairtSession
-from .session import InferenceError, SessionState, WinMLSession
+from .session import InferenceError, PerfContext, SessionState, WinMLSession
 from .stats import PerfStats
 
 
@@ -76,6 +76,7 @@ __all__ = [
     "InferenceError",
     "NullEPMonitor",
     "OpenVinoMonitor",
+    "PerfContext",
     "PerfStats",
     "QNNMonitor",
     "SessionState",

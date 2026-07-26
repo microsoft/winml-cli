@@ -2,22 +2,22 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for qnn.viewer SDK-root resolution.
-
-These tests cover the env-only resolution contract for
-``find_qnn_sdk`` (no hardcoded developer-machine fallback paths).
-"""
+"""Tests for qnn.viewer SDK-root resolution."""
 
 from __future__ import annotations
 
 import subprocess
 
+import pytest
+
+from winml.modelkit.session.monitor.qnn import viewer
 from winml.modelkit.session.monitor.qnn.viewer import find_qnn_sdk
 
 
 def test_find_qnn_sdk_returns_none_when_env_unset(monkeypatch, tmp_path):
-    """No env var set -> None (no fallback to hardcoded paths)."""
+    """No valid env or documented common root -> None."""
     monkeypatch.delenv("QNN_SDK_ROOT", raising=False)
+    monkeypatch.setattr(viewer, "_COMMON_SDK_PATHS", [tmp_path / "missing"])
     assert find_qnn_sdk() is None
 
 
@@ -27,10 +27,38 @@ def test_find_qnn_sdk_returns_path_when_env_points_to_dir(monkeypatch, tmp_path)
     assert find_qnn_sdk() == tmp_path
 
 
-def test_find_qnn_sdk_returns_none_when_env_points_to_nonexistent(monkeypatch, tmp_path):
-    """Env var pointing to a non-existent path -> None."""
+def test_find_qnn_sdk_falls_back_to_common_root_for_invalid_env(monkeypatch, tmp_path):
+    """An invalid env path falls through to the documented common roots."""
     monkeypatch.setenv("QNN_SDK_ROOT", str(tmp_path / "does-not-exist"))
-    assert find_qnn_sdk() is None
+    sdk_root = tmp_path / "qairt" / "2.0"
+    (sdk_root / "bin").mkdir(parents=True)
+    monkeypatch.setattr(viewer, "_COMMON_SDK_PATHS", [tmp_path / "qairt"])
+    assert find_qnn_sdk() == sdk_root
+
+
+def test_find_qnn_sdk_finds_versioned_common_root(monkeypatch, tmp_path):
+    """The common-root search selects an SDK version containing ``bin``."""
+    monkeypatch.delenv("QNN_SDK_ROOT", raising=False)
+    sdk_root = tmp_path / "QC" / "2.30.0.250000"
+    (sdk_root / "bin").mkdir(parents=True)
+    monkeypatch.setattr(viewer, "_COMMON_SDK_PATHS", [tmp_path / "QC"])
+
+    assert find_qnn_sdk() == sdk_root
+
+
+def test_legacy_viewer_shim_delegates_sdk_discovery_with_one_warning(monkeypatch, tmp_path):
+    """The compatibility shim exposes the canonical discovery implementation."""
+    from winml.modelkit.optracing.qnn import viewer as legacy_viewer
+
+    monkeypatch.delenv("QNN_SDK_ROOT", raising=False)
+    sdk_root = tmp_path / "qairt" / "2.0"
+    (sdk_root / "bin").mkdir(parents=True)
+    monkeypatch.setattr(viewer, "_COMMON_SDK_PATHS", [tmp_path / "qairt"])
+
+    with pytest.warns(DeprecationWarning) as warnings:
+        assert legacy_viewer.find_qnn_sdk() == sdk_root
+
+    assert len(warnings) == 1
 
 
 def test_run_qhas_viewer_uses_output_stem_config_per_run(monkeypatch, tmp_path):

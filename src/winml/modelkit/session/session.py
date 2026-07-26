@@ -84,6 +84,10 @@ class PerfContext:
     stats: PerfStats
     monitor: WinMLEPMonitor  # NullEPMonitor when no monitor was passed
 
+    def __getattr__(self, name: str) -> Any:
+        """Delegate legacy direct statistics access to :attr:`stats`."""
+        return getattr(self.stats, name)
+
 
 def _ep_defaults(ep_device: WinMLEPDevice) -> dict[str, str]:
     """EP-specific defaults from the EPDeviceSpec catalog.
@@ -211,7 +215,7 @@ class WinMLSession:
     def __init__(
         self,
         onnx_path: str | Path,
-        ep_device: WinMLEPDevice | None = None,
+        ep_device: WinMLEPDevice | str | None = None,
         *,
         device: str | None = None,
         ep: str | None = None,
@@ -222,7 +226,7 @@ class WinMLSession:
     ) -> None:
         """Initialize WinMLSession.
 
-        Two invocation styles:
+        Three invocation styles:
 
         1. **Fully-resolved (preferred for library callers):** pass
            ``ep_device=<WinMLEPDevice>`` constructed via
@@ -230,10 +234,13 @@ class WinMLSession:
         2. **Ergonomic (CLI + tests):** pass ``device="npu"|"gpu"|"cpu"|"auto"``
            and optionally ``ep="qnn"|...``; the session resolves an
            ``ep_device`` internally via the singleton registry.
+        3. **Legacy:** omit the device for automatic selection, or supply the
+           device policy as the second positional string.
 
         Args:
             onnx_path: Path to ONNX model.
-            ep_device: Fully-resolved (source, device) pair.
+            ep_device: Fully-resolved (source, device) pair, or a legacy positional
+                device policy string.
             device: Device shortcut (npu/gpu/cpu/auto). Mutually resolved with ``ep``.
             ep: Optional EP short name — e.g. ``"qnn"`` — to pin.
             provider_options: EP-specific options dict, threaded into ep_config.
@@ -244,6 +251,16 @@ class WinMLSession:
             session_options: Callable that returns configured ORT SessionOptions.
                 A fresh object is requested for each ORT session construction.
         """
+        # Legacy positional device strings share the ergonomic resolution path.
+        # A resolved WinMLEPDevice remains the current positional API.
+        if isinstance(ep_device, str):
+            if device is not None:
+                raise TypeError(
+                    "WinMLSession received both a positional legacy device and device=."
+                )
+            device = ep_device
+            ep_device = None
+
         # Ergonomic path: resolve ep_device from device/ep shortcuts.
         # Tests expect ``WinMLSession(onnx_path, device="cpu")`` to defer
         # InferenceSession creation to compile() (so ``ep_name`` returns
@@ -253,8 +270,8 @@ class WinMLSession:
         # ergonomic entry.
         _ergonomic_lazy = False
         if ep_device is None:
-            if device is None:
-                raise TypeError("WinMLSession requires either ep_device= or device= (got neither)")
+            if ep is not None and device is None:
+                raise TypeError("WinMLSession requires device= when ep= is specified.")
             from .ep_device import EPDeviceTarget, resolve_device
             from .ep_registry import WinMLEPRegistry
 
@@ -263,7 +280,9 @@ class WinMLSession:
             # WinMLEPNotDiscovered / WinMLEPRegistrationFailed as-is —
             # silently rewriting a --device npu request to CPU would
             # produce wrong-device inference with no signal.
-            target = resolve_device(EPDeviceTarget(ep=ep or "auto", device=device.lower()))
+            target = resolve_device(
+                EPDeviceTarget(ep=ep or "auto", device=(device or "auto").lower())
+            )
             ep_device = WinMLEPRegistry.instance().auto_device(target)
             _ergonomic_lazy = True
 
@@ -741,7 +760,8 @@ class WinMLSession:
           which flushes CSV only on session destroy), :meth:`reset` fires
           *before* ``monitor.__exit__`` so the flushed data is available inside
           ``__exit__``.
-        * For other monitors the session is rebuilt *after* ``monitor.__exit__``.
+        * After ``monitor.__exit__``, the baseline is rebuilt from its saved
+          path and options without retaining a native session object.
 
         Args:
             warmup: Number of initial :meth:`run` calls to exclude from stats.
@@ -780,13 +800,13 @@ class WinMLSession:
         saved_sess_entries = dict(self._active_session_option_entries)
         saved_prov = dict(self._provider_options)
         saved_ep = self._ep
-        saved_session = self._session
+        had_baseline_session = self._session is not None
         saved_state = self._state
         saved_last_error = self._last_error
         saved_running_model_path = self._running_model_path
         active_model_path = (
             saved_running_model_path
-            if saved_session is not None and saved_running_model_path is not None
+            if had_baseline_session and saved_running_model_path is not None
             else self._onnx_path
         )
 
@@ -813,13 +833,56 @@ class WinMLSession:
             or desired_sess_entries != self._active_session_option_entries
             or self._session is None
         )
-        if self._session is not None and _session_rebuilt:
+        if had_baseline_session and _session_rebuilt:
             logger.warning(
                 "auto-resetting compiled session to apply monitor session/provider options"
             )
             self.reset()
 
         stats = PerfStats(warmup=warmup)
+        restore_baseline = _session_rebuilt or getattr(
+            effective_monitor, "requires_session_teardown", False
+        )
+
+        def _restore_baseline() -> Exception | None:
+            """Reconstruct the pre-perf session from snapshots, never retained objects."""
+            self._session = None
+            self._active_session_option_entries = saved_sess_entries
+            self._provider_options = saved_prov
+            self._ep = saved_ep
+            self._perf_stats = None
+
+            if not had_baseline_session:
+                self._state = saved_state
+                self._last_error = saved_last_error
+                self._running_model_path = saved_running_model_path
+                return None
+
+            try:
+                self._session = ort.InferenceSession(
+                    active_model_path,
+                    sess_options=_build_session_options(
+                        self._ep_device,
+                        self._ep_config,
+                        None,
+                        self._session_options_factory,
+                        session_option_entries=saved_sess_entries,
+                        provider_options=saved_prov,
+                    ),
+                )
+            except Exception as error:
+                self._session = None
+                self._state = SessionState.ERROR
+                self._last_error = error
+                self._running_model_path = None
+                logger.exception("Restoring baseline InferenceSession failed")
+                return error
+
+            self._state = saved_state
+            self._last_error = saved_last_error
+            self._running_model_path = saved_running_model_path
+            return None
+
         try:
             if _session_rebuilt:
                 so = _build_session_options(
@@ -833,16 +896,10 @@ class WinMLSession:
                 self._session = ort.InferenceSession(active_model_path, sess_options=so)
                 self._provider_options = new_prov
                 self._active_session_option_entries = desired_sess_entries
+                self._running_model_path = active_model_path
             effective_monitor.set_running_model_path(active_model_path)
         except Exception:
-            self._active_session_option_entries = saved_sess_entries
-            self._provider_options = saved_prov
-            self._ep = saved_ep
-            self._session = saved_session
-            self._state = saved_state
-            self._last_error = saved_last_error
-            self._running_model_path = saved_running_model_path
-            self._perf_stats = None
+            _restore_baseline()
             raise
 
         self._perf_stats = stats
@@ -855,15 +912,8 @@ class WinMLSession:
         try:
             effective_monitor.__enter__()
         except Exception:
-            # __enter__ failed — restore state and do NOT call __exit__.
-            self._active_session_option_entries = saved_sess_entries
-            self._provider_options = saved_prov
-            self._ep = saved_ep
-            self._perf_stats = None
-            self._session = saved_session
-            self._state = saved_state
-            self._last_error = saved_last_error
-            self._running_model_path = saved_running_model_path
+            # __enter__ failed — rebuild the baseline and do NOT call __exit__.
+            _restore_baseline()
             raise
 
         exc_info: tuple[type[BaseException] | None, BaseException | None, TracebackType | None] = (
@@ -905,45 +955,12 @@ class WinMLSession:
                 if exc_info[1] is None and monitor_error is None:
                     monitor_error = error
 
-            # Restore snapshots.
-            self._active_session_option_entries = saved_sess_entries
-            self._provider_options = saved_prov
-            self._ep = saved_ep
-            self._perf_stats = None
             restore_error: Exception | None = None
 
-            # Rebuild a saved baseline only when monitor options caused an
-            # entry-time rebuild. A teardown-only monitor intentionally leaves
-            # the session reset; otherwise preserve the pre-perf identity.
-            if _session_rebuilt and saved_session is not None:
-                try:
-                    self._session = ort.InferenceSession(
-                        active_model_path,
-                        sess_options=_build_session_options(
-                            self._ep_device,
-                            self._ep_config,
-                            None,
-                            self._session_options_factory,
-                            session_option_entries=saved_sess_entries,
-                            provider_options=saved_prov,
-                        ),
-                    )
-                    self._state = saved_state
-                    self._last_error = saved_last_error
-                    self._running_model_path = saved_running_model_path
-                except Exception as error:
-                    logger.exception("Restoring baseline InferenceSession failed")
-                    self._session = saved_session
-                    self._state = saved_state
-                    self._last_error = saved_last_error
-                    self._running_model_path = saved_running_model_path
-                    if exc_info[1] is None and monitor_error is None:
-                        restore_error = error
-            elif _session_rebuilt:
-                self._session = None
-                self._state = saved_state
-                self._last_error = saved_last_error
-                self._running_model_path = saved_running_model_path
+            if restore_baseline:
+                restore_error = _restore_baseline()
+            else:
+                self._perf_stats = None
 
             # Re-raise any exception from the body.
             if exc_info[1] is not None:

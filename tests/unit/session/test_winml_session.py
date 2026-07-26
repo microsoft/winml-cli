@@ -30,6 +30,7 @@ import pytest
 from winml.modelkit.compiler import EPConfig
 from winml.modelkit.session import (
     EPDeviceTarget,
+    PerfContext,
     WinMLEPDevice,
     WinMLEPMonitorMismatch,
     WinMLSession,
@@ -1018,16 +1019,17 @@ class TestWinMLSessionPerfTracking:
         cpu_winml_session: WinMLSession,
         sample_input: dict[str, np.ndarray],
     ):
-        """Test that perf() context manager returns PerfStats."""
+        """Legacy direct stats access delegates through the PerfContext."""
         from winml.modelkit.session import PerfStats
 
         session = cpu_winml_session
 
-        with session.perf() as ctx:
-            stats = ctx.stats
-            assert stats is not None
-            assert isinstance(stats, PerfStats)
+        with session.perf() as stats:
+            assert isinstance(stats, PerfContext)
+            assert isinstance(stats.stats, PerfStats)
             assert stats.count == 0
+            assert stats.samples_ms == []
+            assert stats.monitor is not None
 
     def test_perf_records_samples(
         self,
@@ -1183,6 +1185,64 @@ def test_winml_session_accepts_device_kwarg_lazily(tmp_path, cpu_ep_device, monk
     assert session._session is None
 
 
+def test_winml_session_path_only_defaults_to_auto_lazily(
+    tmp_path, cpu_ep_device, monkeypatch
+) -> None:
+    """The legacy path-only constructor resolves the automatic device policy."""
+    onnx_path = tmp_path / "noop.onnx"
+    onnx_path.write_bytes(b"\x08\x01")
+    registry = _stub_registry(monkeypatch, cpu_ep_device)
+
+    session = WinMLSession(onnx_path)
+
+    assert session._session is None
+    target = registry.auto_device.call_args.args[0]
+    assert target.device.lower() == "cpu"
+
+
+def test_winml_session_positional_device_uses_legacy_policy(
+    tmp_path, cpu_ep_device, monkeypatch
+) -> None:
+    """A positional device string retains the legacy constructor form."""
+    onnx_path = tmp_path / "noop.onnx"
+    onnx_path.write_bytes(b"\x08\x01")
+    registry = _stub_registry(monkeypatch, cpu_ep_device)
+
+    session = WinMLSession(onnx_path, "cpu")
+
+    assert session._session is None
+    target = registry.auto_device.call_args.args[0]
+    assert target.device.lower() == "cpu"
+
+
+def test_winml_session_positional_resolved_target_retains_current_api(
+    tmp_path, qnn_npu_ep_device, fake_ort_npu
+) -> None:
+    """A resolved target in the second position is not treated as a device string."""
+    onnx_path = tmp_path / "noop.onnx"
+    onnx_path.write_bytes(b"\x08\x01")
+    with (
+        patch("winml.modelkit.session.session.ort.InferenceSession") as inference_session,
+        patch("winml.modelkit.session.session.ort.SessionOptions", return_value=MagicMock()),
+    ):
+        session = WinMLSession(onnx_path, qnn_npu_ep_device)
+
+    inference_session.assert_called_once()
+    assert session._ep_device is qnn_npu_ep_device
+
+
+def test_winml_session_rejects_conflicting_positional_and_keyword_devices(
+    tmp_path, cpu_ep_device, monkeypatch
+) -> None:
+    """The legacy positional policy cannot conflict with the explicit keyword."""
+    onnx_path = tmp_path / "noop.onnx"
+    onnx_path.write_bytes(b"\x08\x01")
+    _stub_registry(monkeypatch, cpu_ep_device)
+
+    with pytest.raises(TypeError, match="device"):
+        WinMLSession(onnx_path, "cpu", device="gpu")
+
+
 # =============================================================================
 # Task 8: perf() validation + save/restore
 # =============================================================================
@@ -1233,3 +1293,73 @@ def test_perf_preserves_save_restore(tmp_path, qnn_npu_ep_device, fake_ort_npu) 
         assert sess._provider_options == snapshot
         assert sess._ep == "QNNExecutionProvider"
         assert sess._active_session_option_entries == {}  # back to empty (pre-perf state)
+
+
+def test_perf_releases_native_session_before_each_replacement(
+    tmp_path, qnn_npu_ep_device, fake_ort_npu
+) -> None:
+    """A monitored rebuild never overlaps baseline and replacement native sessions."""
+    import gc
+    import weakref
+
+    onnx_path = tmp_path / "noop.onnx"
+    onnx_path.write_bytes(b"\x08\x01")
+    prior_sessions: list[weakref.ReferenceType[object]] = []
+
+    class _NativeSession:
+        def get_providers(self) -> list[str]:
+            return ["QNNExecutionProvider"]
+
+    def make_native_session(*_args, **_kwargs):
+        gc.collect()
+        assert not prior_sessions or prior_sessions[-1]() is None
+        native_session = _NativeSession()
+        prior_sessions.append(weakref.ref(native_session))
+        return native_session
+
+    monitor = MagicMock()
+    monitor.ep_name = "qnn"
+    monitor.requires_session_teardown = False
+    monitor.get_provider_options.return_value = {"profiling_level": "detailed"}
+    monitor.get_session_options.return_value = {}
+
+    with (
+        patch(
+            "winml.modelkit.session.session.ort.InferenceSession",
+            side_effect=make_native_session,
+        ),
+        patch("winml.modelkit.session.session.ort.SessionOptions", return_value=MagicMock()),
+    ):
+        session = WinMLSession(onnx_path, ep_device=qnn_npu_ep_device)
+        with session.perf(monitor=monitor):
+            pass
+
+    assert session._session is not None
+
+
+def test_perf_keeps_active_model_path_while_monitored(
+    tmp_path, qnn_npu_ep_device, fake_ort_npu
+) -> None:
+    """The monitored session reports the active EPContext path throughout perf()."""
+    onnx_path = tmp_path / "source.onnx"
+    active_model_path = tmp_path / "active_ctx.onnx"
+    onnx_path.write_bytes(b"\x08\x01")
+    active_model_path.write_bytes(b"\x08\x01")
+    monitor = MagicMock()
+    monitor.ep_name = "qnn"
+    monitor.requires_session_teardown = False
+    monitor.get_provider_options.return_value = {"profiling_level": "detailed"}
+    monitor.get_session_options.return_value = {}
+
+    with (
+        patch("winml.modelkit.session.session.ort.InferenceSession"),
+        patch("winml.modelkit.session.session.ort.SessionOptions", return_value=MagicMock()),
+    ):
+        session = WinMLSession(onnx_path, ep_device=qnn_npu_ep_device)
+        session._running_model_path = active_model_path
+        with session.perf(monitor=monitor):
+            assert session._running_model_path == active_model_path
+            assert session.running_model_path == active_model_path
+
+    assert session._running_model_path == active_model_path
+    assert session.running_model_path == active_model_path

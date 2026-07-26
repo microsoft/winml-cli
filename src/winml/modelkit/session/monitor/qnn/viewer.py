@@ -41,19 +41,34 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     }
 }
 
+# Documented common installation directories (Windows).
+_COMMON_SDK_PATHS: list[Path] = [
+    Path(r"D:\QC"),
+    Path(r"C:\Qualcomm\AIStack\qairt"),
+]
+
 
 def find_qnn_sdk() -> Path | None:
-    """Resolve QNN SDK root from ``QNN_SDK_ROOT`` env var.
+    """Auto-detect a QNN SDK from the environment or documented common roots.
 
-    Returns ``None`` when unset or pointing to a non-directory. Detail-mode
-    QHAS post-processing degrades to basic CSV parsing when this returns
-    ``None`` (per design FR-5 / ``status='basic_fallback'``).
+    ``QNN_SDK_ROOT`` wins when it identifies a valid directory. An unset or
+    invalid environment value falls through to versioned SDK directories under
+    the documented QAIRT/QNN installation roots.
     """
     env_root = os.environ.get("QNN_SDK_ROOT")
-    if not env_root:
-        return None
-    root = Path(env_root)
-    return root if root.is_dir() else None
+    if env_root:
+        root = Path(env_root)
+        if root.is_dir():
+            return root
+
+    for base_path in _COMMON_SDK_PATHS:
+        if not base_path.is_dir():
+            continue
+        for child in sorted(base_path.iterdir(), reverse=True):
+            if child.is_dir() and (child / "bin").is_dir():
+                return child
+
+    return None
 
 
 def _find_viewer_exe(sdk_root: Path | None = None) -> Path | None:
