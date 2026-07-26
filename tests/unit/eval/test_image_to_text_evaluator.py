@@ -78,6 +78,29 @@ class TestRegistry:
         )
 
 
+class TestPreparePipeline:
+    def test_uses_shared_pipeline_factory(self):
+        from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
+
+        evaluator = object.__new__(WinMLImageToTextEvaluator)
+        evaluator.model = MagicMock()
+        evaluator.config = WinMLEvaluationConfig(
+            model_id="local/mgp-str",
+            task="image-to-text",
+            dataset=DatasetConfig(path="local/dataset"),
+        )
+        expected = MagicMock()
+
+        with patch(
+            "winml.modelkit.inference.pipeline.create_pipeline",
+            return_value=expected,
+        ) as create:
+            result = evaluator.prepare_pipeline()
+
+        assert result is expected
+        create.assert_called_once_with("image-to-text", evaluator.model, "local/mgp-str")
+
+
 class TestCompute:
     """compute() iterates samples through the pipeline and aggregates metrics."""
 

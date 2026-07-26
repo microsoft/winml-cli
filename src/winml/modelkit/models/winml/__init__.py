@@ -59,6 +59,7 @@ WINML_MODEL_CLASS_MAPPING: dict[tuple[str, str], str] = {
     # - Specific OPSET requirements
     # - Input remapping (non-standard tensor names)
     # - Custom pre/post-processing
+    ("mgp-str", "image-to-text"): "WinMLModelForMgpstrSceneTextRecognition",
 }
 
 
@@ -82,6 +83,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
         WinMLModelForImageSegmentation,
         WinMLModelForSemanticSegmentation,
     )
+    from .image_to_text import WinMLModelForMgpstrSceneTextRecognition
     from .object_detection import WinMLModelForObjectDetection
     from .question_answering import WinMLModelForQuestionAnswering
     from .sequence_classification import WinMLModelForSequenceClassification
@@ -91,6 +93,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
         "WinMLModelForDepthEstimation": WinMLModelForDepthEstimation,
         "WinMLModelForFeatureExtraction": WinMLModelForFeatureExtraction,
         "WinMLModelForImageClassification": WinMLModelForImageClassification,
+        "WinMLModelForMgpstrSceneTextRecognition": WinMLModelForMgpstrSceneTextRecognition,
         "WinMLModelForImageSegmentation": WinMLModelForImageSegmentation,
         "WinMLModelForObjectDetection": WinMLModelForObjectDetection,
         "WinMLModelForQuestionAnswering": WinMLModelForQuestionAnswering,
@@ -204,6 +207,7 @@ from .image_segmentation import (
     WinMLModelForImageSegmentation,
     WinMLModelForSemanticSegmentation,
 )
+from .image_to_text import WinMLModelForMgpstrSceneTextRecognition
 from .kv_cache import (
     WinMLCache,
     WinMLSlidingWindowCache,
@@ -233,6 +237,7 @@ __all__ = [
     "WinMLModelForGenericTask",
     "WinMLModelForImageClassification",
     "WinMLModelForImageSegmentation",
+    "WinMLModelForMgpstrSceneTextRecognition",
     "WinMLModelForObjectDetection",
     "WinMLModelForSemanticSegmentation",
     "WinMLModelForSequenceClassification",

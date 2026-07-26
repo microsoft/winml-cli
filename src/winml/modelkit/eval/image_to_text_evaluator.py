@@ -29,6 +29,7 @@ from .base_evaluator import WinMLEvaluator
 
 if TYPE_CHECKING:
     from datasets import Dataset
+    from transformers.pipelines.base import Pipeline
 
     from ..models.winml.base import WinMLPreTrainedModel
     from .config import DatasetConfig, WinMLEvaluationConfig
@@ -55,6 +56,17 @@ class WinMLImageToTextEvaluator(WinMLEvaluator):
     def align_labels(self, dataset: Dataset, ds_config: DatasetConfig) -> Dataset:
         """No-op: free-text labels need no ClassLabel alignment."""
         return dataset
+
+    def prepare_pipeline(self) -> Pipeline:
+        """Create an image-to-text pipeline, including registered specializations."""
+        from typing import cast
+
+        from ..inference.pipeline import create_pipeline
+
+        return cast(
+            "Pipeline",
+            create_pipeline("image-to-text", self.model, self.config.model_id),
+        )
 
     def compute(self) -> dict[str, Any]:
         """Run the pipeline over each sample and return CER + CIDEr."""
