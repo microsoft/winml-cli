@@ -1,0 +1,10 @@
+{
+  "export": null,
+  "optim": {},
+  "quant": null,
+  "compile": null,
+  "loader": {
+    "task": "mask-generation",
+    "component_name": "prompt-decoder"
+  }
+}

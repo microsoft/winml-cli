@@ -942,6 +942,8 @@ def build(
                 if model_input.kind is ModelInputKind.INVALID:
                     raise click.UsageError(model_input.error or f"Invalid model input: {model}")
 
+        published_composite_sources: dict[str, str] | None = None
+
         # Load or auto-generate config
         if config_file is not None:
             config_or_configs = _load_config(
@@ -1002,15 +1004,40 @@ def build(
                     ep=ep,
                 )
             else:
-                config_or_configs = generate_build_config(
-                    model,
-                    trust_remote_code=trust_remote_code,
-                    device=device,
-                    precision=precision,
-                    ep=ep,
-                    shape_config=shape_overrides,
-                    override={"export": export_overrides} if export_overrides else None,
-                )
+                try:
+                    config_or_configs = generate_build_config(
+                        model,
+                        trust_remote_code=trust_remote_code,
+                        device=device,
+                        precision=precision,
+                        ep=ep,
+                        shape_config=shape_overrides,
+                        override={"export": export_overrides} if export_overrides else None,
+                    )
+                except (ValueError, OSError) as config_error:
+                    from ..loader.resolution import resolve_composite_onnx_sources
+
+                    published_composite_sources = resolve_composite_onnx_sources(
+                        model,
+                        precision=precision,
+                        trust_remote_code=trust_remote_code,
+                    )
+                    if published_composite_sources is None:
+                        raise
+                    if export_overrides or shape_overrides:
+                        raise click.UsageError(
+                            "--input-specs, --export-config, --dynamic-axes, and "
+                            "--shape-config are not supported for a pre-exported "
+                            "release-asset composite."
+                        ) from config_error
+                    first_source = next(iter(published_composite_sources.values()))
+                    config_or_configs = generate_build_config(
+                        onnx_path=first_source,
+                        task="mask-generation",
+                        device=device,
+                        precision=precision,
+                        ep=ep,
+                    )
             if not quant:
                 config_or_configs.quant = None
             # Auto-generated configs: compile disabled by default unless
@@ -1075,13 +1102,40 @@ def build(
         _configs_to_validate: list[WinMLBuildConfig] = (
             config_or_configs if isinstance(config_or_configs, list) else [config_or_configs]
         )
+
+        # A portable composite-component recipe keeps the Hub model ID in
+        # ``-m`` and identifies its graph role in loader.component_name. Resolve
+        # that role to the published ONNX graph before deciding the build path.
+        if (
+            model
+            and not isinstance(config_or_configs, list)
+            and isinstance(config_or_configs.loader.component_name, str)
+            and (model_input is None or model_input.kind is not ModelInputKind.ONNX_FILE)
+        ):
+            from ..loader.resolution import resolve_composite_onnx_sources
+
+            sources = resolve_composite_onnx_sources(
+                model,
+                component_name=config_or_configs.loader.component_name,
+                precision=precision,
+                trust_remote_code=trust_remote_code,
+            )
+            if sources is None:
+                raise click.UsageError(
+                    f"Model {model!r} does not publish ONNX sources for composite "
+                    f"component {config_or_configs.loader.component_name!r}."
+                )
+            model = next(iter(sources.values()))
+            model_input = classify_model_input(model)
         try:
             for _cfg in _configs_to_validate:
                 _cfg.validate()
         except ValueError as e:
             raise click.UsageError(f"Config validation failed: {e}") from e
 
-        model_is_onnx = model_input is not None and model_input.kind is ModelInputKind.ONNX_FILE
+        model_is_onnx = (
+            model_input is not None and model_input.kind is ModelInputKind.ONNX_FILE
+        ) or published_composite_sources is not None
 
         preloaded_hf_config = _validate_loader_tasks_for_model(
             model_id=model,
@@ -1248,7 +1302,7 @@ def build(
             # export command). A composite fans out into one build per
             # sub-component; a plain model builds to the single output dir.
             components = None
-            if model and not model_is_onnx:
+            if model and (not model_is_onnx or published_composite_sources is not None):
                 try:
                     from ..loader.resolution import resolve_composite_components
 
@@ -1265,6 +1319,7 @@ def build(
                         model,
                         task=task_hint,
                         model_type=model_type_hint,
+                        precision=precision,
                         trust_remote_code=trust_remote_code,
                     )
                 except click.ClickException:
@@ -1297,6 +1352,8 @@ def build(
                 components = {submodel: components[submodel]}
 
             if components:
+                if model is None:
+                    raise RuntimeError("Composite components require a Hugging Face model ID.")
                 if use_cache:
                     raise click.UsageError(
                         "--use-cache is not supported for composite models. "
@@ -1309,6 +1366,14 @@ def build(
 
                 completed: list[str] = []
                 try:
+                    from ..loader.resolution import resolve_composite_onnx_sources
+
+                    component_sources = resolve_composite_onnx_sources(
+                        model,
+                        task=task_hint,
+                        precision=precision,
+                        trust_remote_code=trust_remote_code,
+                    )
                     for name, component_task in components.items():
                         console.print(
                             f"\n[bold blue]Sub-model:[/bold blue] {name} (task={component_task})"
@@ -1316,16 +1381,31 @@ def build(
 
                         from ..config import generate_build_config as gen_cfg
 
-                        component_config = gen_cfg(
-                            model,
-                            task=component_task,
-                            trust_remote_code=trust_remote_code,
-                            device=device,
-                            precision=precision,
-                            ep=ep,
-                            shape_config=shape_overrides,
-                            override={"export": export_overrides} if export_overrides else None,
+                        component_source = (
+                            component_sources.get(name) if component_sources else None
                         )
+                        if component_source is not None:
+                            from ..config import generate_onnx_build_config
+
+                            component_config = generate_onnx_build_config(
+                                component_source,
+                                task=component_task,
+                                device=device,
+                                precision=precision,
+                                ep=ep,
+                            )
+                            component_config.loader.component_name = name
+                        else:
+                            component_config = gen_cfg(
+                                model,
+                                task=component_task,
+                                trust_remote_code=trust_remote_code,
+                                device=device,
+                                precision=precision,
+                                ep=ep,
+                                shape_config=shape_overrides,
+                                override={"export": export_overrides} if export_overrides else None,
+                            )
                         # Carry over quant/compile settings from the outer config
                         # (already patched by CLI overrides like --no-quant /
                         # --no-compile). Deep-copy to avoid sharing mutable state
@@ -1378,9 +1458,13 @@ def build(
                         _run_single_build(
                             config=component_config,
                             config_file=None,
-                            model_id=model,
-                            is_onnx=False,
-                            resolved_dir=resolved_dir,
+                            model_id=component_source or model,
+                            is_onnx=component_source is not None,
+                            resolved_dir=(
+                                resolved_dir / name
+                                if component_source is not None
+                                else resolved_dir
+                            ),
                             rebuild=rebuild,
                             cache_key=name,
                             ep=ep,
@@ -1517,6 +1601,9 @@ def _run_single_build(
                 device=device,
                 extra_kwargs=extra_kwargs,
             )
+            from ..loader.release_assets import copy_release_contract_files
+
+            copy_release_contract_files(Path(model_id), resolved_dir)
         else:
             stage_timings = _build_hf_pipeline(
                 config=config,

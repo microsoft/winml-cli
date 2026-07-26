@@ -105,6 +105,18 @@ class WinMLCompositeModel(PreTrainedModel):
     """
 
     _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {}
+    _PRETRAINED_ONNX_ONLY: ClassVar[bool] = False
+
+    @classmethod
+    def resolve_pretrained_onnx(
+        cls,
+        model_id: str,
+        *,
+        revision: str | None = None,
+        precision: str = "fp32",
+    ) -> Mapping[str, str | Path] | None:
+        """Resolve published ONNX components when this composite supports them."""
+        return None
 
     def __init__(
         self,
@@ -182,6 +194,23 @@ class WinMLCompositeModel(PreTrainedModel):
                 force_rebuild=force_rebuild,
                 sub_model_kwargs=sub_model_kwargs,
                 trust_remote_code=trust_remote_code,
+                **kwargs,
+            )
+
+        published = cls.resolve_pretrained_onnx(
+            model_id,
+            revision=getattr(hf_config, "_commit_hash", None),
+            precision=cast("str", kwargs.get("precision", "fp32")),
+        )
+        if published is not None:
+            return cls.from_onnx(
+                published,
+                task=task,
+                hf_config=hf_config,
+                device=device,
+                precision=kwargs.pop("precision", "fp32"),
+                use_cache=use_cache,
+                force_rebuild=force_rebuild,
                 **kwargs,
             )
         from ..auto import WinMLAutoModel
