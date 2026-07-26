@@ -26,6 +26,7 @@ recipes = [
         "loader_model_class": "EmotionModel",
         "loader_model_type": "wav2vec2_emotion_regression",
         "opset_version": 17,
+        "quant_mode": None,
     },
     {
         "path": REPO_ROOT
@@ -39,6 +40,7 @@ recipes = [
         "loader_model_class": "EmotionModel",
         "loader_model_type": "wav2vec2_emotion_regression",
         "opset_version": 17,
+        "quant_mode": "fp16",
     },
 ]
 
@@ -70,5 +72,8 @@ def test_cpu_recipes(rec):
     assert config.loader.model_class == rec["loader_model_class"]
     assert config.loader.model_type == rec["loader_model_type"]
 
-    # float CPU recipe (fp32/fp16): no quantization
-    assert config.quant is None
+    if rec["quant_mode"] is None:
+        assert config.quant is None
+    else:
+        assert config.quant is not None
+        assert config.quant.mode == rec["quant_mode"]
