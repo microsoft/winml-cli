@@ -397,7 +397,7 @@ class GemmPatternInputGenerator(PatternInputGenerator):
     """PatternInputGenerator for Gemm patterns."""
 
     # Typed as the base Pattern so subclasses can set a different concrete pattern.
-    pattern = ReshapeGemmReshapePattern()
+    pattern: Pattern = ReshapeGemmReshapePattern()
 
     def get_finite_attribute_sets(self) -> dict[str, list[Any]]:
         """Return finite attribute sets for ReshapeGemmReshape (none)."""
