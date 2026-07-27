@@ -286,13 +286,28 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCo
             model.config = hf_config
             return model
 
+        # HuggingFace build path — export overrides (--input-specs/
+        # --export-config/--dynamic-axes) are merged under the build config's
+        # ``export`` section as a sparse dict so from_pretrained routes them
+        # through merge_export_overrides (patching auto-resolved input_tensors
+        # by name / re-deriving dynamic_axes). Passing a dict rather than a
+        # WinMLBuildConfig avoids clobbering the auto-resolved export config
+        # with default fields. Mirrors winml build/perf.
+        build_override: Any = quant_override
+        if config.export_overrides:
+            override_dict: dict[str, Any] = {"export": config.export_overrides}
+            if not config.quant:
+                override_dict["quant"] = None
+            build_override = override_dict
+
         return WinMLAutoModel.from_pretrained(
             config.model_id,
             ep_device,
             task=config.task,
             precision=config.precision,
             allow_unsupported_nodes=config.allow_unsupported_nodes,
-            config=quant_override,
+            config=build_override,
+            shape_config=config.shape_config,
             **pipeline_kwargs,
         )
     except RuntimeException as error:

@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import sys
+import time
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,6 +42,7 @@ from ._pre_bench import print_pre_bench_block
 
 if TYPE_CHECKING:
     import contextlib
+    from collections.abc import Iterator
 
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
@@ -265,6 +268,10 @@ class BenchmarkConfig:
     precision: str = "auto"
     iterations: int = 100
     warmup: int = 10
+    # When set, the benchmark phase runs for this many wall-clock seconds (after
+    # warmup) instead of a fixed ``iterations`` count. Ideal with --monitor,
+    # whose PDH counters need time to emit real utilization data.
+    duration: float | None = None
     batch_size: int = 1
     output_path: Path | None = None
     no_quantize: bool = False
@@ -361,8 +368,16 @@ class BenchmarkResult:
                 "ep_source": self.config.ep_source,
                 "ep_options": self.config.ep_options,
                 "precision": self.config.precision,
-                "iterations": self.config.iterations,
+                # In duration mode the run isn't bounded by a fixed count, so
+                # report the actual number of timed (post-warmup) samples rather
+                # than the unused ``--iterations`` default.
+                "iterations": (
+                    len(self.raw_samples_ms)
+                    if self.config.duration is not None
+                    else self.config.iterations
+                ),
                 "warmup": self.config.warmup,
+                "duration_sec": self.config.duration,
                 "batch_size": self.config.batch_size,
                 "effective_batch_size": self.effective_batch_size,
                 "timestamp": self.timestamp,
@@ -906,11 +921,18 @@ class PerfBenchmark:
         print_pre_bench_block(Console(stderr=True), **pre_bench_kwargs)
 
         # [3] Run benchmark
-        logger.info(
-            "Running benchmark: %d iterations + %d warmup",
-            self.config.iterations,
-            self.config.warmup,
-        )
+        if self.config.duration is not None:
+            logger.info(
+                "Running benchmark: %gs duration + %d warmup",
+                self.config.duration,
+                self.config.warmup,
+            )
+        else:
+            logger.info(
+                "Running benchmark: %d iterations + %d warmup",
+                self.config.iterations,
+                self.config.warmup,
+            )
         stats = self._run_benchmark()
 
         if self.config.memory:
@@ -1127,7 +1149,13 @@ class PerfBenchmark:
 
         session = self._single._session
         with session.perf(warmup=self.config.warmup) as ctx:
-            _run_simple_loop(session, self._inputs, total_iterations)
+            _run_simple_loop(
+                session,
+                self._inputs,
+                total_iterations,
+                warmup=self.config.warmup,
+                duration_sec=self.config.duration,
+            )
 
         # Expose ctx for post-benchmark reporting (parity with monitored path).
         self._perf_ctx = ctx
@@ -1204,6 +1232,7 @@ class PerfBenchmark:
                     warmup=self.config.warmup,
                     model_id=self.config.model_id,
                     device=monitor_device,
+                    duration_sec=self.config.duration,
                 )
                 self._hw_metrics = hw.to_dict()
 
@@ -1216,7 +1245,13 @@ class PerfBenchmark:
         else:
             # HW unavailable: run with EP monitor only (op-tracing path).
             with session.perf(warmup=self.config.warmup, monitor=ep_monitor) as ctx:
-                _run_simple_loop(session, self._inputs, total_iterations)
+                _run_simple_loop(
+                    session,
+                    self._inputs,
+                    total_iterations,
+                    warmup=self.config.warmup,
+                    duration_sec=self.config.duration,
+                )
             ep_dict = _monitor_to_json_dict(ctx.monitor)
             if ep_dict:
                 self._hw_metrics = {"ep_proof": ep_dict}
@@ -1292,6 +1327,7 @@ def _perf_modules(
     task: str | None,
     iterations: int,
     warmup: int,
+    duration: float | None = None,
     batch_size: int,
     no_quantize: bool,
     no_optimize: bool,
@@ -1323,6 +1359,8 @@ def _perf_modules(
         task: Explicit task override, or None for auto-detection.
         iterations: Number of benchmark iterations.
         warmup: Number of warmup iterations.
+        duration: When set, run the benchmark phase for this many wall-clock
+            seconds (after warmup) instead of a fixed ``iterations`` count.
         batch_size: Batch size for input generation.
         no_quantize: If True, skip quantization during the per-module build.
         no_optimize: If True, skip graph optimization during the per-module build.
@@ -1540,6 +1578,7 @@ def _perf_modules(
                             warmup=warmup,
                             model_id=label,
                             device=resolved_device,
+                            duration_sec=duration,
                         )
                         # Collect inside the `with` block: hw_ctx.__exit__
                         # stops the monitor, so to_dict() must read while it's
@@ -1548,8 +1587,13 @@ def _perf_modules(
                     mod_stats = ctx.stats
                 else:
                     with session.perf(warmup=warmup) as ctx:
-                        for _ in range(total_iters):
-                            session.run(inputs)
+                        _run_simple_loop(
+                            session,
+                            inputs,
+                            total_iters,
+                            warmup=warmup,
+                            duration_sec=duration,
+                        )
                     mod_stats = ctx.stats
                 result_entry: dict[str, Any] = {
                     "module_path": module_path,
@@ -1568,6 +1612,10 @@ def _perf_modules(
                     "throughput_sps": (
                         round(1000.0 / mod_stats.mean_ms, 2) if mod_stats.mean_ms > 0 else 0.0
                     ),
+                    # Actual timed sample count. Under a --duration budget each
+                    # module runs a different number of iterations, so this is
+                    # recorded per instance rather than as one top-level value.
+                    "iterations": len(mod_stats.samples_ms),
                 }
                 if hw_metrics:
                     result_entry["hw_monitor"] = hw_metrics
@@ -1617,8 +1665,11 @@ def _perf_modules(
         "model_id": hf_model,
         "module_class": module_class,
         "instance_count": len(all_results),
-        "iterations": iterations,
+        # Duration mode has no single iteration count (each instance runs its
+        # own — see per-instance "iterations"), so the top-level value is null.
+        "iterations": None if duration is not None else iterations,
         "warmup": warmup,
+        "duration_sec": duration,
         "instances": all_results,
     }
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -1904,6 +1955,58 @@ def _print_save_to_footer(
         console.print(f"[dim]Profiling CSV:[/dim] {profiling_csv}")
 
 
+@dataclass
+class _BenchmarkClock:
+    """Shared wall-clock start for a timed benchmark phase.
+
+    ``_benchmark_indices`` stamps ``start`` the instant warmup ends — the same
+    instant its own budget clock begins — so consumers (the debug-progress log
+    and the live monitor chart) measure elapsed time against the exact budget
+    the loop terminates on, rather than re-stamping a clock that lags by one
+    inference.
+    """
+
+    start: float | None = None
+
+
+def _benchmark_indices(
+    total_iterations: int,
+    warmup: int,
+    duration_sec: float | None,
+    clock: _BenchmarkClock | None = None,
+) -> Iterator[int]:
+    """Yield 0-based iteration indices for a benchmark run.
+
+    Always yields ``warmup`` warmup indices first (these fall inside the
+    PerfStats warmup window and are excluded from statistics). Then:
+
+    * ``duration_sec is None`` -> yields indices up to ``total_iterations``.
+    * ``duration_sec`` set -> keeps yielding until that many wall-clock seconds
+      elapse, measured from the end of warmup, always running at least one
+      benchmark iteration so stats are never empty.
+
+    When ``clock`` is provided, its ``start`` is stamped at the benchmark-phase
+    boundary so callers can report elapsed time against the same reference.
+    """
+    i = 0
+    while i < warmup:
+        yield i
+        i += 1
+    start = time.perf_counter()
+    if clock is not None:
+        clock.start = start
+    if duration_sec is None:
+        while i < total_iterations:
+            yield i
+            i += 1
+        return
+    while True:
+        yield i
+        i += 1
+        if time.perf_counter() - start >= duration_sec:
+            return
+
+
 def _run_monitored_loop(
     session: Any,
     inputs: dict[str, Any],
@@ -1914,17 +2017,23 @@ def _run_monitored_loop(
     warmup: int,
     model_id: str,
     device: str,
+    duration_sec: float | None = None,
 ) -> None:
     """Run the benchmark iteration loop with live hardware monitoring."""
+    # In duration mode the display and the loop share one benchmark-phase clock
+    # so the progress bar tracks the same budget the loop stops on.
+    clock = _BenchmarkClock() if duration_sec is not None else None
     display = LiveMonitorDisplay(
         total_iterations=total_iterations,
         warmup=warmup,
         model_id=model_id,
         device=device,
         device_kind=getattr(hw, "device_kind", None),
+        duration_sec=duration_sec,
+        clock=clock,
     )
     with display:
-        for i in range(total_iterations):
+        for i in _benchmark_indices(total_iterations, warmup, duration_sec, clock):
             session.run(inputs)
 
             latest_latency = stats.all_samples_ms[-1] if stats.all_samples_ms else 0
@@ -1946,13 +2055,38 @@ def _run_simple_loop(
     session: Any,
     inputs: dict[str, Any],
     total_iterations: int,
+    *,
+    warmup: int = 0,
+    duration_sec: float | None = None,
 ) -> None:
-    """Run the benchmark iteration loop with periodic debug logging."""
-    for i in range(total_iterations):
-        session.run(inputs)
+    """Run the benchmark iteration loop with periodic debug logging.
 
-        if (i + 1) % max(1, total_iterations // 10) == 0:
-            logger.debug("Progress: %d/%d", i + 1, total_iterations)
+    When ``duration_sec`` is set, the benchmark phase (after ``warmup``) runs
+    until the wall-clock duration elapses instead of a fixed iteration count,
+    and progress is logged as elapsed/total time (the iteration count is
+    unbounded and its ``total_iterations`` denominator is meaningless).
+    """
+    if duration_sec is None:
+        bench_total = total_iterations - warmup
+        for i in _benchmark_indices(total_iterations, warmup, duration_sec):
+            session.run(inputs)
+            # Log benchmark-only progress (warmup indices are excluded).
+            bench_done = i - warmup + 1
+            if bench_done >= 1 and bench_done % max(1, bench_total // 10) == 0:
+                logger.debug("Progress: %d/%d", bench_done, bench_total)
+        return
+
+    clock = _BenchmarkClock()
+    next_log = 0.0
+    log_step = max(duration_sec / 10.0, 0.1)
+    for _ in _benchmark_indices(total_iterations, warmup, duration_sec, clock):
+        session.run(inputs)
+        if clock.start is None:
+            continue
+        elapsed = time.perf_counter() - clock.start
+        if elapsed >= next_log:
+            logger.debug("Progress: %.1f/%.0fs", min(elapsed, duration_sec), duration_sec)
+            next_log += log_step
 
 
 # =============================================================================
@@ -1980,10 +2114,11 @@ _GENAI_IGNORED_FLAGS: dict[str, str] = {
     "ignore_cache": "--ignore-cache",
     "skip_build": "--skip-build",
     "allow_unsupported_nodes": "--allow-unsupported-nodes",
+    "batch_size": "--batch-size",
+    "duration": "--duration",
     "monitor": "--monitor",
     "memory": "--memory",
     "op_tracing": "--op-tracing",
-    "batch_size": "--batch-size",
 }
 
 # Subsets of the above that the model-id auto-build path honors, so they are
@@ -2263,6 +2398,22 @@ def _resolve_composite_components_for_perf(model: str, task: str | None) -> dict
         raise click.ClickException(f"Composite model detection failed unexpectedly: {e}") from e
 
 
+def _validate_duration(
+    ctx: click.Context, param: click.Parameter, value: float | None
+) -> float | None:
+    """Reject non-finite ``--duration`` values.
+
+    ``click.FloatRange(min=0, min_open=True)`` lets ``nan`` and ``+inf`` slip
+    through because ``nan <= 0`` and ``+inf <= 0`` are both false (``-inf`` is
+    already rejected by the range, since ``-inf <= 0``). Neither survivor ever
+    terminates the timed loop (``elapsed >= nan`` is always false; ``+inf`` runs
+    unbounded), so require a finite number of seconds.
+    """
+    if value is not None and not math.isfinite(value):
+        raise click.BadParameter("must be a finite number of seconds.", ctx=ctx, param=param)
+    return value
+
+
 @click.command("perf")
 @cli_utils.model_option(required=False)
 @click.option(
@@ -2337,6 +2488,17 @@ def _resolve_composite_components_for_perf(model: str, task: str | None) -> dict
     default=10,
     show_default=True,
     help="Number of warmup iterations (excluded from statistics; must be >= 0)",
+)
+@click.option(
+    "--duration",
+    type=click.FloatRange(min=0, min_open=True),
+    default=None,
+    callback=_validate_duration,
+    help="Run the benchmark for at least this many seconds (after warmup) "
+    "instead of a fixed --iterations count; it is a minimum budget, so the "
+    "final inference may overrun it slightly. Ideal with --monitor, whose PDH "
+    "counters need time to emit real utilization data. Not valid with "
+    "--op-tracing.",
 )
 @cli_utils.device_option(
     required=False,
@@ -2478,6 +2640,7 @@ def perf(
     submodel: str | None,
     iterations: int,
     warmup: int,
+    duration: float | None,
     device: str,
     precision: str,
     ep: tuple[str, str | None] | None,
@@ -2627,6 +2790,17 @@ def perf(
         _run_genai_runtime(ctx, console=console, json_mode=json_mode)
         return
 
+    # --duration replaces the fixed iteration count with a wall-clock budget.
+    # Op-tracing runs its own fixed, small iteration count, so the two are
+    # mutually exclusive. This is a WinML-path constraint only: for winml-genai
+    # both flags are ignored (see _GENAI_IGNORED_FLAGS), so the check lives
+    # after the genai early return to keep those options consistently non-fatal.
+    if duration is not None and op_tracing:
+        raise click.UsageError(
+            "--duration is not valid with --op-tracing "
+            "(op-tracing runs a fixed, small iteration count)."
+        )
+
     # ``--device config`` is a winml-genai-only sentinel (respect the bundle's
     # genai_config.json routing).  It is meaningless for the single-shot WinML
     # path, so reject it explicitly rather than letting resolve_device raise a
@@ -2743,6 +2917,7 @@ def perf(
             task=task,
             iterations=iterations,
             warmup=warmup,
+            duration=duration,
             batch_size=batch_size,
             no_quantize=not quant,
             no_optimize=not optimize,
@@ -2855,6 +3030,7 @@ def perf(
         precision=precision.lower(),
         iterations=iterations,
         warmup=warmup,
+        duration=duration,
         batch_size=batch_size,
         output_path=output,
         no_quantize=not quant,

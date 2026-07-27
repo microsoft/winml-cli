@@ -10,6 +10,7 @@ plotext for chart rendering and Rich Live for terminal refresh.
 
 from __future__ import annotations
 
+import time
 from typing import Any, Final
 
 from rich.console import Console
@@ -65,11 +66,21 @@ class LiveMonitorDisplay:
         chart_height: int = 15,
         poll_interval_ms: int = 100,
         device_kind: str | None | _OmittedDeviceKind = _DEVICE_KIND_OMITTED,
+        duration_sec: float | None = None,
+        clock: Any = None,
     ) -> None:
         self._total = total_iterations
         self._warmup = warmup
         self._model_id = model_id
         self._device = device
+        # When set, the benchmark phase runs on a wall-clock budget instead of a
+        # fixed iteration count, so progress is reported as elapsed/total time.
+        # ``clock`` is the benchmark loop's shared start reference (an object
+        # with a ``.start`` timestamp); reading it — rather than stamping a local
+        # clock on the first update() — keeps the bar aligned with the exact
+        # budget the loop stops on.
+        self._duration_sec = duration_sec
+        self._clock = clock
         # `device_kind` is the value HWMonitor resolved at start() — pass it
         # in when you want the legend to reflect what's actually polled (e.g.
         # "auto" that resolved to GPU). Falls back to the requested string
@@ -315,14 +326,29 @@ class LiveMonitorDisplay:
         effective_iter = iteration - self._warmup if phase == "benchmark" else iteration
         total_bench = self._total - self._warmup
 
-        pct = iteration / self._total if self._total > 0 else 0
+        if phase == "warmup":
+            # Warmup is always a fixed count, so scale the bar by the warmup
+            # total. ``self._total`` must not be used here: in duration mode it
+            # includes the unused default iteration count, which would make the
+            # warmup bar crawl (e.g. 5/10 warmup showing as ~5% instead of 50%).
+            pct = iteration / self._warmup if self._warmup > 0 else 0.0
+            progress = f"[yellow]Warmup: {iteration}/{self._warmup}[/yellow]"
+        elif self._duration_sec is not None:
+            # Duration mode: base progress on elapsed wall-clock time, since the
+            # benchmark iteration count is not known ahead of time. The start
+            # reference is the loop's shared clock, so this tracks the same
+            # budget the loop terminates on.
+            start = getattr(self._clock, "start", None)
+            elapsed = time.perf_counter() - start if start else 0.0
+            pct = min(elapsed / self._duration_sec, 1.0) if self._duration_sec > 0 else 0.0
+            shown = min(elapsed, self._duration_sec)
+            progress = f"[green]Time: {shown:.1f}/{self._duration_sec:.0f}s[/green]"
+        else:
+            pct = effective_iter / total_bench if total_bench > 0 else 0.0
+            progress = f"[green]Iter: {effective_iter}/{total_bench}[/green]"
+
         bar_len = int(pct * 20)
         bar = f"[{'=' * bar_len}{' ' * (20 - bar_len)}]"
-
-        if phase == "warmup":
-            progress = f"[yellow]Warmup: {iteration}/{self._warmup}[/yellow]"
-        else:
-            progress = f"[green]Iter: {effective_iter}/{total_bench}[/green]"
 
         throughput = 1000.0 / latency_ms if latency_ms > 0 else 0.0
 
