@@ -41,7 +41,7 @@ class TestInputGeneratorRegistry:
     def test_all_operators_registered(self) -> None:
         """Test that all operators are registered."""
         # Verify count
-        assert len(get_registered_operators()) == 119
+        assert len(get_registered_operators()) == 120
 
     def test_get_runtime_checker_op(self) -> None:
         """Test retrieving operator generators by name."""

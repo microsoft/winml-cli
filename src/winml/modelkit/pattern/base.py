@@ -925,7 +925,8 @@ class Pattern(ABC):
                 output_dtypes[output_idx]
             ).tensor_proto_type
 
-            output_tensor = helper.make_tensor_value_info(output_name, elem_type, None)
+            # Keep shape present for ONNX checker while leaving dimensions unknown.
+            output_tensor = helper.make_tensor_value_info(output_name, elem_type, [None])
             graph_outputs.append(output_tensor)
 
         # Create graph
