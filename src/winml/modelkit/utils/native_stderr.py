@@ -20,6 +20,7 @@ import logging
 import os
 import re
 import sys
+import threading
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
@@ -83,25 +84,42 @@ def capture_native_stderr(level: int = logging.INFO) -> Iterator[None]:
         return
 
     read_fd, write_fd = os.pipe()
+    # Drain the pipe on a background thread *while* the wrapped block runs.
+    # A chatty native EP (e.g. a VitisAI model compilation) can emit far more
+    # than the OS pipe buffer holds (~64 KB on Windows) before we regain
+    # control. If the pipe were only drained after the yield, the native
+    # write() would block on a full buffer and stall the process indefinitely.
+    # Reading concurrently keeps the buffer from ever filling up.
+    chunks: list[bytes] = []
+
+    def _drain() -> None:
+        try:
+            while chunk := os.read(read_fd, 4096):
+                chunks.append(chunk)
+        except OSError:
+            pass  # read end closed or broken; stop draining
+        finally:
+            os.close(read_fd)
+
+    reader = threading.Thread(target=_drain, name="capture-native-stderr", daemon=True)
+
     old_fd = os.dup(2)
     old_w32 = _k32.GetStdHandle(_STD_ERROR_HANDLE)
     os.dup2(write_fd, 2)
     os.close(write_fd)
     _k32.SetStdHandle(_STD_ERROR_HANDLE, msvcrt.get_osfhandle(2))
+    reader.start()
     try:
         yield
     finally:
+        # Restoring fd 2 drops the last reference to the pipe's write end, which
+        # signals EOF to the reader thread so it can finish and close the read end.
         os.dup2(old_fd, 2)
         os.close(old_fd)
         _k32.SetStdHandle(_STD_ERROR_HANDLE, old_w32)
-        # Drain pipe and re-emit each line.
+        reader.join()
+        # Re-emit each captured line through Python logging.
         _ansi_re = re.compile(r"\x1b\[[0-9;]*m")
-        chunks: list[bytes] = []
-        try:
-            while chunk := os.read(read_fd, 4096):
-                chunks.append(chunk)
-        finally:
-            os.close(read_fd)
         for raw in b"".join(chunks).decode("utf-8", errors="replace").splitlines():
             line = _ansi_re.sub("", raw).strip()
             if line:
