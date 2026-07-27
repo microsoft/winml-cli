@@ -365,16 +365,25 @@ def main() -> None:
         metrics = task_evaluator.compute()
 
         if args.perf_iterations > 0:
-            latency = _measure_pytorch_latency(
-                task_evaluator,
-                warmup=args.perf_warmup,
-                iterations=args.perf_iterations,
-            )
-            _out(
-                f"PyTorch latency: mean={latency['mean_ms']}ms "
-                f"p50={latency['p50_ms']}ms p90={latency['p90_ms']}ms"
-            )
-            _emit_latency(latency)
+            if task == "text-generation":
+                # The perplexity evaluator's ``data`` items are token-ID lists
+                # and its ``pipe`` is None, so the HF-pipeline latency path does
+                # not apply. Genai baseline latency is out of scope here.
+                _out(
+                    "Skipping --perf-iterations: latency measurement is not "
+                    "supported for text-generation baselines."
+                )
+            else:
+                latency = _measure_pytorch_latency(
+                    task_evaluator,
+                    warmup=args.perf_warmup,
+                    iterations=args.perf_iterations,
+                )
+                _out(
+                    f"PyTorch latency: mean={latency['mean_ms']}ms "
+                    f"p50={latency['p50_ms']}ms p90={latency['p90_ms']}ms"
+                )
+                _emit_latency(latency)
 
         value = float(metrics[winml_metric_key])
         # Emit result as last stdout line (parsed by run_eval.py accuracy phase)

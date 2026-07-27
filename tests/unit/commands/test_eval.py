@@ -106,6 +106,24 @@ class TestSinglePlain:
         with pytest.raises(click.BadParameter, match="ONNX file not found"):
             _resolve_model_path(model=(str(missing),), model_id="some/id")
 
+    def test_genai_bundle_dir_routes_to_model_path(self, tmp_path):
+        """A directory holding genai_config.json is a genai bundle -> model_path."""
+        bundle = tmp_path / "qwen-bundle"
+        bundle.mkdir()
+        (bundle / "genai_config.json").write_text("{}")
+        path, mid = _resolve_model_path(model=(str(bundle),), model_id=None)
+        assert path == str(bundle)
+        assert mid is None
+
+    def test_plain_hf_checkpoint_dir_is_not_a_bundle(self, tmp_path):
+        """A local HF checkpoint dir (no genai_config.json) still flows as model_id."""
+        ckpt = tmp_path / "saved-hf-model"
+        ckpt.mkdir()
+        (ckpt / "config.json").write_text("{}")
+        path, mid = _resolve_model_path(model=(str(ckpt),), model_id=None)
+        assert path is None
+        assert mid == str(ckpt)
+
     def test_hub_onnx_ref_is_resolved(self, tmp_path):
         """Hub-style ONNX refs (``<org>/<repo>/<path>.onnx``) must be
         downloaded once and treated as the resolved local path -- not

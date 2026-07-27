@@ -198,7 +198,7 @@ from .genai_bundle import (
     register_genai_bundle,
     resolve_genai_bundle,
 )
-from .genai_causal_lm import CausalLMOutput, HFCausalLM, WinMLGenaiCausalLM
+from .genai_causal_lm import HFCausalLM, WinMLGenaiCausalLM
 from .image_classification import WinMLModelForImageClassification
 from .image_segmentation import (
     ImageSegmentationOutput,
@@ -220,7 +220,6 @@ __all__ = [
     "GENAI_BUNDLE_REGISTRY",
     "TASK_TO_WINML_CLASS",
     "WINML_MODEL_CLASS_MAPPING",
-    "CausalLMOutput",
     "GenaiBundleRecipe",
     "GenaiCompanionSpec",
     "GenaiTarget",

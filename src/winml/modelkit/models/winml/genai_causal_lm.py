@@ -6,9 +6,7 @@
 
 from __future__ import annotations
 
-import logging
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -16,24 +14,16 @@ from ...session import GenaiSession, GenaiSessionError
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
     from ...session import GenerationConfig
     from ...utils.constants import EPNameOrAlias
 
-logger = logging.getLogger(__name__)
-
 # One-hot magnitudes used to steer the next input to the given token, applied
 # only after the position's logits have been read.
 _FORCE_HIGH = 1e9
 _FORCE_LOW = -1e9
-
-
-@dataclass
-class CausalLMOutput:
-    """Output of :meth:`WinMLGenaiCausalLM.forward`, mirroring HF's ``.logits``."""
-
-    logits: np.ndarray
 
 
 class WinMLGenaiCausalLM:
@@ -90,11 +80,8 @@ class WinMLGenaiCausalLM:
     # Inference
     # ------------------------------------------------------------------
 
-    def forward(self, input_ids: list[int]) -> CausalLMOutput:
-        """Run a forward pass over *input_ids*, matching HF's ``forward``.
-
-        Returns the next-token logits at each input position, so a caller can
-        score the sequence exactly as with an HF causal LM.
+    def forward(self, input_ids: list[int]) -> Iterator[np.ndarray]:
+        """Yield next-token logits at each input position, one position at a time.
 
         The genai runtime only exposes last-position logits, so the sequence is
         replayed token by token through the decode loop, pinning each next input
@@ -105,9 +92,9 @@ class WinMLGenaiCausalLM:
             input_ids: Token IDs; at least 2 tokens and at most the bundle's
                 :attr:`context_length`.
 
-        Returns:
-            :class:`CausalLMOutput` whose ``logits`` has shape
-            ``(1, seq_len - 1, vocab)``; row ``i`` predicts ``input_ids[i + 1]``.
+        Yields:
+            A ``(vocab,)`` float32 array for each position ``i`` in
+            ``range(seq_len - 1)``; the vector predicts ``input_ids[i + 1]``.
 
         Raises:
             ValueError: *input_ids* is too short or exceeds the context length.
@@ -136,10 +123,9 @@ class WinMLGenaiCausalLM:
         gen = og.Generator(model, params)
         gen.append_tokens([input_ids[0]])
 
-        rows: list[np.ndarray] = []
         for i in range(1, n):
             step = np.asarray(gen.get_logits())[0, -1, :].astype(np.float32)
-            rows.append(step)
+            yield step
             # The last read predicts input_ids[n-1]; nothing after it is scored,
             # so skip the otherwise-wasted decode step.
             if i < n - 1:
@@ -151,8 +137,6 @@ class WinMLGenaiCausalLM:
                     forced[0, 0, target] = _FORCE_HIGH
                     gen.set_logits(forced)
                 gen.generate_next_token()
-
-        return CausalLMOutput(logits=np.stack(rows)[None, ...])
 
     __call__ = forward
 
@@ -194,7 +178,7 @@ class HFCausalLM:
         device: A ``torch.device`` (or device string) to place the model on.
     """
 
-    def __init__(self, model_id: str, device) -> None:
+    def __init__(self, model_id: str, device: Any) -> None:
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         self._tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -207,25 +191,26 @@ class HFCausalLM:
         ``add_special_tokens=False`` keeps the raw stream, matching the genai
         bundle tokenizer used by :class:`WinMLGenaiCausalLM`.
         """
-        return self._tokenizer(text, add_special_tokens=False)["input_ids"]
+        ids: list[int] = self._tokenizer(text, add_special_tokens=False)["input_ids"]
+        return ids
 
-    def forward(self, input_ids: list[int]) -> CausalLMOutput:
-        """Run a forward pass over *input_ids*, matching HF's ``forward``.
+    def forward(self, input_ids: list[int]) -> Iterator[np.ndarray]:
+        """Yield next-token logits at each input position, one position at a time.
 
-        Returns:
-            :class:`CausalLMOutput` whose ``logits`` has shape
-            ``(1, len(input_ids) - 1, vocab)``; row ``i`` predicts
-            ``input_ids[i + 1]``. The trailing row (predicting past the input)
-            is dropped to match the genai contract.
+        Yields:
+            A ``(vocab,)`` float32 array for each position ``i`` in
+            ``range(len(input_ids) - 1)``; the vector predicts
+            ``input_ids[i + 1]``. The trailing position (predicting past the
+            input) is dropped.
         """
         import torch
 
         with torch.no_grad():
             logits = self._model(input_ids=torch.tensor([input_ids], device=self._device)).logits
         trimmed = logits[0, :-1, :].to(torch.float32).cpu().numpy()
-        return CausalLMOutput(logits=trimmed[None, ...])
+        yield from trimmed
 
     __call__ = forward
 
 
-__all__ = ["CausalLMOutput", "HFCausalLM", "WinMLGenaiCausalLM"]
+__all__ = ["HFCausalLM", "WinMLGenaiCausalLM"]

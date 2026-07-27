@@ -8,7 +8,7 @@ The dataset load and the model's ``encode`` / ``forward`` are stubbed so no
 weights or corpora are downloaded.  The tests verify the corpus-blocking
 protocol (``num_tokens`` / ``seqlen`` from ``columns_mapping``), the NLL/PPL
 math (uniform logits over a vocab of ``V`` give perplexity ``V``), and the
-module-level ``_block_nll`` numerator.
+module-level ``_step_nll`` numerator.
 """
 
 from __future__ import annotations
@@ -20,27 +20,32 @@ import numpy as np
 import pytest
 
 from winml.modelkit.eval import WinMLTextGenerationEvaluator
-from winml.modelkit.eval.text_generation_evaluator import _block_nll
+from winml.modelkit.eval.text_generation_evaluator import _step_nll
 
 
 class _FakeDataset:
-    """Minimal stand-in for a HF ``Dataset`` exposing one text column."""
+    """Minimal stand-in for a streaming HF ``IterableDataset``.
+
+    Iterates dict rows (as ``datasets`` streaming does) and exposes
+    ``column_names`` for the presence check.
+    """
 
     def __init__(self, rows, column="text") -> None:
         self.column_names = [column]
-        self._rows = {column: rows}
+        self._column = column
+        self._rows = rows
 
-    def __getitem__(self, column):
-        return self._rows[column]
+    def __iter__(self):
+        for row in self._rows:
+            yield {self._column: row}
 
 
 def _uniform_forward(vocab):
-    """Forward returning all-zero (uniform) logits of shape (1, len-1, vocab)."""
+    """Forward yielding all-zero (uniform) (vocab,) logits per scored position."""
 
     def forward(block):
-        out = MagicMock()
-        out.logits = np.zeros((1, len(block) - 1, vocab), dtype=np.float32)
-        return out
+        for _ in range(len(block) - 1):
+            yield np.zeros(vocab, dtype=np.float32)
 
     return forward
 
@@ -138,7 +143,19 @@ class TestLoadCorpusTokens:
             corpus_tokens=list(range(10)),
             corpus_rows=["a", "", "  ", "b"],
         )
-        evaluator.model.encode.assert_called_once_with("a\n\nb")
+        # The final (authoritative) encode joins the collected non-blank rows.
+        assert evaluator.model.encode.call_args_list[-1].args[0] == "a\n\nb"
+
+    def test_stops_once_num_tokens_reached(self) -> None:
+        """Streaming iteration stops early; later rows are never tokenized."""
+        evaluator = _make_evaluator(
+            corpus_tokens=[0, 1, 2, 3, 4],
+            corpus_rows=["r0", "r1", "r2"],
+            columns_mapping={"num_tokens": "4", "seqlen": "2"},
+        )
+        encoded_texts = [c.args[0] for c in evaluator.model.encode.call_args_list]
+        assert "r1" not in encoded_texts
+        assert "r2" not in encoded_texts
 
 
 class TestCompute:
@@ -170,21 +187,19 @@ class TestCompute:
             evaluator.compute()
 
 
-class TestBlockNLL:
-    def test_uniform_logits_give_log_vocab_per_position(self) -> None:
-        vocab, positions = 20, 3
-        logits = np.zeros((positions, vocab), dtype=np.float32)
-        targets = np.array([0, 1, 2], dtype=np.int64)
-        assert _block_nll(logits, targets) == pytest.approx(positions * math.log(vocab))
+class TestStepNLL:
+    def test_uniform_logits_give_log_vocab(self) -> None:
+        vocab = 20
+        logits = np.zeros(vocab, dtype=np.float32)
+        assert _step_nll(logits, 0) == pytest.approx(math.log(vocab))
 
     def test_matches_reference_cross_entropy(self) -> None:
         rng = np.random.default_rng(0)
-        logits = rng.standard_normal((4, 7)).astype(np.float32)
-        targets = np.array([1, 3, 0, 6], dtype=np.int64)
+        logits = rng.standard_normal(7).astype(np.float32)
+        target = 3
 
         x = logits.astype(np.float64)
-        logsumexp = np.log(np.exp(x - x.max(axis=-1, keepdims=True)).sum(axis=-1))
-        logsumexp += x.max(axis=-1)
-        expected = float((logsumexp - x[np.arange(len(targets)), targets]).sum())
+        logsumexp = float(x.max() + np.log(np.exp(x - x.max()).sum()))
+        expected = logsumexp - float(x[target])
 
-        assert _block_nll(logits, targets) == pytest.approx(expected)
+        assert _step_nll(logits, target) == pytest.approx(expected)

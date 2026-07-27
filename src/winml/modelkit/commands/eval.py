@@ -534,11 +534,14 @@ def _resolve_model_path(
             )
         return value, model_id
 
-    # A local directory (e.g. an onnxruntime-genai bundle) is a model *path*,
-    # not a Hub model id. Route it to model_path so downstream loaders read the
-    # bundle from disk instead of treating the directory string as a Hub ref.
-    if Path(value).expanduser().is_dir():
-        return str(Path(value).expanduser()), model_id
+    # An onnxruntime-genai bundle is a local *directory* (holding
+    # ``genai_config.json``), not a Hub model id. Route it to model_path so the
+    # genai loader reads the bundle from disk. Gate on the genai marker so a
+    # plain local HF checkpoint directory still flows through the model_id path
+    # (``from_pretrained``) as before.
+    expanded = Path(value).expanduser()
+    if expanded.is_dir() and (expanded / "genai_config.json").is_file():
+        return str(expanded), model_id
 
     if model_id is not None and model_id != value:
         raise click.UsageError(

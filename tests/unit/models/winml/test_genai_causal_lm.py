@@ -8,7 +8,8 @@
 ``encode`` / ``forward`` contract as ``WinMLGenaiCausalLM``.  The HF tokenizer
 and model are stubbed so no weights are downloaded; the tests verify the
 adapter maps onto the contract exactly (``add_special_tokens=False`` encoding,
-float32 numpy logits trimmed to ``(1, N - 1, vocab)``).
+``forward`` yielding one float32 ``(vocab,)`` vector per position, trimmed to
+``N - 1`` positions).
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import torch
 
-from winml.modelkit.models.winml import CausalLMOutput, HFCausalLM
+from winml.modelkit.models.winml import HFCausalLM
 
 
 def _make_adapter(*, logits=None, token_ids=None):
@@ -42,12 +43,6 @@ def _make_adapter(*, logits=None, token_ids=None):
     return adapter, tokenizer, model
 
 
-class TestCausalLMOutput:
-    def test_holds_logits(self) -> None:
-        arr = np.zeros((1, 3, 4), dtype=np.float32)
-        assert CausalLMOutput(logits=arr).logits is arr
-
-
 class TestEncode:
     def test_returns_token_ids(self) -> None:
         adapter, _, _ = _make_adapter(token_ids=[10, 20, 30])
@@ -61,37 +56,32 @@ class TestEncode:
 
 
 class TestForward:
-    def test_output_is_causal_lm_output(self) -> None:
-        logits = torch.zeros(1, 3, 5)
-        adapter, _, _ = _make_adapter(logits=logits)
-        out = adapter.forward([1, 2, 3])
-        assert isinstance(out, CausalLMOutput)
-
-    def test_trims_trailing_row(self) -> None:
-        """Row predicting past the input is dropped: shape becomes (1, N-1, V)."""
+    def test_yields_one_vector_per_position(self) -> None:
+        """One (vocab,) vector per position; trailing row dropped -> N-1 rows."""
         vocab = 5
         logits = torch.arange(3 * vocab, dtype=torch.float32).reshape(1, 3, vocab)
         adapter, _, _ = _make_adapter(logits=logits)
-        out = adapter.forward([1, 2, 3])
-        assert out.logits.shape == (1, 2, vocab)
+        rows = list(adapter.forward([1, 2, 3]))
+        assert len(rows) == 2
+        assert all(row.shape == (vocab,) for row in rows)
 
     def test_logits_match_raw_model(self) -> None:
         vocab = 4
         logits = torch.arange(3 * vocab, dtype=torch.float32).reshape(1, 3, vocab)
         adapter, _, _ = _make_adapter(logits=logits)
-        out = adapter.forward([7, 8, 9])
-        np.testing.assert_allclose(out.logits[0], logits[0, :-1, :].numpy())
+        rows = list(adapter.forward([7, 8, 9]))
+        np.testing.assert_allclose(np.stack(rows), logits[0, :-1, :].numpy())
 
     def test_casts_to_float32(self) -> None:
         logits = torch.zeros(1, 3, 5, dtype=torch.float16)
         adapter, _, _ = _make_adapter(logits=logits)
-        out = adapter.forward([1, 2, 3])
-        assert out.logits.dtype == np.float32
+        rows = list(adapter.forward([1, 2, 3]))
+        assert all(row.dtype == np.float32 for row in rows)
 
     def test_feeds_input_ids_as_batched_tensor(self) -> None:
         logits = torch.zeros(1, 3, 5)
         adapter, _, model = _make_adapter(logits=logits)
-        adapter.forward([11, 22, 33])
+        list(adapter.forward([11, 22, 33]))
         passed = model.call_args.kwargs["input_ids"]
         assert torch.equal(passed, torch.tensor([[11, 22, 33]]))
 

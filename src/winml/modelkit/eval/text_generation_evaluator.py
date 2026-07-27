@@ -8,8 +8,9 @@
 Does *not* go through HF's ``pipeline`` / ``evaluate`` libraries: perplexity is
 scored by teacher-forcing raw corpus tokens through the model's ``forward``, so
 the evaluator only needs a model honoring the causal-LM contract
-(``encode(text) -> list[int]`` and ``forward(ids).logits``).  The same code
-scores a WinML genai bundle or any object exposing that interface.
+(``encode(text) -> list[int]`` and ``forward(ids)`` yielding one ``(vocab,)``
+logit vector per scored position).  The same code scores a WinML genai bundle
+or any object exposing that interface.
 
 Protocol: the dataset text column is concatenated and tokenized with the
 model's own tokenizer, capped at ``num_tokens``, then cut into contiguous
@@ -65,11 +66,8 @@ class WinMLTextGenerationEvaluator(WinMLEvaluator):
         Returns a list of token-ID blocks, each at least 2 tokens long (a block
         needs a first token to condition on and at least one token to score).
         """
-        from ..utils.eval_utils import get_default
-
-        mapping = self.config.dataset.columns_mapping
-        num_tokens = int(mapping.get("num_tokens", get_default(self._TASK, "num_tokens")))
-        seqlen = int(mapping.get("seqlen", get_default(self._TASK, "seqlen")))
+        num_tokens = self._int_param("num_tokens")
+        seqlen = self._int_param("seqlen")
         if seqlen < 2:
             raise ValueError(f"seqlen must be at least 2; got {seqlen}.")
 
@@ -92,13 +90,13 @@ class WinMLTextGenerationEvaluator(WinMLEvaluator):
 
     def compute(self) -> dict[str, Any]:
         """Score every block and return perplexity plus corpus statistics."""
-        model = self.model
+        model: Any = self.model
         total_nll = 0.0
         scored = 0
         for block in self.data:
-            logits = model.forward(block).logits[0]
-            targets = np.asarray(block[1:], dtype=np.int64)
-            total_nll += _block_nll(logits, targets)
+            targets = block[1:]
+            for step_logits, target in zip(model.forward(block), targets, strict=True):
+                total_nll += _step_nll(step_logits, target)
             scored += len(targets)
 
         if scored == 0:
@@ -115,8 +113,30 @@ class WinMLTextGenerationEvaluator(WinMLEvaluator):
     # Internals
     # ------------------------------------------------------------------
 
+    def _int_param(self, name: str) -> int:
+        """Read an int scoring parameter from ``columns_mapping``.
+
+        Values ride the standard ``--column key=value`` CLI path (so they are
+        strings); the default comes from the text-generation schema in
+        :mod:`~winml.modelkit.utils.eval_utils`.
+        """
+        from ..utils.eval_utils import get_default
+
+        raw = self.config.dataset.columns_mapping.get(name)
+        if raw is None:
+            raw = get_default(self._TASK, name)
+        if raw is None:
+            raise ValueError(f"No value or default for scoring parameter '{name}'.")
+        return int(raw)
+
     def _load_corpus_tokens(self, num_tokens: int) -> list[int]:
-        """Concatenate the dataset text column and tokenize with the model.
+        """Stream the dataset text column and tokenize until ``num_tokens``.
+
+        Perplexity needs a coherent corpus, so rows are consumed in dataset
+        order (no shuffle) and concatenated with blank lines. The split is read
+        via a streaming ``IterableDataset`` and iteration stops as soon as enough
+        rows to cover ``num_tokens`` have been collected, so a large split is not
+        downloaded or materialized in full just to score a few thousand tokens.
 
         Uses the model's own tokenizer (``model.encode``) so the token stream
         matches the model under test exactly.
@@ -125,28 +145,62 @@ class WinMLTextGenerationEvaluator(WinMLEvaluator):
 
         from ..utils.eval_utils import get_default
 
+        model: Any = self.model
         ds_config = self.config.dataset
         column = ds_config.columns_mapping.get(
             "input_column", get_default(self._TASK, "input_column")
         )
+        # Force streaming + dataset order: perplexity is a teacher-forced score
+        # over a contiguous corpus, so shuffling (which splices unrelated
+        # passages) would both distort the score and break reproducibility.
         dataset = load_dataset(
             ds_config.path,
             name=ds_config.name,
             split=ds_config.split,
             revision=ds_config.revision,
+            streaming=True,
         )
-        if column not in dataset.column_names:
+        if column not in (dataset.column_names or [column]):
             raise ValueError(
                 f"Dataset '{ds_config.path}' has no column '{column}'; "
-                f"available columns: {sorted(dataset.column_names)}. "
+                f"available columns: {sorted(dataset.column_names or [])}. "
                 "Set it via --column input_column=<name>."
             )
-        text = "\n\n".join(row for row in dataset[column] if row and row.strip())
-        return self.model.encode(text)[:num_tokens]
+
+        collected: list[str] = []
+        approx_tokens = 0
+        ids: list[int] = []
+        for row in dataset:
+            text = row.get(column)
+            if not (text and text.strip()):
+                continue
+            collected.append(text)
+            # Cheap per-row length estimate (+2 for the "\n\n" separator) avoids
+            # re-encoding the whole corpus every row. Isolated per-row encoding
+            # slightly overcounts vs the joined stream (boundary tokens merge),
+            # so once the estimate is reached we re-encode the join and keep
+            # pulling rows until the *authoritative* token count covers
+            # num_tokens (a couple of extra rows at most).
+            approx_tokens += len(model.encode(text)) + 2
+            if approx_tokens >= num_tokens:
+                ids = model.encode("\n\n".join(collected))
+                if len(ids) >= num_tokens:
+                    break
+        else:
+            ids = model.encode("\n\n".join(collected))
+
+        if len(ids) < num_tokens:
+            logger.warning(
+                "Corpus exhausted: collected %d tokens < requested num_tokens=%d.",
+                len(ids),
+                num_tokens,
+            )
+        return ids[:num_tokens]
 
 
-def _block_nll(logits: np.ndarray, targets: np.ndarray) -> float:
-    """Sum of ``-log P(target)`` over positions, from raw (unnormalized) logits."""
+def _step_nll(logits: np.ndarray, target: int) -> float:
+    """``-log P(target)`` at one position, from raw (unnormalized) logits."""
     x = logits.astype(np.float64)
-    logsumexp = x.max(axis=-1) + np.log(np.exp(x - x.max(axis=-1, keepdims=True)).sum(axis=-1))
-    return float((logsumexp - x[np.arange(len(targets)), targets]).sum())
+    m = x.max()
+    logsumexp = m + np.log(np.exp(x - m).sum())
+    return float(logsumexp - x[target])

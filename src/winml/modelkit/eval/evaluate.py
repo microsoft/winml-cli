@@ -21,6 +21,7 @@ from .config import WinMLEvaluationConfig
 if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
+    from ..models.winml.genai_causal_lm import WinMLGenaiCausalLM
     from .base_evaluator import WinMLEvaluator
 
 logger = logging.getLogger(__name__)
@@ -227,7 +228,9 @@ class EvalResult:
         }
 
 
-def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCompositeModel | None:
+def _load_model(
+    config: WinMLEvaluationConfig,
+) -> WinMLPreTrainedModel | WinMLCompositeModel | WinMLGenaiCausalLM | None:
     """Load model from ONNX path or HF model ID.
 
     For evaluators that handle their own ORT session construction from a
@@ -295,7 +298,7 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCo
     )
 
 
-def _load_genai_causal_lm(config: WinMLEvaluationConfig) -> Any:
+def _load_genai_causal_lm(config: WinMLEvaluationConfig) -> WinMLGenaiCausalLM:
     """Load a causal LM from an onnxruntime-genai bundle directory.
 
     ``-m <bundle_dir>`` resolves to ``config.model_path`` (a local directory),
@@ -329,7 +332,7 @@ def _load_genai_causal_lm(config: WinMLEvaluationConfig) -> Any:
             f"'{bundle_dir}' is not a genai bundle: no genai_config.json found. "
             "Point -m at a bundle built with 'winml build ... --device npu --ep qnn'."
         )
-    if not any(bundle_dir.glob("*.onnx")):
+    if not any(bundle_dir.rglob("*.onnx")):
         raise ValueError(f"'{bundle_dir}' contains no .onnx files; not a valid genai bundle.")
 
     return WinMLGenaiCausalLM(
