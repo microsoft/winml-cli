@@ -43,6 +43,7 @@ from ..utils.constants import (
     EP_ALIASES,
     EP_NAMES,
     EP_SUPPORTED_DEVICES,
+    EPName,
     normalize_ep_name,
 )
 
@@ -446,7 +447,8 @@ def default_device_for_ep(ep: str) -> str | None:
 
 def _is_policy_supported_spec(spec: EPDeviceSpec) -> bool:
     """Return whether the shared EP/device policy accepts this catalog row."""
-    return spec.device in EP_SUPPORTED_DEVICES.get(spec.ep, ())
+    supported_devices = EP_SUPPORTED_DEVICES.get(cast("EPName", spec.ep))
+    return supported_devices is not None and spec.device in supported_devices
 
 
 def _devices_for_ep(ep: str) -> tuple[str, ...]:
