@@ -74,12 +74,12 @@ def _winners(entries: list[EPEntry]) -> dict[str, tuple[Path, EPSource]]:
 
 # ---------------------------------------------------------------------------
 # File-scoped autouse: prevent any test in this file from loading the live
-# wasdk binding via ``_get_catalog``. None of the tests here need it; without
-# this gate, tests that call ``_winners(discover_all_eps())`` (which walks the default
-# EP source list including WinMLCatalogSource entries) would lazy-load the binding
-# on machines with the [winml-catalog] extra installed and the OS-level
-# Windows App Runtime present, polluting the module-level catalog singleton
-# state for downstream fake-binding tests in test_winml_catalog_source.py.
+# ``windowsml`` catalog via ``_get_catalog``. None of the tests here need it;
+# without this gate, tests that call ``_winners(discover_all_eps())`` (which walks
+# the default EP source list including WinMLCatalogSource entries) would lazy-load
+# the catalog on machines with ``windowsml`` installed, polluting the module-level
+# catalog singleton state for downstream fake-binding tests in
+# test_winml_catalog_source.py.
 #
 # Tests in test_winml_catalog_source.py do not see this fixture (it is
 # defined at file scope in test_ep_path.py, not in conftest.py), so they
@@ -90,7 +90,7 @@ def _winners(entries: list[EPEntry]) -> dict[str, tuple[Path, EPSource]]:
 
 @pytest.fixture(autouse=True)
 def _skip_live_catalog_in_ep_path_tests(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Force ``_get_catalog`` to return None so the default EP source list stays inert."""
+    """Force ``_get_catalog`` to return None so the live ``windowsml`` catalog is not loaded."""
     from winml.modelkit import ep_path as _ep
 
     monkeypatch.setattr(_ep, "_get_catalog", lambda: None)

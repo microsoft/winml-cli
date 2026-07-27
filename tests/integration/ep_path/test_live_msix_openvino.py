@@ -70,7 +70,7 @@ def test_windows_workload_openvino_ep_runs_inference(tmp_path):
     """Discover, register, and run the OEM-channel OpenVINO EP end-to-end.
 
     Skips when:
-        - PackageManager binding unavailable (no ``[winml-catalog]`` extra)
+        - ``winrt-Windows.Management.Deployment`` is not installed
         - No ``WindowsWorkload.EP.Intel.OpenVINO.*`` MSIX on this machine
         - Hardware is incompatible (no Intel CPU/GPU/NPU detected)
     """
@@ -85,7 +85,7 @@ def test_windows_workload_openvino_ep_runs_inference(tmp_path):
 
     _get_pkg_manager.cache_clear()
     if _get_pkg_manager() is None:
-        pytest.skip("WinRT PackageManager unavailable; install via [winml-catalog]")
+        pytest.skip("WinRT PackageManager unavailable; install winrt-Windows.Management.Deployment")
 
     # Filter to the OEM channel only so this test exercises the
     # WindowsWorkload-published OpenVINO EP specifically (not the PyPI
