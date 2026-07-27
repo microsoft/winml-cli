@@ -71,8 +71,6 @@ def _scale_broadcast_tensor(
     padded_shape = (1,) * (len(output_shape) - values.ndim) + tuple(values.shape)
     if any(dimension not in (1, output_shape[axis]) for axis, dimension in enumerate(padded_shape)):
         return None
-    if padded_shape[1] not in (1, output_shape[1]):
-        return None
 
     expanded_shape = list(padded_shape)
     expanded_shape[1] = output_shape[1]
