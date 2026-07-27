@@ -19,6 +19,15 @@ from .match import PatternMatchResult, SkeletonMatchResult
 from .op_input_gen import InputShapeConstraint, InputValueConstraint
 
 
+def _is_scalar_constraint_value(value: Any) -> bool:
+    """Return True when the value represents a scalar literal constraint."""
+    if value is None:
+        return False
+    if isinstance(value, np.ndarray):
+        return value.ndim == 0
+    return np.isscalar(value)
+
+
 # Shared schema for MatMulAdd and ReshapeGemmReshape patterns
 # Both patterns perform the same computation: Y = MatMul(A, B) + C
 MATMUL_ADD_SCHEMA = PatternSchema(
@@ -388,7 +397,7 @@ class GemmPatternInputGenerator(PatternInputGenerator):
     """PatternInputGenerator for Gemm patterns."""
 
     # Typed as the base Pattern so subclasses can set a different concrete pattern.
-    pattern: Pattern = ReshapeGemmReshapePattern()
+    pattern = ReshapeGemmReshapePattern()
 
     def get_finite_attribute_sets(self) -> dict[str, list[Any]]:
         """Return finite attribute sets for ReshapeGemmReshape (none)."""
@@ -447,9 +456,12 @@ class GemmPatternInputGenerator(PatternInputGenerator):
         else:
             item["C_dim"] = 0
 
-        # Distinguish fixed-value bias constraints from shape-only constraints.
-        # This is finite (bool) and derives directly from existing row/query fields.
-        item["C_is_value_constraint"] = "C_value" in item and item["C_value"] is not None
+        # Distinguish scalar literal constraints from shape-based constraints.
+        # Vector/tensor constants should remain shape-constrained (not value-constrained).
+        c_value = item.get("C_value")
+        item["C_is_value_constraint"] = _is_scalar_constraint_value(c_value) and item[
+            "C_dim"
+        ] == 0
         return item
 
     def get_infinite_property_names(self) -> list[str]:

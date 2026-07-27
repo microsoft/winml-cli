@@ -49,6 +49,7 @@ from .gelu_patterns import (
     Gelu4Pattern,
     Gelu4PatternInputGenerator,
     SingleGeluPattern,
+    SingleGeluPatternInputGenerator,
 )
 from .gemm_patterns import (
     MATMUL_ADD_SCHEMA,
@@ -130,6 +131,7 @@ __all__ = [
     "ReshapeTransposeReshapeOverlyHighDimPattern",
     "ReshapeTransposeReshapeOverlyHighDimPatternInputGenerator",
     "SingleGeluPattern",
+    "SingleGeluPatternInputGenerator",
     "Skeleton",
     "SkeletonMatchResult",
     "SubgraphPattern",
