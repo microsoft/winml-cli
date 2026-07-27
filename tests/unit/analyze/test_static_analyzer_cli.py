@@ -1459,6 +1459,55 @@ class TestAnalyzeEPDeviceSelectionMatrix:
         assert "available on this system" in result.output.lower()
         assert not mock_analyzer_class.called
 
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_auto_ep_auto_device_prefers_qnn_npu_over_qnn_gpu(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Default analyze target should use the strongest exact local QNN binding."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        monkeypatch.setattr(
+            "winml.modelkit.commands.analyze._get_local_ep_device_pairs",
+            lambda: [
+                ("QNNExecutionProvider", "GPU"),
+                ("QNNExecutionProvider", "NPU"),
+                ("CPUExecutionProvider", "CPU"),
+            ],
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.session.resolve_device",
+            lambda target: type(target)(
+                ep="QNNExecutionProvider",
+                device="gpu",
+                source=target.source,
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.session.available_eps_for_device",
+            lambda device_name: (
+                ["QNNExecutionProvider"] if str(device_name).lower() in {"gpu", "npu"} else []
+            ),
+        )
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        result = runner.invoke(analyze, ["--model", str(model_file)])
+        assert result.exit_code == 0
+
+        actual_calls = [
+            (call.kwargs["ep"], call.kwargs["device"])
+            for call in mock_instance.analyze.call_args_list
+        ]
+        assert actual_calls == [("QNNExecutionProvider", "NPU")]
+
     @pytest.mark.parametrize(
         "ranked_gpu_eps",
         [
