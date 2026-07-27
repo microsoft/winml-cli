@@ -362,6 +362,7 @@ class RuntimeChecker:
         # Build alternatives from pattern config (JSON)
         # TODO: Replace mock RuntimeTestResult with actual runtime checks
         alternatives: list[PatternAlternative] = []
+        pattern_config = self._pattern_config.get_pattern_config(pattern.pattern)
         config_alternatives = self._pattern_config.get_alternatives(pattern.pattern)
         for config_alt in config_alternatives:
             alternative = PatternAlternative(
@@ -372,6 +373,9 @@ class RuntimeChecker:
                     reason=config_alt.reason or f"Alternative for {pattern_id}",
                 ),
                 alternative_type=AlternativeType.EQUIVALENT,
+                enabled=config_alt.enabled,
+                details=config_alt.details,
+                action_items=config_alt.action_items,
             )
             alternatives.append(alternative)
             logger.debug(
@@ -384,6 +388,7 @@ class RuntimeChecker:
             pattern_id=pattern_id,
             result=result,
             alternatives=alternatives,
+            explanation=pattern_config.explanation if pattern_config else None,
             pattern_match=pattern,
         )
 

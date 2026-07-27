@@ -158,7 +158,6 @@ class CheckResultWriter:
     def __init__(
         self,
         file_path: str | Path,
-        sys_info: dict[str, Any],
         save_per_cases: int | None = 100,
         rerun_failed: bool = False,
         delta_only: bool = False,
@@ -169,14 +168,12 @@ class CheckResultWriter:
 
         Args:
             file_path: Path to the output JSON file
-            sys_info: System information dictionary (constant during run)
             save_per_cases: Number of results to accumulate before saving to file.
                 If None, disable periodic saves and save only on flush/finalization.
             rerun_failed: If True, rerun failed cases (compile or run failed).
             delta_only: If True, only run new test cases not in existing results.
         """
         self.file_path = Path(file_path)
-        self.sys_info = sys_info
         self.save_per_cases = save_per_cases
         self.results: list[dict[str, Any]] = []
         self.pending_count = 0
@@ -441,11 +438,6 @@ class CheckResultWriter:
 
         output_data = {
             "check_results": results_to_save,
-            # NOTE: Intentionally do not persist sys_info.
-            # This file may be updated across multiple runs, and different cases in
-            # the same output can come from different run environments/sys_info.
-            # Persisting one top-level sys_info would be misleading.
-            # "sys_info": self.sys_info,
         }
 
         for item in output_data["check_results"]:

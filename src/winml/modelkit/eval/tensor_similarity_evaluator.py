@@ -65,12 +65,13 @@ class TensorSimilarityEvaluator:
         import torch
         from transformers import AutoConfig
 
+        from ..loader import load_hf_config
         from ..loader.resolution import resolve_task
 
         if self.config.model_id is None:
             raise ValueError("model_id is required to load the HF reference model.")
 
-        hf_config = AutoConfig.from_pretrained(self.config.model_id)
+        hf_config = load_hf_config(AutoConfig, self.config.model_id)
         cls = resolve_task(hf_config, task=self.config.task).model_class
         logger.info("Loading HF reference %s on CPU/fp32", cls.__name__)
         # cls is a HF model class which exposes from_pretrained; not in `type`.

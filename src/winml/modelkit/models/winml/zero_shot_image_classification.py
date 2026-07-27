@@ -62,8 +62,9 @@ class WinMLModelForZeroShotImageClassification(WinMLCompositeModel):
         self,
         sub_models: dict[str, Any],
         config: Any = None,
+        device: str = "cpu",
     ) -> None:
-        super().__init__(sub_models, config)
+        super().__init__(sub_models, config, device=device)
 
     def forward(
         self,
@@ -193,6 +194,5 @@ class WinMLModelForZeroShotImageClassification(WinMLCompositeModel):
             if key in outputs:
                 return outputs[key]
         raise KeyError(
-            f"None of {_EMBED_OUTPUT_KEYS} found in ONNX outputs. "
-            f"Available: {list(outputs)}",
+            f"None of {_EMBED_OUTPUT_KEYS} found in ONNX outputs. Available: {list(outputs)}",
         )

@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING, Any
 import onnxruntime as ort
 from onnx.defs import SchemaError
 
-from ... import winml
 from ...onnx import ONNXDomain
 from ...pattern.op_input_gen import (
     OpInputGenerator,
@@ -34,19 +33,11 @@ from ...pattern.op_input_gen import (
 
 if TYPE_CHECKING:
     import argparse
-
-    from ...utils.constants import EPName
 from ...pattern.op_input_gen.qdq_gen import QDQGenerator
-from ...sysinfo import SysInfo
-from ...utils import constants
+from ...session import DEVICE_TO_DEVICE_TYPE, DEVICE_TYPE_TO_DEVICE
 from ..utils import CheckResultWriter, load_case_indices_from_conflict_file
 from ..utils.model_utils import get_op_since_version
 from .ep_checker import EPChecker
-
-
-# Register WinML EPs at module level before any ORT session is created.
-# This must stay at the top of the file so EPs are available for all downstream usage.
-winml.register_execution_providers(ort=True)
 
 
 def check_ops(
@@ -98,7 +89,6 @@ def check_ops(
         case_index = load_case_indices_from_conflict_file(conflict_file)
         print(f"Loaded {len(case_index)} case_index values from conflict file: {conflict_file}")
 
-    sys_info = SysInfo().to_dict()
     domain = ONNXDomain.from_str(opset_domain)
 
     qdq_gen = QDQGenerator(1, ONNXDomain.COM_MICROSOFT) if use_qdq else None
@@ -148,7 +138,7 @@ def check_ops(
 
             # Prepare output file
             since_version = get_op_since_version(op_name, current_opset_version, opset_domain)
-            device = constants.DEVICE_TYPE_TO_DEVICE[ep_checker.device_type]
+            device = DEVICE_TYPE_TO_DEVICE[ep_checker.device_type].upper()
             qdq_suffix = "_qdq" if use_qdq else ""
             output_filename = (
                 f"{op_name}_{ep_checker.ep_name}_{device}"
@@ -160,7 +150,6 @@ def check_ops(
             # Use writer as context manager (auto-flushes on exit)
             with CheckResultWriter(
                 output_path,
-                sys_info,
                 save_per_cases=None if dry_run else 100,
                 rerun_failed=rerun_failed,
                 delta_only=delta_only,
@@ -181,9 +170,6 @@ def check_ops(
                     save_model=save_model,
                     model_output_dir=model_output_dir,
                     skip_signature_fn=writer.should_skip_case,
-                    # Also yield skipped cases (with skip
-                    # marker) to maintain order
-                    yield_skipped=True,
                     dry_run=dry_run,
                 )
 
@@ -257,9 +243,9 @@ class VitisAIChecker(EPChecker):
     """VitisAI execution provider checker wrapper for pytest compatibility."""
 
     def __init__(self, device_type: ort.OrtHardwareDeviceType) -> None:
+        """Initialize VitisAI checker."""
         if device_type != ort.OrtHardwareDeviceType.NPU:
             raise ValueError("VitisAIExecutionProvider only supports NPU device type")
-        """Initialize VitisAI checker."""
         super().__init__(ep_name="VitisAIExecutionProvider", device_type=device_type)
 
 
@@ -267,9 +253,9 @@ class MIGraphXChecker(EPChecker):
     """MIGraphX execution provider checker wrapper for pytest compatibility."""
 
     def __init__(self, device_type: ort.OrtHardwareDeviceType) -> None:
+        """Initialize MIGraphX checker."""
         if device_type != ort.OrtHardwareDeviceType.GPU:
             raise ValueError("MIGraphXExecutionProvider only supports GPU device type")
-        """Initialize MIGraphX checker."""
         super().__init__(ep_name="MIGraphXExecutionProvider", device_type=device_type)
 
 
@@ -277,15 +263,15 @@ class RTXChecker(EPChecker):
     """NVIDIA TensorRT RTX execution provider checker wrapper for pytest compatibility."""
 
     def __init__(self, device_type: ort.OrtHardwareDeviceType) -> None:
+        """Initialize RTX checker."""
         if device_type != ort.OrtHardwareDeviceType.GPU:
             raise ValueError("NvTensorRTRTXExecutionProvider only supports GPU device type")
-        """Initialize RTX checker."""
         super().__init__(
             ep_name="NvTensorRTRTXExecutionProvider", device_type=ort.OrtHardwareDeviceType.GPU
         )
 
 
-def get_ep_checker(ep_name: EPName, device: str) -> EPChecker:
+def get_ep_checker(ep_name: str, device: str) -> EPChecker:
     """Get EPChecker for given execution provider name.
 
     Args:
@@ -297,7 +283,7 @@ def get_ep_checker(ep_name: EPName, device: str) -> EPChecker:
     Raises:
         ValueError: If the execution provider name is not supported.
     """
-    device_type = constants.DEVICE_TO_DEVICE_TYPE[device]
+    device_type = DEVICE_TO_DEVICE_TYPE[device.lower()]
     ep_name_to_checker = {
         "QNNExecutionProvider": QNNNPUChecker,
         "OpenVINOExecutionProvider": OpenVINONPUChecker,

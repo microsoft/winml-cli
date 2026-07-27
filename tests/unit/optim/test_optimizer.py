@@ -698,14 +698,16 @@ class TestOptimizerIntegration:
     def test_registered_pipes_count(self) -> None:
         """Verify the expected number of pipes are registered."""
         Optimizer._initialize_pipes()
-        # Currently: ORTGraphPipe, RewritePipe, ORTFusionPipe, SurgeryPipe
-        assert len(Optimizer.pipes) == 4
+        # Currently: ORTGraphPipe, AlgebraicRewritePipe, RewritePipe,
+        # ORTFusionPipe, SurgeryPipe
+        assert len(Optimizer.pipes) == 5
 
     def test_registered_pipe_names(self) -> None:
         """Verify expected pipe names are registered."""
         Optimizer._initialize_pipes()
         names = {pipe_class.name for pipe_class in Optimizer.pipes}
         assert "rewrite" in names
+        assert "algebraic_rewrite" in names
         assert "ort_graph" in names
         assert "ort_fusion" in names
         assert "surgery" in names

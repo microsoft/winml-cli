@@ -7,7 +7,7 @@
 Represents actionable information for fixing unsupported patterns.
 """
 
-from enum import Enum
+from enum import StrEnum
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -16,7 +16,7 @@ from .runtime_checks import PatternRuntime
 from .support_level import SupportLevel
 
 
-class ActionLevel(str, Enum):
+class ActionLevel(StrEnum):
     """Action priority level."""
 
     REQUIRED = "required"

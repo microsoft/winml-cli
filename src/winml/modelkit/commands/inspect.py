@@ -195,8 +195,10 @@ def inspect(
         elif model is not None:
             from transformers import AutoConfig
 
+            from ..loader import load_hf_config
+
             try:
-                hf_config = AutoConfig.from_pretrained(model, trust_remote_code=False)
+                hf_config = load_hf_config(AutoConfig, model, trust_remote_code=False)
             except Exception as e:
                 raise click.ClickException(
                     f"Could not resolve model type for '{model}': {e}"
@@ -373,7 +375,7 @@ def _inspect_model_v2(
         resolve_processor,
         resolve_winml,
     )
-    from ..loader import HF_TASK_DEFAULTS, resolve_loader_config
+    from ..loader import HF_TASK_DEFAULTS, load_hf_config, resolve_loader_config
     from ..models import (
         HF_MODEL_CLASS_MAPPING,
         MODEL_BUILD_CONFIGS,
@@ -389,7 +391,7 @@ def _inspect_model_v2(
     parent_hf_config = None
     if model_id and not model_type_override:
         try:
-            parent_hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=False)
+            parent_hf_config = load_hf_config(AutoConfig, model_id, trust_remote_code=False)
         except Exception:
             pass  # resolve_loader_config will handle the error properly
 

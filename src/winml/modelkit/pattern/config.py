@@ -15,7 +15,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 
 if TYPE_CHECKING:
@@ -38,6 +38,9 @@ class PatternAlternative:
         pattern_to_id: Target pattern identifier (e.g., "OP/com.microsoft/Gelu")
         priority: Priority for recommendation (1=highest priority)
         reason: Optional explanation for why this alternative is recommended
+        enabled: Whether this alternative recommendation is enabled
+        details: Optional detailed recommendation text for this alternative
+        action_items: Optional action item list with optimization options
         pattern_class: Optional Python class name for rewrite target (e.g., "SingleGeluPattern")
         module: Optional fully-qualified module path for pattern_class
                 (e.g., "modelkit.pattern.gelu_patterns")
@@ -46,6 +49,9 @@ class PatternAlternative:
     pattern_to_id: str
     priority: int
     reason: str | None = None
+    enabled: bool = True
+    details: str | None = None
+    action_items: list[dict[str, Any]] | None = None
     pattern_class: str | None = None
     module: str | None = None
 
@@ -60,6 +66,7 @@ class PatternConfig:
         module: Fully-qualified module path
         enabled: Whether this pattern is active
         description: Optional human-readable pattern description
+        explanation: Optional recommendation explanation for analyzer output
         alternatives: List of alternative pattern recommendations
     """
 
@@ -68,6 +75,7 @@ class PatternConfig:
     module: str
     enabled: bool
     description: str | None = None
+    explanation: str | None = None
     alternatives: list[PatternAlternative] = field(default_factory=list)
 
     def load_pattern(self) -> Pattern:
@@ -222,6 +230,13 @@ class UnifiedPatternConfig:
         # Return alternative metadata sorted by priority
         return sorted(config.alternatives, key=lambda x: x.priority)
 
+    def get_pattern_config(self, pattern: Pattern | PatternModel) -> PatternConfig | None:
+        """Get parsed skeleton pattern configuration for a matched pattern instance."""
+        if not self._loaded:
+            self._load_config()
+
+        return self._pattern_configs.get(pattern.__class__.__name__)
+
     def _load_config(self) -> None:
         """Load and merge unified pattern configuration from JSON files.
 
@@ -317,12 +332,16 @@ class UnifiedPatternConfig:
         # Load Skeleton pattern configurations
         skeleton_count = 0
         for pattern_data in config_data["SkeletonPatternRules"]:
-            # Parse alternatives (metadata only, not loaded as Pattern instances)
-            alternatives = [
+            # Parse alternatives (metadata only, not loaded as Pattern instances).
+            # Metadata must be explicit per alternative entry.
+            alternatives: list[PatternAlternative] = [
                 PatternAlternative(
                     pattern_to_id=alt_data["pattern_to_id"],
                     priority=alt_data["priority"],
                     reason=alt_data.get("reason"),
+                    enabled=alt_data.get("enabled", True),
+                    details=alt_data.get("details"),
+                    action_items=alt_data.get("action_items"),
                     pattern_class=alt_data.get("pattern_class"),
                     module=alt_data.get("module"),
                 )
@@ -336,6 +355,7 @@ class UnifiedPatternConfig:
                 module=pattern_data["module"],
                 enabled=pattern_data["enabled"],
                 description=pattern_data.get("description"),
+                explanation=pattern_data.get("explanation"),
                 alternatives=alternatives,
             )
 

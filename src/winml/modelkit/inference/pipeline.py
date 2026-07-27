@@ -20,12 +20,12 @@ from __future__ import annotations
 
 import inspect
 import logging
+import warnings
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
 
@@ -34,8 +34,491 @@ logger = logging.getLogger(__name__)
 # Tasks that WinML recognises but HF ``transformers.pipeline`` does not.
 # Mapped to their HF pipeline equivalent before calling ``pipeline()``.
 _HF_PIPELINE_TASK_MAP: dict[str, str] = {
+    "image-to-text": "image-text-to-text",
     "sentence-similarity": "feature-extraction",
 }
+
+_PIPELINE_COMPONENT_FLAGS = (
+    ("tokenizer", "_load_tokenizer"),
+    ("feature_extractor", "_load_feature_extractor"),
+    ("image_processor", "_load_image_processor"),
+    ("processor", "_load_processor"),
+)
+
+
+def _model_static_batch_size(
+    io_config: Mapping[str, Any],
+    model_input_names: set[str],
+) -> int:
+    """Return the model's fixed batch size, or one for dynamic batches."""
+    static_batch_sizes = {
+        shape[0]
+        for name, shape in zip(
+            io_config.get("input_names", []),
+            io_config.get("input_shapes", []),
+            strict=False,
+        )
+        if name in model_input_names and shape and isinstance(shape[0], int) and shape[0] > 0
+    }
+    if len(static_batch_sizes) > 1:
+        raise ValueError("Question-answering model inputs declare inconsistent batch sizes.")
+    return next(iter(static_batch_sizes), 1)
+
+
+class _ExtractiveQuestionAnsweringPipeline:
+    """Transformers 5-compatible extractive question-answering pipeline."""
+
+    task = "question-answering"
+
+    def __init__(self, model: Any, tokenizer: Any) -> None:
+        self.model = model
+        self.tokenizer = tokenizer
+        self._preprocess_params: dict[str, Any] = {}
+
+    def preprocess(self, inputs: Any, **kwargs: Any) -> Any:
+        """Expose a tokenizer-compatible signature for fixed-shape adaptation."""
+        return inputs
+
+    def _sanitize_parameters(
+        self,
+        handle_impossible_answer: bool = False,
+        max_answer_len: int | None = None,
+        doc_stride: int | None = None,
+        topk: int | None = None,
+        top_k: int | None = None,
+        align_to_words: bool | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        """Expose supported inference parameters for serving metadata."""
+        postprocess_params: dict[str, Any] = {}
+        if topk is not None and top_k is None:
+            warnings.warn(
+                "topk parameter is deprecated, use top_k instead",
+                UserWarning,
+                stacklevel=2,
+            )
+            top_k = topk
+        if top_k is not None:
+            self._validate_top_k(top_k)
+            postprocess_params["top_k"] = top_k
+        if max_answer_len is not None:
+            self._validate_max_answer_len(max_answer_len)
+            postprocess_params["max_answer_len"] = max_answer_len
+        if handle_impossible_answer is not None:
+            postprocess_params["handle_impossible_answer"] = handle_impossible_answer
+        if align_to_words is not None:
+            postprocess_params["align_to_words"] = align_to_words
+        return (
+            {"doc_stride": doc_stride} if doc_stride is not None else {},
+            {},
+            postprocess_params,
+        )
+
+    def __call__(
+        self,
+        *args: Any,
+        question: Any = None,
+        context: Any = None,
+        handle_impossible_answer: bool = False,
+        max_answer_len: int | None = None,
+        doc_stride: int | None = None,
+        topk: int | None = None,
+        top_k: int | None = None,
+        align_to_words: bool | None = None,
+    ) -> (
+        dict[str, Any]
+        | list[dict[str, Any]]
+        | list[dict[str, Any] | list[dict[str, Any]]]
+        | Iterator[
+            dict[str, Any] | list[dict[str, Any]] | list[dict[str, Any] | list[dict[str, Any]]]
+        ]
+    ):
+        """Extract answer spans for one or more question/context pairs."""
+        inputs = None
+        if args:
+            warnings.warn(
+                "Passing a list of SQuAD examples to the pipeline is deprecated and will be "
+                "removed in v5. Inputs should be passed using the `question` and `context` "
+                "keyword arguments instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
+            if len(args) == 1:
+                inputs = args[0]
+            elif len(args) == 2 and all(isinstance(item, str) for item in args):
+                question, context = args
+            else:
+                inputs = list(args)
+        if topk is not None and top_k is None:
+            warnings.warn(
+                "topk parameter is deprecated, use top_k instead",
+                UserWarning,
+                stacklevel=2,
+            )
+            top_k = topk
+        if top_k is None:
+            top_k = 1
+        self._validate_top_k(top_k)
+        if max_answer_len is None:
+            max_answer_len = 15
+        self._validate_max_answer_len(max_answer_len)
+        if align_to_words is None:
+            align_to_words = True
+        if isinstance(inputs, Iterator):
+            if question is not None or context is not None:
+                raise ValueError(
+                    "Pass question/context either as inputs or keyword arguments, not both."
+                )
+            return self._answer_iterator(
+                inputs,
+                handle_impossible_answer=handle_impossible_answer,
+                max_answer_len=max_answer_len,
+                doc_stride=doc_stride,
+                top_k=top_k,
+                align_to_words=align_to_words,
+            )
+        questions, contexts, single_input = self._normalize_inputs(inputs, question, context)
+        answers = [
+            self._answer(
+                item_question,
+                item_context,
+                handle_impossible_answer=handle_impossible_answer,
+                max_answer_len=max_answer_len,
+                doc_stride=doc_stride,
+                top_k=top_k,
+                align_to_words=align_to_words,
+            )
+            for item_question, item_context in zip(questions, contexts, strict=True)
+        ]
+        return answers[0] if single_input else answers
+
+    def _answer_iterator(
+        self,
+        inputs: Iterator[Any],
+        *,
+        handle_impossible_answer: bool,
+        max_answer_len: int,
+        doc_stride: int | None,
+        top_k: int,
+        align_to_words: bool,
+    ) -> Iterator[
+        dict[str, Any] | list[dict[str, Any]] | list[dict[str, Any] | list[dict[str, Any]]]
+    ]:
+        for item in inputs:
+            questions, contexts, single_input = self._normalize_inputs(item, None, None)
+            answers = [
+                self._answer(
+                    item_question,
+                    item_context,
+                    handle_impossible_answer=handle_impossible_answer,
+                    max_answer_len=max_answer_len,
+                    doc_stride=doc_stride,
+                    top_k=top_k,
+                    align_to_words=align_to_words,
+                )
+                for item_question, item_context in zip(questions, contexts, strict=True)
+            ]
+            yield answers[0] if single_input else answers
+
+    @staticmethod
+    def _validate_top_k(top_k: int) -> None:
+        if top_k < 1:
+            raise ValueError(f"top_k parameter should be >= 1 (got {top_k})")
+
+    @staticmethod
+    def _validate_max_answer_len(max_answer_len: int) -> None:
+        if max_answer_len < 1:
+            raise ValueError(f"max_answer_len parameter should be >= 1 (got {max_answer_len}")
+
+    @staticmethod
+    def _normalize_inputs(
+        inputs: Any,
+        question: Any,
+        context: Any,
+    ) -> tuple[list[str], list[str], bool]:
+        if inputs is not None:
+            if question is not None or context is not None:
+                raise ValueError(
+                    "Pass question/context either as inputs or keyword arguments, not both."
+                )
+            if isinstance(inputs, Mapping):
+                question = inputs.get("question")
+                context = inputs.get("context")
+            elif isinstance(inputs, Sequence) and not isinstance(inputs, (str, bytes)):
+                if not all(isinstance(item, Mapping) for item in inputs):
+                    raise TypeError("Question-answering batch inputs must be mappings.")
+                question = [item.get("question") for item in inputs]
+                context = [item.get("context") for item in inputs]
+            else:
+                raise TypeError(
+                    "Question-answering inputs must be a mapping or sequence of mappings."
+                )
+
+        single_input = isinstance(question, str) and isinstance(context, str)
+        questions = (
+            [question]
+            if isinstance(question, str)
+            else list(question)
+            if isinstance(question, Iterable)
+            else [question]
+            if question is not None
+            else []
+        )
+        if isinstance(context, str):
+            contexts = [context] * len(questions) if not isinstance(question, str) else [context]
+        else:
+            contexts = (
+                list(context)
+                if isinstance(context, Iterable)
+                else [context]
+                if context is not None
+                else []
+            )
+        if not questions or len(questions) != len(contexts):
+            raise ValueError("question and context must contain the same non-zero number of items.")
+        if not all(isinstance(item, str) for item in (*questions, *contexts)):
+            raise TypeError("question and context values must be strings.")
+        for item in questions:
+            if not item:
+                raise ValueError("`question` cannot be empty")
+        for item in contexts:
+            if not item:
+                raise ValueError("`context` cannot be empty")
+        return questions, contexts, single_input
+
+    def _answer(
+        self,
+        question: str,
+        context: str,
+        *,
+        handle_impossible_answer: bool,
+        max_answer_len: int,
+        doc_stride: int | None,
+        top_k: int,
+        align_to_words: bool,
+    ) -> dict[str, Any] | list[dict[str, Any]]:
+        import torch
+        from transformers.tokenization_utils_base import LARGE_INTEGER
+
+        max_length = self._preprocess_params.get("max_length")
+        if max_length is None:
+            tokenizer_max_length = getattr(self.tokenizer, "model_max_length", None)
+            if isinstance(tokenizer_max_length, int) and 0 < tokenizer_max_length < LARGE_INTEGER:
+                max_length = tokenizer_max_length
+
+        question_first = getattr(self.tokenizer, "padding_side", "right") == "right"
+        context_sequence_id = 1 if question_first else 0
+        first_text = question if question_first else context
+        second_text = context if question_first else question
+        tokenizer_kwargs: dict[str, Any] = {
+            "truncation": "only_second" if question_first else "only_first",
+            "return_offsets_mapping": True,
+            "return_overflowing_tokens": True,
+            "return_tensors": "pt",
+        }
+        if max_length is not None:
+            question_length = len(self.tokenizer.encode(question, add_special_tokens=False))
+            context_window = (
+                max_length - question_length - self.tokenizer.num_special_tokens_to_add(pair=True)
+            )
+            if context_window < 1:
+                raise ValueError(
+                    "The tokenized question leaves no room for context in the model input."
+                )
+            resolved_stride = (
+                min(max_length // 2, 128, context_window - 1) if doc_stride is None else doc_stride
+            )
+            if resolved_stride < 0 or resolved_stride >= context_window:
+                raise ValueError(
+                    f"doc_stride ({resolved_stride}) must be between 0 and "
+                    f"{context_window - 1} for this question."
+                )
+            tokenizer_kwargs.update(
+                {
+                    "max_length": max_length,
+                    "padding": "max_length",
+                    "stride": resolved_stride,
+                }
+            )
+        elif doc_stride is not None:
+            tokenizer_kwargs["stride"] = doc_stride
+
+        encoding = self.tokenizer(first_text, second_text, **tokenizer_kwargs)
+        offsets = encoding["offset_mapping"]
+        io_config = getattr(self.model, "io_config", None) or {}
+        model_input_names = set(io_config.get("input_names", []))
+        if not model_input_names:
+            model_input_names = set(getattr(self.tokenizer, "model_input_names", []))
+        model_batch_size = _model_static_batch_size(io_config, model_input_names)
+        cls_token_id = getattr(self.tokenizer, "cls_token_id", None)
+        primary_input_name = next(
+            (name for name in getattr(self.tokenizer, "model_input_names", []) if name in encoding),
+            None,
+        )
+
+        answers_by_span: dict[tuple[int, int], dict[str, Any]] = {}
+        best_no_answer_score: float | None = None
+        feature_count = len(offsets)
+        for batch_start in range(0, feature_count, model_batch_size):
+            batch_end = min(feature_count, batch_start + model_batch_size)
+            real_batch_size = batch_end - batch_start
+            model_inputs: dict[str, Any] = {}
+            for name, value in encoding.items():
+                if name not in model_input_names or not isinstance(value, torch.Tensor):
+                    continue
+                batch = value[batch_start:batch_end]
+                if real_batch_size < model_batch_size:
+                    repeats = (model_batch_size - real_batch_size,) + (1,) * (batch.ndim - 1)
+                    batch = torch.cat((batch, batch[-1:].repeat(repeats)), dim=0)
+                model_inputs[name] = batch
+            if not model_inputs:
+                raise ValueError("Tokenizer outputs do not match the model's declared inputs.")
+            outputs = self.model(**model_inputs)
+            start_logits = getattr(outputs, "start_logits", None)
+            end_logits = getattr(outputs, "end_logits", None)
+            if start_logits is None or end_logits is None:
+                raise ValueError(
+                    "Question-answering model must return start_logits and end_logits."
+                )
+
+            if start_logits.shape[0] < real_batch_size or end_logits.shape[0] < real_batch_size:
+                raise ValueError(
+                    "Question-answering model returned fewer rows than the input batch."
+                )
+
+            for batch_index in range(real_batch_size):
+                feature_index = batch_start + batch_index
+                sequence_ids = encoding.sequence_ids(feature_index)
+                feature_offsets = offsets[feature_index].tolist()
+                feature_encoding = encoding.encodings[feature_index]
+                start_scores = start_logits[batch_index].float()
+                end_scores = end_logits[batch_index].float()
+                valid_positions = torch.tensor(
+                    [sequence_id == context_sequence_id for sequence_id in sequence_ids],
+                    dtype=torch.bool,
+                    device=start_scores.device,
+                )
+
+                cls_index: int | None = None
+                if cls_token_id is not None and primary_input_name is not None:
+                    cls_positions = (
+                        encoding[primary_input_name][feature_index] == cls_token_id
+                    ).nonzero(as_tuple=False)
+                    if cls_positions.numel():
+                        cls_index = int(cls_positions[0].item())
+                        valid_positions[cls_index] = True
+
+                if (
+                    valid_positions.numel() != start_scores.numel()
+                    or valid_positions.numel() != end_scores.numel()
+                ):
+                    raise ValueError(
+                        "Question-answering logits do not match the tokenized feature length."
+                    )
+                start_probabilities = torch.softmax(
+                    start_scores.masked_fill(~valid_positions, -torch.inf),
+                    dim=-1,
+                )
+                end_probabilities = torch.softmax(
+                    end_scores.masked_fill(~valid_positions, -torch.inf),
+                    dim=-1,
+                )
+
+                if cls_index is not None:
+                    no_answer_score = float(
+                        start_probabilities[cls_index] * end_probabilities[cls_index]
+                    )
+                    if best_no_answer_score is None or no_answer_score < best_no_answer_score:
+                        best_no_answer_score = no_answer_score
+
+                for start_index, sequence_id in enumerate(sequence_ids):
+                    if sequence_id != context_sequence_id:
+                        continue
+                    max_end = min(len(sequence_ids), start_index + max_answer_len)
+                    for end_index in range(start_index, max_end):
+                        if sequence_ids[end_index] != context_sequence_id:
+                            continue
+                        char_start = int(feature_offsets[start_index][0])
+                        char_end = int(feature_offsets[end_index][1])
+                        if align_to_words:
+                            start_word = feature_encoding.token_to_word(start_index)
+                            end_word = feature_encoding.token_to_word(end_index)
+                            if start_word is not None and end_word is not None:
+                                start_chars = feature_encoding.word_to_chars(
+                                    start_word,
+                                    sequence_index=context_sequence_id,
+                                )
+                                end_chars = feature_encoding.word_to_chars(
+                                    end_word,
+                                    sequence_index=context_sequence_id,
+                                )
+                                if start_chars is not None and end_chars is not None:
+                                    char_start = start_chars[0]
+                                    char_end = end_chars[1]
+                        if char_end <= char_start:
+                            continue
+                        score = float(
+                            start_probabilities[start_index] * end_probabilities[end_index]
+                        )
+                        answer_text = context[char_start:char_end]
+                        answer_key = (char_start, char_end)
+                        existing_answer = answers_by_span.get(answer_key)
+                        if existing_answer is None or score > existing_answer["score"]:
+                            answers_by_span[answer_key] = {
+                                "score": score,
+                                "start": char_start,
+                                "end": char_end,
+                                "answer": answer_text,
+                            }
+
+        no_answer_score = best_no_answer_score if best_no_answer_score is not None else 0.0
+        answers = list(answers_by_span.values())
+        if handle_impossible_answer:
+            answers.append({"score": no_answer_score, "start": 0, "end": 0, "answer": ""})
+        if not answers:
+            return {"score": no_answer_score, "start": 0, "end": 0, "answer": ""}
+        answers.sort(key=lambda answer: answer["score"], reverse=True)
+        answers = answers[:top_k]
+        return answers[0] if len(answers) == 1 else answers
+
+
+def _create_extractive_question_answering_pipeline(
+    model: Any,
+    model_id: str | None,
+) -> _ExtractiveQuestionAnsweringPipeline:
+    """Create the extractive QA pipeline removed from Transformers 5."""
+    from transformers import AutoTokenizer
+
+    tokenizer_source = model_id or getattr(getattr(model, "config", None), "_name_or_path", None)
+    if not tokenizer_source:
+        raise ValueError("model_id is required to load a question-answering tokenizer.")
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_source, use_fast=True)
+    if not getattr(tokenizer, "is_fast", False):
+        raise ValueError(
+            "Extractive question answering requires a fast tokenizer with offset mappings. "
+            "Use a model that provides a fast tokenizer implementation."
+        )
+    return _ExtractiveQuestionAnsweringPipeline(model, tokenizer)
+
+
+_COMPAT_PIPELINE_FACTORIES = {
+    "question-answering": _create_extractive_question_answering_pipeline,
+}
+
+
+def _pipeline_component_kwargs(task: str, model_id: str | None) -> dict[str, str]:
+    """Select model components from the resolved pipeline's capabilities."""
+    if model_id is None:
+        return {}
+
+    from transformers.pipelines import check_task
+
+    _, targeted_task, _ = check_task(task)
+    pipeline_class = targeted_task["impl"]
+    return {
+        argument: model_id
+        for argument, flag in _PIPELINE_COMPONENT_FLAGS
+        if getattr(pipeline_class, flag, None) is not False
+    }
 
 
 def create_pipeline(
@@ -55,26 +538,25 @@ def create_pipeline(
                   If None, pipeline will attempt auto-detection.
 
     Returns:
-        A configured ``transformers.Pipeline`` ready for inference.
+        A configured task callable ready for inference.
     """
     from transformers import pipeline
 
-    kwargs: dict[str, Any] = {
-        "framework": "pt",
-        # "device" is for HF pipeline tensor placement, not ORT EP.
-        # WinMLSession handles device delegation internally.
-        "device": "cpu",
-    }
-    if model_id:
-        kwargs["tokenizer"] = model_id
-        kwargs["feature_extractor"] = model_id
-        kwargs["image_processor"] = model_id
-        kwargs["processor"] = model_id
-
     hf_task = _HF_PIPELINE_TASK_MAP.get(task, task)
-    # transformers.pipeline has 60+ Literal overloads — runtime task strings can't
-    # be statically matched. The string-task fallback handles unknown tasks safely.
-    pipe = pipeline(hf_task, model=model, **kwargs)  # type: ignore[call-overload]
+    compatibility_factory = _COMPAT_PIPELINE_FACTORIES.get(hf_task)
+    if compatibility_factory is not None:
+        pipe = compatibility_factory(model, model_id)
+    else:
+        kwargs: dict[str, Any] = {
+            # "device" is for HF pipeline tensor placement, not ORT EP.
+            # WinMLSession handles device delegation internally.
+            "device": "cpu",
+            **_pipeline_component_kwargs(hf_task, model_id),
+        }
+
+        # transformers.pipeline has 60+ Literal overloads — runtime task strings can't
+        # be statically matched. The string-task fallback handles unknown tasks safely.
+        pipe = pipeline(hf_task, model=model, **kwargs)  # type: ignore[call-overload]
 
     # Adapt pipeline to fixed ONNX input shapes
     _adapt_tokenizer_padding(pipe, task, model)

@@ -14,13 +14,23 @@
       "enabled": true,
       "flag_name": "attention",
       "description": "Attention pattern with transpose operations",
+      "explanation": "The model uses the ai.onnx Attention operator (opset 23+) which is not yet supported on this hardware. Expanding it to the equivalent scaled dot-product attention subgraph will restore compatibility.",
       "alternatives": [
         {
-          "pattern_to_id": "SUBGRAPH/TransposeAttentionPattern",
+          "pattern_to_id": "SUBGRAPH/ExpandedAttentionPattern",
           "pattern_class": "ExpandedAttentionPattern",
           "module": "winml.modelkit.pattern.attention_patterns",
           "priority": 1,
           "flag_name": "expandedattention",
+          "details": "The ai.onnx Attention operator (opset 23+) may not be supported on this hardware. Use the WinML CLI rewrite flag to expand it to the individual scaled dot-product attention subgraph (Transpose, Mul, MatMul, Add, Softmax, MatMul) which has broader hardware support.",
+          "action_items": [
+            {
+              "type": "GraphOptimization",
+              "optimization_options": {
+                "attention_expandedattention": true
+              }
+            }
+          ],
           "reason": "Expanded attention pattern for broader hardware compatibility"
         }
       ]

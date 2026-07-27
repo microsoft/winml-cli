@@ -84,7 +84,6 @@ class WinMLZeroShotClassificationEvaluator(WinMLEvaluator):
         pipe = pipeline(  # type: ignore[call-overload]
             "zero-shot-classification",
             model=self.model,
-            framework="pt",
             tokenizer=self.config.model_id,
             device="cpu",
             pipeline_class=_FixedShapeZeroShotPipeline,

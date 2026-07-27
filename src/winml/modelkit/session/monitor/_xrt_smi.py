@@ -26,8 +26,8 @@ from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
-# Default xrt-smi location (installed with AMD NPU driver).
-_XRT_SMI_PATH = Path(r"C:\Windows\System32\AMD\xrt-smi.exe")
+# Installed by the AMD NPU driver; override via XrtSmiClient(exe_path=...).
+_XRT_SMI_PATH = Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32" / "AMD" / "xrt-smi.exe"
 
 
 @dataclass(frozen=True)
@@ -77,9 +77,7 @@ class XrtSmiClient:
             return {}
 
         try:
-            with tempfile.NamedTemporaryFile(
-                suffix=".json", delete=False, mode="w"
-            ) as tmp:
+            with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as tmp:
                 tmp_path = tmp.name
 
             # Remove the temp file before xrt-smi writes to it;
@@ -103,9 +101,7 @@ class XrtSmiClient:
             )
 
             if result.returncode != 0:
-                logger.debug(
-                    "xrt-smi failed (rc=%d): %s", result.returncode, result.stderr
-                )
+                logger.debug("xrt-smi failed (rc=%d): %s", result.returncode, result.stderr)
                 return {}
 
             with Path(tmp_path).open(encoding="utf-8") as f:
@@ -133,21 +129,15 @@ class XrtSmiClient:
         contexts: list[HwContext] = []
 
         for device in data.get("devices", []):
-            partitions = (
-                device.get("aie_partitions", {}).get("partitions", [])
-            )
+            partitions = device.get("aie_partitions", {}).get("partitions", [])
             for partition in partitions:
                 for raw in partition.get("hw_contexts", []):
                     ctx = HwContext(
                         pid=int(raw.get("pid", 0)),
                         context_id=int(raw.get("context_id", 0)),
                         status=raw.get("status", "Unknown"),
-                        command_submissions=int(
-                            raw.get("command_submissions", 0)
-                        ),
-                        command_completions=int(
-                            raw.get("command_completions", 0)
-                        ),
+                        command_submissions=int(raw.get("command_submissions", 0)),
+                        command_completions=int(raw.get("command_completions", 0)),
                         gops=raw.get("gops", "N/A"),
                         fps=raw.get("fps", "N/A"),
                         latency=raw.get("latency", "N/A"),
