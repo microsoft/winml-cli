@@ -1069,6 +1069,51 @@ class TestEvalExportOverrides:
         assert cfg.export_overrides["input_tensors"][0].name == "pixel_values"
         assert cfg.export_overrides["input_tensors"][0].shape == ("batch", 3, 224, 224)
 
+    def test_apply_export_overrides_merges_over_config_file(self, tmp_path):
+        """CLI sub-keys win but config-file sub-keys the CLI didn't set survive.
+
+        Simulates a config file having populated ``export_overrides`` (via
+        merge_config) before ``_apply_export_overrides`` runs. A sparse CLI dict
+        must shallow-merge over it, not replace it wholesale (config-file
+        explicit > CLI default).
+        """
+        from winml.modelkit.commands.eval import _apply_export_overrides
+        from winml.modelkit.eval.config import WinMLEvaluationConfig
+
+        # Only --input-specs on the CLI; export_config/dynamic_axes come from the
+        # (pre-populated) config-file layer.
+        input_specs = self._write(
+            tmp_path / "inputs.json",
+            {"pixel_values": {"dtype": "float32", "shape": ["batch", 3, 224, 224]}},
+        )
+
+        cfg = WinMLEvaluationConfig(model_id="microsoft/resnet-50", model_path=None)
+        cfg.export_overrides = {
+            "opset_version": 17,
+            "dynamic_axes": {"pixel_values": {"0": "batch"}},
+        }
+
+        _apply_export_overrides(cfg, None, input_specs, None, None)
+
+        # CLI-provided key added, config-file keys preserved.
+        assert cfg.export_overrides["input_tensors"][0].name == "pixel_values"
+        assert cfg.export_overrides["opset_version"] == 17
+        assert cfg.export_overrides["dynamic_axes"] == {"pixel_values": {"0": "batch"}}
+
+    def test_apply_export_overrides_cli_overrides_same_key(self, tmp_path):
+        """When the CLI and config file set the same sub-key, the CLI wins."""
+        from winml.modelkit.commands.eval import _apply_export_overrides
+        from winml.modelkit.eval.config import WinMLEvaluationConfig
+
+        export_config = self._write(tmp_path / "export.json", {"opset_version": 18})
+
+        cfg = WinMLEvaluationConfig(model_id="microsoft/resnet-50", model_path=None)
+        cfg.export_overrides = {"opset_version": 17}
+
+        _apply_export_overrides(cfg, None, None, export_config, None)
+
+        assert cfg.export_overrides["opset_version"] == 18
+
     def test_apply_export_overrides_onnx_warns_and_skips(self, tmp_path, caplog):
         """Pre-built ONNX input: overrides are dropped with a warning."""
         from winml.modelkit.commands.eval import _apply_export_overrides

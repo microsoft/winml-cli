@@ -443,7 +443,14 @@ def _apply_export_overrides(
         dynamic_axes=dynamic_axes,
     )
     if export_overrides:
-        cfg.export_overrides = export_overrides
+        # Shallow-merge over any config-file export_overrides so CLI-provided
+        # sub-keys win while config-file sub-keys the CLI didn't set survive
+        # (config-file explicit > CLI default). load_export_overrides returns a
+        # sparse dict, so a wholesale assignment would drop the untouched
+        # config-file keys — mirrors build's merge_export_overrides intent.
+        merged = dict(cfg.export_overrides or {})
+        merged.update(export_overrides)
+        cfg.export_overrides = merged
 
 
 def _resolve_device(cfg: WinMLEvaluationConfig) -> None:
