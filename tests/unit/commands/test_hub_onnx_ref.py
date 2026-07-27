@@ -19,6 +19,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
+from winml.modelkit.session import EPDeviceTarget
+
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -34,11 +36,11 @@ _DEVICE_TO_EPS = {
 }
 
 
-def _fake_resolve_check_device_ep(*, device: str = "auto", ep: str | None = None):
-    """Side effect for resolve_check_device_ep that honours the requested device."""
+def _fake_resolve_device(target):
+    """Side effect for session.resolve_device that honours the requested device."""
+    device = getattr(target, "device", "auto")
     resolved = device.lower() if device != "auto" else "npu"
-    eps = _DEVICE_TO_EPS.get(resolved, ["CPUExecutionProvider"])
-    return resolved, ["npu", "gpu", "cpu"], eps
+    return EPDeviceTarget(ep="auto", device=resolved)
 
 
 @pytest.fixture(autouse=True)
@@ -54,16 +56,12 @@ def mock_resolve_device():
 
     with (
         patch(
-            "winml.modelkit.sysinfo.resolve_device",
-            return_value=("npu", ["npu", "gpu", "cpu"]),
+            "winml.modelkit.session.resolve_device",
+            side_effect=_fake_resolve_device,
         ),
         patch(
-            "winml.modelkit.sysinfo.resolve_eps",
+            "winml.modelkit.session.available_eps_for_device",
             side_effect=lambda device: list(_DEVICE_TO_EPS.get(device, [])),
-        ),
-        patch(
-            "winml.modelkit.sysinfo.resolve_check_device_ep",
-            side_effect=_fake_resolve_check_device_ep,
         ),
         patch(
             "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",

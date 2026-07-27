@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -22,7 +23,20 @@ from winml.modelkit.eval import WinMLQuestionAnsweringEvaluator
 # ---------------------------------------------------------------------------
 
 
-def make_evaluator(io_config=None, columns_mapping=None):
+class _TokenizerStub:
+    model_max_length = 512
+    model_input_names = ("input_ids", "attention_mask")
+    is_fast = True
+
+
+_DEFAULT_TOKENIZER = object()
+
+
+def make_evaluator(
+    io_config=None,
+    columns_mapping=None,
+    tokenizer=_DEFAULT_TOKENIZER,
+):
     """Create evaluator without triggering __init__ data loading."""
     from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
@@ -38,13 +52,10 @@ def make_evaluator(io_config=None, columns_mapping=None):
     mock_ds.shuffle.return_value = mock_ds
     mock_ds.select.return_value = mock_ds
 
-    mock_pipe = MagicMock()
-    mock_pipe.tokenizer = MagicMock()
-    mock_pipe._preprocess_params = {}
-
     model = MagicMock()
     model.config.label2id = None
     model.io_config = io_config or {}
+    resolved_tokenizer = _TokenizerStub() if tokenizer is _DEFAULT_TOKENIZER else tokenizer
 
     config = WinMLEvaluationConfig(
         model_id="test/model",
@@ -52,8 +63,10 @@ def make_evaluator(io_config=None, columns_mapping=None):
         dataset=DatasetConfig(path="squad", columns_mapping=mapping),
     )
 
-    with patch("datasets.load_dataset", return_value=mock_ds), \
-         patch("transformers.pipeline", return_value=mock_pipe):
+    with (
+        patch("datasets.load_dataset", return_value=mock_ds),
+        patch("transformers.AutoTokenizer.from_pretrained", return_value=resolved_tokenizer),
+    ):
         return WinMLQuestionAnsweringEvaluator(config, model)
 
 
@@ -63,130 +76,39 @@ def make_evaluator(io_config=None, columns_mapping=None):
 
 
 class TestPreparePipeline:
-    @patch("transformers.pipeline")
-    @patch("datasets.load_dataset")
-    def test_sets_padding_when_io_config_present(self, mock_load_ds, mock_pipeline):
-        from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
+    def test_sets_padding_when_io_config_present(self):
+        ev = make_evaluator(io_config={"input_shapes": [[1, 384], [1, 384]]})
 
-        mock_ds = MagicMock()
-        mock_ds.__len__ = lambda self: 10
-        mock_ds.shuffle.return_value = mock_ds
-        mock_ds.select.return_value = mock_ds
-        mock_load_ds.return_value = mock_ds
+        assert ev.pipe.tokenizer.model_max_length == 384
+        assert ev.pipe._preprocess_params["padding"] == "max_length"
+        assert ev.pipe._preprocess_params["max_length"] == 384
+        assert ev.pipe._preprocess_params["max_seq_len"] == 384
 
-        mock_pipe = MagicMock()
-        mock_pipe.tokenizer = MagicMock()
-        mock_pipe._preprocess_params = {}
-        mock_pipeline.return_value = mock_pipe
+    def test_raises_when_tokenizer_is_not_fast(self):
+        with pytest.raises(ValueError, match="fast tokenizer with offset mappings"):
+            make_evaluator(io_config={"input_shapes": [[1, 384]]}, tokenizer=None)
 
-        model = MagicMock()
-        model.config.label2id = None
-        model.io_config = {"input_shapes": [[1, 384], [1, 384]]}
+    def test_no_padding_without_shapes(self):
+        ev = make_evaluator()
 
-        config = WinMLEvaluationConfig(
-            model_id="test/model",
-            task="question-answering",
-            dataset=DatasetConfig(path="squad"),
-        )
+        assert ev.pipe._preprocess_params == {}
 
-        WinMLQuestionAnsweringEvaluator(config, model)
-
-        assert mock_pipe.tokenizer.model_max_length == 384
-        assert mock_pipe._preprocess_params["padding"] == "max_length"
-        assert mock_pipe._preprocess_params["max_seq_len"] == 384
-
-    @patch("transformers.pipeline")
-    @patch("datasets.load_dataset")
-    def test_no_padding_without_tokenizer(self, mock_load_ds, mock_pipeline):
-        from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
-
-        mock_ds = MagicMock()
-        mock_ds.__len__ = lambda self: 10
-        mock_ds.shuffle.return_value = mock_ds
-        mock_ds.select.return_value = mock_ds
-        mock_load_ds.return_value = mock_ds
-
-        mock_pipe = MagicMock()
-        mock_pipe.tokenizer = None
-        mock_pipe._preprocess_params = {}
-        mock_pipeline.return_value = mock_pipe
-
-        model = MagicMock()
-        model.config.label2id = None
-        model.io_config = {"input_shapes": [[1, 384]]}
-
-        config = WinMLEvaluationConfig(
-            model_id="test/model",
-            task="question-answering",
-            dataset=DatasetConfig(path="squad"),
-        )
-
-        WinMLQuestionAnsweringEvaluator(config, model)
-
-        assert mock_pipe._preprocess_params == {}
-
-    @patch("transformers.pipeline")
-    @patch("datasets.load_dataset")
-    def test_no_padding_without_shapes(self, mock_load_ds, mock_pipeline):
-        from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
-
-        mock_ds = MagicMock()
-        mock_ds.__len__ = lambda self: 10
-        mock_ds.shuffle.return_value = mock_ds
-        mock_ds.select.return_value = mock_ds
-        mock_load_ds.return_value = mock_ds
-
-        mock_pipe = MagicMock()
-        mock_pipe.tokenizer = MagicMock()
-        mock_pipe._preprocess_params = {}
-        mock_pipeline.return_value = mock_pipe
-
-        model = MagicMock()
-        model.config.label2id = None
-        model.io_config = {}
-
-        config = WinMLEvaluationConfig(
-            model_id="test/model",
-            task="question-answering",
-            dataset=DatasetConfig(path="squad"),
-        )
-
-        WinMLQuestionAnsweringEvaluator(config, model)
-
-        assert mock_pipe._preprocess_params == {}
-
-    @patch("transformers.pipeline")
-    @patch("datasets.load_dataset")
-    def test_logs_warning_without_shapes(self, mock_load_ds, mock_pipeline, caplog):
-        from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
-
-        mock_ds = MagicMock()
-        mock_ds.__len__ = lambda self: 10
-        mock_ds.shuffle.return_value = mock_ds
-        mock_ds.select.return_value = mock_ds
-        mock_load_ds.return_value = mock_ds
-
-        mock_pipe = MagicMock()
-        mock_pipe.tokenizer = MagicMock()
-        mock_pipe._preprocess_params = {}
-        mock_pipeline.return_value = mock_pipe
-
-        model = MagicMock()
-        model.config.label2id = None
-        model.io_config = {}
-
-        config = WinMLEvaluationConfig(
-            model_id="test/model",
-            task="question-answering",
-            dataset=DatasetConfig(path="squad"),
-        )
-
-        import logging
-
+    def test_logs_warning_without_shapes(self, caplog):
         with caplog.at_level(logging.WARNING):
-            WinMLQuestionAnsweringEvaluator(config, model)
+            make_evaluator()
 
         assert any("Could not determine sequence length" in msg for msg in caplog.messages)
+
+    def test_evaluate_accepts_compatibility_pipeline(self):
+        from evaluate.evaluator.question_answering import QuestionAnsweringEvaluator
+
+        from winml.modelkit.eval.base_evaluator import _ensure_evaluate_transformers_compat
+
+        ev = make_evaluator()
+
+        _ensure_evaluate_transformers_compat()
+        task_evaluator = QuestionAnsweringEvaluator(task="question-answering")
+        assert task_evaluator.prepare_pipeline(ev.pipe) is ev.pipe
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +124,10 @@ class TestCompute:
         mock_task_evaluator.is_squad_v2_format.return_value = False
         mock_task_evaluator.compute.return_value = {"exact_match": 80.0, "f1": 85.0}
 
-        with patch("evaluate.evaluator", return_value=mock_task_evaluator):
+        with patch(
+            "evaluate.evaluator.question_answering.QuestionAnsweringEvaluator",
+            return_value=mock_task_evaluator,
+        ):
             result = ev.compute()
 
         call_kwargs = mock_task_evaluator.compute.call_args[1]
@@ -218,7 +143,10 @@ class TestCompute:
         mock_task_evaluator.is_squad_v2_format.return_value = True
         mock_task_evaluator.compute.return_value = {"exact": 70.0, "f1": 75.0}
 
-        with patch("evaluate.evaluator", return_value=mock_task_evaluator):
+        with patch(
+            "evaluate.evaluator.question_answering.QuestionAnsweringEvaluator",
+            return_value=mock_task_evaluator,
+        ):
             ev.compute()
 
         call_kwargs = mock_task_evaluator.compute.call_args[1]
@@ -238,7 +166,10 @@ class TestCompute:
         mock_task_evaluator.is_squad_v2_format.return_value = False
         mock_task_evaluator.compute.return_value = {"exact_match": 80.0, "f1": 85.0}
 
-        with patch("evaluate.evaluator", return_value=mock_task_evaluator):
+        with patch(
+            "evaluate.evaluator.question_answering.QuestionAnsweringEvaluator",
+            return_value=mock_task_evaluator,
+        ):
             ev.compute()
 
         call_kwargs = mock_task_evaluator.compute.call_args[1]
@@ -249,17 +180,22 @@ class TestCompute:
 
     def test_label_col_default_derived_from_schema(self):
         """When label_column is not in columns_mapping, default is 'answers'."""
-        ev = make_evaluator(columns_mapping={
-            "question_column": "question",
-            "context_column": "context",
-            "id_column": "id",
-        })
+        ev = make_evaluator(
+            columns_mapping={
+                "question_column": "question",
+                "context_column": "context",
+                "id_column": "id",
+            }
+        )
 
         mock_task_evaluator = MagicMock()
         mock_task_evaluator.is_squad_v2_format.return_value = False
         mock_task_evaluator.compute.return_value = {"exact_match": 80.0, "f1": 85.0}
 
-        with patch("evaluate.evaluator", return_value=mock_task_evaluator):
+        with patch(
+            "evaluate.evaluator.question_answering.QuestionAnsweringEvaluator",
+            return_value=mock_task_evaluator,
+        ):
             ev.compute()
 
         # is_squad_v2_format should receive the default "answers"
@@ -276,8 +212,13 @@ class TestCompute:
 
         import logging
 
-        with caplog.at_level(logging.WARNING), \
-             patch("evaluate.evaluator", return_value=mock_task_evaluator):
+        with (
+            caplog.at_level(logging.WARNING),
+            patch(
+                "evaluate.evaluator.question_answering.QuestionAnsweringEvaluator",
+                return_value=mock_task_evaluator,
+            ),
+        ):
             result = ev.compute()
 
         call_kwargs = mock_task_evaluator.compute.call_args[1]
@@ -307,10 +248,12 @@ class TestModelForward:
         model._session = MagicMock()
         model._session.io_config = {"input_names": names}
         model._format_inputs = MagicMock(side_effect=lambda **kw: kw)
-        model._run_inference = MagicMock(return_value={
-            "start_logits": torch.tensor([[0.1, 0.9, 0.3]]),
-            "end_logits": torch.tensor([[0.2, 0.4, 0.8]]),
-        })
+        model._run_inference = MagicMock(
+            return_value={
+                "start_logits": torch.tensor([[0.1, 0.9, 0.3]]),
+                "end_logits": torch.tensor([[0.2, 0.4, 0.8]]),
+            }
+        )
         return model
 
     def test_returns_question_answering_output(self):

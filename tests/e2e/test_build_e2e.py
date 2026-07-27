@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import onnx
 import pytest
@@ -52,22 +52,15 @@ pytestmark = pytest.mark.e2e
 
 @pytest.fixture(autouse=True)
 def _mock_resolve_device():
-    """Mock hardware detection to avoid failures in test environments.
-
-    Also mocks the EP registry so the auto-EP-selection branch in
-    ``build`` never tries to touch a real WinML SDK install.
-    """
-    mock_registry = MagicMock()
-    mock_registry.is_ep_available.return_value = False
-
+    """Mock hardware detection to avoid failures in test environments."""
     with (
         patch(
-            "winml.modelkit.sysinfo.resolve_device",
-            return_value=("cpu", ["cpu"]),
+            "winml.modelkit.session.auto_detect_device",
+            return_value="cpu",
         ),
         patch(
-            "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",
-            return_value=mock_registry,
+            "winml.modelkit.sysinfo.hardware.get_available_devices",
+            return_value=["cpu"],
         ),
     ):
         yield

@@ -45,6 +45,10 @@ _CLI_COMMANDS = _discover_command_names()
 
 HEAVY_PREFIXES = ("torch", "transformers", "optimum", "diffusers", "sklearn")
 
+# Fixtures for TestCommandWithModel: paths that fail I/O without triggering imports.
+_FAKE_ONNX = "does-not-exist.onnx"
+_HF_MODEL = "microsoft/resnet-50"
+
 
 def _run_in_subprocess(code: str) -> subprocess.CompletedProcess[str]:
     """Run Python code in a fresh subprocess via a temp script approach."""
@@ -153,7 +157,6 @@ class TestModuleIsolation:
             "winml.modelkit.loader",
             "winml.modelkit.onnx",
             "winml.modelkit.optim",
-            "winml.modelkit.optracing",
             "winml.modelkit.quant",
             "winml.modelkit.session",
             "winml.modelkit.analyze",
@@ -409,12 +412,94 @@ class TestCommandHelp:
         assert_cli_no_heavy_imports(["inspect", "--list-tasks"])
 
 
-# Note: this file deliberately does NOT cover per-command runtime import
-# budgets (e.g., "winml compile --model X.onnx" not pulling torch). Those
-# tests would invoke handler bodies and cross from CLI-surface territory
-# into feature-pipeline territory. The init-time guarantees here cover:
-#   - importing winml.modelkit.* subpackages (TestModuleIsolation)
-#   - winml --help and winml <cmd> --help (TestCommandHelp)
-#   - lazy-import dict structure (TestLazyImportsDict)
-# If per-command runtime budgets become a concern, they belong in a
-# feature-test file with mocks at the dispatch boundary — not here.
+class TestCommandWithModel:
+    """Verify import budgets when commands are invoked with --model.
+
+    Commands that operate on ONNX files should NOT need torch/transformers.
+    Commands that operate on HF models legitimately need them.
+
+    We use a fake model path so commands fail at file I/O, but the import
+    chain is already established by that point.
+    """
+
+    @pytest.mark.parametrize(
+        ("cmd_args", "allowed"),
+        [
+            # ONNX-path commands — should NOT need torch/transformers
+            (
+                ["compile", "--model", _FAKE_ONNX, "-o", "o.onnx", "--ep", "qnn"],
+                (),
+            ),
+            (
+                ["quantize", "--model", _FAKE_ONNX, "-o", "o.onnx", "--ep", "qnn"],
+                (),
+            ),
+            (
+                ["optimize", "--model", _FAKE_ONNX, "-o", "o.onnx"],
+                ("torch", "torchgen"),  # ORT tools.__init__ pulls torch
+            ),
+            (
+                ["perf", "--model", _FAKE_ONNX],
+                (),
+            ),
+            (
+                ["static-analyzer", "check", "--model", _FAKE_ONNX, "--ep", "qnn"],
+                ("torch", "torchgen"),  # ORT tools.__init__ pulls torch
+            ),
+            # HF model commands — legitimately need heavy deps
+            (
+                ["inspect", "-m", _HF_MODEL],
+                (*HEAVY_PREFIXES, "torchgen", "torchvision"),
+            ),
+            (
+                ["config", "-m", _HF_MODEL, "--device", "npu", "--precision", "int8"],
+                (*HEAVY_PREFIXES, "torchgen", "torchvision"),
+            ),
+        ],
+        ids=[
+            "compile-onnx",
+            "quantize-onnx",
+            "optimize-onnx",
+            "perf-onnx",
+            "static-analyzer-onnx",
+            "inspect-hf",
+            "config-hf",
+        ],
+    )
+    def test_command_import_budget(self, cmd_args: list[str], allowed: tuple[str, ...]) -> None:
+        """Verify each command's import budget with --model."""
+        assert_cli_no_heavy_imports(cmd_args, allowed=allowed)
+
+
+# ===========================================================================
+# (D) Wall-clock guardrail — catches cumulative slowdown sys.modules misses
+# ===========================================================================
+
+
+class TestWallClock:
+    """A large batch of lightweight imports can degrade startup without any
+    single heavy module triggering a budget failure. This guardrail catches
+    that."""
+
+    def test_winml_help_under_8s(self) -> None:
+        """``winml --help`` in a fresh subprocess must complete in < 8s.
+
+        The ceiling includes Python cold-start (300-800 ms on Windows +
+        AV scanning on GitHub Actions shared runners), so 3s would be
+        flaky. 8s still catches the ~10s transformers regression this
+        test was written to guard against, with ~2s headroom.
+        """
+        import time
+
+        script = (
+            "from winml.modelkit.cli import main\n"
+            "try:\n"
+            "    main(['--help'], standalone_mode=False)\n"
+            "except SystemExit:\n"
+            "    pass\n"
+        )
+        t0 = time.perf_counter()
+        result = _run_in_subprocess(script)
+        elapsed = time.perf_counter() - t0
+        assert result.returncode == 0, f"exit {result.returncode}: {result.stderr}"
+        assert elapsed < 8.0, f"winml --help took {elapsed:.2f}s (limit 8.0s)"

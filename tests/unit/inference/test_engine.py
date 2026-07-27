@@ -17,8 +17,11 @@ Covers bug fixes and new features in the staged changes:
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from winml.modelkit.inference import (
     TASK_REGISTRY,
@@ -298,12 +301,80 @@ class TestPredictTaskOverride:
         assert result.task == "text-classification"
 
 
+class TestImageToTextInvocation:
+    @pytest.mark.parametrize(
+        ("inputs", "expected_text"),
+        [
+            ({"prompt": "Describe the image."}, "Describe the image."),
+            ({}, ""),
+        ],
+    )
+    def test_translates_registry_inputs_to_image_text_pipeline_arguments(
+        self,
+        inputs: dict[str, str],
+        expected_text: str,
+    ) -> None:
+        """Serve image-to-text inputs through the Transformers 5 call shape."""
+        from PIL import Image
+
+        engine = InferenceEngine()
+        engine._model = MagicMock()
+        engine._model._session._ep = "cpu"
+        engine._task = "image-to-text"
+        engine._user_input_schema = TASK_REGISTRY["image-to-text"].user_inputs
+        engine._pipeline_mapping = TASK_REGISTRY["image-to-text"].mapping
+        # Registry-bound text must not rely on pipeline parameter discovery.
+        engine._pipeline_params = []
+        image = Image.new("RGB", (1, 1))
+        received: dict[str, Any] = {}
+
+        def image_text_pipeline(*, images: Any, text: str) -> dict[str, str]:
+            received.update(images=images, text=text)
+            return {"generated_text": "caption"}
+
+        engine._pipeline = image_text_pipeline
+
+        engine.predict(inputs={"image": image, **inputs})
+
+        assert received == {"images": image, "text": expected_text}
+
+
 # ---------------------------------------------------------------------------
 # load_schema_only
 # ---------------------------------------------------------------------------
 
 
 class TestLoadForwardsAllowUnsupportedNodes:
+    def test_load_from_onnx_forwards_skip_build(self) -> None:
+        """``skip_build`` reaches WinMLAutoModel.from_onnx unchanged."""
+        engine = InferenceEngine()
+        captured: dict[str, Any] = {}
+        fake_model = MagicMock()
+
+        def _fake_from_onnx(onnx_path: Any, **kwargs: Any) -> MagicMock:
+            captured.update(kwargs)
+            return fake_model
+
+        with (
+            patch(
+                "winml.modelkit.inference.engine._resolve_ep_device",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "winml.modelkit.models.auto.WinMLAutoModel.from_onnx",
+                side_effect=_fake_from_onnx,
+            ),
+        ):
+            engine._load_from_onnx(
+                Path("some.onnx"),
+                task="text-classification",
+                device="cpu",
+                ep=None,
+                skip_build=False,
+            )
+
+        assert captured.get("skip_build") is False
+
     def test_load_from_hf_forwards_flag(self) -> None:
         """``allow_unsupported_nodes`` reaches WinMLAutoModel.from_pretrained."""
         engine = InferenceEngine()

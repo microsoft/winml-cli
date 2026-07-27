@@ -28,7 +28,7 @@ class TestValidateTaskSupportedForModel:
         mock_config.model_type = "resnet"
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=mock_config),
+            patch("winml.modelkit.loader.load_hf_config", return_value=mock_config),
             patch(
                 "winml.modelkit.loader.task.get_supported_tasks",
                 return_value=["image-classification", "image-feature-extraction"],
@@ -51,7 +51,7 @@ class TestValidateTaskSupportedForModel:
         mock_config.model_type = "resnet"
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=mock_config),
+            patch("winml.modelkit.loader.load_hf_config", return_value=mock_config),
             patch(
                 "winml.modelkit.loader.task.get_supported_tasks",
                 return_value=["image-classification", "image-feature-extraction"],
@@ -70,7 +70,7 @@ class TestValidateTaskSupportedForModel:
         mock_config.model_type = "resnet"
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=mock_config),
+            patch("winml.modelkit.loader.load_hf_config", return_value=mock_config),
             patch("winml.modelkit.export.io.ensure_hf_models_registered") as mock_ensure,
             patch(
                 "winml.modelkit.loader.task.get_supported_tasks",
@@ -93,7 +93,7 @@ class TestValidateTaskSupportedForModel:
         mock_config.model_type = "custom-model"
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=mock_config),
+            patch("winml.modelkit.loader.load_hf_config", return_value=mock_config),
             patch("winml.modelkit.export.io.ensure_hf_models_registered"),
             patch("winml.modelkit.loader.task.get_supported_tasks", return_value=[]),
         ):
@@ -109,7 +109,7 @@ class TestValidateTaskSupportedForModel:
         mock_config.model_type = "resnet"
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=mock_config),
+            patch("winml.modelkit.loader.load_hf_config", return_value=mock_config),
             patch(
                 "winml.modelkit.loader.task.get_supported_tasks",
                 return_value=["image-classification"],
@@ -139,7 +139,7 @@ class TestValidateTaskSupportedForModel:
         mock_config.model_type = "bert"
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=mock_config),
+            patch("winml.modelkit.loader.load_hf_config", return_value=mock_config),
             patch("winml.modelkit.export.io.ensure_hf_models_registered"),
             patch(
                 "winml.modelkit.loader.task.get_supported_tasks",
@@ -162,7 +162,7 @@ class TestValidateTaskSupportedForModel:
         mock_config.model_type = "sam"
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=mock_config),
+            patch("winml.modelkit.loader.load_hf_config", return_value=mock_config),
             patch("winml.modelkit.export.io.ensure_hf_models_registered"),
             patch(
                 "winml.modelkit.loader.task.get_supported_tasks",
@@ -182,7 +182,7 @@ class TestValidateTaskSupportedForModel:
         mock_config.model_type = "bert"
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=mock_config),
+            patch("winml.modelkit.loader.load_hf_config", return_value=mock_config),
             patch("winml.modelkit.export.io.ensure_hf_models_registered"),
             patch(
                 "winml.modelkit.loader.task.get_supported_tasks",
@@ -219,7 +219,7 @@ class TestValidateTaskSupportedForModel:
         mock_config.model_type = "bert"
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=mock_config),
+            patch("winml.modelkit.loader.load_hf_config", return_value=mock_config),
             patch("winml.modelkit.export.io.ensure_hf_models_registered"),
             patch(
                 "winml.modelkit.loader.task.get_supported_tasks",
@@ -227,9 +227,11 @@ class TestValidateTaskSupportedForModel:
             ),
             patch(
                 "winml.modelkit.loader.task.normalize_task",
-                side_effect=lambda t: "feature-extraction"
-                if t in {"image-feature-extraction", "feature-extraction"}
-                else t,
+                side_effect=lambda t: (
+                    "feature-extraction"
+                    if t in {"image-feature-extraction", "feature-extraction"}
+                    else t
+                ),
             ),
             caplog.at_level("WARNING", logger="winml.modelkit.commands.build"),
         ):
@@ -252,7 +254,7 @@ class TestValidateTaskSupportedForModel:
         mock_config.model_type = "resnet"
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=mock_config),
+            patch("winml.modelkit.loader.load_hf_config", return_value=mock_config),
             patch("winml.modelkit.export.io.ensure_hf_models_registered"),
             patch(
                 "winml.modelkit.loader.task.get_supported_tasks",
@@ -275,7 +277,7 @@ class TestValidateTaskSupportedForModel:
         mock_config.model_type = "vit"
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=mock_config),
+            patch("winml.modelkit.loader.load_hf_config", return_value=mock_config),
             patch("winml.modelkit.export.io.ensure_hf_models_registered"),
             patch(
                 "winml.modelkit.loader.task.get_supported_tasks",
