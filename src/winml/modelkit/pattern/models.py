@@ -8,12 +8,12 @@ These pure Pydantic data models are shared between modelkit.pattern and
 modelkit.analyze.
 """
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
 
 
-class PatternType(str, Enum):
+class PatternType(StrEnum):
     """Pattern type enum."""
 
     OPERATOR = "operator"

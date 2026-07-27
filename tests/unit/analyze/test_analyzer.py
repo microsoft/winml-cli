@@ -947,6 +947,67 @@ class TestONNXStaticAnalyzer:
         # Verify RuntimeChecker was called once
         assert mock_runtime_checker_cls.call_count == 1
 
+    def test_analyze_from_proto_resolves_auto_device_for_pinned_ep(self) -> None:
+        from winml.modelkit.session import EPDeviceTarget
+
+        resolved = EPDeviceTarget(ep="OpenVINOExecutionProvider", device="gpu")
+        with (
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=resolved,
+            ) as mock_resolve,
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="npu",
+            ) as mock_global_auto,
+            patch(
+                "winml.modelkit.analyze.core.onnx_loader.ONNXLoader",
+                side_effect=RuntimeError("stop after target resolution"),
+            ),
+            pytest.raises(RuntimeError, match="stop after target resolution"),
+        ):
+            ONNXStaticAnalyzer().analyze_from_proto(
+                model_proto=MagicMock(spec=onnx.ModelProto),
+                ep="openvino",
+                device="auto",
+                enable_information=False,
+            )
+
+        mock_resolve.assert_called_once_with(
+            EPDeviceTarget(ep="OpenVINOExecutionProvider", device="auto")
+        )
+        mock_global_auto.assert_not_called()
+
+    def test_analyze_from_proto_keeps_unpinned_auto_device_offline(self) -> None:
+        from winml.modelkit.session import EPDeviceTarget
+
+        resolved = EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
+        with (
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=resolved,
+            ) as mock_resolve,
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="cpu",
+            ) as mock_global_auto,
+            patch(
+                "winml.modelkit.analyze.core.onnx_loader.ONNXLoader",
+                side_effect=RuntimeError("stop after target resolution"),
+            ),
+            pytest.raises(RuntimeError, match="stop after target resolution"),
+        ):
+            ONNXStaticAnalyzer().analyze_from_proto(
+                model_proto=MagicMock(spec=onnx.ModelProto),
+                ep=None,
+                device="auto",
+                enable_information=False,
+                run_unknown_op=False,
+            )
+
+        mock_global_auto.assert_called_once_with()
+        mock_resolve.assert_not_called()
+
     @patch("winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep", return_value=True)
     @patch("winml.modelkit.analyze.core.onnx_loader.ONNXLoader")
     @patch("winml.modelkit.analyze.core.pattern_extractor.PatternExtractor")

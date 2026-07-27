@@ -16,11 +16,13 @@ import os
 import queue
 import sys
 import time
+import types
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from winml.modelkit.ep_path import BuiltinSource, EPEntry, PyPISource
 from winml.modelkit.session import (
     GenaiLoadError,
     GenaiNotInstalledError,
@@ -190,6 +192,39 @@ def _patch_og(mock: MagicMock):
     return patch.dict(sys.modules, {"onnxruntime_genai": mock})
 
 
+def _fake_og_module() -> tuple[types.ModuleType, list[tuple[str, str]]]:
+    """Build a GenAI module fake with the real EP-registration contract."""
+    registered: list[tuple[str, str]] = []
+    og = types.ModuleType("onnxruntime_genai")
+    og.register_execution_provider_library = lambda name, path: registered.append((name, path))
+    og.Config = MagicMock()
+    og.Model = MagicMock()
+    og.Tokenizer = MagicMock()
+    return og, registered
+
+
+def _plugin_entry(ep_name: str, dll: str) -> EPEntry:
+    """Create a discovered plugin entry for GenAI registration tests."""
+    return EPEntry(
+        ep_name=ep_name,
+        dll_path=Path(dll),
+        source=PyPISource(
+            distribution=f"fake-{ep_name}",
+            relative_dll=Path(dll).name,
+            eps=(ep_name,),
+        ),
+    )
+
+
+def _builtin_entry(ep_name: str) -> EPEntry:
+    """Create a built-in discovered entry for GenAI registration tests."""
+    return EPEntry(
+        ep_name=ep_name,
+        dll_path=Path(),
+        source=BuiltinSource(eps=(ep_name,)),
+    )
+
+
 def _clock_from(values: list[float]):
     """Return a clock callable that yields ``values`` in order (one per call)."""
     it = iter(values)
@@ -345,6 +380,12 @@ class TestGenaiSessionLoad:
 
 
 class TestEPRegistration:
+    @staticmethod
+    def _reset_process_registration_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+        import winml.modelkit.session.genai_session as genai_session
+
+        monkeypatch.setattr(genai_session, "_GENAI_REGISTERED_PATHS", set())
+
     def test_cpu_skips_winml_registration(self, bundle_dir: Path, mock_og: MagicMock) -> None:
         with (
             _patch_og(mock_og),
@@ -355,23 +396,156 @@ class TestEPRegistration:
         mock_reg_cls.assert_not_called()
 
     def test_hardware_ep_bundle_registers_winml_eps(
-        self, bundle_dir_with_pipeline: Path, mock_og: MagicMock
+        self, bundle_dir_with_pipeline: Path, fresh_registry, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        mock_registry = MagicMock()
-        mock_registry.winml_available = True
-        mock_registry.register_execution_providers.return_value = {
-            "onnxruntime_genai": ["QNNExecutionProvider"]
-        }
-        with (
-            _patch_og(mock_og),
-            patch("winml.modelkit.session.genai_session.WinMLEPRegistry") as mock_reg_cls,
-        ):
-            mock_reg_cls.get_instance.return_value = mock_registry
-            # ep defaults to None (respect config); registration is driven by
-            # the bundle config, which routes the ctx/iter stages to QNN.
+        """Bundle routing uses the registry discovery contract and GenAI API."""
+        self._reset_process_registration_cache(monkeypatch)
+        fresh_registry._discovered = [_plugin_entry("QNNExecutionProvider", "C:/fake/qnn.dll")]
+        og, registered = _fake_og_module()
+        with _patch_og(og):
             session = GenaiSession(bundle_dir_with_pipeline)
             session.load()
-        mock_registry.register_execution_providers.assert_called_once_with(ort_genai=True)
+        assert registered == [("QNNExecutionProvider", "C:\\fake\\qnn.dll")]
+
+    def test_hardware_ep_bundle_registers_only_required_ep_idempotently(
+        self, bundle_dir_with_pipeline: Path, fresh_registry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """GenAI uses its actual registration API and skips repeat loads."""
+        self._reset_process_registration_cache(monkeypatch)
+        qnn_entry = _plugin_entry("QNNExecutionProvider", "C:/fake/qnn.dll")
+        openvino_entry = _plugin_entry("OpenVINOExecutionProvider", "C:/fake/openvino.dll")
+        fresh_registry._discovered = [qnn_entry, openvino_entry]
+        og, registered = _fake_og_module()
+
+        with _patch_og(og):
+            session = GenaiSession(bundle_dir_with_pipeline)
+            session.load()
+            session.unload()
+            session.load()
+
+        assert registered == [("QNNExecutionProvider", "C:\\fake\\qnn.dll")]
+
+    def test_hardware_ep_bundle_skips_matching_builtin_entry(
+        self, bundle_dir_with_pipeline: Path, fresh_registry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Built-in entries are ignored even when they match the effective EP."""
+        self._reset_process_registration_cache(monkeypatch)
+        builtin_qnn = _builtin_entry("QNNExecutionProvider")
+        plugin_qnn = _plugin_entry("QNNExecutionProvider", "C:/fake/qnn.dll")
+        fresh_registry._discovered = [builtin_qnn, plugin_qnn]
+        og, registered = _fake_og_module()
+
+        with _patch_og(og):
+            session = GenaiSession(bundle_dir_with_pipeline)
+            session.load()
+
+        assert registered == [("QNNExecutionProvider", "C:\\fake\\qnn.dll")]
+
+    def test_two_sessions_register_a_plugin_once_process_wide(
+        self, bundle_dir_with_pipeline: Path, fresh_registry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Successful native registration is shared by independent GenAI sessions."""
+        self._reset_process_registration_cache(monkeypatch)
+        fresh_registry._discovered = [_plugin_entry("QNNExecutionProvider", "C:/fake/qnn.dll")]
+        og, registered = _fake_og_module()
+
+        with _patch_og(og):
+            GenaiSession(bundle_dir_with_pipeline).load()
+            GenaiSession(bundle_dir_with_pipeline).load()
+
+        assert registered == [("QNNExecutionProvider", "C:\\fake\\qnn.dll")]
+
+    def test_registration_ignores_shadowed_discovery_entry(
+        self, bundle_dir_with_pipeline: Path, fresh_registry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only the discovery winner is passed to ORT GenAI registration."""
+        from dataclasses import replace
+
+        self._reset_process_registration_cache(monkeypatch)
+        primary = _plugin_entry("QNNExecutionProvider", "C:/fake/primary-qnn.dll")
+        shadowed = replace(
+            _plugin_entry("QNNExecutionProvider", "C:/fake/shadowed-qnn.dll"),
+            status="shadowed",
+        )
+        fresh_registry._discovered = [primary, shadowed]
+        og, registered = _fake_og_module()
+
+        with _patch_og(og):
+            GenaiSession(bundle_dir_with_pipeline).load()
+
+        assert registered == [("QNNExecutionProvider", "C:\\fake\\primary-qnn.dll")]
+
+    def test_multi_stage_bundle_registers_each_unique_plugin_in_config_order(
+        self, bundle_dir_with_pipeline: Path, fresh_registry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """All unique plugin EPs used by pipeline stages register before model load."""
+        self._reset_process_registration_cache(monkeypatch)
+        config_path = bundle_dir_with_pipeline / "genai_config.json"
+        cfg = json.loads(config_path.read_text(encoding="utf-8"))
+        pipeline = cfg["model"]["decoder"]["pipeline"]
+        pipeline.append(
+            {
+                "third": {
+                    "filename": "third.onnx",
+                    "session_options": {"provider_options": [{"openvino": {}}, {"qnn": {}}]},
+                }
+            }
+        )
+        config_path.write_text(json.dumps(cfg), encoding="utf-8")
+        fresh_registry._discovered = [
+            _plugin_entry("QNNExecutionProvider", "C:/fake/qnn.dll"),
+            _plugin_entry("OpenVINOExecutionProvider", "C:/fake/openvino.dll"),
+        ]
+        og, registered = _fake_og_module()
+
+        with _patch_og(og):
+            GenaiSession(bundle_dir_with_pipeline).load()
+
+        assert registered == [
+            ("QNNExecutionProvider", "C:\\fake\\qnn.dll"),
+            ("OpenVINOExecutionProvider", "C:\\fake\\openvino.dll"),
+        ]
+
+    def test_failed_registration_logs_and_is_retried(
+        self,
+        bundle_dir_with_pipeline: Path,
+        fresh_registry,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Failed GenAI registrations are logged and not cached as successes."""
+        self._reset_process_registration_cache(monkeypatch)
+        qnn_entry = _plugin_entry("QNNExecutionProvider", "C:/fake/qnn.dll")
+        fresh_registry._discovered = [qnn_entry]
+
+        attempts: list[tuple[str, str]] = []
+        og = types.ModuleType("onnxruntime_genai")
+
+        def _fail(name: str, path: str) -> None:
+            attempts.append((name, path))
+            raise RuntimeError("boom")
+
+        og.register_execution_provider_library = _fail
+        og.Config = MagicMock()
+        og.Model = MagicMock()
+        og.Tokenizer = MagicMock()
+
+        with _patch_og(og), caplog.at_level(logging.WARNING):
+            session = GenaiSession(bundle_dir_with_pipeline)
+            session.load()
+            session.unload()
+            session.load()
+
+        assert attempts == [
+            ("QNNExecutionProvider", "C:\\fake\\qnn.dll"),
+            ("QNNExecutionProvider", "C:\\fake\\qnn.dll"),
+        ]
+        import winml.modelkit.session.genai_session as genai_session
+
+        assert Path("C:/fake/qnn.dll") not in genai_session._GENAI_REGISTERED_PATHS
+        assert (
+            "Failed to register QNNExecutionProvider with ORT GenAI from C:\\fake\\qnn.dll: boom"
+        ) in caplog.text
 
     def test_force_hardware_ep_on_cpu_bundle_skips_registration(
         self,
@@ -394,24 +568,17 @@ class TestEPRegistration:
         assert "did not take effect" in caplog.text
 
     def test_force_hardware_ep_reroutes_hardware_stage_registers(
-        self, bundle_dir_dml_pipeline: Path, mock_og: MagicMock
+        self, bundle_dir_dml_pipeline: Path, fresh_registry
     ) -> None:
         # Forcing QNN onto a bundle whose context stage runs on DML re-routes that
         # hardware stage to QNN (the CPU embeddings stage is left alone), so the
         # effective config now needs WinML EP registration.
-        mock_registry = MagicMock()
-        mock_registry.winml_available = True
-        mock_registry.register_execution_providers.return_value = {
-            "onnxruntime_genai": ["QNNExecutionProvider"]
-        }
-        with (
-            _patch_og(mock_og),
-            patch("winml.modelkit.session.genai_session.WinMLEPRegistry") as mock_reg_cls,
-        ):
-            mock_reg_cls.get_instance.return_value = mock_registry
+        fresh_registry._discovered = [_plugin_entry("QNNExecutionProvider", "C:/fake/qnn.dll")]
+        og, registered = _fake_og_module()
+        with _patch_og(og):
             session = GenaiSession(bundle_dir_dml_pipeline, ep="qnn")
             session.load()
-        mock_registry.register_execution_providers.assert_called_once_with(ort_genai=True)
+        assert registered == [("QNNExecutionProvider", "C:\\fake\\qnn.dll")]
         assert session.effective_ep == "qnn"
 
     def test_force_cpu_on_hardware_bundle_skips_registration(
@@ -1207,7 +1374,9 @@ class TestCompileStageSalvage:
         onnx.save(model, str(path))
 
     @staticmethod
-    def _make_multipartition_epcontext(path: Path, bin_name: str) -> None:
+    def _make_multipartition_epcontext(
+        path: Path, bin_name: str, secondary_bin_name: str | None = None
+    ) -> None:
         """Code-generate a QNN-style multi-partition EPContext model.
 
         One ``main_context=1`` node carries the external ``.bin`` reference for
@@ -1228,14 +1397,16 @@ class TestCompileStageSalvage:
             ep_cache_context=bin_name,
             main_context=1,
         )
+        secondary_attrs: dict[str, int | str] = {"embed_mode": 0, "main_context": 0}
+        if secondary_bin_name is not None:
+            secondary_attrs["ep_cache_context"] = secondary_bin_name
         secondary = helper.make_node(
             "EPContext",
             inputs=[],
             outputs=["secondary_out"],
             name="ep_context_secondary",
             domain="com.microsoft",
-            embed_mode=0,
-            main_context=0,
+            **secondary_attrs,
         )
         main_info = helper.make_tensor_value_info("main_out", TensorProto.FLOAT, [1, 4])
         secondary_info = helper.make_tensor_value_info("secondary_out", TensorProto.FLOAT, [1, 4])
@@ -1529,6 +1700,70 @@ class TestCompileStageSalvage:
         def _write() -> None:
             # Multi-partition graph, but the main context's .bin is never written.
             self._make_multipartition_epcontext(auto_onnx, "ctx_auto_ctx_qnn.bin")
+
+        with patch(
+            "multiprocessing.get_context", return_value=self._crash_context(on_start=_write)
+        ):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is False
+        assert not ctx_out.exists()
+
+    def test_salvages_explicit_secondary_epcontext_sidecar(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """An explicit secondary cache reference is moved with the main sidecar."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+
+        auto_onnx = bundle_dir_with_pipeline / "ctx_auto_ctx.onnx"
+        main_bin = bundle_dir_with_pipeline / "ctx_auto_ctx_qnn.bin"
+        secondary_bin = bundle_dir_with_pipeline / "secondary_partition.bin"
+
+        def _write() -> None:
+            main_bin.write_bytes(b"main weights")
+            secondary_bin.write_bytes(b"secondary weights")
+            self._make_multipartition_epcontext(
+                auto_onnx,
+                main_bin.name,
+                secondary_bin.name,
+            )
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
+
+        with patch(
+            "multiprocessing.get_context", return_value=self._crash_context(on_start=_write)
+        ):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is True
+        assert (compiled_dir / main_bin.name).read_bytes() == b"main weights"
+        assert (compiled_dir / secondary_bin.name).read_bytes() == b"secondary weights"
+        assert not secondary_bin.exists()
+
+    def test_rejects_missing_explicit_secondary_epcontext_sidecar(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """A declared secondary cache reference must resolve before salvage."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+
+        auto_onnx = bundle_dir_with_pipeline / "ctx_auto_ctx.onnx"
+        main_bin = bundle_dir_with_pipeline / "ctx_auto_ctx_qnn.bin"
+
+        def _write() -> None:
+            main_bin.write_bytes(b"main weights")
+            self._make_multipartition_epcontext(
+                auto_onnx,
+                main_bin.name,
+                "missing_secondary.bin",
+            )
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
 
         with patch(
             "multiprocessing.get_context", return_value=self._crash_context(on_start=_write)
@@ -1905,7 +2140,7 @@ class TestLoadCompileIsolation:
         in_process = MagicMock()
         monkeypatch.setattr(session, "_prepare_derived_bundle_isolated", isolated)
         monkeypatch.setattr(session, "_prepare_derived_bundle", in_process)
-        monkeypatch.setattr(session, "_register_eps", lambda: None)
+        monkeypatch.setattr(session, "_register_eps", lambda *_: None)
 
         with _patch_og(mock_og):
             session.load()
@@ -1924,7 +2159,7 @@ class TestLoadCompileIsolation:
         in_process = MagicMock(return_value=compiled)
         monkeypatch.setattr(session, "_prepare_derived_bundle_isolated", isolated)
         monkeypatch.setattr(session, "_prepare_derived_bundle", in_process)
-        monkeypatch.setattr(session, "_register_eps", lambda: None)
+        monkeypatch.setattr(session, "_register_eps", lambda *_: None)
 
         with _patch_og(mock_og):
             session.load()

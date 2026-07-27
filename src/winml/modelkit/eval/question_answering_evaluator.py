@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
-from .base_evaluator import WinMLEvaluator
+from .base_evaluator import WinMLEvaluator, _ensure_evaluate_transformers_compat
 
 
 if TYPE_CHECKING:
@@ -70,10 +70,11 @@ class WinMLQuestionAnsweringEvaluator(WinMLEvaluator):
         QuestionAnsweringEvaluator.  Works with both SQuAD v1 (100 samples
         default) and v2 datasets — metric selection is automatic.
         """
-        from evaluate import evaluator
+        _ensure_evaluate_transformers_compat()
+        from evaluate.evaluator.question_answering import QuestionAnsweringEvaluator
 
         logger.info("Running evaluation...")
-        task_evaluator = evaluator(self.config.task)
+        task_evaluator = QuestionAnsweringEvaluator(task=self.config.task)
 
         from ..utils.eval_utils import get_default
 
@@ -81,9 +82,7 @@ class WinMLQuestionAnsweringEvaluator(WinMLEvaluator):
         label_col = mapping.get("label_column", get_default("question-answering", "label_column"))
 
         try:
-            squad_v2 = task_evaluator.is_squad_v2_format(
-                self.data, label_column=label_col
-            )
+            squad_v2 = task_evaluator.is_squad_v2_format(self.data, label_column=label_col)
         except Exception:
             logger.warning(
                 "Could not detect SQuAD v2 format for column '%s'; defaulting to v1.",

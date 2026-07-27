@@ -108,7 +108,7 @@ def test_seq2seq_pipeline_and_export_tasks_resolve_identically(task: str) -> Non
 
 def test_resolver_expands_generation_checkpoint() -> None:
     cfg = T5Config(architectures=["T5ForConditionalGeneration"])
-    with patch("transformers.AutoConfig.from_pretrained", return_value=cfg):
+    with patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=cfg):
         components = _resolve("some/t5-checkpoint", None, None)
     assert components is not None
     assert "encoder" in components and "decoder" in components
@@ -118,7 +118,7 @@ def test_resolver_keeps_classification_checkpoint_single() -> None:
     """The bug this guards: a sequence-classification BART must stay
     text-classification (resolve to no composite) -- matching inspect."""
     cfg = BartConfig(architectures=["BartForSequenceClassification"])
-    with patch("transformers.AutoConfig.from_pretrained", return_value=cfg):
+    with patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=cfg):
         assert _resolve("facebook/bart-large-mnli", None, None) is None
 
 
@@ -126,7 +126,7 @@ def test_resolver_expands_decoder_only_checkpoint() -> None:
     """A no-task decoder-only checkpoint (qwen3) routes to its prefill+gen composite,
     matching explicit ``--task text-generation``."""
     cfg = Qwen3Config(architectures=["Qwen3ForCausalLM"])
-    with patch("transformers.AutoConfig.from_pretrained", return_value=cfg):
+    with patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=cfg):
         components = _resolve("some/qwen3-checkpoint", None, None)
     assert components is not None
     assert "decoder_prefill" in components and "decoder_gen" in components

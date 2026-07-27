@@ -23,10 +23,10 @@ def pad_inputs(
     expected: Mapping[str, Sequence[int | str | None]],
     mode: Literal["left", "right"] = "right",
 ) -> dict[str, Any]:
-    """Filter *source* to keys in *expected* and pad undersized tensors.
+    """Filter *source* to keys in *expected* and fit tensors to static shapes.
 
     For each name in *expected*, if *source* has a tensor for it, pad any
-    dimension smaller than the ONNX expected shape (skips batch dim).
+    dimension smaller than the ONNX expected shape (skips batch dim). When
     Non-tensor values are passed through. Missing names are skipped.
 
     Args:
@@ -47,7 +47,6 @@ def pad_inputs(
         if val is None:
             continue
         if isinstance(val, torch.Tensor):
-            # TODO: support dynamic shape ONNX models (None in expected_shape)
             ndim = min(len(val.shape), len(expected_shape))
             # torch.nn.functional.pad takes pairs (low, high) from the LAST
             # dim backwards. Skip batch dim (dim 0).
