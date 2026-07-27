@@ -2,7 +2,6 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-# ruff: noqa: PERF203
 # PERF203: try-except in loop is acceptable for writer error isolation
 
 """HTP Export Monitor - Restored IO/ABC Design.
@@ -23,6 +22,8 @@ from .console_writer import ConsoleWriter
 from .markdown_report_writer import MarkdownReportWriter
 from .metadata_writer import MetadataWriter
 from .step_data import (
+    HIERARCHY_SOURCE_ONNX_METADATA,
+    HIERARCHY_SOURCE_TRACE,
     HierarchyData,
     InputGenData,
     ModelPrepData,
@@ -117,7 +118,7 @@ class HTPExportMonitor:
         for writer in self.writers:
             try:
                 writer.write(step, self.data)
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203
                 print(f"Error in {writer.__class__.__name__}: {e}")
 
     def _update_step_data(self, step: ExportStep, kwargs: dict) -> None:
@@ -162,7 +163,8 @@ class HTPExportMonitor:
 
             self.data.hierarchy = HierarchyData(
                 hierarchy=hierarchy,
-                execution_steps=kwargs.get("execution_steps", 0),
+                execution_steps=kwargs.get("execution_steps"),
+                source=kwargs.get("source", HIERARCHY_SOURCE_TRACE),
                 module_list=kwargs.get("module_list", []),
             )
 
@@ -210,8 +212,15 @@ class HTPExportMonitor:
         console.print("📊 Export Summary:")
         console.print(f"   • Total time: [bold cyan]{total_time:.2f}s[/bold cyan]")
         console.print(f"   • Hierarchy modules: [bold cyan]{total_modules}[/bold cyan]")
+        # "Traced" only fits the TorchScript path; the dynamo path recovers modules
+        # from ONNX metadata, so label the count by how it was actually obtained.
+        modules_label = (
+            "Recovered modules"
+            if self.data.hierarchy and self.data.hierarchy.source == HIERARCHY_SOURCE_ONNX_METADATA
+            else "Traced modules"
+        )
         console.print(
-            f"   • Traced modules: [bold cyan]{traced_modules}/{total_modules}[/bold cyan]"
+            f"   • {modules_label}: [bold cyan]{traced_modules}/{total_modules}[/bold cyan]"
         )
         console.print(f"   • ONNX nodes: [bold cyan]{nodes}[/bold cyan]")
         console.print(
@@ -250,7 +259,7 @@ class HTPExportMonitor:
             for writer in self.writers:
                 try:
                     writer.close()
-                except Exception as e:
+                except Exception as e:  # noqa: PERF203
                     print(f"Error closing {writer.__class__.__name__}: {e}")
         else:
             # Error - still try to close writers

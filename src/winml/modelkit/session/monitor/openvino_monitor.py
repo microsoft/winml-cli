@@ -2,12 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""OpenVinoMonitor - Placeholder for future Intel OpenVINO-specific NPU monitoring.
-
-For real-time NPU utilization monitoring with OpenVINO EP, use HWMonitor
-(universal PDH-based). This module is reserved for future Intel-specific
-telemetry.
-"""
+"""Placeholder OpenVINO monitor retained for public compatibility."""
 
 from __future__ import annotations
 
@@ -17,18 +12,13 @@ from .ep_monitor import EPMonitor
 
 
 if TYPE_CHECKING:
-    from typing_extensions import Self
+    from typing import Self
 
 
 class OpenVinoMonitor(EPMonitor):
-    """Placeholder for future Intel OpenVINO-specific NPU monitoring.
-
-    For real-time NPU utilization monitoring with OpenVINO EP,
-    use ``HWMonitor`` (universal PDH-based).
-    """
+    """Placeholder for future Intel OpenVINO-specific NPU monitoring."""
 
     def __enter__(self) -> Self:
-        """No-op: no Intel-specific monitoring yet."""
         return self
 
     def __exit__(
@@ -37,13 +27,13 @@ class OpenVinoMonitor(EPMonitor):
         exc_val: BaseException | None,
         exc_tb: Any,
     ) -> None:
-        """No-op: no cleanup needed."""
+        return None
 
     @classmethod
     def is_available(cls) -> bool:
-        """No Intel-specific telemetry available yet."""
+        """Return ``False`` until a real OpenVINO-specific monitor exists."""
         return False
 
     def to_dict(self) -> dict[str, Any]:
-        """Stub dict indicating not-implemented status."""
+        """Return the legacy placeholder payload expected by downstream callers."""
         return {"ep": "OpenVINO", "device": "NPU", "status": "not_implemented"}

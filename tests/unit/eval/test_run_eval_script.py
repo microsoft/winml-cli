@@ -35,6 +35,13 @@ def _load_run_eval():
     if scripts_dir not in sys.path:
         sys.path.insert(0, scripts_dir)
 
+    # Purge any partially-loaded ``utils`` module cached by a sibling test.
+    # In full-suite runs, another test may have loaded a *different* top-level
+    # ``utils`` and cached it in sys.modules, shadowing the ``scripts/e2e_eval/utils``
+    # package we want here. Clearing forces a fresh package resolution.
+    for name in [k for k in sys.modules if k == "utils" or k.startswith("utils.")]:
+        del sys.modules[name]
+
     spec = importlib.util.spec_from_file_location("_e2e_run_eval", script_path)
     mod = importlib.util.module_from_spec(spec)
     # Register before exec_module so module-level @dataclass definitions can

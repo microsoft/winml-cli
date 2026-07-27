@@ -66,6 +66,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
 }
 
 
+
 def __getattr__(name: str) -> Any:
     """Lazy-load detection module to avoid circular import with compiler."""
     if name in _LAZY_IMPORTS:

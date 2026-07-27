@@ -14,9 +14,70 @@ Windows host or a real wheel.
 
 from __future__ import annotations
 
+import logging
+import os
 import sys
 import types
+import warnings
 from unittest import mock
+
+import pytest
+
+
+_MISSING = object()
+_MODELKIT_LOGGERS = (
+    "diffusers.utils.import_utils",
+    "transformers.pipelines.base",
+    "transformers.models.auto.image_processing_auto",
+)
+_MODELKIT_ENV_VARS = ("TOKENIZERS_PARALLELISM", "HF_HUB_DISABLE_PROGRESS_BARS")
+
+
+@pytest.fixture(autouse=True)
+def _restore_modelkit_import_state():
+    """Keep forced package reimports from leaking into the rest of the suite."""
+    original_modules = {
+        name: module
+        for name, module in sys.modules.items()
+        if name == "winml.modelkit" or name.startswith("winml.modelkit.")
+    }
+    original_meta_path = list(sys.meta_path)
+    original_warning_filters = list(warnings.filters)
+    original_logger_filters = {
+        name: list(logging.getLogger(name).filters) for name in _MODELKIT_LOGGERS
+    }
+    original_environment = {name: os.environ.get(name, _MISSING) for name in _MODELKIT_ENV_VARS}
+    original_winml = sys.modules.get("winml")
+    original_modelkit_attr = (
+        getattr(original_winml, "modelkit", _MISSING) if original_winml is not None else _MISSING
+    )
+
+    yield
+
+    for name in [
+        module_name
+        for module_name in sys.modules
+        if module_name == "winml.modelkit" or module_name.startswith("winml.modelkit.")
+    ]:
+        sys.modules.pop(name, None)
+    sys.modules.update(original_modules)
+    sys.meta_path[:] = original_meta_path
+    warnings.filters[:] = original_warning_filters
+    for name, filters in original_logger_filters.items():
+        logging.getLogger(name).filters[:] = filters
+    for name, value in original_environment.items():
+        if value is _MISSING:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
+
+    if original_winml is None:
+        sys.modules.pop("winml", None)
+    elif original_modelkit_attr is _MISSING:
+        if hasattr(original_winml, "modelkit"):
+            delattr(original_winml, "modelkit")
+    else:
+        original_winml.modelkit = original_modelkit_attr
 
 
 def _reimport_modelkit():
