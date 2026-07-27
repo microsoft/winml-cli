@@ -9,8 +9,8 @@ discovery logic against synthetic ``_FakePackage`` / fake catalog objects.
 That covers the implementation but cannot detect breakage at the WinRT
 binding boundary (e.g., shape changes when the wasdk MSIX is upgraded).
 
-These integration tests run only on Windows with the ``[winml-catalog]``
-extra installed. They are minimal smoke checks: confirm the binding
+These integration tests run only on Windows with the required ``windowsml``
+package installed. They are minimal smoke checks: confirm the binding
 loads, the call returns the expected shape, and at least one realistic
 MSIX EP package is reachable on a developer machine. They do NOT assert
 on specific package versions.
@@ -40,7 +40,7 @@ def test_pkg_manager_returns_handle() -> None:
     if pm is None:
         pytest.skip(
             "winrt-Windows.Management.Deployment binding not installed "
-            "(install via the [winml-catalog] extra)"
+            "(install the winrt optional dependency)"
         )
     assert hasattr(pm, "find_packages_by_user_security_id")
 
@@ -51,9 +51,7 @@ def test_list_msix_eps_returns_list() -> None:
 
     _get_pkg_manager.cache_clear()
     if _get_pkg_manager() is None:
-        pytest.skip(
-            "WinRT PackageManager unavailable; install via [winml-catalog]"
-        )
+        pytest.skip("WinRT PackageManager unavailable; install the winrt optional dependency")
 
     results = _list_msix_eps()
     assert isinstance(results, list)
@@ -66,18 +64,15 @@ def test_list_msix_eps_returns_list() -> None:
 
 
 def test_winml_catalog_find_all_providers_works() -> None:
-    """`_get_catalog()` returns a usable catalog or None (binding missing)."""
+    """The required windowsml package exposes the live EP catalog."""
     from winml.modelkit.ep_path import _get_catalog
 
     _get_catalog.cache_clear()
     catalog = _get_catalog()
-    if catalog is None:
-        pytest.skip(
-            "WinAppSDK ML binding unavailable; install via [winml-catalog]"
-        )
+    assert catalog is not None
     providers = list(catalog.find_all_providers())
-    # Shape-only check: each provider has the expected attribute surface.
     for provider in providers:
         assert hasattr(provider, "name")
         assert hasattr(provider, "ready_state")
         assert hasattr(provider, "library_path")
+        assert hasattr(provider, "ensure_ready")
