@@ -203,9 +203,7 @@ class TestResolveGenaiEp:
             "resolve_device",
             lambda _target: EPDeviceTarget(ep="auto", device=resolved_device),
         )
-        monkeypatch.setattr(
-            session, "available_eps_for_device", lambda _device: list(eps)
-        )
+        monkeypatch.setattr(session, "available_eps_for_device", lambda _device: list(eps))
         assert resolve_genai_ep(device) == expected
 
     def test_no_available_ep_returns_none(self, monkeypatch) -> None:
@@ -736,6 +734,32 @@ class TestCliDispatch:
         result = runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai", "--ep", "qnn"])
         assert result.exit_code == 0, result.output
         assert "--ep" not in result.output
+
+    def test_duration_op_tracing_conflict_not_fatal_for_genai(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        # The --duration + --op-tracing conflict is a WinML-path constraint. For
+        # winml-genai both flags are ignored (non-fatal), so passing both must
+        # warn and continue rather than aborting with the conflict UsageError.
+        bundle = _make_bundle(tmp_path)
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(bundle),
+                "--runtime",
+                "winml-genai",
+                "--duration",
+                "5",
+                "--op-tracing",
+                "basic",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "not valid with --op-tracing" not in result.output
+        # Both stay non-fatal ignored options for genai.
+        assert "--duration" in result.output
+        assert "--op-tracing" in result.output
 
     def test_genai_iteration_defaults(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict

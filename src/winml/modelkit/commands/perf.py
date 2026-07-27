@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import sys
 import time
 from dataclasses import dataclass, field, replace
@@ -2394,6 +2395,21 @@ def _resolve_composite_components_for_perf(model: str, task: str | None) -> dict
         raise click.ClickException(f"Composite model detection failed unexpectedly: {e}") from e
 
 
+def _validate_duration(
+    ctx: click.Context, param: click.Parameter, value: float | None
+) -> float | None:
+    """Reject non-finite ``--duration`` values.
+
+    ``click.FloatRange`` lets ``nan``/``inf`` through because ``nan <= 0`` and
+    ``inf <= 0`` are both false, but such a budget never terminates the timed
+    loop (``elapsed >= nan`` is always false; ``inf`` runs unbounded). Require a
+    finite number of seconds.
+    """
+    if value is not None and not math.isfinite(value):
+        raise click.BadParameter("must be a finite number of seconds.", ctx=ctx, param=param)
+    return value
+
+
 @click.command("perf")
 @cli_utils.model_option(required=False)
 @click.option(
@@ -2473,6 +2489,7 @@ def _resolve_composite_components_for_perf(model: str, task: str | None) -> dict
     "--duration",
     type=click.FloatRange(min=0, min_open=True),
     default=None,
+    callback=_validate_duration,
     help="Run the benchmark for this many seconds (after warmup) instead of a "
     "fixed --iterations count. Ideal with --monitor, whose PDH counters need "
     "time to emit real utilization data. Not valid with --op-tracing.",
@@ -2752,15 +2769,6 @@ def perf(
     # the inference session for both HF model IDs and ONNX file inputs.
     ep_provider_options = cli_utils.parse_ep_options(ep_options)
 
-    # --duration replaces the fixed iteration count with a wall-clock budget.
-    # Op-tracing runs its own fixed, small iteration count, so the two are
-    # mutually exclusive.
-    if duration is not None and op_tracing:
-        raise click.UsageError(
-            "--duration is not valid with --op-tracing "
-            "(op-tracing runs a fixed, small iteration count)."
-        )
-
     json_mode = output_format == "json"
     console = Console(stderr=True) if json_mode else Console()
 
@@ -2775,6 +2783,17 @@ def perf(
             )
         _run_genai_runtime(ctx, console=console, json_mode=json_mode)
         return
+
+    # --duration replaces the fixed iteration count with a wall-clock budget.
+    # Op-tracing runs its own fixed, small iteration count, so the two are
+    # mutually exclusive. This is a WinML-path constraint only: for winml-genai
+    # both flags are ignored (see _GENAI_IGNORED_FLAGS), so the check lives
+    # after the genai early return to keep those options consistently non-fatal.
+    if duration is not None and op_tracing:
+        raise click.UsageError(
+            "--duration is not valid with --op-tracing "
+            "(op-tracing runs a fixed, small iteration count)."
+        )
 
     # ``--device config`` is a winml-genai-only sentinel (respect the bundle's
     # genai_config.json routing).  It is meaningless for the single-shot WinML

@@ -1681,6 +1681,24 @@ class TestPerfDuration:
 
         assert result.exit_code != 0
 
+    @pytest.mark.parametrize("bad", ["nan", "inf"])
+    def test_duration_rejects_non_finite(self, runner: CliRunner, tmp_path: Path, bad: str) -> None:
+        """Non-finite --duration slips past FloatRange (nan/inf <= 0 is false) but
+        would never terminate the timed loop, so it must be rejected up front."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        with patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_bench:
+            result = runner.invoke(
+                perf,
+                ["-m", str(onnx_file), "--duration", bad],
+                obj={},
+            )
+
+        assert result.exit_code != 0
+        assert "finite" in result.output
+        mock_bench.assert_not_called()
+
 
 class TestBenchmarkIndices:
     """_benchmark_indices drives either a fixed iteration count or a timed loop."""
