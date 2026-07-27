@@ -472,7 +472,10 @@
     "remove_isnan_in_attention_mask": true,
     "reshape_mergedreshape": true
   },
-  "quant": null,
+  "quant": {
+    "mode": "fp16",
+    "fp16_keep_io_types": true
+  },
   "compile": null,
   "loader": {
     "task": "text2text-generation",

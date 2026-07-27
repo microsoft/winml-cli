@@ -30,10 +30,10 @@ from pathlib import Path
 
 
 # Precisions recognised in recipe filenames.  Order is the canonical display
-# order (fp16 first).  Discovery is data-driven: any precision listed here that
-# has files on disk is run, so dropping a new ``*_w8a8_config.json`` into a
-# recipe dir is picked up automatically.
-KNOWN_PRECISIONS: tuple[str, ...] = ("fp16", "w8a16", "w8a8")
+# order.  Discovery is data-driven: any precision listed here that has files on
+# disk is run, so dropping a new ``*_w8a8_config.json`` into a recipe target dir
+# is picked up automatically.
+KNOWN_PRECISIONS: tuple[str, ...] = ("fp32", "fp16", "w8a16", "w8a8")
 
 
 # Composite component roles per task.  The recipe filename's ``_config_<role>``
@@ -96,6 +96,8 @@ class RecipeVariant:
 
     precision: str
     components: list[RecipeComponent] = field(default_factory=list)
+    ep: str | None = None
+    device: str | None = None
 
     @property
     def is_composite(self) -> bool:
@@ -112,28 +114,54 @@ def discover_recipe_variants(
     recipes_dir: Path,
     hf_id: str,
     task: str,
+    *,
+    ep: str | None = None,
+    device: str = "auto",
 ) -> list[RecipeVariant]:
     """Find recipe variants for ``(hf_id, task)`` under ``recipes_dir``.
 
     Returns one :class:`RecipeVariant` per precision that has config files on
-    disk, ordered by :data:`KNOWN_PRECISIONS` (fp16 first).  Returns an empty
-    list when the model has no recipe directory or no configs for ``task`` —
-    the caller then falls back to ``winml config`` generation.
+    disk, ordered by :data:`KNOWN_PRECISIONS`. Recipes may use the legacy flat
+    layout or the target-aware ``<ep>/<device>/`` layout. Target-aware recipes
+    are selected only when they match the requested execution target. Returns
+    an empty list when the model has no matching configs for ``task`` — the
+    caller then falls back to ``winml config`` generation.
     """
     model_dir = recipes_dir / model_slug(hf_id)
     if not model_dir.is_dir():
         return []
 
+    ep_dir = _ep_directory_name(ep, device)
+    target_dir = model_dir / ep_dir / device if ep_dir and device != "auto" else None
+    if target_dir is None and ep is None and device == "auto":
+        nested_targets = sorted(
+            {
+                cfg.parent
+                for cfg in model_dir.glob(f"*/*/{task}_*_config*.json")
+                if cfg.parent.parent.parent == model_dir
+            }
+        )
+        # A sole verified target is unambiguous. Multiple targets require an
+        # explicit --ep/--device pair so result paths and runtime evidence stay scoped.
+        if len(nested_targets) == 1:
+            target_dir = nested_targets[0]
+    # A complete target-aware variant takes precedence over the legacy flat
+    # layout. Never mix components from the two layouts.
+    search_dirs = [target_dir] if target_dir and target_dir.is_dir() else [model_dir]
+    variant_ep = _recipe_directory_ep(target_dir.parent.name) if target_dir else ep
+    variant_device = target_dir.name if target_dir else (device if device != "auto" else None)
+
     # Group component configs by precision.  Only files whose task prefix
     # matches the requested task are considered, so a model dir that hosts
     # several tasks contributes only the relevant ones.
     by_precision: dict[str, list[RecipeComponent]] = {}
-    for cfg in sorted(model_dir.glob(f"{task}_*_config*.json")):
-        group_stem, role = split_config_stem(cfg)
-        cfg_task, precision = split_task_precision(group_stem)
-        if cfg_task != task or precision is None:
-            continue
-        by_precision.setdefault(precision, []).append(RecipeComponent(cfg, role))
+    for search_dir in search_dirs:
+        for cfg in sorted(search_dir.glob(f"{task}_*_config*.json")):
+            group_stem, role = split_config_stem(cfg)
+            cfg_task, precision = split_task_precision(group_stem)
+            if cfg_task != task or precision is None:
+                continue
+            by_precision.setdefault(precision, []).append(RecipeComponent(cfg, role))
 
     variants: list[RecipeVariant] = []
     for precision in KNOWN_PRECISIONS:
@@ -141,8 +169,50 @@ def discover_recipe_variants(
         if not components:
             continue
         ordered = _order_components(task, components)
-        variants.append(RecipeVariant(precision=precision, components=ordered))
+        variants.append(
+            RecipeVariant(
+                precision=precision,
+                components=ordered,
+                ep=variant_ep,
+                device=variant_device,
+            )
+        )
     return variants
+
+
+def _ep_directory_name(ep: str | None, device: str) -> str | None:
+    """Normalize a CLI EP name or alias to the recipe directory convention."""
+    if ep is None:
+        return "cpu" if device == "cpu" else None
+
+    normalized = ep.lower()
+    aliases = {
+        "cpu": "cpu",
+        "cpuexecutionprovider": "cpu",
+        "cuda": "cuda",
+        "cudaexecutionprovider": "cuda",
+        "dml": "dml",
+        "dmlexecutionprovider": "dml",
+        "migraphx": "migraphx",
+        "migraphxexecutionprovider": "migraphx",
+        "nv_tensorrt_rtx": "nvtensorrt",
+        "nvtensorrtrtx": "nvtensorrt",
+        "nvtensorrtrtxexecutionprovider": "nvtensorrt",
+        "openvino": "openvino",
+        "openvinoexecutionprovider": "openvino",
+        "qnn": "qnn",
+        "qnnexecutionprovider": "qnn",
+        "vitisai": "vitisai",
+        "vitisaiexecutionprovider": "vitisai",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _recipe_directory_ep(directory: str) -> str:
+    """Return the preferred CLI EP alias for a recipe EP directory."""
+    return {
+        "nvtensorrt": "nvtensorrtrtx",
+    }.get(directory, directory)
 
 
 def _order_components(task: str, components: list[RecipeComponent]) -> list[RecipeComponent]:

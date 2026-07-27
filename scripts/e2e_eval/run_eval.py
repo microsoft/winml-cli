@@ -774,6 +774,7 @@ def _run_recipe_build(
     timeout: int,
     model_dir: Path,
     ep: str | None = None,
+    device: str = "auto",
     rebuild: bool = False,
 ) -> dict:
     """Build an authored recipe variant with ``winml build -c --use-cache``.
@@ -812,10 +813,19 @@ def _run_recipe_build(
             entry.hf_id,
             "--use-cache",
         ]
+        if ep is not None:
+            build_args += ["--ep", ep]
+        if device != "auto":
+            build_args += ["--device", device]
         if no_compile:
             build_args += ["--no-compile"]
         if rebuild:
             build_args += ["--rebuild"]
+        if variant.precision in {"fp32", "fp16"}:
+            # Float conversion is a build-stage choice. The filename/config
+            # identifies the authored variant, while this flag ensures the
+            # recipe runner actually materializes that precision.
+            build_args += ["--precision", variant.precision]
 
         proc = _run_subprocess(build_args, timeout)
         last_proc = proc
@@ -2355,6 +2365,12 @@ class EvalJob:
             return self.variant.precision
         return self.fallback_precision or self.entry.precision
 
+    def target(self, default_ep: str | None, default_device: str) -> tuple[str | None, str]:
+        """Return the recipe target when declared, otherwise the CLI target."""
+        if self.variant is None:
+            return default_ep, default_device
+        return self.variant.ep or default_ep, self.variant.device or default_device
+
 
 def _is_quantized_precision(precision: str) -> bool:
     """True if a recipe precision implies quantization.
@@ -2399,7 +2415,13 @@ def _build_jobs(
     jobs: list[EvalJob] = []
     for entry in entries:
         variants = (
-            discover_recipe_variants(recipes_dir, entry.hf_id, entry.task)
+            discover_recipe_variants(
+                recipes_dir,
+                entry.hf_id,
+                entry.task,
+                ep=ep,
+                device=device,
+            )
             if recipes_dir is not None
             else []
         )
@@ -2433,9 +2455,15 @@ def _build_for_job(
     eval/dataset config for ``winml eval -c`` (None for the fallback) and
     ``trust`` is whether the recipe's dataset needs ``--trust-remote-code``.
     """
+    ep, device = job.target(args.ep, args.device)
     if job.variant is not None:
         build_result = _run_recipe_build(
-            job.entry, job.variant, args.timeout, model_dir, ep=args.ep
+            job.entry,
+            job.variant,
+            args.timeout,
+            model_dir,
+            ep=ep,
+            device=device,
         )
         recipe_meta = build_result.get("meta_config")
         trust = _needs_trust_remote_code(recipe_meta)
@@ -2445,11 +2473,11 @@ def _build_for_job(
         explicit_precision = job.fallback_precision or job.entry.precision
         build_result = _run_build(
             job.entry,
-            args.device,
-            _resolve_precision(args.device, explicit_precision, ep=args.ep),
+            device,
+            _resolve_precision(device, explicit_precision, ep=ep),
             args.timeout,
             model_dir,
-            ep=args.ep,
+            ep=ep,
         )
         recipe_meta = None
         trust = False
@@ -2883,6 +2911,7 @@ def main() -> None:
     for i, job in enumerate(jobs, 1):
         entry = job.entry
         precision = job.precision
+        job_ep, job_device = job.target(args.ep, args.device)
         prec_tag = f" [{precision}]" if precision else ""
         base_label = f"{entry.hf_id} / {entry.task}" if entry.task else entry.hf_id
         label = f"{base_label}{prec_tag}"
@@ -2904,10 +2933,10 @@ def main() -> None:
                     "timeout": True,
                     "command": "skipped",
                 },
-                device=args.device,
+                device=job_device,
                 eval_types_run=eval_types_run,
                 accuracy_result=None,
-                ep=args.ep,
+                ep=job_ep,
                 precision=precision,
             )
             write_result_json(timeout_result, result_path)
@@ -2955,7 +2984,7 @@ def main() -> None:
         try:
             perf_proc: dict | None = None
             accuracy_result: dict | None = None
-            op_tracing = _resolve_op_tracing(args.op_tracing, entry, args.ep, args.device)
+            op_tracing = _resolve_op_tracing(args.op_tracing, entry, job_ep, job_device)
 
             # Build phase: an authored recipe (winml build -c) when one exists
             # for this precision, else the winml-config fallback. Both return
@@ -2974,18 +3003,18 @@ def main() -> None:
                 else:
                     accuracy_result = _run_accuracy_phase(
                         entry,
-                        args.device,
+                        job_device,
                         args.timeout,
                         model_dir,
                         onnx_paths,
-                        ep=args.ep,
+                        ep=job_ep,
                         recipe_config=recipe_meta,
                         trust_remote_code=trust,
                     )
             elif not build_result["success"]:
                 # Build failed — synthesize failed result for downstream phases
                 fail_proc = build_result["proc"]
-                fail_proc["device"] = args.device
+                fail_proc["device"] = job_device
                 fail_proc["timestamp"] = _utc_now()
                 fail_proc["error_summary"] = f"build_{build_result['stage']}_failed"
 
@@ -2996,21 +3025,21 @@ def main() -> None:
             elif args.eval_type == "accuracy":
                 accuracy_result = _run_accuracy_phase(
                     entry,
-                    args.device,
+                    job_device,
                     args.timeout,
                     model_dir,
                     onnx_paths,
-                    ep=args.ep,
+                    ep=job_ep,
                     recipe_config=recipe_meta,
                     trust_remote_code=trust,
                 )
             elif args.eval_type == "perf":
                 perf_proc = run_model(
                     entry,
-                    args.device,
+                    job_device,
                     args.timeout,
                     onnx_paths,
-                    ep=args.ep,
+                    ep=job_ep,
                     op_tracing=op_tracing,
                     model_dir=model_dir,
                 )
@@ -3018,10 +3047,10 @@ def main() -> None:
                 # "both": perf runs first; accuracy only when perf passes.
                 perf_proc = run_model(
                     entry,
-                    args.device,
+                    job_device,
                     args.timeout,
                     onnx_paths,
-                    ep=args.ep,
+                    ep=job_ep,
                     op_tracing=op_tracing,
                     model_dir=model_dir,
                 )
@@ -3030,11 +3059,11 @@ def main() -> None:
                 else:
                     accuracy_result = _run_accuracy_phase(
                         entry,
-                        args.device,
+                        job_device,
                         args.timeout,
                         model_dir,
                         onnx_paths,
-                        ep=args.ep,
+                        ep=job_ep,
                         recipe_config=recipe_meta,
                         trust_remote_code=trust,
                     )
@@ -3057,10 +3086,10 @@ def main() -> None:
             result = build_eval_result(
                 entry,
                 perf_proc,
-                args.device,
+                job_device,
                 eval_types_run,
                 accuracy_result,
-                ep=args.ep,
+                ep=job_ep,
                 onnx_size_bytes=onnx_size,
                 sanitize_fn=None if args.raw_output else _sanitize_output,
                 precision=precision,
