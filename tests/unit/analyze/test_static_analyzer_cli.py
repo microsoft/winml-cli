@@ -1460,7 +1460,7 @@ class TestAnalyzeEPDeviceSelectionMatrix:
         assert not mock_analyzer_class.called
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
-    def test_auto_ep_auto_device_prefers_qnn_npu_over_qnn_gpu(
+    def test_auto_ep_auto_device_uses_device_priority_before_resolved_device_fallback(
         self,
         mock_analyzer_class: MagicMock,
         runner: CliRunner,
@@ -1468,22 +1468,28 @@ class TestAnalyzeEPDeviceSelectionMatrix:
         mock_analyzer_result: Mock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Default analyze target should use the strongest exact local QNN binding."""
+        """Default analyze target should use the strongest exact local binding."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
+
+        multi_device_ep = next(
+            ep_name
+            for ep_name, devices in EP_SUPPORTED_DEVICES.items()
+            if {"npu", "gpu"}.issubset(devices)
+        )
 
         monkeypatch.setattr(
             "winml.modelkit.commands.analyze._get_local_ep_device_pairs",
             lambda: [
-                ("QNNExecutionProvider", "GPU"),
-                ("QNNExecutionProvider", "NPU"),
+                (multi_device_ep, "GPU"),
+                (multi_device_ep, "NPU"),
                 ("CPUExecutionProvider", "CPU"),
             ],
         )
         monkeypatch.setattr(
             "winml.modelkit.session.resolve_device",
             lambda target: type(target)(
-                ep="QNNExecutionProvider",
+                ep=multi_device_ep,
                 device="gpu",
                 source=target.source,
             ),
@@ -1491,7 +1497,7 @@ class TestAnalyzeEPDeviceSelectionMatrix:
         monkeypatch.setattr(
             "winml.modelkit.session.available_eps_for_device",
             lambda device_name: (
-                ["QNNExecutionProvider"] if str(device_name).lower() in {"gpu", "npu"} else []
+                [multi_device_ep] if str(device_name).lower() in {"gpu", "npu"} else []
             ),
         )
 
@@ -1506,7 +1512,7 @@ class TestAnalyzeEPDeviceSelectionMatrix:
             (call.kwargs["ep"], call.kwargs["device"])
             for call in mock_instance.analyze.call_args_list
         ]
-        assert actual_calls == [("QNNExecutionProvider", "NPU")]
+        assert actual_calls == [(multi_device_ep, "NPU")]
 
     @pytest.mark.parametrize(
         "ranked_gpu_eps",
