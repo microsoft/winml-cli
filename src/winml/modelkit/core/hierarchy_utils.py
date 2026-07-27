@@ -14,11 +14,31 @@ from __future__ import annotations
 from typing import Any
 
 
-def find_immediate_children(parent_path: str, hierarchy: dict[str, Any]) -> list[str]:
-    """Find immediate children of a path using the WORKING logic from console writer.
+def _nearest_present_ancestor(path: str, hierarchy: dict[str, Any]) -> str:
+    """Return the longest proper scope-prefix of ``path`` present in ``hierarchy``.
 
-    This is the core hierarchy traversal logic that handles compound patterns
-    like 'layer.0', 'blocks.1', etc. correctly.
+    Scope paths are dotted (``blocks.0.attention.query``); this walks the prefixes
+    from longest to shortest and returns the first one that is itself a key. When
+    no intermediate ancestor exists it falls back to the root (``""``), so a sparse
+    hierarchy (e.g. ``blocks.0`` with no ``blocks`` container entry) still attaches
+    its subtree to the nearest real parent instead of being dropped from the tree.
+    """
+    segments = path.split(".")
+    for cut in range(len(segments) - 1, 0, -1):
+        prefix = ".".join(segments[:cut])
+        if prefix in hierarchy:
+            return prefix
+    return ""
+
+
+def find_immediate_children(parent_path: str, hierarchy: dict[str, Any]) -> list[str]:
+    """Find immediate children of a path using nearest-present-ancestor nesting.
+
+    A path is an immediate child of ``parent_path`` when ``parent_path`` is the
+    longest ancestor scope actually present in ``hierarchy``. This handles both
+    compound patterns (``layer.0``/``blocks.1``) and sparse hierarchies where an
+    intermediate container scope (e.g. a ``ModuleList``) never emitted its own
+    entry, without special-casing any names or class types.
 
     Args:
         parent_path: Parent module path (empty string for root)
@@ -40,28 +60,13 @@ def find_immediate_children(parent_path: str, hierarchy: dict[str, Any]) -> list
         ... })
         ["encoder.layer.0", "encoder.layer.1"]  # layer.0 is immediate despite having dots
     """
-    if parent_path == "":
-        # Root case
-        return sorted([p for p in hierarchy if p and "." not in p])
-
-    # Non-root case
-    prefix = parent_path + "."
-    immediate = []
-
-    for path in hierarchy:
-        if not path.startswith(prefix) or path == parent_path:
-            continue
-
-        suffix = path[len(prefix) :]
-
-        # Check if immediate child - this is the KEY logic that was missing from reports!
-        if "." not in suffix:
-            # Simple immediate child (e.g., "attention" under "encoder")
-            immediate.append(path)
-        elif suffix.count(".") == 1 and suffix.split(".")[1].isdigit():
-            # Compound pattern like layer.0 - treat as immediate child
-            # This handles ResNet patterns: encoder.layer.0, encoder.layer.1, etc.
-            immediate.append(path)
+    immediate = [
+        path
+        for path in hierarchy
+        if path
+        and path != parent_path
+        and _nearest_present_ancestor(path, hierarchy) == parent_path
+    ]
 
     # Custom sort that handles numeric parts properly
     def sort_key(path: str) -> list[tuple[int, int | str]]:

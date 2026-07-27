@@ -331,18 +331,20 @@ def resolve_composite_components(
     """
     from transformers import AutoConfig
 
+    from ._autoconfig import load_hf_config
+
     if task is not None:
         resolved_type = model_type
         if resolved_type is None and hf_model is not None:
-            resolved_type = AutoConfig.from_pretrained(
-                hf_model, trust_remote_code=trust_remote_code
+            resolved_type = load_hf_config(
+                AutoConfig, hf_model, trust_remote_code=trust_remote_code
             ).model_type
         if resolved_type is None:
             return None
         return resolve_composite(resolved_type, task)
 
     if hf_model is not None:
-        config = AutoConfig.from_pretrained(hf_model, trust_remote_code=trust_remote_code)
+        config = load_hf_config(AutoConfig, hf_model, trust_remote_code=trust_remote_code)
     elif model_type is not None:
         config = AutoConfig.for_model(model_type)
     else:
@@ -389,9 +391,11 @@ def resolve_composite_load_task(
     """
     from transformers import AutoConfig
 
+    from ._autoconfig import load_hf_config
+
     if hf_model is None:
         return None
-    config = AutoConfig.from_pretrained(hf_model, trust_remote_code=trust_remote_code)
+    config = load_hf_config(AutoConfig, hf_model, trust_remote_code=trust_remote_code)
     if resolve_task(config).composite is None:
         return None
     model_type = getattr(config, "model_type", None)
@@ -487,6 +491,13 @@ def resolve_task(
     (e.g. ``qwen3_transformer_only``) without mutating the loaded HF config; when
     ``None`` the architecture's native ``config.model_type`` is used.
     """
+    if getattr(config, "_winml_generic_fallback", False) is True:
+        raise ValueError(
+            "Cannot resolve a concrete architecture from a model_type-less generic config. "
+            "Provide a config or model ID whose architecture can be inferred; explicit task "
+            "or model_type overrides are not enough."
+        )
+
     from optimum.exporters.tasks import TasksManager
 
     model_type = model_type_override or getattr(config, "model_type", None)

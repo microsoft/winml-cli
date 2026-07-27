@@ -1,0 +1,82 @@
+{
+  "export": {
+    "opset_version": 17,
+    "batch_size": 1,
+    "export_params": true,
+    "do_constant_folding": true,
+    "verbose": false,
+    "dynamo": false,
+    "enable_hierarchy_tags": true,
+    "clean_onnx": false,
+    "hierarchy_tag_format": "full",
+    "input_tensors": [
+      {
+        "name": "input_ids",
+        "dtype": "int32",
+        "shape": [
+          1,
+          512
+        ],
+        "value_range": [
+          0,
+          35000
+        ]
+      },
+      {
+        "name": "attention_mask",
+        "dtype": "int32",
+        "shape": [
+          1,
+          512
+        ],
+        "value_range": [
+          0,
+          2
+        ]
+      },
+      {
+        "name": "token_type_ids",
+        "dtype": "int32",
+        "shape": [
+          1,
+          512
+        ],
+        "value_range": [
+          0,
+          2
+        ]
+      }
+    ],
+    "output_tensors": [
+      {
+        "name": "logits"
+      }
+    ]
+  },
+  "optim": {},
+  "quant": null,
+  "compile": null,
+  "loader": {
+    "task": "text-classification",
+    "model_class": "AutoModelForSequenceClassification",
+    "model_type": "electra"
+  },
+  "eval": {
+    "task": "text-classification",
+    "dataset": {
+      "path": "e9t/nsmc",
+      "split": "test",
+      "samples": 100,
+      "shuffle": false,
+      "streaming": true,
+      "revision": "153263700c285ac0997b3e2a2d80b826aaf672d6",
+      "columns_mapping": {
+        "input_column": "document"
+      },
+      "label_mapping": {
+        "negative": 0,
+        "positive": 1
+      }
+    }
+  }
+}

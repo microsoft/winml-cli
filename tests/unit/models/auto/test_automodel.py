@@ -251,3 +251,29 @@ class TestBaseModelContract:
         )
 
         assert issubclass(WinMLModelForImageClassification, WinMLPreTrainedModel)
+
+
+def test_single_model_passes_runtime_options_factory_to_session(monkeypatch):
+    """Single-model wrappers preserve the caller's options factory."""
+    from unittest.mock import MagicMock
+
+    import winml.modelkit.models.winml.base as base_module
+
+    session = MagicMock()
+    monkeypatch.setattr(base_module, "WinMLSession", session)
+    ep_device = MagicMock()
+    session_options = MagicMock()
+
+    base_module.WinMLModelForGenericTask(
+        "model.onnx",
+        ep_device=ep_device,
+        provider_options={"key": "value"},
+        session_options=session_options,
+    )
+
+    session.assert_called_once_with(
+        onnx_path=base_module.Path("model.onnx"),
+        ep_device=ep_device,
+        provider_options={"key": "value"},
+        session_options=session_options,
+    )

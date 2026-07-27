@@ -31,9 +31,7 @@ import pytest
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from winml.modelkit.config import WinMLBuildConfig
 from winml.modelkit.models.auto import WinMLAutoModel
-from winml.modelkit.quant import WinMLQuantizationConfig
 
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.network]
@@ -105,7 +103,7 @@ def decode_quant_model(tmp_path_factory):
         MODEL_ID,
         task="text2text-generation",
         model_type="qwen3_transformer_only",
-        config=WinMLBuildConfig(quant=WinMLQuantizationConfig(samples=CALIB_SAMPLES)),
+        config={"quant": {"samples": CALIB_SAMPLES}},
         precision="w8a16",
         device="cpu",
         ep="cpu",

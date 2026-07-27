@@ -15,6 +15,15 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+# How a module hierarchy was obtained. The TorchScript path records a real
+# forward-execution trace (hook-based), so execution steps are meaningful. The
+# Dynamo path has no such trace: the hierarchy is reconstructed from the ONNX
+# node metadata after export, so there is no execution-step count. Writers use
+# this to pick source-appropriate wording instead of always claiming a trace.
+HIERARCHY_SOURCE_TRACE = "trace"
+HIERARCHY_SOURCE_ONNX_METADATA = "onnx_metadata"
+
+
 def _timestamp_field() -> Any:
     """Create a timestamp field that captures time at instance creation.
 
@@ -68,7 +77,10 @@ class HierarchyData:
     """Data for hierarchy building step."""
 
     hierarchy: dict[str, ModuleInfo]
-    execution_steps: int
+    # None when the hierarchy source has no execution trace (e.g. dynamo, which
+    # reconstructs modules from ONNX metadata). Do not fabricate a count.
+    execution_steps: int | None = None
+    source: str = HIERARCHY_SOURCE_TRACE
     module_list: list[tuple[str, str]] = field(default_factory=list)
     timestamp: float = _timestamp_field()
 

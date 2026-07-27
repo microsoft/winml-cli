@@ -267,12 +267,8 @@ class _VedDecoderNormalizedConfig(NormalizedConfig):  # type: ignore[misc]  # op
 
     def __init__(self, config: Any, **kwargs: Any) -> None:
         super().__init__(config, **kwargs)
-        dec_cls = NormalizedConfigManager.get_normalized_config_class(
-            config.decoder.model_type
-        )
-        enc_cls = NormalizedConfigManager.get_normalized_config_class(
-            config.encoder.model_type
-        )
+        dec_cls = NormalizedConfigManager.get_normalized_config_class(config.decoder.model_type)
+        enc_cls = NormalizedConfigManager.get_normalized_config_class(config.encoder.model_type)
         self._dec = dec_cls(config.decoder)
         self._enc = enc_cls(config.encoder)
 
@@ -430,8 +426,8 @@ class VisionDecoderWrapper(WinMLDecoderWrapper):
         """Load the full VED model and store its inner decoder for export."""
         full = VisionEncoderDecoderModel.from_pretrained(model_name_or_path, **kwargs)
         self = cls()
-        self.model = full.decoder           # inner causal LM, called directly
-        self.config = full.config           # full VED config drives the IOConfig
+        self.model = full.decoder  # inner causal LM, called directly
+        self.config = full.config  # full VED config drives the IOConfig
         self.onnx_config = cls._IO_CONFIG_CLS(full.config, task=cls._TASK)
         self.num_layers = self.onnx_config._normalized_config.num_layers
         self.eval()
@@ -506,8 +502,13 @@ class WinMLVEDImageToText(WinMLEncoderDecoderModel):
         "decoder": "text2text-generation",
     }
 
-    def __init__(self, sub_models: dict[str, Any], config: PretrainedConfig) -> None:
-        super().__init__(sub_models, config)
+    def __init__(
+        self,
+        sub_models: dict[str, Any],
+        config: PretrainedConfig,
+        device: str = "cpu",
+    ) -> None:
+        super().__init__(sub_models, config, device)
         self.config.is_encoder_decoder = True
         # HF ``StaticCache.__init__`` reads
         # ``config.get_text_config(decoder=True).num_hidden_layers``
@@ -537,8 +538,8 @@ class WinMLVEDImageToText(WinMLEncoderDecoderModel):
                 "pad_token_id": dc.pad_token_id,
             }
             kw.setdefault("max_new_tokens", self._max_dec - 1)
-            kw.setdefault("num_beams", 1)        # static batch=1 ONNX → no beams
-            kw.setdefault("do_sample", False)    # deterministic greedy
+            kw.setdefault("num_beams", 1)  # static batch=1 ONNX → no beams
+            kw.setdefault("do_sample", False)  # deterministic greedy
             self._generation_config = GenerationConfig(**kw)
         return self._generation_config
 
