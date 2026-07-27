@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+from io import StringIO
 from pathlib import Path
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
@@ -19,11 +20,13 @@ from unittest.mock import MagicMock, patch
 import click
 import pytest
 from click.testing import CliRunner
+from rich.console import Console
 
 from winml.modelkit.commands.perf import (
     BenchmarkConfig,
     BenchmarkResult,
     PerfBenchmark,
+    display_console_report,
     generate_output_path,
     perf,
 )
@@ -31,21 +34,29 @@ from winml.modelkit.commands.perf import (
 
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
-    """Mock device/EP resolution to avoid hardware detection in all perf CLI tests.
+    """Mock device resolution helpers to avoid hardware detection in all perf CLI tests."""
+    from winml.modelkit.session import EPDeviceTarget
 
-    perf() resolves the device (and, when --ep is omitted, derives a concrete EP
-    via resolve_eps) up front, so both are stubbed to a deterministic CPU result.
-    """
+    fake_cpu_ep_device = EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
+    fake_winml_ep_device = MagicMock()
+    fake_winml_ep_device.device.ep_name = "CPUExecutionProvider"
+    fake_winml_ep_device.device.device_type = "CPU"
     with (
         patch(
-            "winml.modelkit.sysinfo.resolve_device",
-            return_value=("cpu", ["cpu"]),
+            "winml.modelkit.session.auto_detect_device",
+            return_value="cpu",
         ),
         patch(
-            "winml.modelkit.sysinfo.resolve_eps",
-            return_value=["CPUExecutionProvider"],
+            "winml.modelkit.sysinfo.hardware.get_available_devices",
+            return_value=["cpu"],
         ),
+        patch(
+            "winml.modelkit.session.resolve_device",
+            return_value=fake_cpu_ep_device,
+        ),
+        patch("winml.modelkit.session.WinMLEPRegistry") as mock_reg,
     ):
+        mock_reg.instance.return_value.auto_device.return_value = fake_winml_ep_device
         yield
 
 
@@ -197,7 +208,9 @@ class TestPerfUnifiedPipeline:
         mock_from_onnx.assert_called_once()
         kwargs = mock_from_onnx.call_args
         assert kwargs.kwargs["task"] == "image-classification"
-        assert kwargs.kwargs["device"] == "cpu"
+        # ep_device is now a WinMLEPDevice — its .device is a WinMLDevice whose
+        # .device_type holds the upper-cased class string.
+        assert kwargs.kwargs["ep_device"].device.device_type.lower() == "cpu"
         assert benchmark._model is mock_model
 
     def test_hf_load_model_calls_from_pretrained(self) -> None:
@@ -220,7 +233,7 @@ class TestPerfUnifiedPipeline:
         kwargs = mock_from_pretrained.call_args
         assert kwargs.args[0] == "microsoft/resnet-50"
         assert kwargs.kwargs["task"] == "image-classification"
-        assert kwargs.kwargs["device"] == "cpu"
+        assert kwargs.kwargs["ep_device"].device.device_type.lower() == "cpu"
         assert benchmark._model is mock_model
 
     def test_no_quantize_only_sets_quant_none(self, tmp_path: Path) -> None:
@@ -329,11 +342,9 @@ class TestPerfUnifiedPipeline:
         onnx_file.write_bytes(b"fake onnx")
 
         with (
-            patch.object(
-                PerfBenchmark,
-                "run",
-                return_value=MagicMock(),
-            ) as mock_run,
+            patch(
+                "winml.modelkit.commands.perf.PerfBenchmark",
+            ) as mock_perf_cls,
             patch(
                 "winml.modelkit.commands.perf.display_console_report",
             ),
@@ -341,6 +352,7 @@ class TestPerfUnifiedPipeline:
                 "winml.modelkit.commands.perf.write_json_report",
             ),
         ):
+            mock_perf_cls.return_value.run.return_value = MagicMock()
             result = runner.invoke(
                 perf,
                 ["-m", str(onnx_file), "-o", str(tmp_path / "out.json")],
@@ -348,7 +360,7 @@ class TestPerfUnifiedPipeline:
             )
 
         assert result.exit_code == 0, result.output
-        mock_run.assert_called_once()
+        mock_perf_cls.assert_called_once()
 
     def test_cli_onnx_preserves_shape_config(self, runner: CliRunner, tmp_path: Path) -> None:
         """ONNX input with --shape-config keeps the override for dummy inputs.
@@ -580,7 +592,7 @@ class TestPerfUnifiedPipeline:
         assert Path(captured_configs[0].model_id) == local
 
     def test_onnx_load_model_passes_ep(self, tmp_path: Path) -> None:
-        """EP argument should be forwarded to from_onnx."""
+        """EP argument should be forwarded to from_onnx via ep_device."""
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake onnx")
 
@@ -599,7 +611,9 @@ class TestPerfUnifiedPipeline:
         ) as mock_from_onnx:
             benchmark._load_model()
 
-        assert mock_from_onnx.call_args.kwargs["ep"] == "qnn"
+        ep_device = mock_from_onnx.call_args.kwargs["ep_device"]
+        # ep_device is a WinMLEPDevice; .device.ep_name holds the canonical EP name.
+        assert ep_device.device.ep_name == "CPUExecutionProvider"
 
     def test_onnx_load_model_passes_ep_options(self, tmp_path: Path) -> None:
         """--ep-options should reach from_onnx as provider_options (ONNX path)."""
@@ -702,12 +716,10 @@ class TestPerfUnifiedPipeline:
     def test_load_model_no_ep_derives_concrete_ep(self, tmp_path: Path) -> None:
         """Without an EP, PerfBenchmark resolves a concrete one before building.
 
-        Regression guard: previously ep stayed None down to the build, so the
-        static analyzer ran with ep=None and aggregated across all EPs (and
-        logged a warning). PerfBenchmark now resolves the EP from the device
-        (autouse fixture stubs resolve_eps -> ["CPUExecutionProvider"]) and
-        passes it to from_onnx. The config keeps the raw request (ep=None);
-        the resolved value lives on the instance.
+        Regression guard: previously ep stayed None down to the build. Now
+        PerfBenchmark resolves via WinMLEPRegistry.auto_device and hands
+        WinMLAutoModel.from_onnx an ``ep_device`` whose ``.device.ep_name``
+        carries the concrete EP. The config keeps the raw request (ep=None).
         """
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake onnx")
@@ -721,15 +733,18 @@ class TestPerfUnifiedPipeline:
         ) as mock_from_onnx:
             benchmark._load_model()
 
-        assert mock_from_onnx.call_args.kwargs["ep"] == "CPUExecutionProvider"
-        assert benchmark._resolved_ep == "CPUExecutionProvider"
+        # New API: ep_device carries the resolved EP.
+        kwargs = mock_from_onnx.call_args.kwargs
+        assert kwargs.get("ep_device") is not None, "expected ep_device kwarg"
+        # The autouse fixture returns a fake WinMLEPDevice — its device.ep_name is a canonical EP.
+        assert kwargs["ep_device"].device.ep_name.endswith("ExecutionProvider")
         assert config.ep is None
 
     def test_load_model_explicit_ep_passed_through_verbatim(self, tmp_path: Path) -> None:
-        """An explicit EP reaches from_onnx unchanged (no normalization).
+        """An explicit EP reaches from_onnx via the resolved ep_device.
 
-        Downstream build/session stages normalize aliases themselves, so
-        PerfBenchmark must not rewrite the user's value (e.g. 'qnn' stays 'qnn').
+        Downstream build/session stages normalize aliases themselves; PerfBenchmark
+        threads the resolved (EP, device) target into ``ep_device.device.ep_name``.
         """
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake onnx")
@@ -739,14 +754,34 @@ class TestPerfUnifiedPipeline:
         )
         benchmark = PerfBenchmark(config)
 
-        with patch(
-            "winml.modelkit.models.auto.WinMLAutoModel.from_onnx",
-            return_value=MagicMock(),
-        ) as mock_from_onnx:
+        # The autouse fixture pins a static CPU device/registry so hardware
+        # detection never runs. Override both locally so an explicit --ep qnn
+        # resolves to a QNN ep_device (the fixture's CPU stub would otherwise
+        # mask the EP threading this test guards).
+        from winml.modelkit.session import EPDeviceTarget
+
+        fake_qnn_ep_device = MagicMock()
+        fake_qnn_ep_device.device.ep_name = "QNNExecutionProvider"
+        fake_qnn_ep_device.device.device_type = "NPU"
+
+        with (
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="QNNExecutionProvider", device="npu"),
+            ),
+            patch("winml.modelkit.session.WinMLEPRegistry") as mock_reg,
+            patch(
+                "winml.modelkit.models.auto.WinMLAutoModel.from_onnx",
+                return_value=MagicMock(),
+            ) as mock_from_onnx,
+        ):
+            mock_reg.instance.return_value.auto_device.return_value = fake_qnn_ep_device
             benchmark._load_model()
 
-        assert mock_from_onnx.call_args.kwargs["ep"] == "qnn"
-        assert benchmark._resolved_ep == "qnn"
+        kwargs = mock_from_onnx.call_args.kwargs
+        assert kwargs.get("ep_device") is not None
+        # Fake resolver expands 'qnn' to canonical 'QNNExecutionProvider'.
+        assert kwargs["ep_device"].device.ep_name == "QNNExecutionProvider"
 
     def test_load_model_unavailable_device_ep_fails_before_build(self, tmp_path: Path) -> None:
         """An unavailable device/EP combo fails before the build pipeline runs.
@@ -764,7 +799,7 @@ class TestPerfUnifiedPipeline:
 
         with (
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
+                "winml.modelkit.session.resolve_device",
                 side_effect=ValueError("no compatible EP is available"),
             ),
             patch("winml.modelkit.models.auto.WinMLAutoModel.from_onnx") as mock_from_onnx,
@@ -783,7 +818,7 @@ class TestPerfUnifiedPipeline:
 
         with (
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
+                "winml.modelkit.session.resolve_device",
                 side_effect=ValueError("no compatible EP is available"),
             ),
             patch("winml.modelkit.models.auto.WinMLAutoModel.from_onnx") as mock_from_onnx,
@@ -817,6 +852,25 @@ class TestPerfUnifiedPipeline:
         result = BenchmarkResult(config=config)
 
         assert result.to_dict()["benchmark_info"]["ep_options"] is None
+
+    def test_iterations_reports_configured_count_without_duration(self) -> None:
+        """Without --duration, benchmark_info.iterations is the configured value."""
+        config = BenchmarkConfig(model_id="m", iterations=100)
+        result = BenchmarkResult(config=config, raw_samples_ms=[1.0, 2.0, 3.0])
+
+        info = result.to_dict()["benchmark_info"]
+        assert info["iterations"] == 100
+        assert info["duration_sec"] is None
+
+    def test_iterations_reports_actual_sample_count_with_duration(self) -> None:
+        """In duration mode, benchmark_info.iterations is the actual sample count."""
+        config = BenchmarkConfig(model_id="m", iterations=100, duration=5.0)
+        result = BenchmarkResult(config=config, raw_samples_ms=[1.0, 2.0, 3.0, 4.0])
+
+        info = result.to_dict()["benchmark_info"]
+        # 4 timed samples were collected, not the unused --iterations=100.
+        assert info["iterations"] == 4
+        assert info["duration_sec"] == 5.0
 
 
 class TestResolveShape:
@@ -1363,6 +1417,51 @@ class TestPerfFormatJson:
             json.loads(result.output)
 
 
+class TestDisplayConsoleReport:
+    def test_prefers_adapter_block_over_gpu_aggregate(self) -> None:
+        result = BenchmarkResult(
+            config=BenchmarkConfig(model_id="microsoft/resnet-50", warmup=1),
+            mean_ms=10.0,
+            min_ms=9.0,
+            max_ms=11.0,
+            p50_ms=10.0,
+            p90_ms=10.5,
+            p95_ms=10.8,
+            p99_ms=11.0,
+            std_ms=0.5,
+            warmup_mean_ms=12.0,
+            samples_per_sec=100.0,
+            effective_batch_size=1,
+            actual_device="gpu",
+            actual_task="image-classification",
+            hw_monitor={
+                "device_kind": "gpu",
+                "adapter": {
+                    "mean_pct": 91.2,
+                    "peak_pct": 98.8,
+                    "sample_count": 5,
+                },
+                "gpu": {
+                    "mean_pct": 1.1,
+                    "peak_pct": 2.2,
+                    "sample_count": 11,
+                    "luids": ["0x0_0xBEEF"],
+                },
+                "cpu": {"mean_pct": 12.3, "peak_pct": 34.5, "sample_count": 5},
+                "ram": {"used_mb": 1024.0, "peak_mb": 2048.0},
+                "device_memory": {"local_peak_mb": 0.0, "shared_peak_mb": 0.0},
+                "running_time_ns": 0,
+            },
+        )
+        console = Console(file=StringIO(), width=200, force_terminal=False, record=True)
+
+        display_console_report(result, console)
+
+        out = console.export_text()
+        assert "GPU: 91.2% avg, 98.8% peak" in out
+        assert "GPU: 1.1% avg, 2.2% peak" not in out
+
+
 class TestPerfSubmodel:
     """--submodel narrows a composite model to a single sub-component."""
 
@@ -1477,3 +1576,171 @@ class TestPerfSubmodel:
 
         assert result.exit_code != 0
         assert "cannot be combined with --module" in result.output
+
+
+# =============================================================================
+# --DURATION (TIME-BUDGETED BENCHMARKING)
+# =============================================================================
+
+
+class TestPerfDuration:
+    """--duration runs the benchmark for a wall-clock budget instead of a fixed
+    iteration count (ideal with --monitor; rejected with --op-tracing)."""
+
+    def test_duration_shown_in_help(self, runner: CliRunner) -> None:
+        result = runner.invoke(perf, ["--help"])
+        assert result.exit_code == 0
+        assert "--duration" in result.output
+
+    def test_duration_forwarded_into_config(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--duration lands in BenchmarkConfig.duration for the benchmark run."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        captured: dict[str, BenchmarkConfig] = {}
+
+        def capture_config(config: BenchmarkConfig) -> MagicMock:
+            captured["config"] = config
+            mock = MagicMock()
+            mock.run.return_value = MagicMock()
+            return mock
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf.PerfBenchmark",
+                side_effect=capture_config,
+            ),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                ["-m", str(onnx_file), "--duration", "5", "-o", str(tmp_path / "out.json")],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert captured["config"].duration == 5.0
+
+    def test_duration_defaults_to_none(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Without --duration the config keeps the iteration-count behavior."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        captured: dict[str, BenchmarkConfig] = {}
+
+        def capture_config(config: BenchmarkConfig) -> MagicMock:
+            captured["config"] = config
+            mock = MagicMock()
+            mock.run.return_value = MagicMock()
+            return mock
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf.PerfBenchmark",
+                side_effect=capture_config,
+            ),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                ["-m", str(onnx_file), "-o", str(tmp_path / "out.json")],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert captured["config"].duration is None
+
+    def test_duration_rejected_with_op_tracing(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--duration cannot be combined with --op-tracing."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        with patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_bench:
+            result = runner.invoke(
+                perf,
+                ["-m", str(onnx_file), "--duration", "5", "--op-tracing", "basic"],
+                obj={},
+            )
+
+        assert result.exit_code != 0
+        assert "not valid with --op-tracing" in result.output
+        mock_bench.assert_not_called()
+
+    def test_duration_rejects_non_positive(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--duration must be strictly positive (a 0s budget benchmarks nothing)."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        result = runner.invoke(
+            perf,
+            ["-m", str(onnx_file), "--duration", "0"],
+            obj={},
+        )
+
+        assert result.exit_code != 0
+
+    @pytest.mark.parametrize("bad", ["nan", "inf"])
+    def test_duration_rejects_non_finite(self, runner: CliRunner, tmp_path: Path, bad: str) -> None:
+        """Non-finite --duration slips past FloatRange (nan/inf <= 0 is false) but
+        would never terminate the timed loop, so it must be rejected up front."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        with patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_bench:
+            result = runner.invoke(
+                perf,
+                ["-m", str(onnx_file), "--duration", bad],
+                obj={},
+            )
+
+        assert result.exit_code != 0
+        assert "finite" in result.output
+        mock_bench.assert_not_called()
+
+
+class TestBenchmarkIndices:
+    """_benchmark_indices drives either a fixed iteration count or a timed loop."""
+
+    def test_iteration_mode_yields_total(self) -> None:
+        from winml.modelkit.commands.perf import _benchmark_indices
+
+        indices = list(_benchmark_indices(total_iterations=5, warmup=2, duration_sec=None))
+        assert indices == [0, 1, 2, 3, 4]
+
+    def test_duration_mode_runs_warmup_then_timed_budget(self, monkeypatch) -> None:
+        """Warmup indices come first, then the loop runs until the budget elapses."""
+        from winml.modelkit.commands import perf as perf_mod
+
+        clock = {"t": 0.0}
+        monkeypatch.setattr(perf_mod.time, "perf_counter", lambda: clock["t"])
+
+        indices = []
+        # total_iterations is huge so only the time budget can end the loop.
+        for idx in perf_mod._benchmark_indices(total_iterations=10_000, warmup=2, duration_sec=1.0):
+            indices.append(idx)
+            clock["t"] += 0.3  # advance 0.3s per iteration
+            assert len(indices) < 100, "duration loop failed to terminate"
+
+        # First two indices are warmup; the timed phase (budget captured at t=0.6)
+        # runs until elapsed >= 1.0s.
+        assert indices[:2] == [0, 1]
+        assert indices == [0, 1, 2, 3, 4, 5]
+
+    def test_duration_mode_runs_at_least_one_benchmark_iter(self, monkeypatch) -> None:
+        """Even if the budget is already exceeded, one benchmark run still happens."""
+        from winml.modelkit.commands import perf as perf_mod
+
+        clock = {"t": 0.0}
+        monkeypatch.setattr(perf_mod.time, "perf_counter", lambda: clock["t"])
+
+        indices = []
+        for idx in perf_mod._benchmark_indices(
+            total_iterations=10_000, warmup=0, duration_sec=0.001
+        ):
+            indices.append(idx)
+            clock["t"] += 10.0  # blow past the budget immediately
+            assert len(indices) < 10, "duration loop failed to terminate"
+
+        assert indices == [0]

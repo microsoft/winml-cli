@@ -40,7 +40,7 @@ import onnx
 import pytest
 from click.testing import CliRunner
 
-from tests.e2e.require_ep import require_ep
+from tests.e2e.require_ep import require_device, require_ep
 from winml.modelkit.commands.perf import perf
 from winml.modelkit.utils.constants import EP_ALIASES
 
@@ -67,33 +67,35 @@ ASSETS_GPU_ONNX_MODEL = _ASSETS_DIR / "resnet_fp32" / "model.onnx"
 
 
 def _require_gpu() -> None:
-    """Skip the current test unless a GPU is discoverable via PDH."""
+    """Skip unless GPU hardware and a GPU-capable EP are available."""
     if sys.platform != "win32":
         pytest.skip("GPU discovery via PDH is Windows-only")
     from winml.modelkit.session.monitor._pdh import PdhPoller
 
     if not PdhPoller.is_gpu_available():
         pytest.skip("No GPU detected via PDH")
+    require_device("gpu")
 
 
 def _require_npu() -> None:
-    """Skip the current test unless an NPU is discoverable via PDH."""
+    """Skip unless NPU hardware and an NPU-capable EP are available."""
     if sys.platform != "win32":
         pytest.skip("NPU discovery via PDH is Windows-only")
     from winml.modelkit.session.monitor._pdh import PdhPoller
 
     if not PdhPoller.is_npu_available():
         pytest.skip("No NPU detected via PDH")
+    require_device("npu")
 
 
 def _assert_hw_monitor_section(
-        data: dict, device_kind: str, *, require_utilization: bool = True
-    ) -> None:
+    data: dict, device_kind: str, *, require_utilization: bool = True
+) -> None:
     """Assert the ``hw_monitor`` section is present and well-formed.
 
     Checks the section emitted by HWMonitor when --monitor is passed:
     presence, ``device_kind`` match, a non-null ``adapter_luid``, and a
-    positive ``mean_pct`` for the per-device utilization block.
+    positive ``mean_pct`` for the selected-adapter utilization block.
     """
     assert "hw_monitor" in data, "hw_monitor section missing with --monitor"
     hw = data["hw_monitor"]
@@ -104,11 +106,12 @@ def _assert_hw_monitor_section(
     else:
         assert hw["device_kind"] == device_kind
         assert hw["adapter_luid"] is not None
+        adapter = hw.get("adapter") or hw[device_kind]
         if require_utilization:
-            assert hw[device_kind]["mean_pct"] > 0
+            assert adapter["mean_pct"] > 0
         else:
             # Just a valid data
-            assert hw[device_kind]["mean_pct"] >= 0
+            assert adapter["mean_pct"] >= 0
 
 
 def _build_perf_args(
@@ -125,17 +128,16 @@ def _build_perf_args(
     batch_size: int | None = None,
     input_data: Path | None = None,
     op_tracing: str | None = None,
-    iterations_overwrite: int | None = None,
+    duration_overwrite: float | None = None,
 ) -> list[str]:
     """Build the argv list passed to the perf CLI.
 
     Iterations are fixed by ``monitor``: 300 when monitoring (HWMonitor needs
     enough samples to observe utilization) and 3 otherwise (kept tiny for
-    e2e speed). Warmup is always 1.
+    e2e speed). ``duration_overwrite`` replaces the fixed benchmark count with
+    a wall-clock budget. Warmup is always 1.
     """
-    iterations = (
-        iterations_overwrite if iterations_overwrite is not None else (300 if monitor else 3)
-    )
+    iterations = 300 if monitor else 3
     args: list[str] = [
         "-m",
         model_arg,
@@ -168,6 +170,8 @@ def _build_perf_args(
         args += ["--input-data", str(input_data)]
     if op_tracing is not None:
         args += ["--op-tracing", op_tracing]
+    if duration_overwrite is not None:
+        args += ["--duration", str(duration_overwrite)]
     return args
 
 
@@ -202,11 +206,11 @@ def _assert_monitor_result(
 
 
 class _PerfBenchmarkSuite:
-    """Shared perf-CLI tests. Subclasses override ``model_arg`` fixture."""
+    """Shared perf-CLI tests for a pre-exported ONNX model."""
 
     @pytest.fixture
-    def model_arg(self) -> str:
-        raise NotImplementedError("Subclasses must override model_arg fixture")
+    def model_arg(self, onnx_model_path: Path) -> str:
+        return str(onnx_model_path)
 
     @pytest.fixture
     def npu_model_arg(self, model_arg: str) -> str:
@@ -465,7 +469,7 @@ class _PerfBenchmarkSuite:
                 output_file=output_file,
                 device="gpu",
                 monitor=True,
-                iterations_overwrite=1000,
+                duration_overwrite=3,
             ),
             obj={},
             catch_exceptions=False,
@@ -556,7 +560,7 @@ class _PerfBenchmarkSuite:
 
         Skipped if the specified EP is unavailable on the host.
         """
-        require_ep(ep)
+        require_ep(ep, device="cpu")
 
         output_file = tmp_path / f"perf_{ep}_cpu.json"
 
@@ -581,7 +585,7 @@ class _PerfBenchmarkSuite:
 
         Skipped if the specified EP or a GPU is unavailable on the host.
         """
-        require_ep(ep)
+        require_ep(ep, device="gpu")
         _require_gpu()
 
         output_file = tmp_path / f"perf_{ep}_gpu.json"
@@ -595,7 +599,7 @@ class _PerfBenchmarkSuite:
                 device="gpu",
                 ep=ep,
                 monitor=True,
-                iterations_overwrite=1000,
+                duration_overwrite=3,
             ),
             obj={},
             catch_exceptions=False,
@@ -605,7 +609,12 @@ class _PerfBenchmarkSuite:
         assert output_file.exists()
         data = json.loads(output_file.read_text())
         # openvino gpu could not emit valid pdh counter
-        _assert_monitor_result(data, device="gpu", ep=EP_ALIASES[ep], require_utilization=ep != "openvino")
+        _assert_monitor_result(
+            data,
+            device="gpu",
+            ep=EP_ALIASES[ep],
+            require_utilization=ep != "openvino",
+        )
 
     @pytest.mark.parametrize("ep", NPU_EPS)
     def test_benchmark_ep_device_npu(self, ep: str, tmp_path: Path, npu_model_arg: str):
@@ -613,7 +622,7 @@ class _PerfBenchmarkSuite:
 
         Skipped if the specified EP or a NPU is unavailable on the host.
         """
-        require_ep(ep)
+        require_ep(ep, device="npu")
         _require_npu()
 
         output_file = tmp_path / f"perf_{ep}_npu.json"
@@ -778,7 +787,7 @@ class TestPerfHuggingFace:
     @pytest.mark.parametrize("ep", CPU_EPS)
     def test_benchmark_ep_cpu(self, ep: str, tmp_path: Path, model_arg: str):
         """Benchmark with --ep <ep>."""
-        require_ep(ep)
+        require_ep(ep, device="cpu")
 
         output_file = tmp_path / f"perf_hf_{ep}_cpu.json"
 
@@ -801,7 +810,7 @@ class TestPerfHuggingFace:
     @pytest.mark.parametrize("ep", GPU_EPS)
     def test_benchmark_ep_gpu(self, ep: str, tmp_path: Path, model_arg: str):
         """Benchmark with --ep <ep>."""
-        require_ep(ep)
+        require_ep(ep, device="gpu")
         _require_gpu()
 
         output_file = tmp_path / f"perf_hf_{ep}_gpu.json"
@@ -815,7 +824,7 @@ class TestPerfHuggingFace:
                 device="gpu",
                 ep=ep,
                 monitor=True,
-                iterations_overwrite=1000,
+                duration_overwrite=3,
             ),
             obj={},
             catch_exceptions=False,
@@ -830,7 +839,7 @@ class TestPerfHuggingFace:
     @pytest.mark.parametrize("ep", NPU_EPS)
     def test_benchmark_ep_npu(self, ep: str, tmp_path: Path, model_arg: str):
         """Benchmark with --ep <ep>."""
-        require_ep(ep)
+        require_ep(ep, device="npu")
         _require_npu()
 
         output_file = tmp_path / f"perf_hf_{ep}_npu.json"

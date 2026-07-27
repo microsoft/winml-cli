@@ -584,6 +584,7 @@ def write_genai_bundle(
     import onnx as _onnx
     from transformers import AutoConfig, AutoTokenizer
 
+    from ..loader import load_hf_config
     from ..onnx import copy_onnx_model
 
     output_dir = Path(output_dir)
@@ -642,7 +643,7 @@ def write_genai_bundle(
     tokenizer.save_pretrained(str(output_dir))
 
     # 4. Build pipeline stages by introspecting the source ONNX files.
-    hf_config = AutoConfig.from_pretrained(model_id)
+    hf_config = load_hf_config(AutoConfig, model_id)
     stages, decoder_io = build_decoder_pipeline_stages(
         context_onnx,
         iterator_onnx,

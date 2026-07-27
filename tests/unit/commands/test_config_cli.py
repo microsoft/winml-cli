@@ -25,15 +25,22 @@ from click.testing import CliRunner, Result
 
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
-    """Mock resolve_check_device_ep to avoid hardware detection in CLI tests.
+    """Mock auto_detect_device / get_available_devices to avoid hardware detection.
 
-    The config command calls resolve_check_device_ep() (lazy import) for
-    device/EP resolution and display. We mock at the source module since the
-    import happens at call time.
+    The config command calls auto_detect_device() (via commands/config.py) and
+    get_available_devices() / auto_detect_device() (via config/build.py) for
+    device/precision resolution. We mock both at their source modules since
+    they are lazy imports.
     """
-    with patch(
-        "winml.modelkit.sysinfo.resolve_check_device_ep",
-        return_value=("npu", ["npu", "gpu", "cpu"], ["QNNExecutionProvider"]),
+    with (
+        patch(
+            "winml.modelkit.session.auto_detect_device",
+            return_value="npu",
+        ),
+        patch(
+            "winml.modelkit.sysinfo.hardware.get_available_devices",
+            return_value=["npu", "gpu", "cpu"],
+        ),
     ):
         yield
 
@@ -69,11 +76,11 @@ def mock_generate_config():
     Returns a MagicMock whose to_dict() yields a valid JSON-serializable dict.
     The mock target is the lazy import inside modelkit.commands.config.
 
-    Also mocks ``AutoConfig.from_pretrained``: the command inspects the model's
-    HF config to route encoder-decoder models built without ``--task`` through
-    the full composite (#850). These CLI tests use a placeholder model id, so the
-    model-inspection boundary is mocked to a non-composite ``model_type`` (so the
-    composite probe returns ``None``) and stays network-free.
+    Also mocks ``load_hf_config``: the command inspects the model's HF config to
+    route encoder-decoder models built without ``--task`` through the full
+    composite (#850). These CLI tests use a placeholder model id, so the shared
+    config-loading boundary returns a non-composite ``model_type`` (making the
+    composite probe return ``None``) and stays network-free.
     """
     mock_cfg = MagicMock()
     mock_cfg.loader.task = "image-classification"
@@ -94,7 +101,10 @@ def mock_generate_config():
     # None and the command falls through to the mocked generate_hf_build_config.
     mock_hf_config = BertConfig()
     with (
-        patch("transformers.AutoConfig.from_pretrained", return_value=mock_hf_config),
+        patch(
+            "winml.modelkit.loader._autoconfig.load_hf_config",
+            return_value=mock_hf_config,
+        ),
         patch(
             "winml.modelkit.config.generate_hf_build_config",
             return_value=mock_cfg,
@@ -211,6 +221,46 @@ class TestConfigCliInterface:
         result = runner.invoke(config, ["-m", "test", "-o", str(output_file)])
         assert result.exit_code == 0, f"Output to file should succeed: {result.output}"
 
+    @pytest.mark.parametrize(
+        ("target_args", "expected_policy_override"),
+        [
+            pytest.param([], False, id="json-beats-defaults"),
+            pytest.param(["--device", "auto"], True, id="explicit-device"),
+            pytest.param(["--precision", "auto"], True, id="explicit-precision"),
+            pytest.param(["--ep", "qnn"], True, id="explicit-ep"),
+        ],
+    )
+    def test_config_target_policy_precedence_is_forwarded(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_generate_config: MagicMock,
+        target_args: list[str],
+        expected_policy_override: bool,
+    ) -> None:
+        """Only explicit target flags outrank sparse JSON quant/compile values."""
+        from winml.modelkit.commands.config import config
+
+        override_data = {
+            "quant": None,
+            "compile": {
+                "execution_provider": "openvino",
+                "device": "npu",
+            },
+        }
+        override_file = tmp_path / "override.json"
+        override_file.write_text(json.dumps(override_data))
+
+        result = runner.invoke(
+            config,
+            ["-m", "test", "--config", str(override_file), *target_args],
+        )
+
+        assert result.exit_code == 0, result.output
+        kwargs = mock_generate_config.call_args.kwargs
+        assert kwargs["override"] == override_data
+        assert kwargs["policy_overrides_config"] is expected_policy_override
+
     def test_model_type_without_model(
         self,
         runner: CliRunner,
@@ -325,6 +375,33 @@ def _invoke_config(*args: str) -> Result:
 
 class TestConfigOnnxOverrides:
     """Test --no-quant and --no-compile work on the ONNX path."""
+
+    def test_sparse_config_preserves_legacy_missing_stage_semantics(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Omitted ONNX config stages remain disabled as before sparse HF merging."""
+        from winml.modelkit.commands.config import config
+
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake")
+        override_file = tmp_path / "override.json"
+        override_file.write_text('{"loader": {"task": "feature-extraction"}}')
+
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+            patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
+        ):
+            result = runner.invoke(
+                config,
+                ["-m", str(onnx_file), "--config", str(override_file)],
+            )
+
+        assert result.exit_code == 0, result.output
+        data = _extract_json(result.output)
+        assert data.get("quant") is None
+        assert data.get("compile") is None
 
     def test_onnx_no_quant(self, runner: CliRunner, tmp_path: Path) -> None:
         """--no-quant should set quant=None even for ONNX configs."""

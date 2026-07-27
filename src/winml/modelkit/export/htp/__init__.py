@@ -2,21 +2,17 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""HTP (Hierarchical Trace-and-Project) Strategy with IO/ABC Architecture.
+"""HTP (Hierarchical Trace-and-Project) strategy with IO/ABC architecture.
 
-This strategy uses execution tracing with PyTorch hooks to capture module context
-during forward pass, then projects this onto ONNX operations.
+HTP preserves PyTorch module context on ONNX nodes. The hierarchy source follows
+the selected exporter:
 
-Key Features:
-- Works with complex models and control flow
-- Built-in module tracking for better accuracy
-- Conservative tag propagation
-- Optimized for HuggingFace transformers
-- New IO/ABC-based monitoring architecture
+- TorchDynamo (default): reconstruct hierarchy from ONNX node metadata after export.
+- TorchScript (``--no-dynamo``): trace module execution with PyTorch forward hooks,
+  then project the traced hierarchy onto ONNX nodes.
 
-Variations:
-- Standard HTP: Hook-based execution tracing
-- Built-in HTP: Uses PyTorch's internal module tracking
+Both paths emit the same ``winml.hierarchy.*`` metadata contract for downstream
+inspection, benchmarking, and optimization.
 
 TODO: Future folder structure refactoring
 Currently keeping the folder structure flat for simplicity.

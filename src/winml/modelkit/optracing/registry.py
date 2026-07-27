@@ -2,63 +2,71 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""EP tracer registry with substring-based pattern matching.
-
-Tracers register themselves against an EP *pattern* (e.g. ``"QNN"``) and
-a profiling *level* (``"basic"`` or ``"detail"``).  Lookup uses substring
-matching so that ``"QNN"`` matches ``"QNNExecutionProvider"`` without
-hardcoding full EP names.
-"""
+"""Deprecated compatibility shim for the legacy op-tracer registry."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+from ._compat import warn_deprecated
 
 
 if TYPE_CHECKING:
     from ..utils.constants import EPName
     from .base import OpTracer
 
-# {ep_pattern: {level: tracer_class}}
+
 _TRACERS: dict[str, dict[str, type[OpTracer]]] = {}
 
 
-def register_tracer(ep_pattern: str, level: str, tracer_class: type[OpTracer]) -> None:
-    """Register a tracer class for an EP pattern and profiling level.
+def _ensure_defaults() -> None:
+    qnn_levels = _TRACERS.setdefault("QNN", {})
+    if "basic" in qnn_levels and "detail" in qnn_levels:
+        return
 
-    Parameters
-    ----------
-    ep_pattern:
-        Substring that will be matched against EP names (e.g. ``"QNN"``).
-    level:
-        Profiling level identifier (e.g. ``"basic"``, ``"detail"``).
-    tracer_class:
-        The ``OpTracer`` subclass to register.
-    """
+    from .qnn.profiler import _QNNProfiler
+
+    qnn_levels.setdefault("basic", _QNNProfiler)
+    qnn_levels.setdefault("detail", _QNNProfiler)
+
+
+def _register_tracer(ep_pattern: str, level: str, tracer_class: type[OpTracer]) -> None:
     _TRACERS.setdefault(ep_pattern, {})[level] = tracer_class
 
 
-def get_tracer(ep_name: EPName, level: str) -> type[OpTracer] | None:
-    """Look up a tracer class by EP name and level.
-
-    Uses substring matching: a registered pattern ``"QNN"`` will match
-    any *ep_name* that contains ``"QNN"`` (e.g. ``"QNNExecutionProvider"``).
-
-    Returns ``None`` when no matching tracer is found.
-    """
+def _get_tracer(ep_name: EPName | str, level: str) -> type[OpTracer] | None:
+    _ensure_defaults()
     for pattern, levels in _TRACERS.items():
         if pattern in ep_name and level in levels:
             return levels[level]
     return None
 
 
-def _register_defaults() -> None:
-    """Auto-register built-in tracers."""
-    from .qnn.profiler import QNNProfiler
-
-    register_tracer("QNN", "basic", QNNProfiler)
-    register_tracer("QNN", "detail", QNNProfiler)
+if TYPE_CHECKING:
+    get_tracer = _get_tracer
+    register_tracer = _register_tracer
 
 
-# Eagerly register defaults on import.
-_register_defaults()
+def __getattr__(name: str) -> Any:
+    if name == "register_tracer":
+        warn_deprecated(
+            "registry.register_tracer",
+            "winml.modelkit.session.monitor.QNNMonitor",
+            stacklevel=2,
+        )
+        return _register_tracer
+    if name == "get_tracer":
+        warn_deprecated(
+            "registry.get_tracer",
+            "winml.modelkit.session.monitor.QNNMonitor",
+            stacklevel=2,
+        )
+        return _get_tracer
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))
+
+
+__all__ = ["get_tracer", "register_tracer"]

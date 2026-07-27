@@ -11,9 +11,11 @@ from types import ModuleType, SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from google.protobuf.message import EncodeError
 
 from winml.modelkit.quant import WinMLQuantizationConfig
 from winml.modelkit.quant.config import QuantizeResult
+from winml.modelkit.quant.fp16 import convert_to_fp16
 from winml.modelkit.quant.passes import BaseQuantPass, DynamicPass, FP16Pass, RTNPass, StaticPass
 
 
@@ -335,6 +337,47 @@ class TestFP16PassConfig:
 
         assert result.success
         assert calls == [{"keep_io_types": False, "op_block_list": ["Gather"]}]
+
+
+class TestFP16Conversion:
+    def test_retries_without_shape_inference_when_proto_serialization_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Large external-data models can exceed protobuf's in-memory serialize limit."""
+        calls: list[dict] = []
+        model = SimpleNamespace(graph=SimpleNamespace(initializer=[], node=[]))
+
+        def fake_convert(model_arg, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                raise EncodeError("Failed to serialize proto")
+            return model_arg
+
+        monkeypatch.setattr(
+            "onnxruntime.transformers.float16.convert_float_to_float16",
+            fake_convert,
+        )
+        monkeypatch.setattr(
+            "onnxruntime.transformers.onnx_model.OnnxModel.graph_topological_sort",
+            lambda graph: None,
+        )
+
+        assert (
+            convert_to_fp16(
+                model,
+                keep_io_types=True,
+                op_block_list=["Softmax"],
+            )
+            is model
+        )
+        assert calls == [
+            {"keep_io_types": True, "op_block_list": ["Softmax"]},
+            {
+                "keep_io_types": True,
+                "disable_shape_infer": True,
+                "op_block_list": ["Softmax"],
+            },
+        ]
 
 
 # ---------------------------------------------------------------------------

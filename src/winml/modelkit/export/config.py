@@ -177,7 +177,7 @@ class WinMLExportConfig:
     export_params: bool = True
     do_constant_folding: bool = True
     verbose: bool = False
-    dynamo: bool = False  # Use TorchScript exporter by default (dynamo=True for PyTorch 2.x)
+    dynamo: bool = False  # TorchScript exporter by default; True enables TorchDynamo
 
     # Phase 2: Hierarchy Preservation Options
     enable_hierarchy_tags: bool = True  # Enable HTP hierarchy tagging by default

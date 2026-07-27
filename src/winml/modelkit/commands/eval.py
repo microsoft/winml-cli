@@ -88,6 +88,32 @@ logger = logging.getLogger(__name__)
     optional_message="Applied during model build. Ignored for pre-built ONNX inputs."
 )
 @cli_utils.max_optim_iterations_option(optional_message="Ignored for pre-built ONNX inputs.")
+@cli_utils.shape_config_option(
+    param_name="shape_config_path",
+    help_text=(
+        "JSON with shape overrides for auto-generated HuggingFace export configs. "
+        "Ignored for pre-built ONNX inputs."
+    ),
+)
+@cli_utils.input_specs_option(
+    help_text=(
+        "JSON file with input specifications for HuggingFace export. "
+        "Ignored for pre-built ONNX inputs."
+    ),
+)
+@cli_utils.export_config_option(
+    help_text=(
+        "ONNX export configuration JSON for HuggingFace model builds "
+        "(opset_version, do_constant_folding, etc.). Ignored for pre-built ONNX inputs."
+    ),
+)
+@cli_utils.dynamic_axes_option(
+    help_text=(
+        "JSON dynamic axes mapping for HuggingFace ONNX export "
+        '(e.g., {"input_ids": {"0": "batch", "1": "sequence"}}). '
+        "Ignored for pre-built ONNX inputs."
+    ),
+)
 @click.option(
     "--samples",
     type=int,
@@ -180,6 +206,10 @@ def eval(
     optimize: bool,
     analyze: bool,
     max_optim_iterations: int | None,
+    shape_config_path: Path | None,
+    input_specs: Path | None,
+    export_config: Path | None,
+    dynamic_axes: Path | None,
     ep: EPNameOrAlias | None,
     samples: int,
     split: str,
@@ -241,6 +271,7 @@ def eval(
 
     # ── 2. Resolve in place ──
     _resolve_model(cfg, model, model_id)
+    _apply_export_overrides(cfg, shape_config_path, input_specs, export_config, dynamic_axes)
     _resolve_device(cfg)
     _resolve_label_mapping(cfg)
     _run_dataset_script(cfg, trust_remote_code)
@@ -368,18 +399,75 @@ def _resolve_model(
     cfg.model_id = resolved_id
 
 
+def _apply_export_overrides(
+    cfg: WinMLEvaluationConfig,
+    shape_config_path: Path | None,
+    input_specs: Path | None,
+    export_config: Path | None,
+    dynamic_axes: Path | None,
+) -> None:
+    """Parse the HuggingFace export CLI overrides onto *cfg* (in place).
+
+    ``--shape-config``/``--input-specs``/``--export-config``/``--dynamic-axes``
+    only affect the HF-build path (``model_path is None``), where eval exports
+    and builds the model. A pre-built ONNX input is consumed as-is (no export
+    step), so any export/shape overrides are dropped with a warning — mirroring
+    the ``--precision``/build-flag warnings and winml perf's ONNX path.
+    Requires ``cfg.model_path`` to already be resolved (call after
+    :func:`_resolve_model`).
+    """
+    export_flags = (
+        ("--shape-config", shape_config_path),
+        ("--input-specs", input_specs),
+        ("--export-config", export_config),
+        ("--dynamic-axes", dynamic_axes),
+    )
+    provided = [flag for flag, value in export_flags if value is not None]
+    if not provided:
+        return
+
+    if cfg.model_path is not None:
+        logger.warning(
+            "%s ignored for pre-built ONNX inputs "
+            "(no export runs; these apply only when building from a model ID).",
+            ", ".join(provided),
+        )
+        return
+
+    if shape_config_path is not None:
+        cfg.shape_config = cli_utils.load_json_object(shape_config_path, "--shape-config")
+
+    export_overrides = cli_utils.load_export_overrides(
+        export_config=export_config,
+        input_specs=input_specs,
+        dynamic_axes=dynamic_axes,
+    )
+    if export_overrides:
+        # Shallow-merge over any config-file export_overrides so CLI-provided
+        # sub-keys win while config-file sub-keys the CLI didn't set survive
+        # (config-file explicit > CLI default). load_export_overrides returns a
+        # sparse dict, so a wholesale assignment would drop the untouched
+        # config-file keys — mirrors build's merge_export_overrides intent.
+        merged = dict(cfg.export_overrides or {})
+        merged.update(export_overrides)
+        cfg.export_overrides = merged
+
+
 def _resolve_device(cfg: WinMLEvaluationConfig) -> None:
     """Resolve ``'auto'`` → concrete device string on *cfg* in place."""
     if cfg.device and cfg.device.lower() != "auto":
         return
 
-    from ..sysinfo import resolve_device
+    cfg._auto_device_selected = True
+    from ..session import EPDeviceTarget, resolve_device
 
     console = Console(stderr=True)
     console.print("[bold]Detecting available devices...[/bold]")
-    resolved, _ = resolve_device(cfg.device, ep=cfg.ep)
-    cfg.device = resolved
-    console.print(f"[dim]Using device:[/dim] {resolved}")
+    resolved_target = resolve_device(
+        EPDeviceTarget(ep=cfg.ep or "auto", device=cfg.device or "auto")
+    )
+    cfg.device = resolved_target.device
+    console.print(f"[dim]Using device:[/dim] {resolved_target.device}")
 
 
 def _resolve_label_mapping(cfg: WinMLEvaluationConfig) -> None:
