@@ -172,3 +172,24 @@ class TestViltVisualEmbedPatcher:
             assert embeddings.visual_embed.__func__.__name__ == "_patched_visual_embed"
 
         assert embeddings.visual_embed.__func__ is original
+
+    def test_patcher_restores_visual_embed_after_exception(self, vilt_config) -> None:
+        """The patcher must restore the model when export exits exceptionally."""
+        from transformers import ViltForQuestionAnswering
+
+        model = ViltForQuestionAnswering(vilt_config)
+        onnx_config = ViltVqaOnnxConfig(
+            vilt_config,
+            task="visual-question-answering",
+        )
+        embeddings = model.vilt.embeddings
+        original = embeddings.visual_embed.__func__
+
+        with (
+            pytest.raises(RuntimeError, match="export failed"),
+            onnx_config.patch_model_for_export(model),
+        ):
+            assert embeddings.visual_embed.__func__.__name__ == "_patched_visual_embed"
+            raise RuntimeError("export failed")
+
+        assert embeddings.visual_embed.__func__ is original

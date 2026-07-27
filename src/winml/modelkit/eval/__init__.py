@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from .tensor_similarity_evaluator import TensorSimilarityEvaluator
     from .text_classification_evaluator import WinMLTextClassificationEvaluator
     from .token_classification_evaluator import WinMLTokenClassificationEvaluator
+    from .visual_question_answering_evaluator import WinMLVisualQuestionAnsweringEvaluator
     from .zero_shot_classification_evaluator import WinMLZeroShotClassificationEvaluator
     from .zero_shot_image_classification_evaluator import WinMLZeroShotImageClassificationEvaluator
 
@@ -68,6 +69,8 @@ _LAZY_ATTRS: dict[str, str] = {
         ".text_classification_evaluator:WinMLTextClassificationEvaluator",
     "WinMLTokenClassificationEvaluator":
         ".token_classification_evaluator:WinMLTokenClassificationEvaluator",
+    "WinMLVisualQuestionAnsweringEvaluator":
+        ".visual_question_answering_evaluator:WinMLVisualQuestionAnsweringEvaluator",
     "WinMLZeroShotClassificationEvaluator":
         ".zero_shot_classification_evaluator:WinMLZeroShotClassificationEvaluator",
     "WinMLZeroShotImageClassificationEvaluator":
@@ -142,6 +145,7 @@ __all__ = [
     "WinMLQuestionAnsweringEvaluator",
     "WinMLTextClassificationEvaluator",
     "WinMLTokenClassificationEvaluator",
+    "WinMLVisualQuestionAnsweringEvaluator",
     "WinMLZeroShotClassificationEvaluator",
     "WinMLZeroShotImageClassificationEvaluator",
     "evaluate",
