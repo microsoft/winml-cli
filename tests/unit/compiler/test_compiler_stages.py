@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import onnx
+import pytest
 from onnx import TensorProto, helper
 
 
@@ -302,7 +303,13 @@ class TestCompileResult:
         assert "qdq_time" not in s
 
 
-def create_epcontext_onnx(path: Path, bin_name: str, embed_mode: int = 0) -> None:
+def create_epcontext_onnx(
+    path: Path,
+    bin_name: str,
+    embed_mode: int = 0,
+    *,
+    partition_name: str | None = None,
+) -> None:
     """Create mock EPContext ONNX model for testing.
 
     Args:
@@ -311,6 +318,10 @@ def create_epcontext_onnx(path: Path, bin_name: str, embed_mode: int = 0) -> Non
         embed_mode: 0=external binary, 1=embedded
     """
     # Create EPContext node with attributes
+    attrs: dict[str, object] = {}
+    if partition_name is not None:
+        attrs["partition_name"] = partition_name
+
     ep_context_node = helper.make_node(
         "EPContext",
         inputs=[],
@@ -320,6 +331,7 @@ def create_epcontext_onnx(path: Path, bin_name: str, embed_mode: int = 0) -> Non
         embed_mode=embed_mode,
         ep_cache_context=bin_name,
         main_context=1,  # This is the main context
+        **attrs,
     )
 
     # Input/output
@@ -346,6 +358,42 @@ def create_epcontext_onnx(path: Path, bin_name: str, embed_mode: int = 0) -> Non
 
 
 class TestCompileStageProcess:
+    def test_ort_session_uses_inference_session_path(self, tmp_path):
+        """The public ort_session compiler selects the dedicated ORT session path."""
+        from unittest.mock import MagicMock, patch
+
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        model_path = tmp_path / "model.onnx"
+        create_simple_model(model_path)
+        session = MagicMock()
+        session.get_providers.return_value = ["QNNExecutionProvider"]
+        session.get_inputs.return_value = []
+        session.get_outputs.return_value = []
+        session_options = MagicMock()
+
+        context = CompileContext(
+            model_path=model_path,
+            config={
+                "execution_provider": "qnn",
+                "compiler": "ort_session",
+                "enable_ep_context": True,
+                "validate": False,
+            },
+        )
+
+        with (
+            patch(
+                "winml.modelkit.session.session._build_session_options",
+                return_value=session_options,
+            ),
+            patch("onnxruntime.InferenceSession", return_value=session) as inference_session,
+        ):
+            CompileStage().process(context)
+
+        inference_session.assert_called_once()
+        assert context.shared_session_options is session_options
+
     def test_process_preserves_trtrtx_provider_options(self, tmp_path):
         from unittest.mock import MagicMock, patch
 
@@ -365,7 +413,7 @@ class TestCompileStageProcess:
         context = CompileContext(
             model_path=model_path,
             config={
-                "execution_provider": "nv_tensorrt_rtx",
+                "execution_provider": "nvtensorrtrtx",
                 "provider_options": {"device_type": "GPU", "precision": "fp16"},
                 "enable_ep_context": True,
                 "validate": False,
@@ -383,11 +431,201 @@ class TestCompileStageProcess:
 
         passed_ep_config = mock_session_cls.call_args.kwargs["ep_config"]
         assert passed_ep_config.provider_options == {"device_type": "GPU", "precision": "fp16"}
-        assert mock_session_cls.call_args.kwargs["ep"] == "NvTensorRTRTXExecutionProvider"
+
+    def test_process_reconstructs_explicit_serialized_device(self, tmp_path):
+        from unittest.mock import MagicMock, patch
+
+        from winml.modelkit.compiler import CompileContext, CompileStage
+        from winml.modelkit.session import EPDeviceTarget
+
+        model_path = tmp_path / "model.onnx"
+        create_simple_model(model_path)
+
+        fake_session = MagicMock()
+        fake_session.get_providers.return_value = ["QNNExecutionProvider"]
+        fake_session.get_inputs.return_value = []
+        fake_session.get_outputs.return_value = []
+
+        fake_winml_session = MagicMock()
+        fake_winml_session._session = fake_session
+
+        context = CompileContext(
+            model_path=model_path,
+            config={
+                "execution_provider": "qnn",
+                "device": "gpu",
+                "enable_ep_context": True,
+                "validate": False,
+            },
+        )
+
+        mock_session_cls = MagicMock(return_value=fake_winml_session)
+        mock_registry = MagicMock()
+        resolved_ep_device = MagicMock()
+        resolved_ep_device.device.device_type = "GPU"
+        mock_registry.auto_device.return_value = resolved_ep_device
+        stage = CompileStage()
+        with (
+            patch.dict(
+                "winml.modelkit.compiler.stages.compile.COMPILER_SESSION_MAPPING",
+                {"ort": mock_session_cls},
+                clear=False,
+            ),
+            patch(
+                "winml.modelkit.compiler.stages.compile.WinMLEPRegistry.instance",
+                return_value=mock_registry,
+            ),
+            patch(
+                "winml.modelkit.compiler.stages.compile.resolve_device",
+                side_effect=lambda target: EPDeviceTarget(
+                    ep=target.ep,
+                    device=("npu" if target.device == "auto" else target.device),
+                    source=target.source,
+                ),
+            ) as mock_resolve_device,
+            patch.object(stage, "_finalize_output") as mock_finalize_output,
+        ):
+            stage.process(context)
+
+        mock_resolve_device.assert_called_once_with(EPDeviceTarget(ep="qnn", device="gpu"))
+        assert mock_finalize_output.call_args.kwargs["device"] == "gpu"
+
+    def test_multi_model_sequence_shares_options_and_closes_context(self, tmp_path):
+        """First, intermediate, and final models share one EP context in sequence."""
+        from unittest.mock import MagicMock, patch
+
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        session = MagicMock()
+        session.get_providers.return_value = ["QNNExecutionProvider"]
+        session.get_inputs.return_value = []
+        session.get_outputs.return_value = []
+        session_options = MagicMock()
+        stage = CompileStage()
+        previous_options = None
+
+        with (
+            patch(
+                "winml.modelkit.session.session._build_session_options",
+                return_value=session_options,
+            ),
+            patch("onnxruntime.InferenceSession", return_value=session) as inference_session,
+        ):
+            for index in range(3):
+                model_path = tmp_path / f"model_{index}.onnx"
+                create_simple_model(model_path)
+                context = CompileContext(
+                    model_path=model_path,
+                    config={
+                        "execution_provider": "qnn",
+                        "compiler": "ort_session",
+                        "enable_ep_context": True,
+                        "validate": False,
+                    },
+                    n_compiled_models=index,
+                    n_total_models=3,
+                    shared_session_options=previous_options,
+                )
+                stage.process(context)
+                previous_options = context.shared_session_options
+
+        assert inference_session.call_count == 3
+        assert previous_options is session_options
+        assert session_options.add_session_config_entry.call_args_list == [
+            (("ep.context_enable", "1"),),
+            (("ep.context_embed_mode", "0"),),
+            (("ep.share_ep_contexts", "1"),),
+            (("ep.context_file_path", str(tmp_path / "model_0_ctx.onnx")),),
+            (("ep.context_file_path", str(tmp_path / "model_1_ctx.onnx")),),
+            (("ep.stop_share_ep_contexts", "1"),),
+            (("ep.context_file_path", str(tmp_path / "model_2_ctx.onnx")),),
+        ]
+
+    def test_multi_model_runtime_only_config_skips_shared_epcontext(self, tmp_path):
+        """Runtime-only multi-model configs should not force shared EPContext setup."""
+        from unittest.mock import MagicMock, patch
+
+        from winml.modelkit.compiler import CompileContext, CompileStage, WinMLCompileConfig
+
+        model_path = tmp_path / "model.onnx"
+        create_simple_model(model_path)
+
+        session = MagicMock()
+        session.get_providers.return_value = ["CPUExecutionProvider"]
+        session.get_inputs.return_value = []
+        session.get_outputs.return_value = []
+        session_options = MagicMock()
+        ep_device = MagicMock()
+        ep_device.device.device_type = "CPU"
+        ep_device.device.ep_name = "CPUExecutionProvider"
+        ep_device.device.hardware_name = "cpu"
+
+        context = CompileContext(
+            model_path=model_path,
+            config=WinMLCompileConfig.for_cpu().to_dict() | {"validate": False},
+            n_total_models=2,
+        )
+
+        with (
+            patch(
+                "winml.modelkit.session.session._build_session_options",
+                return_value=session_options,
+            ),
+            patch("onnxruntime.InferenceSession", return_value=session) as inference_session,
+            patch("onnxruntime.ModelCompiler") as model_compiler,
+            patch(
+                "winml.modelkit.compiler.stages.compile.WinMLEPRegistry.instance",
+            ) as mock_registry,
+        ):
+            mock_registry.return_value.auto_device.return_value = ep_device
+            CompileStage().process(context)
+
+        assert session_options.add_session_config_entry.call_args_list == []
+        model_compiler.assert_not_called()
+        inference_session.assert_called_once()
+        assert context.shared_session_options is None
+        assert context.output_path is None
+        assert context.context_binary_path is None
+        assert context.warnings == []
 
 
 class TestCompileStageFinalizeOutput:
     """Test CompileStage._finalize_output method."""
+
+    def test_uses_resolved_nondefault_device_to_find_epcontext(self, tmp_path):
+        """The resolved device selects the EPContext artifact produced by ORT."""
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        work_dir = tmp_path / "work"
+        output_dir = tmp_path / "output"
+        work_dir.mkdir()
+        output_dir.mkdir()
+
+        original_model_path = tmp_path / "mymodel.onnx"
+        create_simple_model(original_model_path)
+
+        ctx_path = work_dir / "model_to_compile_gpu_ctx.onnx"
+        create_epcontext_onnx(ctx_path, "embedded_data", embed_mode=1)
+        context = CompileContext(
+            model_path=original_model_path,
+            config={
+                "execution_provider": "openvino",
+                "output_path": str(output_dir),
+            },
+            work_dir=work_dir,
+        )
+
+        CompileStage()._finalize_output(
+            context,
+            work_dir / "model_to_compile.onnx",
+            output_dir,
+            device="gpu",
+        )
+
+        expected = output_dir / "mymodel_openvino_ctx.onnx"
+        assert context.output_path == expected
+        assert expected.exists()
+        assert not context.warnings
 
     def test_updates_ep_cache_context_in_external_mode(self, tmp_path):
         """Test that ep_cache_context attribute is updated when bin is renamed.
@@ -429,8 +667,8 @@ class TestCompileStageFinalizeOutput:
         stage = CompileStage()
         stage._finalize_output(context, ctx_path.parent / "model_to_compile.onnx", output_dir)
 
-        # Verify: output EPContext should preserve the source ctx filename
-        final_ctx_path = output_dir / "model_to_compile_qnn_ctx.onnx"
+        # Directory output keeps the existing filename derived from the input model.
+        final_ctx_path = output_dir / "mymodel_qnn_ctx.onnx"
         assert final_ctx_path.exists(), f"Expected {final_ctx_path} to exist"
 
         # Load and check the attribute was updated
@@ -439,11 +677,457 @@ class TestCompileStageFinalizeOutput:
             if node.op_type == "EPContext":
                 for attr in node.attribute:
                     if attr.name == "ep_cache_context":
-                        # Should be updated to new name based on the source ctx stem
-                        assert b"model_to_compile_qnn_ctx" in attr.s, (
-                            f"Expected updated name, got {attr.s}"
-                        )
+                        # Should be updated to the derived output filename.
+                        assert b"mymodel_qnn_ctx" in attr.s, f"Expected updated name, got {attr.s}"
                         break
+
+    def test_updates_matching_cache_reference_with_malformed_main_context(self, tmp_path):
+        """Binary renames follow the referenced file, not malformed main metadata."""
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        work_dir = tmp_path / "work"
+        output_dir = tmp_path / "output"
+        work_dir.mkdir()
+        output_dir.mkdir()
+
+        original_model_path = tmp_path / "mymodel.onnx"
+        create_simple_model(original_model_path)
+
+        old_bin_name = "model_to_compile_qnn_ctx.bin"
+        ctx_path = work_dir / "model_to_compile_qnn_ctx.onnx"
+        create_epcontext_onnx(ctx_path, old_bin_name, embed_mode=0)
+        model = onnx.load(str(ctx_path))
+        node = model.graph.node[0]
+        retained_attrs = [attr for attr in node.attribute if attr.name != "main_context"]
+        del node.attribute[:]
+        node.attribute.extend(retained_attrs)
+        node.attribute.append(helper.make_attribute("main_context", "not-an-integer"))
+        onnx.save(model, str(ctx_path))
+        (work_dir / old_bin_name).write_bytes(b"fake binary content")
+
+        context = CompileContext(
+            model_path=original_model_path,
+            config={
+                "execution_provider": "qnn",
+                "output_path": str(output_dir),
+            },
+            work_dir=work_dir,
+        )
+
+        CompileStage()._finalize_output(
+            context, ctx_path.parent / "model_to_compile.onnx", output_dir
+        )
+
+        final_ctx_path = output_dir / "mymodel_qnn_ctx.onnx"
+        final_model = onnx.load(str(final_ctx_path))
+        cache_attr = next(
+            attr for attr in final_model.graph.node[0].attribute if attr.name == "ep_cache_context"
+        )
+        final_bin_path = output_dir / cache_attr.s.decode("utf-8")
+        assert final_bin_path.read_bytes() == b"fake binary content"
+
+    def test_finalize_output_copies_all_referenced_context_binaries(self, tmp_path):
+        """Every external EPContext reference must survive temporary workdir cleanup."""
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        work_dir = tmp_path / "work"
+        output_dir = tmp_path / "output"
+        work_dir.mkdir()
+        output_dir.mkdir()
+
+        original_model_path = tmp_path / "mymodel.onnx"
+        create_simple_model(original_model_path)
+
+        main_bin_name = "model_to_compile_qnn_ctx.bin"
+        secondary_bin_name = "model_to_compile_qnn_ctx_partition_1.bin"
+        ctx_path = work_dir / "model_to_compile_qnn_ctx.onnx"
+        create_epcontext_onnx(ctx_path, main_bin_name, embed_mode=0)
+        model = onnx.load(str(ctx_path))
+        model.graph.node.append(
+            helper.make_node(
+                "EPContext",
+                inputs=[],
+                outputs=["secondary_output"],
+                name="ep_context_1",
+                domain="com.microsoft",
+                embed_mode=0,
+                ep_cache_context=secondary_bin_name,
+                main_context=0,
+            )
+        )
+        onnx.save(model, str(ctx_path))
+        (work_dir / main_bin_name).write_bytes(b"main binary")
+        (work_dir / secondary_bin_name).write_bytes(b"secondary binary")
+
+        context = CompileContext(
+            model_path=original_model_path,
+            config={
+                "execution_provider": "qnn",
+                "output_path": str(output_dir),
+            },
+            work_dir=work_dir,
+        )
+
+        CompileStage()._finalize_output(
+            context, ctx_path.parent / "model_to_compile.onnx", output_dir
+        )
+
+        final_ctx_path = output_dir / "mymodel_qnn_ctx.onnx"
+        final_model = onnx.load(str(final_ctx_path))
+        cache_refs = {
+            attr.s.decode("utf-8")
+            for node in final_model.graph.node
+            for attr in node.attribute
+            if node.op_type == "EPContext" and attr.name == "ep_cache_context"
+        }
+        assert cache_refs == {
+            "mymodel_qnn_ctx.bin",
+            "mymodel_qnn_ctx_partition_1.bin",
+        }
+        assert (output_dir / "mymodel_qnn_ctx.bin").read_bytes() == b"main binary"
+        assert (output_dir / "mymodel_qnn_ctx_partition_1.bin").read_bytes() == b"secondary binary"
+
+    def test_finalize_output_allows_secondary_partition_without_cache_reference(self, tmp_path):
+        """Secondary EPContext nodes may share the main node's external binary."""
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        work_dir = tmp_path / "work"
+        output_dir = tmp_path / "output"
+        work_dir.mkdir()
+        output_dir.mkdir()
+
+        original_model_path = tmp_path / "mymodel.onnx"
+        create_simple_model(original_model_path)
+
+        main_bin_name = "model_to_compile_qnn_ctx.bin"
+        ctx_path = work_dir / "model_to_compile_qnn_ctx.onnx"
+        create_epcontext_onnx(ctx_path, main_bin_name, embed_mode=0)
+        model = onnx.load(str(ctx_path))
+        model.graph.node.append(
+            helper.make_node(
+                "EPContext",
+                inputs=[],
+                outputs=["secondary_output"],
+                name="ep_context_1",
+                domain="com.microsoft",
+                embed_mode=0,
+                main_context=0,
+            )
+        )
+        onnx.save(model, str(ctx_path))
+        (work_dir / main_bin_name).write_bytes(b"shared binary")
+
+        context = CompileContext(
+            model_path=original_model_path,
+            config={
+                "execution_provider": "qnn",
+                "output_path": str(output_dir),
+            },
+            work_dir=work_dir,
+        )
+
+        CompileStage()._finalize_output(
+            context, ctx_path.parent / "model_to_compile.onnx", output_dir
+        )
+
+        assert (output_dir / "mymodel_qnn_ctx.onnx").exists()
+        assert (output_dir / "mymodel_qnn_ctx.bin").read_bytes() == b"shared binary"
+
+    def test_finalize_output_fails_for_missing_external_context_binary(self, tmp_path):
+        """A finalized model must not retain a reference into the temporary workdir."""
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        work_dir = tmp_path / "work"
+        output_dir = tmp_path / "output"
+        work_dir.mkdir()
+        output_dir.mkdir()
+
+        original_model_path = tmp_path / "mymodel.onnx"
+        create_simple_model(original_model_path)
+        missing_bin_name = "model_to_compile_qnn_ctx.bin"
+        ctx_path = work_dir / "model_to_compile_qnn_ctx.onnx"
+        create_epcontext_onnx(ctx_path, missing_bin_name, embed_mode=0)
+
+        context = CompileContext(
+            model_path=original_model_path,
+            config={
+                "execution_provider": "qnn",
+                "output_path": str(output_dir),
+            },
+            work_dir=work_dir,
+        )
+
+        with pytest.raises(FileNotFoundError, match=missing_bin_name):
+            CompileStage()._finalize_output(
+                context, ctx_path.parent / "model_to_compile.onnx", output_dir
+            )
+
+        assert context.output_path is None
+        assert not (output_dir / "mymodel_qnn_ctx.onnx").exists()
+
+    def test_finalize_output_fails_for_escaping_external_context_reference(self, tmp_path):
+        """External context references must remain inside the compiler workdir."""
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        work_dir = tmp_path / "work"
+        output_dir = tmp_path / "output"
+        work_dir.mkdir()
+        output_dir.mkdir()
+
+        original_model_path = tmp_path / "mymodel.onnx"
+        create_simple_model(original_model_path)
+        ctx_path = work_dir / "model_to_compile_qnn_ctx.onnx"
+        create_epcontext_onnx(ctx_path, "../escaped.bin", embed_mode=0)
+        (tmp_path / "escaped.bin").write_bytes(b"outside workdir")
+
+        context = CompileContext(
+            model_path=original_model_path,
+            config={
+                "execution_provider": "qnn",
+                "output_path": str(output_dir),
+            },
+            work_dir=work_dir,
+        )
+
+        with pytest.raises(ValueError, match="unsafe EPContext binary reference"):
+            CompileStage()._finalize_output(
+                context, ctx_path.parent / "model_to_compile.onnx", output_dir
+            )
+
+        assert context.output_path is None
+        assert not (output_dir / "mymodel_qnn_ctx.onnx").exists()
+
+    def test_finalize_output_fails_for_colliding_context_binary_destinations(self, tmp_path):
+        """Distinct context binaries must not overwrite one another after renaming."""
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        work_dir = tmp_path / "work"
+        output_dir = tmp_path / "output"
+        work_dir.mkdir()
+        output_dir.mkdir()
+
+        original_model_path = tmp_path / "mymodel.onnx"
+        create_simple_model(original_model_path)
+
+        renamed_source = "model_to_compile_qnn_ctx.bin"
+        existing_final_name = "mymodel_qnn_ctx.bin"
+        ctx_path = work_dir / "model_to_compile_qnn_ctx.onnx"
+        create_epcontext_onnx(ctx_path, renamed_source, embed_mode=0)
+        model = onnx.load(str(ctx_path))
+        model.graph.node.append(
+            helper.make_node(
+                "EPContext",
+                inputs=[],
+                outputs=["secondary_output"],
+                name="ep_context_1",
+                domain="com.microsoft",
+                embed_mode=0,
+                ep_cache_context=existing_final_name,
+                main_context=0,
+            )
+        )
+        onnx.save(model, str(ctx_path))
+        (work_dir / renamed_source).write_bytes(b"first binary")
+        (work_dir / existing_final_name).write_bytes(b"second binary")
+
+        context = CompileContext(
+            model_path=original_model_path,
+            config={
+                "execution_provider": "qnn",
+                "output_path": str(output_dir),
+            },
+            work_dir=work_dir,
+        )
+
+        with pytest.raises(ValueError, match="same output path"):
+            CompileStage()._finalize_output(
+                context, ctx_path.parent / "model_to_compile.onnx", output_dir
+            )
+
+        assert context.output_path is None
+        assert not (output_dir / "mymodel_qnn_ctx.onnx").exists()
+
+    def test_finalize_output_copies_partition_schematic_sidecar(self, tmp_path):
+        """Persist the exact QNN schematic named by EPContext partition metadata."""
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        work_dir = tmp_path / "work"
+        output_dir = tmp_path / "output"
+        work_dir.mkdir()
+        output_dir.mkdir()
+
+        original_model_path = tmp_path / "mymodel.onnx"
+        create_simple_model(original_model_path)
+
+        partition_name = "unit_test_partition_123"
+        ctx_path = work_dir / "model_to_compile_qnn_ctx.onnx"
+        create_epcontext_onnx(
+            ctx_path,
+            "model_to_compile_qnn_ctx.bin",
+            embed_mode=0,
+            partition_name=partition_name,
+        )
+        (work_dir / "model_to_compile_qnn_ctx.bin").write_bytes(b"fake binary")
+        (work_dir / f"{partition_name}_schematic.bin").write_bytes(b"schematic")
+        (work_dir / "unrelated_schematic.bin").write_bytes(b"unrelated")
+
+        context = CompileContext(
+            model_path=original_model_path,
+            config={
+                "execution_provider": "qnn",
+                "output_path": str(output_dir),
+            },
+            work_dir=work_dir,
+        )
+
+        CompileStage()._finalize_output(
+            context, ctx_path.parent / "model_to_compile.onnx", output_dir
+        )
+
+        assert (output_dir / f"{partition_name}_schematic.bin").read_bytes() == b"schematic"
+        assert not (output_dir / "unrelated_schematic.bin").exists()
+
+    def test_finalize_output_copies_only_main_partition_schematic(self, tmp_path):
+        """Secondary partition schematics must not be paired with the main context binary."""
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        work_dir = tmp_path / "work"
+        output_dir = tmp_path / "output"
+        work_dir.mkdir()
+        output_dir.mkdir()
+
+        original_model_path = tmp_path / "mymodel.onnx"
+        create_simple_model(original_model_path)
+
+        main_partition = "main_partition"
+        secondary_partition = "secondary_partition"
+        ctx_path = work_dir / "model_to_compile_qnn_ctx.onnx"
+        create_epcontext_onnx(
+            ctx_path,
+            "model_to_compile_qnn_ctx.bin",
+            embed_mode=0,
+            partition_name=main_partition,
+        )
+        model = onnx.load(str(ctx_path))
+        model.graph.node.append(
+            helper.make_node(
+                "EPContext",
+                inputs=[],
+                outputs=["secondary_output"],
+                name="ep_context_1",
+                domain="com.microsoft",
+                embed_mode=0,
+                ep_cache_context="secondary.bin",
+                main_context=0,
+                partition_name=secondary_partition,
+            )
+        )
+        onnx.save(model, str(ctx_path))
+
+        (work_dir / "model_to_compile_qnn_ctx.bin").write_bytes(b"fake binary")
+        (work_dir / "secondary.bin").write_bytes(b"secondary binary")
+        (work_dir / f"{main_partition}_schematic.bin").write_bytes(b"main")
+        (work_dir / f"{secondary_partition}_schematic.bin").write_bytes(b"secondary")
+
+        context = CompileContext(
+            model_path=original_model_path,
+            config={
+                "execution_provider": "qnn",
+                "output_path": str(output_dir),
+            },
+            work_dir=work_dir,
+        )
+
+        CompileStage()._finalize_output(
+            context, ctx_path.parent / "model_to_compile.onnx", output_dir
+        )
+
+        assert (output_dir / f"{main_partition}_schematic.bin").read_bytes() == b"main"
+        assert not (output_dir / f"{secondary_partition}_schematic.bin").exists()
+
+    def test_finalize_output_rejects_path_like_partition_schematic_name(self, tmp_path):
+        """EPContext partition metadata must not escape sidecar directories."""
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        work_dir = tmp_path / "work"
+        output_dir = tmp_path / "output"
+        escaped_dir = tmp_path / "escaped"
+        work_dir.mkdir()
+        output_dir.mkdir()
+        escaped_dir.mkdir()
+
+        original_model_path = tmp_path / "mymodel.onnx"
+        create_simple_model(original_model_path)
+
+        ctx_path = work_dir / "model_to_compile_qnn_ctx.onnx"
+        create_epcontext_onnx(
+            ctx_path,
+            "model_to_compile_qnn_ctx.bin",
+            embed_mode=0,
+            partition_name="../escaped/not_a_stem",
+        )
+        (work_dir / "model_to_compile_qnn_ctx.bin").write_bytes(b"fake binary")
+        (escaped_dir / "not_a_stem_schematic.bin").write_bytes(b"escaped")
+
+        context = CompileContext(
+            model_path=original_model_path,
+            config={
+                "execution_provider": "qnn",
+                "output_path": str(output_dir),
+            },
+            work_dir=work_dir,
+        )
+
+        CompileStage()._finalize_output(
+            context, ctx_path.parent / "model_to_compile.onnx", output_dir
+        )
+
+        assert not (output_dir / "not_a_stem_schematic.bin").exists()
+
+    def test_finalize_output_rejects_invalid_utf8_partition_name(self, tmp_path):
+        """Malformed partition metadata must not abort compiler finalization."""
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        work_dir = tmp_path / "work"
+        output_dir = tmp_path / "output"
+        work_dir.mkdir()
+        output_dir.mkdir()
+
+        original_model_path = tmp_path / "mymodel.onnx"
+        create_simple_model(original_model_path)
+
+        ctx_path = work_dir / "model_to_compile_qnn_ctx.onnx"
+        create_epcontext_onnx(
+            ctx_path,
+            "model_to_compile_qnn_ctx.bin",
+            embed_mode=0,
+            partition_name="placeholder",
+        )
+        model = onnx.load(str(ctx_path))
+        partition_attr = next(
+            attr for attr in model.graph.node[0].attribute if attr.name == "partition_name"
+        )
+        partition_attr.s = b"\xff"
+        onnx.save(model, str(ctx_path))
+
+        (work_dir / "model_to_compile_qnn_ctx.bin").write_bytes(b"fake binary")
+        (work_dir / "placeholder_schematic.bin").write_bytes(b"unbound")
+
+        context = CompileContext(
+            model_path=original_model_path,
+            config={
+                "execution_provider": "qnn",
+                "output_path": str(output_dir),
+            },
+            work_dir=work_dir,
+        )
+
+        CompileStage()._finalize_output(
+            context, ctx_path.parent / "model_to_compile.onnx", output_dir
+        )
+
+        assert (output_dir / "mymodel_qnn_ctx.onnx").exists()
+        assert not (output_dir / "placeholder_schematic.bin").exists()
 
     def test_skips_update_when_embedded(self, tmp_path):
         """Test that ep_cache_context is not modified when embed_mode=1.
@@ -478,7 +1162,7 @@ class TestCompileStageFinalizeOutput:
         stage._finalize_output(context, ctx_path.parent / "model_to_compile.onnx", output_dir)
 
         # Verify: output should exist but ep_cache_context should be unchanged
-        final_ctx_path = output_dir / "model_to_compile_qnn_ctx.onnx"
+        final_ctx_path = output_dir / "mymodel_qnn_ctx.onnx"
         assert final_ctx_path.exists()
 
         model = onnx.load(str(final_ctx_path))

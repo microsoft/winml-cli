@@ -13,24 +13,23 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from ...utils.constants import EPName, EPNameOrAlias
     from ..models.ihv_type import IHVType
 
 
 logger = logging.getLogger(__name__)
 
 
-def infer_ihv_from_ep_name(ep_name: EPNameOrAlias) -> IHVType:
+def infer_ihv_from_ep_name(ep_name: str) -> IHVType:
     """Infer IHVType from an Execution Provider name or alias.
 
-    Accepts either a canonical ``EPName`` or a shorthand ``EPAlias`` (e.g.
+    Accepts either a canonical EP name or a shorthand alias (e.g.
     ``"openvino"``); aliases are normalized to their canonical name before the
     exact lookup, which covers every member of the canonical set. Names that
     are neither a known EP nor a known alias resolve to ``IHVType.UNKNOWN``
     rather than raising, so callers can treat inference as total.
 
     Args:
-        ep_name: Execution Provider name or alias (see ``utils.constants``).
+        ep_name: Execution Provider name or alias.
 
     Returns:
         IHVType: Inferred IHV type (QC, INTEL, AMD, NVIDIA, MICROSOFT, or
@@ -53,7 +52,7 @@ def infer_ihv_from_ep_name(ep_name: EPNameOrAlias) -> IHVType:
     from ...utils.constants import normalize_ep_name
     from ..models.ihv_type import IHVType
 
-    ep_name_to_ihv: dict[EPName, IHVType] = {
+    ep_name_to_ihv: dict[str, IHVType] = {
         "QNNExecutionProvider": IHVType.QC,
         "OpenVINOExecutionProvider": IHVType.INTEL,
         "VitisAIExecutionProvider": IHVType.AMD,
@@ -65,15 +64,15 @@ def infer_ihv_from_ep_name(ep_name: EPNameOrAlias) -> IHVType:
     }
 
     canonical = normalize_ep_name(ep_name)
-    return ep_name_to_ihv.get(canonical, IHVType.UNKNOWN)  # type: ignore[arg-type]
+    return ep_name_to_ihv.get(canonical, IHVType.UNKNOWN)
 
 
-def get_devices_with_rule_data(ep_name: EPName) -> list[str]:
+def get_devices_with_rule_data(ep_name: str) -> list[str]:
     """Return all devices supported by an EP.
 
     First probes runtime-rule directories for parquet artifacts for each
     ``EP + device`` pair. If no rule data is found, falls
-    back to the EP→device mapping from :func:`sysinfo.get_ep_device_map`.
+    back to the EP→device mapping in :data:`session.EP_DEVICE_SPECS`.
 
     Args:
         ep_name: Full execution provider name (e.g., ``"QNNExecutionProvider"``).
@@ -82,10 +81,10 @@ def get_devices_with_rule_data(ep_name: EPName) -> list[str]:
         List of device strings (e.g., ``["NPU", "GPU"]``), empty if
         the EP is completely unknown.
     """
-    from ...sysinfo.device import get_ep_device_map
+    from ...session import EP_DEVICE_SPECS
 
     # Priority order: NPU > GPU > CPU (first match used as default device)
-    known_devices = {d.upper() for v in get_ep_device_map().values() for d in v.split("/") if d}
+    known_devices = {spec.device.upper() for spec in EP_DEVICE_SPECS}
     priority = ["NPU", "GPU", "CPU"]
     probe_order = [d for d in priority if d in known_devices]
     # Append any devices not in the priority list
@@ -94,9 +93,9 @@ def get_devices_with_rule_data(ep_name: EPName) -> list[str]:
     devices = [d for d in probe_order if has_rule_data_for_ep(ep_name, d)]
     if devices:
         return devices
-    # Fallback: derive from the authoritative EP→device mapping
-    device_str = get_ep_device_map().get(ep_name, "")
-    return [d.upper() for d in device_str.split("/") if d]
+    # Fallback: derive from the authoritative EP→device catalog. Preserve
+    # catalog order (NPU rows precede GPU/CPU rows for each vendor EP).
+    return [spec.device.upper() for spec in EP_DEVICE_SPECS if spec.ep == ep_name]
 
 
 def has_any_rule_data() -> bool:
@@ -119,7 +118,7 @@ def has_any_rule_data() -> bool:
     return False
 
 
-def has_rule_data_for_ep(ep_name: EPName, device: str) -> bool:
+def has_rule_data_for_ep(ep_name: str, device: str) -> bool:
     """Check whether runtime check rule data exists for a given EP and device.
 
         Probes runtime-rule search directories for provider subdirectory layout only:
@@ -137,7 +136,7 @@ def has_rule_data_for_ep(ep_name: EPName, device: str) -> bool:
     """
     from .rule_loader import get_runtime_rules_search_dirs
 
-    def _has_parquet_in_search_dir(search_dir: Path, ep: EPName, device_upper: str) -> bool:
+    def _has_parquet_in_search_dir(search_dir: Path, ep: str, device_upper: str) -> bool:
         provider_dir = search_dir / f"{ep}_{device_upper}"
         return provider_dir.is_dir() and any(provider_dir.glob("*.parquet"))
 

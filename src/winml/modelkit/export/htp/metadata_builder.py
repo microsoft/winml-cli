@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __spec_version__ as htp_version
+from .step_data import HIERARCHY_SOURCE_TRACE
 
 
 @dataclass
@@ -52,9 +53,10 @@ class ModelInfo:
 
 @dataclass
 class TracingInfo:
-    """Tracing execution information."""
+    """Hierarchy build information (execution trace or ONNX-metadata recovery)."""
 
     builder: str = "TracingHierarchyBuilder"
+    source: str = HIERARCHY_SOURCE_TRACE
     modules_traced: int = 0
     execution_steps: int = 0
     model_type: str | None = None
@@ -205,9 +207,17 @@ class HTPMetadataBuilder:
         task: str | None = None,
         inputs: dict[str, dict[str, Any]] | None = None,
         outputs: list[str] | None = None,
+        source: str = HIERARCHY_SOURCE_TRACE,
+        builder: str | None = None,
     ) -> HTPMetadataBuilder:
-        """Set tracing information."""
-        self._tracing_info = TracingInfo(
+        """Set hierarchy build information.
+
+        ``source`` records how the hierarchy was obtained; ``builder`` names the
+        component that produced it (defaults to the TorchScript tracer when not
+        given, so the dynamo path passes its reconstructor explicitly).
+        """
+        info = TracingInfo(
+            source=source,
             modules_traced=modules_traced,
             execution_steps=execution_steps,
             model_type=model_type,
@@ -215,6 +225,9 @@ class HTPMetadataBuilder:
             inputs=inputs,
             outputs=outputs,
         )
+        if builder is not None:
+            info.builder = builder
+        self._tracing_info = info
         return self
 
     def with_modules(self, modules: dict[str, dict[str, Any]]) -> HTPMetadataBuilder:

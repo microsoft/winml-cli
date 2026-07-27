@@ -138,11 +138,11 @@ def mock_pipeline():
             side_effect=_create_file_side_effect("output"),
         ) as m_optimize,
         patch(
-            "winml.modelkit.build.hf.quantize_onnx",
+            "winml.modelkit.build.common.quantize_onnx",
             side_effect=_create_file_side_effect("output_path", quant_result),
         ) as m_quantize,
         patch(
-            "winml.modelkit.build.hf.compile_onnx",
+            "winml.modelkit.build.common.compile_onnx",
             side_effect=_create_file_side_effect("output_path", compile_result),
         ) as m_compile,
         patch(
@@ -155,10 +155,6 @@ def mock_pipeline():
         ) as m_has_qdq,
         patch(
             "winml.modelkit.build.common.copy_onnx_model",
-            side_effect=lambda src, dst: Path(dst).write_text("mock"),
-        ),
-        patch(
-            "winml.modelkit.build.hf.copy_onnx_model",
             side_effect=lambda src, dst: Path(dst).write_text("mock"),
         ),
     ):

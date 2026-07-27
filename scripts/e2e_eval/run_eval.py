@@ -6,9 +6,14 @@
 """E2E evaluation runner — unified, recipe-driven perf + accuracy.
 
 Batch-builds models and runs winml perf, then (when perf passes) winml eval,
-writing one unified eval_result.json per (model, task, precision). Builds prefer
-an authored recipe under ``examples/recipes/`` (``winml build -c`` for each
-precision variant), falling back to ``winml config`` for models without one.
+writing one unified eval_result.json per (model, task, precision). Recipes drive
+the build on every device (they carry the accuracy eval/dataset config), but
+quantized precision variants are NPU-only. On ``--device npu`` the runner builds
+every authored recipe variant under ``examples/recipes/`` (``winml build -c``),
+and a recipe-less NPU model falls back to ``winml config`` expanded into ``w8a8``
++ ``w8a16`` jobs (an explicit per-model precision overrides this). CPU/GPU build
+only the non-quantized recipe variants (e.g. ``fp16``), or a single ``winml
+config`` fallback when a model has no applicable recipe.
 
 The runner records facts only (perf output + the winml-eval metrics/dataset).
 The per-model report HTML — perf latency and the "Model Accuracy Report" delta
@@ -89,6 +94,12 @@ EVAL_DATASETS_CACHE = Path.home() / ".cache" / "winml" / "eval_datasets"
 TIMEOUT_SKIP_LIST_PATH = Path(__file__).parent / "cache" / "timeout_skip_list.json"
 _DEFAULT_SAMPLES = 1000
 _DEFAULT_PRECISION_NPU = "w8a16"
+
+# NPU fallback precisions used when a model has no authored recipe: the harness
+# expands into one winml-config job per NPU quantization scheme (w8a8 + w8a16).
+# An explicit per-model precision (``ModelEntry.precision``) overrides this. This
+# expansion is NPU-only; off-NPU devices never build quantized variants.
+_NPU_FALLBACK_PRECISIONS: tuple[str, ...] = ("w8a8", "w8a16")
 
 # EPs whose eval track keeps the model unquantized (the "fp" variant)
 # rather than running winml's QDQ pass on top.  This is an eval-setup
@@ -553,6 +564,11 @@ def _run_build(
     via ``-o`` (preserving the intermediate export/optimized/quantized ONNX) and
     skips compile (``--no-compile``) — no execution provider is required.
     Otherwise the build populates the global cache (``--use-cache``).
+
+    ``precision`` is passed to both ``winml config`` and ``winml build``: since
+    we always pass ``--device``, ``winml build -c`` re-resolves quant from
+    device+precision and overwrites what the config baked in, so omitting it
+    would let the build revert to its auto default (npu → w8a16).
     """
     composite_onnx = getattr(entry, "composite_onnx", None)
     if isinstance(composite_onnx, dict) and composite_onnx:
@@ -652,6 +668,9 @@ def _run_build(
         else:
             build_args += ["--use-cache"]
         build_args += ["--device", device]
+        # See docstring: forward precision so the build doesn't revert to auto.
+        if precision:
+            build_args += ["--precision", precision]
         if ep:
             build_args += ["--ep", ep]
         # Mirror the --no-quant passed to winml config above so the build
@@ -2301,25 +2320,71 @@ class EvalJob:
 
     ``variant`` is the authored recipe variant to build (one per precision),
     or ``None`` for the fallback path that generates the build config with
-    ``winml config``. Each job produces one ``eval_result.json``.
+    ``winml config``. ``fallback_precision`` pins the precision of a fallback
+    (``variant is None``) job — used on NPU to expand a recipe-less model into
+    one job per NPU quantization scheme (see :data:`_NPU_FALLBACK_PRECISIONS`);
+    it stays ``None`` for the single default-precision fallback. Each job
+    produces one ``eval_result.json``.
     """
 
     entry: ModelEntry
     variant: RecipeVariant | None
+    fallback_precision: str | None = None
 
     @property
     def precision(self) -> str | None:
-        """Recipe precision (e.g. ``fp16``/``w8a16``), or None for the fallback."""
-        return self.variant.precision if self.variant is not None else None
+        """Recipe precision, else pinned fallback, else the per-model precision.
+
+        Falling back to ``entry.precision`` keeps the result-dir slug, display
+        label, and recorded precision in sync with what ``_build_for_job``
+        actually builds (it uses ``fallback_precision or entry.precision``) for
+        a recipe-less job that carries an explicit per-model precision.
+        """
+        if self.variant is not None:
+            return self.variant.precision
+        return self.fallback_precision or self.entry.precision
 
 
-def _build_jobs(entries: list[ModelEntry], recipes_dir: Path | None) -> list[EvalJob]:
-    """Expand entries into jobs, one per recipe precision variant.
+def _is_quantized_precision(precision: str) -> bool:
+    """True if a recipe precision implies quantization.
 
-    For each entry, if ``recipes_dir`` is set and the model has recipe variants
-    for its task, emit one job per variant (precision); otherwise emit a single
-    fallback job (``variant=None``) that builds via ``winml config``.
+    Off-NPU devices skip quantized recipe variants (see :func:`_build_jobs`).
+    Delegates to winml's precision policy so the classification never drifts
+    from the CLI (``fp16`` -> False, ``w8a16``/``w8a8`` -> True).
     """
+    from winml.modelkit.config.precision import is_quantized_precision
+
+    return is_quantized_precision(precision)
+
+
+def _build_jobs(
+    entries: list[ModelEntry], recipes_dir: Path | None, device: str, ep: str | None = None
+) -> list[EvalJob]:
+    """Expand entries into jobs. Recipes apply on every device; quant is NPU-only.
+
+    Recipes carry the accuracy eval/dataset config, so they are consulted
+    regardless of device -- but quantized recipe variants (``w8a16``/``w8a8``)
+    only make sense on the NPU. For each entry:
+
+    * NPU + recipe variants on disk → one job per variant (``fp16`` + any
+      quantized).
+    * NPU + no recipe + no per-model precision → one fallback job per NPU
+      quantization scheme (:data:`_NPU_FALLBACK_PRECISIONS`, i.e. ``w8a8`` +
+      ``w8a16``). Skipped for skip-quant EPs (VitisAI), which build a single
+      unquantized fallback -- otherwise both precisions collapse onto the same
+      unquantized artifact (``_resolve_precision`` forces the flag off).
+    * NPU + no recipe + explicit per-model precision → a single fallback job
+      honoring that precision (``winml config``).
+    * non-NPU + non-quantized recipe variants → one job per such variant
+      (quantized variants are dropped).
+    * non-NPU with no applicable recipe variant → a single ``winml config``
+      fallback job (``variant=None``).
+    """
+    npu = device == "npu"
+    # Skip-quant EPs (VitisAI) build the model unquantized regardless of
+    # precision, so the NPU multi-precision expansion would produce duplicate
+    # artifacts under distinct precision slugs -- fall back to a single job.
+    expand_npu_quant = npu and not _should_skip_winml_quant(ep)
     jobs: list[EvalJob] = []
     for entry in entries:
         variants = (
@@ -2327,8 +2392,20 @@ def _build_jobs(entries: list[ModelEntry], recipes_dir: Path | None) -> list[Eva
             if recipes_dir is not None
             else []
         )
+        if not npu:
+            # Off-NPU still uses recipes for their eval config, but drops
+            # quantized variants -- quantization is an NPU-only concern here.
+            variants = [v for v in variants if not _is_quantized_precision(v.precision)]
         if variants:
             jobs.extend(EvalJob(entry, variant) for variant in variants)
+        elif expand_npu_quant and entry.precision is None:
+            # NPU without a recipe: build both NPU quantization precisions. An
+            # explicit per-model precision (e.g. fp16) skips this and is honored
+            # by the single-fallback branch below via _resolve_precision.
+            jobs.extend(
+                EvalJob(entry, None, fallback_precision=prec)
+                for prec in _NPU_FALLBACK_PRECISIONS
+            )
         else:
             jobs.append(EvalJob(entry, None))
     return jobs
@@ -2352,10 +2429,13 @@ def _build_for_job(
         recipe_meta = build_result.get("meta_config")
         trust = _needs_trust_remote_code(recipe_meta)
     else:
+        # Fallback: winml config. A fallback job may pin an NPU precision
+        # (w8a8/w8a16); otherwise the per-model precision (if any) applies.
+        explicit_precision = job.fallback_precision or job.entry.precision
         build_result = _run_build(
             job.entry,
             args.device,
-            _resolve_precision(args.device, job.entry.precision, ep=args.ep),
+            _resolve_precision(args.device, explicit_precision, ep=args.ep),
             args.timeout,
             model_dir,
             ep=args.ep,
@@ -2739,10 +2819,14 @@ def main() -> None:
         args.continue_run = True
         retry_types = {t.upper() for t in args.retry_failed} if args.retry_failed else set()
 
-    # Expand entries into per-precision recipe jobs; models without a recipe
-    # for their task fall back to a single winml-config build (variant=None).
+    # Expand entries into jobs. Recipes drive the build on every device (they
+    # carry the eval/dataset config), but quantized variants are NPU-only: on
+    # NPU a model builds one job per recipe precision variant (or, recipe-less
+    # with no per-model precision, one per NPU quantization scheme -- w8a8 +
+    # w8a16); off-NPU builds only the non-quantized recipe variants, else a
+    # single winml-config fallback (variant=None).
     recipes_dir = None if args.no_recipes else args.recipes_dir
-    jobs = _build_jobs(entries, recipes_dir)
+    jobs = _build_jobs(entries, recipes_dir, args.device, ep=args.ep)
     total_jobs = len(jobs)
 
     safe_print(f"E2E Evaluation: {len(entries)} models -> {total_jobs} jobs -> {output_dir}")
@@ -2751,8 +2835,16 @@ def main() -> None:
         f"Device: {args.device} | EP: {ep_label} | Timeout: {args.timeout}s | Eval: {args.eval_type}"
     )
     safe_print(f"Disk free: {_get_disk_free_gb():.1f} GB")
-    if recipes_dir is not None:
-        safe_print(f"Recipes: {recipes_dir}  (winml config fallback when a model has none)")
+    if recipes_dir is not None and args.device == "npu":
+        safe_print(
+            f"Recipes: {recipes_dir}  "
+            f"(NPU; winml config {'+'.join(_NPU_FALLBACK_PRECISIONS)} fallback when a model has none)"
+        )
+    elif recipes_dir is not None:
+        safe_print(
+            f"Recipes: {recipes_dir}  "
+            f"(non-NPU '{args.device}'; non-quantized variants only, winml config fallback)"
+        )
     else:
         safe_print("Recipes: disabled (winml config for all builds)")
     if args.clean_cache:

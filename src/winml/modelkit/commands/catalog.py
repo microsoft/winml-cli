@@ -431,7 +431,7 @@ def catalog(
         ep_col_fn = None
         if (ep is not None) ^ (device is not None):
             if ep is not None:
-                ep_col_header, ep_col_fn = _make_ep_col_fn_for_ep(normalize_ep_name(ep) or "")
+                ep_col_header, ep_col_fn = _make_ep_col_fn_for_ep(normalize_ep_name(ep))
             else:
                 ep_col_header, ep_col_fn = _make_ep_col_fn_for_device(device or "")
         _output_list(models, ep_col_header=ep_col_header, ep_col_fn=ep_col_fn)

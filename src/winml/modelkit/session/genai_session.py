@@ -49,17 +49,19 @@ import copy
 import json
 import logging
 import shutil
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from ..ep_path import EP_CATALOG, BuiltinSource
 from ..utils.constants import (
-    EP_NAME_TO_ALIAS,
     EP_NAMES,
     EP_SUPPORTED_DEVICES,
     normalize_ep_name,
 )
+from .ep_device import VALID_EPS, short_ep_name
 from .ep_registry import WinMLEPRegistry
 
 
@@ -70,6 +72,11 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+# Native ORT GenAI registration is process-wide. Cache only successful calls;
+# failed calls remain retryable because a later candidate may become available.
+_GENAI_REGISTRATION_LOCK = threading.Lock()
+_GENAI_REGISTERED_PATHS: set[Path] = set()
 
 # EPs whose hardware target is selected by a ``device_type`` provider option
 # (rather than a backend path/library).  When forcing one of these onto a stage
@@ -410,7 +417,6 @@ class GenaiSession:
         self._verbose = verbose
         self._compile = compile
         self._compile_timeout = compile_timeout
-
         # Resolved at load() time.
         self._context_length: int | None = None
 
@@ -449,7 +455,7 @@ class GenaiSession:
             return None
         normalized = normalize_ep_name(ep)
         if normalized not in EP_NAMES:
-            valid = ", ".join(sorted(EP_NAME_TO_ALIAS.values()))
+            valid = ", ".join(sorted(VALID_EPS))
             raise ValueError(
                 f"Unknown execution provider {ep!r} for GenaiSession ep override. "
                 f"Pass one of: {valid} (or a full *ExecutionProvider name), or None "
@@ -493,17 +499,17 @@ class GenaiSession:
                 "EP override %r was requested but did not take effect (flat/empty "
                 "pipeline, or every stage runs on CPU); the run follows the "
                 "bundle's genai_config.json instead.",
-                EP_NAME_TO_ALIAS[self._ep_override],
+                short_ep_name(self._ep_override),
             )
 
         # Register WinML EPs only when the *effective* config routes at least one
         # stage to a hardware EP.  Reading it from the post-override config means
         # a "force cpu" override skips registration and a "force <hw ep>" override
         # triggers it — all without a hardcoded EP short-name → behavior map.
-        hw_ep = self._bundle_uses_hardware_ep(effective_cfg)
-        logger.info("Hardware EP detected in effective genai_config: %s", hw_ep)
-        if hw_ep is not None:
-            self._register_eps()
+        plugin_eps = self._bundle_plugin_eps(effective_cfg)
+        logger.info("Plugin EPs detected in effective genai_config: %s", plugin_eps)
+        if plugin_eps:
+            self._register_eps(og, plugin_eps)
 
         if self._verbose:
             og.set_log_options(enabled=True, model_input_values=True, model_output_shapes=True)
@@ -815,7 +821,7 @@ class GenaiSession:
         """
         if self._ep_override is None:
             return None
-        return EP_NAME_TO_ALIAS[self._ep_override]
+        return cast("EPAlias", short_ep_name(self._ep_override))
 
     @property
     def effective_ep(self) -> EPAlias | None:
@@ -828,7 +834,7 @@ class GenaiSession:
         """
         if self._ep_override is None or not self._override_effective:
             return None
-        return EP_NAME_TO_ALIAS[self._ep_override]
+        return cast("EPAlias", short_ep_name(self._ep_override))
 
     @property
     def context_length(self) -> int | None:
@@ -958,7 +964,7 @@ class GenaiSession:
         if not (isinstance(current_po, list) and self._provider_list_has_hardware_ep(current_po)):
             return
 
-        alias = EP_NAME_TO_ALIAS[ep]
+        alias = short_ep_name(ep)
         if self._stage_targets_ep(current_po, ep):
             # Re-selecting the stage's own EP: preserve its shipped options
             # verbatim (even when empty) — this is a byte-for-byte no-op.
@@ -991,7 +997,7 @@ class GenaiSession:
                 "QNN options. QNN will fall back to its default backend and may "
                 "not target the intended device. Point --ep/--device at a bundle "
                 "whose config already defines QNN, or rebuild it for this EP.",
-                EP_NAME_TO_ALIAS[ep],
+                short_ep_name(ep),
             )
         return {}
 
@@ -1583,23 +1589,20 @@ class GenaiSession:
     def _epcontext_is_valid(candidate: Path) -> bool:
         """True if *candidate* is an EPContext graph with its weights present.
 
-        Beyond the structural check (an ``EPContext`` node exists), the *main
-        context* node (``main_context=1``, the default) with ``embed_mode=0``
-        stores its compiled blob in an external file named by
-        ``ep_cache_context``; that file must exist and be non-empty next to the
-        graph, otherwise the salvaged stage would reference a missing binary and
-        crash at load time. ``embed_mode=1`` (or an absent attribute) embeds the
-        blob inline, so only the structural check applies — the
+        Beyond the structural check (an ``EPContext`` node exists), every
+        explicit ``embed_mode=0`` cache reference must resolve to a non-empty
+        sidecar beside the graph. ``embed_mode=1`` (or an absent attribute)
+        embeds the blob inline, so only the structural check applies — the
         ``ep_cache_context`` bytes are the raw blob, not a path, and must not be
         treated as a filename.
 
         Secondary partition nodes (``main_context=0``) legitimately omit
         ``ep_cache_context`` per the EPContext schema — a single QNN context can
         hold all partitions, with only the ``main_context=1`` node carrying the
-        external reference — so they are skipped here, mirroring the compiler's
-        own ``main_context`` handling.
+        external reference. A secondary that does declare its own reference must
+        have that sidecar available just like any other external context.
         """
-        from ..onnx import is_compiled_onnx, load_onnx
+        from ..onnx import is_compiled_onnx
 
         # Structural gate. ``is_compiled_onnx`` normalises a corrupt / unreadable
         # file to ValueError (missing → OSError), so a garbage leftover from a
@@ -1610,51 +1613,84 @@ class GenaiSession:
         except (ValueError, OSError):
             return False
 
-        # Parseable and structurally an EPContext; verify the main context's
-        # external weights file is present (the load below cannot raise a parse
-        # error now that the structural gate has passed).
-        model = load_onnx(str(candidate), load_weights=False, validate=False)
-        for node in model.graph.node:
-            if node.op_type != "EPContext":
-                continue
-            embed_mode = 1
-            main_context = 1
-            cache_ref = ""
-            for attr in node.attribute:
-                if attr.name == "embed_mode":
-                    embed_mode = attr.i
-                elif attr.name == "main_context":
-                    main_context = attr.i
-                elif attr.name == "ep_cache_context":
-                    cache_ref = attr.s.decode("utf-8", "ignore")
-            # Secondary partitions share the main context's blob and carry no
-            # external reference of their own — nothing to validate.
-            if main_context == 0:
-                continue
-            if embed_mode == 0:
-                if not cache_ref:
-                    return False
-                ref_path = candidate.parent / cache_ref
-                try:
-                    if not ref_path.is_file() or ref_path.stat().st_size == 0:
-                        return False
-                except OSError:
-                    return False
+        try:
+            GenaiSession._epcontext_external_sidecars(candidate)
+        except (ValueError, OSError):
+            return False
         return True
 
     @staticmethod
-    def _promote_epcontext(src_ctx: Path, ctx_out: Path) -> None:
-        """Move a salvaged EPContext graph and its ``.bin`` sidecars to *ctx_out*.
+    def _epcontext_external_sidecars(candidate: Path) -> tuple[Path, ...]:
+        """Return validated external sidecars declared by an EPContext graph."""
+        from onnx import AttributeProto
 
-        External-weights sidecars are moved first, keeping their original names
-        so the graph's ``ep_cache_context`` reference resolves once everything
-        lives in *ctx_out*'s directory.
+        from ..onnx import load_onnx
+
+        model = load_onnx(str(candidate), load_weights=False, validate=False)
+        source_root = candidate.parent.resolve()
+        sidecars: dict[Path, None] = {}
+        for node in model.graph.node:
+            if node.op_type != "EPContext":
+                continue
+            attrs = {attr.name: attr for attr in node.attribute}
+            embed_mode = attrs.get("embed_mode")
+            if embed_mode is None:
+                continue
+            if embed_mode.type != AttributeProto.INT:
+                raise ValueError("EPContext embed_mode must be an integer")
+            if embed_mode.i != 0:
+                continue
+
+            main_context = attrs.get("main_context")
+            cache_attr = attrs.get("ep_cache_context")
+            is_secondary = (
+                main_context is not None
+                and main_context.type == AttributeProto.INT
+                and main_context.i == 0
+            )
+            if cache_attr is None and is_secondary:
+                continue
+            if cache_attr is None or cache_attr.type != AttributeProto.STRING:
+                raise ValueError("External EPContext node must have a string ep_cache_context")
+
+            try:
+                cache_ref = cache_attr.s.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ValueError("EPContext cache reference must be valid UTF-8") from exc
+            relative_ref = Path(cache_ref)
+            if not cache_ref or relative_ref.is_absolute() or relative_ref.drive:
+                raise ValueError(f"unsafe EPContext cache reference: {cache_ref!r}")
+
+            try:
+                sidecar = (source_root / relative_ref).resolve()
+                sidecar.relative_to(source_root)
+            except (OSError, ValueError) as exc:
+                raise ValueError(f"unsafe EPContext cache reference: {cache_ref!r}") from exc
+            if not sidecar.is_file() or sidecar.stat().st_size == 0:
+                raise FileNotFoundError(f"EPContext sidecar is unavailable: {sidecar}")
+            sidecars.setdefault(sidecar, None)
+
+        return tuple(sidecars)
+
+    @staticmethod
+    def _promote_epcontext(src_ctx: Path, ctx_out: Path) -> None:
+        """Move a salvaged EPContext graph and its external sidecars to *ctx_out*.
+
+        Sidecars are moved first while preserving each declared relative path so
+        every ``ep_cache_context`` reference resolves from the promoted graph.
         """
-        compiled_dir = ctx_out.parent
-        for sidecar in sorted(src_ctx.parent.glob(f"{src_ctx.stem}*.bin")):
-            dst_bin = compiled_dir / sidecar.name
-            if sidecar != dst_bin:
-                sidecar.replace(dst_bin)
+        source_root = src_ctx.parent.resolve()
+        compiled_root = ctx_out.parent.resolve()
+        for sidecar in GenaiSession._epcontext_external_sidecars(src_ctx):
+            relative_ref = sidecar.relative_to(source_root)
+            destination = (compiled_root / relative_ref).resolve()
+            try:
+                destination.relative_to(compiled_root)
+            except ValueError as exc:
+                raise ValueError(f"unsafe EPContext destination: {relative_ref}") from exc
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if sidecar != destination:
+                sidecar.replace(destination)
         src_ctx.replace(ctx_out)
 
     @classmethod
@@ -1713,16 +1749,48 @@ class GenaiSession:
                 "platform-incompatible build)."
             ) from exc
 
-    def _register_eps(self) -> None:
-        """Register WinML EPs with ORT GenAI (idempotent, best-effort)."""
-        try:
-            registry = WinMLEPRegistry.get_instance()
-            if registry.winml_available:
-                result = registry.register_execution_providers(ort_genai=True)
-                registered = result.get("onnxruntime_genai", [])
-                logger.info("WinML EPs registered for ORT GenAI: %s", registered)
-        except Exception as exc:
-            logger.warning("WinML EP registration skipped: %s", exc)
+    def _register_eps(self, og: Any, required_eps: tuple[str, ...]) -> None:
+        """Register each required plugin EP from its selected discovery entries."""
+        required = {normalize_ep_name(ep) for ep in required_eps}
+        registry = WinMLEPRegistry.instance()
+        entries_by_ep: dict[str, list] = {ep: [] for ep in required}
+        for entry in registry.all_discovered():
+            if (
+                entry.ep_name in entries_by_ep
+                and not isinstance(entry.source, BuiltinSource)
+                and entry.status != "shadowed"
+            ):
+                entries_by_ep[entry.ep_name].append(entry)
+
+        for ep in required_eps:
+            canonical = normalize_ep_name(ep)
+            for entry in entries_by_ep.get(canonical, []):
+                with _GENAI_REGISTRATION_LOCK:
+                    if entry.dll_path in _GENAI_REGISTERED_PATHS:
+                        registered = True
+                    else:
+                        try:
+                            og.register_execution_provider_library(
+                                entry.ep_name, str(entry.dll_path)
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "Failed to register %s with ORT GenAI from %s: %s",
+                                entry.ep_name,
+                                entry.dll_path,
+                                exc,
+                            )
+                            registered = False
+                        else:
+                            _GENAI_REGISTERED_PATHS.add(entry.dll_path)
+                            logger.info(
+                                "Registered %s with ORT GenAI from %s.",
+                                entry.ep_name,
+                                entry.dll_path,
+                            )
+                            registered = True
+                if registered:
+                    break
 
     def _read_genai_config(self) -> dict[str, Any]:
         """Parse and return the bundle's ``genai_config.json``."""
@@ -1731,8 +1799,44 @@ class GenaiSession:
         return cfg
 
     @staticmethod
+    def _bundle_plugin_eps(cfg: dict[str, Any]) -> tuple[str, ...]:
+        """Return unique catalog-defined plugin EPs in effective config order."""
+
+        def _plugin_eps(session_options: object) -> Iterator[str]:
+            if not isinstance(session_options, dict):
+                return
+            provider_options = session_options.get("provider_options", [])
+            if not isinstance(provider_options, list):
+                return
+            for entry in provider_options:
+                if not isinstance(entry, dict):
+                    continue
+                for name in entry:
+                    canonical = normalize_ep_name(str(name))
+                    if EP_CATALOG.dll_name_for(canonical) is not None:
+                        yield canonical
+
+        decoder = cfg.get("model", {}).get("decoder", {})
+        if not isinstance(decoder, dict):
+            return ()
+
+        discovered: dict[str, None] = {}
+        for ep in _plugin_eps(decoder.get("session_options")):
+            discovered.setdefault(ep, None)
+        pipeline_list = decoder.get("pipeline", [])
+        if isinstance(pipeline_list, list):
+            for stage_entry in pipeline_list:
+                if not isinstance(stage_entry, dict):
+                    continue
+                for stage_cfg in stage_entry.values():
+                    if isinstance(stage_cfg, dict):
+                        for ep in _plugin_eps(stage_cfg.get("session_options")):
+                            discovered.setdefault(ep, None)
+        return tuple(discovered)
+
+    @staticmethod
     def _bundle_uses_hardware_ep(cfg: dict[str, Any]) -> str | None:
-        """Return the first non-CPU/DML EP name found, or ``None``.
+        """Return the first EP that requires plugin registration, or ``None``.
 
         WinML EP discovery/registration is only required when the bundle's
         ``genai_config.json`` assigns at least one pipeline stage to a hardware
@@ -1746,7 +1850,6 @@ class GenaiSession:
         2. **Flat decoder** - ``model.decoder.session_options`` (no ``pipeline``
            wrapper, used by e.g. OpenVINO exports).
         """
-        skip_eps = frozenset({"cpu", "dml"})
 
         def _first_hw_ep(so: object) -> str | None:
             if not isinstance(so, dict):
@@ -1755,8 +1858,13 @@ class GenaiSession:
                 if not isinstance(entry, dict):
                     continue
                 for name in entry:
-                    if str(name).lower() not in skip_eps:
-                        return str(name)
+                    provider_name = str(name)
+                    canonical = normalize_ep_name(provider_name)
+                    if (
+                        canonical not in EP_CATALOG.all_eps()
+                        or EP_CATALOG.dll_name_for(canonical) is not None
+                    ):
+                        return provider_name
             return None
 
         decoder = cfg.get("model", {}).get("decoder", {})

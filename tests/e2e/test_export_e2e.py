@@ -247,6 +247,10 @@ class TestExportHappyPath:
         _assert_all_nodes_have(model, "winml.hierarchy.tag")
         _assert_all_nodes_have(model, "winml.hierarchy.depth")
 
+        # TorchScript is the default exporter, so torch's Dynamo-native module
+        # metadata must be absent.
+        _assert_no_node_has(model, "pkg.torch.onnx.class_hierarchy")
+
 
 class TestExportDinoV2:
     MODEL = "facebook/dinov2-base"
@@ -333,6 +337,16 @@ class TestExportFlagVariants:
         model = _assert_succeeds(_happy_args(onnx_path, "--dynamo"), onnx_path)
         # Only rewritten nodes carry this key; "at least one" is the correct check.
         _assert_some_node_has(model, "pkg.onnxscript.rewriter.rule_name")
+
+    def test_no_dynamo_uses_torchscript_hierarchy(self, tmp_path: Path):
+        # --no-dynamo explicitly selects the default TorchScript path. It must
+        # still populate hierarchy tags (derived from node names via the module
+        # trace) and emit no torch-native class_hierarchy metadata.
+        onnx_path = tmp_path / "model.onnx"
+        model = _assert_succeeds(_happy_args(onnx_path, "--no-dynamo"), onnx_path)
+        _assert_all_nodes_have(model, "winml.hierarchy.tag")
+        _assert_all_nodes_have(model, "winml.hierarchy.depth")
+        _assert_no_node_has(model, "pkg.torch.onnx.class_hierarchy")
 
     def test_torch_module_warning(self, tmp_path: Path):
         # --torch-module is currently a no-op; the command must still succeed

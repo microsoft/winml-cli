@@ -139,12 +139,13 @@ In JSON output (`-f json`), these metrics appear under the `hw_monitor` key:
   "adapter_luid": null,
   "cpu": { "mean_pct": 15.8, "peak_pct": 16.71, "sample_count": 2 },
   "ram": { "used_mb": 640.21, "peak_mb": 640.21 },
+  "gpu": { "mean_pct": 0.0, "peak_pct": 0.0, "sample_count": 0, "luids": [] },
   "device_memory": { "local_peak_mb": 0.0, "shared_peak_mb": 0.0 },
   "running_time_ns": 0
 }
 ```
 
-When a hardware accelerator is active, `device_kind` will be `"npu"` or `"gpu"`, and an additional key (e.g. `"npu"`) appears with device utilisation:
+The `gpu` block is always present because GPU telemetry is collected independently of the selected inference adapter. When an accelerator is active, `device_kind` will be `"npu"` or `"gpu"` and the selected-adapter metrics appear under the stable `adapter` block. For compatibility, an additional dynamic block is only added when the selected kind does not already have a reserved aggregate block — today that means NPU selections still include `npu`, while GPU selections keep `gpu` reserved for aggregate telemetry.
 
 ```json
 "hw_monitor": {
@@ -153,11 +154,15 @@ When a hardware accelerator is active, `device_kind` will be `"npu"` or `"gpu"`,
   "adapter_luid": "0x0000abcd12340000",
   "cpu": { "mean_pct": 12.1, "peak_pct": 34.5, "sample_count": 50 },
   "ram": { "used_mb": 1842.0, "peak_mb": 1910.0 },
+  "gpu": { "mean_pct": 3.2, "peak_pct": 9.7, "sample_count": 50, "luids": ["0x00001234abcd0000"] },
+  "adapter": { "mean_pct": 87.3, "peak_pct": 100.0, "sample_count": 50 },
   "device_memory": { "local_peak_mb": 245.0, "shared_peak_mb": 0.0 },
   "npu": { "mean_pct": 87.3, "peak_pct": 100.0, "sample_count": 50 },
   "running_time_ns": 4820000000
 }
 ```
+
+When the selected device is a GPU, `adapter` contains the selected GPU's live metrics while `gpu` continues to report the aggregate GPU view (including `luids`).
 
 This makes it straightforward to track memory consumption across model revisions or compare devices programmatically.
 

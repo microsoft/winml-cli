@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import logging
-from enum import Enum
+from enum import StrEnum
 
 import onnx
 from pydantic import BaseModel, Field, field_validator
@@ -23,7 +23,7 @@ from ..utils.node_key_utils import (
 logger = logging.getLogger(__name__)
 
 
-class ModelTag(str, Enum):
+class ModelTag(StrEnum):
     """Tags for marking model-level issues and validation states.
 
     These tags are stored in ONNXModel.model_tags to record various

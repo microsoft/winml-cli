@@ -424,17 +424,17 @@ class TestEvalPerTask:
                 str(out),
             ],
         )
-        # CLI contract: exit 0 and produce the metric keys. Tiny N may
-        # yield None values; magnitude is checked in the accuracy regression
-        # suite, not here.
+        # Every requested sample must reach metric aggregation. Magnitude is
+        # checked in the accuracy regression suite, not here.
         data = _assert_metrics_present(out, ["cer", "cider", "n_samples"])
         m = data["metrics"]
         for k, hi in (("cer", 10.0), ("cider", 20.0)):
             v = m[k]
-            assert v is None or (
-                isinstance(v, (int, float)) and math.isfinite(v) and 0.0 <= v <= hi
-            ), f"metric {k}={v!r} not None or in [0,{hi}]"
-        assert isinstance(m["n_samples"], int) and m["n_samples"] >= 0
+            assert isinstance(v, (int, float)) and math.isfinite(v) and 0.0 <= v <= hi, (
+                f"metric {k}={v!r} not in [0,{hi}]"
+            )
+        assert m["n_samples"] == int(SAMPLES)
+        assert "skipped" not in m
 
     def test_fill_mask(self, runner: CliRunner, tmp_path: Path) -> None:
         # Pseudo-perplexity >= 1 (perplexity is exp of non-neg NLL).
@@ -723,7 +723,7 @@ class TestEvalDeviceAndEp:
         tmp_path: Path,
     ) -> None:
         # Combined --device + --ep.
-        require_ep("qnn")
+        require_ep("qnn", device="npu")
         out = tmp_path / "result.json"
         _invoke(
             runner,
@@ -1231,7 +1231,20 @@ class TestEvalErrorPaths:
         # Needs a real .onnx file path that exists; reuse warmed cache.
         hf_id = "google/vit-base-patch16-224"
         task = "image-classification"
-        _invoke(runner, ["-m", hf_id, "--task", task, "--streaming", "--samples", SAMPLES])
+        _invoke(
+            runner,
+            [
+                "-m",
+                hf_id,
+                "--task",
+                task,
+                "--device",
+                "cpu",
+                "--streaming",
+                "--samples",
+                SAMPLES,
+            ],
+        )
         cache_dir = find_cache_dir(hf_id, task=task)
         assert cache_dir is not None
         onnx_files = list(cache_dir.glob("*_model.onnx"))

@@ -252,7 +252,7 @@ class TestCompileCommand:
 
         assert result.exit_code == 0, result.output
         config = mock_compile_onnx.call_args.kwargs["config"]
-        assert config.ep_config.provider == "nv_tensorrt_rtx"
+        assert config.ep_config.provider == "nvtensorrtrtx"
         assert "device_type" not in config.ep_config.provider_options
 
     def test_cpu_device_raises_unsupported_error(

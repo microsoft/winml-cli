@@ -55,7 +55,7 @@ class Compiler:
 
     Example:
         compiler = Compiler()
-        result = compiler.compile("model.onnx", WinMLCompileConfig.for_qnn())
+        result = compiler.compile("model.onnx", WinMLCompileConfig.for_provider("qnn"))
     """
 
     # Registered stages (in execution order)
@@ -219,15 +219,13 @@ def compile_onnx(
         # Skip compilation (passthrough)
         result = compile_onnx("model.onnx")  # config=None skips compilation
 
-        # QNN with quantization using random calibration data
-        result = compile_onnx("model.onnx", config=WinMLCompileConfig.for_qnn())
+        # QNN with default config
+        result = compile_onnx("model.onnx", config=WinMLCompileConfig.for_provider("qnn"))
 
         # Compile with explicit output path
-        result = compile_onnx("model.onnx", "model_compiled.onnx", WinMLCompileConfig.for_qnn())
-
-        # CPU compilation (no EPContext)
-        config = WinMLCompileConfig.for_cpu()
-        result = compile_onnx("model.onnx", config=config)
+        result = compile_onnx(
+            "model.onnx", "model_compiled.onnx", WinMLCompileConfig.for_provider("qnn"),
+        )
 
         # Note: Quantization is handled by WinMLQuantizationConfig
         # in the quant module, not by the compiler. Use the build pipeline
