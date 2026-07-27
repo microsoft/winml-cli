@@ -125,23 +125,36 @@ class TestCapacityChunkingAndMapping:
         chunks = _make_query_chunks([(4, "cat"), (9, "dog"), (12, "bird")], "{}", 1)
         assert [chunk.category_ids for chunk in chunks] == [(4,), (9,), (12,)]
 
-    def test_multi_query_capacity_pads_final_chunk_deterministically(self):
+    def test_multi_query_capacity_replicates_each_category_without_padding(self):
         chunks = _make_query_chunks([(4, "cat"), (9, "dog"), (12, "bird")], "{}", 2)
         assert chunks == [
-            QueryChunk(("cat", "dog"), (4, 9), 2),
-            QueryChunk(("bird", " "), (12, None), 1),
+            QueryChunk(("cat", "cat"), (4, 4), 1),
+            QueryChunk(("dog", "dog"), (9, 9), 1),
+            QueryChunk(("bird", "bird"), (12, 12), 1),
         ]
 
-    def test_query_local_labels_map_to_dataset_ids_and_drop_padding(self):
-        output = {
-            "boxes": torch.tensor([[1, 2, 3, 4], [5, 6, 7, 8]], dtype=torch.float32),
-            "scores": torch.tensor([0.75, 0.25]),
-            "labels": torch.tensor([0, 1]),
-        }
-        result = _remap_grounded_output(output, QueryChunk(("bird", " "), (12, None), 1))
-        assert result["boxes"] == [[1.0, 2.0, 3.0, 4.0]]
-        assert result["labels"] == [12]
-        assert result["scores"] == [0.75]
+    def test_competing_slot_logits_preserve_replicated_real_query_detections(self):
+        from transformers import Owlv2ImageProcessor
+
+        chunk = _make_query_chunks([(12, "bird")], "{}", 2)[0]
+        outputs = SimpleNamespace(
+            # Transformers takes max over the final axis. Each slot wins once.
+            logits=torch.tensor([[[0.25, 0.75], [0.90, 0.10]]]),
+            pred_boxes=torch.tensor([[[0.25, 0.25, 0.2, 0.2], [0.75, 0.75, 0.2, 0.2]]]),
+        )
+        grounded = Owlv2ImageProcessor().post_process_object_detection(
+            outputs,
+            threshold=0.0,
+            target_sizes=torch.tensor([[10, 20]]),
+        )[0]
+
+        assert grounded["labels"].tolist() == [1, 0]
+        result = _remap_grounded_output(grounded, chunk)
+        assert result["labels"] == [12, 12]
+        assert len(result["boxes"]) == 2
+        assert result["scores"] == pytest.approx(
+            [torch.sigmoid(torch.tensor(0.75)).item(), torch.sigmoid(torch.tensor(0.90)).item()]
+        )
 
 
 class TestSelection:
@@ -198,7 +211,8 @@ def _compute_evaluator(*, model_side_effect=None, empty_annotations=False):
     }
     if model_side_effect is None:
         model.return_value = SimpleNamespace(
-            logits=torch.zeros((1, 1, 2)), pred_boxes=torch.zeros((1, 1, 4))
+            logits=torch.tensor([[[0.25, 0.75]]]),
+            pred_boxes=torch.tensor([[[0.5, 0.5, 0.2, 0.4]]]),
         )
     else:
         model.side_effect = model_side_effect
@@ -209,13 +223,16 @@ def _compute_evaluator(*, model_side_effect=None, empty_annotations=False):
         "attention_mask": torch.ones((2, 16), dtype=torch.int64),
     }
     processor.image_processor.return_value = {"pixel_values": torch.zeros((1, 3, 960, 960))}
-    processor.post_process_grounded_object_detection.return_value = [
-        {
-            "boxes": torch.tensor([[1.0, 2.0, 4.0, 6.0]]),
-            "scores": torch.tensor([0.5]),
-            "labels": torch.tensor([0]),
-        }
-    ]
+    from transformers import Owlv2ImageProcessor
+
+    grounded_processor = Owlv2ImageProcessor()
+    processor.post_process_grounded_object_detection.side_effect = (
+        lambda outputs, threshold, target_sizes: grounded_processor.post_process_object_detection(
+            outputs,
+            threshold=threshold,
+            target_sizes=target_sizes,
+        )
+    )
     evaluator._processor = processor
     return evaluator, model, processor
 
@@ -230,14 +247,16 @@ class TestComputeAndAccounting:
         ):
             result = evaluator.compute()
 
-        # 3 labels, static capacity 2 -> two passes per image, including absent labels.
-        assert model.call_count == 4
+        # Each category gets an independent pass; static slots contain replicas.
+        assert model.call_count == 6
         prompts = [call.args[0] for call in processor.tokenizer.call_args_list]
         assert prompts == [
-            ["a photo of a cat", "a photo of a dog"],
-            ["a photo of a bird", " "],
-            ["a photo of a cat", "a photo of a dog"],
-            ["a photo of a bird", " "],
+            ["a photo of a cat", "a photo of a cat"],
+            ["a photo of a dog", "a photo of a dog"],
+            ["a photo of a bird", "a photo of a bird"],
+            ["a photo of a cat", "a photo of a cat"],
+            ["a photo of a dog", "a photo of a dog"],
+            ["a photo of a bird", "a photo of a bird"],
         ]
         for call in processor.post_process_grounded_object_detection.call_args_list:
             assert call.kwargs["threshold"] == 0.0
@@ -256,14 +275,17 @@ class TestComputeAndAccounting:
             "processed": 2,
             "failed": 0,
             "query_count": 3,
-            "query_passes": 4,
+            "query_passes": 6,
             "query_capacity": 2,
         }
 
         predictions = metric.call_args.kwargs["predictions"]
         references = metric.call_args.kwargs["references"]
-        assert predictions[0]["boxes"] == [[1.0, 2.0, 4.0, 6.0]] * 2
-        assert predictions[0]["labels"] == [3, 13]
+        assert predictions[0]["boxes"] == [[8.0, 6.0, 12.0, 14.0]] * 3
+        assert predictions[0]["labels"] == [3, 8, 13]
+        assert predictions[0]["scores"] == pytest.approx(
+            [torch.sigmoid(torch.tensor(0.75)).item()] * 3
+        )
         assert references[0] == {
             "boxes": [[1.0, 2.0, 3.0, 4.0]],
             "labels": [3],
@@ -273,6 +295,7 @@ class TestComputeAndAccounting:
 
     def test_empty_detections_and_annotations_are_valid_metric_inputs(self):
         evaluator, _model, processor = _compute_evaluator(empty_annotations=True)
+        processor.post_process_grounded_object_detection.side_effect = None
         processor.post_process_grounded_object_detection.return_value = [
             {
                 "boxes": torch.zeros((0, 4)),
