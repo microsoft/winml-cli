@@ -90,14 +90,19 @@ class WinMLTextGenerationEvaluator(WinMLEvaluator):
 
     def compute(self) -> dict[str, Any]:
         """Score every block and return perplexity plus corpus statistics."""
+        from tqdm import tqdm
+
         model: Any = self.model
         total_nll = 0.0
         scored = 0
-        for block in self.data:
-            targets = block[1:]
-            for step_logits, target in zip(model.forward(block), targets, strict=True):
-                total_nll += _step_nll(step_logits, target)
-            scored += len(targets)
+        total_positions = sum(len(block) - 1 for block in self.data)
+        with tqdm(total=total_positions, desc="Evaluating perplexity", unit="tok") as bar:
+            for block in self.data:
+                targets = block[1:]
+                for step_logits, target in zip(model.forward(block), targets, strict=True):
+                    total_nll += _step_nll(step_logits, target)
+                    bar.update(1)
+                scored += len(targets)
 
         if scored == 0:
             raise RuntimeError("Perplexity evaluation scored 0 positions.")
@@ -130,13 +135,14 @@ class WinMLTextGenerationEvaluator(WinMLEvaluator):
         return int(raw)
 
     def _load_corpus_tokens(self, num_tokens: int) -> list[int]:
-        """Stream the dataset text column and tokenize until ``num_tokens``.
+        """Read the dataset text column and tokenize until ``num_tokens``.
 
         Perplexity needs a coherent corpus, so rows are consumed in dataset
-        order (no shuffle) and concatenated with blank lines. The split is read
-        via a streaming ``IterableDataset`` and iteration stops as soon as enough
-        rows to cover ``num_tokens`` have been collected, so a large split is not
-        downloaded or materialized in full just to score a few thousand tokens.
+        order (no shuffle) and concatenated with blank lines. Iteration stops as
+        soon as enough rows to cover ``num_tokens`` have been collected. The
+        ``streaming`` flag only controls how the split is fetched (streamed vs
+        downloaded once and cached); either way the same in-order prefix is read,
+        so the resulting token stream is identical.
 
         Uses the model's own tokenizer (``model.encode``) so the token stream
         matches the model under test exactly.
@@ -150,15 +156,12 @@ class WinMLTextGenerationEvaluator(WinMLEvaluator):
         column = ds_config.columns_mapping.get(
             "input_column", get_default(self._TASK, "input_column")
         )
-        # Force streaming + dataset order: perplexity is a teacher-forced score
-        # over a contiguous corpus, so shuffling (which splices unrelated
-        # passages) would both distort the score and break reproducibility.
         dataset = load_dataset(
             ds_config.path,
             name=ds_config.name,
             split=ds_config.split,
             revision=ds_config.revision,
-            streaming=True,
+            streaming=ds_config.streaming,
         )
         if column not in (dataset.column_names or [column]):
             raise ValueError(

@@ -205,7 +205,7 @@ _DEFAULT_DATASETS: dict[str, dict] = {
     "text-generation": {
         # Raw wikitext-2 test split scored token-by-token for perplexity;
         # ``input_column`` names the text field the corpus is built from.
-        "path": "wikitext",
+        "path": "Salesforce/wikitext",
         "name": "wikitext-2-raw-v1",
         "split": "test",
         "columns_mapping": {"input_column": "text"},
