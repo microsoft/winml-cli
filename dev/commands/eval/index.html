@@ -2727,6 +2727,34 @@
 <td>Target ONNX Runtime execution provider when finer control than <code>--device</code> is needed. Full names (e.g., <code>QNNExecutionProvider</code>, <code>OpenVINOExecutionProvider</code>, <code>VitisAIExecutionProvider</code>) and aliases (<code>qnn</code>, <code>ov</code>/<code>openvino</code>, <code>vitis</code>/<code>vitisai</code>) are accepted.</td>
 </tr>
 <tr>
+<td><code>--shape-config</code></td>
+<td></td>
+<td><code>PATH</code></td>
+<td>—</td>
+<td>JSON shape overrides used while auto-generating a Hugging Face export config, for example <code>{"height": 480, "width": 480}</code>. Applies only when <code>-m</code> is a HuggingFace ID that eval builds; <strong>ignored for pre-built <code>.onnx</code> inputs</strong>.</td>
+</tr>
+<tr>
+<td><code>--input-specs</code></td>
+<td></td>
+<td><code>PATH</code></td>
+<td>—</td>
+<td>JSON input tensor specs to merge into the Hugging Face export config. Symbolic string dimensions infer dynamic axes. <strong>Ignored for pre-built <code>.onnx</code> inputs</strong>.</td>
+</tr>
+<tr>
+<td><code>--export-config</code></td>
+<td></td>
+<td><code>PATH</code></td>
+<td>—</td>
+<td>JSON ONNX export config overrides (opset version, constant folding, etc.) to merge into the Hugging Face export config. <strong>Ignored for pre-built <code>.onnx</code> inputs</strong>.</td>
+</tr>
+<tr>
+<td><code>--dynamic-axes</code></td>
+<td></td>
+<td><code>PATH</code></td>
+<td>—</td>
+<td>JSON dynamic axes mapping for Hugging Face ONNX export, for example <code>{"input_ids": {"0": "batch", "1": "sequence"}}</code>. <strong>Ignored for pre-built <code>.onnx</code> inputs</strong>.</td>
+</tr>
+<tr>
 <td><code>--dataset</code></td>
 <td></td>
 <td><code>TEXT</code></td>
@@ -2889,6 +2917,7 @@
 <li><strong>Some dataset requires Hub credentials for gated datasets.</strong> Some datasets (e.g., <code>imagenet-1k</code>) require a HuggingFace account with accepted terms of use. Log in with <code>huggingface-cli login</code> before running eval on gated data.</li>
 <li><strong><code>--shuffle</code> is on by default.</strong> The random 100-sample slice changes between runs unless you pass <code>--no-shuffle</code>. Use <code>--no-shuffle</code> when comparing two model variants to ensure they see identical samples.</li>
 <li><strong><code>--streaming</code> skips the local cache.</strong> Streaming mode avoids downloading the full split but prevents random shuffling on large datasets. For reproducible evaluation, download the split once and omit <code>--streaming</code>.</li>
+<li><strong>Export overrides only apply when eval builds from a HuggingFace ID.</strong> <code>--shape-config</code>, <code>--input-specs</code>, <code>--export-config</code>, and <code>--dynamic-axes</code> shape the ONNX export that <code>eval</code> generates when <code>-m</code> is a HuggingFace model ID. When <code>-m</code> is a pre-built <code>.onnx</code> file, there is no export step, so these flags are ignored and the command prints a warning.</li>
 <li><strong>Column names vary across datasets.</strong> If the evaluator raises a missing-column error, run <code>winml eval --schema --task &lt;task&gt;</code> to inspect the expected schema and use <code>--column</code> to remap dataset field names to the expected names.</li>
 </ul>
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
