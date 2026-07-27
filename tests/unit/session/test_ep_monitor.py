@@ -1852,6 +1852,35 @@ class TestLiveMonitorDisplay:
         assert "Iter: 40/100" in status
         assert "Time:" not in status
 
+    def test_duration_mode_warmup_progress_scales_by_warmup(self):
+        """Regression: in duration mode the warmup bar must scale by the warmup
+        count, not by total_iterations (which carries the unused default 100)."""
+        import time
+
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+        from winml.modelkit.commands.perf import _BenchmarkClock
+
+        clock = _BenchmarkClock(start=time.perf_counter())
+        display = LiveMonitorDisplay(
+            total_iterations=110,  # 10 warmup + unused default 100
+            warmup=10,
+            model_id="test",
+            device="npu",
+            duration_sec=30.0,
+            clock=clock,
+        )
+        status = display._render_status(
+            iteration=5,  # warmup phase, halfway through the 10 warmup iters
+            latency_ms=2.0,
+            util_samples=[12.0],
+            cpu_pct=3.0,
+            ram_mb=8000.0,
+        )
+        assert "Warmup: 5/10" in status
+        # Bar reflects warmup progress (5/10 = 50%), not 5/110 (~5%).
+        assert "] 50%" in status
+        assert "Time:" not in status
+
 
 # ============================================================================
 # GPU utilization aggregation (hardware-independent)

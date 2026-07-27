@@ -326,7 +326,14 @@ class LiveMonitorDisplay:
         effective_iter = iteration - self._warmup if phase == "benchmark" else iteration
         total_bench = self._total - self._warmup
 
-        if self._duration_sec is not None and phase == "benchmark":
+        if phase == "warmup":
+            # Warmup is always a fixed count, so scale the bar by the warmup
+            # total. ``self._total`` must not be used here: in duration mode it
+            # includes the unused default iteration count, which would make the
+            # warmup bar crawl (e.g. 5/10 warmup showing as ~5% instead of 50%).
+            pct = iteration / self._warmup if self._warmup > 0 else 0.0
+            progress = f"[yellow]Warmup: {iteration}/{self._warmup}[/yellow]"
+        elif self._duration_sec is not None:
             # Duration mode: base progress on elapsed wall-clock time, since the
             # benchmark iteration count is not known ahead of time. The start
             # reference is the loop's shared clock, so this tracks the same
@@ -337,11 +344,8 @@ class LiveMonitorDisplay:
             shown = min(elapsed, self._duration_sec)
             progress = f"[green]Time: {shown:.1f}/{self._duration_sec:.0f}s[/green]"
         else:
-            pct = iteration / self._total if self._total > 0 else 0
-            if phase == "warmup":
-                progress = f"[yellow]Warmup: {iteration}/{self._warmup}[/yellow]"
-            else:
-                progress = f"[green]Iter: {effective_iter}/{total_bench}[/green]"
+            pct = effective_iter / total_bench if total_bench > 0 else 0.0
+            progress = f"[green]Iter: {effective_iter}/{total_bench}[/green]"
 
         bar_len = int(pct * 20)
         bar = f"[{'=' * bar_len}{' ' * (20 - bar_len)}]"

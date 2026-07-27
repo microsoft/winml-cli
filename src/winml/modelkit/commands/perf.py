@@ -2067,10 +2067,13 @@ def _run_simple_loop(
     unbounded and its ``total_iterations`` denominator is meaningless).
     """
     if duration_sec is None:
+        bench_total = total_iterations - warmup
         for i in _benchmark_indices(total_iterations, warmup, duration_sec):
             session.run(inputs)
-            if (i + 1) % max(1, total_iterations // 10) == 0:
-                logger.debug("Progress: %d/%d", i + 1, total_iterations)
+            # Log benchmark-only progress (warmup indices are excluded).
+            bench_done = i - warmup + 1
+            if bench_done >= 1 and bench_done % max(1, bench_total // 10) == 0:
+                logger.debug("Progress: %d/%d", bench_done, bench_total)
         return
 
     clock = _BenchmarkClock()
@@ -2111,11 +2114,11 @@ _GENAI_IGNORED_FLAGS: dict[str, str] = {
     "ignore_cache": "--ignore-cache",
     "skip_build": "--skip-build",
     "allow_unsupported_nodes": "--allow-unsupported-nodes",
+    "batch_size": "--batch-size",
+    "duration": "--duration",
     "monitor": "--monitor",
     "memory": "--memory",
     "op_tracing": "--op-tracing",
-    "batch_size": "--batch-size",
-    "duration": "--duration",
 }
 
 # Subsets of the above that the model-id auto-build path honors, so they are
@@ -2400,10 +2403,11 @@ def _validate_duration(
 ) -> float | None:
     """Reject non-finite ``--duration`` values.
 
-    ``click.FloatRange`` lets ``nan``/``inf`` through because ``nan <= 0`` and
-    ``inf <= 0`` are both false, but such a budget never terminates the timed
-    loop (``elapsed >= nan`` is always false; ``inf`` runs unbounded). Require a
-    finite number of seconds.
+    ``click.FloatRange(min=0, min_open=True)`` lets ``nan`` and ``+inf`` slip
+    through because ``nan <= 0`` and ``+inf <= 0`` are both false (``-inf`` is
+    already rejected by the range, since ``-inf <= 0``). Neither survivor ever
+    terminates the timed loop (``elapsed >= nan`` is always false; ``+inf`` runs
+    unbounded), so require a finite number of seconds.
     """
     if value is not None and not math.isfinite(value):
         raise click.BadParameter("must be a finite number of seconds.", ctx=ctx, param=param)
@@ -2490,9 +2494,11 @@ def _validate_duration(
     type=click.FloatRange(min=0, min_open=True),
     default=None,
     callback=_validate_duration,
-    help="Run the benchmark for this many seconds (after warmup) instead of a "
-    "fixed --iterations count. Ideal with --monitor, whose PDH counters need "
-    "time to emit real utilization data. Not valid with --op-tracing.",
+    help="Run the benchmark for at least this many seconds (after warmup) "
+    "instead of a fixed --iterations count; it is a minimum budget, so the "
+    "final inference may overrun it slightly. Ideal with --monitor, whose PDH "
+    "counters need time to emit real utilization data. Not valid with "
+    "--op-tracing.",
 )
 @cli_utils.device_option(
     required=False,
