@@ -1936,6 +1936,66 @@ class TestBuildHfPipelineModelType:
         assert config.quant.model_type == "qwen3_transformer_only"
         mock_quantize.assert_called_once()
 
+    @patch("winml.modelkit.commands.build._run_compile_stage")
+    @patch("winml.modelkit.commands.build._run_quantize_stage")
+    @patch("winml.modelkit.commands.build._run_optimize_stage")
+    @patch("winml.modelkit.commands.build._show_io")
+    @patch("winml.modelkit.utils.console.StageLive")
+    @patch("winml.modelkit.export.export_onnx")
+    @patch("winml.modelkit.build.hf._load_model")
+    def test_skip_optimize_reaches_hf_optimize_stage(
+        self,
+        mock_load_model: MagicMock,
+        mock_export_onnx: MagicMock,
+        mock_stage_live: MagicMock,
+        mock_show_io: MagicMock,
+        mock_optimize: MagicMock,
+        mock_quantize: MagicMock,
+        mock_compile: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """The cascaded HF CLI pipeline honors --no-optimize."""
+        from winml.modelkit.commands.build import _build_hf_pipeline
+
+        mock_stage_live.return_value.__enter__ = MagicMock(return_value=MagicMock())
+        mock_stage_live.return_value.__exit__ = MagicMock(return_value=False)
+
+        pytorch_model = MagicMock()
+        pytorch_model.config.model_type = "segformerforsemanticsegmentation"
+        mock_load_model.return_value = pytorch_model
+
+        optimized = tmp_path / "optimized.onnx"
+        optimized.write_bytes(b"fake-onnx")
+        mock_optimize.return_value = (optimized, None)
+        mock_quantize.return_value = optimized
+        mock_compile.return_value = optimized
+
+        config = MagicMock()
+        config.loader.model_type = "segformerforsemanticsegmentation"
+        config.loader.task = "image-segmentation"
+        config.loader.model_class = "BiRefNetImageSegmentationWrapper"
+        config.export = MagicMock()
+        config.quant = None
+        config.compile = None
+        config.skip_optimize = False
+        config.to_dict.return_value = {}
+
+        _build_hf_pipeline(
+            config=config,
+            model_id="ZhengPeng7/BiRefNet",
+            output_dir=tmp_path / "out",
+            rebuild=True,
+            cache_key=None,
+            ep=None,
+            device="cpu",
+            extra_kwargs={"skip_optimize": True},
+            preloaded_hf_config=None,
+        )
+
+        mock_optimize.assert_called_once()
+        assert mock_optimize.call_args.kwargs["skip_optimize"] is True
+        assert mock_export_onnx.call_args.kwargs["normalize"] is False
+
 
 class TestBuildEpResolution:
     """--ep forwarding into config generation + the compile EP-availability gate."""
