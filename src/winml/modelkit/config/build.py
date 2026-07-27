@@ -77,7 +77,7 @@ if TYPE_CHECKING:
     from torch import nn
 
     from ..eval.config import WinMLEvaluationConfig  # noqa: TC004
-    from ..utils.constants import EPName, EPNameOrAlias
+    from ..utils.constants import EPNameOrAlias
 
 __all__ = [
     "WinMLBuildConfig",
@@ -347,7 +347,7 @@ def _resolve_policy_target(device: str, ep: str | None) -> tuple[str, str | None
     available_eps = registry.available_eps()
     detection_error: RuntimeError | None = None
     for spec in EP_DEVICE_SPECS:
-        policy_devices = EP_SUPPORTED_DEVICES.get(cast("EPName", spec.ep), ())
+        policy_devices = EP_SUPPORTED_DEVICES[spec.ep]
         if (
             spec.device != detected_device
             or detected_device not in policy_devices

@@ -362,7 +362,7 @@ class EPDeviceSpec:
     Many EPDeviceTargets map to one EPDeviceSpec.
     """
 
-    ep: str
+    ep: EPName
     device: str
     default_provider_options: Mapping[str, str] = field(default_factory=dict)
 
@@ -447,8 +447,7 @@ def default_device_for_ep(ep: str) -> str | None:
 
 def _is_policy_supported_spec(spec: EPDeviceSpec) -> bool:
     """Return whether the shared EP/device policy accepts this catalog row."""
-    supported_devices = EP_SUPPORTED_DEVICES.get(cast("EPName", spec.ep))
-    return supported_devices is not None and spec.device in supported_devices
+    return spec.device in EP_SUPPORTED_DEVICES[spec.ep]
 
 
 def _devices_for_ep(ep: str) -> tuple[str, ...]:
