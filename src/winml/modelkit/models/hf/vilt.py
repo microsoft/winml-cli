@@ -177,8 +177,6 @@ class ViltVqaOnnxConfig(OnnxConfig):  # type: ignore[misc]  # untyped Optimum ba
         MaxLengthTextInputGenerator,
     )
 
-    DEFAULT_ONNX_OPSET = 17
-
     @property
     def inputs(self) -> dict[str, dict[int, str]]:
         """Declare 4 model inputs (insertion order matches forward).
