@@ -13,7 +13,9 @@ every authored recipe variant under ``examples/recipes/`` (``winml build -c``),
 and a recipe-less NPU model falls back to ``winml config`` expanded into ``w8a8``
 + ``w8a16`` jobs (an explicit per-model precision overrides this). CPU/GPU build
 only the non-quantized recipe variants (e.g. ``fp16``), or a single ``winml
-config`` fallback when a model has no applicable recipe.
+config`` fallback when a model has no applicable recipe. EPs that are evaluated
+unquantized (see ``_EPS_SKIP_WINML_QUANT``) follow the same non-quantized-only
+rule even on NPU.
 
 The runner records facts only (perf output + the winml-eval metrics/dataset).
 The per-model report HTML — perf latency and the "Model Accuracy Report" delta
@@ -106,7 +108,9 @@ _NPU_FALLBACK_PRECISIONS: tuple[str, ...] = ("w8a8", "w8a16")
 # choice -- e.g. VitisAI / AMD Ryzen AI is benchmarked on the fp32/fp16
 # model -- not a claim about the EP's internal pipeline.  For these EPs
 # the harness passes ``--no-quant`` to both ``winml config`` and
-# ``winml build`` (see :func:`_run_build` and :func:`run_model`).
+# ``winml build`` (see :func:`_run_build` and :func:`run_model`) and skips
+# authored quantized recipe variants (see :func:`_build_jobs`), which carry
+# their own ``quant`` section that ``--no-quant`` cannot override.
 #
 # Entries are canonical ``EPName`` values (the ``*ExecutionProvider`` form);
 # user-facing aliases like ``vitisai`` are normalised via
@@ -2375,7 +2379,7 @@ def _build_jobs(
 
     Recipes carry the accuracy eval/dataset config, so they are consulted
     regardless of device -- but quantized recipe variants (``w8a16``/``w8a8``)
-    only make sense on the NPU. For each entry:
+    only make sense on an NPU running a quantizing EP. For each entry:
 
     * NPU + recipe variants on disk → one job per variant (``fp16`` + any
       quantized).
@@ -2386,16 +2390,19 @@ def _build_jobs(
       unquantized artifact (``_resolve_precision`` forces the flag off).
     * NPU + no recipe + explicit per-model precision → a single fallback job
       honoring that precision (``winml config``).
-    * non-NPU + non-quantized recipe variants → one job per such variant
-      (quantized variants are dropped).
-    * non-NPU with no applicable recipe variant → a single ``winml config``
-      fallback job (``variant=None``).
+    * non-NPU (or a skip-quant EP) + non-quantized recipe variants → one job
+      per such variant (quantized variants are dropped).
+    * non-NPU (or a skip-quant EP) with no applicable recipe variant → a single
+      ``winml config`` fallback job (``variant=None``).
     """
     npu = device == "npu"
-    # Skip-quant EPs (VitisAI) build the model unquantized regardless of
-    # precision, so the NPU multi-precision expansion would produce duplicate
-    # artifacts under distinct precision slugs -- fall back to a single job.
-    expand_npu_quant = npu and not _should_skip_winml_quant(ep)
+    # Skip-quant EPs (VitisAI) are evaluated on the unquantized model: the
+    # fallback path forces --no-quant, so the NPU multi-precision expansion
+    # would produce duplicate artifacts under distinct precision slugs, and an
+    # authored quantized recipe would hand the EP a QDQ graph its compiler is
+    # not expected to consume.  Both are suppressed.
+    skip_quant = _should_skip_winml_quant(ep)
+    expand_npu_quant = npu and not skip_quant
     jobs: list[EvalJob] = []
     for entry in entries:
         variants = (
@@ -2403,9 +2410,10 @@ def _build_jobs(
             if recipes_dir is not None
             else []
         )
-        if not npu:
-            # Off-NPU still uses recipes for their eval config, but drops
-            # quantized variants -- quantization is an NPU-only concern here.
+        if not npu or skip_quant:
+            # Off-NPU and skip-quant EPs still use recipes for their eval
+            # config, but drop quantized variants -- quantization here is only
+            # for NPU EPs that consume a winml-quantized model.
             variants = [v for v in variants if not _is_quantized_precision(v.precision)]
         if variants:
             jobs.extend(EvalJob(entry, variant) for variant in variants)
