@@ -12,6 +12,7 @@ import torch
 from PIL import Image
 from transformers import AutoModelForVisualQuestionAnswering, AutoProcessor
 
+
 EXPECTED_INPUTS = ["input_ids", "attention_mask", "token_type_ids", "pixel_values"]
 DEFAULT_MODEL_ID = "dandelin/vilt-b32-finetuned-vqa"
 DEFAULT_REVISION = "d0a1f6ab88522427a7ae76ceb6e1e1e7b68a1d08"
@@ -99,16 +100,25 @@ def _build_parser() -> argparse.ArgumentParser:
             "report cosine, max_abs, and top-answer agreement."
         )
     )
-    parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="HF model id or local snapshot path")
+    parser.add_argument(
+        "--model",
+        default=DEFAULT_MODEL_ID,
+        help="HF model id or local snapshot path",
+    )
     parser.add_argument("--revision", default=DEFAULT_REVISION, help="Pinned HF model revision")
     parser.add_argument("--fp32", required=True, help="Path to fp32 ONNX model")
     parser.add_argument("--fp16", required=True, help="Path to fp16 ONNX model")
-    parser.add_argument("--question", default=DEFAULT_QUESTION, help="Question text for parity input")
+    parser.add_argument(
+        "--question",
+        default=DEFAULT_QUESTION,
+        help="Question text for parity input",
+    )
     parser.add_argument("--json-out", default="", help="Optional output file path for JSON payload")
     return parser
 
 
 def main() -> None:
+    """Load deterministic ViLT inputs, compare fp32/fp16 ONNX vs PyTorch logits, and emit JSON."""
     args = _build_parser().parse_args()
 
     fp32_path = Path(args.fp32).resolve()
