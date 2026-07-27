@@ -6,13 +6,14 @@
 
 from __future__ import annotations
 
+from math import prod
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from onnx import ModelProto, helper, numpy_helper
 from onnx.defs import OpSchema
 
-from ..onnx import ONNXDomain, SupportedONNXType
+from ..onnx import EXTERNAL_DATA_THRESHOLD, ONNXDomain, SupportedONNXType
 from .base import Pattern, PatternMismatchedError, PatternSchema, Skeleton
 
 
@@ -75,12 +76,15 @@ def _scale_broadcast_tensor(
 
     expanded_shape = list(padded_shape)
     expanded_shape[1] = output_shape[1]
+    if prod(expanded_shape) * values.dtype.itemsize >= EXTERNAL_DATA_THRESHOLD:
+        return None
     try:
         broadcast_values = np.broadcast_to(values.reshape(padded_shape), tuple(expanded_shape))
     except ValueError:
         return None
     factors = gamma.reshape((1, len(gamma)) + (1,) * (len(output_shape) - 2))
-    return np.asarray(broadcast_values * factors, dtype=values.dtype)
+    with np.errstate(invalid="ignore", over="ignore"):
+        return np.asarray(broadcast_values * factors, dtype=values.dtype)
 
 
 class _ConvAddBatchNormalizationPatternBase(Pattern):
@@ -215,15 +219,26 @@ class _ConvAddBatchNormalizationPatternBase(Pattern):
         scaled_add = _scale_broadcast_tensor(add_tensor, output_shape, gamma)
         if scaled_add is None:
             return None
-        scaled_weight = weight * gamma.reshape((channels,) + (1,) * (weight.ndim - 1))
-        folded_bias = bias * gamma + beta - gamma * mean
+        with np.errstate(invalid="ignore", over="ignore"):
+            folded_weight = np.asarray(
+                weight * gamma.reshape((channels,) + (1,) * (weight.ndim - 1)),
+                dtype=weight.dtype,
+            )
+            folded_bias = np.asarray(
+                bias * gamma + beta - gamma * mean,
+                dtype=weight.dtype,
+            )
+        if any(
+            not np.all(np.isfinite(value)) for value in (folded_weight, folded_bias, scaled_add)
+        ):
+            return None
 
         result.attributes.update(
             {
                 "conv_attributes": conv_attributes,
                 "static_input_index": self.static_input_index,
-                "folded_weight": np.asarray(scaled_weight, dtype=weight.dtype),
-                "folded_bias": np.asarray(folded_bias, dtype=weight.dtype),
+                "folded_weight": folded_weight,
+                "folded_bias": folded_bias,
                 "scaled_add": scaled_add,
             }
         )

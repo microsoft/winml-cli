@@ -16,6 +16,7 @@ from winml.modelkit.pattern import (
     ConvAddBatchNormalizationPattern,
     FoldedConvAddPattern,
 )
+from winml.modelkit.pattern.conv_batchnorm_patterns import _scale_broadcast_tensor
 
 
 def _value_info(name: str, shape: list[int]) -> ValueInfoProto:
@@ -158,3 +159,50 @@ def test_invalid_variance_is_rejected() -> None:
     model, _ = _build_model(variance=np.asarray([-0.02, 0.5, 1.0], dtype=np.float32))
     transformed = _fold(model)
     assert any(node.op_type == "BatchNormalization" for node in transformed.graph.node)
+
+
+def test_non_finite_folded_constants_are_rejected() -> None:
+    model, _ = _build_model()
+    replacements = {
+        "weight": np.full((3, 2, 1, 1), 40000, dtype=np.float16),
+        "static": np.zeros((1, 3, 1, 1), dtype=np.float16),
+        "scale": np.full(3, 2, dtype=np.float16),
+        "beta": np.zeros(3, dtype=np.float16),
+        "mean": np.zeros(3, dtype=np.float16),
+        "variance": np.ones(3, dtype=np.float16),
+    }
+    for initializer in model.graph.initializer:
+        if initializer.name in replacements:
+            initializer.CopyFrom(
+                numpy_helper.from_array(replacements[initializer.name], initializer.name)
+            )
+    for value_info in (*model.graph.input, *model.graph.output, *model.graph.value_info):
+        value_info.type.tensor_type.elem_type = TensorProto.FLOAT16
+
+    transformed = _fold(model)
+
+    assert any(node.op_type == "BatchNormalization" for node in transformed.graph.node)
+
+
+def test_excessive_static_broadcast_expansion_is_rejected() -> None:
+    values = np.ones((1, 1, 1024, 1024), dtype=np.float32)
+    gamma = np.ones(512, dtype=np.float32)
+
+    assert _scale_broadcast_tensor(values, (1, 512, 1024, 1024), gamma) is None
+
+
+def test_generated_initializer_names_do_not_collide() -> None:
+    model, feeds = _build_model()
+    expected = _run(model, feeds)[0]
+    collision_name = "Rewrite_FoldedConvAddPattern_0_weight"
+    collision_value = np.full((3, 2, 1, 1), 17, dtype=np.float32)
+    model.graph.initializer.append(numpy_helper.from_array(collision_value, collision_name))
+    model.graph.node.append(helper.make_node("Identity", [collision_name], ["collision_output"]))
+    model.graph.output.append(_value_info("collision_output", [3, 2, 1, 1]))
+
+    transformed = _fold(model)
+
+    checker.check_model(transformed)
+    conv = next(node for node in transformed.graph.node if node.op_type == "Conv")
+    assert conv.input[1] != collision_name
+    np.testing.assert_allclose(_run(transformed, feeds)[0], expected, rtol=3e-5, atol=3e-5)
