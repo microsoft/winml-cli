@@ -26,9 +26,11 @@ if TYPE_CHECKING:
 import click
 from rich.console import Console
 
+from .._env import env_flag_enabled
 from ..utils import cli as cli_utils
-from ..utils.logging import configure_logging
+from ..utils.logging import configure_logging, suppress_huggingface_warning_logs
 from ..utils.model_input import ModelInputKind, classify_model_input
+from ..utils.native_stderr import suppress_native_stderr
 
 
 logger = logging.getLogger(__name__)
@@ -288,50 +290,54 @@ def inspect(
     if not quiet and not json_mode:
         _stderr_console.print(f"[dim]Inspecting [bold]{target}[/bold] …[/dim]")
 
-    from ..inspect import InspectError, ModelNotFoundError, NetworkError
-    from ..inspect.formatter import output_json, output_table
-
+    suppress_third_party_stderr = not verbose and not env_flag_enabled("WINMLCLI_SHOW_ALL_WARNINGS")
     configure_logging(verbosity=verbose, quiet=quiet)
+    with suppress_huggingface_warning_logs(verbosity=verbose, quiet=quiet):
+        with suppress_native_stderr(enabled=suppress_third_party_stderr):
+            from ..inspect import InspectError, ModelNotFoundError, NetworkError
+            from ..inspect.formatter import output_json, output_table
 
-    try:
-        if quiet or json_mode:
-            result = _inspect_model_v2(
-                model_id=model,
-                task_override=task,
-                model_type_override=model_type,
-                model_class_override=model_class,
-                include_hierarchy=hierarchy,
-            )
-        else:
-            with _stderr_console.status(
-                f"[bold cyan]Resolving {target}…[/bold cyan]",
-                spinner="dots",
-            ):
+        try:
+            if quiet or json_mode:
                 result = _inspect_model_v2(
                     model_id=model,
                     task_override=task,
                     model_type_override=model_type,
                     model_class_override=model_class,
                     include_hierarchy=hierarchy,
+                    suppress_native_stderr_output=suppress_third_party_stderr,
                 )
+            else:
+                with _stderr_console.status(
+                    f"[bold cyan]Resolving {target}…[/bold cyan]",
+                    spinner="dots",
+                ):
+                    result = _inspect_model_v2(
+                        model_id=model,
+                        task_override=task,
+                        model_type_override=model_type,
+                        model_class_override=model_class,
+                        include_hierarchy=hierarchy,
+                        suppress_native_stderr_output=suppress_third_party_stderr,
+                    )
 
-        if output_format == "json":
-            click.echo(output_json(result, verbose=bool(verbose)))
-        else:
-            output_table(console, result, verbose=bool(verbose))
+            if output_format == "json":
+                click.echo(output_json(result, verbose=bool(verbose)))
+            else:
+                output_table(console, result, verbose=bool(verbose))
 
-    except ModelNotFoundError as e:
-        raise click.ClickException(f"Model not found: {e}") from e
+        except ModelNotFoundError as e:
+            raise click.ClickException(f"Model not found: {e}") from e
 
-    except NetworkError as e:
-        raise click.ClickException(f"Network error: {e}") from e
+        except NetworkError as e:
+            raise click.ClickException(f"Network error: {e}") from e
 
-    except InspectError as e:
-        raise click.ClickException(f"Inspection error: {e}") from e
+        except InspectError as e:
+            raise click.ClickException(f"Inspection error: {e}") from e
 
-    except (ValueError, RuntimeError, OSError) as e:
-        logger.exception("Failed to inspect model")
-        raise click.ClickException(f"Failed to inspect model: {e}") from e
+        except (ValueError, RuntimeError, OSError) as e:
+            logger.exception("Failed to inspect model")
+            raise click.ClickException(f"Failed to inspect model: {e}") from e
 
 
 def _inspect_model_v2(
@@ -340,6 +346,7 @@ def _inspect_model_v2(
     model_type_override: str | None = None,
     model_class_override: str | None = None,
     include_hierarchy: bool = False,
+    suppress_native_stderr_output: bool = True,
 ) -> InspectResult:
     """Inspect v2 core — calls shared loader/export modules directly.
 
@@ -353,33 +360,34 @@ def _inspect_model_v2(
     Returns:
         InspectResult dataclass
     """
-    import functools
+    with suppress_native_stderr(enabled=suppress_native_stderr_output):
+        import functools
 
-    from transformers import AutoConfig
+        from transformers import AutoConfig
 
-    from ..export import resolve_io_specs
-    from ..inspect import (
-        ExporterInfo,
-        InspectError,
-        InspectResult,
-        LoaderInfo,
-        ModelNotFoundError,
-        NetworkError,
-        SupportLevel,
-        TensorInfo,
-        build_tensor_infos_from_io_specs,
-        compile_support_status,
-        resolve_cache,
-        resolve_composite_info,
-        resolve_io_config,
-        resolve_processor,
-        resolve_winml,
-    )
-    from ..loader import HF_TASK_DEFAULTS, load_hf_config, resolve_loader_config
-    from ..models import (
-        HF_MODEL_CLASS_MAPPING,
-        MODEL_BUILD_CONFIGS,
-    )
+        from ..export import resolve_io_specs
+        from ..inspect import (
+            ExporterInfo,
+            InspectError,
+            InspectResult,
+            LoaderInfo,
+            ModelNotFoundError,
+            NetworkError,
+            SupportLevel,
+            TensorInfo,
+            build_tensor_infos_from_io_specs,
+            compile_support_status,
+            resolve_cache,
+            resolve_composite_info,
+            resolve_io_config,
+            resolve_processor,
+            resolve_winml,
+        )
+        from ..loader import HF_TASK_DEFAULTS, load_hf_config, resolve_loader_config
+        from ..models import (
+            HF_MODEL_CLASS_MAPPING,
+            MODEL_BUILD_CONFIGS,
+        )
 
     # =========================================================================
     # STEP 1: Load parent hf_config once and feed it into resolve_loader_config
