@@ -38,7 +38,13 @@ from typing import Any, Final, NamedTuple, cast
 
 import onnxruntime as ort
 
-from ..utils.constants import DEVICE_PRIORITY, EP_ALIASES, EP_NAMES, normalize_ep_name
+from ..utils.constants import (
+    DEVICE_PRIORITY,
+    EP_ALIASES,
+    EP_NAMES,
+    EP_SUPPORTED_DEVICES,
+    normalize_ep_name,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -438,9 +444,20 @@ def default_device_for_ep(ep: str) -> str | None:
     return next((s.device for s in EP_DEVICE_SPECS if s.ep == ep), None)
 
 
+def _is_policy_supported_spec(spec: EPDeviceSpec) -> bool:
+    """Return whether the shared EP/device policy accepts this catalog row."""
+    return spec.device in EP_SUPPORTED_DEVICES.get(spec.ep, ())
+
+
 def _devices_for_ep(ep: str) -> tuple[str, ...]:
     """Catalog-supported devices for *ep*, preserving declaration order."""
-    return tuple(dict.fromkeys(spec.device for spec in EP_DEVICE_SPECS if spec.ep == ep))
+    return tuple(
+        dict.fromkeys(
+            spec.device
+            for spec in EP_DEVICE_SPECS
+            if spec.ep == ep and _is_policy_supported_spec(spec)
+        )
+    )
 
 
 def default_ep_for_device(device: str) -> str | None:
@@ -482,6 +499,7 @@ def default_ep_for_device(device: str) -> str | None:
                 s.ep
                 for s in EP_DEVICE_SPECS
                 if s.device == device
+                and _is_policy_supported_spec(s)
                 and s.ep in eps  # L0: discovered
                 and EP_CATALOG.is_compatible(s.ep)  # L2: vendor-compatible
             ),
@@ -536,7 +554,11 @@ def available_eps_for_device(device: str) -> list[str]:
 
     d = device.lower()
     eps = WinMLEPRegistry.instance().available_eps()
-    return [s.ep for s in EP_DEVICE_SPECS if s.device == d and s.ep in eps]
+    return [
+        s.ep
+        for s in EP_DEVICE_SPECS
+        if s.device == d and _is_policy_supported_spec(s) and s.ep in eps
+    ]
 
 
 def ep_to_device(ep: str) -> str:
@@ -593,6 +615,7 @@ def auto_detect_device() -> str:
             for spec in EP_DEVICE_SPECS:
                 if (
                     spec.device != dev
+                    or not _is_policy_supported_spec(spec)
                     or spec.ep not in available_eps
                     or not EP_CATALOG.is_compatible(spec.ep)
                 ):
@@ -667,7 +690,7 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
         available_eps = registry.available_eps()
         vendor_detection_failed = False
         for spec in EP_DEVICE_SPECS:
-            if spec.ep not in available_eps:
+            if spec.ep not in available_eps or not _is_policy_supported_spec(spec):
                 continue
             if vendor_detection_failed:
                 if spec.device != "cpu":
@@ -739,7 +762,11 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
         selected_ep: str | None = None
         vendor_detection_failed = False
         for spec in EP_DEVICE_SPECS:
-            if spec.device != device or spec.ep not in available_eps:
+            if (
+                spec.device != device
+                or spec.ep not in available_eps
+                or not _is_policy_supported_spec(spec)
+            ):
                 continue
             try:
                 if not EP_CATALOG.is_compatible(spec.ep):
