@@ -186,6 +186,18 @@ logger = logging.getLogger(__name__)
         "random inputs and report tensor-similarity metrics per output tensor."
     ),
 )
+@click.option(
+    "--input-data",
+    "input_data",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help=(
+        "Path to a .npz file of real input tensors to compare with instead of "
+        "randomly generated ones (use with --mode compare). Keys must match the "
+        "candidate model's input names; the leading axis of each array is the "
+        "sample axis (N samples), and all inputs must share the same N."
+    ),
+)
 @cli_utils.skip_build_option()
 @cli_utils.format_option()
 @cli_utils.build_config_option()
@@ -227,6 +239,7 @@ def eval(
     allow_unsupported_nodes: bool,
     show_schema: bool,
     mode: EvalMode,
+    input_data: str | None,
     config_file: Path | None,
     skip_build: bool,
 ) -> None:
@@ -236,6 +249,8 @@ def eval(
         winml eval -m microsoft/resnet-50
 
         winml eval -m model.onnx --model-id microsoft/resnet-50
+
+        winml eval --mode compare -m cand.onnx --model-id microsoft/resnet-50 --input-data data.npz
 
     Run `winml eval --schema --task <task>` to see the dataset columns
     and options expected by each task.
@@ -268,6 +283,9 @@ def eval(
 
     # ── 1. Build config: defaults ← config file ← CLI ──
     cfg = _build_eval_config(ctx, config_file, column, label_mapping_path)
+
+    if cfg.input_data is not None and cfg.mode != "compare":
+        raise click.UsageError("--input-data is only valid with --mode compare.")
 
     # ── 2. Resolve in place ──
     _resolve_model(cfg, model, model_id)
@@ -664,7 +682,9 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
     console.print()
     console.print(f"[dim]Task:[/dim]       {cfg.task}")
     console.print(f"[dim]Device:[/dim]     {cfg.device}")
-    if ds.path:
+    if cfg.input_data:
+        console.print(f"[dim]Input data:[/dim] {cfg.input_data}")
+    elif ds.path:
         console.print(f"[dim]Dataset:[/dim]    {ds.path}")
     console.print(f"[dim]Samples:[/dim]    {ds.samples}")
     if cfg.model_path:

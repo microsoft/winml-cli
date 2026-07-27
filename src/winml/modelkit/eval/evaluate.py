@@ -442,6 +442,8 @@ def print_config(config: WinMLEvaluationConfig) -> None:
     output_console.print(f"[bold blue]Model:[/bold blue] {config.model_id}")
     if config.model_path is not None:
         output_console.print(f"[bold blue]Model path:[/bold blue] {config.model_path}")
+    if config.input_data is not None:
+        output_console.print(f"[bold blue]Input data:[/bold blue] {config.input_data}")
     output_console.print(f"[bold blue]Task:[/bold blue] {config.task}")
     output_console.print(f"[bold blue]Device:[/bold blue] {config.device}")
     if config.ep is not None:

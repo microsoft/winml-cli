@@ -30,6 +30,7 @@ from winml.modelkit.models.winml.composite_model import WinMLCompositeModel
 # _inference_model
 # ---------------------------------------------------------------------------
 
+
 class _EchoModel:
     """Minimal stand-in that returns a BaseModelOutput from the inputs."""
 
@@ -77,6 +78,7 @@ class TestInferenceModel:
 # composite-model guard in __init__
 # ---------------------------------------------------------------------------
 
+
 class _FakeCompositeModel(WinMLCompositeModel):
     _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {
         "encoder": "image-feature-extraction",
@@ -86,9 +88,7 @@ class _FakeCompositeModel(WinMLCompositeModel):
 
 class TestCompositeGuard:
     def test_rejects_composite_with_helpful_message(self):
-        composite = _FakeCompositeModel(
-            sub_models={}, config=PretrainedConfig()
-        )
+        composite = _FakeCompositeModel(sub_models={}, config=PretrainedConfig())
         config = WinMLEvaluationConfig(
             model_id="Salesforce/blip-image-captioning-base",
             task="image-to-text",
@@ -102,3 +102,47 @@ class TestCompositeGuard:
         assert "image-feature-extraction" in msg
         assert "text-generation" in msg
         assert "Salesforce/blip-image-captioning-base" in msg
+
+
+# ---------------------------------------------------------------------------
+# Real-input compare (input_data set)
+# ---------------------------------------------------------------------------
+
+
+class _FakeCandidateModel:
+    """Minimal candidate stand-in exposing the ONNX I/O config prepare_data reads."""
+
+    def __init__(self, io_config: dict) -> None:
+        self.io_config = io_config
+
+
+class TestInputDataCompare:
+    def test_prepare_data_uses_input_data_npz(self, monkeypatch, tmp_path):
+        from winml.modelkit.datasets.input_data import InputDataDataset
+
+        # Skip loading the HF reference model (network) -- this test only
+        # exercises prepare_data's dataset selection off the candidate I/O.
+        monkeypatch.setattr(TensorSimilarityEvaluator, "_load_reference_model", lambda self: None)
+
+        npz = tmp_path / "inputs.npz"
+        np.savez(npz, input=np.ones((2, 3), dtype=np.float32))
+
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            model_id="test/model",
+            mode="compare",
+            input_data=str(npz),
+        )
+        model = _FakeCandidateModel({"input_names": ["input"], "input_types": ["float32"]})
+
+        evaluator = TensorSimilarityEvaluator(config, model)  # type: ignore[arg-type]
+
+        assert isinstance(evaluator.data, InputDataDataset)
+        # Leading axis is the sample axis: (2, 3) -> 2 samples of shape (1, 3).
+        assert len(evaluator.data) == 2
+        sample = evaluator.data[0]
+        assert set(sample) == {"input"}
+        assert isinstance(sample["input"], torch.Tensor)
+        assert sample["input"].shape == (1, 3)
+        # The effective config reflects the real sample count for the report/JSON.
+        assert evaluator.config.dataset.samples == 2

@@ -40,6 +40,7 @@ $ winml eval [options]
 | `--output` | `-o` | `PATH` | — | Output JSON file path for the evaluation results. |
 | `--schema` | | flag | `false` | Print the expected dataset schema for the given `--task` and exit. Does not run evaluation. |
 | `--mode` | | `onnx\|compare` | `onnx` | Evaluation mode. `onnx` evaluates the ONNX candidate on a dataset. `compare` runs the ONNX candidate and the HuggingFace reference on identical random inputs and reports per-tensor similarity metrics — no dataset required. |
+| `--input-data` | | `PATH` | — | Path to a `.npz` file of real input tensors to compare with instead of randomly generated ones (used with `--mode compare`). Keys must match the candidate model's input names. The **leading axis of each array is the sample axis**, so an archive whose arrays have shape `(N, ...)` yields `N` samples (mean/std/min/max are computed across them); all inputs must share the same `N`. |
 
 ## How it works
 
@@ -73,6 +74,12 @@ Evaluate a BERT model on the MRPC paraphrase task with column remapping:
 
 ```bash
 $ winml eval -m Intel/bert-base-uncased-mrpc --dataset nyu-mll/glue --dataset-name mrpc --column input_column=sentence1 --column second_input_column=sentence2 --samples 500
+```
+
+Compare an ONNX candidate against its HuggingFace reference on real input tensors instead of random ones by passing a `.npz` archive whose keys match the candidate's input names. The leading axis of each array is the sample axis, so an archive shaped `(N, ...)` runs `N` samples:
+
+```bash
+$ winml eval --mode compare -m model.onnx --model-id microsoft/resnet-50 --input-data inputs.npz
 ```
 
 Check what dataset columns are expected before running, then remap them to match your dataset:
