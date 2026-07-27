@@ -1378,3 +1378,47 @@ class TestAccuracyBackfill:
             "accuracy": {"skipped": True, "skip_reason": "perf_failed"},
         }
         assert run_eval._needs_accuracy_backfill(res, "both") is False
+
+
+class TestClearDiskCaches:
+    """``_clear_disk_caches`` must also drop the VitisAI EP compile cache.
+
+    The VitisAI cache lives outside the user profile (AMD's default is
+    ``C:\\temp\\<user>\\vaip\\.cache``), so removing only the HuggingFace and
+    WinML caches leaves compiled NPU artifacts behind. A stale entry lets a run
+    load a previously compiled model instead of exercising the compile path.
+    """
+
+    def test_removes_hf_winml_and_vaip_caches(self, run_eval, tmp_path, monkeypatch):
+        hf = tmp_path / "huggingface"
+        winml = tmp_path / "winml"
+        vaip = tmp_path / "vaip" / ".cache"
+        for cache in (hf, winml, vaip):
+            cache.mkdir(parents=True)
+            (cache / "artifact.bin").write_bytes(b"stale")
+
+        monkeypatch.setattr(run_eval, "_HF_CACHE", hf)
+        monkeypatch.setattr(run_eval, "_WINML_CACHE", winml)
+        monkeypatch.setattr(run_eval, "_VAIP_CACHE", vaip)
+        # Keep the temp-file sweep away from the real TEMP directory.
+        monkeypatch.setattr(run_eval, "_TEMP_DIR", tmp_path / "empty_temp")
+
+        run_eval._clear_disk_caches()
+
+        assert not hf.exists()
+        assert not winml.exists()
+        assert not vaip.exists()
+
+    def test_skips_vaip_cache_when_unset(self, run_eval, tmp_path, monkeypatch):
+        # ``_VAIP_CACHE`` is None off Windows; the sweep must not raise.
+        winml = tmp_path / "winml"
+        winml.mkdir()
+
+        monkeypatch.setattr(run_eval, "_HF_CACHE", tmp_path / "missing_hf")
+        monkeypatch.setattr(run_eval, "_WINML_CACHE", winml)
+        monkeypatch.setattr(run_eval, "_VAIP_CACHE", None)
+        monkeypatch.setattr(run_eval, "_TEMP_DIR", tmp_path / "empty_temp")
+
+        run_eval._clear_disk_caches()
+
+        assert not winml.exists()

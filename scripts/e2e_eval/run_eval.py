@@ -191,6 +191,17 @@ _NO_SPACE_PATTERNS = (
 
 _HF_CACHE = Path.home() / ".cache" / "huggingface"
 _WINML_CACHE = Path.home() / ".cache" / "winml"
+# VitisAI EP compilation cache. It lives outside the user profile -- AMD's
+# default is ``C:\temp\<user>\vaip\.cache`` -- so clearing the HF/WinML caches
+# alone leaves compiled NPU artifacts behind. AMD documents that these
+# directories must not be reused across VitisAI EP or NPU driver versions, and a
+# stale entry also lets a run load a previously compiled model instead of
+# exercising the compile path under test.
+_VAIP_CACHE = (
+    Path("C:/temp") / os.environ["USERNAME"] / "vaip" / ".cache"
+    if platform.system() == "Windows" and os.environ.get("USERNAME")
+    else None
+)
 _TEMP_DIR = Path(os.environ.get("TEMP", os.environ.get("TMP", tempfile.gettempdir())))
 _TEMP_PREFIXES = ("winmlcli_", "winmlcli_compat_")
 
@@ -202,9 +213,9 @@ def _is_no_space_error(proc: dict) -> bool:
 
 
 def _clear_disk_caches() -> None:
-    """Delete HuggingFace, WinML cache directories and leaked temp files."""
-    for cache_dir in (_HF_CACHE, _WINML_CACHE):
-        if cache_dir.exists():
+    """Delete HuggingFace, WinML, VitisAI EP caches and leaked temp files."""
+    for cache_dir in (_HF_CACHE, _WINML_CACHE, _VAIP_CACHE):
+        if cache_dir is not None and cache_dir.exists():
             safe_print(f"  [cleanup] Removing cache: {cache_dir}")
             try:
                 shutil.rmtree(cache_dir)
