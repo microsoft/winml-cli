@@ -1402,6 +1402,9 @@ class TestLoadModel:
         # The mock auto_device returns a MagicMock — just confirm it landed.
         assert call_args.args[1] is not None
         assert call_args.kwargs["task"] == "image-classification"
+        # No --shape-config / export overrides -> both default to None.
+        assert call_args.kwargs["shape_config"] is None
+        assert call_args.kwargs["config"] is None
         assert result is mock_model
 
     def test_auto_target_retries_cpu_after_ort_runtime_failure(self, caplog):
