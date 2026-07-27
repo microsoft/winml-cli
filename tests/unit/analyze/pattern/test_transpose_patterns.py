@@ -14,6 +14,7 @@ import numpy as np
 import onnx
 import onnxruntime as ort
 
+from winml.modelkit.analyze.core.runtime_checker_query import get_query_conditions_for_pattern
 from winml.modelkit.pattern import (
     MatMulAddPattern,
     PatternMatcher,
@@ -293,3 +294,31 @@ class TestRTRPatternInputGeneratorCoverage:
             merged_dims.add(len(merged_shape))
 
         assert 5 in merged_dims
+
+    def test_runtime_query_conditions_include_derived_rtr_properties(self) -> None:
+        """Matched RTR subgraph should flow through query-condition derivation."""
+        pattern = ReshapeTransposeReshapeOverlyHighDimPattern()
+        model = _create_reshape_transpose_model(
+            pattern,
+            data_shape=(1, 1, 3, 3, 4, 4),
+            transpose_shape=(1, 1, 3, 3, 4, 4),
+            perm=(0, 1, 4, 2, 5, 3),
+            output_shape=(1, 1, 12, 12),
+        )
+
+        matcher = PatternMatcher(model)
+        matcher.register_pattern(pattern)
+        matches = matcher.match()
+        assert len(matches) == 1
+
+        conditions, infinite_properties = get_query_conditions_for_pattern(
+            pattern_match=matches[0],
+            pattern_name=type(pattern).__name__,
+            opset_versions=TEST_DOMAIN_VERSIONS,
+        )
+
+        assert conditions["transpose_dim"] == 6
+        assert conditions["output_dim"] == 4
+        assert conditions["merged_transpose_dim"] == 5
+        assert conditions["transpose_last_dim"] == 4
+        assert "attr_transpose_shape" in infinite_properties
