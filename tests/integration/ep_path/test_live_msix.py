@@ -38,10 +38,7 @@ def test_pkg_manager_returns_handle() -> None:
     _get_pkg_manager.cache_clear()
     pm = _get_pkg_manager()
     if pm is None:
-        pytest.skip(
-            "winrt-Windows.Management.Deployment binding not installed "
-            "(install the winrt optional dependency)"
-        )
+        pytest.skip("winrt-Windows.Management.Deployment binding not installed")
     assert hasattr(pm, "find_packages_by_user_security_id")
 
 
@@ -51,7 +48,7 @@ def test_list_msix_eps_returns_list() -> None:
 
     _get_pkg_manager.cache_clear()
     if _get_pkg_manager() is None:
-        pytest.skip("WinRT PackageManager unavailable; install the winrt optional dependency")
+        pytest.skip("WinRT PackageManager unavailable; install winrt-Windows.Management.Deployment")
 
     results = _list_msix_eps()
     assert isinstance(results, list)
@@ -72,7 +69,7 @@ def test_winml_catalog_find_all_providers_works() -> None:
     assert catalog is not None
     providers = list(catalog.find_all_providers())
     for provider in providers:
-        assert hasattr(provider, "name")
-        assert hasattr(provider, "ready_state")
-        assert hasattr(provider, "library_path")
-        assert hasattr(provider, "ensure_ready")
+        # Check descriptors without evaluating readiness-sensitive properties.
+        provider_type = type(provider)
+        for attribute in ("name", "ready_state", "library_path", "ensure_ready"):
+            assert hasattr(provider_type, attribute)

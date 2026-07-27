@@ -947,7 +947,7 @@ def _get_pkg_manager() -> Any | None:
     except ImportError as e:
         logger.debug(
             "MSIXPackageSource: WinRT PackageManager binding not installed; "
-            "install the 'winml-catalog' extra to enable MSIX EP version "
+            "install 'winrt-Windows.Management.Deployment' to enable MSIX EP version "
             "discovery (%s)",
             e,
         )
@@ -1218,11 +1218,10 @@ def _default_ep_sources() -> list[EPSource]:
     dll_path)`` collapses any catalog/MSIX overlap; catalog precedence
     wins.
 
-    The ``WinMLCatalogSource`` rows are live: they yield nothing
-    silently when the optional ``winml-catalog`` extra is not installed
-    (no ``wasdk-*`` packages on this machine). On machines with the
-    extra installed, they pick up MSIX-delivered EPs that Windows Update
-    has already provisioned.
+    The ``WinMLCatalogSource`` rows are live: on Windows they use the
+    required ``windowsml`` dependency to pick up MSIX-delivered EPs that
+    Windows Update has provisioned. On unsupported platforms or when
+    catalog construction fails, they yield nothing.
 
     The ``NuGetSource`` rows are also live: they yield nothing silently
     when the relevant package is not in ``~/.nuget/packages``. Only EPs
