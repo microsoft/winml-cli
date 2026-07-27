@@ -38,7 +38,7 @@ class QueryChunk:
     """One model invocation's ordered query vocabulary."""
 
     prompts: tuple[str, ...]
-    category_ids: tuple[int | None, ...]
+    category_ids: tuple[int, ...]
     real_size: int
 
 
@@ -131,25 +131,24 @@ def _make_query_chunks(
     template: str,
     capacity: int | None,
 ) -> list[QueryChunk]:
-    """Render and deterministically chunk the complete vocabulary.
+    """Render one independent category per invocation.
 
-    A final partial static chunk is padded with a neutral query. Detections for
-    padded query-local labels are discarded during remapping.
+    Grounded object-detection postprocessing selects the highest query logit for
+    each predicted box. To prevent categories from competing, replicate one real
+    query across every slot required by a static graph. Any selected local slot
+    then maps to the same authoritative category. Dynamic graphs use one slot.
     """
     if not vocabulary:
         raise DatasetValidationError("category vocabulary must not be empty")
-    width = capacity or len(vocabulary)
-    chunks: list[QueryChunk] = []
-    for start in range(0, len(vocabulary), width):
-        part = vocabulary[start : start + width]
-        prompts: list[str] = [template.format(name) for _, name in part]
-        category_ids: list[int | None] = [category_id for category_id, _ in part]
-        real_size = len(part)
-        while len(prompts) < width:
-            prompts.append(" ")
-            category_ids.append(None)
-        chunks.append(QueryChunk(tuple(prompts), tuple(category_ids), real_size))
-    return chunks
+    width = capacity or 1
+    return [
+        QueryChunk(
+            prompts=(template.format(name),) * width,
+            category_ids=(category_id,) * width,
+            real_size=1,
+        )
+        for category_id, name in vocabulary
+    ]
 
 
 def _select_category_covering_rows(
@@ -193,8 +192,6 @@ def _remap_grounded_output(output: dict[str, Any], chunk: QueryChunk) -> dict[st
         if local_id < 0 or local_id >= len(chunk.category_ids):
             raise ValueError(f"processor returned out-of-range query label {local_id}")
         category_id = chunk.category_ids[local_id]
-        if category_id is None:
-            continue
         boxes.append(box.tolist() if hasattr(box, "tolist") else list(box))
         scores.append(float(score.item() if hasattr(score, "item") else score))
         labels.append(category_id)
