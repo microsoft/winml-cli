@@ -459,6 +459,8 @@ class GemmPatternInputGenerator(PatternInputGenerator):
         # Distinguish scalar literal constraints from shape-based constraints.
         # Vector/tensor constants should remain shape-constrained (not value-constrained).
         c_value = item.get("C_value")
+        # Keep the shape gate as a defensive consistency check in case value/shape
+        # metadata disagree across generated rows.
         item["C_is_value_constraint"] = _is_scalar_constraint_value(c_value) and item[
             "C_dim"
         ] == 0
