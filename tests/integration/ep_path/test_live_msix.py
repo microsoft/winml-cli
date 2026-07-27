@@ -62,14 +62,13 @@ def test_list_msix_eps_returns_list() -> None:
 
 def test_winml_catalog_find_all_providers_works() -> None:
     """The required windowsml package exposes the live EP catalog."""
+    from windowsml import ExecutionProvider
+
     from winml.modelkit.ep_path import _get_catalog
 
     _get_catalog.cache_clear()
     catalog = _get_catalog()
     assert catalog is not None
-    providers = list(catalog.find_all_providers())
-    for provider in providers:
-        # Check descriptors without evaluating readiness-sensitive properties.
-        provider_type = type(provider)
-        for attribute in ("name", "ready_state", "library_path", "ensure_ready"):
-            assert hasattr(provider_type, attribute)
+    list(catalog.find_all_providers())
+    for attribute in ("name", "ready_state", "library_path", "ensure_ready"):
+        assert hasattr(ExecutionProvider, attribute)
