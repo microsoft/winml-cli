@@ -272,7 +272,7 @@ class WinMLEPDevice:
     @property
     def ep_short_name(self) -> str:
         """Short EP alias (``"qnn"`` / ``"openvino"`` / ``"cpu"`` / ...)."""
-        return short_ep_name(self.device.ep_name)
+        return short_ep_name(self.ep.source.ep_name)
 
 
 class WinMLEPRegistry:
