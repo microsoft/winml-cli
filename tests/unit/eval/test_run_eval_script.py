@@ -251,6 +251,8 @@ class TestCompositeOnnxRegistry:
         assert result["success"] is True
         assert result["stage"] == "prebuilt"
         assert result["onnx_paths"] == entry.composite_onnx
+        # Nothing is built, so the caller's resolved precision is reported as-is.
+        assert result["precision"] is None
         mock_subprocess.assert_not_called()
 
 
@@ -553,6 +555,53 @@ class TestRunBuildReportsEffectivePrecision:
     def test_unquantized_config_reports_nothing(self, run_eval, tmp_path):
         result = self._invoke(run_eval, tmp_path, None, None)
         assert result["precision"] is None
+
+
+class TestBuildForJobPrecision:
+    """``_build_for_job`` reports the precision the build applied, not the declared one.
+
+    A skip-quant EP (VitisAI) is built with ``--no-quant`` and ``_resolve_precision``
+    drops even an explicit per-model precision, so the job must not report that
+    ignored value -- stamping it would publish an unquantized artifact under a
+    quantized label.
+    """
+
+    def test_skip_quant_ep_drops_explicit_entry_precision(self, run_eval, tmp_path):
+        entry = _entry("some/model", "text-classification")
+        entry.precision = "w8a16"
+        job = run_eval.EvalJob(entry, None)
+        assert job.precision == "w8a16"  # declared: still drives the dir slug
+
+        args = argparse.Namespace(ep="vitisai", device="npu", timeout=300)
+        captured: list[list[str]] = []
+
+        def fake_subprocess(cmd, _timeout):
+            captured.append(list(cmd))
+            if "config" in cmd:
+                # --no-quant makes winml config emit a config with no quant stage.
+                (tmp_path / "build_config.json").write_text(
+                    json.dumps({"quant": None}), encoding="utf-8"
+                )
+                stdout = ""
+            else:
+                stdout = "Build cache: model.onnx"
+            return {
+                "exit_code": 0,
+                "stdout": stdout,
+                "stderr": "",
+                "elapsed": 0.1,
+                "command": " ".join(cmd),
+            }
+
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=fake_subprocess),
+            patch.object(run_eval, "_extract_onnx_path", return_value=str(tmp_path / "m.onnx")),
+        ):
+            build_result, _meta, _trust = run_eval._build_for_job(job, args, tmp_path)
+
+        assert all("--no-quant" in cmd for cmd in captured)
+        assert all("--precision" not in cmd for cmd in captured)
+        assert build_result["precision"] is None
 
 
 class TestFeedVersionForCombo:

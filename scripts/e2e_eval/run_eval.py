@@ -634,6 +634,9 @@ def _run_build(
             "success": True,
             "onnx_paths": dict(composite_onnx),
             "stage": "prebuilt",
+            # Nothing is built here: the registry supplies pre-exported ONNX, so
+            # the caller's resolved precision is all that describes them.
+            "precision": precision,
             "proc": {
                 "exit_code": 0,
                 "stdout": "Using pre-built composite ONNX paths from registry.",
@@ -2944,9 +2947,9 @@ def main() -> None:
     for i, job in enumerate(jobs, 1):
         entry = job.entry
         precision = job.precision
-        # Recorded precision defaults to the declared one and is replaced by what
-        # the build actually applied once the build phase reports it.
-        recorded_precision = precision
+        # What the build reports it applied; stays None until the build phase runs
+        # (and for a job whose build applies no precision at all).
+        recorded_precision: str | None = None
         prec_tag = f" [{precision}]" if precision else ""
         base_label = f"{entry.hf_id} / {entry.task}" if entry.task else entry.hf_id
         label = f"{base_label}{prec_tag}"
@@ -3026,10 +3029,11 @@ def main() -> None:
             # {success, onnx_paths, stage, proc}; build is shared by perf + eval.
             build_result, recipe_meta, trust = _build_for_job(job, args, model_dir)
 
-            # A fallback job with no pinned precision still builds at the device
-            # default (NPU -> w8a16), so record what was built, not what the job
-            # declared -- an empty precision reads as "unquantized" downstream.
-            recorded_precision = build_result.get("precision") or precision
+            # Record what the build applied, never what the job declared: a
+            # fallback job with no pinned precision still builds at the device
+            # default (NPU -> w8a16), while a skip-quant EP drops even an explicit
+            # per-model precision. The declared value stays in the dir slug/label.
+            recorded_precision = build_result.get("precision")
 
             onnx_paths = build_result["onnx_paths"] if build_result["success"] else {}
             onnx_size = _compute_onnx_size(onnx_paths)
