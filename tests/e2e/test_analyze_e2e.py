@@ -47,7 +47,7 @@ from click.testing import CliRunner
 from tests.e2e.require_ep import require_ep
 from winml.modelkit.commands.analyze import analyze
 from winml.modelkit.utils.constants import EP_ALIASES as _EP_ALIASES
-from winml.modelkit.utils.constants import SUPPORTED_EPS
+from winml.modelkit.utils.constants import EP_SUPPORTED_DEVICES, SUPPORTED_EPS
 
 
 if TYPE_CHECKING:
@@ -376,6 +376,58 @@ class TestAnalyzeHappyPath:
         _write_supported_rule(rules_dir, "QNNExecutionProvider", "NPU")
         result = _invoke(["-m", str(onnx_model_path), "--quiet"])
         assert result.exit_code == 0
+
+    def test_default_auto_selects_highest_priority_exact_local_binding(
+        self,
+        onnx_model_path: Path,
+        rules_dir: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Bare auto/auto chooses the best exact local EP/device binding."""
+        multi_device_ep = next(
+            (
+                ep_name
+                for ep_name, devices in EP_SUPPORTED_DEVICES.items()
+                if {"npu", "gpu"}.issubset(devices)
+            ),
+            None,
+        )
+        if multi_device_ep is None:
+            pytest.skip("No EP supports both NPU and GPU in EP_SUPPORTED_DEVICES")
+
+        monkeypatch.setattr(
+            "winml.modelkit.commands.analyze._get_local_ep_device_pairs",
+            lambda: [
+                (multi_device_ep, "GPU"),
+                (multi_device_ep, "NPU"),
+                ("CPUExecutionProvider", "CPU"),
+            ],
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.session.resolve_device",
+            lambda target: type(target)(
+                ep=multi_device_ep,
+                device="gpu",
+                source=target.source,
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.session.available_eps_for_device",
+            lambda device_name: (
+                [multi_device_ep] if str(device_name).lower() in {"gpu", "npu"} else []
+            ),
+        )
+
+        _write_supported_rule(rules_dir, multi_device_ep, "NPU")
+        out_path = tmp_path / "analysis.json"
+
+        result = _invoke(["-m", str(onnx_model_path), "--quiet", "-o", str(out_path)])
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(out_path.read_text(encoding="utf-8"))
+        pairs = [(ep_result["ep_type"], ep_result["device_type"]) for ep_result in data["results"]]
+        assert pairs == [(multi_device_ep, "NPU")]
 
 
 # ===========================================================================

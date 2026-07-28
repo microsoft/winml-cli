@@ -32,6 +32,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -41,7 +43,7 @@ import pytest
 from click.testing import CliRunner
 from onnx import TensorProto, helper
 
-from tests.e2e.require_ep import require_ep, require_not_ep
+from tests.e2e.require_ep import is_host, require_ep, require_not_ep
 from winml.modelkit.commands.compile import compile as compile_cmd
 from winml.modelkit.onnx import is_compiled_onnx
 from winml.modelkit.utils import normalize_ep_name
@@ -63,6 +65,23 @@ PASSTHROUGH_EPS = ("cpu", "dml")
 def _invoke(*args: str) -> Result:
     """Run ``winml compile <args>`` through CliRunner."""
     return CliRunner().invoke(compile_cmd, list(args), obj={"debug": False})
+
+
+def _run_winml_cli_subprocess(
+    args: list[str],
+    *,
+    timeout: int = 600,
+) -> subprocess.CompletedProcess[str]:
+    """Run the real winml CLI entry point in a fresh Python process."""
+    return subprocess.run(  # noqa: S603 -- trusted args from the test body
+        [sys.executable, "-m", "winml.modelkit", *args],
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
 
 
 def _sha256(path: Path) -> str:
@@ -468,6 +487,41 @@ class TestValidate:
         assert _VALIDATE_LOG in lower, (
             f"Default validate should emit validation logs.\n{result.output}"
         )
+
+
+# ===========================================================================
+# Process exit cleanup — native ORT sessions are released before process teardown
+# ===========================================================================
+
+
+@pytest.mark.e2e
+class TestProcessExitCleanup:
+    def test_compile_validation_process_exits_cleanly_after_releasing_session(
+        self,
+        simple_matmul_onnx: Path,
+        tmp_path: Path,
+    ) -> None:
+        """Compile+validate in a subprocess exits 0 after native sessions are released."""
+        ep = next((candidate for candidate in EPCONTEXT_EPS if is_host(candidate)), None)
+        if ep is None:
+            pytest.skip("No EPContext-capable EP is available on this host")
+
+        out = tmp_path / "validated_process_exit.onnx"
+        proc = _run_winml_cli_subprocess(
+            [
+                "compile",
+                "-m",
+                str(simple_matmul_onnx),
+                "--ep",
+                ep,
+                "--validate",
+                "-o",
+                str(out),
+            ]
+        )
+
+        assert proc.returncode == 0, f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        assert_epcontext_artifact(out, simple_matmul_onnx, embed=False)
 
 
 # ===========================================================================
