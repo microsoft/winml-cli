@@ -2745,7 +2745,11 @@
     "tags": [
       "acc"
     ],
-    "order": 10
+    "order": 10,
+    "disabled_eval_targets": [
+      "qnn_npu",
+      "qnn_gpu"
+    ]
   },
   {
     "hf_id": "google-bert/bert-base-multilingual-cased",
@@ -2756,7 +2760,10 @@
     "downloads": 2869278,
     "last_update_time": "2024-02-19T11:05:41+00:00",
     "optimum_supported": true,
-    "order": 1
+    "order": 1,
+    "disabled_eval_targets": [
+      "qnn_gpu"
+    ]
   },
   {
     "hf_id": "google-bert/bert-base-multilingual-uncased",
@@ -4495,7 +4502,10 @@
     "tags": [
       "acc"
     ],
-    "order": 1
+    "order": 1,
+    "disabled_eval_targets": [
+      "qnn_gpu"
+    ]
   },
   {
     "hf_id": "openai/clip-vit-large-patch14",

@@ -217,6 +217,50 @@ class TestOpTracingTargetKey:
 
         assert entries[0].disabled_eval_targets == ["QNNExecutionProvider_gpu"]
 
+    @pytest.mark.parametrize(
+        ("hf_id", "task", "target"),
+        [
+            (
+                "openai/clip-vit-base-patch32",
+                "feature-extraction",
+                "QNNExecutionProvider_gpu",
+            ),
+            (
+                "openai/clip-vit-base-patch32",
+                "zero-shot-image-classification",
+                "QNNExecutionProvider_gpu",
+            ),
+            (
+                "google-bert/bert-base-multilingual-cased",
+                "fill-mask",
+                "QNNExecutionProvider_npu",
+            ),
+            (
+                "google-bert/bert-base-multilingual-cased",
+                "fill-mask",
+                "QNNExecutionProvider_gpu",
+            ),
+            (
+                "google-bert/bert-base-multilingual-cased",
+                "masked-lm",
+                "QNNExecutionProvider_gpu",
+            ),
+        ],
+    )
+    def test_ci_qnn_unsupported_eval_targets_are_disabled(self, run_eval, hf_id, task, target):
+        registry_path = (
+            Path(__file__).resolve().parents[3]
+            / "scripts"
+            / "e2e_eval"
+            / "testsets"
+            / "models_all.json"
+        )
+
+        entries = run_eval.load_registry(registry_path)
+        entry = next(entry for entry in entries if entry.hf_id == hf_id and entry.task == task)
+
+        assert target in entry.disabled_eval_targets
+
 
 class TestCompositeOnnxRegistry:
     def test_registry_preserves_composite_onnx(self, run_eval, tmp_path):
