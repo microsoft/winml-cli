@@ -150,6 +150,23 @@ def _build_perf_args(
     return args
 
 
+def _run_winml_cli_subprocess(
+    args: list[str],
+    *,
+    timeout: int = 240,
+) -> subprocess.CompletedProcess[str]:
+    """Run the real winml CLI entry point in a fresh Python process."""
+    return subprocess.run(  # noqa: S603 -- trusted args from the test body
+        [sys.executable, "-m", "winml.modelkit", *args],
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
 def _assert_monitor_result(
     data: dict,
     *,
@@ -592,6 +609,40 @@ class _PerfBenchmarkSuite:
 
 class TestPerfONNXDirect(_PerfBenchmarkSuite):
     """Benchmark a pre-exported ONNX file directly via WinMLSession."""
+
+    def test_benchmark_qnn_process_exit_releases_native_session(
+        self,
+        tmp_path: Path,
+        onnx_model_path: Path,
+    ) -> None:
+        """A successful QNN perf subprocess exits cleanly after releasing ORT sessions."""
+        qnn_provider = require_ep("qnn", device="npu")
+        output_file = tmp_path / "perf_qnn_process_exit.json"
+
+        proc = _run_winml_cli_subprocess(
+            [
+                "perf",
+                "-m",
+                str(onnx_model_path),
+                "--ep",
+                "qnn",
+                "--device",
+                "npu",
+                "--iterations",
+                "1",
+                "--warmup",
+                "0",
+                "--no-memory",
+                "-o",
+                str(output_file),
+            ]
+        )
+
+        assert proc.returncode == 0, f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        assert data["benchmark_info"]["ep"] == qnn_provider
+        assert data["benchmark_info"]["device"] == "npu"
+        assert data["latency_ms"]["mean"] > 0
 
 
 class TestPerfHuggingFace:
