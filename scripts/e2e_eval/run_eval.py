@@ -169,22 +169,21 @@ def _precision_from_build_config(config_path: Path) -> str | None:
 
     The harness omits ``--precision`` whenever it has no explicit value (CPU/GPU,
     ``--device auto``, or a recipe-less model with no pinned precision), and
-    ``winml config`` then resolves ``auto`` against the target device (NPU ->
-    w8a16, CPU/GPU -> fp32). The generated config's ``quant`` section is the only
-    faithful record of that decision, so recording it keeps a quantized build
-    from being written out as "no precision" -- which downstream reports read as
-    "unquantized".
+    ``winml config`` then resolves ``auto`` against the target device -- on NPU
+    that is w8a16, so the build is quantized even though the job declared no
+    precision. The config's ``quant`` section is the only faithful record of that
+    decision, and reporting it keeps a quantized build from being written out as
+    "no precision" -- which downstream reports read as "unquantized".
 
-    Returns None when the quant section has an unrecognised shape.
+    Only what the config states is returned: a config with no quant stage yields
+    None (nothing was requested, so nothing is claimed), as does a quant section
+    whose shape is unrecognised.
     """
     try:
         cfg = json.loads(config_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
     quant = cfg.get("quant")
-    if quant is None:
-        # No quant stage and no fp16 conversion: the graph stays fp32.
-        return "fp32"
     if not isinstance(quant, dict):
         return None
     mode = quant.get("mode")

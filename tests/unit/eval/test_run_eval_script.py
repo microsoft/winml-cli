@@ -449,12 +449,13 @@ class TestPrecisionFromBuildConfig:
         path.write_text(json.dumps(cfg), encoding="utf-8")
         return path
 
-    def test_missing_quant_section_is_fp32(self, run_eval, tmp_path):
-        # No quant stage and no fp16 conversion: the graph stays fp32. Both the
-        # explicit null and an omitted key mean the same thing.
-        assert run_eval._precision_from_build_config(self._write(tmp_path, {})) == "fp32"
+    def test_missing_quant_section_is_none(self, run_eval, tmp_path):
+        # Nothing was requested, so nothing is claimed: the config is reported
+        # verbatim rather than inferred as fp32 (the graph's own dtype is not
+        # something the config states).
+        assert run_eval._precision_from_build_config(self._write(tmp_path, {})) is None
         assert (
-            run_eval._precision_from_build_config(self._write(tmp_path, {"quant": None})) == "fp32"
+            run_eval._precision_from_build_config(self._write(tmp_path, {"quant": None})) is None
         )
 
     @pytest.mark.parametrize(
@@ -549,9 +550,9 @@ class TestRunBuildReportsEffectivePrecision:
         result = self._invoke(run_eval, tmp_path, None, quant)
         assert result["precision"] == "w8a16"
 
-    def test_unquantized_config_reports_fp32(self, run_eval, tmp_path):
+    def test_unquantized_config_reports_nothing(self, run_eval, tmp_path):
         result = self._invoke(run_eval, tmp_path, None, None)
-        assert result["precision"] == "fp32"
+        assert result["precision"] is None
 
 
 class TestFeedVersionForCombo:
