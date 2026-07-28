@@ -369,6 +369,37 @@ def test_ensure_provider_ready_works_without_tqdm(
     op.close.assert_called_once_with()
 
 
+def test_ensure_provider_ready_survives_progress_render_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A tqdm rendering I/O error mid-download (e.g. stderr closed) must not
+    abort the install: the bar degrades to a no-op and readiness still completes."""
+    fake_bar = _install_fake_tqdm(monkeypatch)
+    # Bar construction succeeds, but every render write fails from here on.
+    fake_bar.refresh.side_effect = OSError("stderr closed")
+    fake_bar.close.side_effect = OSError("stderr closed")
+
+    op = MagicMock()
+
+    def fake_ensure_async(on_complete=None, on_progress=None):
+        on_progress(0.5)  # triggers bar.refresh() -> raises -> degrades to no-op
+        on_complete()
+        return op
+
+    provider = MagicMock()
+    provider.name = "FakeEP"
+    provider.version = ""
+    provider.package_family_name = ""
+    provider.library_path = r"C:\some\local\path\provider.dll"
+    provider.ensure_ready_async.side_effect = fake_ensure_async
+
+    # Must NOT raise despite the render/close I/O failures.
+    ep_path._ensure_provider_ready(provider)
+
+    op.get_status.assert_called_once_with()
+    op.close.assert_called_once_with()
+
+
 class TestParseEpMetadataFromPath:
     """`_parse_ep_metadata_from_path` recovers (version, PFN) from install paths."""
 

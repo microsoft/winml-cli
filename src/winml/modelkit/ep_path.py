@@ -816,6 +816,57 @@ class _NoopBar:
         return None
 
 
+class _SafeProgressBar:
+    """Wrap a tqdm bar so rendering I/O failures never abort the EP download.
+
+    ``_make_progress_bar`` only guards bar *construction*; tqdm still writes to
+    ``sys.stderr`` on every ``refresh()``/``close()``. If the stream is closed
+    or starts failing mid-download (spawn workers, redirected/closed consoles),
+    those writes raise — including from the native ``on_progress`` callback
+    thread — and can turn a successful provider install into a discovery
+    failure. This wrapper makes rendering best-effort: on the first I/O error it
+    drops the underlying bar and every later call becomes a silent no-op.
+    """
+
+    def __init__(self, bar: Any) -> None:
+        self._bar: Any = bar
+
+    @property
+    def n(self) -> int:
+        bar = self._bar
+        return int(getattr(bar, "n", 0)) if bar is not None else 0
+
+    @n.setter
+    def n(self, value: int) -> None:
+        if self._bar is None:
+            return
+        try:
+            self._bar.n = value
+        except Exception:
+            self._degrade()
+
+    def refresh(self) -> None:
+        if self._bar is None:
+            return
+        try:
+            self._bar.refresh()
+        except Exception:
+            self._degrade()
+
+    def close(self) -> None:
+        if self._bar is None:
+            return
+        try:
+            self._bar.close()
+        except Exception:
+            self._degrade()
+
+    def _degrade(self) -> None:
+        # Drop the real bar; subsequent refresh/close/n calls become no-ops.
+        logger.debug("Progress bar rendering failed; disabling live progress.")
+        self._bar = None
+
+
 def _make_progress_bar() -> Any:
     """Return a tqdm bar if tqdm is installed, else a silent no-op stand-in.
 
@@ -825,7 +876,9 @@ def _make_progress_bar() -> Any:
     failures must not abort provider readiness and leave child EP paths empty.
     Also tolerates non-interactive runtimes where ``sys.stderr`` may be None
     (e.g., GUI/no-console hosts) so progress rendering failures cannot block
-    EP discovery.
+    EP discovery. A live bar is wrapped in :class:`_SafeProgressBar` so a
+    *mid-download* rendering failure also degrades to a no-op rather than
+    aborting the install.
     The pre-download Console notice is emitted by the caller and is unaffected.
 
     Format: ``Downloading... ████████████░░░░░░ 62%``
@@ -840,7 +893,7 @@ def _make_progress_bar() -> Any:
         return _NoopBar()
 
     try:
-        return tqdm(
+        bar = tqdm(
             total=100,
             bar_format="Downloading... {bar} {percentage:3.0f}%",
             ascii="░█",
@@ -850,6 +903,7 @@ def _make_progress_bar() -> Any:
     except Exception as e:
         logger.debug("Failed to initialize tqdm progress bar; falling back to no-op: %s", e)
         return _NoopBar()
+    return _SafeProgressBar(bar)
 
 
 def _parse_ep_metadata_from_path(library_path: str) -> tuple[str, str]:
@@ -871,12 +925,12 @@ def _parse_ep_metadata_from_path(library_path: str) -> tuple[str, str]:
     """
     import re
     from itertools import pairwise
-    from pathlib import PurePath
+    from pathlib import PureWindowsPath
 
     if not library_path:
         return "", ""
 
-    parts = PurePath(library_path).parts
+    parts = PureWindowsPath(library_path).parts
     pkg_folder = next(
         (child for parent, child in pairwise(parts) if parent.lower() == "windowsapps"),
         "",
