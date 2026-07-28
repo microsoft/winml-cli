@@ -4,6 +4,8 @@
 # --------------------------------------------------------------------------
 """Unit tests for configure_logging — third-party logger noise control."""
 
+import ctypes
+import ctypes.wintypes
 import logging
 import os
 import sys
@@ -308,6 +310,55 @@ def test_verbose_logging_reveals_noisy_ort_native_warnings(monkeypatch, capfd):
 
     stderr = capfd.readouterr().err
     assert "VerifyEachNodeIsAssignedToAnEp" in stderr
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Win32 native stderr only")
+def test_suppress_noisy_ort_native_warnings_filters_win32_std_error_handle(capfd):
+    noisy_warning = (
+        b"2026-07-28 18:23:19.8172425 [W:onnxruntime:, session_state.cc:1327 "
+        b"onnxruntime::VerifyEachNodeIsAssignedToAnEp] Some nodes were not assigned "
+        b"to the preferred execution providers.\n"
+    )
+    useful_warning = (
+        b"2026-07-28 18:23:19.8172425 [W:onnxruntime:, qnn_backend_manager.cc:2026 "
+        b"onnxruntime::qnn::QnnBackendManager::ExtractBackendProfilingInfo] "
+        b"Won't output any profiling.\n"
+    )
+
+    with suppress_noisy_ort_native_warnings():
+        _write_win32_stderr(noisy_warning)
+        _write_win32_stderr(useful_warning)
+
+    stderr = capfd.readouterr().err
+    assert "VerifyEachNodeIsAssignedToAnEp" not in stderr
+    assert "QnnBackendManager::ExtractBackendProfilingInfo" in stderr
+
+
+def _write_win32_stderr(data: bytes) -> None:
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.GetStdHandle.argtypes = [ctypes.wintypes.DWORD]
+    k32.GetStdHandle.restype = ctypes.wintypes.HANDLE
+    k32.WriteFile.argtypes = [
+        ctypes.wintypes.HANDLE,
+        ctypes.wintypes.LPCVOID,
+        ctypes.wintypes.DWORD,
+        ctypes.POINTER(ctypes.wintypes.DWORD),
+        ctypes.wintypes.LPVOID,
+    ]
+    k32.WriteFile.restype = ctypes.wintypes.BOOL
+
+    std_error_handle = ctypes.wintypes.DWORD(0xFFFFFFF4)
+    written = ctypes.wintypes.DWORD(0)
+    buffer = ctypes.create_string_buffer(data)
+    ok = k32.WriteFile(
+        k32.GetStdHandle(std_error_handle),
+        buffer,
+        len(data),
+        ctypes.byref(written),
+        None,
+    )
+    assert ok
+    assert written.value == len(data)
 
 
 def _install_fake_huggingface_logging(
