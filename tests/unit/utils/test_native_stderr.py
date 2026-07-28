@@ -32,6 +32,11 @@ class TestSuppressNativeStderr:
         os.write(2, b"after\n")
         assert "after" in capfd.readouterr().err
 
+    def test_disabled_leaves_native_stderr_visible(self, capfd):
+        with suppress_native_stderr(enabled=False):
+            os.write(2, b"visible when disabled\n")
+        assert "visible when disabled" in capfd.readouterr().err
+
     @pytest.mark.skipif(sys.platform != "win32", reason="Win32 only")
     def test_win32_std_error_handle_restored(self):
         import ctypes.wintypes
