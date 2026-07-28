@@ -802,6 +802,17 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
 
     # --- Final validation + return --------------------------------------
     ep_full = expand_ep_name(ep)
+    # Reject an EP/device pair the shared policy table does not allow. The
+    # ``auto`` branches above only ever select policy-supported specs, so this
+    # can only trip when the caller pinned BOTH axes (e.g. ``--ep vitisai
+    # --device cpu``). Without it the mismatch surfaces much later as a
+    # ``DeviceNotFound`` from deep inside the compile stage.
+    supported_devices = EP_SUPPORTED_DEVICES.get(cast("EPName", ep_full))
+    if supported_devices is not None and device not in supported_devices:
+        raise ValueError(
+            f"EP '{target.ep}' does not support device '{device}'. "
+            f"Supported: {', '.join(supported_devices)}."
+        )
     resolved = EPDeviceTarget(ep=ep_full, device=device, source=target.source)
     logger.info(
         "resolve_device: %s/%s%s -> %s/%s%s",
