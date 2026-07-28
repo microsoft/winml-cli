@@ -57,6 +57,25 @@ def run_eval():
     return _load_run_eval()
 
 
+@pytest.fixture(autouse=True)
+def _deterministic_ep_deduction(run_eval):
+    """Pin the device->EP deduction so these tests do not depend on the host.
+
+    ``_should_skip_winml_quant`` deduces the EP from the device when ``--ep`` is
+    omitted, so without this the expectations below would flip on an AMD box
+    (where ``npu`` resolves to VitisAI). Default to QNN — not an internal-quant
+    EP — which keeps the historical NPU behavior; tests that exercise the
+    deduction patch it themselves.
+    """
+    run_eval._deduce_ep_for_device.cache_clear()
+    with patch(
+        "winml.modelkit.session.default_ep_for_device",
+        return_value="QNNExecutionProvider",
+    ):
+        yield
+    run_eval._deduce_ep_for_device.cache_clear()
+
+
 class TestShouldSkipWinmlQuant:
     """Membership test for ``_should_skip_winml_quant``.
 
@@ -77,6 +96,77 @@ class TestShouldSkipWinmlQuant:
     )
     def test_other_eps_do_not_skip(self, run_eval, ep):
         assert run_eval._should_skip_winml_quant(ep) is False
+
+
+class TestDeducedEpForPinnedDevice:
+    """``--device npu`` with ``--ep`` omitted must still see the effective EP.
+
+    The harness forwards its own ``--precision`` to ``winml config``/``build``,
+    which suppresses the product-side auto-precision policy. So when only the
+    device is pinned, the harness has to deduce the EP itself — otherwise a run
+    on an AMD-only host expands quantized jobs and forces ``w8a16`` onto VitisAI.
+    """
+
+    @staticmethod
+    def _with_deduced_ep(run_eval, ep_name):
+        """Patch the device->EP deduction and reset its cache first."""
+        run_eval._deduce_ep_for_device.cache_clear()
+        return patch(
+            "winml.modelkit.session.default_ep_for_device",
+            return_value=ep_name,
+        )
+
+    @staticmethod
+    def _entry(run_eval):
+        return run_eval.ModelEntry(
+            hf_id="acme/model",
+            task="image-classification",
+            model_type="vit",
+            priority="P0",
+            group="Benchmark",
+        )
+
+    def test_skips_quant_when_device_deduces_to_vitisai(self, run_eval):
+        with self._with_deduced_ep(run_eval, "VitisAIExecutionProvider"):
+            assert run_eval._should_skip_winml_quant(None, "npu") is True
+        run_eval._deduce_ep_for_device.cache_clear()
+
+    def test_keeps_quant_when_device_deduces_to_qnn(self, run_eval):
+        with self._with_deduced_ep(run_eval, "QNNExecutionProvider"):
+            assert run_eval._should_skip_winml_quant(None, "npu") is False
+        run_eval._deduce_ep_for_device.cache_clear()
+
+    def test_resolve_precision_drops_w8a16_for_deduced_vitisai(self, run_eval):
+        with self._with_deduced_ep(run_eval, "VitisAIExecutionProvider"):
+            assert run_eval._resolve_precision("npu", None) is None
+        run_eval._deduce_ep_for_device.cache_clear()
+
+    def test_build_jobs_drops_quantized_fanout_for_deduced_vitisai(self, run_eval):
+        """No ``--ep``: the NPU quantized fan-out collapses to one unquantized job."""
+        with self._with_deduced_ep(run_eval, "VitisAIExecutionProvider"):
+            jobs = run_eval._build_jobs([self._entry(run_eval)], None, "npu", ep=None)
+        run_eval._deduce_ep_for_device.cache_clear()
+
+        assert len(jobs) == 1
+        assert jobs[0].fallback_precision is None
+
+    def test_build_jobs_still_expands_for_deduced_qnn(self, run_eval):
+        """The same path keeps the w8a8 + w8a16 fan-out on a QNN host."""
+        with self._with_deduced_ep(run_eval, "QNNExecutionProvider"):
+            jobs = run_eval._build_jobs([self._entry(run_eval)], None, "npu", ep=None)
+        run_eval._deduce_ep_for_device.cache_clear()
+
+        assert [j.fallback_precision for j in jobs] == list(run_eval._NPU_FALLBACK_PRECISIONS)
+
+    def test_auto_device_defers_to_the_product(self, run_eval):
+        """``--device auto`` must not deduce.
+
+        The product resolves that itself and applies its own auto-precision
+        policy; the harness forces no precision, so there is nothing to gate.
+        """
+        run_eval._deduce_ep_for_device.cache_clear()
+        assert run_eval._deduce_ep_for_device("auto") is None
+        assert run_eval._should_skip_winml_quant(None, "auto") is False
 
 
 class TestResolvePrecision:
@@ -104,9 +194,10 @@ class TestResolvePrecision:
         captured = capsys.readouterr()
         # Warning must mention the dropped value and the EP so the override
         # is visible in the log when an explicit per-model precision is set
-        # for an EP that runs on the unquantized variant.
+        # for an EP that runs on the unquantized variant. The EP is reported in
+        # its canonical form, which also covers the deduced-EP case.
         assert "w8a8" in captured.out
-        assert "vitisai" in captured.out
+        assert "vitisai" in captured.out.lower()
 
 
 class TestResolveOpTracing:
