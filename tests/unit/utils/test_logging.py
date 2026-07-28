@@ -16,6 +16,7 @@ from winml.modelkit.utils.logging import (
     _NOISY_LIBRARY_LOGGERS,
     configure_logging,
     suppress_huggingface_warning_logs,
+    suppress_noisy_ort_native_warnings,
 )
 
 
@@ -252,6 +253,45 @@ def test_huggingface_warning_context_restores_imported_library_verbosity(monkeyp
 
     assert transformers_state.level == logging.WARNING
     assert hub_state.level == logging.INFO
+
+
+def test_suppress_noisy_ort_native_warnings_filters_node_assignment_noise(capfd):
+    noisy_warning = (
+        "2026-07-28 18:23:19.8172425 [W:onnxruntime:, session_state.cc:1327 "
+        "onnxruntime::VerifyEachNodeIsAssignedToAnEp] Some nodes were not assigned "
+        "to the preferred execution providers which may or may not have an negative "
+        "impact on performance. e.g. ORT explicitly assigns shape related ops to CPU "
+        "to improve perf.\n"
+    )
+    useful_warning = (
+        "2026-07-28 18:23:19.8172425 [W:onnxruntime:, qnn_backend_manager.cc:2026 "
+        "onnxruntime::qnn::QnnBackendManager::ExtractBackendProfilingInfo] "
+        "Won't output any profiling.\n"
+    )
+
+    with suppress_noisy_ort_native_warnings():
+        os.write(2, noisy_warning.encode())
+        os.write(2, useful_warning.encode())
+
+    stderr = capfd.readouterr().err
+    assert "VerifyEachNodeIsAssignedToAnEp" not in stderr
+    assert "Some nodes were not assigned" not in stderr
+    assert "QnnBackendManager::ExtractBackendProfilingInfo" in stderr
+
+
+def test_show_all_warnings_env_reveals_noisy_ort_native_warnings(monkeypatch, capfd):
+    monkeypatch.setenv("WINMLCLI_SHOW_ALL_WARNINGS", "1")
+    noisy_warning = (
+        "2026-07-28 18:23:19.8337349 [W:onnxruntime:, session_state.cc:1329 "
+        "onnxruntime::VerifyEachNodeIsAssignedToAnEp] Rerunning with verbose output "
+        "on a non-minimal build will show node assignments.\n"
+    )
+
+    with suppress_noisy_ort_native_warnings():
+        os.write(2, noisy_warning.encode())
+
+    stderr = capfd.readouterr().err
+    assert "VerifyEachNodeIsAssignedToAnEp" in stderr
 
 
 def _install_fake_huggingface_logging(

@@ -29,6 +29,7 @@ Sample line: ``[14:32:11 INFO    winml.modelkit.export] Loaded config.json``
 import logging
 import os
 import sys
+import tempfile
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
@@ -63,6 +64,11 @@ _HUGGINGFACE_WARNING_LOGGERS = (
     "transformers",
 )
 _HUGGINGFACE_VERBOSITY_ENVS = ("TRANSFORMERS_VERBOSITY", "HF_HUB_VERBOSITY")
+_NOISY_ORT_NATIVE_WARNING_MARKERS = (
+    b"onnxruntime::VerifyEachNodeIsAssignedToAnEp",
+    b"Some nodes were not assigned to the preferred execution providers",
+    b"Rerunning with verbose output on a non-minimal build will show node assignments",
+)
 
 
 def configure_logging(
@@ -156,6 +162,41 @@ def suppress_huggingface_warning_logs(
         _restore_imported_huggingface_verbosity(saved_library_verbosity)
         for name, level in saved_logger_levels.items():
             logging.getLogger(name).setLevel(level)
+
+
+@contextmanager
+def suppress_noisy_ort_native_warnings() -> "Iterator[None]":
+    """Hide known-benign ORT native stderr warnings while preserving other output."""
+    if env_flag_enabled("WINMLCLI_SHOW_ALL_WARNINGS"):
+        yield
+        return
+
+    old_stderr = os.dup(2)
+    try:
+        with tempfile.TemporaryFile() as captured_stderr:
+            os.dup2(captured_stderr.fileno(), 2)
+            try:
+                yield
+            finally:
+                os.dup2(old_stderr, 2)
+                captured_stderr.seek(0)
+                _write_all(old_stderr, _filter_noisy_ort_native_stderr(captured_stderr.read()))
+    finally:
+        os.close(old_stderr)
+
+
+def _filter_noisy_ort_native_stderr(data: bytes) -> bytes:
+    return b"".join(
+        line
+        for line in data.splitlines(keepends=True)
+        if not any(marker in line for marker in _NOISY_ORT_NATIVE_WARNING_MARKERS)
+    )
+
+
+def _write_all(fd: int, data: bytes) -> None:
+    while data:
+        written = os.write(fd, data)
+        data = data[written:]
 
 
 def _normalize_verbosity(verbosity: int, verbose: bool) -> int:
