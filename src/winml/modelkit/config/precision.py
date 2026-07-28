@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from ..session import (
     VALID_DEVICES,
@@ -26,9 +26,14 @@ from ..session import (
 from ..utils.constants import (
     EP_SUPPORTED_DEVICES,
     EPS_WITH_INTERNAL_QUANT,
-    EPNameOrAlias,
     normalize_ep_name,
 )
+
+
+if TYPE_CHECKING:
+    # Referenced only from the quoted ``cast()`` below, so importing it at
+    # runtime would leave an unused import behind.
+    from ..utils.constants import EPNameOrAlias
 
 
 logger = logging.getLogger(__name__)
@@ -421,10 +426,19 @@ def resolve_precision(
             available_devices or ["cpu"],
         )
 
+    # Resolve the EP this build will actually target, BEFORE any policy decision
+    # that depends on it. An explicit --ep wins; otherwise deduce the registered
+    # default for the device. Callers routinely pin only the device
+    # (``--device npu`` with no ``--ep``), and on an AMD-only host that device
+    # still resolves to VitisAI — so the auto-precision decision below must see
+    # the deduced EP, not ``None``. ``compile_provider`` is derived from the same
+    # value so the two can never disagree.
+    effective_ep = ep if ep else default_ep_for_device(resolved_device)
+
     # Resolve "auto" precision for the resolved device
     skip_quantization = False
     if resolved_precision == "auto":
-        if ep in EPS_WITH_INTERNAL_QUANT:
+        if effective_ep in EPS_WITH_INTERNAL_QUANT:
             # This EP applies its own quantization scheme and cannot consume a
             # winml-produced QDQ graph, so make no precision choice at all and
             # tell the caller to skip the quantization stage (what --no-quant
@@ -438,7 +452,7 @@ def resolve_precision(
                 "differently from the others: the artifact stays unquantized and "
                 "the accelerator applies its own scheme at load time. "
                 "Pass --precision explicitly to force a winml quantization pass.",
-                ep,
+                effective_ep,
                 _AUTO_PRECISION[resolved_device],
                 resolved_device,
             )
@@ -453,13 +467,9 @@ def resolve_precision(
                     task,
                 )
 
-    # EP override takes precedence over device→provider mapping. The policy
-    # contract uses short aliases, with CPU represented as no offline compiler.
-    if ep:
-        compile_provider = ep_short_or_none(ep)
-    else:
-        _canonical = default_ep_for_device(resolved_device)
-        compile_provider = ep_short_or_none(_canonical) if _canonical is not None else None
+    # The policy contract uses short aliases, with CPU represented as no
+    # offline compiler.
+    compile_provider = ep_short_or_none(effective_ep) if effective_ep is not None else None
 
     # Resolve weight/activation types — supports named presets and w{x}a{y}.
     # Weight-only precisions (int4, w4a16) use RTN, not QDQ — they have no
