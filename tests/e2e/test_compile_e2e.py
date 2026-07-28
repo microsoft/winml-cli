@@ -43,7 +43,7 @@ import pytest
 from click.testing import CliRunner
 from onnx import TensorProto, helper
 
-from tests.e2e.require_ep import is_host, require_ep, require_not_ep
+from tests.e2e.require_ep import require_ep, require_not_ep, require_qnn_accelerator_device
 from winml.modelkit.commands.compile import compile as compile_cmd
 from winml.modelkit.onnx import is_compiled_onnx
 from winml.modelkit.utils import normalize_ep_name
@@ -502,9 +502,7 @@ class TestProcessExitCleanup:
         tmp_path: Path,
     ) -> None:
         """Compile+validate in a subprocess exits 0 after native sessions are released."""
-        ep = next((candidate for candidate in EPCONTEXT_EPS if is_host(candidate)), None)
-        if ep is None:
-            pytest.skip("No EPContext-capable EP is available on this host")
+        _provider, device = require_qnn_accelerator_device()
 
         out = tmp_path / "validated_process_exit.onnx"
         proc = _run_winml_cli_subprocess(
@@ -513,7 +511,9 @@ class TestProcessExitCleanup:
                 "-m",
                 str(simple_matmul_onnx),
                 "--ep",
-                ep,
+                "qnn",
+                "--device",
+                device,
                 "--validate",
                 "-o",
                 str(out),

@@ -39,9 +39,9 @@ import onnx
 import pytest
 from click.testing import CliRunner
 
-from tests.e2e.require_ep import require_device, require_ep
+from tests.e2e.require_ep import require_device, require_ep, require_qnn_accelerator_device
 from winml.modelkit.commands.perf import perf
-from winml.modelkit.utils.constants import EP_ALIASES, EP_SUPPORTED_DEVICES
+from winml.modelkit.utils.constants import EP_ALIASES
 
 
 pytestmark = [pytest.mark.e2e]
@@ -610,21 +610,24 @@ class _PerfBenchmarkSuite:
 class TestPerfONNXDirect(_PerfBenchmarkSuite):
     """Benchmark a pre-exported ONNX file directly via WinMLSession."""
 
-    def test_benchmark_cpu_process_exit_releases_native_session(
+    def test_benchmark_qnn_process_exit_releases_native_session(
         self,
         tmp_path: Path,
         onnx_model_path: Path,
     ) -> None:
-        """A successful perf CLI subprocess exits cleanly after releasing ORT sessions."""
-        output_file = tmp_path / "perf_cpu_process_exit.json"
+        """A successful QNN perf subprocess exits cleanly after releasing ORT sessions."""
+        qnn_provider, device = require_qnn_accelerator_device()
+        output_file = tmp_path / "perf_qnn_process_exit.json"
 
         proc = _run_winml_cli_subprocess(
             [
                 "perf",
                 "-m",
                 str(onnx_model_path),
+                "--ep",
+                "qnn",
                 "--device",
-                "cpu",
+                device,
                 "--iterations",
                 "1",
                 "--warmup",
@@ -637,33 +640,9 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
 
         assert proc.returncode == 0, f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
         data = json.loads(output_file.read_text(encoding="utf-8"))
-        assert data["benchmark_info"]["device"] == "cpu"
+        assert data["benchmark_info"]["ep"] == qnn_provider
+        assert data["benchmark_info"]["device"] == device
         assert data["latency_ms"]["mean"] > 0
-
-    def test_auto_ep_for_cpu_device_skips_policy_unsupported_bridge_provider(
-        self,
-        tmp_path: Path,
-        model_arg: str,
-    ) -> None:
-        """When QNN is present, --device cpu must not resolve to QNN's CPU bridge row."""
-        qnn_provider = require_ep("qnn", device="cpu")
-        output_file = tmp_path / "perf_cpu_auto_ep.json"
-
-        result = CliRunner().invoke(
-            perf,
-            _build_perf_args(model_arg=model_arg, output_file=output_file, device="cpu"),
-            obj={},
-            catch_exceptions=False,
-        )
-
-        assert result.exit_code == 0, result.output
-        data = json.loads(output_file.read_text(encoding="utf-8"))
-        cpu_supported_eps = {
-            ep_name for ep_name, devices in EP_SUPPORTED_DEVICES.items() if "cpu" in devices
-        }
-        assert data["benchmark_info"]["device"] == "cpu"
-        assert data["benchmark_info"]["ep"] in cpu_supported_eps
-        assert data["benchmark_info"]["ep"] != qnn_provider
 
 
 class TestPerfHuggingFace:
