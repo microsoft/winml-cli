@@ -69,7 +69,6 @@ from utils.recipes import RecipeVariant, discover_recipe_variants
 from utils.registry import (
     ModelEntry,
     filter_registry,
-    is_target_supported,
     load_registry,
     make_adhoc_entry,
     op_tracing_target_key,
@@ -2422,13 +2421,6 @@ def _is_quantized_precision(precision: str) -> bool:
     return not (activation_bits == 32 and weight_bits in _QDQ_WEIGHT_BITS)
 
 
-def _filter_entries_for_target(
-    entries: list[ModelEntry], ep: str | None, device: str
-) -> list[ModelEntry]:
-    """Filter registry entries to targets supported by the model metadata."""
-    return [entry for entry in entries if is_target_supported(entry, ep, device)]
-
-
 def _build_jobs(
     entries: list[ModelEntry], recipes_dir: Path | None, device: str, ep: str | None = None
 ) -> list[EvalJob]:
@@ -2462,11 +2454,6 @@ def _build_jobs(
     expand_npu_quant = npu and not skip_quant
     jobs: list[EvalJob] = []
     for entry in entries:
-        if not is_target_supported(entry, ep, device):
-            safe_print(
-                f"  [skip] {entry.hf_id} / {entry.task}: unsupported on {ep or 'auto'}_{device}"
-            )
-            continue
         variants = (
             discover_recipe_variants(recipes_dir, entry.hf_id, entry.task)
             if recipes_dir is not None
@@ -2809,9 +2796,8 @@ def main() -> None:
 
     # --list mode
     if args.list:
-        target_entries = _filter_entries_for_target(entries, args.ep, args.device)
-        safe_print(f"Registry: {len(target_entries)} models  (eval-type: {args.eval_type})")
-        for e in target_entries:
+        safe_print(f"Registry: {len(entries)} models  (eval-type: {args.eval_type})")
+        for e in entries:
             ds = get_dataset_config(e.hf_id, e.task)
             skip_acc = "" if args.eval_type == "perf" else "  [task_default]" if ds is None else ""
             safe_print(
@@ -2821,8 +2807,6 @@ def main() -> None:
 
     # --list-json mode: write machine-readable JSON and exit
     if args.list_json:
-        entries = _filter_entries_for_target(entries, args.ep, args.device)
-
         # --continue / --retry-failed: filter out already-evaluated models
         if args.continue_run or args.retry_failed is not None:
             output_dir = args.output_dir or Path(f"eval_results/{date.today().isoformat()}")
@@ -2917,9 +2901,6 @@ def main() -> None:
     safe_print(
         f"Device: {args.device} | EP: {ep_label} | Timeout: {args.timeout}s | Eval: {args.eval_type}"
     )
-    if total_jobs == 0:
-        safe_print("No jobs scheduled for this EP/device target.")
-        sys.exit(0)
     safe_print(f"Disk free: {_get_disk_free_gb():.1f} GB")
     if recipes_dir is not None and args.device == "npu":
         safe_print(

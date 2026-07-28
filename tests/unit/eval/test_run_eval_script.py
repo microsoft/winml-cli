@@ -195,31 +195,6 @@ class TestOpTracingTargetKey:
         entries = run_eval.load_registry(registry)
         assert entries[0].op_tracing_targets == ["QNNExecutionProvider_npu"]
 
-    def test_registry_normalizes_unsupported_targets_on_load(self, run_eval, tmp_path):
-        registry = tmp_path / "models.json"
-        registry.write_text(
-            json.dumps(
-                [
-                    {
-                        "hf_id": "acme/model",
-                        "task": "image-classification",
-                        "model_type": "vit",
-                        "group": "test",
-                        "priority": "P0",
-                        "unsupported_targets": ["qnn_gpu", "QNNExecutionProvider_npu"],
-                    }
-                ]
-            ),
-            encoding="utf-8",
-        )
-
-        entries = run_eval.load_registry(registry)
-
-        assert entries[0].unsupported_targets == [
-            "QNNExecutionProvider_gpu",
-            "QNNExecutionProvider_npu",
-        ]
-
 
 class TestCompositeOnnxRegistry:
     def test_registry_preserves_composite_onnx(self, run_eval, tmp_path):
@@ -816,59 +791,6 @@ class TestAccuracyStatus:
         assert run_eval.accuracy_status({"winml_eval_status": "FAIL"}) == "FAIL"
 
 
-class TestListJson:
-    """Machine-readable orchestration output mirrors target filtering."""
-
-    def test_unsupported_target_is_not_written(self, run_eval, tmp_path):
-        out = tmp_path / "models.json"
-        entries = [
-            run_eval.ModelEntry(
-                hf_id="acme/unsupported",
-                task="feature-extraction",
-                model_type="clip",
-                group="test",
-                priority="P0",
-                unsupported_targets=["QNNExecutionProvider_gpu"],
-            ),
-            run_eval.ModelEntry(
-                hf_id="acme/supported",
-                task="feature-extraction",
-                model_type="bert",
-                group="test",
-                priority="P0",
-            ),
-        ]
-        args = argparse.Namespace(
-            hf_model=None,
-            registry=tmp_path / "registry.json",
-            task=None,
-            priority=None,
-            model_type=None,
-            group=None,
-            eval_type="perf",
-            list=False,
-            list_json=out,
-            continue_run=False,
-            retry_failed=None,
-            output_dir=None,
-            device="gpu",
-            ep="qnn",
-            update_baseline=False,
-        )
-
-        with (
-            patch.object(run_eval, "parse_args", return_value=args),
-            patch.object(run_eval, "load_registry", return_value=entries),
-            patch.object(run_eval, "register_from_registry"),
-            pytest.raises(SystemExit) as exit_info,
-        ):
-            run_eval.main()
-
-        assert exit_info.value.code == 0
-        model_list = json.loads(out.read_text(encoding="utf-8"))
-        assert [item["hf_id"] for item in model_list] == ["acme/supported"]
-
-
 class TestQuantizedPrecisionClassifier:
     @pytest.mark.parametrize(
         ("precision", "expected"),
@@ -1062,14 +984,6 @@ class TestBuildJobs:
         jobs = run_eval._build_jobs([entry], None, "cpu")
         assert len(jobs) == 1
         assert jobs[0].variant is None
-
-    def test_unsupported_target_is_not_scheduled(self, run_eval, tmp_path):
-        entry = _entry("some/model", "feature-extraction")
-        entry.unsupported_targets = ["QNNExecutionProvider_gpu"]
-
-        jobs = run_eval._build_jobs([entry], None, "gpu", ep="qnn")
-
-        assert jobs == []
 
 
 class TestExtractOnnxPath:

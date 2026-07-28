@@ -2745,9 +2745,6 @@
     "tags": [
       "acc"
     ],
-    "unsupported_targets": [
-      "qnn_gpu"
-    ],
     "order": 10
   },
   {
@@ -2759,9 +2756,6 @@
     "downloads": 2869278,
     "last_update_time": "2024-02-19T11:05:41+00:00",
     "optimum_supported": true,
-    "unsupported_targets": [
-      "qnn_gpu"
-    ],
     "order": 1
   },
   {
@@ -3150,9 +3144,6 @@
     "optimum_supported": true,
     "tags": [
       "acc"
-    ],
-    "unsupported_targets": [
-      "qnn_gpu"
     ],
     "order": 6
   },
@@ -4289,9 +4280,6 @@
     "optimum_supported": true,
     "tags": [
       "acc"
-    ],
-    "unsupported_targets": [
-      "qnn_gpu"
     ],
     "order": 1
   },
