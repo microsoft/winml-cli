@@ -294,6 +294,22 @@ def test_show_all_warnings_env_reveals_noisy_ort_native_warnings(monkeypatch, ca
     assert "VerifyEachNodeIsAssignedToAnEp" in stderr
 
 
+def test_verbose_logging_reveals_noisy_ort_native_warnings(monkeypatch, capfd):
+    monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
+    configure_logging(verbosity=1)
+    noisy_warning = (
+        "2026-07-28 18:23:19.8337349 [W:onnxruntime:, session_state.cc:1329 "
+        "onnxruntime::VerifyEachNodeIsAssignedToAnEp] Rerunning with verbose output "
+        "on a non-minimal build will show node assignments.\n"
+    )
+
+    with suppress_noisy_ort_native_warnings():
+        os.write(2, noisy_warning.encode())
+
+    stderr = capfd.readouterr().err
+    assert "VerifyEachNodeIsAssignedToAnEp" in stderr
+
+
 def _install_fake_huggingface_logging(
     monkeypatch: pytest.MonkeyPatch,
     package_name: str,

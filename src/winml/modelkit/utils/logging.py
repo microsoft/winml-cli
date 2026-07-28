@@ -167,7 +167,7 @@ def suppress_huggingface_warning_logs(
 @contextmanager
 def suppress_noisy_ort_native_warnings() -> "Iterator[None]":
     """Hide known-benign ORT native stderr warnings while preserving other output."""
-    if env_flag_enabled("WINMLCLI_SHOW_ALL_WARNINGS"):
+    if _show_all_warnings_requested():
         yield
         return
 
@@ -183,6 +183,12 @@ def suppress_noisy_ort_native_warnings() -> "Iterator[None]":
                 _write_all(old_stderr, _filter_noisy_ort_native_stderr(captured_stderr.read()))
     finally:
         os.close(old_stderr)
+
+
+def _show_all_warnings_requested() -> bool:
+    return env_flag_enabled("WINMLCLI_SHOW_ALL_WARNINGS") or logging.getLogger().isEnabledFor(
+        logging.INFO
+    )
 
 
 def _filter_noisy_ort_native_stderr(data: bytes) -> bytes:
