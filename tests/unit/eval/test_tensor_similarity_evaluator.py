@@ -144,5 +144,6 @@ class TestInputDataCompare:
         assert set(sample) == {"input"}
         assert isinstance(sample["input"], torch.Tensor)
         assert sample["input"].shape == (1, 3)
-        # The effective config reflects the real sample count for the report/JSON.
-        assert evaluator.config.dataset.samples == 2
+        # prepare_data must NOT mutate the config -- the real sample count is
+        # surfaced via EvalResult.num_samples, not written back here.
+        assert evaluator.config.dataset.samples == 100

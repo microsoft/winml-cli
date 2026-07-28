@@ -40,7 +40,7 @@ $ winml eval [options]
 | `--output` | `-o` | `PATH` | — | Output JSON file path for the evaluation results. |
 | `--schema` | | flag | `false` | Print the expected dataset schema for the given `--task` and exit. Does not run evaluation. |
 | `--mode` | | `onnx\|compare` | `onnx` | Evaluation mode. `onnx` evaluates the ONNX candidate on a dataset. `compare` runs the ONNX candidate and the HuggingFace reference on identical random inputs and reports per-tensor similarity metrics — no dataset required. |
-| `--input-data` | | `PATH` | — | Path to a `.npz` file of real input tensors to compare with instead of randomly generated ones (used with `--mode compare`). Keys must match the candidate model's input names. The **leading axis of each array is the sample axis**, so an archive whose arrays have shape `(N, ...)` yields `N` samples (mean/std/min/max are computed across them); all inputs must share the same `N`. |
+| `--input-data` | | `PATH` | — | Path to a `.npz` file of real input tensors to compare with instead of randomly generated ones (used with `--mode compare`). Keys must match the candidate model's input names. The **leading axis of each array is the sample axis**, so an archive shaped `(N, ...)` yields `N` samples (mean/std/min/max are computed across them); all inputs must share the same `N`. Each run is shaped to the candidate's batch size — a dynamic batch runs one row per sample, a static batch `B` chunks the axis into `N // B` batches (trailing rows are dropped with a warning). Note this differs from `winml perf --input-data`, which runs the **whole archive as a single batch**. |
 
 ## How it works
 

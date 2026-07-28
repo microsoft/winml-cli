@@ -305,6 +305,16 @@ def eval(
             cfg.precision,
         )
 
+    # --samples sizes the random/dataset sample count; with --input-data the
+    # count comes from the archive's leading axis, so an explicit --samples is
+    # ignored — warn instead of silently discarding it (mirrors perf's
+    # --batch-size warning).
+    if cfg.input_data is not None and cli_utils.is_cli_provided(ctx, "samples"):
+        logger.warning(
+            "--samples is ignored when --input-data is set; the sample count "
+            "comes from the leading axis of the provided tensors."
+        )
+
     # The build-pipeline flags only take effect when eval rebuilds the model.
     # With a pre-built ONNX path and skip_build (the default), they are no-ops
     # forwarded to from_onnx, so warn the user that they were ignored — mirrors
@@ -668,6 +678,9 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
     cfg = result.config
     ds = cfg.dataset
     metrics = result.metrics
+    # For --input-data compare the effective sample count comes from the
+    # archive (via EvalResult.num_samples), not the unused config default.
+    samples = result.num_samples if result.num_samples is not None else ds.samples
 
     # Header
     console.print()
@@ -686,7 +699,7 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
         console.print(f"[dim]Input data:[/dim] {cfg.input_data}")
     elif ds.path:
         console.print(f"[dim]Dataset:[/dim]    {ds.path}")
-    console.print(f"[dim]Samples:[/dim]    {ds.samples}")
+    console.print(f"[dim]Samples:[/dim]    {samples}")
     if cfg.model_path:
         console.print(f"[dim]ONNX:[/dim]       {cfg.model_path}")
 

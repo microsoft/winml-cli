@@ -122,6 +122,29 @@ class TestEvaluationConfig:
         assert d["metrics"]["accuracy"] == 0.9
         assert d["dataset"]["path"] == "imagenet-1k"
 
+    def test_eval_result_num_samples_overrides_dataset_samples(self):
+        """num_samples surfaces the effective count in to_dict without mutating config."""
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            model_id="test/model",
+            mode="compare",
+            input_data="inputs.npz",
+        )
+        result = EvalResult(config=config, metrics={}, num_samples=2)
+        d = result.to_dict()
+        assert d["dataset"]["samples"] == 2
+        # The config itself is untouched (still the default).
+        assert config.dataset.samples == 100
+
+    def test_eval_result_num_samples_defaults_to_config(self):
+        """Without num_samples, to_dict keeps the config's dataset samples."""
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            dataset=DatasetConfig(path="imagenet-1k", samples=33),
+        )
+        result = EvalResult(config=config, metrics={})
+        assert result.to_dict()["dataset"]["samples"] == 33
+
 
 class TestResolveTask:
     """Tests for _resolve_task."""

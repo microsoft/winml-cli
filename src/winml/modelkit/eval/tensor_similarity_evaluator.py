@@ -89,16 +89,14 @@ class TensorSimilarityEvaluator:
         :class:`InputDataDataset` whose leading axis is the sample axis and
         validated against the candidate's inputs) when provided, otherwise a
         :class:`RandomDataset` of synthetic inputs sized by ``config.dataset``.
+
+        The real sample count is reported via ``EvalResult.num_samples`` (set by
+        :func:`evaluate`), not by mutating ``config`` here.
         """
         if self.config.input_data is not None:
             from ..datasets.input_data import InputDataDataset
 
-            dataset = InputDataDataset(self.config.input_data, self.model.io_config)
-            # Reflect the real sample count (leading axis of the .npz) in the
-            # effective config so the report header / JSON show N, not the
-            # unused dataset default.
-            self.config.dataset.samples = len(dataset)
-            return dataset
+            return InputDataDataset(self.config.input_data, self.model.io_config)
 
         from ..datasets.random_dataset import RandomDataset
 

@@ -210,13 +210,22 @@ class EvalResult:
 
     config: WinMLEvaluationConfig
     metrics: dict[str, Any] = field(default_factory=dict)
+    # Effective number of samples actually run, when it differs from
+    # ``config.dataset.samples`` (e.g. ``--mode compare --input-data`` derives
+    # it from the archive). ``None`` means "use ``config.dataset.samples``".
+    num_samples: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        return {
+        result = {
             **self.config.to_dict(),
             "metrics": self.metrics,
         }
+        # Reflect the real sample count without mutating the config: override the
+        # serialized dataset's ``samples`` so the JSON matches the console report.
+        if self.num_samples is not None and isinstance(result.get("dataset"), dict):
+            result["dataset"] = {**result["dataset"], "samples": self.num_samples}
+        return result
 
 
 def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCompositeModel | None:
@@ -432,7 +441,16 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
             f"Run 'winml eval --schema --task {config.task}' to see the expected schema.",
         ) from error
 
-    return EvalResult(config=config, metrics=metrics)
+    # For --input-data compare, the real sample count comes from the archive
+    # (leading axis, chunked to the model's batch). Surface it on the result so
+    # the report/JSON reflect N without writing back into the (copied) config.
+    num_samples: int | None = None
+    if config.input_data is not None:
+        data = getattr(task_evaluator, "data", None)
+        if data is not None:
+            num_samples = len(data)
+
+    return EvalResult(config=config, metrics=metrics, num_samples=num_samples)
 
 
 def print_config(config: WinMLEvaluationConfig) -> None:

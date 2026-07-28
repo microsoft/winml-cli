@@ -9,8 +9,17 @@ Shared by ``winml perf`` (benchmark on real tensors instead of random ones)
 and ``winml eval --mode compare`` (compare a candidate and reference on the
 same real inputs). :func:`load_input_data` validates and dtype-casts the
 archive against a model's I/O config; :class:`InputDataDataset` wraps the
-loaded archive as a torch dataset (leading axis = sample axis) the compare
-loop can iterate.
+loaded archive as a torch dataset the compare loop can iterate.
+
+The two commands interpret the *same* ``.npz`` differently, so an archive is
+not always reusable across them:
+
+* ``winml perf`` runs the whole archive as a **single batch** (its leading
+  axis is the batch dimension of one benchmarked call).
+* ``winml eval --mode compare`` treats the leading axis as the **sample
+  axis** and runs each sample independently, chunked to the candidate's batch
+  size (a dynamic batch collapses to one row per run), so the similarity table
+  reflects a distribution across samples rather than a single call.
 """
 
 from __future__ import annotations
@@ -117,25 +126,65 @@ def load_input_data(
     return provided
 
 
+def _model_batch_size(io_config: dict[str, Any]) -> int:
+    """The candidate's expected batch size from its ONNX input shapes.
+
+    Reads the leading (batch) axis of each input: a positive static dim is the
+    required batch, while a dynamic dim (``None`` / symbolic / ``<= 0``) accepts
+    any batch and collapses to ``1`` -- the same "static preserved, dynamic ->
+    1" convention :class:`RandomDataset` uses when sizing synthetic inputs, so
+    a statically-batched model behaves consistently on the random and
+    real-input paths. Inputs that declare conflicting static batch sizes are
+    rejected (one archive cannot satisfy both). Returns ``1`` when no shape
+    metadata is available.
+    """
+    shapes = io_config.get("input_shapes")
+    if not shapes:
+        return 1
+    statics: set[int] = set()
+    for shape in shapes:
+        if not shape:
+            continue
+        lead = shape[0]
+        if isinstance(lead, (int, np.integer)) and not isinstance(lead, bool) and int(lead) > 0:
+            statics.add(int(lead))
+    if not statics:
+        return 1
+    if len(statics) > 1:
+        raise click.UsageError(
+            "--input-data: the model's inputs declare conflicting static batch "
+            f"sizes {sorted(statics)}; cannot batch the provided tensors "
+            "unambiguously."
+        )
+    return statics.pop()
+
+
 class InputDataDataset:
     """Multi-sample dataset backed by a validated ``.npz`` of real tensors.
 
     Loads the archive once via :func:`load_input_data` (keys and dtypes
     validated/cast against ``io_config``), then treats the **leading axis of
     each array as the sample axis**: an archive whose arrays have shape
-    ``(N, ...)`` yields ``N`` samples, so ``--mode compare`` can run the
+    ``(N, ...)`` yields samples over ``N``, so ``--mode compare`` can run the
     candidate and reference on many real inputs and report a real
     distribution (mean/std/min/max) instead of a single point.
 
+    Each run is shaped to the candidate's **batch size** (see
+    :func:`_model_batch_size`): a dynamic batch dim runs one row per sample
+    (``arr[i:i+1]``), while a static batch dim ``B`` chunks the leading axis
+    into groups of ``B`` (``arr[i*B:(i+1)*B]``), yielding ``N // B`` samples.
+    When ``N`` is not a multiple of ``B`` the trailing rows are dropped with a
+    warning; ``N`` smaller than ``B`` is an error. No assumption is made about
+    output layout -- each run is compared independently, like
+    :class:`RandomDataset`'s per-sample flow.
+
     Every input must share the same leading length ``N`` (a clear error is
-    raised otherwise). Each sample keeps a leading batch dim of 1
-    (``arr[i:i+1]``), so any dynamic-batch model accepts it and no assumption
-    is made about output layout — each run is compared independently, exactly
-    like :class:`RandomDataset`'s per-sample flow.
+    raised otherwise).
 
     Args:
         path: Path to the ``.npz`` file of real input tensors.
-        io_config: Candidate model I/O config (``input_names``, ``input_types``).
+        io_config: Candidate model I/O config (``input_names``, ``input_types``,
+            and optionally ``input_shapes`` to honor a static batch dim).
     """
 
     TASK_TYPE = "input_data"
@@ -164,9 +213,31 @@ class InputDataDataset:
                 f"length; got {detail}."
             )
 
-        self._num_samples = distinct.pop()
-        if self._num_samples == 0:
+        total_rows = distinct.pop()
+        if total_rows == 0:
             raise click.UsageError("--input-data arrays are empty (sample axis length 0).")
+
+        # Honor the candidate's batch dim: a statically-batched model (e.g. a
+        # fixed batch of 4) needs each run shaped to that batch, so chunk the
+        # leading axis into groups of ``batch`` rows. A dynamic batch dim
+        # collapses to 1 (one row per run), matching RandomDataset.
+        self._batch = _model_batch_size(io_config)
+        if total_rows < self._batch:
+            raise click.UsageError(
+                f"--input-data has {total_rows} row(s) on the sample axis but the "
+                f"model needs a batch of {self._batch}; provide at least "
+                f"{self._batch} rows."
+            )
+        self._num_samples = total_rows // self._batch
+        remainder = total_rows % self._batch
+        if remainder:
+            logger.warning(
+                "--input-data has %d rows, not a multiple of the model's batch "
+                "size %d; dropping the trailing %d row(s).",
+                total_rows,
+                self._batch,
+                remainder,
+            )
 
         # np.load arrays are owned/writable; ascontiguousarray avoids the
         # non-contiguous from_numpy warning without an extra copy when possible.
@@ -175,13 +246,15 @@ class InputDataDataset:
         }
 
     def __len__(self) -> int:
-        """Number of samples (the shared leading-axis length of the inputs)."""
+        """Number of samples run (leading-axis length // the model's batch size)."""
         return self._num_samples
 
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        """Return sample ``idx`` with each input sliced to a batch of 1."""
+        """Return sample ``idx`` as a batch of the model's batch size."""
         if not 0 <= idx < self._num_samples:
             raise IndexError(
                 f"InputDataDataset index {idx} out of range for {self._num_samples} samples."
             )
-        return {name: tensor[idx : idx + 1] for name, tensor in self._arrays.items()}
+        start = idx * self._batch
+        stop = start + self._batch
+        return {name: tensor[start:stop] for name, tensor in self._arrays.items()}

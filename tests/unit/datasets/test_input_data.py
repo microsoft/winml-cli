@@ -129,3 +129,69 @@ class TestInputDataDataset:
         path = self._write_npz(tmp_path, wrong=np.ones((1, 4), dtype=np.float32))
         with pytest.raises(click.UsageError, match="do not match"):
             InputDataDataset(path, self._IO)
+
+
+class TestStaticBatchHonoring:
+    """The dataset chunks the sample axis to the candidate's static batch dim."""
+
+    _IO_STATIC4: ClassVar[dict] = {
+        "input_names": ["x"],
+        "input_shapes": [[4, 3]],
+        "input_types": ["float32"],
+    }
+
+    def _write_npz(self, tmp_path, **arrays):
+        path = tmp_path / "inputs.npz"
+        np.savez(path, **arrays)
+        return path
+
+    def test_static_batch_chunks_leading_axis(self, tmp_path) -> None:
+        # Model batch=4, 8 rows -> 2 samples, each a contiguous batch of 4.
+        path = self._write_npz(tmp_path, x=np.arange(24, dtype=np.float32).reshape(8, 3))
+        ds = InputDataDataset(path, self._IO_STATIC4)
+        assert len(ds) == 2
+        assert ds[0]["x"].shape == (4, 3)
+        assert ds[1]["x"].shape == (4, 3)
+        assert ds[0]["x"][0].tolist() == [0.0, 1.0, 2.0]
+        assert ds[1]["x"][0].tolist() == [12.0, 13.0, 14.0]
+
+    def test_static_batch_drops_remainder_with_warning(self, tmp_path, caplog) -> None:
+        # 9 rows, batch 4 -> 2 full batches; the trailing row is dropped.
+        path = self._write_npz(tmp_path, x=np.zeros((9, 3), dtype=np.float32))
+        with caplog.at_level(logging.WARNING, logger="winml.modelkit.datasets.input_data"):
+            ds = InputDataDataset(path, self._IO_STATIC4)
+        assert len(ds) == 2
+        assert "dropping" in caplog.text.lower()
+
+    def test_fewer_rows_than_batch_errors(self, tmp_path) -> None:
+        path = self._write_npz(tmp_path, x=np.zeros((2, 3), dtype=np.float32))
+        with pytest.raises(click.UsageError, match="needs a batch of 4"):
+            InputDataDataset(path, self._IO_STATIC4)
+
+    def test_conflicting_static_batches_error(self, tmp_path) -> None:
+        io = {
+            "input_names": ["x", "y"],
+            "input_shapes": [[4, 3], [2, 3]],
+            "input_types": ["float32", "float32"],
+        }
+        path = self._write_npz(
+            tmp_path,
+            x=np.zeros((8, 3), dtype=np.float32),
+            y=np.zeros((8, 3), dtype=np.float32),
+        )
+        with pytest.raises(click.UsageError, match="conflicting static batch"):
+            InputDataDataset(path, io)
+
+    def test_dynamic_batch_is_one_row_per_sample(self, tmp_path) -> None:
+        io = {"input_names": ["x"], "input_shapes": [[None, 3]], "input_types": ["float32"]}
+        path = self._write_npz(tmp_path, x=np.zeros((5, 3), dtype=np.float32))
+        ds = InputDataDataset(path, io)
+        assert len(ds) == 5
+        assert ds[0]["x"].shape == (1, 3)
+
+    def test_missing_input_shapes_defaults_to_batch_one(self, tmp_path) -> None:
+        io = {"input_names": ["x"], "input_types": ["float32"]}
+        path = self._write_npz(tmp_path, x=np.zeros((3, 3), dtype=np.float32))
+        ds = InputDataDataset(path, io)
+        assert len(ds) == 3
+        assert ds[0]["x"].shape == (1, 3)
