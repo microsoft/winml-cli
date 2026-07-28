@@ -98,6 +98,40 @@ def wan_mha_call(self, attn, hidden_states, encoder_hidden_states=None,
     return out
 
 
+def wan_rope_forward(self, hidden_states):
+    """Export-friendly RoPE forward that avoids data-dependent guards.
+
+    Replaces slice-and-reshape with narrow + unsqueeze + expand, which
+    torch.export can trace with symbolic shapes.
+    """
+    batch_size, num_channels, num_frames, height, width = hidden_states.shape
+    p_t, p_h, p_w = self.patch_size
+    ppf = num_frames // p_t
+    pph = height // p_h
+    ppw = width // p_w
+
+    split_sizes = [self.t_dim, self.h_dim, self.w_dim]
+    freqs_cos = self.freqs_cos.split(split_sizes, dim=1)
+    freqs_sin = self.freqs_sin.split(split_sizes, dim=1)
+
+    # Use narrow instead of [:ppf] to avoid data-dependent guards.
+    freqs_cos_f = freqs_cos[0].narrow(0, 0, ppf).unsqueeze(1).unsqueeze(2).expand(ppf, pph, ppw, -1)
+    freqs_cos_h = freqs_cos[1].narrow(0, 0, pph).unsqueeze(0).unsqueeze(2).expand(ppf, pph, ppw, -1)
+    freqs_cos_w = freqs_cos[2].narrow(0, 0, ppw).unsqueeze(0).unsqueeze(1).expand(ppf, pph, ppw, -1)
+
+    freqs_sin_f = freqs_sin[0].narrow(0, 0, ppf).unsqueeze(1).unsqueeze(2).expand(ppf, pph, ppw, -1)
+    freqs_sin_h = freqs_sin[1].narrow(0, 0, pph).unsqueeze(0).unsqueeze(2).expand(ppf, pph, ppw, -1)
+    freqs_sin_w = freqs_sin[2].narrow(0, 0, ppw).unsqueeze(0).unsqueeze(1).expand(ppf, pph, ppw, -1)
+
+    fc = torch.cat([freqs_cos_f, freqs_cos_h, freqs_cos_w], dim=-1)
+    fs = torch.cat([freqs_sin_f, freqs_sin_h, freqs_sin_w], dim=-1)
+
+    seq_len = ppf * pph * ppw
+    fc = fc.reshape(1, seq_len, 1, fc.shape[-1])
+    fs = fs.reshape(1, seq_len, 1, fs.shape[-1])
+    return fc, fs
+
+
 class TransformerWrapper(torch.nn.Module):
     """Fixed-signature wrapper that returns just the predicted-noise tensor."""
 
@@ -166,6 +200,10 @@ def export_fp32():
     # Emit fused MultiHeadAttention contrib nodes instead of naive softmax.
     twan.WanAttnProcessor.__call__ = wan_mha_call
 
+    # Export-friendly RoPE (avoids data-dependent slice guards).
+    from diffusers.models.transformers.transformer_wan import WanRotaryPosEmbed
+    WanRotaryPosEmbed.forward = wan_rope_forward
+
     wrapper = TransformerWrapper(model).eval()
 
     hidden_states = torch.randn(
@@ -174,9 +212,21 @@ def export_fp32():
     encoder_hidden_states = torch.randn(
         1, 512, text_dim, dtype=torch.float32, device=device)
 
+    # Dynamic shape dims: temporal, spatial H/W can vary; batch fixed at 1.
+    # Constraints: frames must be >= 1, H/W >= 2 (patch_size divisibility).
+    lat_t = torch.export.Dim("lat_t", min=1)
+    lat_h = torch.export.Dim("lat_h", min=2)
+    lat_w = torch.export.Dim("lat_w", min=2)
+    text_seq = torch.export.Dim("text_seq", min=1)
+    dynamic_shapes = (
+        {2: lat_t, 3: lat_h, 4: lat_w},   # hidden_states: [B, C, T, H, W]
+        None,                               # timestep: static
+        {1: text_seq},                      # encoder_hidden_states: [B, seq, dim]
+    )
+
     # Note: with the fused MHA op, eager output values are placeholders; only
     # the traced graph is meaningful, so we skip a numeric ref forward here.
-    print("Exporting to ONNX fp32 (dynamo / torch.export) ...")
+    print("Exporting to ONNX fp32 (dynamo / torch.export, dynamic shapes) ...")
     onnx_program = torch.onnx.export(
         wrapper,
         (hidden_states, timestep, encoder_hidden_states),
@@ -184,6 +234,7 @@ def export_fp32():
         output_names=["noise_pred"],
         opset_version=OPSET,
         dynamo=True,
+        dynamic_shapes=dynamic_shapes,
     )
     onnx_program.save(FP32_PATH, external_data=True)
     print(f"Saved fp32 ONNX to {FP32_PATH}")
