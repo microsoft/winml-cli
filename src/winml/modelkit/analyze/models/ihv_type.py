@@ -4,10 +4,10 @@
 # --------------------------------------------------------------------------
 """IHV type enum."""
 
-from enum import Enum
+from enum import StrEnum
 
 
-class IHVType(str, Enum):
+class IHVType(StrEnum):
     """IHV (Independent Hardware Vendor) type."""
 
     QC = "QC"

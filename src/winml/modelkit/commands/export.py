@@ -118,7 +118,9 @@ def _warn_partial_composite(completed: list[Path]) -> None:
     "dynamo",
     default=False,
     show_default=True,
-    help="Enable PyTorch 2.9+ dynamo export for rich node metadata",
+    help="Use PyTorch's TorchDynamo ONNX exporter. "
+    "Pass --dynamo to opt in; the default TorchScript exporter is the "
+    "validated path for QNN/NPU compilation today.",
 )
 @click.option(
     "--torch-module",
@@ -185,8 +187,10 @@ def export(
     The export process (8 steps):
     1. Model Preparation - Load and configure model
     2. Input Generation - Generate example inputs
-    3. Hierarchy Building - Trace module execution
-    4. ONNX Export - Convert to ONNX format (TorchScript by default)
+    3. Hierarchy Building - Recover the module hierarchy (from a forward-execution
+       trace by default, or from ONNX metadata under --dynamo)
+    4. ONNX Export - Convert to ONNX format (TorchScript by default; TorchDynamo
+       with --dynamo)
     5. Node Tagger Creation - Create tagger from hierarchy
     6. Node Tagging - Apply hierarchy tags to nodes
     7. Tag Injection - Embed tags in ONNX node metadata_props
@@ -206,7 +210,7 @@ def export(
         # Clean ONNX output (no hierarchy metadata, for optimization)
         winml export -m prajjwal1/bert-tiny -o model.onnx --clean-onnx
 
-        # Use PyTorch dynamo export (for rich node metadata)
+        # Use the TorchDynamo exporter (TorchScript is the default)
         winml export -m prajjwal1/bert-tiny -o model.onnx --dynamo
 
         # Include torch.nn modules in hierarchy
@@ -322,15 +326,6 @@ def export(
             "torch_module parameter (%s) is not supported by export_onnx(). "
             "TODO: Add torch_module support to export_onnx() and WinMLExportConfig.",
             torch_module,
-        )
-    if dynamo:
-        console.print(
-            "[yellow]Warning:[/yellow] --dynamo is not yet supported in export_onnx(). "
-            "export_onnx() defaults to dynamo=False for QNN compatibility."
-        )
-        logger.warning(
-            "dynamo=True is not supported by export_onnx(). "
-            "TODO: Add dynamo support to WinMLExportConfig if needed."
         )
 
     def _run_component_export(component_task: str | None, out_path: Path) -> None:

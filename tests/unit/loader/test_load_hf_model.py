@@ -131,6 +131,10 @@ class TestModelArchitectureOverrideFast:
         import winml.modelkit.loader.hf as hf_module
 
         monkeypatch.setattr(resolution_module, "resolve_task", mock_resolve)
+        monkeypatch.setattr(
+            "transformers.PretrainedConfig.get_config_dict",
+            lambda *args, **kwargs: ({"model_type": "unit"}, {}),
+        )
         mock_auto_config = MagicMock(from_pretrained=lambda *a, **kw: mock_config)
         monkeypatch.setattr(hf_module, "AutoConfig", mock_auto_config)
 
@@ -173,6 +177,10 @@ class TestModelArchitectureOverrideFast:
         import winml.modelkit.loader.hf as hf_module
 
         monkeypatch.setattr(resolution_module, "resolve_task", mock_resolve)
+        monkeypatch.setattr(
+            "transformers.PretrainedConfig.get_config_dict",
+            lambda *args, **kwargs: ({"model_type": "unit"}, {}),
+        )
         mock_auto_config = MagicMock(from_pretrained=lambda *a, **kw: mock_config)
         monkeypatch.setattr(hf_module, "AutoConfig", mock_auto_config)
 
@@ -210,6 +218,10 @@ class TestModelArchitectureOverrideFast:
         import winml.modelkit.loader.hf as hf_module
 
         monkeypatch.setattr(resolution_module, "resolve_task", mock_resolve)
+        monkeypatch.setattr(
+            "transformers.PretrainedConfig.get_config_dict",
+            lambda *args, **kwargs: ({"model_type": "unit"}, {}),
+        )
         mock_auto_config = MagicMock(from_pretrained=lambda *a, **kw: mock_config)
         monkeypatch.setattr(hf_module, "AutoConfig", mock_auto_config)
 
@@ -219,6 +231,103 @@ class TestModelArchitectureOverrideFast:
         call = resolve_calls[-1]
         assert call["task"] == "feature-extraction"
         assert call["model_class"] is None
+
+    def test_model_type_less_config_uses_identifier_inference_and_reuses_config(self, monkeypatch):
+        """Transformers 5 fallback supplies the recovered config to model loading."""
+        from types import SimpleNamespace
+
+        from transformers import AutoConfig, PretrainedConfig
+
+        import winml.modelkit.loader.resolution as resolution_module
+
+        class _Model:
+            received_config = None
+
+            @classmethod
+            def from_pretrained(cls, *_args, **kwargs):
+                cls.received_config = kwargs["config"]
+                return cls()
+
+            def eval(self):
+                return self
+
+            def parameters(self):
+                return []
+
+        monkeypatch.setattr(
+            AutoConfig,
+            "from_pretrained",
+            classmethod(
+                lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                    ValueError("Unrecognized model without model_type")
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            PretrainedConfig,
+            "get_config_dict",
+            classmethod(lambda *_args, **_kwargs: ({"hidden_size": 12}, {})),
+        )
+        monkeypatch.setattr(
+            resolution_module,
+            "resolve_task",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                task="feature-extraction", model_class=_Model
+            ),
+        )
+
+        _model, config, task = load_hf_model("unit-bert-model")
+
+        assert config.model_type == "bert"
+        assert _Model.received_config is config
+        assert task == "feature-extraction"
+
+    def test_composite_parent_config_passes_matching_subconfig_to_model(self, monkeypatch):
+        from types import SimpleNamespace
+
+        import winml.modelkit.loader.resolution as resolution_module
+
+        class _SubConfig:
+            pass
+
+        class _Model:
+            config_class = _SubConfig
+            received_config = None
+
+            @classmethod
+            def from_pretrained(cls, *_args, **kwargs):
+                cls.received_config = kwargs["config"]
+                return cls()
+
+            def eval(self):
+                return self
+
+            def parameters(self):
+                return []
+
+        sub_config = _SubConfig()
+        parent_config = SimpleNamespace(
+            model_type="composite",
+            unrelated=object(),
+            encoder_config=sub_config,
+        )
+        monkeypatch.setattr(
+            resolution_module,
+            "resolve_task",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                task="feature-extraction", model_class=_Model
+            ),
+        )
+
+        _model, returned_config, task = load_hf_model(
+            "unit-composite-model",
+            task="feature-extraction",
+            hf_config=parent_config,
+        )
+
+        assert _Model.received_config is sub_config
+        assert returned_config is parent_config
+        assert task == "feature-extraction"
 
 
 class TestTasksManagerIntegration:

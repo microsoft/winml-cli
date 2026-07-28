@@ -180,14 +180,22 @@ class TestSysJsonShape:
                 f"Device priorities are not sequential 1..N: {priorities}"
             )
 
-    def test_default_json_eps_have_name_device_path(self):
+    def test_default_json_eps_have_source_entries(self):
         data = _run_sys_json()
         eps = data["executionProviders"]
-        assert isinstance(eps, list)
-        for ep in eps:
-            assert set(ep.keys()) >= {"name", "device", "path"}
-            assert isinstance(ep["name"], str) and ep["name"]
-            assert isinstance(ep["device"], str)
+        assert isinstance(eps, dict)
+        for ep_name, ep in eps.items():
+            assert isinstance(ep_name, str) and ep_name
+            assert isinstance(ep.get("entries"), list)
+            for entry in ep["entries"]:
+                assert set(entry) >= {
+                    "source_kind",
+                    "source_tag",
+                    "status",
+                    "dll_path",
+                    "devices",
+                }
+                assert isinstance(entry["devices"], list)
 
 
 # ---------------------------------------------------------------------------

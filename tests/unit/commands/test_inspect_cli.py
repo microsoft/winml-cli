@@ -10,6 +10,9 @@ NO actual HuggingFace downloads or model loading.
 
 from __future__ import annotations
 
+import logging
+import os
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -269,6 +272,196 @@ class TestInspectFlagCombinations:
             _, call_kwargs = mock_table.call_args
             assert call_kwargs["verbose"] is False
 
+    def test_default_inspection_suppresses_native_stderr_import_noise(
+        self,
+        runner: CliRunner,
+        mock_inspect_result: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from winml.modelkit.commands import inspect as inspect_module
+
+        suppression_active = False
+        preload_called_under_suppression = False
+        original_suppress_native_stderr = inspect_module.suppress_native_stderr
+
+        @contextmanager
+        def _track_suppress_native_stderr(*args, **kwargs):
+            nonlocal suppression_active
+            with original_suppress_native_stderr(*args, **kwargs):
+                suppression_active = kwargs.get("enabled", True)
+                try:
+                    yield
+                finally:
+                    suppression_active = False
+
+        def _preload_dependencies():
+            nonlocal preload_called_under_suppression
+            preload_called_under_suppression = suppression_active
+
+        monkeypatch.setattr(inspect_module, "suppress_native_stderr", _track_suppress_native_stderr)
+        monkeypatch.setattr(
+            inspect_module,
+            "_load_inspect_model_v2_dependencies",
+            _preload_dependencies,
+        )
+
+        with (
+            patch(_INSPECT_MODEL, return_value=mock_inspect_result) as mock_api,
+            patch(_OUTPUT_TABLE),
+        ):
+            result = runner.invoke(inspect_module.inspect, ["-m", "test"], obj={})
+
+        assert result.exit_code == 0, f"Failed: {result.output}"
+        assert preload_called_under_suppression
+        _, call_kwargs = mock_api.call_args
+        assert call_kwargs["suppress_native_stderr_output"] is False
+
+    def test_default_inspection_does_not_suppress_status_stderr(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from winml.modelkit.commands import inspect as inspect_module
+
+        status_active = False
+        native_suppressed_while_status_active = False
+        original_suppress_native_stderr = inspect_module.suppress_native_stderr
+
+        @contextmanager
+        def _track_suppress_native_stderr(*args, **kwargs):
+            nonlocal native_suppressed_while_status_active
+            enabled = kwargs.get("enabled", True)
+            if enabled and status_active:
+                native_suppressed_while_status_active = True
+            with original_suppress_native_stderr(*args, **kwargs):
+                yield
+
+        class _Status:
+            def __enter__(self):
+                nonlocal status_active
+                status_active = True
+
+            def __exit__(self, exc_type, exc, traceback):
+                nonlocal status_active
+                status_active = False
+                return False
+
+        class _StderrConsole:
+            def print(self, *args, **kwargs):
+                pass
+
+            def status(self, *args, **kwargs):
+                return _Status()
+
+        monkeypatch.setattr(inspect_module, "_stderr_console", _StderrConsole())
+        monkeypatch.setattr(inspect_module, "suppress_native_stderr", _track_suppress_native_stderr)
+
+        with patch(_OUTPUT_TABLE):
+            result = runner.invoke(
+                inspect_module.inspect,
+                ["--model-type", "bert", "--task", "fill-mask"],
+                obj={},
+            )
+
+        assert result.exit_code == 0, f"Failed: {result.output}"
+        assert not native_suppressed_while_status_active
+
+    def test_default_inspection_suppresses_huggingface_warning_logs(
+        self,
+        runner: CliRunner,
+        mock_inspect_result: MagicMock,
+    ) -> None:
+        from winml.modelkit.commands.inspect import inspect
+
+        def _emit_warning_logs(*args, **kwargs):
+            logging.getLogger("huggingface_hub.utils._http").warning(
+                "Warning: You are sending unauthenticated requests to the HF Hub."
+            )
+            logging.getLogger("transformers").warning("The `use_fast` parameter is deprecated.")
+            return mock_inspect_result
+
+        with (
+            patch(_INSPECT_MODEL, side_effect=_emit_warning_logs),
+            patch(_OUTPUT_TABLE),
+        ):
+            result = runner.invoke(inspect, ["-m", "test"], obj={})
+
+        assert result.exit_code == 0, f"Failed: {result.output}"
+        assert "unauthenticated requests" not in result.output
+        assert "use_fast" not in result.output
+        assert "unauthenticated requests" not in result.stderr
+        assert "use_fast" not in result.stderr
+
+    def test_default_inspection_restores_huggingface_warning_state(
+        self,
+        runner: CliRunner,
+        mock_inspect_result: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from winml.modelkit.commands.inspect import inspect
+
+        logger_levels = {
+            "huggingface_hub": logging.WARNING,
+            "transformers": logging.NOTSET,
+        }
+        saved_levels = {name: logging.getLogger(name).level for name in logger_levels}
+        try:
+            monkeypatch.setenv("TRANSFORMERS_VERBOSITY", "warning")
+            monkeypatch.delenv("HF_HUB_VERBOSITY", raising=False)
+
+            with (
+                patch(_INSPECT_MODEL, return_value=mock_inspect_result),
+                patch(_OUTPUT_TABLE),
+            ):
+                for name, level in logger_levels.items():
+                    logging.getLogger(name).setLevel(level)
+                result = runner.invoke(inspect, ["-m", "test"], obj={})
+
+            assert result.exit_code == 0, f"Failed: {result.output}"
+            assert logging.getLogger("huggingface_hub").level == logging.WARNING
+            assert logging.getLogger("transformers").level == logging.NOTSET
+            assert os.environ["TRANSFORMERS_VERBOSITY"] == "warning"
+            assert "HF_HUB_VERBOSITY" not in os.environ
+        finally:
+            for name, level in saved_levels.items():
+                logging.getLogger(name).setLevel(level)
+
+    def test_verbose_inspection_keeps_native_stderr_visible(
+        self,
+        runner: CliRunner,
+        mock_inspect_result: MagicMock,
+    ) -> None:
+        from winml.modelkit.commands.inspect import inspect
+
+        with (
+            patch(_INSPECT_MODEL, return_value=mock_inspect_result) as mock_api,
+            patch(_OUTPUT_TABLE),
+        ):
+            result = runner.invoke(inspect, ["-m", "test", "-v"], obj={})
+
+        assert result.exit_code == 0, f"Failed: {result.output}"
+        _, call_kwargs = mock_api.call_args
+        assert call_kwargs["suppress_native_stderr_output"] is False
+
+    def test_show_all_warnings_keeps_native_stderr_visible(
+        self,
+        runner: CliRunner,
+        mock_inspect_result: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from winml.modelkit.commands.inspect import inspect
+
+        monkeypatch.setenv("WINMLCLI_SHOW_ALL_WARNINGS", "1")
+        with (
+            patch(_INSPECT_MODEL, return_value=mock_inspect_result) as mock_api,
+            patch(_OUTPUT_TABLE),
+        ):
+            result = runner.invoke(inspect, ["-m", "test"], obj={})
+
+        assert result.exit_code == 0, f"Failed: {result.output}"
+        _, call_kwargs = mock_api.call_args
+        assert call_kwargs["suppress_native_stderr_output"] is False
+
 
 # =============================================================================
 # ERROR HANDLING TESTS
@@ -337,9 +530,15 @@ class TestInspectErrors:
             "to this repo either by logging in with `hf auth login` or by passing "
             "`token=<your_token>`"
         )
-        with patch(
-            "transformers.AutoConfig.from_pretrained",
-            side_effect=hf_oserror,
+        with (
+            patch(
+                "winml.modelkit.loader.load_hf_config",
+                side_effect=hf_oserror,
+            ),
+            patch(
+                "winml.modelkit.loader._autoconfig.load_hf_config",
+                side_effect=hf_oserror,
+            ),
         ):
             result = runner.invoke(inspect, ["-m", "totally-bogus/does-not-exist"], obj={})
             assert result.exit_code != 0
@@ -350,13 +549,32 @@ class TestInspectErrors:
 
     def test_bogus_hf_id_repository_not_found_error(self, runner: CliRunner) -> None:
         """RepositoryNotFoundError surfaced directly also maps to 'Model not found'."""
-        from huggingface_hub.utils import RepositoryNotFoundError
+        import httpx
+        from huggingface_hub.errors import RepositoryNotFoundError
 
         from winml.modelkit.commands.inspect import inspect
 
-        with patch(
-            "transformers.AutoConfig.from_pretrained",
-            side_effect=RepositoryNotFoundError("totally-bogus/does-not-exist"),
+        response = httpx.Response(
+            404,
+            request=httpx.Request(
+                "GET",
+                "https://huggingface.co/api/models/totally-bogus/does-not-exist",
+            ),
+        )
+        repository_error = RepositoryNotFoundError(
+            "Repository Not Found",
+            response=response,
+            server_message="Repository Not Found",
+        )
+        with (
+            patch(
+                "winml.modelkit.loader.load_hf_config",
+                side_effect=repository_error,
+            ),
+            patch(
+                "winml.modelkit.loader._autoconfig.load_hf_config",
+                side_effect=repository_error,
+            ),
         ):
             result = runner.invoke(inspect, ["-m", "totally-bogus/does-not-exist"], obj={})
             assert result.exit_code != 0
@@ -367,9 +585,16 @@ class TestInspectErrors:
         """HF IDs with version dots (e.g. Phi-3.5) must not be classified as local paths."""
         from winml.modelkit.commands.inspect import inspect
 
-        with patch(
-            "transformers.AutoConfig.from_pretrained",
-            side_effect=RuntimeError("intentional — proves we reached the Hub path"),
+        intentional_error = RuntimeError("intentional — proves we reached the Hub path")
+        with (
+            patch(
+                "winml.modelkit.loader.load_hf_config",
+                side_effect=intentional_error,
+            ),
+            patch(
+                "winml.modelkit.loader._autoconfig.load_hf_config",
+                side_effect=intentional_error,
+            ),
         ):
             result = runner.invoke(inspect, ["-m", "microsoft/Phi-3.5-mini-instruct"], obj={})
         assert "does not exist" not in result.output, (

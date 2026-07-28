@@ -57,7 +57,7 @@ class TestResolveCompositeLoadTask:
 
     def test_none_model_returns_none_without_loading_config(self) -> None:
         # No model id -> nothing to resolve, and no config round-trip attempted.
-        with patch("transformers.AutoConfig.from_pretrained") as mock_cfg:
+        with patch("winml.modelkit.loader._autoconfig.load_hf_config") as mock_cfg:
             assert resolve_composite_load_task(None) is None
         mock_cfg.assert_not_called()
 
@@ -65,7 +65,7 @@ class TestResolveCompositeLoadTask:
         # A seq2seq composite (T5) resolves to its deterministic sorted-first
         # pipeline task -- sub-model-equivalent to the others it registers.
         config = make_mock_config("t5", ["T5ForConditionalGeneration"])
-        with patch("transformers.AutoConfig.from_pretrained", return_value=config):
+        with patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=config):
             result = resolve_composite_load_task("some/t5-checkpoint")
 
         tasks = composite_pipeline_tasks("t5")
@@ -75,7 +75,7 @@ class TestResolveCompositeLoadTask:
     def test_non_composite_model_returns_none(self, make_mock_config) -> None:
         # A plain classifier is not a composite -> no pipeline task to load.
         config = make_mock_config("resnet", ["ResNetForImageClassification"])
-        with patch("transformers.AutoConfig.from_pretrained", return_value=config):
+        with patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=config):
             assert resolve_composite_load_task("some/resnet-checkpoint") is None
 
     def test_model_type_is_normalized_before_registry_lookup(self, make_mock_config) -> None:
@@ -92,7 +92,7 @@ class TestResolveCompositeLoadTask:
         detected.composite = {"encoder": "feature-extraction", "decoder": "image-to-text"}
         with (
             patch("winml.modelkit.loader.resolution.resolve_task", return_value=detected),
-            patch("transformers.AutoConfig.from_pretrained", return_value=config),
+            patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=config),
         ):
             result = resolve_composite_load_task("some/vision-encoder-decoder-checkpoint")
 

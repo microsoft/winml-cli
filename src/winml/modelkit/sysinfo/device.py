@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import functools
 import logging
+import warnings
 from typing import TYPE_CHECKING
 
+from ..session import DEVICE_TYPE_TO_DEVICE
 from ..utils.constants import (
-    DEVICE_TYPE_TO_DEVICE,
+    DEVICE_PRIORITY,
     EP_SUPPORTED_DEVICES,
     SUPPORTED_EPS,
     EPName,
@@ -47,10 +49,9 @@ logger = logging.getLogger(__name__)
 #   - Feature request (closed, not planned): https://github.com/microsoft/onnxruntime/issues/20725
 #   - EP list: https://onnxruntime.ai/docs/execution-providers/
 
-# Back-compat shim: EP name -> ``/``-joined device string. This format is
-# the legacy public contract returned by :func:`get_ep_device_map`; new code
-# should consume :data:`~winml.modelkit.utils.constants.EP_SUPPORTED_DEVICES`
-# (tuple form) directly.
+# Back-compat shim: EP name -> ``/``-joined device string. This format is the
+# legacy public contract returned by :func:`get_ep_device_map`; new code should
+# consume ``EP_SUPPORTED_DEVICES`` or the session-layer catalog directly.
 _EP_DEVICE_MAP: dict[EPName, str] = {
     ep: "/".join(devices) for ep, devices in EP_SUPPORTED_DEVICES.items()
 }
@@ -61,41 +62,7 @@ for _ep, _devices in EP_SUPPORTED_DEVICES.items():
     for _d in _devices:
         _DEVICE_EP_MAP.setdefault(_d, []).append(_ep)
 
-# Device priority for auto-selection. Order is significant — NPU is the
-# preferred accelerator, CPU is the safe fallback. Use this whenever an
-# ordered device list is needed; ``_VALID_DEVICES`` (below) is only for
-# fast membership checks.
-_DEVICE_PRIORITY: tuple[str, ...] = ("npu", "gpu", "cpu")
-_VALID_DEVICES = frozenset(_DEVICE_PRIORITY)
-
-
-def get_ep_device_map() -> dict[EPName, str]:
-    """Return a copy of the EP-to-device mapping in legacy string form.
-
-    Each value is a ``/``-joined string of supported device names (e.g.
-    ``"npu/gpu"``). New code should prefer
-    :data:`~winml.modelkit.utils.constants.EP_SUPPORTED_DEVICES` directly.
-
-    Returns:
-        Dict mapping EP names to device types (e.g.
-        ``{"QNNExecutionProvider": "npu/gpu", ...}``).
-    """
-    return dict(_EP_DEVICE_MAP)
-
-
-def get_device_ep_map() -> dict[str, list[EPName]]:
-    """Return a copy of the device-to-EP mapping.
-
-    Public accessor for the internal ``_DEVICE_EP_MAP``. Each device key
-    maps to the EPs that target it, in priority order (most powerful EP
-    first), derived from ``_EP_DEVICE_MAP``'s declaration order.
-
-    Returns:
-        Dict mapping device types to ordered EP-name lists (e.g.
-        ``{"gpu": ["NvTensorRTRTXExecutionProvider", ...], ...}``).
-    """
-    return {device: list(eps) for device, eps in _DEVICE_EP_MAP.items()}
-
+_VALID_DEVICES = frozenset(DEVICE_PRIORITY)
 
 # EPs that exist in ``onnxruntime.get_available_providers()`` but are not yet
 # exposed via the new ``get_ep_devices()``/AutoEP machinery. Mapped to the
@@ -169,7 +136,7 @@ def _get_available_devices() -> tuple[str, ...]:
         Tuple like ("npu", "gpu", "cpu") with only available devices.
     """
     device_ep_map = _get_device_ep_map_from_ort()
-    return tuple(d for d in _DEVICE_PRIORITY if d in device_ep_map)
+    return tuple(d for d in DEVICE_PRIORITY if d in device_ep_map)
 
 
 @functools.lru_cache(maxsize=1)
@@ -186,41 +153,62 @@ def _get_available_eps() -> frozenset[EPName]:
     return frozenset(ep for eps in _get_device_ep_map_from_ort().values() for ep in eps)
 
 
+def _warn_deprecated_sysinfo_device_helper(symbol: str) -> None:
+    warnings.warn(
+        f"winml.modelkit.sysinfo.{symbol} is deprecated; use "
+        "winml.modelkit.session (EPDeviceTarget, resolve_device, "
+        "available_eps_for_device) instead.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+
+
+def get_ep_device_map() -> dict[EPName, str]:
+    """Deprecated EP-to-device mapping in legacy string form."""
+    _warn_deprecated_sysinfo_device_helper("get_ep_device_map")
+    return dict(_EP_DEVICE_MAP)
+
+
+def get_device_ep_map() -> dict[str, list[EPName]]:
+    """Deprecated device-to-EP mapping in legacy list form."""
+    _warn_deprecated_sysinfo_device_helper("get_device_ep_map")
+    return {device: list(eps) for device, eps in _DEVICE_EP_MAP.items()}
+
+
 def resolve_device(
-    device: str,
+    device: str = "auto",
     *,
-    ep: EPNameOrAlias | None,
+    ep: EPNameOrAlias | None = None,
 ) -> tuple[str, list[str]]:
-    """Resolve target device with EP availability cross-check.
+    """Deprecated sysinfo resolver returning ``(device, available_devices)``."""
+    _warn_deprecated_sysinfo_device_helper("resolve_device")
+    return _resolve_device_compat(device=device, ep=ep)
 
-    Args:
-        device: "auto", "npu", "gpu", or "cpu".
-        ep: Optional EP short name (e.g., "qnn", "dml"). When set,
-            ``available_devices`` is filtered to only those device types the
-            EP can target, and ``available_eps`` is filtered to just this EP
-            (intersected with what is actually available on the system).
 
-    Returns:
-        (chosen_device, available_devices_list)
-
-    Raises:
-        ValueError: If ``device`` or ``ep`` is not recognized, or if an
-            explicit ``device`` (non-``auto``) is requested but no EP
-            compatible with it is currently available.
-    """
+def _resolve_device_compat(
+    device: str = "auto",
+    *,
+    ep: EPNameOrAlias | str | None = None,
+) -> tuple[str, list[str]]:
+    """Implementation for the deprecated sysinfo resolver without warning."""
     device = device.lower()
 
     if device != "auto" and device not in _VALID_DEVICES:
         raise ValueError(f"Unknown device '{device}'. Expected 'auto', 'npu', 'gpu', or 'cpu'.")
 
+    ep_full = normalize_ep_name(ep)
+    if device == "cpu" and ep_full == normalize_ep_name("cpu"):
+        import onnxruntime as ort
+
+        if normalize_ep_name("cpu") not in ort.get_available_providers():
+            raise ValueError("Requested EP 'cpu' is not available on this system.")
+        return "cpu", ["cpu"]
+
     device_ep_map = dict(_get_device_ep_map_from_ort())
 
     if ep is not None:
-        ep_full = normalize_ep_name(ep)
         if ep_full not in EP_SUPPORTED_DEVICES:
             raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SUPPORTED_DEVICES)}")
-        # Static policy gate (see issue #860): reject EP/device combos the EP
-        # architecture cannot support, before consulting runtime ORT availability.
         if device != "auto" and device not in EP_SUPPORTED_DEVICES[ep_full]:
             raise ValueError(
                 f"EP '{ep}' does not support device '{device}'. "
@@ -236,7 +224,7 @@ def resolve_device(
     if not device_ep_map:
         raise RuntimeError("No execution providers detected.")
 
-    available_devices = [d for d in _DEVICE_PRIORITY if d in device_ep_map]
+    available_devices: list[str] = [d for d in DEVICE_PRIORITY if d in device_ep_map]
 
     if device == "auto":
         chosen = available_devices[0]
@@ -247,7 +235,6 @@ def resolve_device(
         )
         return chosen, available_devices
 
-    # Explicit device requested -- raise if no compatible EP is available.
     if device not in device_ep_map:
         raise ValueError(
             f"Device '{device}' requested but no compatible EP is available. "
@@ -258,17 +245,13 @@ def resolve_device(
 
 
 def resolve_eps(resolved_device: str) -> list[EPName]:
-    """Return list of available EPs compatible with the given device.
+    """Deprecated sysinfo helper returning available EPs for a device."""
+    _warn_deprecated_sysinfo_device_helper("resolve_eps")
+    return _resolve_eps_compat(resolved_device)
 
-    Args:
-        resolved_device: Concrete device name (``"npu"``, ``"gpu"``, or
-            ``"cpu"``). Case-insensitive; ``"NPU"`` is accepted. An unknown
-            value returns an empty list rather than raising.
 
-    Returns:
-        EPs from ``_DEVICE_EP_MAP[device]`` that are also currently
-        advertised by ORT/WinML, in ``_DEVICE_EP_MAP`` priority order.
-    """
+def _resolve_eps_compat(resolved_device: str) -> list[EPName]:
+    """Implementation for the deprecated EP list helper without warning."""
     device = resolved_device.lower()
     available_eps = set(_get_device_ep_map_from_ort().get(device, ()))
     return [ep for ep in _DEVICE_EP_MAP.get(device, []) if ep in available_eps]
@@ -277,38 +260,24 @@ def resolve_eps(resolved_device: str) -> list[EPName]:
 def resolve_check_device_ep(
     *, device: str, ep: EPNameOrAlias | None
 ) -> tuple[str, list[str], list[EPName]]:
-    """Resolve or check that the requested device and/or EP combination is valid, raising if not.
-
-    Ideal for commands that do not need the device + ep actually exists on the system.
-
-    Args:
-        device: "auto", "npu", "gpu", or "cpu".
-        ep: Optional EP short name (e.g., "qnn", "dml"). When set,
-            availability is checked and an error is raised if no compatible EP
-            is found.
-
-    Raises:
-        ValueError: If the requested device or EP combination is not valid.
-
-    Returns:
-    Tuple of (resolved_device, available_devices, available_eps) where:
-    - resolved_device: The device that should be used based on the input parameters.
-    - available_devices: List of devices that are compatible with the first in available_eps
-    - available_eps: List of EPs that are compatible with the resolved device.
-    """
+    """Deprecated sysinfo helper resolving/checking a device/EP combination."""
+    _warn_deprecated_sysinfo_device_helper("resolve_check_device_ep")
+    device = device.lower()
     ep_name = normalize_ep_name(ep)
     if device == "auto" or ep_name is None:
-        resolved_device, _ = resolve_device(device=device, ep=ep_name)
-        available_eps: list[EPName] = resolve_eps(resolved_device) if ep_name is None else [ep_name]
+        resolved_device, _ = _resolve_device_compat(device=device, ep=ep_name)
+        available_eps: list[EPName] = (
+            _resolve_eps_compat(resolved_device) if ep_name is None else [ep_name]
+        )
         supported_devices = EP_SUPPORTED_DEVICES[available_eps[0]]
         return resolved_device, list(supported_devices), available_eps
 
     if ep_name not in EP_SUPPORTED_DEVICES:
         raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SUPPORTED_DEVICES)}")
     supported_devices = EP_SUPPORTED_DEVICES[ep_name]
-    if device.lower() not in supported_devices:
+    if device not in supported_devices:
         raise ValueError(
             f"EP '{ep}' does not support device '{device}'. "
             f"Supported devices for {ep_name}: {', '.join(supported_devices)}."
         )
-    return device.lower(), list(supported_devices), [ep_name]
+    return device, list(supported_devices), [ep_name]

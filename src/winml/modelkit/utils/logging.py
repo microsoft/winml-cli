@@ -27,7 +27,16 @@ Sample line: ``[14:32:11 INFO    winml.modelkit.export] Loaded config.json``
 """
 
 import logging
+import os
 import sys
+from contextlib import contextmanager
+from typing import TYPE_CHECKING
+
+from .._env import env_flag_enabled
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 _HANDLER_MARKER = "_winml_cli_handler"
@@ -35,10 +44,25 @@ _LOG_FORMAT = "[%(asctime)s %(levelname)-7s %(name)s] %(message)s"
 _DATE_FORMAT = "%H:%M:%S"
 
 # Third-party loggers whose INFO/WARNING chatter is noise for CLI users and can
-# interleave with rich progress output (e.g. optimum's "No model type passed for the
-# task ..." notice when a task maps to several loader classes). They are floored at
-# ERROR in normal output and only follow the CLI level once the user passes -v/-vv.
-_NOISY_LIBRARY_LOGGERS = ("optimum",)
+# interleave with rich progress output. Examples: optimum's "No model type passed
+# for the task ..." notice when a task maps to several loader classes; onnxscript's
+# version-converter fallback WARNING (with a full call stack) that fires when the
+# dynamo exporter cannot down-convert a model to the requested opset; and torch's
+# own one-line "Setting ONNX exporter to use operator set version 18 ..." notice for
+# the same down-convert case -- winml already surfaces a concise opset warning, so
+# both are redundant. They are floored at ERROR in normal output and only follow the
+# CLI level once the user passes -v/-vv.
+_NOISY_LIBRARY_LOGGERS = (
+    "optimum",
+    "onnxscript.version_converter",
+    "torch.onnx._internal.exporter._compat",
+)
+
+_HUGGINGFACE_WARNING_LOGGERS = (
+    "huggingface_hub",
+    "transformers",
+)
+_HUGGINGFACE_VERBOSITY_ENVS = ("TRANSFORMERS_VERBOSITY", "HF_HUB_VERBOSITY")
 
 
 def configure_logging(
@@ -62,12 +86,8 @@ def configure_logging(
                  True and verbosity is 0. Existing callers that pass
                  ``verbose=True`` keep working without changes.
     """
-    # Backward compat: bool verbose → int, also handles count passthrough
-    if verbose and verbosity == 0:
-        verbosity = int(verbose)
-
-    # Clamp between DEBUG (10) and WARNING (30); quiet overrides to ERROR
-    log_level = logging.ERROR if quiet else max(logging.DEBUG, logging.WARNING - verbosity * 10)
+    verbosity = _normalize_verbosity(verbosity, verbose)
+    log_level = _cli_log_level(verbosity, quiet)
 
     root = logging.getLogger()
     # Drop any prior WinML handler and install a fresh one bound to the
@@ -89,12 +109,116 @@ def configure_logging(
     root.setLevel(log_level)
 
     # Keep noisy third-party library chatter out of normal output. Their loggers float
-    # up to the CLI level only when the user opts into verbosity (-v/-vv); otherwise they
-    # are pinned at ERROR so library notices never leak into / interleave with output.
-    # (verbose=True is folded into verbosity above, so verbosity > 0 covers it.)
-    library_level = log_level if verbosity > 0 else logging.ERROR
+    # up to the CLI level only when the user opts into verbosity (-v/-vv) or explicitly
+    # asks for all warnings; otherwise they are pinned at ERROR so library notices never
+    # leak into / interleave with output. (verbose=True is folded into verbosity above,
+    # so verbosity > 0 covers it.)
+    show_all_warnings = env_flag_enabled("WINMLCLI_SHOW_ALL_WARNINGS")
+    library_level = log_level if verbosity > 0 or show_all_warnings else logging.ERROR
     for name in _NOISY_LIBRARY_LOGGERS:
         logging.getLogger(name).setLevel(library_level)
+
+
+@contextmanager
+def suppress_huggingface_warning_logs(
+    verbosity: int = 0,
+    quiet: bool = False,
+    *,
+    verbose: bool = False,
+) -> "Iterator[None]":
+    """Temporarily hide Hugging Face warning chatter for an inspect operation."""
+    verbosity = _normalize_verbosity(verbosity, verbose)
+    log_level = _cli_log_level(verbosity, quiet)
+    show_all_warnings = env_flag_enabled("WINMLCLI_SHOW_ALL_WARNINGS")
+    huggingface_level = log_level if verbosity > 0 or show_all_warnings else logging.ERROR
+
+    saved_logger_levels = {
+        name: logging.getLogger(name).level for name in _HUGGINGFACE_WARNING_LOGGERS
+    }
+    saved_env = {name: os.environ.get(name) for name in _HUGGINGFACE_VERBOSITY_ENVS}
+    saved_library_verbosity = _get_imported_huggingface_verbosity()
+
+    try:
+        for name in _HUGGINGFACE_WARNING_LOGGERS:
+            logging.getLogger(name).setLevel(huggingface_level)
+
+        library_verbosity = _library_verbosity_name(huggingface_level)
+        for env_name in _HUGGINGFACE_VERBOSITY_ENVS:
+            os.environ[env_name] = library_verbosity
+        _sync_imported_huggingface_verbosity(huggingface_level)
+        yield
+    finally:
+        for env_name, value in saved_env.items():
+            if value is None:
+                os.environ.pop(env_name, None)
+            else:
+                os.environ[env_name] = value
+        _restore_imported_huggingface_verbosity(saved_library_verbosity)
+        for name, level in saved_logger_levels.items():
+            logging.getLogger(name).setLevel(level)
+
+
+def _normalize_verbosity(verbosity: int, verbose: bool) -> int:
+    # Backward compat: bool verbose -> int, also handles count passthrough.
+    if verbose and verbosity == 0:
+        return int(verbose)
+    return verbosity
+
+
+def _cli_log_level(verbosity: int, quiet: bool) -> int:
+    # Clamp between DEBUG (10) and WARNING (30); quiet overrides to ERROR.
+    return logging.ERROR if quiet else max(logging.DEBUG, logging.WARNING - verbosity * 10)
+
+
+def _library_verbosity_name(level: int) -> str:
+    if level <= logging.DEBUG:
+        return "debug"
+    if level <= logging.INFO:
+        return "info"
+    if level <= logging.WARNING:
+        return "warning"
+    if level <= logging.ERROR:
+        return "error"
+    return "critical"
+
+
+def _sync_imported_huggingface_verbosity(verbosity: int) -> None:
+    if sys.modules.get("transformers") is not None:
+        from transformers.utils import logging as transformers_logging
+
+        transformers_logging.set_verbosity(verbosity)
+
+    if sys.modules.get("huggingface_hub") is not None:
+        from huggingface_hub.utils import logging as hub_logging
+
+        hub_logging.set_verbosity(verbosity)
+
+
+def _get_imported_huggingface_verbosity() -> dict[str, int]:
+    saved: dict[str, int] = {}
+    if sys.modules.get("transformers") is not None:
+        from transformers.utils import logging as transformers_logging
+
+        saved["transformers"] = transformers_logging.get_verbosity()
+
+    if sys.modules.get("huggingface_hub") is not None:
+        from huggingface_hub.utils import logging as hub_logging
+
+        saved["huggingface_hub"] = hub_logging.get_verbosity()
+
+    return saved
+
+
+def _restore_imported_huggingface_verbosity(saved: dict[str, int]) -> None:
+    if "transformers" in saved and sys.modules.get("transformers") is not None:
+        from transformers.utils import logging as transformers_logging
+
+        transformers_logging.set_verbosity(saved["transformers"])
+
+    if "huggingface_hub" in saved and sys.modules.get("huggingface_hub") is not None:
+        from huggingface_hub.utils import logging as hub_logging
+
+        hub_logging.set_verbosity(saved["huggingface_hub"])
 
 
 def flush_ort_startup_logs() -> None:

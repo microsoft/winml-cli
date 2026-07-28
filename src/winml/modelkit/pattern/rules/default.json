@@ -178,6 +178,44 @@
       ]
     },
     {
+      "pattern_id": "SUBGRAPH/Conv-Add-Batch-NormalizationPattern",
+      "pattern_class": "ConvAddBatchNormalizationPattern",
+      "module": "winml.modelkit.pattern.conv_batchnorm_patterns",
+      "enabled": true,
+      "flag_name": "conv-add-batch-normalization",
+      "description": "Conv followed by static Add and inference BatchNormalization",
+      "explanation": "BatchNormalization can be folded into copied Conv and Add constants when the topology and parameters are static.",
+      "alternatives": [
+        {
+          "pattern_to_id": "SUBGRAPH/FoldedConvAddPattern",
+          "pattern_class": "FoldedConvAddPattern",
+          "module": "winml.modelkit.pattern.conv_batchnorm_patterns",
+          "priority": 1,
+          "flag_name": "folding",
+          "reason": "Remove inference BatchNormalization by folding its affine transform into Conv and Add constants"
+        }
+      ]
+    },
+    {
+      "pattern_id": "SUBGRAPH/Conv-Add-Batch-NormalizationPattern",
+      "pattern_class": "AddConvBatchNormalizationPattern",
+      "module": "winml.modelkit.pattern.conv_batchnorm_patterns",
+      "enabled": true,
+      "flag_name": "add-conv-batch-normalization",
+      "description": "Static Add with Conv followed by inference BatchNormalization",
+      "explanation": "BatchNormalization can be folded into copied Conv and Add constants when the topology and parameters are static.",
+      "alternatives": [
+        {
+          "pattern_to_id": "SUBGRAPH/FoldedConvAddPattern",
+          "pattern_class": "FoldedConvAddPattern",
+          "module": "winml.modelkit.pattern.conv_batchnorm_patterns",
+          "priority": 1,
+          "flag_name": "folding",
+          "reason": "Remove inference BatchNormalization by folding its affine transform into Conv and Add constants"
+        }
+      ]
+    },
+    {
       "pattern_id": "SUBGRAPH/LayerNormalizationPattern",
       "pattern_class": "LayerNormalizationPowPattern",
       "module": "winml.modelkit.pattern.layernorm_patterns",

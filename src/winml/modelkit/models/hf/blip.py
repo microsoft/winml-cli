@@ -265,13 +265,16 @@ class BlipDecoderWrapper(WinMLDecoderWrapper):
             dtype=torch.long,
             device=encoder_hidden_states.device,
         )
+        decoder_mask = (1 - inputs["decoder_attention_mask"]).to(dtype=encoder_hidden_states.dtype)
+        decoder_mask = decoder_mask.unsqueeze(1).unsqueeze(1)
+        decoder_mask = decoder_mask * torch.finfo(encoder_hidden_states.dtype).min
         # self.model is nn.Module; torch's __getattr__ types text_decoder as
         # Tensor | Module, so narrow to a callable Module.
         outputs = cast("nn.Module", self.model.text_decoder)(
             input_ids=inputs["decoder_input_ids"],
             # HF's causal-mask reconstruction traces as ops the NPU analyzer
-            # doesn't support; pass a 3-D mask to bypass that reconstruction.
-            attention_mask=inputs["decoder_attention_mask"].unsqueeze(1),
+            # doesn't support; pass an additive 4-D mask to bypass reconstruction.
+            attention_mask=decoder_mask,
             # Without explicit position_ids, BlipTextModel would derive them
             # from past_kv_len=0 (a frozen constant in the trace), giving every
             # step position 0 instead of the actual step index.
@@ -302,8 +305,13 @@ class WinMLBlipImageToText(WinMLEncoderDecoderModel):
         "decoder": "text2text-generation",
     }
 
-    def __init__(self, sub_models: dict[str, Any], config: PretrainedConfig) -> None:
-        super().__init__(sub_models, config)
+    def __init__(
+        self,
+        sub_models: dict[str, Any],
+        config: PretrainedConfig,
+        device: str = "cpu",
+    ) -> None:
+        super().__init__(sub_models, config, device)
         # BLIP defaults ``is_encoder_decoder`` to False because it ships a
         # custom ``generate()``.  We always go through HF's standard
         # encoder-decoder path, so flip the flag on.
