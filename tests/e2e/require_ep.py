@@ -170,7 +170,7 @@ def require_qnn_accelerator_device() -> tuple[str, str]:
         if device in {"npu", "gpu"} and device in registered_devices:
             return provider, device
 
-    pytest.skip(f"EP not available on a policy-supported accelerator device: {provider}")
+    return pytest.skip(f"EP not available on a policy-supported accelerator device: {provider}")
 
 
 def require_device(device: str) -> None:
