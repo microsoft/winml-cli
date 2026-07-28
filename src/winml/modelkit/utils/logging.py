@@ -63,7 +63,6 @@ _HUGGINGFACE_WARNING_LOGGERS = (
     "transformers",
 )
 _HUGGINGFACE_VERBOSITY_ENVS = ("TRANSFORMERS_VERBOSITY", "HF_HUB_VERBOSITY")
-_MISSING = object()
 
 
 def configure_logging(
@@ -136,7 +135,7 @@ def suppress_huggingface_warning_logs(
     saved_logger_levels = {
         name: logging.getLogger(name).level for name in _HUGGINGFACE_WARNING_LOGGERS
     }
-    saved_env = {name: os.environ.get(name, _MISSING) for name in _HUGGINGFACE_VERBOSITY_ENVS}
+    saved_env = {name: os.environ.get(name) for name in _HUGGINGFACE_VERBOSITY_ENVS}
     saved_library_verbosity = _get_imported_huggingface_verbosity()
 
     try:
@@ -150,7 +149,7 @@ def suppress_huggingface_warning_logs(
         yield
     finally:
         for env_name, value in saved_env.items():
-            if value is _MISSING:
+            if value is None:
                 os.environ.pop(env_name, None)
             else:
                 os.environ[env_name] = value
