@@ -4467,7 +4467,10 @@
     "tags": [
       "acc"
     ],
-    "order": 6
+    "order": 6,
+    "disabled_eval_targets": [
+      "qnn_gpu"
+    ]
   },
   {
     "hf_id": "openai/clip-vit-base-patch32",

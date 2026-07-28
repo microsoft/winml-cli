@@ -195,6 +195,28 @@ class TestOpTracingTargetKey:
         entries = run_eval.load_registry(registry)
         assert entries[0].op_tracing_targets == ["QNNExecutionProvider_npu"]
 
+    def test_registry_normalizes_disabled_eval_targets_on_load(self, run_eval, tmp_path):
+        registry = tmp_path / "models.json"
+        registry.write_text(
+            json.dumps(
+                [
+                    {
+                        "hf_id": "acme/model",
+                        "task": "feature-extraction",
+                        "model_type": "clip",
+                        "group": "test",
+                        "priority": "P0",
+                        "disabled_eval_targets": ["qnn_gpu"],
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        entries = run_eval.load_registry(registry)
+
+        assert entries[0].disabled_eval_targets == ["QNNExecutionProvider_gpu"]
+
 
 class TestCompositeOnnxRegistry:
     def test_registry_preserves_composite_onnx(self, run_eval, tmp_path):
@@ -871,9 +893,7 @@ class TestBuildJobs:
     def test_non_npu_recipe_only_quantized_falls_back(self, run_eval, tmp_path):
         # A recipe with no non-quantized variant leaves nothing to run off-NPU,
         # so the model builds a single winml-config fallback.
-        self._make_single_recipe(
-            tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"]
-        )
+        self._make_single_recipe(tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"])
         entry = _entry()
         jobs = run_eval._build_jobs([entry], tmp_path, "cpu")
         assert len(jobs) == 1
@@ -923,9 +943,7 @@ class TestBuildJobs:
     def test_npu_skip_quant_ep_recipe_only_quantized_falls_back(self, run_eval, tmp_path):
         # Dropping every quantized variant leaves nothing to build, so the model
         # goes through the single unquantized winml-config fallback.
-        self._make_single_recipe(
-            tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"]
-        )
+        self._make_single_recipe(tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"])
         entry = _entry()
         jobs = run_eval._build_jobs([entry], tmp_path, "npu", ep="vitisai")
         assert len(jobs) == 1
@@ -938,6 +956,15 @@ class TestBuildJobs:
         assert len(jobs) == 1
         assert jobs[0].variant is None
         assert jobs[0].precision is None
+
+    def test_disabled_eval_target_is_not_scheduled(self, run_eval, tmp_path):
+        self._make_single_recipe(tmp_path, "microsoft_resnet-50", "image-classification", ["fp16"])
+        entry = _entry()
+        entry.disabled_eval_targets = ["QNNExecutionProvider_gpu"]
+
+        jobs = run_eval._build_jobs([entry], tmp_path, "gpu", ep="qnn")
+
+        assert jobs == []
 
     def test_npu_recipes_disabled_yields_precision_fallback(self, run_eval, tmp_path):
         self._make_single_recipe(tmp_path, "microsoft_resnet-50", "image-classification", ["fp16"])
@@ -954,6 +981,58 @@ class TestBuildJobs:
         jobs = run_eval._build_jobs([entry], None, "cpu")
         assert len(jobs) == 1
         assert jobs[0].variant is None
+
+
+class TestMainDisabledEvalTargets:
+    """A target-disabled single model should be treated as a no-op success."""
+
+    def test_all_jobs_filtered_by_disabled_target_exits_zero(self, run_eval, tmp_path, capsys):
+        entry = run_eval.ModelEntry(
+            hf_id="openai/clip-vit-base-patch32",
+            task="feature-extraction",
+            model_type="clip",
+            group="Foundry Toolkit",
+            priority="P0",
+            disabled_eval_targets=["QNNExecutionProvider_gpu"],
+        )
+        args = argparse.Namespace(
+            hf_model="openai/clip-vit-base-patch32",
+            task="feature-extraction",
+            registry=tmp_path / "models.json",
+            priority=["P0"],
+            model_type=None,
+            group=None,
+            list=False,
+            list_json=None,
+            update_baseline=False,
+            build_only=False,
+            output_dir=tmp_path / "out",
+            eval_type="perf",
+            retry_failed=None,
+            continue_run=False,
+            no_recipes=False,
+            recipes_dir=tmp_path / "recipes",
+            device="gpu",
+            ep="qnn",
+            timeout=300,
+            no_report=True,
+            verbose=False,
+            raw_output=False,
+            clean_cache=False,
+            op_tracing=None,
+        )
+
+        with (
+            patch.object(run_eval, "parse_args", return_value=args),
+            patch.object(run_eval, "load_registry", return_value=[entry]),
+            patch.object(run_eval, "register_from_registry"),
+            patch.object(run_eval, "save_environment_info"),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_eval.main()
+
+        assert exc_info.value.code == 0
+        assert "No eval jobs matched" in capsys.readouterr().out
 
 
 class TestRunRecipeBuild:

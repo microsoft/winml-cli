@@ -31,6 +31,7 @@ class ModelEntry:
     last_update_time: str | None = None
     optimum_supported: bool = False
     op_tracing_targets: list[str] = field(default_factory=list)
+    disabled_eval_targets: list[str] = field(default_factory=list)
 
 
 _REQUIRED_FIELDS = {"hf_id", "task", "model_type", "group", "priority"}
@@ -61,8 +62,8 @@ def op_tracing_target_key(ep: str | None, device: str) -> str | None:
     return _canonical_ep_device_key(ep, device)
 
 
-def normalize_op_tracing_target(target: str) -> str:
-    """Normalize a raw ``op_tracing_targets`` entry to the canonical key form.
+def normalize_ep_device_target(target: str) -> str:
+    """Normalize a raw ``<ep>_<device>`` entry to the canonical key form.
 
     Accepts either the short EP alias (``qnn_npu``) or the full normalized name
     (``QNNExecutionProvider_npu``); both map to ``QNNExecutionProvider_npu``.
@@ -72,6 +73,11 @@ def normalize_op_tracing_target(target: str) -> str:
     if not sep:
         return target.strip().lower()
     return _canonical_ep_device_key(ep, device)
+
+
+def normalize_op_tracing_target(target: str) -> str:
+    """Normalize a raw ``op_tracing_targets`` entry to the canonical key form."""
+    return normalize_ep_device_target(target)
 
 
 def load_registry(path: Path) -> list[ModelEntry]:
@@ -118,6 +124,10 @@ def load_registry(path: Path) -> list[ModelEntry]:
                 op_tracing_targets=[
                     normalize_op_tracing_target(t)
                     for t in (item.get("op_tracing_targets", []) or [])
+                ],
+                disabled_eval_targets=[
+                    normalize_ep_device_target(t)
+                    for t in (item.get("disabled_eval_targets", []) or [])
                 ],
             )
         )

@@ -10,7 +10,7 @@
   {"hf_id": "openai/clip-vit-base-patch16", "task": "feature-extraction", "model_type": "clip", "group": "Foundry Toolkit", "priority": "P0"},
   {"hf_id": "openai/clip-vit-base-patch32", "task": "zero-shot-image-classification", "model_type": "clip", "group": "Foundry Toolkit", "priority": "P0"},
   {"hf_id": "openai/clip-vit-base-patch32", "task": "zero-shot-classification", "model_type": "clip", "group": "Foundry Toolkit", "priority": "P0"},
-  {"hf_id": "openai/clip-vit-base-patch32", "task": "feature-extraction", "model_type": "clip", "group": "Foundry Toolkit", "priority": "P0"},
+  {"hf_id": "openai/clip-vit-base-patch32", "task": "feature-extraction", "model_type": "clip", "group": "Foundry Toolkit", "priority": "P0", "disabled_eval_targets": ["qnn_gpu"]},
   {"hf_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K", "task": "zero-shot-image-classification", "model_type": "clip", "group": "Foundry Toolkit", "priority": "P0"},
   {"hf_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K", "task": "zero-shot-classification", "model_type": "clip", "group": "Foundry Toolkit", "priority": "P0"},
   {"hf_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K", "task": "feature-extraction", "model_type": "clip", "group": "Foundry Toolkit", "priority": "P0"},

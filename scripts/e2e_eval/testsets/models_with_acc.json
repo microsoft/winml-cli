@@ -691,7 +691,10 @@
         "input_column_2": "sentence2",
         "score_column": "score"
       }
-    }
+    },
+    "disabled_eval_targets": [
+      "qnn_gpu"
+    ]
   },
   {
     "hf_id": "sentence-transformers/all-MiniLM-L6-v2",

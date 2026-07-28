@@ -1644,6 +1644,12 @@ def _resolve_op_tracing(
     return None
 
 
+def _is_eval_target_disabled(entry: ModelEntry, ep: str | None, device: str) -> bool:
+    """True when the model registry disables this EP/device evaluation target."""
+    key = op_tracing_target_key(ep, device)
+    return key is not None and key in entry.disabled_eval_targets
+
+
 def _extract_op_trace_path(text: str) -> Path | None:
     """Parse the ``Op-trace saved to: <path>`` line from winml perf output.
 
@@ -2405,6 +2411,8 @@ def _build_jobs(
     expand_npu_quant = npu and not skip_quant
     jobs: list[EvalJob] = []
     for entry in entries:
+        if _is_eval_target_disabled(entry, ep, device):
+            continue
         variants = (
             discover_recipe_variants(recipes_dir, entry.hf_id, entry.task)
             if recipes_dir is not None
@@ -2422,8 +2430,7 @@ def _build_jobs(
             # explicit per-model precision (e.g. fp16) skips this and is honored
             # by the single-fallback branch below via _resolve_precision.
             jobs.extend(
-                EvalJob(entry, None, fallback_precision=prec)
-                for prec in _NPU_FALLBACK_PRECISIONS
+                EvalJob(entry, None, fallback_precision=prec) for prec in _NPU_FALLBACK_PRECISIONS
             )
         else:
             jobs.append(EvalJob(entry, None))
@@ -2878,6 +2885,10 @@ def main() -> None:
             safe_print("Retry mode: ALL non-PASS jobs")
     elif args.continue_run:
         safe_print("Continue mode: skipping jobs with existing eval_result.json")
+
+    if total_jobs == 0:
+        safe_print("\nNo eval jobs matched the current EP/device filters.")
+        sys.exit(0)
 
     # 3. Run evaluation
     results: list[dict] = []

@@ -34,6 +34,7 @@ def safe_print(text: str) -> None:
 
 
 HF_TASKS_URL = "https://huggingface.co/api/tasks"
+_CURATED_PASSTHROUGH_FIELDS = ("composite_onnx", "disabled_eval_targets")
 
 
 def get_hf_api_model_id(hf_id: str) -> str:
@@ -158,6 +159,8 @@ def load_curated_entries(curated_path: Path) -> list[dict]:
       ``mask-generation`` evaluator dispatch) read it to discover the
       per-role files.  ``hf_id`` is still required and should point at
       the canonical repo (typically the encoder's repo).
+    * ``disabled_eval_targets`` -- ``<ep>_<device>`` targets that should not
+      be scheduled by the eval runner for this model/task.
     """
     with curated_path.open(encoding="utf-8") as f:
         entries = json.load(f)
@@ -172,8 +175,9 @@ def load_curated_entries(curated_path: Path) -> list[dict]:
             "priority": e.get("priority", "P0"),
         }
         # Pass-through additive fields so they survive into the built registry.
-        if "composite_onnx" in e:
-            item["composite_onnx"] = e["composite_onnx"]
+        for field in _CURATED_PASSTHROUGH_FIELDS:
+            if field in e:
+                item[field] = e[field]
         loaded.append(item)
     return loaded
 
@@ -417,10 +421,13 @@ def build_registry(
                     existing["priority"] = priority
                     existing["group"] = group
                     safe_print(f"    [{priority}] {model_id} / {task} — updated (group={group})")
-                # Carry curated ``composite_onnx`` onto an existing entry so
-                # downstream consumers always see the canonical role map.
-                if "composite_onnx" in c and "composite_onnx" not in existing:
-                    existing["composite_onnx"] = c["composite_onnx"]
+                # Carry curated additive fields onto an existing entry so
+                # downstream consumers always see the canonical metadata.
+                for field in _CURATED_PASSTHROUGH_FIELDS:
+                    if field in c:
+                        existing[field] = c[field]
+                    else:
+                        existing.pop(field, None)
                 continue
 
             # New curated entry — fetch metadata if not already loaded
@@ -440,8 +447,9 @@ def build_registry(
                 "last_update_time": metadata["last_modified"],
                 "optimum_supported": is_optimum,
             }
-            if "composite_onnx" in c:
-                entry["composite_onnx"] = c["composite_onnx"]
+            for field in _CURATED_PASSTHROUGH_FIELDS:
+                if field in c:
+                    entry[field] = c[field]
 
             seen.add(key)
             entry_lookup[key] = entry
