@@ -24,11 +24,7 @@
       "columns_mapping": {
         "input_column": "text"
       }
-    },
-    "disabled_eval_targets": [
-      "qnn_npu",
-      "qnn_gpu"
-    ]
+    }
   },
   {
     "hf_id": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
@@ -695,10 +691,7 @@
         "input_column_2": "sentence2",
         "score_column": "score"
       }
-    },
-    "disabled_eval_targets": [
-      "qnn_gpu"
-    ]
+    }
   },
   {
     "hf_id": "sentence-transformers/all-MiniLM-L6-v2",
@@ -1413,10 +1406,7 @@
         "input_column": "img",
         "label_column": "fine_label"
       }
-    },
-    "disabled_eval_targets": [
-      "qnn_gpu"
-    ]
+    }
   },
   {
     "hf_id": "joeddav/xlm-roberta-large-xnli",

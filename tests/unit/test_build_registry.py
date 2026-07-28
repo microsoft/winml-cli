@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import importlib.util
-import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -134,68 +133,7 @@ def test_build_registry_recheck_downloads_keeps_existing_value_on_failure(monkey
     assert entries[0]["downloads"] == 42
 
 
-def test_load_curated_entries_preserves_disabled_eval_targets(tmp_path) -> None:
-    build_registry = _load_build_registry_module()
-    curated = tmp_path / "models_curated.json"
-    curated.write_text(
-        json.dumps(
-            [
-                {
-                    "hf_id": "org/model",
-                    "task": "feature-extraction",
-                    "group": "Foundry Toolkit",
-                    "priority": "P0",
-                    "disabled_eval_targets": ["qnn_gpu"],
-                }
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    entries = build_registry.load_curated_entries(curated)
-
-    assert entries[0]["disabled_eval_targets"] == ["qnn_gpu"]
-
-
-def test_build_registry_merges_curated_disabled_eval_targets(monkeypatch) -> None:
-    build_registry = _load_build_registry_module()
-    curated_entries = [
-        {
-            "hf_id": "org/model",
-            "task": "feature-extraction",
-            "group": "Foundry Toolkit",
-            "priority": "P0",
-            "disabled_eval_targets": ["qnn_gpu"],
-        }
-    ]
-    existing_entries = [
-        {
-            "hf_id": "org/model",
-            "task": "feature-extraction",
-            "model_type": "clip",
-            "group": "Top200",
-            "priority": "P1",
-            "downloads": 10,
-            "last_update_time": None,
-        }
-    ]
-    monkeypatch.setattr(
-        build_registry,
-        "get_model_metadata",
-        lambda _model_id: {"last_modified": None, "downloads": 10, "pipeline_tag": ""},
-    )
-
-    entries = build_registry.build_registry(
-        tasks=["feature-extraction"],
-        top_n=0,
-        curated_entries=curated_entries,
-        existing_entries=existing_entries,
-    )
-
-    assert entries[0]["disabled_eval_targets"] == ["qnn_gpu"]
-
-
-def test_build_registry_removes_stale_curated_disabled_eval_targets(monkeypatch) -> None:
+def test_build_registry_removes_stale_curated_pass_through_fields(monkeypatch) -> None:
     build_registry = _load_build_registry_module()
     curated_entries = [
         {
@@ -214,7 +152,7 @@ def test_build_registry_removes_stale_curated_disabled_eval_targets(monkeypatch)
             "priority": "P1",
             "downloads": 10,
             "last_update_time": None,
-            "disabled_eval_targets": ["qnn_gpu"],
+            "composite_onnx": {"encoder": "old.onnx"},
         }
     ]
     monkeypatch.setattr(
@@ -230,4 +168,4 @@ def test_build_registry_removes_stale_curated_disabled_eval_targets(monkeypatch)
         existing_entries=existing_entries,
     )
 
-    assert "disabled_eval_targets" not in entries[0]
+    assert "composite_onnx" not in entries[0]

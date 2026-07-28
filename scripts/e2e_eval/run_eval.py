@@ -868,12 +868,13 @@ def _extract_onnx_path(build_proc: dict, hf_id: str, task: str | None) -> str | 
     # Patterns used by winml build to report the artifact path
     markers = ("Final artifact:", "Existing artifact found:", "Artifact:")
     onnx_path = None
-    for line in (build_proc["stderr"] + build_proc["stdout"]).splitlines():
+    lines = (build_proc["stderr"] + build_proc["stdout"]).splitlines()
+    for idx, line in enumerate(lines):
         for marker in markers:
             if marker in line:
                 candidate = line.split(marker)[-1].strip()
-                if candidate and Path(candidate).exists():
-                    onnx_path = candidate
+                onnx_path = _resolve_reported_artifact_path(candidate, lines[idx + 1 :])
+                if onnx_path:
                     break
         if onnx_path:
             break
@@ -882,6 +883,36 @@ def _extract_onnx_path(build_proc: dict, hf_id: str, task: str | None) -> str | 
         onnx_path = _find_cached_model(hf_id, build_proc, task)
 
     return onnx_path
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _resolve_reported_artifact_path(first_fragment: str, following_lines: list[str]) -> str | None:
+    """Resolve a winml-build artifact path that may be hard-wrapped across lines."""
+    candidate = _ANSI_RE.sub("", first_fragment).strip()
+    if candidate and _is_existing_onnx_file(candidate):
+        return candidate
+
+    # Rich/CI wrapping inserts line breaks into long paths without adding
+    # separators. Rejoin a few subsequent non-empty fragments until the path
+    # materializes, stopping early when the next line clearly starts another
+    # build-summary field.
+    for raw_line in following_lines[:6]:
+        fragment = _ANSI_RE.sub("", raw_line).strip()
+        if not fragment:
+            continue
+        if re.match(r"^[A-Za-z ][A-Za-z ]+:\s", fragment):
+            break
+        candidate += fragment
+        if _is_existing_onnx_file(candidate):
+            return candidate
+    return None
+
+
+def _is_existing_onnx_file(path: str) -> bool:
+    p = Path(path)
+    return p.suffix == ".onnx" and p.is_file()
 
 
 def _extract_task_from_config(config_path: Path) -> str | None:
@@ -1644,12 +1675,6 @@ def _resolve_op_tracing(
     return None
 
 
-def _is_eval_target_disabled(entry: ModelEntry, ep: str | None, device: str) -> bool:
-    """True when the model registry disables this EP/device evaluation target."""
-    key = op_tracing_target_key(ep, device)
-    return key is not None and key in entry.disabled_eval_targets
-
-
 def _extract_op_trace_path(text: str) -> Path | None:
     """Parse the ``Op-trace saved to: <path>`` line from winml perf output.
 
@@ -2298,6 +2323,9 @@ def _should_skip_existing(existing: dict, retry_types: set[str] | None, eval_typ
     if retry_types is None:
         return True  # --continue without --retry-failed: skip all existing
 
+    if _is_unsupported_perf_result(existing):
+        return "UNSUPPORTED" not in retry_types
+
     perf = existing.get("perf") or {}
     acc = existing.get("accuracy")
 
@@ -2316,6 +2344,36 @@ def _should_skip_existing(existing: dict, retry_types: set[str] | None, eval_typ
             return False  # Should retry
 
     return True  # No retry criteria matched — skip
+
+
+def _is_unsupported_perf_result(result: dict) -> bool:
+    """True when perf failed because the selected EP rejected the graph as unsupported."""
+    perf = result.get("perf") or {}
+    return bool(perf.get("unsupported_skip"))
+
+
+def _mark_unsupported_perf_result(result: dict) -> None:
+    """Mark provider-declared unsupported perf failures as skipped."""
+    perf = result.get("perf")
+    if perf is None or perf.get("passed"):
+        return
+    if classify_result(result) == "UNSUPPORTED":
+        perf["unsupported_skip"] = True
+
+
+def _all_results_pass(results: list[dict]) -> bool:
+    """Return whether all non-skipped perf and accuracy results passed."""
+    perf_results = [
+        r for r in results if r.get("perf") is not None and not _is_unsupported_perf_result(r)
+    ]
+    acc_results = [
+        r
+        for r in results
+        if r.get("accuracy") is not None and not (r.get("accuracy") or {}).get("skipped")
+    ]
+    return all((r.get("perf") or {}).get("passed", False) for r in perf_results) and all(
+        accuracy_status(r.get("accuracy")) == "PASS" for r in acc_results
+    )
 
 
 def model_result_dir(
@@ -2411,8 +2469,6 @@ def _build_jobs(
     expand_npu_quant = npu and not skip_quant
     jobs: list[EvalJob] = []
     for entry in entries:
-        if _is_eval_target_disabled(entry, ep, device):
-            continue
         variants = (
             discover_recipe_variants(recipes_dir, entry.hf_id, entry.task)
             if recipes_dir is not None
@@ -2686,7 +2742,7 @@ def parse_args() -> argparse.Namespace:
             "Re-run jobs whose recorded status matches one of the given types. "
             "Valid values are the perf failure classifications "
             "(EXPORT_FAIL, ANALYZER_BLOCK, OPT_FAIL, COMPILE_FAIL, RUNTIME_FAIL, "
-            "ENVIRONMENT, TIMEOUT, UNKNOWN) and the accuracy status FAIL "
+            "UNSUPPORTED, ENVIRONMENT, TIMEOUT, UNKNOWN) and the accuracy status FAIL "
             "(e.g. --retry-failed ENVIRONMENT FAIL). "
             "Use without args to retry ALL non-PASS jobs. "
             "Implies --continue for passing jobs."
@@ -2781,6 +2837,7 @@ def main() -> None:
                 if args.continue_run and result_path.exists():
                     try:
                         existing = load_result_json(result_path)
+                        _mark_unsupported_perf_result(existing)
                         if _should_skip_existing(existing, retry_types, args.eval_type):
                             skipped_count += 1
                             continue
@@ -2939,6 +2996,7 @@ def main() -> None:
         if args.continue_run and result_path.exists():
             try:
                 existing = load_result_json(result_path)
+                _mark_unsupported_perf_result(existing)
 
                 if _should_skip_existing(existing, retry_types, args.eval_type):
                     results.append(existing)
@@ -3084,6 +3142,7 @@ def main() -> None:
                 sanitize_fn=None if args.raw_output else _sanitize_output,
                 precision=precision,
             )
+            _mark_unsupported_perf_result(result)
         results.append(result)
 
         # Write eval_result.json immediately (crash-safe, facts only)
@@ -3103,7 +3162,13 @@ def main() -> None:
         elif perf_proc is not None:
             perf_passed = perf_proc["exit_code"] == 0
             perf_cls = classify_result(result) or "UNKNOWN"
-            perf_tag = "PASS" if perf_passed else f"FAIL ({perf_cls})"
+            perf_tag = (
+                "PASS"
+                if perf_passed
+                else f"SKIP ({perf_cls})"
+                if _is_unsupported_perf_result(result)
+                else f"FAIL ({perf_cls})"
+            )
             safe_print(f"  [{perf_tag}] {result['perf']['elapsed']}s{acc_tag}")
             if args.verbose and not perf_passed:
                 combined = (perf_proc["stdout"] + perf_proc["stderr"]).strip()
@@ -3129,7 +3194,9 @@ def main() -> None:
     classify_results(results)
 
     perf_results = [r for r in results if r.get("perf") is not None]
-    perf_pass = sum(1 for r in perf_results if (r.get("perf") or {}).get("passed"))
+    perf_unsupported = sum(1 for r in perf_results if _is_unsupported_perf_result(r))
+    perf_counted = [r for r in perf_results if not _is_unsupported_perf_result(r)]
+    perf_pass = sum(1 for r in perf_counted if (r.get("perf") or {}).get("passed"))
     acc_results = [
         r
         for r in results
@@ -3139,9 +3206,11 @@ def main() -> None:
 
     if not args.no_report:
         safe_print(f"\nResults saved to: {output_dir}  ({run_duration:.1f}s, {len(results)} jobs)")
-        if perf_results:
-            rate = perf_pass / len(perf_results) * 100
-            safe_print(f"Perf pass: {perf_pass}/{len(perf_results)} ({rate:.1f}%)")
+        if perf_counted:
+            rate = perf_pass / len(perf_counted) * 100
+            safe_print(f"Perf pass: {perf_pass}/{len(perf_counted)} ({rate:.1f}%)")
+        if perf_unsupported:
+            safe_print(f"Perf skipped (unsupported by selected EP): {perf_unsupported}")
         if acc_results:
             arate = acc_pass / len(acc_results) * 100
             safe_print(
@@ -3153,10 +3222,7 @@ def main() -> None:
         if interrupted:
             safe_print(f"  (interrupted — {total_jobs - len(results)} jobs not evaluated)")
 
-    all_perf_pass = all((r.get("perf") or {}).get("passed", False) for r in perf_results)
-    all_acc_pass = all(accuracy_status(r.get("accuracy")) == "PASS" for r in acc_results)
-
-    sys.exit(0 if not interrupted and all_perf_pass and all_acc_pass else 1)
+    sys.exit(0 if not interrupted and _all_results_pass(results) else 1)
 
 
 if __name__ == "__main__":

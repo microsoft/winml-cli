@@ -195,72 +195,6 @@ class TestOpTracingTargetKey:
         entries = run_eval.load_registry(registry)
         assert entries[0].op_tracing_targets == ["QNNExecutionProvider_npu"]
 
-    def test_registry_normalizes_disabled_eval_targets_on_load(self, run_eval, tmp_path):
-        registry = tmp_path / "models.json"
-        registry.write_text(
-            json.dumps(
-                [
-                    {
-                        "hf_id": "acme/model",
-                        "task": "feature-extraction",
-                        "model_type": "clip",
-                        "group": "test",
-                        "priority": "P0",
-                        "disabled_eval_targets": ["qnn_gpu"],
-                    }
-                ]
-            ),
-            encoding="utf-8",
-        )
-
-        entries = run_eval.load_registry(registry)
-
-        assert entries[0].disabled_eval_targets == ["QNNExecutionProvider_gpu"]
-
-    @pytest.mark.parametrize(
-        ("hf_id", "task", "target"),
-        [
-            (
-                "openai/clip-vit-base-patch32",
-                "feature-extraction",
-                "QNNExecutionProvider_gpu",
-            ),
-            (
-                "openai/clip-vit-base-patch32",
-                "zero-shot-image-classification",
-                "QNNExecutionProvider_gpu",
-            ),
-            (
-                "google-bert/bert-base-multilingual-cased",
-                "fill-mask",
-                "QNNExecutionProvider_npu",
-            ),
-            (
-                "google-bert/bert-base-multilingual-cased",
-                "fill-mask",
-                "QNNExecutionProvider_gpu",
-            ),
-            (
-                "google-bert/bert-base-multilingual-cased",
-                "masked-lm",
-                "QNNExecutionProvider_gpu",
-            ),
-        ],
-    )
-    def test_ci_qnn_unsupported_eval_targets_are_disabled(self, run_eval, hf_id, task, target):
-        registry_path = (
-            Path(__file__).resolve().parents[3]
-            / "scripts"
-            / "e2e_eval"
-            / "testsets"
-            / "models_all.json"
-        )
-
-        entries = run_eval.load_registry(registry_path)
-        entry = next(entry for entry in entries if entry.hf_id == hf_id and entry.task == task)
-
-        assert target in entry.disabled_eval_targets
-
 
 class TestCompositeOnnxRegistry:
     def test_registry_preserves_composite_onnx(self, run_eval, tmp_path):
@@ -444,6 +378,26 @@ class TestRunBuildConfigOverwrite:
         # Layout is ["-o", <path>, "--overwrite"]; assert the flag is present
         # and clobbers this specific config path.
         assert config_call[idx + 2] == "--overwrite", config_call
+
+
+class TestExtractOnnxPath:
+    """Build output parsing must handle rich-wrapped artifact paths from CI logs."""
+
+    def test_wrapped_final_artifact_path_is_rejoined(self, run_eval, tmp_path):
+        artifact = tmp_path / "google-bert_bert-base-multilingual-cased" / "mask_hash_model.onnx"
+        artifact.parent.mkdir(parents=True)
+        artifact.write_bytes(b"onnx")
+        parent_text = str(artifact.parent) + "\\"
+        build_proc = {
+            "stdout": f"Build complete\nFinal artifact: \n    {parent_text}\n    {artifact.name}\n",
+            "stderr": "",
+        }
+
+        assert run_eval._extract_onnx_path(
+            build_proc,
+            "google-bert/bert-base-multilingual-cased",
+            "fill-mask",
+        ) == str(artifact)
 
 
 class TestRunBuildPrecisionForwarding:
@@ -857,6 +811,127 @@ class TestAccuracyStatus:
         assert run_eval.accuracy_status({"winml_eval_status": "FAIL"}) == "FAIL"
 
 
+class TestUnsupportedRuntimeFailures:
+    """QNN backend capability rejects are provider limitations, not model blacklist entries."""
+
+    @staticmethod
+    def _failed_result(run_eval, stderr: str):
+        entry = _entry("org/model", "feature-extraction")
+        proc = {
+            "stdout": "",
+            "stderr": stderr,
+            "exit_code": 1,
+            "elapsed": 1.0,
+            "timeout": False,
+            "command": "winml perf",
+            "timestamp": "2026-01-01T00:00:00+00:00",
+        }
+        return run_eval.build_eval_result(entry, proc, "gpu", ["perf"], ep="qnn")
+
+    def test_qnn_backend_finalize_failure_is_unsupported(self, run_eval):
+        result = self._failed_result(
+            run_eval,
+            "QNN.backendValidateOpConfig() failed\nFailed to finalize QNN graph. Error code: 6022",
+        )
+
+        assert run_eval.classify_result(result) == "UNSUPPORTED"
+
+    def test_unsupported_perf_result_is_marked_and_does_not_fail_run(self, run_eval):
+        result = self._failed_result(run_eval, "Failed to compose Qnn graph")
+
+        run_eval._mark_unsupported_perf_result(result)
+
+        assert result["perf"]["unsupported_skip"] is True
+        assert run_eval._all_results_pass([result]) is True
+
+    def test_regular_runtime_failure_still_fails_run(self, run_eval):
+        result = self._failed_result(run_eval, "Benchmark failed: unexpected assertion")
+
+        run_eval._mark_unsupported_perf_result(result)
+
+        assert "unsupported_skip" not in result["perf"]
+        assert run_eval._all_results_pass([result]) is False
+
+
+class TestMainUnsupportedRuntimeFailures:
+    """A provider-declared unsupported perf failure is recorded as a skip."""
+
+    def test_unsupported_perf_failure_exits_zero(self, run_eval, tmp_path):
+        entry = _entry("org/model", "feature-extraction")
+        entry.priority = "P0"
+        entry.group = "test"
+        entry.model_type = "test-model"
+        args = argparse.Namespace(
+            hf_model="org/model",
+            task="feature-extraction",
+            registry=tmp_path / "models.json",
+            priority=["P0"],
+            model_type=None,
+            group=None,
+            list=False,
+            list_json=None,
+            update_baseline=False,
+            build_only=False,
+            output_dir=tmp_path / "out",
+            eval_type="perf",
+            retry_failed=None,
+            continue_run=False,
+            no_recipes=False,
+            recipes_dir=tmp_path / "recipes",
+            device="gpu",
+            ep="qnn",
+            timeout=300,
+            no_report=False,
+            verbose=False,
+            raw_output=False,
+            clean_cache=False,
+            op_tracing=None,
+        )
+        perf_proc = {
+            "stdout": "",
+            "stderr": "QNN.backendValidateOpConfig() failed\nFailed to finalize QNN graph",
+            "exit_code": 1,
+            "elapsed": 1.0,
+            "timeout": False,
+            "command": "winml perf",
+            "timestamp": "2026-01-01T00:00:00+00:00",
+        }
+
+        with (
+            patch.object(run_eval, "parse_args", return_value=args),
+            patch.object(run_eval, "load_registry", return_value=[entry]),
+            patch.object(run_eval, "register_from_registry"),
+            patch.object(run_eval, "save_environment_info"),
+            patch.object(run_eval, "_load_timeout_skip_set", return_value=set()),
+            patch.object(
+                run_eval,
+                "_build_for_job",
+                return_value=(
+                    {
+                        "success": True,
+                        "onnx_paths": {"": str(tmp_path / "model.onnx")},
+                        "stage": "complete",
+                        "proc": perf_proc,
+                    },
+                    None,
+                    False,
+                ),
+            ),
+            patch.object(run_eval, "run_model", return_value=perf_proc),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_eval.main()
+
+        assert exc_info.value.code == 0
+        result_path = (
+            run_eval.model_result_dir(tmp_path / "out", "org/model", "feature-extraction")
+            / "eval_result.json"
+        )
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+        assert run_eval.classify_result(result) == "UNSUPPORTED"
+        assert result["perf"]["unsupported_skip"] is True
+
+
 class TestRecipeConfigHelpers:
     """Eval-section detection, meta-config pick, and trust-remote-code gate."""
 
@@ -1001,15 +1076,6 @@ class TestBuildJobs:
         assert jobs[0].variant is None
         assert jobs[0].precision is None
 
-    def test_disabled_eval_target_is_not_scheduled(self, run_eval, tmp_path):
-        self._make_single_recipe(tmp_path, "microsoft_resnet-50", "image-classification", ["fp16"])
-        entry = _entry()
-        entry.disabled_eval_targets = ["QNNExecutionProvider_gpu"]
-
-        jobs = run_eval._build_jobs([entry], tmp_path, "gpu", ep="qnn")
-
-        assert jobs == []
-
     def test_npu_recipes_disabled_yields_precision_fallback(self, run_eval, tmp_path):
         self._make_single_recipe(tmp_path, "microsoft_resnet-50", "image-classification", ["fp16"])
         entry = _entry()
@@ -1025,58 +1091,6 @@ class TestBuildJobs:
         jobs = run_eval._build_jobs([entry], None, "cpu")
         assert len(jobs) == 1
         assert jobs[0].variant is None
-
-
-class TestMainDisabledEvalTargets:
-    """A target-disabled single model should be treated as a no-op success."""
-
-    def test_all_jobs_filtered_by_disabled_target_exits_zero(self, run_eval, tmp_path, capsys):
-        entry = run_eval.ModelEntry(
-            hf_id="openai/clip-vit-base-patch32",
-            task="feature-extraction",
-            model_type="clip",
-            group="Foundry Toolkit",
-            priority="P0",
-            disabled_eval_targets=["QNNExecutionProvider_gpu"],
-        )
-        args = argparse.Namespace(
-            hf_model="openai/clip-vit-base-patch32",
-            task="feature-extraction",
-            registry=tmp_path / "models.json",
-            priority=["P0"],
-            model_type=None,
-            group=None,
-            list=False,
-            list_json=None,
-            update_baseline=False,
-            build_only=False,
-            output_dir=tmp_path / "out",
-            eval_type="perf",
-            retry_failed=None,
-            continue_run=False,
-            no_recipes=False,
-            recipes_dir=tmp_path / "recipes",
-            device="gpu",
-            ep="qnn",
-            timeout=300,
-            no_report=True,
-            verbose=False,
-            raw_output=False,
-            clean_cache=False,
-            op_tracing=None,
-        )
-
-        with (
-            patch.object(run_eval, "parse_args", return_value=args),
-            patch.object(run_eval, "load_registry", return_value=[entry]),
-            patch.object(run_eval, "register_from_registry"),
-            patch.object(run_eval, "save_environment_info"),
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            run_eval.main()
-
-        assert exc_info.value.code == 0
-        assert "No eval jobs matched" in capsys.readouterr().out
 
 
 class TestRunRecipeBuild:

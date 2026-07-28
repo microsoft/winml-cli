@@ -18,6 +18,7 @@ class FailureType(str, Enum):
     OPT_FAIL = "OPT_FAIL"
     COMPILE_FAIL = "COMPILE_FAIL"
     RUNTIME_FAIL = "RUNTIME_FAIL"
+    UNSUPPORTED = "UNSUPPORTED"
     ENVIRONMENT = "ENVIRONMENT"  # disk/network/resource — retryable
     TIMEOUT = "TIMEOUT"  # exceeded per-model time limit
     UNKNOWN = "UNKNOWN"
@@ -58,6 +59,14 @@ CLASSIFICATION_RULES: list[tuple[FailureType, list[str]]] = [
             "shape_infer",
             "shapeinferenceerror",
             "graph_optimization",
+        ],
+    ),
+    (
+        FailureType.UNSUPPORTED,
+        [
+            "qnn.backendvalidateopconfig() failed",
+            "failed to finalize qnn graph",
+            "failed to compose qnn graph",
         ],
     ),
     (

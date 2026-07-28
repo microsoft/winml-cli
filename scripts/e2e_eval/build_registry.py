@@ -34,7 +34,7 @@ def safe_print(text: str) -> None:
 
 
 HF_TASKS_URL = "https://huggingface.co/api/tasks"
-_CURATED_PASSTHROUGH_FIELDS = ("composite_onnx", "disabled_eval_targets")
+_CURATED_PASSTHROUGH_FIELDS = ("composite_onnx",)
 
 
 def get_hf_api_model_id(hf_id: str) -> str:
@@ -159,8 +159,6 @@ def load_curated_entries(curated_path: Path) -> list[dict]:
       ``mask-generation`` evaluator dispatch) read it to discover the
       per-role files.  ``hf_id`` is still required and should point at
       the canonical repo (typically the encoder's repo).
-    * ``disabled_eval_targets`` -- ``<ep>_<device>`` targets that should not
-      be scheduled by the eval runner for this model/task.
     """
     with curated_path.open(encoding="utf-8") as f:
         entries = json.load(f)
