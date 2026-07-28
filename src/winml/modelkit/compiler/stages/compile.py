@@ -182,7 +182,7 @@ class CompileStage(BaseStage):
                 self._collect_model_info(session, context)
             finally:
                 context.session = None
-                session = None
+                del session
         else:
             ort.ModelCompiler(
                 session_options,
