@@ -22,7 +22,10 @@ from transformers import PretrainedConfig
 from transformers.modeling_outputs import BaseModelOutput
 
 from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
-from winml.modelkit.eval.tensor_similarity_evaluator import TensorSimilarityEvaluator
+from winml.modelkit.eval.tensor_similarity_evaluator import (
+    TensorSimilarityEvaluator,
+    _ONNXSessionModel,
+)
 from winml.modelkit.models.winml.composite_model import WinMLCompositeModel
 
 
@@ -147,3 +150,87 @@ class TestInputDataCompare:
         # prepare_data must NOT mutate the config -- the real sample count is
         # surfaced via EvalResult.num_samples, not written back here.
         assert evaluator.config.dataset.samples == 100
+
+
+# ---------------------------------------------------------------------------
+# Two-ONNX compare (reference_path set)
+# ---------------------------------------------------------------------------
+
+
+class _FakeSession:
+    """Stand-in for WinMLSession that records construction and echoes outputs."""
+
+    created: ClassVar[list[tuple[str, str, object]]] = []
+
+    def __init__(self, onnx_path, device="auto", ep=None):
+        _FakeSession.created.append((str(onnx_path), device, ep))
+        self.io_config = {"input_names": ["input"]}
+
+    def run(self, inputs):
+        return {"logits": np.arange(3.0, dtype=np.float32).reshape(1, 3)}
+
+
+class _FakeRandomDataset:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+    def __len__(self):
+        return 0
+
+
+class TestONNXReferenceInit:
+    def test_builds_two_raw_sessions_honoring_device(self, monkeypatch):
+        import winml.modelkit.datasets.random_dataset as rd_mod
+        import winml.modelkit.session.session as session_mod
+
+        _FakeSession.created = []
+        monkeypatch.setattr(session_mod, "WinMLSession", _FakeSession)
+        monkeypatch.setattr(rd_mod, "RandomDataset", _FakeRandomDataset)
+
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            reference_path="ref.onnx",
+            mode="compare",
+            device="cpu",
+            ep="dml",
+            dataset=DatasetConfig(samples=5, seed=1),
+        )
+
+        # ``model`` is None in this path (evaluate._load_model returns None).
+        evaluator = TensorSimilarityEvaluator(config, None)  # type: ignore[arg-type]
+
+        assert isinstance(evaluator.model, _ONNXSessionModel)
+        assert isinstance(evaluator.reference_model, _ONNXSessionModel)
+        # Candidate first, reference second; both honor --device / --ep.
+        assert _FakeSession.created[0][0].endswith("cand.onnx")
+        assert _FakeSession.created[1][0].endswith("ref.onnx")
+        assert [c[1] for c in _FakeSession.created] == ["cpu", "cpu"]
+        assert [c[2] for c in _FakeSession.created] == ["dml", "dml"]
+        # RandomDataset is built over the candidate ONNX I/O.
+        assert evaluator.data.kwargs["model_path"].endswith("cand.onnx")
+        assert evaluator.data.kwargs["max_samples"] == 5
+        assert evaluator.data.kwargs["seed"] == 1
+
+
+class TestONNXSessionModel:
+    def test_call_returns_named_torch_tensors(self, monkeypatch):
+        import winml.modelkit.session.session as session_mod
+
+        _FakeSession.created = []
+        monkeypatch.setattr(session_mod, "WinMLSession", _FakeSession)
+
+        model = _ONNXSessionModel("x.onnx", device="cpu")
+        out = model(input=torch.zeros(1, 3))
+
+        assert set(out) == {"logits"}
+        assert isinstance(out["logits"], torch.Tensor)
+        assert out["logits"].shape == (1, 3)
+
+    def test_io_config_delegates_to_session(self, monkeypatch):
+        import winml.modelkit.session.session as session_mod
+
+        _FakeSession.created = []
+        monkeypatch.setattr(session_mod, "WinMLSession", _FakeSession)
+
+        model = _ONNXSessionModel("x.onnx")
+        assert model.io_config["input_names"] == ["input"]
