@@ -62,9 +62,10 @@ an NPU model without a recipe falls back to `winml config` and is expanded into
 registry overrides this and builds that single precision instead). On CPU/GPU (and
 `auto`) the runner builds only the **non-quantized** recipe variants (e.g. `fp16`),
 dropping quantized ones, and a model with no applicable recipe variant builds a
-single `winml config` fallback. The runner writes one `eval_result.json` per
-`(model, task, precision)` containing facts only (perf output + the winml-eval
-`metrics`/`dataset`).
+single `winml config` fallback. EPs evaluated on the unquantized model (VitisAI)
+follow the same non-quantized-only rule on NPU. The runner writes one
+`eval_result.json` per `(model, task, precision)` containing facts only (perf
+output + the winml-eval `metrics`/`dataset`).
 Delta/verdict grading against the PyTorch baseline is done by the report site.
 
 ```bash
@@ -108,7 +109,7 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 | `--registry` | `testsets/models_all.json` | Model registry file |
 | `--hf-model` | — | Single model (overrides registry) |
 | `--output-dir` | `eval_results/{date}` | Output directory |
-| `--recipes-dir` | `examples/recipes` | Authored recipe configs. NPU builds every precision variant (`winml config` `w8a8`+`w8a16` fallback when a model has none); CPU/GPU build only the non-quantized variants (e.g. `fp16`), else a `winml config` fallback |
+| `--recipes-dir` | `examples/recipes` | Authored recipe configs. NPU builds every precision variant (`winml config` `w8a8`+`w8a16` fallback when a model has none); CPU/GPU (and unquantized-track EPs like VitisAI) build only the non-quantized variants (e.g. `fp16`), else a `winml config` fallback |
 | `--no-recipes` | off | Ignore recipes; build every model via `winml config` (on NPU still expands the `w8a8`+`w8a16` fallback) |
 | `--eval-type` | `perf` | `perf`, `accuracy`, or `both` (perf-gated accuracy) |
 | `--task` | — | Filter by HF task |

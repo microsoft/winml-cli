@@ -908,6 +908,30 @@ class TestBuildJobs:
         assert jobs[0].variant is None
         assert jobs[0].precision is None
 
+    def test_npu_skip_quant_ep_drops_quantized_recipe_variants(self, run_eval, tmp_path):
+        # A skip-quant EP is evaluated on the unquantized model, so an authored
+        # quantized recipe (which bakes its own quant section that --no-quant
+        # cannot override) must not be scheduled even on NPU.
+        self._make_single_recipe(
+            tmp_path, "microsoft_resnet-50", "image-classification", ["fp16", "w8a16"]
+        )
+        entry = _entry()
+        jobs = run_eval._build_jobs([entry], tmp_path, "npu", ep="vitisai")
+        assert [j.precision for j in jobs] == ["fp16"]
+        assert jobs[0].variant is not None
+
+    def test_npu_skip_quant_ep_recipe_only_quantized_falls_back(self, run_eval, tmp_path):
+        # Dropping every quantized variant leaves nothing to build, so the model
+        # goes through the single unquantized winml-config fallback.
+        self._make_single_recipe(
+            tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"]
+        )
+        entry = _entry()
+        jobs = run_eval._build_jobs([entry], tmp_path, "npu", ep="vitisai")
+        assert len(jobs) == 1
+        assert jobs[0].variant is None
+        assert jobs[0].precision is None
+
     def test_non_npu_no_recipe_single_fallback(self, run_eval, tmp_path):
         entry = _entry("some/model", "text-classification")
         jobs = run_eval._build_jobs([entry], tmp_path, "cpu")
