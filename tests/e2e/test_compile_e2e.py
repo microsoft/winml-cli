@@ -43,7 +43,7 @@ import pytest
 from click.testing import CliRunner
 from onnx import TensorProto, helper
 
-from tests.e2e.require_ep import require_ep, require_not_ep, require_qnn_accelerator_device
+from tests.e2e.require_ep import require_ep, require_not_ep
 from winml.modelkit.commands.compile import compile as compile_cmd
 from winml.modelkit.onnx import is_compiled_onnx
 from winml.modelkit.utils import normalize_ep_name
@@ -502,7 +502,7 @@ class TestProcessExitCleanup:
         tmp_path: Path,
     ) -> None:
         """Compile+validate in a subprocess exits 0 after native sessions are released."""
-        _provider, device = require_qnn_accelerator_device()
+        require_ep("qnn", device="npu")
 
         out = tmp_path / "validated_process_exit.onnx"
         proc = _run_winml_cli_subprocess(
@@ -513,7 +513,7 @@ class TestProcessExitCleanup:
                 "--ep",
                 "qnn",
                 "--device",
-                device,
+                "npu",
                 "--validate",
                 "-o",
                 str(out),

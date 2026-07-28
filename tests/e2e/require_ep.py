@@ -144,35 +144,6 @@ def require_ep(ep: str, *, device: str | None = None) -> str:
     return provider
 
 
-def require_qnn_accelerator_device() -> tuple[str, str]:
-    """Skip unless QNN is available on a policy-supported accelerator device.
-
-    Returns:
-        ``("QNNExecutionProvider", device)`` where ``device`` is ``"npu"`` or
-        ``"gpu"``, following the shared policy order.
-    """
-    from winml.modelkit.ep_path import EP_CATALOG
-    from winml.modelkit.utils import normalize_ep_name
-    from winml.modelkit.utils.constants import EP_SUPPORTED_DEVICES
-
-    provider = normalize_ep_name("qnn")
-    if provider is None:
-        pytest.skip("Unknown EP: 'qnn'")
-
-    try:
-        if not EP_CATALOG.is_compatible(provider):
-            pytest.skip(f"EP is not compatible with this host: {provider}")
-    except RuntimeError as e:
-        pytest.skip(f"Unable to determine EP compatibility for {provider}: {e}")
-
-    registered_devices = _registered_device_types(provider)
-    for device in EP_SUPPORTED_DEVICES[provider]:
-        if device in {"npu", "gpu"} and device in registered_devices:
-            return provider, device
-
-    return pytest.skip(f"EP not available on a policy-supported accelerator device: {provider}")
-
-
 def require_device(device: str) -> None:
     """Skip the current test unless any registered EP exposes ``device``."""
     from winml.modelkit.session import WinMLEPRegistry

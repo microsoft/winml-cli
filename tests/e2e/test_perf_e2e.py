@@ -39,7 +39,7 @@ import onnx
 import pytest
 from click.testing import CliRunner
 
-from tests.e2e.require_ep import require_device, require_ep, require_qnn_accelerator_device
+from tests.e2e.require_ep import require_device, require_ep
 from winml.modelkit.commands.perf import perf
 from winml.modelkit.utils.constants import EP_ALIASES
 
@@ -616,7 +616,7 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
         onnx_model_path: Path,
     ) -> None:
         """A successful QNN perf subprocess exits cleanly after releasing ORT sessions."""
-        qnn_provider, device = require_qnn_accelerator_device()
+        qnn_provider = require_ep("qnn", device="npu")
         output_file = tmp_path / "perf_qnn_process_exit.json"
 
         proc = _run_winml_cli_subprocess(
@@ -627,7 +627,7 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
                 "--ep",
                 "qnn",
                 "--device",
-                device,
+                "npu",
                 "--iterations",
                 "1",
                 "--warmup",
@@ -641,7 +641,7 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
         assert proc.returncode == 0, f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
         data = json.loads(output_file.read_text(encoding="utf-8"))
         assert data["benchmark_info"]["ep"] == qnn_provider
-        assert data["benchmark_info"]["device"] == device
+        assert data["benchmark_info"]["device"] == "npu"
         assert data["latency_ms"]["mean"] > 0
 
 
