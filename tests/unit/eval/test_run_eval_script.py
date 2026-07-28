@@ -441,6 +441,119 @@ class TestRunBuildPrecisionForwarding:
         assert "--precision" not in build_call, build_call
 
 
+class TestPrecisionFromBuildConfig:
+    """``_precision_from_build_config`` reads back what ``winml config`` resolved."""
+
+    def _write(self, tmp_path, cfg):
+        path = tmp_path / "build_config.json"
+        path.write_text(json.dumps(cfg), encoding="utf-8")
+        return path
+
+    def test_missing_quant_section_is_fp32(self, run_eval, tmp_path):
+        # No quant stage and no fp16 conversion: the graph stays fp32. Both the
+        # explicit null and an omitted key mean the same thing.
+        assert run_eval._precision_from_build_config(self._write(tmp_path, {})) == "fp32"
+        assert (
+            run_eval._precision_from_build_config(self._write(tmp_path, {"quant": None})) == "fp32"
+        )
+
+    @pytest.mark.parametrize(
+        ("weight_type", "activation_type", "expected"),
+        [
+            ("uint8", "uint16", "w8a16"),
+            ("uint8", "uint8", "w8a8"),
+            ("int8", "int16", "w8a16"),
+        ],
+    )
+    def test_qdq_types_map_to_precision(
+        self, run_eval, tmp_path, weight_type, activation_type, expected
+    ):
+        cfg = {
+            "quant": {
+                "mode": "qdq",
+                "weight_type": weight_type,
+                "activation_type": activation_type,
+            }
+        }
+        assert run_eval._precision_from_build_config(self._write(tmp_path, cfg)) == expected
+
+    def test_fp16_mode(self, run_eval, tmp_path):
+        cfg = {"quant": {"mode": "fp16", "weight_type": None, "activation_type": None}}
+        assert run_eval._precision_from_build_config(self._write(tmp_path, cfg)) == "fp16"
+
+    def test_rtn_mode_uses_bits(self, run_eval, tmp_path):
+        cfg = {"quant": {"mode": "rtn", "rtn_bits": 4}}
+        assert run_eval._precision_from_build_config(self._write(tmp_path, cfg)) == "int4"
+
+    def test_unrecognised_quant_shape_is_none(self, run_eval, tmp_path):
+        cfg = {"quant": {"mode": "qdq", "weight_type": "float8", "activation_type": None}}
+        assert run_eval._precision_from_build_config(self._write(tmp_path, cfg)) is None
+
+    def test_unreadable_config_is_none(self, run_eval, tmp_path):
+        missing = tmp_path / "nope.json"
+        assert run_eval._precision_from_build_config(missing) is None
+        broken = tmp_path / "broken.json"
+        broken.write_text("{not json", encoding="utf-8")
+        assert run_eval._precision_from_build_config(broken) is None
+
+
+class TestRunBuildReportsEffectivePrecision:
+    """``_run_build`` reports the precision the build actually applied.
+
+    A fallback job may pin no precision (CPU/GPU, or ``--device auto``), yet
+    ``winml config`` still resolves ``auto`` to a device default -- w8a16 on NPU.
+    Returning None there let the recorded result claim "no precision", which the
+    downstream reports render as an unquantized run.
+    """
+
+    @staticmethod
+    def _make_entry():
+        entry = MagicMock()
+        entry.hf_id = "google-bert/bert-base-uncased"
+        entry.task = "text-classification"
+        entry.perf_args = []
+        return entry
+
+    def _invoke(self, run_eval, tmp_path, precision, quant):
+        def fake_subprocess(args, _timeout):
+            if "config" in args:
+                (tmp_path / "build_config.json").write_text(
+                    json.dumps({"quant": quant}), encoding="utf-8"
+                )
+                stdout = ""
+            else:
+                stdout = "Build cache: model.onnx"
+            return {
+                "exit_code": 0,
+                "stdout": stdout,
+                "stderr": "",
+                "elapsed": 0.1,
+                "command": " ".join(args),
+            }
+
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=fake_subprocess),
+            patch.object(run_eval, "_extract_onnx_path", return_value=str(tmp_path / "model.onnx")),
+        ):
+            return run_eval._run_build(
+                self._make_entry(), "npu", precision, 300, tmp_path, ep="qnn"
+            )
+
+    def test_pinned_precision_is_reported(self, run_eval, tmp_path):
+        quant = {"mode": "qdq", "weight_type": "uint8", "activation_type": "uint8"}
+        result = self._invoke(run_eval, tmp_path, "w8a8", quant)
+        assert result["precision"] == "w8a8"
+
+    def test_auto_resolved_precision_is_read_from_config(self, run_eval, tmp_path):
+        quant = {"mode": "qdq", "weight_type": "uint8", "activation_type": "uint16"}
+        result = self._invoke(run_eval, tmp_path, None, quant)
+        assert result["precision"] == "w8a16"
+
+    def test_unquantized_config_reports_fp32(self, run_eval, tmp_path):
+        result = self._invoke(run_eval, tmp_path, None, None)
+        assert result["precision"] == "fp32"
+
+
 class TestFeedVersionForCombo:
     """``_feed_version_for`` embeds the EP/device combo after the run-stamp."""
 
@@ -1069,6 +1182,17 @@ class TestRunRecipeBuild:
             result = run_eval._run_recipe_build(_entry(), variant, 300, tmp_path / "o")
         assert result["success"] is False
         assert result["stage"] == "build"
+
+    def test_reports_variant_precision(self, run_eval, tmp_path):
+        # The authored recipe is the source of truth for its precision, so the
+        # build reports it for the recorded result (same contract as _run_build).
+        variant = self._variant(run_eval, tmp_path, composite=False)
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=self._fake_subprocess([])),
+            patch.object(run_eval, "_extract_onnx_path", side_effect=lambda *a: "m.onnx"),
+        ):
+            result = run_eval._run_recipe_build(_entry(), variant, 300, tmp_path / "o")
+        assert result["precision"] == variant.precision == "fp16"
 
 
 class TestRunWinmlEvalRecipePath:
