@@ -21,11 +21,10 @@ import logging
 from typing import Any
 
 from optimum.exporters.onnx.model_configs import LayoutLMOnnxConfig
-from optimum.utils import NormalizedTextConfig
-from optimum.utils.input_generators import DummyBboxInputGenerator, DummyVisionInputGenerator
+from optimum.utils.input_generators import DummyTextInputGenerator
 from transformers import AutoModelForDocumentQuestionAnswering
 
-from ...export import MaxLengthTextInputGenerator, register_onnx_overwrite
+from ...export import register_onnx_overwrite
 
 
 logger = logging.getLogger(__name__)
@@ -85,7 +84,7 @@ def _adjust_roberta_position_embeddings(config: Any) -> None:
     )
 
 
-class LayoutLMTextInputGenerator(MaxLengthTextInputGenerator):
+class LayoutLMTextInputGenerator(DummyTextInputGenerator):  # type: ignore[misc]
     """Generate LayoutLM dummy text inputs with safe token-type IDs.
 
     LayoutLM checkpoints commonly set ``type_vocab_size=1``, so token-type
@@ -100,17 +99,18 @@ class LayoutLMTextInputGenerator(MaxLengthTextInputGenerator):
         float_dtype: str = "fp32",
     ) -> Any:
         """Generate a safe tensor for ``input_name``."""
-        tensor = super().generate(
-            input_name,
-            framework=framework,
-            int_dtype=int_dtype,
-            float_dtype=float_dtype,
-        )
         if input_name != "token_type_ids":
-            return tensor
-        # Most LayoutLM v1 checkpoints use type_vocab_size=1, so token types
-        # must stay zero to avoid embedding gather OOB during perf/build probes.
-        return tensor.new_zeros(tensor.shape)
+            return super().generate(input_name, framework, int_dtype, float_dtype)
+
+        type_vocab_size = max(1, int(self.normalized_config.type_vocab_size))
+        shape = [self.batch_size, self.sequence_length]
+        return self.random_int_tensor(
+            shape,
+            max_value=type_vocab_size,
+            min_value=0,
+            framework=framework,
+            dtype=int_dtype,
+        )
 
 
 @register_onnx_overwrite("layoutlm", "document-question-answering", library_name="transformers")
@@ -122,17 +122,9 @@ class LayoutLMDocumentQAOnnxConfig(LayoutLMOnnxConfig):  # type: ignore[misc]
     tensors returned by ``LayoutLMForQuestionAnswering``.
     """
 
-    # Bind sequence length to config.max_position_embeddings so max-length
-    # dummy generation is valid for full-size parity/perf probes.
-    NORMALIZED_CONFIG_CLASS = NormalizedTextConfig.with_args(
-        sequence_length="max_position_embeddings",
-        allow_new=True,
-    )
-
-    DUMMY_INPUT_GENERATOR_CLASSES: tuple[type[Any], ...] = (
+    DUMMY_INPUT_GENERATOR_CLASSES = (
         LayoutLMTextInputGenerator,
-        DummyVisionInputGenerator,
-        DummyBboxInputGenerator,
+        *LayoutLMOnnxConfig.DUMMY_INPUT_GENERATOR_CLASSES[1:],
     )
 
     def __init__(self, config: Any, task: str, **kwargs: Any) -> None:
