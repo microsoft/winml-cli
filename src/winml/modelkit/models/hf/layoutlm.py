@@ -86,14 +86,11 @@ def _adjust_roberta_position_embeddings(config: Any) -> None:
 
 
 class LayoutLMTextInputGenerator(MaxLengthTextInputGenerator):
-    """Generate token types within the checkpoint's configured vocabulary.
+    """Generate LayoutLM dummy text inputs with safe token-type IDs.
 
-    Optimum's generic text generator samples token-type IDs from ``[0, 2)``.
-    LayoutLM checkpoints commonly set ``type_vocab_size=1``, where sampling 1
-    causes an embedding Gather out of bounds. Derive the exclusive upper bound
-    from config metadata instead.
+    LayoutLM checkpoints commonly set ``type_vocab_size=1``, so token-type
+    values must remain zero to avoid embedding gather out-of-bounds.
     """
->>>>>>> e65450dc (feat(layoutlm): add document question answering support)
 
     def generate(
         self,
