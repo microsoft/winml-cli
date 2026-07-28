@@ -53,6 +53,24 @@ class _FakeReadyState:
         self.name = name
 
 
+class _FakeReadyOp:
+    """Mimic the async op handle returned by ``ensure_ready_async``."""
+
+    def __init__(self) -> None:
+        self.get_status_calls = 0
+        self.cancel_calls = 0
+        self.close_calls = 0
+
+    def get_status(self) -> None:
+        self.get_status_calls += 1
+
+    def cancel(self) -> None:
+        self.cancel_calls += 1
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
 class _FakeProvider:
     """Mimic a ``windowsml`` execution-provider row."""
 
@@ -63,18 +81,37 @@ class _FakeProvider:
         library_path: str,
         *,
         ensure_ready_raises: Exception | None = None,
+        becomes_ready: bool = True,
+        version: str = "",
+        package_family_name: str = "",
     ) -> None:
         self.name = name
         self.ready_state = _FakeReadyState(ready_state)
         self.library_path = library_path
         self.ensure_ready_calls = 0
         self._ensure_ready_raises = ensure_ready_raises
+        self._becomes_ready = becomes_ready
+        self.version = version
+        self.package_family_name = package_family_name
 
-    def ensure_ready(self) -> None:
+    def ensure_ready_async(
+        self,
+        on_complete: Any = None,
+        on_progress: Any = None,
+    ) -> _FakeReadyOp:
+        # The cold download path: drive a progress callback, (optionally) flip
+        # to Ready, then signal completion — mirroring the real windowsml
+        # async contract that ``_ensure_provider_ready`` consumes.
         self.ensure_ready_calls += 1
         if self._ensure_ready_raises is not None:
             raise self._ensure_ready_raises
-        self.ready_state = _FakeReadyState("Ready")
+        if on_progress is not None:
+            on_progress(1.0)
+        if self._becomes_ready:
+            self.ready_state = _FakeReadyState("Ready")
+        if on_complete is not None:
+            on_complete()
+        return _FakeReadyOp()
 
 
 class _FakeCatalog:
@@ -348,14 +385,24 @@ class TestWithFakeCatalog:
         tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        # Provider whose ensure_ready() is called but doesn't become Ready.
+        # Provider whose download completes but never flips to Ready.
         class _StuckProvider:
             name = "VitisAI"
             ready_state = _FakeReadyState("NotReady")
             library_path = str(tmp_path / "v.dll")
+            version = ""
+            package_family_name = ""
 
-            def ensure_ready(self) -> None:
-                pass  # intentionally does NOT update ready_state
+            def ensure_ready_async(
+                self, on_complete: Any = None, on_progress: Any = None
+            ) -> _FakeReadyOp:
+                # Completes the async op but intentionally does NOT update
+                # ready_state, so the caller must warn-and-skip.
+                if on_progress is not None:
+                    on_progress(1.0)
+                if on_complete is not None:
+                    on_complete()
+                return _FakeReadyOp()
 
         catalog = _FakeCatalog([_StuckProvider()])  # type: ignore[list-item]
         _install_windowsml_module(monkeypatch, catalog)
@@ -437,7 +484,7 @@ class TestWithFakeCatalog:
 
 
 # ---------------------------------------------------------------------------
-# Readiness and lifecycle expectations (new synchronous API).
+# Readiness and lifecycle expectations (async progress-driven download API).
 # ---------------------------------------------------------------------------
 
 
