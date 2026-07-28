@@ -23,7 +23,12 @@ from ..session import (
 
 # New session selection stays on EP_DEVICE_SPECS; this legacy build-policy
 # surface intentionally keeps using EP_SUPPORTED_DEVICES for compatibility.
-from ..utils.constants import EP_SUPPORTED_DEVICES, EPNameOrAlias, normalize_ep_name
+from ..utils.constants import (
+    EP_SUPPORTED_DEVICES,
+    EPS_WITH_INTERNAL_QUANT,
+    EPNameOrAlias,
+    normalize_ep_name,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -310,9 +315,15 @@ class PrecisionPolicy:
     Attributes:
         device: Concrete device: "npu", "gpu", or "cpu".
         precision: Resolved precision string (e.g., "int8", "w8a16", "fp16").
+            Stays ``"auto"`` when ``skip_quantization`` is set — winml made no
+            precision choice, the EP decides.
         weight_type: Quantization weight type, or None for fp32/fp16.
         activation_type: Quantization activation type, or None for fp32/fp16.
         compile_provider: Short EP name (e.g. "qnn", "dml") or None for CPU.
+        skip_quantization: True when the build must run no quantization stage at
+            all, i.e. apply exactly what ``--no-quant`` does (``quant = None``).
+            Set for EPs that quantize internally (:data:`EPS_WITH_INTERNAL_QUANT`).
+            Callers must honor this BEFORE inspecting ``precision``.
     """
 
     device: str
@@ -320,6 +331,7 @@ class PrecisionPolicy:
     weight_type: QuantType | None
     activation_type: QuantType | None
     compile_provider: str | None
+    skip_quantization: bool = False
 
 
 def resolve_precision(
@@ -410,16 +422,36 @@ def resolve_precision(
         )
 
     # Resolve "auto" precision for the resolved device
+    skip_quantization = False
     if resolved_precision == "auto":
-        resolved_precision = _AUTO_PRECISION[resolved_device]
-
-        # GPU + LLM: warn about w4a16 recommendation
-        if resolved_device == "gpu" and task in _LLM_TASKS:
+        if ep in EPS_WITH_INTERNAL_QUANT:
+            # This EP applies its own quantization scheme and cannot consume a
+            # winml-produced QDQ graph, so make no precision choice at all and
+            # tell the caller to skip the quantization stage (what --no-quant
+            # does). Leaving precision as "auto" keeps the config honest: winml
+            # picked nothing, the EP decides.
+            skip_quantization = True
             logger.warning(
-                "GPU + LLM task '%s': auto-precision is fp32 (no conversion). "
-                "For better performance, consider w4a16 quantization manually.",
-                task,
+                "EP '%s' quantizes internally, so winml is skipping its own "
+                "quantization stage (equivalent to --no-quant) instead of applying "
+                "the '%s' default for device '%s'. This EP therefore behaves "
+                "differently from the others: the artifact stays unquantized and "
+                "the accelerator applies its own scheme at load time. "
+                "Pass --precision explicitly to force a winml quantization pass.",
+                ep,
+                _AUTO_PRECISION[resolved_device],
+                resolved_device,
             )
+        else:
+            resolved_precision = _AUTO_PRECISION[resolved_device]
+
+            # GPU + LLM: warn about w4a16 recommendation
+            if resolved_device == "gpu" and task in _LLM_TASKS:
+                logger.warning(
+                    "GPU + LLM task '%s': auto-precision is fp32 (no conversion). "
+                    "For better performance, consider w4a16 quantization manually.",
+                    task,
+                )
 
     # EP override takes precedence over device→provider mapping. The policy
     # contract uses short aliases, with CPU represented as no offline compiler.
@@ -446,6 +478,7 @@ def resolve_precision(
         weight_type=weight_type,
         activation_type=activation_type,
         compile_provider=compile_provider,
+        skip_quantization=skip_quantization,
     )
 
 

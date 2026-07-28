@@ -256,7 +256,7 @@ class TestCompositeOnnxRegistry:
 
 class TestRunBuildNoQuantInjection:
     """``_run_build`` must append ``--no-quant`` to both winml config and
-    winml build invocations when the EP is in ``_EPS_SKIP_WINML_QUANT``.
+    winml build invocations when the EP quantizes internally (``EPS_WITH_INTERNAL_QUANT``).
     """
 
     @staticmethod

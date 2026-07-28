@@ -14,7 +14,7 @@ and a recipe-less NPU model falls back to ``winml config`` expanded into ``w8a8`
 + ``w8a16`` jobs (an explicit per-model precision overrides this). CPU/GPU build
 only the non-quantized recipe variants (e.g. ``fp16``), or a single ``winml
 config`` fallback when a model has no applicable recipe. EPs that are evaluated
-unquantized (see ``_EPS_SKIP_WINML_QUANT``) follow the same non-quantized-only
+unquantized (see ``_should_skip_winml_quant``) follow the same non-quantized-only
 rule even on NPU.
 
 The runner records facts only (perf output + the winml-eval metrics/dataset).
@@ -104,19 +104,15 @@ _DEFAULT_PRECISION_NPU = "w8a16"
 _NPU_FALLBACK_PRECISIONS: tuple[str, ...] = ("w8a8", "w8a16")
 
 # EPs whose eval track keeps the model unquantized (the "fp" variant)
-# rather than running winml's QDQ pass on top.  This is an eval-setup
-# choice -- e.g. VitisAI / AMD Ryzen AI is benchmarked on the fp32/fp16
-# model -- not a claim about the EP's internal pipeline.  For these EPs
-# the harness passes ``--no-quant`` to both ``winml config`` and
-# ``winml build`` (see :func:`_run_build` and :func:`run_model`) and skips
-# authored quantized recipe variants (see :func:`_build_jobs`), which carry
-# their own ``quant`` section that ``--no-quant`` cannot override.
-#
-# Entries are canonical ``EPName`` values (the ``*ExecutionProvider`` form);
-# user-facing aliases like ``vitisai`` are normalised via
-# ``normalize_ep_name`` in :func:`_should_skip_winml_quant` so each EP only
-# needs to be listed once.
-_EPS_SKIP_WINML_QUANT = frozenset({"VitisAIExecutionProvider"})
+# rather than running winml's QDQ pass on top.  The EP list itself is the
+# product-level policy constant ``EPS_WITH_INTERNAL_QUANT`` -- e.g. VitisAI /
+# AMD Ryzen AI quantizes internally (XINT8) and aborts inside xir when handed a
+# winml-produced QDQ graph.  ``winml config`` / ``winml build`` already fall
+# back to the unquantized track for these EPs on their own; the harness still
+# passes ``--no-quant`` explicitly (see :func:`_run_build` and
+# :func:`run_model`) and additionally skips authored quantized recipe variants
+# (see :func:`_build_jobs`), which carry their own ``quant`` section that
+# ``--no-quant`` cannot override.
 
 
 def _should_skip_winml_quant(ep: str | None) -> bool:
@@ -124,9 +120,9 @@ def _should_skip_winml_quant(ep: str | None) -> bool:
     # Lazy import: keeps ``scripts/e2e_eval`` cheap to load (winml.modelkit
     # transitively imports onnxruntime) and matches the existing in-function
     # import pattern used elsewhere in this script.
-    from winml.modelkit.utils.constants import normalize_ep_name
+    from winml.modelkit.utils.constants import EPS_WITH_INTERNAL_QUANT, normalize_ep_name
 
-    return normalize_ep_name(ep) in _EPS_SKIP_WINML_QUANT
+    return normalize_ep_name(ep) in EPS_WITH_INTERNAL_QUANT
 
 
 def _resolve_precision(device: str, explicit: str | None, ep: str | None = None) -> str | None:
@@ -138,7 +134,8 @@ def _resolve_precision(device: str, explicit: str | None, ep: str | None = None)
     (NHWC layout transformer inserts Conv nodes that QNN GPU's GetCapability
     does not claim).
 
-    For EPs in :data:`_EPS_SKIP_WINML_QUANT` (e.g. VitisAI) the flag is forced
+    For EPs matched by :func:`_should_skip_winml_quant` (e.g. VitisAI) the flag
+    is forced
     off regardless of ``explicit``: the harness pairs these EPs with
     ``--no-quant`` at config/build time, so a non-empty ``--precision`` would
     produce a config that says "quantize to X" while the build says "skip
@@ -632,7 +629,7 @@ def _run_build(
         config_args += ["--task", entry.task]
     if ep:
         config_args += ["--ep", ep]
-    # EPs in _EPS_SKIP_WINML_QUANT are evaluated on the unquantized variant.
+    # Internal-quant EPs are evaluated on the unquantized variant.
     # Pass --no-quant to winml config so the generated build_config.json is
     # written with quant=None up-front; otherwise on NPU the config command
     # would still apply its default precision (w8a16) and we'd be relying on
@@ -690,7 +687,7 @@ def _run_build(
             build_args += ["--ep", ep]
         # Mirror the --no-quant passed to winml config above so the build
         # stage also skips QDQ regardless of what the config carries (defence
-        # in depth; see _EPS_SKIP_WINML_QUANT for the rationale).
+        # in depth; see _should_skip_winml_quant for the rationale).
         if _should_skip_winml_quant(ep):
             build_args += ["--no-quant"]
 
