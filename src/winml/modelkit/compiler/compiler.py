@@ -164,6 +164,8 @@ class Compiler:
             # so the next model in a shared-context run reuses the same EP + group.
             self.shared_session_options = context.shared_session_options
             self.n_compiled_models += 1
+            if self.n_compiled_models >= self.n_total_models:
+                self.shared_session_options = None
 
             # Build result
             total_time = time.time() - start_time
