@@ -139,15 +139,19 @@ class WinMLTextGenerationEvaluator(WinMLEvaluator):
 
         Perplexity needs a coherent corpus, so rows are consumed in dataset
         order (no shuffle) and concatenated with blank lines. Iteration stops as
-        soon as enough rows to cover ``num_tokens`` have been collected. The
-        ``streaming`` flag only controls how the split is fetched (streamed vs
-        downloaded once and cached); either way the same in-order prefix is read,
-        so the resulting token stream is identical.
+        soon as enough rows to cover ``num_tokens`` have been collected. A local
+        directory produced by ``Dataset.save_to_disk`` is opened with
+        ``load_from_disk``; otherwise the split is fetched via ``load_dataset``.
+        The ``streaming`` flag only controls how a hub split is fetched (streamed
+        vs downloaded once and cached); either way the same in-order prefix is
+        read, so the resulting token stream is identical.
 
         Uses the model's own tokenizer (``model.encode``) so the token stream
         matches the model under test exactly.
         """
-        from datasets import load_dataset
+        from pathlib import Path
+
+        from datasets import load_dataset, load_from_disk
 
         from ..utils.eval_utils import get_default
 
@@ -156,13 +160,17 @@ class WinMLTextGenerationEvaluator(WinMLEvaluator):
         column = ds_config.columns_mapping.get(
             "input_column", get_default(self._TASK, "input_column")
         )
-        dataset = load_dataset(
-            ds_config.path,
-            name=ds_config.name,
-            split=ds_config.split,
-            revision=ds_config.revision,
-            streaming=ds_config.streaming,
-        )
+        ds_path = Path(ds_config.path).expanduser() if ds_config.path else None
+        if ds_path and ds_path.is_dir():
+            dataset = load_from_disk(str(ds_path))
+        else:
+            dataset = load_dataset(
+                ds_config.path,
+                name=ds_config.name,
+                split=ds_config.split,
+                revision=ds_config.revision,
+                streaming=ds_config.streaming,
+            )
         if column not in (dataset.column_names or [column]):
             raise ValueError(
                 f"Dataset '{ds_config.path}' has no column '{column}'; "

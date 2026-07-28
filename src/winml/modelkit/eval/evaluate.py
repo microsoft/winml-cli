@@ -339,7 +339,6 @@ def _load_genai_causal_lm(config: WinMLEvaluationConfig) -> WinMLGenaiCausalLM:
         bundle_dir,
         config.ep,
         device=config.device,
-        compile=False,
     )
 
 
