@@ -327,6 +327,32 @@ class TestEvalHelp:
         assert "requires --model-id" in result.output
         assert "role=path" in result.output
 
+    def test_help_mentions_input_data(self, runner: CliRunner):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(eval_cmd, ["--help"])
+
+        assert result.exit_code == 0, result.output
+        assert "--input-data" in result.output
+
+
+class TestInputDataModeGuard:
+    def test_input_data_requires_compare_mode(self, runner: CliRunner, onnx_file, tmp_path):
+        import numpy as np
+
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        npz = tmp_path / "inputs.npz"
+        np.savez(npz, x=np.zeros((1, 4), dtype=np.float32))
+
+        result = runner.invoke(
+            eval_cmd,
+            ["-m", str(onnx_file), "--input-data", str(npz)],
+            obj={"debug": False},
+        )
+        assert result.exit_code != 0
+        assert "--input-data is only valid with --mode compare" in result.output
+
 
 @pytest.fixture
 def eval_config_file(tmp_path):
