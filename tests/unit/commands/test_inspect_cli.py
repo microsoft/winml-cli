@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -275,18 +276,95 @@ class TestInspectFlagCombinations:
         self,
         runner: CliRunner,
         mock_inspect_result: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from winml.modelkit.commands.inspect import inspect
+        from winml.modelkit.commands import inspect as inspect_module
+
+        suppression_active = False
+        preload_called_under_suppression = False
+        original_suppress_native_stderr = inspect_module.suppress_native_stderr
+
+        @contextmanager
+        def _track_suppress_native_stderr(*args, **kwargs):
+            nonlocal suppression_active
+            with original_suppress_native_stderr(*args, **kwargs):
+                suppression_active = kwargs.get("enabled", True)
+                try:
+                    yield
+                finally:
+                    suppression_active = False
+
+        def _preload_dependencies():
+            nonlocal preload_called_under_suppression
+            preload_called_under_suppression = suppression_active
+
+        monkeypatch.setattr(inspect_module, "suppress_native_stderr", _track_suppress_native_stderr)
+        monkeypatch.setattr(
+            inspect_module,
+            "_load_inspect_model_v2_dependencies",
+            _preload_dependencies,
+        )
 
         with (
             patch(_INSPECT_MODEL, return_value=mock_inspect_result) as mock_api,
             patch(_OUTPUT_TABLE),
         ):
-            result = runner.invoke(inspect, ["-m", "test"], obj={})
+            result = runner.invoke(inspect_module.inspect, ["-m", "test"], obj={})
 
         assert result.exit_code == 0, f"Failed: {result.output}"
+        assert preload_called_under_suppression
         _, call_kwargs = mock_api.call_args
-        assert call_kwargs["suppress_native_stderr_output"] is True
+        assert call_kwargs["suppress_native_stderr_output"] is False
+
+    def test_default_inspection_does_not_suppress_status_stderr(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from winml.modelkit.commands import inspect as inspect_module
+
+        status_active = False
+        native_suppressed_while_status_active = False
+        original_suppress_native_stderr = inspect_module.suppress_native_stderr
+
+        @contextmanager
+        def _track_suppress_native_stderr(*args, **kwargs):
+            nonlocal native_suppressed_while_status_active
+            enabled = kwargs.get("enabled", True)
+            if enabled and status_active:
+                native_suppressed_while_status_active = True
+            with original_suppress_native_stderr(*args, **kwargs):
+                yield
+
+        class _Status:
+            def __enter__(self):
+                nonlocal status_active
+                status_active = True
+
+            def __exit__(self, exc_type, exc, traceback):
+                nonlocal status_active
+                status_active = False
+                return False
+
+        class _StderrConsole:
+            def print(self, *args, **kwargs):
+                pass
+
+            def status(self, *args, **kwargs):
+                return _Status()
+
+        monkeypatch.setattr(inspect_module, "_stderr_console", _StderrConsole())
+        monkeypatch.setattr(inspect_module, "suppress_native_stderr", _track_suppress_native_stderr)
+
+        with patch(_OUTPUT_TABLE):
+            result = runner.invoke(
+                inspect_module.inspect,
+                ["--model-type", "bert", "--task", "fill-mask"],
+                obj={},
+            )
+
+        assert result.exit_code == 0, f"Failed: {result.output}"
+        assert not native_suppressed_while_status_active
 
     def test_default_inspection_suppresses_huggingface_warning_logs(
         self,

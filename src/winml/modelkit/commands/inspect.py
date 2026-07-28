@@ -16,6 +16,7 @@ Usage:
 
 from __future__ import annotations
 
+import importlib
 import logging
 from typing import TYPE_CHECKING
 
@@ -297,6 +298,8 @@ def inspect(
             from ..inspect import InspectError, ModelNotFoundError, NetworkError
             from ..inspect.formatter import output_json, output_table
 
+            _load_inspect_model_v2_dependencies()
+
         try:
             if quiet or json_mode:
                 result = _inspect_model_v2(
@@ -305,7 +308,7 @@ def inspect(
                     model_type_override=model_type,
                     model_class_override=model_class,
                     include_hierarchy=hierarchy,
-                    suppress_native_stderr_output=suppress_third_party_stderr,
+                    suppress_native_stderr_output=False,
                 )
             else:
                 with _stderr_console.status(
@@ -318,7 +321,7 @@ def inspect(
                         model_type_override=model_type,
                         model_class_override=model_class,
                         include_hierarchy=hierarchy,
-                        suppress_native_stderr_output=suppress_third_party_stderr,
+                        suppress_native_stderr_output=False,
                     )
 
             if output_format == "json":
@@ -338,6 +341,20 @@ def inspect(
         except (ValueError, RuntimeError, OSError) as e:
             logger.exception("Failed to inspect model")
             raise click.ClickException(f"Failed to inspect model: {e}") from e
+
+
+def _load_inspect_model_v2_dependencies() -> None:
+    """Preload inspect dependencies that can trigger native startup diagnostics."""
+    from transformers import AutoConfig as _AutoConfig  # noqa: F401
+
+    for module_name in (
+        "..export",
+        "..inspect",
+        "..inspect.formatter",
+        "..loader",
+        "..models",
+    ):
+        importlib.import_module(module_name, package=__package__)
 
 
 def _inspect_model_v2(
@@ -361,33 +378,35 @@ def _inspect_model_v2(
         InspectResult dataclass
     """
     with suppress_native_stderr(enabled=suppress_native_stderr_output):
-        import functools
+        _load_inspect_model_v2_dependencies()
 
-        from transformers import AutoConfig
+    import functools
 
-        from ..export import resolve_io_specs
-        from ..inspect import (
-            ExporterInfo,
-            InspectError,
-            InspectResult,
-            LoaderInfo,
-            ModelNotFoundError,
-            NetworkError,
-            SupportLevel,
-            TensorInfo,
-            build_tensor_infos_from_io_specs,
-            compile_support_status,
-            resolve_cache,
-            resolve_composite_info,
-            resolve_io_config,
-            resolve_processor,
-            resolve_winml,
-        )
-        from ..loader import HF_TASK_DEFAULTS, load_hf_config, resolve_loader_config
-        from ..models import (
-            HF_MODEL_CLASS_MAPPING,
-            MODEL_BUILD_CONFIGS,
-        )
+    from transformers import AutoConfig
+
+    from ..export import resolve_io_specs
+    from ..inspect import (
+        ExporterInfo,
+        InspectError,
+        InspectResult,
+        LoaderInfo,
+        ModelNotFoundError,
+        NetworkError,
+        SupportLevel,
+        TensorInfo,
+        build_tensor_infos_from_io_specs,
+        compile_support_status,
+        resolve_cache,
+        resolve_composite_info,
+        resolve_io_config,
+        resolve_processor,
+        resolve_winml,
+    )
+    from ..loader import HF_TASK_DEFAULTS, load_hf_config, resolve_loader_config
+    from ..models import (
+        HF_MODEL_CLASS_MAPPING,
+        MODEL_BUILD_CONFIGS,
+    )
 
     # =========================================================================
     # STEP 1: Load parent hf_config once and feed it into resolve_loader_config
