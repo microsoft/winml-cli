@@ -195,6 +195,31 @@ class TestOpTracingTargetKey:
         entries = run_eval.load_registry(registry)
         assert entries[0].op_tracing_targets == ["QNNExecutionProvider_npu"]
 
+    def test_registry_normalizes_unsupported_targets_on_load(self, run_eval, tmp_path):
+        registry = tmp_path / "models.json"
+        registry.write_text(
+            json.dumps(
+                [
+                    {
+                        "hf_id": "acme/model",
+                        "task": "image-classification",
+                        "model_type": "vit",
+                        "group": "test",
+                        "priority": "P0",
+                        "unsupported_targets": ["qnn_gpu", "QNNExecutionProvider_npu"],
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        entries = run_eval.load_registry(registry)
+
+        assert entries[0].unsupported_targets == [
+            "QNNExecutionProvider_gpu",
+            "QNNExecutionProvider_npu",
+        ]
+
 
 class TestCompositeOnnxRegistry:
     def test_registry_preserves_composite_onnx(self, run_eval, tmp_path):
@@ -791,6 +816,93 @@ class TestAccuracyStatus:
         assert run_eval.accuracy_status({"winml_eval_status": "FAIL"}) == "FAIL"
 
 
+class TestListJson:
+    """Machine-readable orchestration output mirrors target filtering."""
+
+    def test_unsupported_target_is_not_written(self, run_eval, tmp_path):
+        out = tmp_path / "models.json"
+        entries = [
+            run_eval.ModelEntry(
+                hf_id="acme/unsupported",
+                task="feature-extraction",
+                model_type="clip",
+                group="test",
+                priority="P0",
+                unsupported_targets=["QNNExecutionProvider_gpu"],
+            ),
+            run_eval.ModelEntry(
+                hf_id="acme/supported",
+                task="feature-extraction",
+                model_type="bert",
+                group="test",
+                priority="P0",
+            ),
+        ]
+        args = argparse.Namespace(
+            hf_model=None,
+            registry=tmp_path / "registry.json",
+            task=None,
+            priority=None,
+            model_type=None,
+            group=None,
+            eval_type="perf",
+            list=False,
+            list_json=out,
+            continue_run=False,
+            retry_failed=None,
+            output_dir=None,
+            device="gpu",
+            ep="qnn",
+            update_baseline=False,
+        )
+
+        with (
+            patch.object(run_eval, "parse_args", return_value=args),
+            patch.object(run_eval, "load_registry", return_value=entries),
+            patch.object(run_eval, "register_from_registry"),
+            pytest.raises(SystemExit) as exit_info,
+        ):
+            run_eval.main()
+
+        assert exit_info.value.code == 0
+        model_list = json.loads(out.read_text(encoding="utf-8"))
+        assert [item["hf_id"] for item in model_list] == ["acme/supported"]
+
+
+class TestQuantizedPrecisionClassifier:
+    @pytest.mark.parametrize(
+        ("precision", "expected"),
+        [
+            ("auto", False),
+            ("fp16", False),
+            ("fp32", False),
+            ("int4", True),
+            ("int8", True),
+            ("int16", True),
+            ("w4a8", True),
+            ("w4a16", True),
+            ("w4a32", True),
+            ("w8a8", True),
+            ("w8a16", True),
+            ("w8a32", False),
+            ("w16a8", True),
+            ("w16a16", True),
+            ("w16a32", False),
+            ("w8a4", False),
+            ("w4a4", False),
+            ("w2a8", False),
+            ("garbage", False),
+            ("wXaY", False),
+            ("", False),
+            ("W8A16", True),
+            ("INT8", True),
+            ("w08a16", True),
+        ],
+    )
+    def test_matches_precision_policy_cases(self, run_eval, precision, expected):
+        assert run_eval._is_quantized_precision(precision) is expected
+
+
 class TestRecipeConfigHelpers:
     """Eval-section detection, meta-config pick, and trust-remote-code gate."""
 
@@ -871,9 +983,7 @@ class TestBuildJobs:
     def test_non_npu_recipe_only_quantized_falls_back(self, run_eval, tmp_path):
         # A recipe with no non-quantized variant leaves nothing to run off-NPU,
         # so the model builds a single winml-config fallback.
-        self._make_single_recipe(
-            tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"]
-        )
+        self._make_single_recipe(tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"])
         entry = _entry()
         jobs = run_eval._build_jobs([entry], tmp_path, "cpu")
         assert len(jobs) == 1
@@ -923,9 +1033,7 @@ class TestBuildJobs:
     def test_npu_skip_quant_ep_recipe_only_quantized_falls_back(self, run_eval, tmp_path):
         # Dropping every quantized variant leaves nothing to build, so the model
         # goes through the single unquantized winml-config fallback.
-        self._make_single_recipe(
-            tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"]
-        )
+        self._make_single_recipe(tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"])
         entry = _entry()
         jobs = run_eval._build_jobs([entry], tmp_path, "npu", ep="vitisai")
         assert len(jobs) == 1
@@ -954,6 +1062,28 @@ class TestBuildJobs:
         jobs = run_eval._build_jobs([entry], None, "cpu")
         assert len(jobs) == 1
         assert jobs[0].variant is None
+
+    def test_unsupported_target_is_not_scheduled(self, run_eval, tmp_path):
+        entry = _entry("some/model", "feature-extraction")
+        entry.unsupported_targets = ["QNNExecutionProvider_gpu"]
+
+        jobs = run_eval._build_jobs([entry], None, "gpu", ep="qnn")
+
+        assert jobs == []
+
+
+class TestExtractOnnxPath:
+    """``_extract_onnx_path`` understands Rich-wrapped final artifact output."""
+
+    def test_final_artifact_path_may_start_on_next_line(self, run_eval, tmp_path):
+        artifact = tmp_path / "mask_abc_model.onnx"
+        artifact.write_text("onnx", encoding="utf-8")
+        proc = {
+            "stdout": f"Build complete\n  Final artifact: \n{artifact}\n  Build config: x\n",
+            "stderr": "",
+        }
+
+        assert run_eval._extract_onnx_path(proc, "acme/model", "fill-mask") == str(artifact)
 
 
 class TestRunRecipeBuild:

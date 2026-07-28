@@ -39,7 +39,7 @@ from ...export import register_onnx_overwrite
 from ...optim import WinMLOptimizationConfig
 from ..winml.composite_model import register_composite_model
 from ..winml.encoder_decoder import EncoderDecoderInputGenerator, WinMLEncoderDecoderModel
-from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLSlidingWindowCache
+from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLStaticCache
 
 
 if TYPE_CHECKING:
@@ -87,31 +87,16 @@ class T5EncoderWrapper(nn.Module):
 
 
 class T5DecoderWrapper(nn.Module):
-    """Wraps T5ForConditionalGeneration with sliding-window KV cache I/O.
+    """Wraps T5ForConditionalGeneration with static KV cache I/O.
 
     Input: full buffer ``[batch, heads, max_decode, d_kv]`` per layer.
     Output: only the new token's KV ``[batch, heads, 1, d_kv]`` per layer.
 
-    Uses ``WinMLSlidingWindowCache`` (Slice+Concat eviction) wrapped in
-    ``EncoderDecoderCache`` (cross-attn empty → always recomputed from
-    ``encoder_hidden_states``).
-
-    ``cache_position`` is intentionally NOT an ONNX input — it is pinned to
-    ``[max_cache_len - 1]`` (the rightmost buffer slot) inside ``forward`` and
-    traced as a Constant.  For single-token generation with a sliding window,
-    the new token is always written to the rightmost slot, so this value is
-    invariant.  Baking it in lets ONNX constant-fold the entire
-    ``compute_bias`` subgraph (``memory_position - context_position`` is
-    constant → learned-bias Gather becomes a fixed tensor) and collapses the
-    causal mask ``kv_idx <= q_idx`` (all-True since ``q_idx == W-1``).
-
-    This couples the exported graph to sliding-window semantics at build
-    time.  ``WinMLStaticCache`` cannot be used as the *inference* cache for
-    this ONNX — its buffer layout (left-aligned, index_copy_) does not match
-    the graph's internal Slice+Concat.  Callers who want static-cache
-    semantics must subclass ``T5DecoderWrapper``, take ``cache_position`` as
-    an input again, and re-export.  ``WinMLStaticCache`` itself remains
-    fully functional for that path.
+    Uses ``WinMLStaticCache`` wrapped in ``EncoderDecoderCache``. Transformers
+    5.x derives T5 causal mask and relative position bias from
+    ``past_key_values.get_seq_length()`` instead of the now-deprecated
+    ``cache_position`` kwarg, so the wrapper stores the ONNX ``cache_position``
+    input on the cache before calling the HF model.
     """
 
     def __init__(self, model: nn.Module, num_layers: int) -> None:
@@ -125,7 +110,7 @@ class T5DecoderWrapper(nn.Module):
 
     @classmethod
     def from_pretrained(cls, model_name_or_path: str, **kwargs: Any) -> T5DecoderWrapper:
-        """Load full T5, wrap with sliding-window cache."""
+        """Load full T5, wrap with static cache."""
         full_model = T5ForConditionalGeneration.from_pretrained(model_name_or_path, **kwargs)
         num_layers = full_model.config.num_layers
         wrapper = cls(full_model, num_layers)
@@ -137,11 +122,11 @@ class T5DecoderWrapper(nn.Module):
         return tuple(inputs.values())
 
     def forward(self, *args: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        """Run decoder with sliding-window KV cache.
+        """Run decoder with static KV cache.
 
         Positional args (order matches OnnxConfig.inputs):
             decoder_input_ids, encoder_hidden_states, attention_mask,
-            decoder_attention_mask,
+            decoder_attention_mask, cache_position,
             past_0_key, past_0_value, past_1_key, past_1_value, ...
 
         Returns:
@@ -152,15 +137,14 @@ class T5DecoderWrapper(nn.Module):
         encoder_hidden_states = args[1]
         attention_mask = args[2]
         decoder_attention_mask = args[3]
-        kv_start = 4
+        cache_position = args[4]
+        kv_start = 5
 
-        # Build WinMLSlidingWindowCache from input KV tensors.
-        # update() does Slice+Concat (not index_copy_/ScatterElements) — evicting
-        # the N oldest entries and appending the N new ones at the right.  The
-        # incoming key/value states are captured for direct ONNX output
-        # (avoiding a scatter→gather round-trip in the graph).
+        # Build WinMLStaticCache from input KV tensors. The incoming key/value
+        # states are captured for direct ONNX output, avoiding a scatter->gather
+        # round-trip in the graph.
         max_cache_len = args[kv_start].size(2)
-        self_attn_cache = WinMLSlidingWindowCache(self.config, max_cache_len=max_cache_len)
+        self_attn_cache = WinMLStaticCache(self.config, max_cache_len=max_cache_len)
         self_attn_cache.early_initialization(
             batch_size=decoder_input_ids.size(0),
             num_heads=args[kv_start].size(1),
@@ -175,13 +159,9 @@ class T5DecoderWrapper(nn.Module):
             layer.keys = args[kv_start + i * 2]
             layer.values = args[kv_start + i * 2 + 1]
 
-        # Sliding window + single-token gen: the query is always at the
-        # rightmost slot.  Constructing this constant inside forward traces it
-        # as a Constant node — downstream compute_bias and causal-mask subgraphs
-        # then constant-fold through ONNX optimization.
-        cache_position = torch.tensor(
-            [max_cache_len - 1], dtype=torch.int64, device=decoder_input_ids.device
-        )
+        # T5 in transformers 5.x asks the cache for the current sequence length
+        # before it calls update(); make the traced ONNX input answer that query.
+        self_attn_cache.set_trace_position(cache_position)
 
         # EncoderDecoderCache is structurally required: T5Attention routes
         # self-attention → self_attention_cache, cross-attention → cross_attention_cache.
@@ -246,17 +226,11 @@ class T5EncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is un
 
 @register_onnx_overwrite("t5", "text2text-generation", library_name="transformers")
 class T5DecoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
-    """ONNX config for T5 decoder with sliding-window KV cache.
+    """ONNX config for T5 decoder with static KV cache.
 
     Inputs:  decoder_input_ids, encoder_hidden_states, attention_mask,
-             decoder_attention_mask, past_{i}_key/value
+             decoder_attention_mask, cache_position, past_{i}_key/value
     Outputs: logits, present_{i}_key/value
-
-    ``cache_position`` is *not* an input: ``T5DecoderWrapper.forward`` pins it
-    to ``[max_cache_len - 1]`` (rightmost buffer slot) as a Constant in the
-    graph.  This couples the exported model to sliding-window semantics at
-    build time; see ``T5DecoderWrapper`` docstring for the static-cache
-    re-export path if needed.
 
     Input past KV: full buffer [batch, heads, max_decode, d_kv].
     Output present KV: new token only [batch, heads, 1, d_kv].
@@ -287,6 +261,7 @@ class T5DecoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is un
             "encoder_hidden_states": {0: "batch_size"},
             "attention_mask": {0: "batch_size"},
             "decoder_attention_mask": {0: "batch_size"},
+            "cache_position": {},
         }
         num_layers = self._normalized_config.num_layers
         for i in range(num_layers):
@@ -347,22 +322,8 @@ class WinMLT5Model(WinMLEncoderDecoderModel):
 
     @classmethod
     def get_cache_class(cls) -> type:
-        """T5 defaults to ``WinMLSlidingWindowCache`` (Slice+Concat; no ScatterElements).
-
-        Correctness with T5's learned relative position bias hinges on a single
-        invariant: ``cache_position`` is always the query's *buffer index*, not
-        its absolute sequence position.  ``get_query_cache_position`` on each
-        cache class supplies the right value — ``[step]`` for static,
-        ``[max_cache_len-1]`` for sliding.  Under that convention,
-        ``T5Attention.compute_bias`` computes ``memory_position - context_position
-        = j - (W-1)`` which gives correct relative distances regardless of
-        overflow, and HF's ``create_causal_mask`` (``kv_idx <= q_idx``) allows
-        every buffer slot while the 2D decoder mask selects the filled region.
-
-        ``WinMLStaticCache`` remains fully supported — subclass ``WinMLT5Model``
-        and override this method to get index_copy_ semantics instead.
-        """
-        return WinMLSlidingWindowCache
+        """T5 defaults to ``WinMLStaticCache`` for the exported decoder graph."""
+        return WinMLStaticCache
 
     @property
     def generation_config(self) -> GenerationConfig:  # noqa: D102

@@ -55,6 +55,13 @@ if TYPE_CHECKING:
     from transformers.cache_utils import CacheLayerMixin
 
 
+def _as_static_dim(value: Any) -> Any:
+    """Normalize a possibly traced shape value to Python ``int``/``list[int]``."""
+    if isinstance(value, (list, tuple)):
+        return [int(item) for item in value]
+    return int(value)
+
+
 # =============================================================================
 # WinMLCache — common interface
 # =============================================================================
@@ -102,6 +109,23 @@ class WinMLCache(StaticCache, ABC):
     def set_trace_position(self, position: torch.Tensor) -> None:
         """Provide the position tensor when a model omits cache update kwargs."""
         self._trace_position = position
+
+    def early_initialization(
+        self,
+        batch_size: int,
+        num_heads: int | list[int],
+        head_dim: int | list[int],
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> None:
+        """Initialize all layers, accepting traced 0-dim tensors as dimensions."""
+        super().early_initialization(
+            batch_size=_as_static_dim(batch_size),
+            num_heads=_as_static_dim(num_heads),
+            head_dim=_as_static_dim(head_dim),
+            dtype=dtype,
+            device=device,
+        )
 
     # ----- Interface for WinMLEncoderDecoderModel.forward -----
 
@@ -256,6 +280,18 @@ class WinMLStaticCache(WinMLCache):
         v_out.index_put_((bi, hi, pi), value_states)
 
         return k_out, v_out
+
+    def get_seq_length(self, layer_idx: int = 0) -> int | torch.Tensor:
+        """Return filled length, or the traced query position during export."""
+        if layer_idx >= len(self.layers):
+            return 0
+        trace_position = getattr(self, "_trace_position", None)
+        if trace_position is not None:
+            flattened = trace_position.reshape(-1)
+            if flattened.numel() == 0:
+                return 0
+            return flattened[0]
+        return self.step
 
     def build_decoder_mask(self, max_len: int, num_new_tokens: int = 1) -> torch.Tensor:
         """Left-aligned: first ``step + num_new_tokens`` positions are 1."""

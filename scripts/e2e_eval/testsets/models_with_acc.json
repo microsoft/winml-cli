@@ -645,6 +645,9 @@
     "model_type": "clip",
     "group": "Top200",
     "priority": "P1",
+    "unsupported_targets": [
+      "qnn_gpu"
+    ],
     "dataset_config": {
       "path": "mteb/stsbenchmark-sts",
       "split": "test",
@@ -1360,6 +1363,9 @@
     "model_type": "bert",
     "group": "Foundry Toolkit",
     "priority": "P0",
+    "unsupported_targets": [
+      "qnn_gpu"
+    ],
     "dataset_config": {
       "path": "Salesforce/wikitext",
       "name": "wikitext-2-raw-v1",
@@ -1396,6 +1402,9 @@
     "model_type": "clip",
     "group": "AITK",
     "priority": "P0",
+    "unsupported_targets": [
+      "qnn_gpu"
+    ],
     "dataset_config": {
       "path": "uoft-cs/cifar100",
       "split": "test",

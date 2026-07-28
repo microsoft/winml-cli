@@ -31,6 +31,7 @@ class ModelEntry:
     last_update_time: str | None = None
     optimum_supported: bool = False
     op_tracing_targets: list[str] = field(default_factory=list)
+    unsupported_targets: list[str] = field(default_factory=list)
 
 
 _REQUIRED_FIELDS = {"hf_id", "task", "model_type", "group", "priority"}
@@ -72,6 +73,17 @@ def normalize_op_tracing_target(target: str) -> str:
     if not sep:
         return target.strip().lower()
     return _canonical_ep_device_key(ep, device)
+
+
+def is_target_supported(entry: ModelEntry, ep: str | None, device: str) -> bool:
+    """Return False when the registry excludes this EP/device target for an entry."""
+    key = op_tracing_target_key(ep, device)
+    if key is None:
+        return True
+    unsupported = getattr(entry, "unsupported_targets", ())
+    if not isinstance(unsupported, (list, tuple, set, frozenset)):
+        return True
+    return key not in unsupported
 
 
 def load_registry(path: Path) -> list[ModelEntry]:
@@ -118,6 +130,10 @@ def load_registry(path: Path) -> list[ModelEntry]:
                 op_tracing_targets=[
                     normalize_op_tracing_target(t)
                     for t in (item.get("op_tracing_targets", []) or [])
+                ],
+                unsupported_targets=[
+                    normalize_op_tracing_target(t)
+                    for t in (item.get("unsupported_targets", []) or [])
                 ],
             )
         )
