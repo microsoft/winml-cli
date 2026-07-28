@@ -764,6 +764,24 @@ class PerfBenchmark:
         """Concrete EP driving the build/inference (``None`` until resolved)."""
         return self._resolved_ep
 
+    def close(self) -> None:
+        """Release native sessions held by the benchmarked model."""
+        model = self._model
+        self._model = None
+        self._inputs = None
+        if model is not None:
+            self._release_model_sessions(model)
+
+    def _release_model_sessions(self, model: Any) -> None:
+        sub_models = getattr(model, "sub_models", None)
+        if isinstance(sub_models, dict):
+            for sub_model in sub_models.values():
+                self._release_model_sessions(sub_model)
+
+        session = getattr(model, "_session", None)
+        if session is not None:
+            session.reset()
+
     @property
     def _is_composite(self) -> bool:
         """Composite models orchestrate multiple sub-sessions (e.g. CLIP/SigLIP).
@@ -3232,6 +3250,9 @@ def perf(
         if verbose:
             logger.exception("Benchmark failed")
         raise click.ClickException(f"Benchmark failed: {e}") from e
+    finally:
+        if benchmark is not None:
+            benchmark.close()
 
 
 # =============================================================================

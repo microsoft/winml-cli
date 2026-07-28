@@ -23,7 +23,10 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from winml.modelkit.commands.sys import _gather_device_info
+import click
+import pytest
+
+from winml.modelkit.commands.sys import _gather, _gather_device_info
 
 
 def _fake_ep_info(
@@ -188,3 +191,82 @@ class TestDeviceInfoEnrichment:
         assert len(result) == 1
         assert result[0]["details"]["driver"] == "32.0.100"
         assert "architecture" not in result[0]["details"]
+
+
+class TestGatherDeviceSectionEnrichment:
+    """``_gather`` must enrich devices even when the EP section isn't emitted.
+
+    ``winml sys --list-device`` asks for devices only, but ``ep_info`` is the
+    sole carrier of ``device_facts``; gathering it only for ``eps=True`` made
+    that view drop ``details`` keys the default view shows for the very same
+    hardware.
+    """
+
+    def test_device_only_view_still_gathers_ep_info(self) -> None:
+        ep_info = _fake_ep_info(
+            device_type="NPU",
+            hardware_name="Intel(R) AI Boost",
+            architecture="4000",
+        )
+
+        with (
+            patch("winml.modelkit.commands.sys._gather_ep_info", return_value=ep_info) as mock_eps,
+            patch(
+                "winml.modelkit.commands.sys._gather_device_info", return_value=[]
+            ) as mock_devices,
+        ):
+            info = _gather(devices=True, tolerant=False)
+
+        mock_eps.assert_called_once_with()
+        mock_devices.assert_called_once_with(ep_info)
+        # The EP section is gathered for enrichment only, never emitted.
+        assert set(info) == {"devices"}
+
+    def test_devices_match_across_default_and_device_only_views(self) -> None:
+        npu_item = MagicMock(driver_version="32.0.100.4023", manufacturer="Intel")
+        npu_item.name = "Intel(R) AI Boost"
+        ep_info = _fake_ep_info(
+            device_type="NPU",
+            hardware_name="Intel(R) AI Boost",
+            architecture="4000",
+        )
+
+        with (
+            patch("winml.modelkit.commands.sys._gather_ep_info", return_value=ep_info),
+            patch("winml.modelkit.commands.sys._gather_system_info", return_value={}),
+            patch("winml.modelkit.sysinfo.NPU.get_all", return_value=[npu_item]),
+            patch("winml.modelkit.sysinfo.GPU.get_all", return_value=[]),
+            patch("winml.modelkit.sysinfo.CPU.get_all", return_value=[]),
+        ):
+            default = _gather(system=True, devices=True, eps=True, tolerant=True)
+            device_only = _gather(devices=True, tolerant=False)
+
+        assert default["devices"] == device_only["devices"]
+        assert device_only["devices"][0]["details"]["architecture"] == "4000"
+
+    def test_ep_failure_is_non_fatal_for_device_only_view(self) -> None:
+        """Enrichment is best-effort: a broken EP probe must not fail devices."""
+        with (
+            patch(
+                "winml.modelkit.commands.sys._gather_ep_info",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch(
+                "winml.modelkit.commands.sys._gather_device_info", return_value=[]
+            ) as mock_devices,
+        ):
+            info = _gather(devices=True, tolerant=False)
+
+        mock_devices.assert_called_once_with({})
+        assert info == {"devices": []}
+
+    def test_ep_failure_still_raises_when_ep_section_requested(self) -> None:
+        """The strict contract for an explicitly pinned EP section is unchanged."""
+        with (
+            patch(
+                "winml.modelkit.commands.sys._gather_ep_info",
+                side_effect=RuntimeError("boom"),
+            ),
+            pytest.raises(click.ClickException, match="Error detecting execution providers"),
+        ):
+            _gather(eps=True, tolerant=False)

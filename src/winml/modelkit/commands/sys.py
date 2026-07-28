@@ -1123,6 +1123,10 @@ def _gather(
     :attr:`WinMLEPRegistry._registered` is what keeps enrichment
     working now that filesystem-backed EPs are registered only in
     isolated subprocesses (their live handles never exist in the parent).
+    Because that inventory is the enrichment source, it is gathered
+    whenever ``devices`` is requested — ``eps`` only decides whether the
+    ``executionProviders`` section is *emitted*, so ``--list-device``
+    reports the same device rows as the default view.
 
     When ``tolerant=True``, a per-section failure is logged at WARNING
     and the section is filled with an empty container so downstream
@@ -1132,18 +1136,27 @@ def _gather(
     info: dict[str, Any] = {}
     if system:
         info.update(_gather_system_info(verbose=verbose))
-    if eps:
+    # EP info is gathered whenever devices are requested, even when the caller
+    # did not ask for the EP section: it is the only carrier of ``device_facts``
+    # (Architecture + Driver), so skipping it made ``--list-device`` report
+    # fewer ``details`` keys than the default view for the same hardware.
+    ep_info: dict[str, dict[str, Any]] | None = None
+    if eps or devices:
         try:
-            info["executionProviders"] = _gather_ep_info()
+            ep_info = _gather_ep_info()
         except Exception as e:
-            if not tolerant:
+            # A failure is only fatal when the EP section was explicitly
+            # requested; for devices-only it just degrades enrichment.
+            if eps and not tolerant:
                 logger.exception("Failed to detect execution providers")
                 raise click.ClickException(f"Error detecting execution providers: {e}") from e
             logger.warning("EP detection failed (tolerant): %s", e)
-            info["executionProviders"] = {}
+            ep_info = {}
+    if eps:
+        info["executionProviders"] = ep_info
     if devices:
         try:
-            info["devices"] = _gather_device_info(info.get("executionProviders"))
+            info["devices"] = _gather_device_info(ep_info)
         except Exception as e:
             if not tolerant:
                 logger.exception("Failed to detect devices")

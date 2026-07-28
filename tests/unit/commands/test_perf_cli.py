@@ -186,6 +186,38 @@ class TestPerfOutputPath:
 class TestPerfUnifiedPipeline:
     """Test that both ONNX and HF models go through PerfBenchmark._load_model."""
 
+    def test_close_releases_single_model_session(self) -> None:
+        """Closing a benchmark resets the loaded model's native session."""
+        benchmark = PerfBenchmark(BenchmarkConfig(model_id="m"))
+        model = MagicMock()
+        model._session = MagicMock()
+        benchmark._model = model
+        benchmark._inputs = {"x": object()}
+
+        benchmark.close()
+
+        model._session.reset.assert_called_once()
+        assert benchmark._model is None
+        assert benchmark._inputs is None
+
+    def test_close_releases_composite_sub_model_sessions(self) -> None:
+        """Composite benchmarks reset every sub-model session before process teardown."""
+        benchmark = PerfBenchmark(BenchmarkConfig(model_id="m"))
+        first = MagicMock()
+        first._session = MagicMock()
+        second = MagicMock()
+        second._session = MagicMock()
+        composite = MagicMock()
+        composite._session = None
+        composite.sub_models = {"first": first, "second": second}
+        benchmark._model = composite
+
+        benchmark.close()
+
+        first._session.reset.assert_called_once()
+        second._session.reset.assert_called_once()
+        assert benchmark._model is None
+
     def test_onnx_load_model_calls_from_onnx(self, tmp_path: Path) -> None:
         """ONNX file input should use WinMLAutoModel.from_onnx in _load_model."""
         onnx_file = tmp_path / "model.onnx"
@@ -1415,6 +1447,40 @@ class TestPerfFormatJson:
         # Should NOT be parseable as JSON (it's console text)
         with pytest.raises(json.JSONDecodeError):
             json.loads(result.output)
+
+    @patch("winml.modelkit.commands.perf.PerfBenchmark")
+    def test_cli_closes_benchmark_after_success(
+        self, mock_benchmark_class: MagicMock, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """Successful CLI runs release native sessions before process teardown."""
+        mock_result = BenchmarkResult(
+            config=BenchmarkConfig(model_id="test", output_path=tmp_path / "result.json"),
+            actual_device="cpu",
+            actual_task="cls",
+            mean_ms=1.0,
+            min_ms=1.0,
+            max_ms=1.0,
+            p50_ms=1.0,
+            p90_ms=1.0,
+            p95_ms=1.0,
+            p99_ms=1.0,
+            samples_per_sec=1.0,
+            batches_per_sec=1.0,
+        )
+        mock_instance = MagicMock()
+        mock_instance.run.return_value = mock_result
+        mock_benchmark_class.return_value = mock_instance
+
+        output_file = tmp_path / "result.json"
+
+        result = runner.invoke(
+            perf,
+            ["-m", "test", "--output", str(output_file)],
+            obj={},
+        )
+
+        assert result.exit_code == 0, result.output
+        mock_instance.close.assert_called_once()
 
 
 class TestDisplayConsoleReport:

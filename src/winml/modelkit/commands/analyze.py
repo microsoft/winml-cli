@@ -38,6 +38,7 @@ from rich.text import Text
 from ..session import DEVICE_TYPE_TO_DEVICE
 from ..utils import cli as cli_utils
 from ..utils.constants import (
+    DEVICE_PRIORITY,
     EP_SUPPORTED_DEVICES,
     SUPPORTED_DEVICES,
     SUPPORTED_EPS,
@@ -643,6 +644,23 @@ def _select_best_exact_local_pair_for_device(
     return local_candidates[0]
 
 
+def _select_best_auto_local_pair(
+    supported_local_pairs: list[tuple[EPName, str]],
+) -> tuple[EPName, str] | None:
+    """Pick the best default target from exact local bindings."""
+    from ..session import available_eps_for_device
+
+    for device_name in DEVICE_PRIORITY:
+        best_local_pair = _select_best_exact_local_pair_for_device(
+            device_name.upper(),
+            supported_local_pairs,
+            available_eps_for_device(device_name),
+        )
+        if best_local_pair is not None:
+            return best_local_pair
+    return None
+
+
 def _ep_name_device_display_name(ep_name: str, device_name: str) -> str:
     """Return EP/device label for table and summary display."""
     return f"{ep_name} ({device_name.upper()})"
@@ -959,6 +977,11 @@ def analyze(
             _filter_supported_local_ep_device_pairs(local_pair_list)
         )
         local_pairs = set(supported_local_pair_list)
+        default_auto_pair = (
+            _select_best_auto_local_pair(supported_local_pair_list)
+            if ep in (None, "auto") and device in (None, "auto")
+            else None
+        )
 
         devices: list[str]
         if device == "all":
@@ -976,6 +999,8 @@ def analyze(
                         f"{ep} has no supported local binding available on this system."
                     )
                 devices = [matching_local_pairs[0][1]]
+            elif default_auto_pair is not None:
+                devices = [default_auto_pair[1]]
             else:
                 try:
                     resolved_device = resolve_device(
@@ -1014,14 +1039,20 @@ def analyze(
                 # context exists here -- but guard against an empty device list
                 # (e.g. a programmatic ``device=None`` call) so we exit cleanly
                 # instead of raising an unguarded IndexError on ``devices[0]``.
-                ref_device = devices[0] if devices else None
+                ref_device = default_auto_pair[1] if default_auto_pair is not None else None
+                ref_device = ref_device or (devices[0] if devices else None)
+                if default_auto_pair is not None:
+                    best_local_pair = default_auto_pair
+                elif ref_device:
+                    best_local_pair = _select_best_exact_local_pair_for_device(
+                        ref_device,
+                        supported_local_pair_list,
+                        available_eps_for_device(ref_device),
+                    )
+                else:
+                    best_local_pair = None
                 if not ref_device:
                     raise click.UsageError("No device context available for EP auto-resolution.")
-                best_local_pair = _select_best_exact_local_pair_for_device(
-                    ref_device,
-                    supported_local_pair_list,
-                    available_eps_for_device(ref_device),
-                )
                 if best_local_pair is None:
                     raise click.UsageError(
                         f"No execution provider is available for device '{ref_device}'."

@@ -53,8 +53,11 @@ if sys.platform == "win32":
 
 
 @contextmanager
-def suppress_native_stderr() -> Iterator[None]:
+def suppress_native_stderr(*, enabled: bool = True) -> Iterator[None]:
     """Redirect native stderr to devnull.  No-op on non-Windows."""
+    if not enabled:
+        yield
+        return
     if sys.platform != "win32":
         yield
         return
