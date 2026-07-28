@@ -63,6 +63,14 @@ def _get_cache_build_controls(
     return build_controls
 
 
+def _resolved_ep_short_name(ep_device: WinMLEPDevice) -> str:
+    """Short alias for the resolved catalog EP behind a runtime device handle."""
+    ep_short_name = getattr(ep_device, "ep_short_name", None)
+    if isinstance(ep_short_name, str):
+        return ep_short_name
+    return short_ep_name(ep_device.device.ep_name)
+
+
 # =============================================================================
 # WinMLAutoModel Factory
 # =============================================================================
@@ -203,7 +211,7 @@ class WinMLAutoModel:
             task=task,
             device=ep_device.device.device_type.lower(),
             precision=precision,
-            ep=short_ep_name(ep_device.device.ep_name),
+            ep=_resolved_ep_short_name(ep_device),
             override=config,
             no_compile=no_compile,
         )
@@ -264,7 +272,7 @@ class WinMLAutoModel:
             config=config,
             output_dir=output_dir,
             rebuild=force_rebuild,
-            ep=short_ep_name(ep_device.device.ep_name),
+            ep=_resolved_ep_short_name(ep_device),
             device=ep_device.device.device_type.lower(),
             cache_key=cache_key,
             **kwargs,
@@ -461,7 +469,7 @@ class WinMLAutoModel:
             shape_config=shape_config,
             device=ep_device.device.device_type.lower(),
             precision=precision,
-            ep=short_ep_name(ep_device.device.ep_name),
+            ep=_resolved_ep_short_name(ep_device),
             model_type=model_type,
             trust_remote_code=trust_remote_code,
             policy_overrides_config=True,
@@ -523,7 +531,7 @@ class WinMLAutoModel:
         if resolved_ep is None and config.compile is not None:
             resolved_ep = config.compile.ep_config.provider
         if resolved_ep is None:
-            resolved_ep = short_ep_name(ep_device.device.ep_name)
+            resolved_ep = _resolved_ep_short_name(ep_device)
         result = build_hf_model(
             config=config,
             output_dir=output_dir,

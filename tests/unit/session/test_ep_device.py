@@ -311,6 +311,29 @@ def test_resolve_auto_ep_skips_failed_vendor_probe_for_cpu_fallback() -> None:
     assert result == EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
 
 
+def test_resolve_auto_ep_for_explicit_cpu_skips_policy_unsupported_candidates() -> None:
+    """A CPU device request must not pick EPs that policy rejects for CPU."""
+    from winml.modelkit.ep_path import EPCatalog
+    from winml.modelkit.session.ep_registry import WinMLEPRegistry
+
+    registry = MagicMock()
+    registry.available_eps.return_value = frozenset(
+        {
+            "QNNExecutionProvider",
+            "CPUExecutionProvider",
+        }
+    )
+    registry.auto_device.return_value = object()
+
+    with (
+        patch.object(WinMLEPRegistry, "instance", return_value=registry),
+        patch.object(EPCatalog, "is_compatible", return_value=True),
+    ):
+        result = resolve_device(EPDeviceTarget(ep="auto", device="cpu"))
+
+    assert result == EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
+
+
 # --- short_ep_name tests ---------------------------------------------------
 
 
