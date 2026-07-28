@@ -400,6 +400,45 @@ def test_ensure_provider_ready_survives_progress_render_failure(
     op.close.assert_called_once_with()
 
 
+def test_ensure_provider_ready_survives_console_sink_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failing rich Console sink (e.g. stderr closed) must not abort the install.
+
+    The install/success/metadata prints run inside ``WinMLCatalogSource.resolve``,
+    where any raised exception drops the EP. Status rendering must degrade to a
+    no-op so a provider that is actually Ready is still surfaced."""
+    _install_fake_tqdm(monkeypatch)
+
+    # Every console.print raises, as if stderr were closed/unwritable.
+    failing_console = MagicMock()
+    failing_console.print.side_effect = ValueError("I/O operation on closed file")
+    monkeypatch.setattr("winml.modelkit.utils.console.get_console", lambda: failing_console)
+
+    op = MagicMock()
+
+    def fake_ensure_async(on_complete=None, on_progress=None):
+        on_progress(0.5)
+        on_complete()
+        return op
+
+    provider = MagicMock()
+    provider.name = "FakeEP"
+    provider.version = "1.2.3"
+    provider.package_family_name = "Some.Pkg_hash"
+    provider.library_path = r"C:\some\local\path\provider.dll"
+    provider.ensure_ready_async.side_effect = fake_ensure_async
+
+    # Must NOT raise despite every console.print failing.
+    ep_path._ensure_provider_ready(provider)
+
+    op.get_status.assert_called_once_with()
+    op.close.assert_called_once_with()
+    # The status prints were attempted (install notice, success, metadata) and
+    # every failure was swallowed rather than propagated.
+    assert failing_console.print.call_count >= 1
+
+
 class TestParseEpMetadataFromPath:
     """`_parse_ep_metadata_from_path` recovers (version, PFN) from install paths."""
 

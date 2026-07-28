@@ -949,6 +949,23 @@ def _parse_ep_metadata_from_path(library_path: str) -> tuple[str, str]:
     return version, package_family_name
 
 
+def _safe_console_print(console: Any, *args: Any, **kwargs: Any) -> None:
+    """Print via the ``rich`` Console, swallowing rendering/I-O errors.
+
+    ``get_console()`` writes to ``sys.stderr``; if that stream is closed or
+    otherwise unwritable (spawn workers, redirected/closed consoles) a ``print``
+    raises. ``_ensure_provider_ready`` runs inside ``WinMLCatalogSource.resolve``,
+    where an exception aborts the provider iteration and silently drops an EP that
+    is actually Ready. Status rendering must never block provider readiness, so —
+    mirroring :class:`_SafeProgressBar` — failures are logged at debug and
+    otherwise ignored.
+    """
+    try:
+        console.print(*args, **kwargs)
+    except Exception as e:
+        logger.debug("Console status print failed; ignoring: %s", e)
+
+
 def _ensure_provider_ready(provider: Any) -> None:
     """Ensure an EP is ready, showing a tqdm progress bar while downloading.
 
@@ -967,7 +984,9 @@ def _ensure_provider_ready(provider: Any) -> None:
     from .utils.console import get_console
 
     console = get_console()
-    console.print(f"[WinML] Installing Execution Provider: [bold]{provider.name}[/bold]")
+    _safe_console_print(
+        console, f"[WinML] Installing Execution Provider: [bold]{provider.name}[/bold]"
+    )
 
     bar = _make_progress_bar()
     done = threading.Event()
@@ -1007,12 +1026,12 @@ def _ensure_provider_ready(provider: Any) -> None:
             # Failure-path notice — kept in finally so it fires for every
             # non-success exit (launch failure, timeout, get_status OSError).
             # Printed after bar.close() so it appears below the bar's last frame.
-            console.print(f"[red]❌ Failed to download {provider.name} EP[/red]")
-            console.print("Try:")
-            console.print("  1. Check your internet connection")
-            console.print("  2. Troubleshoot: https://aka.ms/winmlcli/ep-errors")
+            _safe_console_print(console, f"[red]❌ Failed to download {provider.name} EP[/red]")
+            _safe_console_print(console, "Try:")
+            _safe_console_print(console, "  1. Check your internet connection")
+            _safe_console_print(console, "  2. Troubleshoot: https://aka.ms/winmlcli/ep-errors")
 
-    console.print(f"{provider.name} EP installed successfully.")
+    _safe_console_print(console, f"{provider.name} EP installed successfully.")
 
     # The native handle sometimes reports empty version/PFN even once Ready;
     # fall back to parsing them from the MSIX install path. Skip a line entirely
@@ -1024,10 +1043,12 @@ def _ensure_provider_ready(provider: Any) -> None:
         version = version or parsed_version
         package_family_name = package_family_name or parsed_pfn
     if version:
-        console.print(f"- Version: {version}", soft_wrap=True)
+        _safe_console_print(console, f"- Version: {version}", soft_wrap=True)
     if package_family_name:
         # soft_wrap so long package family names aren't hard-wrapped mid-string.
-        console.print(f"- Package Family Name: {package_family_name}", soft_wrap=True)
+        _safe_console_print(
+            console, f"- Package Family Name: {package_family_name}", soft_wrap=True
+        )
 
 
 @dataclass(frozen=True)
