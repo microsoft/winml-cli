@@ -32,6 +32,8 @@ from onnx import AttributeProto, GraphProto, ModelProto, NodeProto
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from .registry import CapabilityDef
 
 
@@ -241,25 +243,24 @@ def _run_pipe(pipe: Any, model: ModelProto, config: Any) -> ModelProto:
     return result
 
 
-def analyze_model(
+def _iter_findings(
     model: ModelProto,
     capabilities: dict[str, CapabilityDef],
-) -> list[CapabilityFinding]:
-    """Probe every applicable optimization capability against ``model``.
+) -> Iterator[tuple[CapabilityFinding, ModelProto]]:
+    """Yield ``(finding, produced_model)`` for every applicable optimization.
 
-    Each boolean capability that is off by default is enabled in isolation and
-    its effect on the graph is measured by diffing against the pipe's baseline
-    output. Integer and choice capabilities are parameters rather than on/off
-    optimizations and are not probed.
+    This is the shared core behind :func:`analyze_model` and
+    :func:`iter_optimization_outputs`. It walks the pipeline pipe-by-pipe
+    exactly as the real optimizer does, probing each default-off boolean
+    capability in isolation and diffing the result against the pipe baseline.
 
-    Args:
-        model: The input ONNX model (never modified).
-        capabilities: The full capability registry (kebab-case keyed), e.g.
-            from ``optim.pipes.get_all_capabilities()``.
+    ``produced_model`` is the concrete ONNX model that results from enabling the
+    single capability (plus auto-enabled dependencies). It contains the added
+    and modified nodes named by the finding, so downstream consumers can inspect
+    the produced operators directly (e.g. to check their EP/device support).
 
-    Returns:
-        Applicable findings in pipeline order, each naming the affected nodes
-        and constants.
+    Findings are yielded lazily in pipeline order; only applicable capabilities
+    (those that actually change the graph or its constants) are emitted.
     """
     from ..onnx import infer_shapes
     from .pipes import PIPES
@@ -271,8 +272,6 @@ def analyze_model(
 
     # Mandatory pre-stage — mirrors Optimizer.optimize().
     current = infer_shapes(_clone(model))
-
-    findings: list[CapabilityFinding] = []
 
     for pipe_class in PIPES:
         pipe = pipe_class()
@@ -341,9 +340,55 @@ def analyze_model(
             )
 
             if finding.applicable:
-                findings.append(finding)
+                yield finding, probe_out
 
         # Advance the pipeline exactly as the real optimizer would.
         current = base_out
 
-    return findings
+
+def analyze_model(
+    model: ModelProto,
+    capabilities: dict[str, CapabilityDef],
+) -> list[CapabilityFinding]:
+    """Probe every applicable optimization capability against ``model``.
+
+    Each boolean capability that is off by default is enabled in isolation and
+    its effect on the graph is measured by diffing against the pipe's baseline
+    output. Integer and choice capabilities are parameters rather than on/off
+    optimizations and are not probed.
+
+    Args:
+        model: The input ONNX model (never modified).
+        capabilities: The full capability registry (kebab-case keyed), e.g.
+            from ``optim.pipes.get_all_capabilities()``.
+
+    Returns:
+        Applicable findings in pipeline order, each naming the affected nodes
+        and constants.
+    """
+    return [finding for finding, _ in _iter_findings(model, capabilities)]
+
+
+def iter_optimization_outputs(
+    model: ModelProto,
+    capabilities: dict[str, CapabilityDef],
+) -> Iterator[tuple[CapabilityFinding, ModelProto]]:
+    """Yield each applicable optimization together with the model it produces.
+
+    Like :func:`analyze_model`, but also exposes the concrete ONNX model that
+    results from applying each optimization in isolation. The produced model
+    contains the finding's added and modified nodes, enabling callers to inspect
+    or further analyze the operators an optimization would introduce — for
+    example, checking whether those operators are supported on a target
+    execution provider and device.
+
+    Args:
+        model: The input ONNX model (never modified).
+        capabilities: The full capability registry (kebab-case keyed).
+
+    Yields:
+        ``(finding, produced_model)`` pairs in pipeline order, one per applicable
+        optimization. The pairs are produced lazily; materialize the iterator if
+        the produced models must outlive iteration.
+    """
+    yield from _iter_findings(model, capabilities)

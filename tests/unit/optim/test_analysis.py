@@ -15,7 +15,12 @@ from __future__ import annotations
 import numpy as np
 from onnx import GraphProto, ModelProto, TensorProto, helper, numpy_helper
 
-from winml.modelkit.optim import CapabilityFinding, NodeRef, analyze_model
+from winml.modelkit.optim import (
+    CapabilityFinding,
+    NodeRef,
+    analyze_model,
+    iter_optimization_outputs,
+)
 from winml.modelkit.optim.analysis import (
     _collect_initializers,
     _collect_nodes,
@@ -256,3 +261,43 @@ class TestAnalyzeModel:
         assert len(model.graph.initializer) == before_inits
         after_value = numpy_helper.to_array(model.graph.initializer[0])
         np.testing.assert_array_equal(before_value, after_value)
+
+
+# =============================================================================
+# OPTIMIZATION OUTPUT ITERATION
+# =============================================================================
+
+
+class TestIterOptimizationOutputs:
+    """iter_optimization_outputs yields findings paired with produced models."""
+
+    def test_yields_finding_and_produced_model(self) -> None:
+        pairs = list(iter_optimization_outputs(_matmul_add_model(), get_all_capabilities()))
+        by_name = {finding.name: (finding, produced) for finding, produced in pairs}
+        assert "matmul-add-fusion" in by_name, sorted(by_name)
+
+        finding, produced = by_name["matmul-add-fusion"]
+        assert isinstance(finding, CapabilityFinding)
+        assert isinstance(produced, ModelProto)
+        # The produced model is the post-optimization graph: the fusion collapses
+        # MatMul+Add into a single Gemm, so a Gemm node exists in the output.
+        produced_op_types = {n.op_type for n in produced.graph.node}
+        assert "Gemm" in produced_op_types
+
+    def test_produced_model_contains_produced_node_outputs(self) -> None:
+        pairs = list(iter_optimization_outputs(_matmul_add_model(), get_all_capabilities()))
+        by_name = {finding.name: (finding, produced) for finding, produced in pairs}
+        finding, produced = by_name["matmul-add-fusion"]
+
+        produced_outputs = {out for node in produced.graph.node for out in node.output}
+        # Every added/modified node's output tensors exist in the produced graph,
+        # which is what the support-check layer relies on to correlate nodes.
+        for ref in [*finding.added_nodes, *finding.modified_nodes]:
+            assert any(out in produced_outputs for out in ref.outputs)
+
+    def test_findings_match_analyze_model(self) -> None:
+        caps = get_all_capabilities()
+        model = _matmul_add_model()
+        iter_names = {finding.name for finding, _ in iter_optimization_outputs(model, caps)}
+        analyze_names = {finding.name for finding in analyze_model(_matmul_add_model(), caps)}
+        assert iter_names == analyze_names

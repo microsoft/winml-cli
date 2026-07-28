@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .analysis import CapabilityFinding, NodeRef, analyze_model
+from .analysis import CapabilityFinding, NodeRef, analyze_model, iter_optimization_outputs
 from .api import optimize_onnx
 from .config import WinMLOptimizationConfig
 from .errors import ConfigurationError, ModelValidationError, OptimizationError
@@ -54,6 +54,7 @@ __all__ = [
     "WinMLOptimizationConfig",
     "analyze_model",
     "auto_enable_dependencies",
+    "iter_optimization_outputs",
     "optimize_onnx",
     "validate",
     "validate_dependencies",

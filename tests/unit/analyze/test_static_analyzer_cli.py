@@ -2138,3 +2138,132 @@ class TestAnalyzeFormatJson:
         assert output_file.exists()
         file_data = json.loads(output_file.read_text())
         assert "metadata" in file_data
+
+
+class TestAnalyzeCheckOptimOutput:
+    """Test the --check-optim-output flag wiring and rendering."""
+
+    @staticmethod
+    def _write_model(path: Path) -> None:
+        """Write a small valid MatMul+Add model (a Gemm-fusion candidate)."""
+        import numpy as np
+        import onnx
+        from onnx import TensorProto, helper, numpy_helper
+
+        x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [4, 8])
+        y = helper.make_tensor_value_info("y", TensorProto.FLOAT, [4, 16])
+        w = numpy_helper.from_array(np.random.randn(8, 16).astype(np.float32), "W")
+        b = numpy_helper.from_array(np.random.randn(16).astype(np.float32), "B")
+        nodes = [
+            helper.make_node("MatMul", ["x", "W"], ["mm"], name="mm"),
+            helper.make_node("Add", ["mm", "B"], ["y"], name="addbias"),
+        ]
+        graph = helper.make_graph(nodes, "matmul_add", [x], [y], initializer=[w, b])
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        model.ir_version = 10
+        onnx.save(model, str(path))
+
+    def test_flag_appears_in_help(self, runner: CliRunner) -> None:
+        result = runner.invoke(analyze, ["--help"])
+        assert result.exit_code == 0
+        assert "--check-optim-output" in result.output
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_opt_in_renders_section(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """--check-optim-output renders a produced-operator support section."""
+        from winml.modelkit.analyze.models.support_level import SupportLevel
+        from winml.modelkit.analyze.optim_output import (
+            OptimizationOutputSupport,
+            ProducedOperatorSupport,
+        )
+
+        model_file = tmp_path / "model.onnx"
+        self._write_model(model_file)
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        crafted = [
+            OptimizationOutputSupport(
+                name="matmul-add-fusion",
+                enable_flag="--enable-matmul-add-fusion",
+                category="matmul",
+                description="Fuse MatMul followed by Add into a single Gemm.",
+                pipe_name="fusion",
+                operators=[
+                    ProducedOperatorSupport(
+                        "Gemm", "Gemm 'gemm'", "modified", SupportLevel.SUPPORTED
+                    )
+                ],
+            )
+        ]
+        monkeypatch.setattr(
+            "winml.modelkit.analyze.optim_output.check_optimization_output_support",
+            lambda *a, **k: crafted,
+        )
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "qnn",
+                "--device",
+                "NPU",
+                "--check-optim-output",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "OPTIMIZATION OUTPUT SUPPORT" in result.output
+        assert "--enable-matmul-add-fusion" in result.output
+        assert "supported" in result.output.lower()
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_disabled_by_default(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Without the flag the section is not rendered and the bridge is not called."""
+        model_file = tmp_path / "model.onnx"
+        self._write_model(model_file)
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        def _should_not_run(*_a: object, **_k: object) -> list:
+            raise AssertionError("check_optimization_output_support should not be called")
+
+        monkeypatch.setattr(
+            "winml.modelkit.analyze.optim_output.check_optimization_output_support",
+            _should_not_run,
+        )
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "qnn",
+                "--device",
+                "NPU",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "OPTIMIZATION OUTPUT SUPPORT" not in result.output
