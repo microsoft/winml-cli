@@ -28,10 +28,10 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from onnx import AttributeProto, GraphProto, ModelProto, NodeProto
+
 
 if TYPE_CHECKING:
-    import onnx
-
     from .registry import CapabilityDef
 
 
@@ -139,7 +139,7 @@ class CapabilityFinding:
 # =============================================================================
 
 
-def _node_identity(node: onnx.NodeProto) -> tuple[Any, ...]:
+def _node_identity(node: NodeProto) -> tuple[Any, ...]:
     """Return a key that identifies a node stably across transformations.
 
     Output tensor names are unique within a valid ONNX graph, so they make a
@@ -154,7 +154,7 @@ def _node_identity(node: onnx.NodeProto) -> tuple[Any, ...]:
 
 
 def _collect_nodes(
-    graph: onnx.GraphProto,
+    graph: GraphProto,
     scope: tuple[Any, ...],
     table: dict[tuple[Any, ...], tuple[bytes, NodeRef]],
 ) -> None:
@@ -164,8 +164,6 @@ def _collect_nodes(
     missed. Keys are scoped by the containing node to keep subgraph nodes
     distinct from top-level nodes.
     """
-    import onnx
-
     for node in graph.node:
         key = (scope, _node_identity(node))
         table[key] = (
@@ -173,9 +171,9 @@ def _collect_nodes(
             NodeRef(node.op_type, node.name, tuple(node.output)),
         )
         for attr in node.attribute:
-            if attr.type == onnx.AttributeProto.GRAPH:
+            if attr.type == AttributeProto.GRAPH:
                 _collect_nodes(attr.g, (*scope, _node_identity(node), attr.name), table)
-            elif attr.type == onnx.AttributeProto.GRAPHS:
+            elif attr.type == AttributeProto.GRAPHS:
                 for i, sub in enumerate(attr.graphs):
                     _collect_nodes(sub, (*scope, _node_identity(node), attr.name, i), table)
 
@@ -193,7 +191,7 @@ def _diff_nodes(
     return removed, added, modified
 
 
-def _collect_initializers(model: onnx.ModelProto) -> dict[str, bytes]:
+def _collect_initializers(model: ModelProto) -> dict[str, bytes]:
     """Return ``{initializer_name: serialized_bytes}`` for the top-level graph."""
     return {init.name: init.SerializeToString() for init in model.graph.initializer}
 
@@ -216,21 +214,19 @@ def _diff_initializers(
 # =============================================================================
 
 
-def _clone(model: onnx.ModelProto) -> onnx.ModelProto:
+def _clone(model: ModelProto) -> ModelProto:
     """Deep-copy a model.
 
     ``CopyFrom`` is used rather than ``SerializeToString`` round-tripping so
     that models larger than the 2 GiB protobuf serialization limit can still be
     cloned in memory.
     """
-    import onnx
-
-    copy = onnx.ModelProto()
+    copy = ModelProto()
     copy.CopyFrom(model)
     return copy
 
 
-def _run_pipe(pipe: Any, model: onnx.ModelProto, config: Any) -> onnx.ModelProto:
+def _run_pipe(pipe: Any, model: ModelProto, config: Any) -> ModelProto:
     """Run a pipe on a *clone* of ``model``, respecting ``should_process``.
 
     Cloning is mandatory: some pipes serialize the model via ``save_onnx`` which
@@ -241,11 +237,12 @@ def _run_pipe(pipe: Any, model: onnx.ModelProto, config: Any) -> onnx.ModelProto
     should_process = getattr(pipe, "should_process", None)
     if callable(should_process) and not should_process(config):
         return model
-    return pipe.process(_clone(model), config)
+    result: ModelProto = pipe.process(_clone(model), config)
+    return result
 
 
 def analyze_model(
-    model: onnx.ModelProto,
+    model: ModelProto,
     capabilities: dict[str, CapabilityDef],
 ) -> list[CapabilityFinding]:
     """Probe every applicable optimization capability against ``model``.

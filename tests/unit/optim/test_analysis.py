@@ -13,8 +13,7 @@ Follows the Cardinal Rules:
 from __future__ import annotations
 
 import numpy as np
-import onnx
-from onnx import TensorProto, helper, numpy_helper
+from onnx import GraphProto, ModelProto, TensorProto, helper, numpy_helper
 
 from winml.modelkit.optim import CapabilityFinding, NodeRef, analyze_model
 from winml.modelkit.optim.analysis import (
@@ -31,13 +30,13 @@ from winml.modelkit.optim.pipes import get_all_capabilities
 # =============================================================================
 
 
-def _finalize(graph: onnx.GraphProto) -> onnx.ModelProto:
+def _finalize(graph: GraphProto) -> ModelProto:
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
     model.ir_version = 8
     return model
 
 
-def _matmul_add_model() -> onnx.ModelProto:
+def _matmul_add_model() -> ModelProto:
     """MatMul followed by Add — a canonical MatMul+Add(->Gemm) fusion candidate."""
     x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [4, 8])
     y = helper.make_tensor_value_info("y", TensorProto.FLOAT, [4, 16])
@@ -50,7 +49,7 @@ def _matmul_add_model() -> onnx.ModelProto:
     return _finalize(helper.make_graph(nodes, "matmul_add", [x], [y], initializer=[w, b]))
 
 
-def _extreme_constant_model() -> onnx.ModelProto:
+def _extreme_constant_model() -> ModelProto:
     """Add of a runtime input and an initializer holding an extreme value."""
     x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [4])
     z = helper.make_tensor_value_info("z", TensorProto.FLOAT, [4])
@@ -59,7 +58,7 @@ def _extreme_constant_model() -> onnx.ModelProto:
     return _finalize(helper.make_graph([node], "extreme_const", [x], [z], initializer=[big]))
 
 
-def _benign_model() -> onnx.ModelProto:
+def _benign_model() -> ModelProto:
     """Add of a runtime input and an initializer with ordinary values."""
     x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [4])
     z = helper.make_tensor_value_info("z", TensorProto.FLOAT, [4])
