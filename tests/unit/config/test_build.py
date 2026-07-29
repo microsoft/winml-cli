@@ -43,7 +43,7 @@ from winml.modelkit.export import (
     WinMLExportConfig,
     resolve_io_specs,
 )
-from winml.modelkit.export.policy import ExportCompatibilityConfig
+from winml.modelkit.export.policy import ExportCompatibilityConfig, ExportPolicyTarget
 from winml.modelkit.loader import WinMLLoaderConfig
 from winml.modelkit.optim import WinMLOptimizationConfig
 from winml.modelkit.quant import WinMLQuantizationConfig
@@ -127,6 +127,97 @@ def mock_io_specs() -> dict:
         },
         "input_shapes": [(2, 16), (2, 16)],
     }
+
+
+class TestGeneratedExportCompatibilityPolicy:
+    def test_generated_hf_config_uses_portable_policy_by_default(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        monkeypatch.setattr(
+            "winml.modelkit.config.build.resolve_loader_config",
+            lambda *args, **kwargs: (
+                mock_loader_config,
+                mock_hf_config,
+                mock_model_class,
+                MagicMock(),
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.config.build._resolve_export_config_from_specs",
+            lambda *args, **kwargs: mock_export_config,
+        )
+
+        cfg = generate_hf_build_config(
+            "local-model",
+            device="gpu",
+            ep="DmlExecutionProvider",
+            policy_overrides_config=True,
+            export_policy_targets=None,
+        )
+
+        assert cfg.export is not None
+        assert cfg.export.compatibility.transformers_attention == "eager"
+
+    def test_generated_hf_config_respects_explicit_non_qnn_export_policy_target(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        # MonkeyPatch fixture typing note.
+        monkeypatch.setattr(
+            "winml.modelkit.config.build.resolve_loader_config",
+            lambda *args, **kwargs: (
+                mock_loader_config,
+                mock_hf_config,
+                mock_model_class,
+                MagicMock(),
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.config.build._resolve_export_config_from_specs",
+            lambda *args, **kwargs: mock_export_config,
+        )
+
+        cfg = generate_hf_build_config(
+            "local-model",
+            device="gpu",
+            ep="DmlExecutionProvider",
+            policy_overrides_config=True,
+            export_policy_targets=(ExportPolicyTarget(ep="DmlExecutionProvider", device="gpu"),),
+        )
+
+        assert cfg.export is not None
+        assert cfg.export.compatibility.transformers_attention is None
+
+    def test_submodule_config_inherits_export_compatibility(self) -> None:
+        parent = WinMLBuildConfig(
+            loader=WinMLLoaderConfig(model_type="bert", task="fill-mask"),
+            export=WinMLExportConfig(
+                compatibility=ExportCompatibilityConfig(transformers_attention="eager")
+            ),
+        )
+        sub_info = SubmoduleInfo(
+            class_name="Linear",
+            module_path="encoder.layer.0.output.dense",
+            input_shapes=[[1, 4]],
+            output_shapes=[[1, 4]],
+            input_dtypes=["float32"],
+            output_dtypes=["float32"],
+            input_names=["hidden_states"],
+        )
+
+        sub_cfg = _build_submodule_config(sub_info, parent)
+
+        assert sub_cfg.export is not None
+        assert sub_cfg.export.compatibility.transformers_attention == "eager"
 
 
 # =============================================================================

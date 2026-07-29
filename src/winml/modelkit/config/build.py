@@ -58,6 +58,7 @@ from ..export.config import (
     WinMLExportConfig,
     _resolve_export_config_from_specs,
 )
+from ..export.policy import resolve_export_compatibility
 from ..loader.config import WinMLLoaderConfig, resolve_loader_config
 from ..optim.config import WinMLOptimizationConfig
 from ..quant.config import WinMLQuantizationConfig
@@ -71,7 +72,7 @@ from ..utils.config_utils import merge_config
 
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     import torch
     from torch import nn
@@ -453,6 +454,18 @@ def _apply_target_policy(
         )
 
 
+def apply_export_compatibility_policy(
+    config: WinMLBuildConfig,
+    export_policy_targets: Sequence[object] | None,
+) -> None:
+    """Populate export compatibility when the config has an export stage."""
+    if config.export is None:
+        return
+    if config.export.compatibility:
+        return
+    config.export.compatibility = resolve_export_compatibility(export_policy_targets)
+
+
 def resolve_quant_compile_config(
     *,
     device: str = "auto",
@@ -796,6 +809,7 @@ def generate_hf_build_config(
     trust_remote_code: bool = False,
     ep: str | None = None,
     policy_overrides_config: bool = False,
+    export_policy_targets: Sequence[object] | None = None,
     no_compile: bool = False,
 ) -> WinMLBuildConfig: ...
 
@@ -816,6 +830,7 @@ def generate_hf_build_config(
     trust_remote_code: bool = False,
     ep: str | None = None,
     policy_overrides_config: bool = False,
+    export_policy_targets: Sequence[object] | None = None,
     no_compile: bool = False,
 ) -> list[WinMLBuildConfig]: ...
 
@@ -840,6 +855,7 @@ def generate_hf_build_config(
     trust_remote_code: bool = False,
     ep: str | None = None,
     policy_overrides_config: bool = False,
+    export_policy_targets: Sequence[object] | None = None,
     no_compile: bool = False,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]: ...
 
@@ -859,6 +875,7 @@ def generate_hf_build_config(
     trust_remote_code: bool = False,
     ep: str | None = None,
     policy_overrides_config: bool = False,
+    export_policy_targets: Sequence[object] | None = None,
     no_compile: bool = False,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Generate WinMLBuildConfig for a HuggingFace model (Scenarios A/B/C).
@@ -1071,6 +1088,10 @@ def generate_hf_build_config(
     if no_compile:
         parent_config.compile = None
 
+    # Apply export compatibility policy so parent_config.export.compatibility is populated
+    # (used for serialization/cache-key participation and inheritance by submodules).
+    apply_export_compatibility_policy(parent_config, export_policy_targets)
+
     # =========================================================================
     # STEP 5: Specialize for submodules if requested
     # =========================================================================
@@ -1131,6 +1152,7 @@ def generate_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    export_policy_targets: Sequence[object] | None = None,
     onnx_path: str | Path | None = None,
 ) -> WinMLBuildConfig: ...
 
@@ -1150,6 +1172,7 @@ def generate_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    export_policy_targets: Sequence[object] | None = None,
     onnx_path: str | Path | None = None,
 ) -> list[WinMLBuildConfig]: ...
 
@@ -1168,6 +1191,7 @@ def generate_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    export_policy_targets: Sequence[object] | None = None,
     onnx_path: str | Path | None = None,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Generate WinMLBuildConfig by orchestrating existing modules.
@@ -1225,6 +1249,7 @@ def generate_build_config(
         trust_remote_code=trust_remote_code,
         ep=ep,
         policy_overrides_config=True,
+        export_policy_targets=export_policy_targets,
     )
 
 
@@ -1297,6 +1322,11 @@ def _build_submodule_config(
                 parent_config.export.dynamo
                 if parent_config.export is not None
                 else WinMLExportConfig().dynamo
+            ),
+            compatibility=(
+                copy.deepcopy(parent_config.export.compatibility)
+                if parent_config.export is not None
+                else WinMLExportConfig().compatibility
             ),
             # opset_version and batch_size use dataclass defaults from WinMLExportConfig
         ),
