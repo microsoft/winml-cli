@@ -681,31 +681,31 @@ class QNNMonitor(WinMLEPMonitor):
         if qhas_override is not None:
             # Offline path: caller supplied the QHAS JSON; parse directly.
             if not qhas_override.is_file():
-                logger.debug("QNNMonitor: qhas_override %s is not a file", qhas_override)
+                logger.info("QNNMonitor: qhas_override %s is not a file", qhas_override)
                 return None, None, None
             result_path = qhas_override
         else:
             # Live path: locate inputs and shell out to the QHAS viewer.
             qnn_log = self._select_fresh_qnn_log()
             if qnn_log is None:
-                logger.debug("QNNMonitor: no *_qnn.log found for QHAS")
+                logger.info("QNNMonitor: no *_qnn.log found for QHAS")
                 return None, None, None
 
             # Find the schematic by EPContext partition metadata (never chdir).
             schematic = self._find_schematic()
             if schematic is None:
-                logger.debug("QNNMonitor: no *_schematic.bin found for QHAS")
+                logger.info("QNNMonitor: no *_schematic.bin found for QHAS")
                 return None, None, None
 
             sdk_root = find_qnn_sdk()
             if sdk_root is None:
-                logger.debug("QNNMonitor: QNN SDK not located; skipping QHAS")
+                logger.info("QNNMonitor: QNN SDK not located; skipping QHAS")
                 return None, None, None
 
             qhas_output = self._qhas_output_path()
             viewer_output = run_qhas_viewer(qnn_log, schematic, qhas_output, sdk_root=sdk_root)
             if viewer_output is None or not viewer_output.is_file():
-                logger.debug("QNNMonitor: QHAS viewer produced no output")
+                logger.info("QNNMonitor: QHAS viewer produced no output")
                 return None, None, None
             result_path = viewer_output
 
