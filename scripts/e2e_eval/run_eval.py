@@ -159,6 +159,46 @@ def _resolve_precision(device: str, explicit: str | None, ep: str | None = None)
     return _DEFAULT_PRECISION_NPU if device == "npu" else None
 
 
+# Quantization type -> bit width, used to rebuild the ``w{x}a{y}`` label from a
+# generated build config's quant section.
+_QUANT_TYPE_BITS = {"uint8": 8, "int8": 8, "uint16": 16, "int16": 16}
+
+
+def _precision_from_build_config(config_path: Path) -> str | None:
+    """Read back the precision ``winml config`` resolved into a build config.
+
+    The harness omits ``--precision`` whenever it has no explicit value (CPU/GPU,
+    ``--device auto``, or a recipe-less model with no pinned precision), and
+    ``winml config`` then resolves ``auto`` against the target device -- on NPU
+    that is w8a16, so the build is quantized even though the job declared no
+    precision. The config's ``quant`` section is the only faithful record of that
+    decision, and reporting it keeps a quantized build from being written out as
+    "no precision" -- which downstream reports read as "unquantized".
+
+    Only what the config states is returned: a config with no quant stage yields
+    None (nothing was requested, so nothing is claimed), as does a quant section
+    whose shape is unrecognised.
+    """
+    try:
+        cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    quant = cfg.get("quant")
+    if not isinstance(quant, dict):
+        return None
+    mode = quant.get("mode")
+    if mode == "fp16":
+        return "fp16"
+    if mode == "rtn":
+        bits = quant.get("rtn_bits")
+        return f"int{bits}" if bits else None
+    weight_bits = _QUANT_TYPE_BITS.get(quant.get("weight_type"))
+    activation_bits = _QUANT_TYPE_BITS.get(quant.get("activation_type"))
+    if weight_bits and activation_bits:
+        return f"w{weight_bits}a{activation_bits}"
+    return None
+
+
 def _load_timeout_skip_set() -> set[tuple[str, str]]:
     """Load the timeout skip list as a set of (hf_id, task) tuples."""
     if not TIMEOUT_SKIP_LIST_PATH.exists():
@@ -583,7 +623,10 @@ def _run_build(
     ``precision`` is passed to both ``winml config`` and ``winml build``: since
     we always pass ``--device``, ``winml build -c`` re-resolves quant from
     device+precision and overwrites what the config baked in, so omitting it
-    would let the build revert to its auto default (npu → w8a16).
+    would let the build revert to its auto default (npu → w8a16). The result
+    dict reports that effective precision back under ``precision`` (read from
+    the generated config when the caller passed none), so the recorded
+    eval_result never claims "no precision" for a quantized build.
     """
     composite_onnx = getattr(entry, "composite_onnx", None)
     if isinstance(composite_onnx, dict) and composite_onnx:
@@ -591,6 +634,9 @@ def _run_build(
             "success": True,
             "onnx_paths": dict(composite_onnx),
             "stage": "prebuilt",
+            # Nothing is built here: the registry supplies pre-exported ONNX, so
+            # the caller's resolved precision is all that describes them.
+            "precision": precision,
             "proc": {
                 "exit_code": 0,
                 "stdout": "Using pre-built composite ONNX paths from registry.",
@@ -655,6 +701,11 @@ def _run_build(
     if not sub_configs:
         sub_configs = [config_path]
 
+    # Precision actually applied: the flag when the caller pinned one, else what
+    # `winml config` resolved from `auto`. Reported back so the result records
+    # the built precision rather than "none" (see _precision_from_build_config).
+    effective_precision = precision or _precision_from_build_config(sub_configs[0])
+
     # Step 2: build each sub-config
     # Map component label → ONNX path. Single model uses "" as label.
     onnx_paths: dict[str, str] = {}
@@ -703,6 +754,7 @@ def _run_build(
                 "onnx_paths": onnx_paths,
                 "stage": stage,
                 "proc": build_proc,
+                "precision": effective_precision,
             }
 
         if build_only:
@@ -724,6 +776,7 @@ def _run_build(
         "onnx_paths": onnx_paths,
         "stage": "complete",
         "proc": last_proc,
+        "precision": effective_precision,
     }
 
 
@@ -831,6 +884,7 @@ def _run_recipe_build(
                 "stage": stage,
                 "proc": proc,
                 "meta_config": meta_config,
+                "precision": variant.precision,
             }
 
         # Locate the cached artifact from the build output (same mechanism as
@@ -851,6 +905,7 @@ def _run_recipe_build(
                 "stage": stage,
                 "proc": proc,
                 "meta_config": meta_config,
+                "precision": variant.precision,
             }
         onnx_paths[role or ""] = str(onnx)
 
@@ -860,6 +915,7 @@ def _run_recipe_build(
         "stage": "complete",
         "proc": last_proc,
         "meta_config": meta_config,
+        "precision": variant.precision,
     }
 
 
@@ -2464,6 +2520,32 @@ def _build_for_job(
     return build_result, recipe_meta, trust
 
 
+def _merge_backfill_result(
+    existing: dict, accuracy_result: dict | None, precision: str | None
+) -> dict:
+    """Splice a freshly-run accuracy into an existing result.
+
+    The recorded perf section is preserved verbatim (it already ran and passed);
+    ``accuracy_result`` has the same shape :func:`build_eval_result` stores, so
+    it is spliced in directly.
+
+    ``precision`` is what the backfill's rebuild reported and always replaces the
+    recorded value -- including when it is None (a skip-quant/unquantized build),
+    since leaving the old value would let a stale declared precision keep
+    claiming an artifact that was never built.
+    """
+    result = dict(existing)
+    result["accuracy"] = accuracy_result
+    if precision is None:
+        result.pop("precision", None)
+    else:
+        result["precision"] = precision
+    eval_types = result.get("eval_types_run") or []
+    if "accuracy" not in eval_types:
+        result["eval_types_run"] = [*eval_types, "accuracy"]
+    return result
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -2891,6 +2973,9 @@ def main() -> None:
     for i, job in enumerate(jobs, 1):
         entry = job.entry
         precision = job.precision
+        # What the build reports it applied; stays None until the build phase runs
+        # (and for a job whose build applies no precision at all).
+        recorded_precision: str | None = None
         prec_tag = f" [{precision}]" if precision else ""
         base_label = f"{entry.hf_id} / {entry.task}" if entry.task else entry.hf_id
         label = f"{base_label}{prec_tag}"
@@ -2969,6 +3054,12 @@ def main() -> None:
             # for this precision, else the winml-config fallback. Both return
             # {success, onnx_paths, stage, proc}; build is shared by perf + eval.
             build_result, recipe_meta, trust = _build_for_job(job, args, model_dir)
+
+            # Record what the build applied, never what the job declared: a
+            # fallback job with no pinned precision still builds at the device
+            # default (NPU -> w8a16), while a skip-quant EP drops even an explicit
+            # per-model precision. The declared value stays in the dir slug/label.
+            recorded_precision = build_result.get("precision")
 
             onnx_paths = build_result["onnx_paths"] if build_result["success"] else {}
             onnx_size = _compute_onnx_size(onnx_paths)
@@ -3053,14 +3144,7 @@ def main() -> None:
             break
 
         if backfill_existing is not None:
-            # Merge the freshly-run accuracy into the existing result, preserving
-            # its recorded perf verbatim. accuracy_result has the same shape
-            # build_eval_result would store, so it's spliced in directly.
-            result = dict(backfill_existing)
-            result["accuracy"] = accuracy_result
-            etr = result.get("eval_types_run") or []
-            if "accuracy" not in etr:
-                result["eval_types_run"] = [*etr, "accuracy"]
+            result = _merge_backfill_result(backfill_existing, accuracy_result, recorded_precision)
         else:
             result = build_eval_result(
                 entry,
@@ -3071,7 +3155,7 @@ def main() -> None:
                 ep=args.ep,
                 onnx_size_bytes=onnx_size,
                 sanitize_fn=None if args.raw_output else _sanitize_output,
-                precision=precision,
+                precision=recorded_precision,
             )
         results.append(result)
 
