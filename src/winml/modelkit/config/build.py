@@ -58,7 +58,7 @@ from ..export.config import (
     WinMLExportConfig,
     _resolve_export_config_from_specs,
 )
-from ..export.policy import resolve_export_compatibility
+from ..export.policy import export_policy_targets_for_request, resolve_export_compatibility
 from ..loader.config import WinMLLoaderConfig, resolve_loader_config
 from ..optim.config import WinMLOptimizationConfig
 from ..quant.config import WinMLQuantizationConfig
@@ -458,11 +458,25 @@ def _apply_target_policy(
         )
 
 
+def _is_explicit_export_policy_target(*, device: str | None, ep: str | None) -> bool:
+    """Return whether the request named a specific EP/device export target."""
+    return (ep is not None and ep.lower() != "auto") or (
+        device is not None and device.lower() != "auto"
+    )
+
+
 def apply_export_compatibility_policy(
     config: WinMLBuildConfig | Sequence[WinMLBuildConfig],
-    export_policy_targets: Sequence[object] | None,
+    *,
+    device: str | None = "auto",
+    ep: str | None = None,
 ) -> None:
     """Populate export compatibility when the config has an export stage."""
+    export_policy_targets = export_policy_targets_for_request(
+        ep=ep,
+        device=device,
+        target_was_explicit=_is_explicit_export_policy_target(device=device, ep=ep),
+    )
     configs = config if isinstance(config, list) else [config]
     for cfg in configs:
         if cfg.export is None:
@@ -818,7 +832,6 @@ def generate_hf_build_config(
     trust_remote_code: bool = False,
     ep: str | None = None,
     policy_overrides_config: bool = False,
-    export_policy_targets: Sequence[object] | None = None,
     no_compile: bool = False,
 ) -> WinMLBuildConfig: ...
 
@@ -839,7 +852,6 @@ def generate_hf_build_config(
     trust_remote_code: bool = False,
     ep: str | None = None,
     policy_overrides_config: bool = False,
-    export_policy_targets: Sequence[object] | None = None,
     no_compile: bool = False,
 ) -> list[WinMLBuildConfig]: ...
 
@@ -864,7 +876,6 @@ def generate_hf_build_config(
     trust_remote_code: bool = False,
     ep: str | None = None,
     policy_overrides_config: bool = False,
-    export_policy_targets: Sequence[object] | None = None,
     no_compile: bool = False,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]: ...
 
@@ -884,7 +895,6 @@ def generate_hf_build_config(
     trust_remote_code: bool = False,
     ep: str | None = None,
     policy_overrides_config: bool = False,
-    export_policy_targets: Sequence[object] | None = None,
     no_compile: bool = False,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Generate WinMLBuildConfig for a HuggingFace model (Scenarios A/B/C).
@@ -1099,7 +1109,7 @@ def generate_hf_build_config(
 
     # Apply export compatibility policy so parent_config.export.compatibility is populated
     # (used for serialization/cache-key participation and inheritance by submodules).
-    apply_export_compatibility_policy(parent_config, export_policy_targets)
+    apply_export_compatibility_policy(parent_config, device=device, ep=ep)
 
     # =========================================================================
     # STEP 5: Specialize for submodules if requested
@@ -1161,7 +1171,6 @@ def generate_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
-    export_policy_targets: Sequence[object] | None = None,
     onnx_path: str | Path | None = None,
 ) -> WinMLBuildConfig: ...
 
@@ -1181,7 +1190,6 @@ def generate_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
-    export_policy_targets: Sequence[object] | None = None,
     onnx_path: str | Path | None = None,
 ) -> list[WinMLBuildConfig]: ...
 
@@ -1200,7 +1208,6 @@ def generate_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
-    export_policy_targets: Sequence[object] | None = None,
     onnx_path: str | Path | None = None,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Generate WinMLBuildConfig by orchestrating existing modules.
@@ -1258,7 +1265,6 @@ def generate_build_config(
         trust_remote_code=trust_remote_code,
         ep=ep,
         policy_overrides_config=True,
-        export_policy_targets=export_policy_targets,
     )
 
 

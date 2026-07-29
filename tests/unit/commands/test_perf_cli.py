@@ -186,7 +186,7 @@ class TestPerfOutputPath:
 class TestPerfUnifiedPipeline:
     """Test that both ONNX and HF models go through PerfBenchmark._load_model."""
 
-    def test_load_model_forwards_export_target_explicitness(
+    def test_load_model_does_not_forward_export_policy_details(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Pre-resolved runtime EPs should not force target-specific export policy."""
@@ -196,7 +196,6 @@ class TestPerfUnifiedPipeline:
             BenchmarkConfig(
                 model_id="microsoft/resnet-50",
                 task="image-classification",
-                export_target_was_explicit=False,
             )
         )
         fake_ep_device = MagicMock()
@@ -217,7 +216,7 @@ class TestPerfUnifiedPipeline:
         benchmark._load_model()
 
         assert received["ep_device"] is fake_ep_device
-        assert received["export_target_was_explicit"] is False
+        assert "export_target_was_explicit" not in received
 
     def test_close_releases_single_model_session(self) -> None:
         """Closing a benchmark resets the loaded model's native session."""

@@ -24,9 +24,10 @@ class ExportCompatibilityConfig:
     """Resolved export-time compatibility knobs."""
 
     transformers_attention: str | None = None
+    is_resolved: bool = False
 
     def __bool__(self) -> bool:  # pragma: no cover - trivial
-        return self.transformers_attention is not None
+        return self.is_resolved or self.transformers_attention is not None
 
     def to_dict(self) -> dict[str, str]:
         """Serialize resolved compatibility knobs to a dict."""
@@ -36,10 +37,15 @@ class ExportCompatibilityConfig:
         return result
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> ExportCompatibilityConfig:
+    def from_dict(
+        cls,
+        data: dict[str, Any] | None,
+        *,
+        is_resolved: bool = True,
+    ) -> ExportCompatibilityConfig:
         """Deserialize compatibility config from a dict (or None)."""
         if data is None:
-            return cls()
+            return cls(is_resolved=is_resolved)
         if not isinstance(data, dict):
             raise TypeError(f"export.compatibility must be an object, got {type(data).__name__}")
         unknown = set(data) - {"transformers_attention"}
@@ -51,7 +57,7 @@ class ExportCompatibilityConfig:
                 "export.compatibility.transformers_attention must be 'eager' or null, "
                 f"got {attention!r}"
             )
-        return cls(transformers_attention=attention)
+        return cls(transformers_attention=attention, is_resolved=is_resolved)
 
 
 @dataclass(frozen=True)
@@ -146,7 +152,10 @@ def resolve_export_compatibility(
                     f"{incoming!r} from {rule.ep}/{rule.device or '*'}"
                 )
 
-    return ExportCompatibilityConfig(transformers_attention=transformers_attention)
+    return ExportCompatibilityConfig(
+        transformers_attention=transformers_attention,
+        is_resolved=True,
+    )
 
 
 def _catalog_targets() -> tuple[ExportPolicyTarget, ...]:
@@ -193,7 +202,7 @@ def _rule_from_dict(data: object, *, index: int) -> ExportCompatibilityRule:
         raise ValueError(f"{_RULES_RESOURCE} rules[{index}].match.device must be a string or null")
 
     export = data.get("export")
-    compatibility = ExportCompatibilityConfig.from_dict(export)
+    compatibility = ExportCompatibilityConfig.from_dict(export, is_resolved=False)
     reason = data.get("reason")
     if not isinstance(reason, str) or not reason:
         raise ValueError(f"{_RULES_RESOURCE} rules[{index}].reason must be a non-empty string")

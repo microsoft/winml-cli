@@ -359,6 +359,9 @@ class WinMLAutoModel:
         model_input = resolve_model_input(str(model_id_or_path))
         model_id = model_input.local_path or model_input.raw
         logger.info("Loading WinML model from: %s", model_id)
+        ep_device_was_provided = ep_device is not None
+        request_device = (device or "auto").lower()
+        request_ep = ep
 
         # Resolve a concrete target before every dispatch path, including
         # composites. Explicit incompatible requests intentionally propagate.
@@ -369,6 +372,12 @@ class WinMLAutoModel:
                 EPDeviceTarget(ep=ep or "auto", device=(device or "auto").lower())
             )
             ep_device = WinMLEPRegistry.instance().auto_device(target)
+        if device is not None or ep is not None or not ep_device_was_provided:
+            config_device = request_device
+            config_ep = request_ep
+        else:
+            config_device = ep_device.device.device_type.lower()
+            config_ep = _resolved_ep_short_name(ep_device)
 
         # =====================================================================
         # ONNX FAST PATH -- skip HF loading and export when given an .onnx file
@@ -437,7 +446,8 @@ class WinMLAutoModel:
                 return composite_cls.from_pretrained(
                     model_id,
                     task,
-                    device=ep_device.device.device_type.lower(),
+                    device=config_device,
+                    ep=config_ep,
                     ep_device=ep_device,
                     use_cache=use_cache,
                     force_rebuild=force_rebuild,
@@ -460,16 +470,14 @@ class WinMLAutoModel:
         # =====================================================================
         from ..config import generate_hf_build_config
 
-        # Config fields merge on top of defaults, while the already resolved
-        # runtime target remains authoritative for quant/compile policy.
         build_config = generate_hf_build_config(
             model_id,
             task=task,
             override=config,
             shape_config=shape_config,
-            device=ep_device.device.device_type.lower(),
+            device=config_device,
             precision=precision,
-            ep=_resolved_ep_short_name(ep_device),
+            ep=config_ep,
             model_type=model_type,
             trust_remote_code=trust_remote_code,
             policy_overrides_config=True,

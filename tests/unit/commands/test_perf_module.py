@@ -245,13 +245,9 @@ class TestPerfModuleParameterForwarding:
 
         gen_kwargs = mock_gen.call_args.kwargs
         assert gen_kwargs["device"] == "npu"
-        assert gen_kwargs["ep"] == "QNNExecutionProvider"
+        assert gen_kwargs["ep"] == "qnn"
         assert gen_kwargs["precision"] == "auto"
-        from winml.modelkit.export.policy import ExportPolicyTarget
-
-        assert gen_kwargs["export_policy_targets"] == (
-            ExportPolicyTarget(ep="QNNExecutionProvider", device="npu"),
-        )
+        assert "export_policy_targets" not in gen_kwargs
 
         build_kwargs = mock_build.call_args.kwargs
         assert build_kwargs["ep"] == "QNNExecutionProvider"
@@ -423,7 +419,9 @@ class TestPerfModuleParameterForwarding:
             )
 
         assert result.exit_code == 0, result.output
-        assert mock_gen.call_args.kwargs["export_policy_targets"] is None
+        assert "export_policy_targets" not in mock_gen.call_args.kwargs
+        assert mock_gen.call_args.kwargs["device"] == "auto"
+        assert mock_gen.call_args.kwargs["ep"] is None
 
 
 class TestPerfModuleMonitor:

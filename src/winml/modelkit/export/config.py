@@ -372,10 +372,8 @@ class WinMLExportConfig:
         if self.dynamic_axes:
             result["dynamic_axes"] = self.dynamic_axes
 
-        # Serialize compatibility when present
-        compatibility = self.compatibility.to_dict()
-        if compatibility:
-            result["compatibility"] = compatibility
+        if self.compatibility:
+            result["compatibility"] = self.compatibility.to_dict()
 
         return result
 
@@ -420,7 +418,11 @@ class WinMLExportConfig:
             enable_hierarchy_tags=data.get("enable_hierarchy_tags", True),
             clean_onnx=data.get("clean_onnx", False),
             hierarchy_tag_format=data.get("hierarchy_tag_format", "full"),
-            compatibility=ExportCompatibilityConfig.from_dict(data.get("compatibility")),
+            compatibility=(
+                ExportCompatibilityConfig.from_dict(data["compatibility"])
+                if "compatibility" in data
+                else ExportCompatibilityConfig()
+            ),
         )
 
 

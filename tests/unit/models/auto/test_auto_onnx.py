@@ -393,6 +393,89 @@ class TestFromPretrainedDelegatesToFromOnnx:
         assert from_onnx.call_args.kwargs["onnx_path"] == local_onnx
 
 
+class TestFromPretrainedBuildConfigTarget:
+    """Target request forwarding for HF from_pretrained builds."""
+
+    def test_forwarded_request_target_stays_auto_for_export_policy(self, tmp_path: Path) -> None:
+        """A resolved runtime EP must not look like an explicit export-policy target."""
+        from winml.modelkit.config import WinMLBuildConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
+
+        ep_device = MagicMock()
+        ep_device.device.ep_name = "DmlExecutionProvider"
+        ep_device.device.device_type = "GPU"
+        build_config = WinMLBuildConfig(
+            loader=WinMLLoaderConfig(task="image-classification", model_type="resnet"),
+            compile=None,
+        )
+        hf_config = MagicMock()
+        hf_config.model_type = "resnet"
+        build_result = _make_build_result(tmp_path)
+
+        with (
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=build_config,
+            ) as mock_gen,
+            patch("winml.modelkit.loader.load_hf_config", return_value=hf_config),
+            patch("winml.modelkit.build.build_hf_model", return_value=build_result),
+            patch(
+                "winml.modelkit.models.auto.get_winml_class",
+                return_value=lambda **_: MagicMock(),
+            ),
+        ):
+            WinMLAutoModel.from_pretrained(
+                "fake/model",
+                ep_device=ep_device,
+                device="auto",
+                ep=None,
+                task="image-classification",
+            )
+
+        assert mock_gen.call_args.kwargs["device"] == "auto"
+        assert mock_gen.call_args.kwargs["ep"] is None
+
+    def test_bare_default_request_stays_auto_after_runtime_resolution(self, tmp_path: Path) -> None:
+        """Internal runtime resolution must not turn default export policy target-specific."""
+        from winml.modelkit.config import WinMLBuildConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
+        from winml.modelkit.session import EPDeviceTarget
+
+        ep_device = MagicMock()
+        ep_device.device.ep_name = "DmlExecutionProvider"
+        ep_device.device.device_type = "GPU"
+        build_config = WinMLBuildConfig(
+            loader=WinMLLoaderConfig(task="image-classification", model_type="resnet"),
+            compile=None,
+        )
+        hf_config = MagicMock()
+        hf_config.model_type = "resnet"
+        build_result = _make_build_result(tmp_path)
+
+        with (
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="DmlExecutionProvider", device="gpu"),
+            ),
+            patch("winml.modelkit.session.WinMLEPRegistry.instance") as mock_registry,
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=build_config,
+            ) as mock_gen,
+            patch("winml.modelkit.loader.load_hf_config", return_value=hf_config),
+            patch("winml.modelkit.build.build_hf_model", return_value=build_result),
+            patch(
+                "winml.modelkit.models.auto.get_winml_class",
+                return_value=lambda **_: MagicMock(),
+            ),
+        ):
+            mock_registry.return_value.auto_device.return_value = ep_device
+            WinMLAutoModel.from_pretrained("fake/model", task="image-classification")
+
+        assert mock_gen.call_args.kwargs["device"] == "auto"
+        assert mock_gen.call_args.kwargs["ep"] is None
+
+
 # =============================================================================
 # from_onnx cache dir and cache_key tests
 # =============================================================================

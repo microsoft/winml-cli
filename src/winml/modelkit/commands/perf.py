@@ -291,7 +291,6 @@ class BenchmarkConfig:
     shape_config: dict | None = None
     op_tracing: str | None = None
     export_overrides: dict[str, Any] | None = None
-    export_target_was_explicit: bool = False
     # Path to a .npz file of real input tensors. When set, benchmarking uses
     # these instead of randomly generated inputs (single-model path only).
     input_data: Path | None = None
@@ -988,7 +987,8 @@ class PerfBenchmark:
             "task": resolved_task,
             "config": override,
             "ep_device": self._ep_device,
-            "export_target_was_explicit": self.config.export_target_was_explicit,
+            "device": self.config.device,
+            "ep": self.config.ep,
             "precision": self.config.precision,
             "provider_options": self.config.ep_options,
             "use_cache": use_cache,
@@ -1292,7 +1292,6 @@ def _perf_modules(
     ep_options: dict[str, str] | None = None,
     precision: str = "auto",
     allow_unsupported_nodes: bool = False,
-    export_target_was_explicit: bool = False,
     rebuild: bool = False,
     ignore_cache: bool = False,
 ) -> None:
@@ -1345,13 +1344,14 @@ def _perf_modules(
     from ..build import build_hf_model
     from ..cache import get_cache_dir, get_cache_key, get_model_dir
     from ..config import SubmoduleClassNotFoundError, generate_hf_build_config
-    from ..export.policy import export_policy_targets_for_request
     from ..loader.task import get_task_abbrev
     from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
     from .build import _instantiate_parent_model
 
+    request_device = (device or "auto").lower()
+    request_ep = ep
     resolved_target = resolve_device(
-        EPDeviceTarget(ep=ep or "auto", device=device or "auto", source=ep_source)
+        EPDeviceTarget(ep=request_ep or "auto", device=request_device, source=ep_source)
     )
     resolved_ep_device = WinMLEPRegistry.instance().auto_device(resolved_target)
     resolved_device = resolved_target.device
@@ -1364,14 +1364,9 @@ def _perf_modules(
             model_id=hf_model,
             task=task,
             module=module_class,
-            device=resolved_device,
+            device=request_device,
             precision=precision,
-            ep=ep,
-            export_policy_targets=export_policy_targets_for_request(
-                ep=ep,
-                device=resolved_device,
-                target_was_explicit=export_target_was_explicit,
-            ),
+            ep=request_ep,
         )
     except SubmoduleClassNotFoundError as e:
         # User-error: --module pattern didn't match. List what's available so
@@ -2678,10 +2673,6 @@ def perf(
     except Exception as e:
         raise click.ClickException(f"Failed to resolve Hub-hosted ONNX path {model!r}: {e}") from e
     model = hf_model
-    export_target_was_explicit = cli_utils.is_cli_provided(
-        ctx, "device"
-    ) or cli_utils.is_cli_provided(ctx, "ep")
-
     # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
     # op-tracing section the flag is meaningless, so reject it explicitly
     # rather than silently ignoring a user's intent.
@@ -2714,20 +2705,16 @@ def perf(
         if not cli_utils.is_cli_provided(ctx, "device"):
             if configured_target is not None:
                 device = configured_target.device
-                export_target_was_explicit = True
             elif "device" in cc:
                 device = cc["device"]
-                export_target_was_explicit = True
         if not cli_utils.is_cli_provided(ctx, "ep"):
             # Normalize to the (ep, source) tuple shape that EpAtSourceParamType
             # produces at parse time, so the downstream unpack is uniform
             # regardless of whether --ep came from the CLI or the config file.
             if configured_target is not None:
                 ep = (configured_target.ep, configured_target.source)
-                export_target_was_explicit = True
             elif "execution_provider" in cc:
                 ep = (cc["execution_provider"], None)
-                export_target_was_explicit = True
 
     # Merge top-level -v/-q with subcommand-level flags so either position works.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
@@ -2899,7 +2886,6 @@ def perf(
             ep_options=ep_provider_options,
             precision=precision.lower(),
             allow_unsupported_nodes=allow_unsupported_nodes,
-            export_target_was_explicit=export_target_was_explicit,
             rebuild=rebuild,
             ignore_cache=ignore_cache,
         )
@@ -3014,7 +3000,6 @@ def perf(
         shape_config=shape_config,
         op_tracing=op_tracing,
         export_overrides=export_overrides,
-        export_target_was_explicit=export_target_was_explicit,
         input_data=input_data,
     )
 

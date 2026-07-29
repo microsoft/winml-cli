@@ -43,7 +43,7 @@ from winml.modelkit.export import (
     WinMLExportConfig,
     resolve_io_specs,
 )
-from winml.modelkit.export.policy import ExportCompatibilityConfig, ExportPolicyTarget
+from winml.modelkit.export.policy import ExportCompatibilityConfig
 from winml.modelkit.loader import WinMLLoaderConfig
 from winml.modelkit.optim import WinMLOptimizationConfig
 from winml.modelkit.quant import WinMLQuantizationConfig
@@ -154,16 +154,15 @@ class TestGeneratedExportCompatibilityPolicy:
 
         cfg = generate_hf_build_config(
             "local-model",
-            device="gpu",
-            ep="DmlExecutionProvider",
+            device="auto",
+            ep=None,
             policy_overrides_config=True,
-            export_policy_targets=None,
         )
 
         assert cfg.export is not None
         assert cfg.export.compatibility.transformers_attention == "eager"
 
-    def test_generated_hf_config_respects_explicit_non_qnn_export_policy_target(
+    def test_generated_hf_config_respects_explicit_non_qnn_target_export_policy(
         self,
         monkeypatch: pytest.MonkeyPatch,
         mock_loader_config: WinMLLoaderConfig,
@@ -191,7 +190,6 @@ class TestGeneratedExportCompatibilityPolicy:
             device="gpu",
             ep="DmlExecutionProvider",
             policy_overrides_config=True,
-            export_policy_targets=(ExportPolicyTarget(ep="DmlExecutionProvider", device="gpu"),),
         )
 
         assert cfg.export is not None
@@ -226,7 +224,7 @@ class TestLoadedConfigExportCompatibilityPolicy:
 
         cfg = WinMLBuildConfig(export=WinMLExportConfig())
 
-        apply_export_compatibility_policy(cfg, None)
+        apply_export_compatibility_policy(cfg)
 
         assert cfg.export is not None
         assert cfg.export.compatibility.transformers_attention == "eager"
@@ -240,20 +238,31 @@ class TestLoadedConfigExportCompatibilityPolicy:
             )
         )
 
-        apply_export_compatibility_policy(
-            cfg,
-            (ExportPolicyTarget(ep="DmlExecutionProvider", device="gpu"),),
-        )
+        apply_export_compatibility_policy(cfg, device="gpu", ep="DmlExecutionProvider")
 
         assert cfg.export is not None
         assert cfg.export.compatibility.transformers_attention == "eager"
+
+    def test_explicit_empty_compatibility_round_trips_without_portable_override(self) -> None:
+        from winml.modelkit.config.build import apply_export_compatibility_policy
+
+        cfg = WinMLBuildConfig(export=WinMLExportConfig())
+
+        apply_export_compatibility_policy(cfg, device="gpu", ep="DmlExecutionProvider")
+        data = cfg.to_dict()
+        round_tripped = WinMLBuildConfig.from_dict(data)
+        apply_export_compatibility_policy(round_tripped)
+
+        assert data["export"]["compatibility"] == {}
+        assert round_tripped.export is not None
+        assert round_tripped.export.compatibility.transformers_attention is None
 
     def test_apply_export_policy_accepts_config_lists(self) -> None:
         from winml.modelkit.config.build import apply_export_compatibility_policy
 
         cfgs = [WinMLBuildConfig(export=WinMLExportConfig()), WinMLBuildConfig(export=None)]
 
-        apply_export_compatibility_policy(cfgs, None)
+        apply_export_compatibility_policy(cfgs)
 
         assert cfgs[0].export is not None
         assert cfgs[0].export.compatibility.transformers_attention == "eager"

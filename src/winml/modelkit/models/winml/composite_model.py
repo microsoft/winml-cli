@@ -223,6 +223,8 @@ class WinMLCompositeModel(PreTrainedModel):
                 model_id,
                 ep_device=ep_device,
                 task=component_task,
+                device=device,
+                ep=ep,
                 use_cache=use_cache,
                 force_rebuild=force_rebuild,
                 trust_remote_code=trust_remote_code,

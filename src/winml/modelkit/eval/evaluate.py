@@ -318,6 +318,8 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCo
             config.model_id,
             ep_device,
             task=config.task,
+            device=config.device,
+            ep=config.ep,
             precision=config.precision,
             allow_unsupported_nodes=config.allow_unsupported_nodes,
             config=build_override,

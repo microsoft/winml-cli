@@ -1127,7 +1127,7 @@ class TestBuildEpDevice:
         call_kwargs = mock_build_api.call_args.kwargs
         assert call_kwargs["device"] == "npu"
 
-    def test_auto_generated_config_forwards_explicit_target_policy(
+    def test_auto_generated_config_leaves_export_policy_to_config_generation(
         self,
         runner: CliRunner,
         mock_build_api: MagicMock,
@@ -1135,7 +1135,6 @@ class TestBuildEpDevice:
     ) -> None:
         from winml.modelkit.commands.build import build
         from winml.modelkit.config import WinMLBuildConfig
-        from winml.modelkit.export.policy import ExportPolicyTarget
 
         fake_cfg = WinMLBuildConfig.from_dict(
             {
@@ -1156,9 +1155,9 @@ class TestBuildEpDevice:
             )
 
         assert result.exit_code == 0, result.output
-        assert mock_gen.call_args.kwargs["export_policy_targets"] == (
-            ExportPolicyTarget(ep="QNNExecutionProvider", device="npu"),
-        )
+        assert "export_policy_targets" not in mock_gen.call_args.kwargs
+        assert mock_gen.call_args.kwargs["device"] == "auto"
+        assert mock_gen.call_args.kwargs["ep"] == "qnn"
 
     def test_auto_generated_config_uses_portable_export_policy_when_no_target_supplied(
         self,
@@ -1188,7 +1187,9 @@ class TestBuildEpDevice:
             )
 
         assert result.exit_code == 0, result.output
-        assert mock_gen.call_args.kwargs["export_policy_targets"] is None
+        assert "export_policy_targets" not in mock_gen.call_args.kwargs
+        assert mock_gen.call_args.kwargs["device"] == "auto"
+        assert mock_gen.call_args.kwargs["ep"] is None
 
     def test_input_specs_patches_config_file_inputs(
         self,
