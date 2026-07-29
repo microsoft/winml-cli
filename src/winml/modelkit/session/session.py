@@ -213,6 +213,13 @@ def _build_session_options(
         if provider_options is not None
         else _build_provider_options(ep_device, ep_config, ep_monitor)
     )
+    logger.info(
+        "Building session options for ep=%s device=%s with provider_option_keys=%s",
+        ep_device.ep.arg0,
+        ep_device.device.device_type,
+        sorted(options),
+    )
+    logger.debug("Session provider options: %s", options)
     so.add_provider_for_devices([handle], options)
     return so
 
@@ -766,7 +773,7 @@ class WinMLSession:
         -----------------------
         * If *monitor* contributes provider/session options that differ from
           the active session, the compiled session is torn down first
-          (auto-reset with a WARNING) so the new options take effect.
+          (auto-reset with an INFO diagnostic) so the new options take effect.
         * After the ``with`` block exits, any rebuilt session is restored from
           the saved baseline provider/session-option snapshots.
 

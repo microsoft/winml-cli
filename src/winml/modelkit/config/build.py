@@ -416,7 +416,11 @@ def _apply_target_policy(
 
     # Mutate quant in place so calibration identity fields stamped by
     # _assemble_config survive policy resolution.
-    if policy.weight_type is not None and policy.activation_type is not None:
+    if policy.skip_quantization:
+        # Same operation --no-quant performs. Checked first: the policy carries
+        # no precision choice in this case, so the branches below do not apply.
+        config.quant = None
+    elif policy.weight_type is not None and policy.activation_type is not None:
         if config.quant is None:
             config.quant = WinMLQuantizationConfig()
         config.quant.mode = "static"
@@ -506,7 +510,10 @@ def resolve_quant_compile_config(
 
     # Quant config (weight_type and activation_type are always both-None or both-set)
     quant_config: WinMLQuantizationConfig | None = None
-    if policy.weight_type is not None and policy.activation_type is not None:
+    if policy.skip_quantization:
+        # Same operation --no-quant performs: no quantization stage at all.
+        quant_config = None
+    elif policy.weight_type is not None and policy.activation_type is not None:
         quant_config = WinMLQuantizationConfig()
         quant_config.weight_type = policy.weight_type
         quant_config.activation_type = policy.activation_type

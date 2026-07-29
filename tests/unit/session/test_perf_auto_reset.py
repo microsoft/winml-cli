@@ -74,11 +74,11 @@ def test_auto_reset_fires_when_options_contributed(caplog):
     with caplog.at_level(logging.INFO), session.perf(monitor=_ContributingMonitor()):
         pass
 
-    # NFR-3: the verbatim phrase MUST appear as a substring of the log.
+    # The diagnostic remains available under -v without warning on a normal path.
     expected = "auto-resetting compiled session to apply monitor session/provider options"
     info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
-    assert any(expected in m for m in info_messages), (
-        f"NFR-3 verbatim phrase not in INFO records. expected substring: "
+    assert any(expected in message for message in info_messages), (
+        f"Auto-reset phrase not in INFO records. expected substring: "
         f"{expected!r}; got: {info_messages}"
     )
     assert not any(expected in r.message for r in caplog.records if r.levelno >= logging.WARNING)
