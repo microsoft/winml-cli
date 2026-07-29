@@ -238,7 +238,7 @@ class TestResolveArchKey:
         monkeypatch.setattr("platform.machine", lambda: machine)
         assert _resolve_arch_key() == expected_key
 
-    def test_returns_x64_native_when_cpu_query_raises_for_x64_process(
+    def test_returns_x64_native_when_cpu_query_raises(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # CPU.get_all shells out to PowerShell; any failure there (missing
@@ -249,19 +249,7 @@ class TestResolveArchKey:
 
         monkeypatch.setattr("winml.modelkit.ep_path.os.name", "nt")
         monkeypatch.setattr(CPU, "get_all", _boom)
-        monkeypatch.setattr("platform.machine", lambda: "AMD64")
         assert _resolve_arch_key() == "x64_native"
-
-    def test_cpu_query_failure_uses_native_arm64_process_as_host_signal(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        def _boom() -> list[CPU]:
-            raise OSError("powershell not found")
-
-        monkeypatch.setattr("winml.modelkit.ep_path.os.name", "nt")
-        monkeypatch.setattr(CPU, "get_all", _boom)
-        monkeypatch.setattr("platform.machine", lambda: "ARM64")
-        assert _resolve_arch_key() == "arm64_native"
 
     def test_returns_x64_native_when_no_cpus_returned(
         self, monkeypatch: pytest.MonkeyPatch

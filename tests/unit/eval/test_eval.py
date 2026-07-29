@@ -28,10 +28,7 @@ class TestPreparePipeline:
         evaluator.model = MagicMock()
         sentinel = MagicMock()
 
-        with (
-            patch("winml.modelkit.inference.pipeline._pipeline_component_kwargs", return_value={}),
-            patch("transformers.pipelines.pipeline", return_value=sentinel) as mock_pipeline,
-        ):
+        with patch("transformers.pipeline", return_value=sentinel) as mock_pipeline:
             assert evaluator.prepare_pipeline() is sentinel
 
         assert "framework" not in mock_pipeline.call_args.kwargs
@@ -113,24 +110,6 @@ class TestEvaluationConfig:
         )
         restored = WinMLEvaluationConfig.from_dict(config.to_dict())
         assert restored.input_data == "inputs.npz"
-
-    def test_config_roundtrip_restores_export_input_specs(self):
-        """Serialized export override specs stay usable by build config merging."""
-        from winml.modelkit.onnx import InputTensorSpec
-
-        config = WinMLEvaluationConfig(
-            model_id="test/model",
-            export_overrides={
-                "input_tensors": [InputTensorSpec(name="input_ids", dtype="int64", shape=[1, 8])]
-            },
-        )
-
-        restored = WinMLEvaluationConfig.from_dict(config.to_dict())
-
-        assert isinstance(restored.export_overrides, dict)
-        input_tensors = restored.export_overrides["input_tensors"]
-        assert isinstance(input_tensors[0], InputTensorSpec)
-        assert input_tensors[0].name == "input_ids"
 
     def test_reference_path_default_is_none(self):
         """reference_path defaults to None and is omitted from to_dict."""
@@ -1526,7 +1505,6 @@ class TestLoadModel:
         # No --shape-config / export overrides -> both default to None.
         assert call_args.kwargs["shape_config"] is None
         assert call_args.kwargs["config"] is None
-        assert call_args.kwargs["export_target_was_explicit"] is False
         assert result is mock_model
 
     def test_auto_target_retries_cpu_after_ort_runtime_failure(self, caplog):

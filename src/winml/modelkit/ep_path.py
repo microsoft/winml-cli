@@ -255,7 +255,6 @@ def _resolve_arch_key() -> str:
     hosts must call ``_resolve_arch_key.cache_clear()`` first, or they'll
     observe a stale result from an earlier test.
     """
-    is_process_arm64 = platform.machine().lower() in ("arm64", "aarch64")
     host_is_arm64 = False
     if os.name == "nt":
         try:
@@ -263,10 +262,11 @@ def _resolve_arch_key() -> str:
 
             host_is_arm64 = any(cpu.architecture == CPU.Architecture.ARM64 for cpu in CPU.get_all())
         except Exception:
-            host_is_arm64 = is_process_arm64
+            host_is_arm64 = False
 
     if not host_is_arm64:
         return "x64_native"
+    is_process_arm64 = platform.machine().lower() in ("arm64", "aarch64")
     return "arm64_native" if is_process_arm64 else "x64_on_arm64"
 
 

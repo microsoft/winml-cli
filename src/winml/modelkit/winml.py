@@ -38,13 +38,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 import functools
-from pathlib import Path
 
-from ._native_ep_registration import (
-    _NATIVE_REGISTRATION_LOCK,
-    native_registration_key,
-    record_native_registration,
-)
 from .ep_path import EPSource, discover_all_eps
 
 
@@ -112,10 +106,6 @@ class WinML:
             "onnxruntime": [],
             "onnxruntime_genai": [],
         }
-        self._registration_counts: dict[str, dict[str, int]] = {
-            "onnxruntime": {},
-            "onnxruntime_genai": {},
-        }
 
     def register_execution_providers(
         self,
@@ -150,92 +140,42 @@ class WinML:
             import onnxruntime_genai
 
             modules.append(onnxruntime_genai)
-        registration_counts = getattr(self, "_registration_counts", None)
-        if registration_counts is None:
-            registration_counts = {
-                "onnxruntime": {},
-                "onnxruntime_genai": {},
-            }
-            self._registration_counts = registration_counts
         # When extra_sources is supplied the caller is explicitly asking
         # for the override path to win — bypass the per-process registered
         # EP-name cache so a second call with new extra_sources isn't
-        # silently no-op'd by the first call's registrations. If the same
-        # canonical EP is already loaded from a different DLL, register the
-        # override path under a unique ORT key.
+        # silently no-op'd by the first call's registrations. ORT's
+        # register_execution_provider_library is idempotent for the same
+        # (name, path) pair and returns the existing handle; re-calling
+        # with a different path replaces the registration, which is what
+        # extra_sources callers want.
         skip_cache = extra_sources is not None
         for name, path in ep_paths.items():
-            requested_path = _canonical_path(path)
             for module in modules:
-                with _NATIVE_REGISTRATION_LOCK:
-                    if not skip_cache and name in self._registered_eps[module.__name__]:
-                        continue
-                    # Defensive guard: ORT's register_execution_provider_library is NOT
-                    # idempotent — a second call for the same DLL calls C++ exit(127) with
-                    # no Python traceback (surfaces as STATUS_DLL_NOT_FOUND / 0xC000026F).
-                    # WinMLEPRegistry (session/ep_registry.py) may have already registered
-                    # this EP in the same process. Consult the live ORT device list first.
-                    loaded_devices = []
-                    try:
-                        loaded_devices = [d for d in module.get_ep_devices() if d.ep_name == name]
-                        already_loaded = any(
-                            _canonical_path(_device_library_path(d)) == requested_path
-                            for d in loaded_devices
-                        )
-                        if not skip_cache:
-                            already_loaded = already_loaded or any(
-                                _device_library_path(d) is None for d in loaded_devices
-                            )
-                    except Exception:
-                        already_loaded = False  # conservative: attempt the load
-                    if already_loaded:
-                        if name not in self._registered_eps[module.__name__]:
-                            self._registered_eps[module.__name__].append(name)
-                        continue
-                    try:
-                        arg0 = name
-                        if skip_cache and loaded_devices:
-                            if module.__name__ == "onnxruntime":
-                                arg0 = native_registration_key(
-                                    name,
-                                    canonical_key_available=False,
-                                )
-                            else:
-                                module_counts = registration_counts.setdefault(module.__name__, {})
-                                n = module_counts.get(name, 0)
-                                arg0 = f"{name}_{n}"
-                        module.register_execution_provider_library(arg0, path)
-                        if module.__name__ == "onnxruntime":
-                            record_native_registration(
-                                ep_name=name,
-                                dll_path=Path(path),
-                                arg0=arg0,
-                            )
-                        elif skip_cache and loaded_devices:
-                            module_counts = registration_counts.setdefault(module.__name__, {})
-                            module_counts[name] = module_counts.get(name, 0) + 1
-                        if name not in self._registered_eps[module.__name__]:
-                            self._registered_eps[module.__name__].append(name)
-                    except Exception as e:
-                        print(
-                            f"Failed to register execution provider {name}: {e}",
-                            file=sys.stderr,
-                        )
+                if not skip_cache and name in self._registered_eps[module.__name__]:
+                    continue
+                # Defensive guard: ORT's register_execution_provider_library is NOT
+                # idempotent — a second call for the same DLL calls C++ exit(127) with
+                # no Python traceback (surfaces as STATUS_DLL_NOT_FOUND / 0xC000026F).
+                # WinMLEPRegistry (session/ep_registry.py) may have already registered
+                # this EP in the same process. Consult the live ORT device list first.
+                try:
+                    already_loaded = any(d.ep_name == name for d in module.get_ep_devices())
+                except Exception:
+                    already_loaded = False  # conservative: attempt the load
+                if already_loaded:
+                    if name not in self._registered_eps[module.__name__]:
+                        self._registered_eps[module.__name__].append(name)
+                    continue
+                try:
+                    module.register_execution_provider_library(name, path)
+                    if name not in self._registered_eps[module.__name__]:
+                        self._registered_eps[module.__name__].append(name)
+                except Exception as e:
+                    print(
+                        f"Failed to register execution provider {name}: {e}",
+                        file=sys.stderr,
+                    )
         return self._registered_eps
-
-
-def _canonical_path(path: str | None) -> str | None:
-    if not path:
-        return None
-    return str(Path(path).resolve())
-
-
-def _device_library_path(device: Any) -> str | None:
-    metadata = getattr(device, "ep_metadata", None)
-    if not isinstance(metadata, dict):
-        return None
-    path = metadata.get("library_path")
-    return path if isinstance(path, str) else None
 
 
 def register_execution_providers(

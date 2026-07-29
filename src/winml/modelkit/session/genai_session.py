@@ -1755,7 +1755,11 @@ class GenaiSession:
         registry = WinMLEPRegistry.instance()
         entries_by_ep: dict[str, list] = {ep: [] for ep in required}
         for entry in registry.all_discovered():
-            if entry.ep_name in entries_by_ep and not isinstance(entry.source, BuiltinSource):
+            if (
+                entry.ep_name in entries_by_ep
+                and not isinstance(entry.source, BuiltinSource)
+                and entry.status != "shadowed"
+            ):
                 entries_by_ep[entry.ep_name].append(entry)
 
         for ep in required_eps:

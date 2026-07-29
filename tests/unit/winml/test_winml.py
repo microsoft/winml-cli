@@ -7,11 +7,8 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 
 def _winml_mod():
@@ -28,15 +25,6 @@ def _winml_mod():
 
 
 _winml_mod()
-
-
-@pytest.fixture(autouse=True)
-def _clear_native_registration_state():
-    from winml.modelkit._native_ep_registration import clear_native_registration_state
-
-    clear_native_registration_state()
-    yield
-    clear_native_registration_state()
 
 
 def _make_winml_instance() -> object:
@@ -115,54 +103,6 @@ def test_winml_register_no_prior_registration_loads_dll():
     assert "QNNExecutionProvider" in result["onnxruntime"]
 
 
-def test_winml_register_then_ep_registry_skips_same_dll():
-    """Legacy registration first must populate the shared native registration cache."""
-    instance = _make_winml_instance()
-    from winml.modelkit.ep_path import EPEntry, PyPISource
-    from winml.modelkit.session.ep_registry import _NATIVE_REGISTRATION_LOCK, WinMLEPRegistry
-
-    fake_dev = MagicMock()
-    fake_dev.ep_name = "QNNExecutionProvider"
-    fake_dev.ep_metadata = {"library_path": str(Path("C:/fake/qnn.dll"))}
-    fake_dev.device.type.name = "NPU"
-    fake_dev.device.vendor_id = 0x4D4F
-    fake_dev.device.device_id = 1
-    fake_ort = SimpleNamespace(
-        get_ep_devices=MagicMock(return_value=[]),
-        register_execution_provider_library=MagicMock(),
-        __name__="onnxruntime",
-    )
-
-    with patch.dict(sys.modules, {"onnxruntime": fake_ort}):
-        instance.register_execution_providers(ort=True, ort_genai=False)
-
-    fake_ort.get_ep_devices.return_value = [fake_dev]
-
-    entry = EPEntry(
-        ep_name="QNNExecutionProvider",
-        dll_path=Path("C:/fake/qnn.dll"),
-        source=PyPISource(
-            distribution="fake-dist",
-            relative_dll="fake.dll",
-            eps=("QNNExecutionProvider",),
-        ),
-    )
-    with patch("winml.modelkit.session.ep_registry.ort", fake_ort):
-        registry = WinMLEPRegistry.__new__(WinMLEPRegistry)
-        registry._discovered = []
-        registry._registered = {}
-        registry._registration_count = {}
-        registry._builtin_registered = {}
-        registry._available_eps_cache = None
-        registry._registration_lock = _NATIVE_REGISTRATION_LOCK
-        registered = registry.register_ep(entry)
-
-    assert registered.source.dll_path == Path("C:/fake/qnn.dll")
-    fake_ort.register_execution_provider_library.assert_called_once_with(
-        "QNNExecutionProvider", "C:/fake/qnn.dll"
-    )
-
-
 def test_winml_register_idempotent_on_second_call():
     """A second call to register_execution_providers must skip via _registered_eps guard."""
     instance = _make_winml_instance()
@@ -182,90 +122,6 @@ def test_winml_register_idempotent_on_second_call():
 
     # DLL load happens exactly once regardless of call count.
     assert fake_ort.register_execution_provider_library.call_count == 1
-
-
-def test_winml_extra_sources_registers_distinct_loaded_path():
-    """extra_sources should override an already loaded EP from a different DLL."""
-    instance = _make_winml_instance()
-    winml_mod = _winml_mod()
-
-    loaded_dev = MagicMock()
-    loaded_dev.ep_name = "QNNExecutionProvider"
-    loaded_dev.ep_metadata = {"library_path": str(Path("C:/old/qnn.dll"))}
-    new_entry = SimpleNamespace(
-        ep_name="QNNExecutionProvider",
-        dll_path=Path("C:/new/qnn.dll"),
-        status="primary",
-        source=object(),
-    )
-
-    fake_ort = SimpleNamespace(
-        get_ep_devices=MagicMock(return_value=[loaded_dev]),
-        register_execution_provider_library=MagicMock(),
-        __name__="onnxruntime",
-    )
-
-    with (
-        patch.dict(sys.modules, {"onnxruntime": fake_ort}),
-        patch.object(winml_mod, "discover_all_eps", return_value=[new_entry]),
-    ):
-        result = instance.register_execution_providers(
-            ort=True, ort_genai=False, extra_sources=[MagicMock()]
-        )
-
-    fake_ort.register_execution_provider_library.assert_called_once_with(
-        "QNNExecutionProvider_0", str(Path("C:/new/qnn.dll"))
-    )
-    assert "QNNExecutionProvider" in result["onnxruntime"]
-
-
-def test_winml_extra_sources_use_monotonic_override_keys():
-    """Repeated override DLLs for one EP must not reuse ORT registration keys."""
-    instance = _make_winml_instance()
-    winml_mod = _winml_mod()
-    loaded_paths: list[str] = [str(Path("C:/old/qnn.dll"))]
-    entry_paths = [
-        Path("C:/new/qnn1.dll"),
-        Path("C:/new/qnn2.dll"),
-        Path("C:/new/qnn3.dll"),
-    ]
-
-    def _loaded_devices():
-        devices = []
-        for path in loaded_paths:
-            dev = MagicMock()
-            dev.ep_name = "QNNExecutionProvider"
-            dev.ep_metadata = {"library_path": path}
-            devices.append(dev)
-        return devices
-
-    fake_ort = SimpleNamespace(
-        get_ep_devices=MagicMock(side_effect=_loaded_devices),
-        register_execution_provider_library=MagicMock(
-            side_effect=lambda _name, path: loaded_paths.append(path)
-        ),
-        __name__="onnxruntime",
-    )
-
-    with patch.dict(sys.modules, {"onnxruntime": fake_ort}):
-        for path in entry_paths:
-            entry = SimpleNamespace(
-                ep_name="QNNExecutionProvider",
-                dll_path=path,
-                status="primary",
-                source=object(),
-            )
-            with patch.object(winml_mod, "discover_all_eps", return_value=[entry]):
-                instance.register_execution_providers(
-                    ort=True, ort_genai=False, extra_sources=[MagicMock()]
-                )
-
-    keys = [call.args[0] for call in fake_ort.register_execution_provider_library.call_args_list]
-    assert keys == [
-        "QNNExecutionProvider_0",
-        "QNNExecutionProvider_1",
-        "QNNExecutionProvider_2",
-    ]
 
 
 def test_winml_register_get_ep_devices_failure_attempts_load():

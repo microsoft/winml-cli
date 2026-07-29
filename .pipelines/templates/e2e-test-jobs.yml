@@ -218,8 +218,6 @@ jobs:
                       Write-Host "Eval: $hfModel  (task='$task')  on  $($pair.displayName) [name=$name, last=$isLastPair]"
                       Write-Host "============================================================"
 
-                      $env:PYTHONUTF8 = "1"
-                      $env:PYTHONIOENCODING = "utf-8"
                       $uvArgs = @(
                           "run", "--no-sync", "python", "scripts/e2e_eval/run_eval.py",
                           "--hf-model", $hfModel,
@@ -261,26 +259,8 @@ jobs:
       # ----------------------------------------------------------------------
       - ${{ each target in parameters.pytestTargets }}:
           - powershell: |
-              $env:PYTHONUTF8 = "1"
-              $env:PYTHONIOENCODING = "utf-8"
-              $junitPath = "$(Agent.TempDirectory)/junit-${{ parameters.agentSuffix }}-${{ target }}.xml"
-              uv run --no-sync python -m pytest tests/e2e/test_${{ target }}_e2e.py -m e2e --timeout=${{ parameters.pytestTimeout }} --junitxml="$junitPath" -v
-              $code = $LASTEXITCODE
-              $accessViolationExitCodes = @(-1073741819, 3221225477)
-              if (($accessViolationExitCodes -contains $code) -and (Test-Path $junitPath)) {
-                [xml]$junit = Get-Content $junitPath
-                $failures = 0
-                $errors = 0
-                foreach ($suite in $junit.SelectNodes("//testsuite")) {
-                  if ($suite.failures) { $failures += [int]$suite.failures }
-                  if ($suite.errors) { $errors += [int]$suite.errors }
-                }
-                if ($failures -eq 0 -and $errors -eq 0) {
-                  Write-Warning "pytest wrote a passing JUnit report, but Python exited with an access violation during interpreter shutdown; treating teardown crash as non-fatal."
-                  exit 0
-                }
-              }
-              exit $code
+              uv run --no-sync python -m pytest tests/e2e/test_${{ target }}_e2e.py -m e2e --timeout=${{ parameters.pytestTimeout }} --junitxml="$(Agent.TempDirectory)/junit-${{ parameters.agentSuffix }}-${{ target }}.xml" -v
+              exit $LASTEXITCODE
             workingDirectory: $(Build.SourcesDirectory)
             condition: always()
             displayName: 'pytest: test_${{ target }}_e2e.py'

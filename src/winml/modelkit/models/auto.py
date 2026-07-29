@@ -313,7 +313,6 @@ class WinMLAutoModel:
         no_compile: bool = False,
         skip_optimize: bool = False,
         hack_max_optim_iterations: int = 3,
-        export_target_was_explicit: bool | None = None,
         **kwargs: Any,
     ) -> WinMLPreTrainedModel | WinMLCompositeModel:
         """Load appropriate WinML model based on task detection.
@@ -363,10 +362,6 @@ class WinMLAutoModel:
 
         # Resolve a concrete target before every dispatch path, including
         # composites. Explicit incompatible requests intentionally propagate.
-        if export_target_was_explicit is None:
-            export_target_was_explicit = (
-                ep_device is not None or device is not None or ep is not None
-            )
         if ep_device is None:
             from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
 
@@ -457,7 +452,6 @@ class WinMLAutoModel:
                     no_compile=no_compile,
                     skip_optimize=skip_optimize,
                     hack_max_optim_iterations=hack_max_optim_iterations,
-                    export_target_was_explicit=export_target_was_explicit,
                     **kwargs,
                 )
 
@@ -465,7 +459,6 @@ class WinMLAutoModel:
         # [1] CONFIG PHASE - Generate complete config with I/O specs (Lightweight, ~2s)
         # =====================================================================
         from ..config import generate_hf_build_config
-        from ..export.policy import export_policy_targets_for_request
 
         # Config fields merge on top of defaults, while the already resolved
         # runtime target remains authoritative for quant/compile policy.
@@ -481,11 +474,6 @@ class WinMLAutoModel:
             trust_remote_code=trust_remote_code,
             policy_overrides_config=True,
             no_compile=no_compile,
-            export_policy_targets=export_policy_targets_for_request(
-                ep=_resolved_ep_short_name(ep_device),
-                device=ep_device.device.device_type.lower(),
-                target_was_explicit=export_target_was_explicit,
-            ),
         )
 
         resolved_task = build_config.loader.task

@@ -473,87 +473,6 @@ class TestRunBuildConfigOverwrite:
         assert config_call[idx + 2] == "--overwrite", config_call
 
 
-class TestExtractOnnxPath:
-    """Build output parsing must handle rich-wrapped artifact paths from CI logs."""
-
-    def test_wrapped_final_artifact_path_is_rejoined(self, run_eval, tmp_path):
-        artifact = tmp_path / "google-bert_bert-base-multilingual-cased" / "mask_hash_model.onnx"
-        artifact.parent.mkdir(parents=True)
-        artifact.write_bytes(b"onnx")
-        parent_text = str(artifact.parent) + "\\"
-        build_proc = {
-            "stdout": f"Build complete\nFinal artifact: \n    {parent_text}\n    {artifact.name}\n",
-            "stderr": "",
-        }
-
-        assert run_eval._extract_onnx_path(
-            build_proc,
-            "google-bert/bert-base-multilingual-cased",
-            "fill-mask",
-        ) == str(artifact)
-
-
-class TestRunBuildAccessViolationAfterArtifact:
-    """Native teardown crashes after a completed build must not hide usable artifacts."""
-
-    def test_access_violation_after_final_artifact_is_treated_as_built(self, run_eval, tmp_path):
-        entry = MagicMock()
-        entry.hf_id = "google-bert/bert-base-multilingual-cased"
-        entry.task = "fill-mask"
-        entry.perf_args = []
-        artifact = tmp_path / "mask_hash_model.onnx"
-        artifact.write_bytes(b"onnx")
-
-        def fake_subprocess(args, _timeout):
-            if "config" in args:
-                (tmp_path / "build_config.json").write_text(
-                    json.dumps({"loader": {"task": "fill-mask"}}),
-                    encoding="utf-8",
-                )
-                return {
-                    "exit_code": 0,
-                    "stdout": "",
-                    "stderr": "",
-                    "elapsed": 0.1,
-                    "command": "winml config",
-                }
-            return {
-                "exit_code": 3221225477,
-                "stdout": f"Build complete\nFinal artifact:\n{artifact}\n",
-                "stderr": "",
-                "elapsed": 0.1,
-                "command": "winml build",
-            }
-
-        with patch.object(run_eval, "_run_subprocess", side_effect=fake_subprocess):
-            result = run_eval._run_build(entry, "gpu", "fp16", 300, tmp_path, ep="qnn")
-
-        assert result["success"] is True
-        assert result["stage"] == "complete"
-        assert result["onnx_paths"] == {"": str(artifact)}
-
-    def test_access_violation_without_reported_artifact_ignores_stale_cache(
-        self, run_eval, tmp_path
-    ):
-        stale = tmp_path / "stale_model.onnx"
-        stale.write_bytes(b"onnx")
-        proc = {
-            "exit_code": 3221225477,
-            "stdout": "native teardown failed after build\n",
-            "stderr": "",
-        }
-
-        with patch.object(run_eval, "_find_cached_model", return_value=str(stale)) as mock_find:
-            result = run_eval._completed_artifact_after_native_teardown_crash(
-                proc,
-                "google-bert/bert-base-multilingual-cased",
-                "fill-mask",
-            )
-
-        assert result is None
-        mock_find.assert_not_called()
-
-
 class TestRunBuildPrecisionForwarding:
     """``_run_build`` must forward ``--precision`` to both ``winml config`` and
     ``winml build``.
@@ -628,7 +547,9 @@ class TestPrecisionFromBuildConfig:
         # verbatim rather than inferred as fp32 (the graph's own dtype is not
         # something the config states).
         assert run_eval._precision_from_build_config(self._write(tmp_path, {})) is None
-        assert run_eval._precision_from_build_config(self._write(tmp_path, {"quant": None})) is None
+        assert (
+            run_eval._precision_from_build_config(self._write(tmp_path, {"quant": None})) is None
+        )
 
     @pytest.mark.parametrize(
         ("weight_type", "activation_type", "expected"),
@@ -1169,139 +1090,6 @@ class TestAccuracyStatus:
         assert run_eval.accuracy_status({"winml_eval_status": "FAIL"}) == "FAIL"
 
 
-class TestUnsupportedRuntimeFailures:
-    """QNN backend capability rejects are provider limitations, not model blacklist entries."""
-
-    @staticmethod
-    def _failed_result(run_eval, stderr: str):
-        entry = _entry("org/model", "feature-extraction")
-        proc = {
-            "stdout": "",
-            "stderr": stderr,
-            "exit_code": 1,
-            "elapsed": 1.0,
-            "timeout": False,
-            "command": "winml perf",
-            "timestamp": "2026-01-01T00:00:00+00:00",
-        }
-        return run_eval.build_eval_result(entry, proc, "gpu", ["perf"], ep="qnn")
-
-    def test_qnn_backend_finalize_failure_is_unsupported(self, run_eval):
-        result = self._failed_result(
-            run_eval,
-            "QNN.backendValidateOpConfig() failed\nFailed to finalize QNN graph. Error code: 6022",
-        )
-
-        assert run_eval.classify_result(result) == "UNSUPPORTED"
-
-    def test_qnn_finalize_out_of_memory_is_runtime_failure(self, run_eval):
-        result = self._failed_result(
-            run_eval,
-            "Failed to finalize QNN graph: out of memory",
-        )
-
-        run_eval._mark_unsupported_perf_result(result)
-
-        assert run_eval.classify_result(result) == "RUNTIME_FAIL"
-        assert "unsupported_skip" not in result["perf"]
-        assert run_eval._all_results_pass([result]) is False
-
-    def test_unsupported_perf_result_is_marked_and_does_not_fail_run(self, run_eval):
-        result = self._failed_result(run_eval, "Failed to compose Qnn graph")
-
-        run_eval._mark_unsupported_perf_result(result)
-
-        assert result["perf"]["unsupported_skip"] is True
-        assert run_eval._all_results_pass([result]) is True
-
-    def test_regular_runtime_failure_still_fails_run(self, run_eval):
-        result = self._failed_result(run_eval, "Benchmark failed: unexpected assertion")
-
-        run_eval._mark_unsupported_perf_result(result)
-
-        assert "unsupported_skip" not in result["perf"]
-        assert run_eval._all_results_pass([result]) is False
-
-
-class TestMainUnsupportedRuntimeFailures:
-    """A provider-declared unsupported perf failure is recorded as a skip."""
-
-    def test_unsupported_perf_failure_exits_zero(self, run_eval, tmp_path):
-        entry = _entry("org/model", "feature-extraction")
-        entry.priority = "P0"
-        entry.group = "test"
-        entry.model_type = "test-model"
-        args = argparse.Namespace(
-            hf_model="org/model",
-            task="feature-extraction",
-            registry=tmp_path / "models.json",
-            priority=["P0"],
-            model_type=None,
-            group=None,
-            list=False,
-            list_json=None,
-            update_baseline=False,
-            build_only=False,
-            output_dir=tmp_path / "out",
-            eval_type="perf",
-            retry_failed=None,
-            continue_run=False,
-            no_recipes=False,
-            recipes_dir=tmp_path / "recipes",
-            device="gpu",
-            ep="qnn",
-            timeout=300,
-            no_report=False,
-            verbose=False,
-            raw_output=False,
-            clean_cache=False,
-            op_tracing=None,
-        )
-        perf_proc = {
-            "stdout": "",
-            "stderr": "QNN.backendValidateOpConfig() failed\nFailed to finalize QNN graph",
-            "exit_code": 1,
-            "elapsed": 1.0,
-            "timeout": False,
-            "command": "winml perf",
-            "timestamp": "2026-01-01T00:00:00+00:00",
-        }
-
-        with (
-            patch.object(run_eval, "parse_args", return_value=args),
-            patch.object(run_eval, "load_registry", return_value=[entry]),
-            patch.object(run_eval, "register_from_registry"),
-            patch.object(run_eval, "save_environment_info"),
-            patch.object(run_eval, "_load_timeout_skip_set", return_value=set()),
-            patch.object(
-                run_eval,
-                "_build_for_job",
-                return_value=(
-                    {
-                        "success": True,
-                        "onnx_paths": {"": str(tmp_path / "model.onnx")},
-                        "stage": "complete",
-                        "proc": perf_proc,
-                    },
-                    None,
-                    False,
-                ),
-            ),
-            patch.object(run_eval, "run_model", return_value=perf_proc),
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            run_eval.main()
-
-        assert exc_info.value.code == 0
-        result_path = (
-            run_eval.model_result_dir(tmp_path / "out", "org/model", "feature-extraction")
-            / "eval_result.json"
-        )
-        result = json.loads(result_path.read_text(encoding="utf-8"))
-        assert run_eval.classify_result(result) == "UNSUPPORTED"
-        assert result["perf"]["unsupported_skip"] is True
-
-
 class TestRecipeConfigHelpers:
     """Eval-section detection, meta-config pick, and trust-remote-code gate."""
 
@@ -1382,7 +1170,9 @@ class TestBuildJobs:
     def test_non_npu_recipe_only_quantized_falls_back(self, run_eval, tmp_path):
         # A recipe with no non-quantized variant leaves nothing to run off-NPU,
         # so the model builds a single winml-config fallback.
-        self._make_single_recipe(tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"])
+        self._make_single_recipe(
+            tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"]
+        )
         entry = _entry()
         jobs = run_eval._build_jobs([entry], tmp_path, "cpu")
         assert len(jobs) == 1
@@ -1432,7 +1222,9 @@ class TestBuildJobs:
     def test_npu_skip_quant_ep_recipe_only_quantized_falls_back(self, run_eval, tmp_path):
         # Dropping every quantized variant leaves nothing to build, so the model
         # goes through the single unquantized winml-config fallback.
-        self._make_single_recipe(tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"])
+        self._make_single_recipe(
+            tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"]
+        )
         entry = _entry()
         jobs = run_eval._build_jobs([entry], tmp_path, "npu", ep="vitisai")
         assert len(jobs) == 1
@@ -1564,28 +1356,6 @@ class TestRunRecipeBuild:
             result = run_eval._run_recipe_build(_entry(), variant, 300, tmp_path / "o")
         assert result["success"] is False
         assert result["stage"] == "build"
-
-    def test_access_violation_after_final_artifact_is_treated_as_built(self, run_eval, tmp_path):
-        variant = self._variant(run_eval, tmp_path, composite=False)
-        artifact = tmp_path / "imgcls_hash_model.onnx"
-        artifact.write_bytes(b"onnx")
-
-        def _crash_after_artifact(args, _timeout):
-            return {
-                "exit_code": 3221225477,
-                "stdout": f"Build complete\nFinal artifact:\n{artifact}\n",
-                "stderr": "",
-                "elapsed": 0.1,
-                "timeout": False,
-                "command": " ".join(args),
-            }
-
-        with patch.object(run_eval, "_run_subprocess", side_effect=_crash_after_artifact):
-            result = run_eval._run_recipe_build(_entry(), variant, 300, tmp_path / "o")
-
-        assert result["success"] is True
-        assert result["stage"] == "complete"
-        assert result["onnx_paths"] == {"": str(artifact)}
 
     def test_missing_cached_artifact_is_failure(self, run_eval, tmp_path):
         # Build exits 0 but the artifact can't be located in the cache -> the job

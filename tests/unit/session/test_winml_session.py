@@ -98,20 +98,6 @@ class TestWinMLSessionInstantiation:
         session = WinMLSession(onnx_path=simple_matmul_onnx, device="cpu", ep="cpu")
         assert session.ep_name is None
 
-    def test_ep_without_device_defaults_to_auto(
-        self,
-        simple_matmul_onnx: Path,
-        cpu_ep_device: EPDeviceTarget,
-        monkeypatch: pytest.MonkeyPatch,
-    ):
-        """Legacy callers may pin ep= while leaving device selection automatic."""
-        registry = _stub_registry(monkeypatch, cpu_ep_device)
-
-        session = WinMLSession(onnx_path=simple_matmul_onnx, ep="cpu")
-
-        assert session.device == "cpu"
-        assert registry.auto_device.call_count >= 1
-
     def test_ep_name_after_compile(
         self,
         simple_matmul_onnx: Path,
@@ -1179,15 +1165,12 @@ def test_winml_session_accepts_ep_device(tmp_path, qnn_npu_ep_device, fake_ort_n
     assert sess._ep_device is qnn_npu_ep_device
 
 
-def test_winml_session_accepts_ep_without_device(tmp_path, cpu_ep_device, monkeypatch) -> None:
-    """Legacy ep= shortcut defaults device selection to auto."""
+def test_winml_session_rejects_legacy_ep_kwarg(tmp_path, qnn_npu_ep_device) -> None:
+    """Legacy ep="qnn" kwarg now raises TypeError."""
     onnx_path = tmp_path / "noop.onnx"
     onnx_path.write_bytes(b"\x08\x01")
-    _stub_registry(monkeypatch, cpu_ep_device)
-
-    sess = WinMLSession(onnx_path, ep="cpu")
-
-    assert sess.device == "cpu"
+    with pytest.raises(TypeError):
+        WinMLSession(onnx_path, ep="qnn")  # type: ignore[call-arg]
 
 
 def test_winml_session_accepts_device_kwarg_lazily(tmp_path, cpu_ep_device, monkeypatch) -> None:
@@ -1230,25 +1213,6 @@ def test_winml_session_positional_device_uses_legacy_policy(
     assert session._session is None
     target = registry.auto_device.call_args.args[0]
     assert target.device.lower() == "cpu"
-
-
-def test_winml_session_accepts_legacy_positional_device_and_ep_config(
-    tmp_path, cpu_ep_device, monkeypatch
-) -> None:
-    """WinMLSession(path, device, ep_config) remains source compatible."""
-    onnx_path = tmp_path / "noop.onnx"
-    onnx_path.write_bytes(b"\x08\x01")
-    _stub_registry(monkeypatch, cpu_ep_device)
-    ep_config = EPConfig(
-        provider="cpu",
-        provider_options={"arena_extend_strategy": "kNextPowerOfTwo"},
-    )
-
-    with pytest.warns(DeprecationWarning, match="positional"):
-        session = WinMLSession(onnx_path, "cpu", ep_config)
-
-    assert session._session is None
-    assert session._ep_config is ep_config
 
 
 def test_winml_session_positional_resolved_target_retains_current_api(

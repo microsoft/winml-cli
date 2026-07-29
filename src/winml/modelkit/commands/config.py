@@ -267,9 +267,6 @@ def config(
     # Collapse the pre-split (ep, source) tuple to the bare EP short-name that
     # the config pipeline consumes (source pinning is rejected here).
     ep_name = _reject_ep_source(ep, "winml config")
-    export_target_was_explicit = cli_utils.is_cli_provided(ctx, "ep") or cli_utils.is_cli_provided(
-        ctx, "device"
-    )
 
     try:
         from ..config import (
@@ -277,7 +274,6 @@ def config(
             generate_hf_build_config,
             generate_onnx_build_config,
         )
-        from ..export.policy import export_policy_targets_for_request
 
         # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
         # is downloaded once and treated as a local .onnx file thereafter.
@@ -419,7 +415,6 @@ def config(
                     no_quant=not quant,
                     no_compile=no_compile,
                     policy_overrides_config=policy_overrides_config,
-                    export_target_was_explicit=export_target_was_explicit,
                     output=output,
                     overwrite=overwrite,
                     console=console,
@@ -434,11 +429,6 @@ def config(
                 export_config=export_config,
                 input_specs=input_specs,
                 dynamic_axes=dynamic_axes,
-            )
-            export_policy_targets = export_policy_targets_for_request(
-                ep=ep_name,
-                device=device,
-                target_was_explicit=export_target_was_explicit,
             )
 
             # Generate config(s). The ``module: str | None`` overload of
@@ -458,7 +448,6 @@ def config(
                 trust_remote_code=trust_remote_code,
                 ep=ep_name,
                 policy_overrides_config=policy_overrides_config,
-                export_policy_targets=export_policy_targets,
             )
             if isinstance(result, list):
                 # --module + export overrides is rejected up front, so
@@ -658,14 +647,12 @@ def _generate_pipeline_configs(
     no_quant: bool,
     no_compile: bool,
     policy_overrides_config: bool,
-    export_target_was_explicit: bool,
     output: Path | None,
     overwrite: bool,
     console: Any,
 ) -> None:
     """Generate and save one config file per pipeline sub-component."""
     from ..config import generate_hf_build_config
-    from ..export.policy import export_policy_targets_for_request
 
     for component_name, component_task in components.items():
         console.print(
@@ -686,11 +673,6 @@ def _generate_pipeline_configs(
             trust_remote_code=trust_remote_code,
             ep=ep,
             policy_overrides_config=policy_overrides_config,
-            export_policy_targets=export_policy_targets_for_request(
-                ep=ep,
-                device=device,
-                target_was_explicit=export_target_was_explicit,
-            ),
         )
         _apply_stage_overrides(cfg, no_quant=no_quant, no_compile=no_compile)
 

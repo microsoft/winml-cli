@@ -11,7 +11,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..onnx import InputTensorSpec
 from ..utils.constants import EPNameOrAlias
 from ..utils.eval_utils import EvalMode
 
@@ -174,9 +173,6 @@ class WinMLEvaluationConfig:
     mode: EvalMode = "onnx"
     skip_build: bool = True
     _auto_device_selected: bool = field(default=False, repr=False, compare=False, kw_only=True)
-    _export_target_was_explicit: bool = field(
-        default=False, repr=False, compare=False, kw_only=True
-    )
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
@@ -237,16 +233,6 @@ class WinMLEvaluationConfig:
             build_script=ds_data.get("build_script"),
             label_mapping_file=ds_data.get("label_mapping_file"),
         )
-        export_overrides = data.get("export_overrides")
-        if isinstance(export_overrides, dict):
-            export_overrides = dict(export_overrides)
-            input_tensors = export_overrides.get("input_tensors")
-            if isinstance(input_tensors, list):
-                export_overrides["input_tensors"] = [
-                    InputTensorSpec.from_dict(spec) if isinstance(spec, dict) else spec
-                    for spec in input_tensors
-                ]
-
         return cls(
             model_id=data.get("model_id"),
             model_path=data.get("model_path"),
@@ -262,7 +248,7 @@ class WinMLEvaluationConfig:
             analyze=data.get("analyze", True),
             max_optim_iterations=data.get("max_optim_iterations"),
             shape_config=data.get("shape_config"),
-            export_overrides=export_overrides,
+            export_overrides=data.get("export_overrides"),
             dataset=dataset,
             output_path=(Path(data["output_path"]) if data.get("output_path") else None),
             mode=data.get("mode", "onnx"),

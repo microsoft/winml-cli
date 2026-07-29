@@ -320,7 +320,6 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCo
             task=config.task,
             precision=config.precision,
             allow_unsupported_nodes=config.allow_unsupported_nodes,
-            export_target_was_explicit=config._export_target_was_explicit,
             config=build_override,
             shape_config=config.shape_config,
             **pipeline_kwargs,

@@ -86,7 +86,6 @@ def fresh_registry():
     consumers leave in ``_registered`` when ``register_ep`` is exercised
     through the real code path.
     """
-    from winml.modelkit._native_ep_registration import clear_native_registration_state
     from winml.modelkit.session.ep_registry import WinMLEPRegistry
 
     reg = WinMLEPRegistry.instance()
@@ -95,10 +94,8 @@ def fresh_registry():
     reg._registration_count = {}
     reg._builtin_registered = {}
     reg._available_eps_cache = None
-    clear_native_registration_state()
     yield reg
     WinMLEPRegistry._instance = None
-    clear_native_registration_state()
 
 
 @pytest.fixture(autouse=True)

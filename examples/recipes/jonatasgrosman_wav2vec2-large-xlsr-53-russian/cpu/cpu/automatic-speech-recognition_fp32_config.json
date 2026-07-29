@@ -35,6 +35,7 @@
   "loader": {
     "task": "automatic-speech-recognition",
     "model_class": "AutoModelForCTC",
-    "model_type": "wav2vec2"
+    "model_type": "wav2vec2",
+    "trust_remote_code": true
   }
 }

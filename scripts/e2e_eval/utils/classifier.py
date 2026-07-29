@@ -18,13 +18,12 @@ class FailureType(str, Enum):
     OPT_FAIL = "OPT_FAIL"
     COMPILE_FAIL = "COMPILE_FAIL"
     RUNTIME_FAIL = "RUNTIME_FAIL"
-    UNSUPPORTED = "UNSUPPORTED"
     ENVIRONMENT = "ENVIRONMENT"  # disk/network/resource — retryable
     TIMEOUT = "TIMEOUT"  # exceeded per-model time limit
     UNKNOWN = "UNKNOWN"
 
 
-# Ordered by classification priority — first match wins.
+# Ordered by pipeline stage — first match wins.
 # All patterns are lowercase (matching is case-insensitive).
 # Pattern sources:
 #   modelkit/build/hf.py          ("compilation failed", "quantization failed")
@@ -62,6 +61,15 @@ CLASSIFICATION_RULES: list[tuple[FailureType, list[str]]] = [
         ],
     ),
     (
+        FailureType.COMPILE_FAIL,
+        [
+            "compilation failed",
+            "compilationerror",
+            "quantization failed",
+            "compile_onnx",
+        ],
+    ),
+    (
         FailureType.RUNTIME_FAIL,
         [
             "inferenceerror",
@@ -69,23 +77,6 @@ CLASSIFICATION_RULES: list[tuple[FailureType, list[str]]] = [
             "out of memory",
             "memoryerror",
             "cuda error",
-        ],
-    ),
-    (
-        FailureType.UNSUPPORTED,
-        [
-            "qnn.backendvalidateopconfig() failed",
-            "failed to finalize qnn graph",
-            "failed to compose qnn graph",
-        ],
-    ),
-    (
-        FailureType.COMPILE_FAIL,
-        [
-            "compilation failed",
-            "compilationerror",
-            "quantization failed",
-            "compile_onnx",
         ],
     ),
     (

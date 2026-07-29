@@ -61,8 +61,8 @@ def op_tracing_target_key(ep: str | None, device: str) -> str | None:
     return _canonical_ep_device_key(ep, device)
 
 
-def normalize_ep_device_target(target: str) -> str:
-    """Normalize a raw ``<ep>_<device>`` entry to the canonical key form.
+def normalize_op_tracing_target(target: str) -> str:
+    """Normalize a raw ``op_tracing_targets`` entry to the canonical key form.
 
     Accepts either the short EP alias (``qnn_npu``) or the full normalized name
     (``QNNExecutionProvider_npu``); both map to ``QNNExecutionProvider_npu``.
@@ -72,11 +72,6 @@ def normalize_ep_device_target(target: str) -> str:
     if not sep:
         return target.strip().lower()
     return _canonical_ep_device_key(ep, device)
-
-
-def normalize_op_tracing_target(target: str) -> str:
-    """Normalize a raw ``op_tracing_targets`` entry to the canonical key form."""
-    return normalize_ep_device_target(target)
 
 
 def load_registry(path: Path) -> list[ModelEntry]:

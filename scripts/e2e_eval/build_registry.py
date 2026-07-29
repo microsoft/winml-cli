@@ -34,7 +34,6 @@ def safe_print(text: str) -> None:
 
 
 HF_TASKS_URL = "https://huggingface.co/api/tasks"
-_CURATED_PASSTHROUGH_FIELDS = ("composite_onnx",)
 
 
 def get_hf_api_model_id(hf_id: str) -> str:
@@ -173,9 +172,8 @@ def load_curated_entries(curated_path: Path) -> list[dict]:
             "priority": e.get("priority", "P0"),
         }
         # Pass-through additive fields so they survive into the built registry.
-        for field in _CURATED_PASSTHROUGH_FIELDS:
-            if field in e:
-                item[field] = e[field]
+        if "composite_onnx" in e:
+            item["composite_onnx"] = e["composite_onnx"]
         loaded.append(item)
     return loaded
 
@@ -419,13 +417,10 @@ def build_registry(
                     existing["priority"] = priority
                     existing["group"] = group
                     safe_print(f"    [{priority}] {model_id} / {task} — updated (group={group})")
-                # Carry curated additive fields onto an existing entry so
-                # downstream consumers always see the canonical metadata.
-                for field in _CURATED_PASSTHROUGH_FIELDS:
-                    if field in c:
-                        existing[field] = c[field]
-                    else:
-                        existing.pop(field, None)
+                # Carry curated ``composite_onnx`` onto an existing entry so
+                # downstream consumers always see the canonical role map.
+                if "composite_onnx" in c and "composite_onnx" not in existing:
+                    existing["composite_onnx"] = c["composite_onnx"]
                 continue
 
             # New curated entry — fetch metadata if not already loaded
@@ -445,9 +440,8 @@ def build_registry(
                 "last_update_time": metadata["last_modified"],
                 "optimum_supported": is_optimum,
             }
-            for field in _CURATED_PASSTHROUGH_FIELDS:
-                if field in c:
-                    entry[field] = c[field]
+            if "composite_onnx" in c:
+                entry["composite_onnx"] = c["composite_onnx"]
 
             seen.add(key)
             entry_lookup[key] = entry

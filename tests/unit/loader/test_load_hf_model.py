@@ -103,47 +103,6 @@ class TestUserScriptSecurity:
                 trust_remote_code=True,
             )
 
-    def test_user_script_loader_keeps_legacy_from_pretrained_contract(self, tmp_path, monkeypatch):
-        """Custom script classes should not be forced to accept config=."""
-        from unittest.mock import MagicMock
-
-        import winml.modelkit.loader.resolution as resolution_module
-
-        script = tmp_path / "custom.py"
-        script.write_text(
-            """
-class CustomModel:
-    @classmethod
-    def from_pretrained(cls, name, trust_remote_code=False):
-        obj = cls()
-        obj.name = name
-        obj.trust_remote_code = trust_remote_code
-        return obj
-
-    def eval(self):
-        return None
-
-    def parameters(self):
-        return []
-""",
-            encoding="utf-8",
-        )
-        resolved = MagicMock(task="image-classification")
-        monkeypatch.setattr(resolution_module, "resolve_task", lambda *a, **kw: resolved)
-
-        model, _, task = load_hf_model(
-            "test-model",
-            task="image-classification",
-            model_class="CustomModel",
-            user_script=str(script),
-            trust_remote_code=True,
-            hf_config=MagicMock(),
-        )
-
-        assert model.name == "test-model"
-        assert model.trust_remote_code is True
-        assert task == "image-classification"
-
 
 class TestModelArchitectureOverrideFast:
     """Fast tests for model_class behavior that don't download models."""

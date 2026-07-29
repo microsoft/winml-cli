@@ -12,8 +12,6 @@ the returned WinMLEP wraps every device the EP exposed.
 
 from __future__ import annotations
 
-import threading
-import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -96,84 +94,6 @@ def test_register_ep_happy_path(fresh_registry_with_qnn: WinMLEPRegistry) -> Non
     # matches the entry's dll_path land in result.devices.
     assert len(result.devices) == 1
     assert result.devices[0].device_type == "NPU"
-
-
-def test_register_ep_concurrent_same_dll_registers_once(
-    fresh_registry_with_qnn: WinMLEPRegistry,
-) -> None:
-    """Concurrent first use of the same DLL must not double-register in ORT."""
-    entry = _ep_entry("QNNExecutionProvider")
-    qnn = _fake_ort_device("QNNExecutionProvider", "NPU")
-    results: list[WinMLEP] = []
-    errors: list[BaseException] = []
-
-    def _call_register() -> None:
-        try:
-            results.append(fresh_registry_with_qnn.register_ep(entry))
-        except BaseException as exc:  # pragma: no cover - failure surfaced below
-            errors.append(exc)
-
-    def _slow_register(*_args: object) -> None:
-        time.sleep(0.05)
-
-    with patch("winml.modelkit.session.ep_registry.ort") as mock_ort:
-        mock_ort.get_ep_devices.return_value = [qnn]
-        mock_ort.register_execution_provider_library.side_effect = _slow_register
-        threads = [threading.Thread(target=_call_register) for _ in range(2)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join(timeout=5)
-
-    assert not errors
-    assert len(results) == 2
-    assert results[0] is results[1]
-    mock_ort.register_execution_provider_library.assert_called_once()
-
-
-def test_register_ep_concurrent_distinct_registries_same_dll_registers_once() -> None:
-    """Native ORT registration is process-wide, so independent registries must share state."""
-    entry = _ep_entry("QNNExecutionProvider")
-    qnn = _fake_ort_device("QNNExecutionProvider", "NPU")
-    results: list[WinMLEP] = []
-    errors: list[BaseException] = []
-
-    with (
-        patch("winml.modelkit.session.ep_registry.discover_all_eps", return_value=[]),
-        patch(
-            "winml.modelkit.session.ep_registry.ort.get_available_providers",
-            return_value=[],
-        ),
-        patch("winml.modelkit.session.ep_registry.ort.get_ep_devices", return_value=[]),
-    ):
-        registry_a = WinMLEPRegistry()
-        registry_b = WinMLEPRegistry()
-
-    def _call_register(registry: WinMLEPRegistry) -> None:
-        try:
-            results.append(registry.register_ep(entry))
-        except BaseException as exc:  # pragma: no cover - failure surfaced below
-            errors.append(exc)
-
-    def _slow_register(*_args: object) -> None:
-        time.sleep(0.05)
-
-    with patch("winml.modelkit.session.ep_registry.ort") as mock_ort:
-        mock_ort.get_ep_devices.return_value = [qnn]
-        mock_ort.register_execution_provider_library.side_effect = _slow_register
-        threads = [
-            threading.Thread(target=_call_register, args=(registry_a,)),
-            threading.Thread(target=_call_register, args=(registry_b,)),
-        ]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join(timeout=5)
-
-    assert not errors
-    assert len(results) == 2
-    assert results[0] is results[1]
-    mock_ort.register_execution_provider_library.assert_called_once()
 
 
 def test_register_ep_is_idempotent_per_dll_path(fresh_registry_with_qnn: WinMLEPRegistry) -> None:

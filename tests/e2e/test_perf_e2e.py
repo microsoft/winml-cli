@@ -1103,8 +1103,6 @@ class TestPerfGenai:
             proc = subprocess.run(  # noqa: S603 -- trusted args (sys.executable + constants)
                 cmd,
                 capture_output=True,
-                encoding="utf-8",
-                errors="replace",
                 text=True,
                 timeout=1500,
                 check=False,

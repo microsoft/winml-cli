@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import os
-import warnings
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from enum import Enum
@@ -224,7 +223,6 @@ class WinMLSession:
         self,
         onnx_path: str | Path,
         ep_device: WinMLEPDevice | str | None = None,
-        legacy_ep_config: EPConfig | None = None,
         *,
         device: str | None = None,
         ep: str | None = None,
@@ -260,23 +258,6 @@ class WinMLSession:
             session_options: Callable that returns configured ORT SessionOptions.
                 A fresh object is requested for each ORT session construction.
         """
-        if legacy_ep_config is not None:
-            if not isinstance(ep_device, str):
-                raise TypeError(
-                    "The legacy third positional EPConfig is only supported with a "
-                    "positional device string."
-                )
-            if ep_config is not None:
-                raise TypeError(
-                    "WinMLSession received both a positional legacy EPConfig and ep_config=."
-                )
-            warnings.warn(
-                "Passing EPConfig as a positional argument is deprecated; use ep_config=.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            ep_config = legacy_ep_config
-
         # Legacy positional device strings share the ergonomic resolution path.
         # A resolved WinMLEPDevice remains the current positional API.
         if isinstance(ep_device, str):
@@ -296,6 +277,8 @@ class WinMLSession:
         # ergonomic entry.
         _ergonomic_lazy = False
         if ep_device is None:
+            if ep is not None and device is None:
+                raise TypeError("WinMLSession requires device= when ep= is specified.")
             from .ep_device import EPDeviceTarget, resolve_device
             from .ep_registry import WinMLEPRegistry
 

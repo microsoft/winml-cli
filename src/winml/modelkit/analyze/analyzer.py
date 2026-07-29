@@ -811,20 +811,13 @@ class ONNXStaticAnalyzer:
         # Determine which EPs to analyze
         eps_to_analyze: list[EPName] = []
         if ep_normalized is None:
+            # Derive the EP list from the catalog so future EP additions
+            # are automatically included. sorted() gives deterministic order.
             from ..session import eps_for_device
-            from ..utils.constants import EP_SUPPORTED_DEVICES
 
-            device_key = device_to_use.lower()
-            supported_eps = set(eps_for_device(device_key))
-            supported_eps.update(
-                ep_name
-                for ep_name, supported_devices in EP_SUPPORTED_DEVICES.items()
-                if device_key in supported_devices
-            )
-            eps_to_analyze = cast(
-                "list[EPName]",
-                sorted(supported_eps),
-            )
+            # eps_for_device returns EP full names as ``str``; they are members of
+            # the ``EPName`` Literal by construction (catalog parity is test-enforced).
+            eps_to_analyze = cast("list[EPName]", sorted(eps_for_device(device_to_use.lower())))
             logger.info(
                 "No EP specified, analyzing all %s-capable EPs: %s",
                 device_to_use,

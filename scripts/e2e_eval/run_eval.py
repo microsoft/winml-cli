@@ -103,7 +103,6 @@ _DEFAULT_PRECISION_NPU = "w8a16"
 # An explicit per-model precision (``ModelEntry.precision``) overrides this. This
 # expansion is NPU-only; off-NPU devices never build quantized variants.
 _NPU_FALLBACK_PRECISIONS: tuple[str, ...] = ("w8a8", "w8a16")
-_WINDOWS_ACCESS_VIOLATION_EXIT_CODES = frozenset({-1073741819, 3221225477})
 
 # EPs whose eval track keeps the model unquantized (the "fp" variant)
 # rather than running winml's QDQ pass on top.  The EP list itself is the
@@ -782,19 +781,7 @@ def _run_build(
 
         build_proc = _run_subprocess(build_args, timeout)
         last_proc = build_proc
-        task_hint = _extract_task_from_config(sub_cfg) or entry.task
         if build_proc["exit_code"] != 0:
-            if not build_only:
-                path = _completed_artifact_after_native_teardown_crash(
-                    build_proc, entry.hf_id, task_hint
-                )
-                if path:
-                    safe_print(
-                        "    [build] Native teardown crash after artifact write; "
-                        "continuing with completed ONNX artifact."
-                    )
-                    onnx_paths[label] = path
-                    continue
             stage = f"build_{label}" if label else "build"
             return {
                 "success": False,
@@ -813,6 +800,7 @@ def _run_build(
             onnx_paths[label] = str(build_out)
             continue
 
+        task_hint = _extract_task_from_config(sub_cfg) or entry.task
         path = _extract_onnx_path(build_proc, entry.hf_id, task_hint)
         if path:
             onnx_paths[label] = path
@@ -922,16 +910,7 @@ def _run_recipe_build(
 
         proc = _run_subprocess(build_args, timeout)
         last_proc = proc
-        task_hint = _extract_task_from_config(component.path) or entry.task
         if proc["exit_code"] != 0:
-            onnx = _completed_artifact_after_native_teardown_crash(proc, entry.hf_id, task_hint)
-            if onnx:
-                safe_print(
-                    "    [build] Native teardown crash after artifact write; "
-                    "continuing with completed ONNX artifact."
-                )
-                onnx_paths[role or ""] = str(onnx)
-                continue
             stage = f"build_{role}" if role else "build"
             return {
                 "success": False,
@@ -941,9 +920,11 @@ def _run_recipe_build(
                 "meta_config": meta_config,
                 "precision": variant.precision,
             }
+
         # Locate the cached artifact from the build output (same mechanism as
         # the winml-config fallback). The component's own config carries the
         # task, needed to disambiguate a model's multiple cached tasks.
+        task_hint = _extract_task_from_config(component.path) or entry.task
         onnx = _extract_onnx_path(proc, entry.hf_id, task_hint)
         if onnx is None:
             proc = dict(proc)
@@ -972,71 +953,25 @@ def _run_recipe_build(
     }
 
 
-def _completed_artifact_after_native_teardown_crash(
-    proc: dict, hf_id: str, task: str | None
-) -> str | None:
-    """Return the completed artifact when only interpreter/native teardown crashed."""
-    if proc.get("timeout") or proc.get("exit_code") not in _WINDOWS_ACCESS_VIOLATION_EXIT_CODES:
-        return None
-    return _extract_onnx_path(proc, hf_id, task, allow_cache_fallback=False)
-
-
-def _extract_onnx_path(
-    build_proc: dict,
-    hf_id: str,
-    task: str | None,
-    *,
-    allow_cache_fallback: bool = True,
-) -> str | None:
+def _extract_onnx_path(build_proc: dict, hf_id: str, task: str | None) -> str | None:
     """Extract ONNX path from build subprocess output."""
     # Patterns used by winml build to report the artifact path
     markers = ("Final artifact:", "Existing artifact found:", "Artifact:")
     onnx_path = None
-    lines = (build_proc["stderr"] + build_proc["stdout"]).splitlines()
-    for idx, line in enumerate(lines):
+    for line in (build_proc["stderr"] + build_proc["stdout"]).splitlines():
         for marker in markers:
             if marker in line:
                 candidate = line.split(marker)[-1].strip()
-                onnx_path = _resolve_reported_artifact_path(candidate, lines[idx + 1 :])
-                if onnx_path:
+                if candidate and Path(candidate).exists():
+                    onnx_path = candidate
                     break
         if onnx_path:
             break
 
-    if allow_cache_fallback and (not onnx_path or not Path(onnx_path).exists()):
+    if not onnx_path or not Path(onnx_path).exists():
         onnx_path = _find_cached_model(hf_id, build_proc, task)
 
     return onnx_path
-
-
-_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
-
-
-def _resolve_reported_artifact_path(first_fragment: str, following_lines: list[str]) -> str | None:
-    """Resolve a winml-build artifact path that may be hard-wrapped across lines."""
-    candidate = _ANSI_RE.sub("", first_fragment).strip()
-    if candidate and _is_existing_onnx_file(candidate):
-        return candidate
-
-    # Rich/CI wrapping inserts line breaks into long paths without adding
-    # separators. Rejoin a few subsequent non-empty fragments until the path
-    # materializes, stopping early when the next line clearly starts another
-    # build-summary field.
-    for raw_line in following_lines[:6]:
-        fragment = _ANSI_RE.sub("", raw_line).strip()
-        if not fragment:
-            continue
-        if re.match(r"^[A-Za-z ][A-Za-z ]+:\s", fragment):
-            break
-        candidate += fragment
-        if _is_existing_onnx_file(candidate):
-            return candidate
-    return None
-
-
-def _is_existing_onnx_file(path: str) -> bool:
-    p = Path(path)
-    return p.suffix == ".onnx" and p.is_file()
 
 
 def _extract_task_from_config(config_path: Path) -> str | None:
@@ -2447,9 +2382,6 @@ def _should_skip_existing(existing: dict, retry_types: set[str] | None, eval_typ
     if retry_types is None:
         return True  # --continue without --retry-failed: skip all existing
 
-    if _is_unsupported_perf_result(existing):
-        return "UNSUPPORTED" not in retry_types
-
     perf = existing.get("perf") or {}
     acc = existing.get("accuracy")
 
@@ -2468,36 +2400,6 @@ def _should_skip_existing(existing: dict, retry_types: set[str] | None, eval_typ
             return False  # Should retry
 
     return True  # No retry criteria matched — skip
-
-
-def _is_unsupported_perf_result(result: dict) -> bool:
-    """True when perf failed because the selected EP rejected the graph as unsupported."""
-    perf = result.get("perf") or {}
-    return bool(perf.get("unsupported_skip"))
-
-
-def _mark_unsupported_perf_result(result: dict) -> None:
-    """Mark provider-declared unsupported perf failures as skipped."""
-    perf = result.get("perf")
-    if perf is None or perf.get("passed"):
-        return
-    if classify_result(result) == "UNSUPPORTED":
-        perf["unsupported_skip"] = True
-
-
-def _all_results_pass(results: list[dict]) -> bool:
-    """Return whether all non-skipped perf and accuracy results passed."""
-    perf_results = [
-        r for r in results if r.get("perf") is not None and not _is_unsupported_perf_result(r)
-    ]
-    acc_results = [
-        r
-        for r in results
-        if r.get("accuracy") is not None and not (r.get("accuracy") or {}).get("skipped")
-    ]
-    return all((r.get("perf") or {}).get("passed", False) for r in perf_results) and all(
-        accuracy_status(r.get("accuracy")) == "PASS" for r in acc_results
-    )
 
 
 def model_result_dir(
@@ -2610,7 +2512,8 @@ def _build_jobs(
             # explicit per-model precision (e.g. fp16) skips this and is honored
             # by the single-fallback branch below via _resolve_precision.
             jobs.extend(
-                EvalJob(entry, None, fallback_precision=prec) for prec in _NPU_FALLBACK_PRECISIONS
+                EvalJob(entry, None, fallback_precision=prec)
+                for prec in _NPU_FALLBACK_PRECISIONS
             )
         else:
             jobs.append(EvalJob(entry, None))
@@ -2892,7 +2795,7 @@ def parse_args() -> argparse.Namespace:
             "Re-run jobs whose recorded status matches one of the given types. "
             "Valid values are the perf failure classifications "
             "(EXPORT_FAIL, ANALYZER_BLOCK, OPT_FAIL, COMPILE_FAIL, RUNTIME_FAIL, "
-            "UNSUPPORTED, ENVIRONMENT, TIMEOUT, UNKNOWN) and the accuracy status FAIL "
+            "ENVIRONMENT, TIMEOUT, UNKNOWN) and the accuracy status FAIL "
             "(e.g. --retry-failed ENVIRONMENT FAIL). "
             "Use without args to retry ALL non-PASS jobs. "
             "Implies --continue for passing jobs."
@@ -2987,7 +2890,6 @@ def main() -> None:
                 if args.continue_run and result_path.exists():
                     try:
                         existing = load_result_json(result_path)
-                        _mark_unsupported_perf_result(existing)
                         if _should_skip_existing(existing, retry_types, args.eval_type):
                             skipped_count += 1
                             continue
@@ -3093,10 +2995,6 @@ def main() -> None:
     elif args.continue_run:
         safe_print("Continue mode: skipping jobs with existing eval_result.json")
 
-    if total_jobs == 0:
-        safe_print("\nNo eval jobs matched the current EP/device filters.")
-        sys.exit(0)
-
     # 3. Run evaluation
     results: list[dict] = []
     skipped = 0
@@ -3149,7 +3047,6 @@ def main() -> None:
         if args.continue_run and result_path.exists():
             try:
                 existing = load_result_json(result_path)
-                _mark_unsupported_perf_result(existing)
 
                 if _should_skip_existing(existing, retry_types, args.eval_type):
                     results.append(existing)
@@ -3294,7 +3191,6 @@ def main() -> None:
                 sanitize_fn=None if args.raw_output else _sanitize_output,
                 precision=recorded_precision,
             )
-            _mark_unsupported_perf_result(result)
         results.append(result)
 
         # Write eval_result.json immediately (crash-safe, facts only)
@@ -3314,13 +3210,7 @@ def main() -> None:
         elif perf_proc is not None:
             perf_passed = perf_proc["exit_code"] == 0
             perf_cls = classify_result(result) or "UNKNOWN"
-            perf_tag = (
-                "PASS"
-                if perf_passed
-                else f"SKIP ({perf_cls})"
-                if _is_unsupported_perf_result(result)
-                else f"FAIL ({perf_cls})"
-            )
+            perf_tag = "PASS" if perf_passed else f"FAIL ({perf_cls})"
             safe_print(f"  [{perf_tag}] {result['perf']['elapsed']}s{acc_tag}")
             if args.verbose and not perf_passed:
                 combined = (perf_proc["stdout"] + perf_proc["stderr"]).strip()
@@ -3346,9 +3236,7 @@ def main() -> None:
     classify_results(results)
 
     perf_results = [r for r in results if r.get("perf") is not None]
-    perf_unsupported = sum(1 for r in perf_results if _is_unsupported_perf_result(r))
-    perf_counted = [r for r in perf_results if not _is_unsupported_perf_result(r)]
-    perf_pass = sum(1 for r in perf_counted if (r.get("perf") or {}).get("passed"))
+    perf_pass = sum(1 for r in perf_results if (r.get("perf") or {}).get("passed"))
     acc_results = [
         r
         for r in results
@@ -3358,11 +3246,9 @@ def main() -> None:
 
     if not args.no_report:
         safe_print(f"\nResults saved to: {output_dir}  ({run_duration:.1f}s, {len(results)} jobs)")
-        if perf_counted:
-            rate = perf_pass / len(perf_counted) * 100
-            safe_print(f"Perf pass: {perf_pass}/{len(perf_counted)} ({rate:.1f}%)")
-        if perf_unsupported:
-            safe_print(f"Perf skipped (unsupported by selected EP): {perf_unsupported}")
+        if perf_results:
+            rate = perf_pass / len(perf_results) * 100
+            safe_print(f"Perf pass: {perf_pass}/{len(perf_results)} ({rate:.1f}%)")
         if acc_results:
             arate = acc_pass / len(acc_results) * 100
             safe_print(
@@ -3374,7 +3260,10 @@ def main() -> None:
         if interrupted:
             safe_print(f"  (interrupted — {total_jobs - len(results)} jobs not evaluated)")
 
-    sys.exit(0 if not interrupted and _all_results_pass(results) else 1)
+    all_perf_pass = all((r.get("perf") or {}).get("passed", False) for r in perf_results)
+    all_acc_pass = all(accuracy_status(r.get("accuracy")) == "PASS" for r in acc_results)
+
+    sys.exit(0 if not interrupted and all_perf_pass and all_acc_pass else 1)
 
 
 if __name__ == "__main__":
