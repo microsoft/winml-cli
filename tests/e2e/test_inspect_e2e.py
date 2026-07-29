@@ -20,6 +20,9 @@ Markers:
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 
 import pytest
 from click.testing import CliRunner
@@ -51,6 +54,13 @@ EXPECTED_TOP_KEYS = {
     "io_config",
 }
 
+WARNING_NOISE_PATTERNS = (
+    "Init provider bridge failed",
+    "No model type passed for the task",
+    "unauthenticated requests",
+    "use_fast",
+)
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -69,6 +79,44 @@ def _run_json(*args: str) -> dict:
     result = _run(*args, "-f", "json")
     assert result.exit_code == 0, f"inspect exited {result.exit_code}:\n{result.output}"
     return json.loads(result.stdout)
+
+
+def _run_winml_cli_subprocess(
+    args: list[str],
+    *,
+    env: dict[str, str] | None = None,
+    timeout: int = 240,
+) -> subprocess.CompletedProcess[str]:
+    """Run the real winml CLI entry point in a fresh Python process."""
+    process_env = None
+    if env is not None:
+        process_env = os.environ.copy()
+        process_env.update(env)
+    return subprocess.run(  # noqa: S603 -- trusted args from the test body
+        [sys.executable, "-m", "winml.modelkit", *args],
+        capture_output=True,
+        encoding="utf-8",
+        env=process_env,
+        errors="replace",
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _combined_output(proc: subprocess.CompletedProcess[str]) -> str:
+    return f"{proc.stdout}\n{proc.stderr}"
+
+
+def _matched_warning_noise(combined: str) -> list[str]:
+    return [pattern for pattern in WARNING_NOISE_PATTERNS if pattern in combined]
+
+
+def _require_unsuppressed_warning_noise(args: list[str]) -> None:
+    proc = _run_winml_cli_subprocess(args, env={"WINMLCLI_SHOW_ALL_WARNINGS": "1"})
+    assert proc.returncode == 0, f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+    if not _matched_warning_noise(_combined_output(proc)):
+        pytest.skip("Host did not emit any target warning-noise pattern")
 
 
 def _run_network(model: str, task: str | None = None) -> dict:
@@ -197,6 +245,51 @@ class TestInspectModelTypeOnly:
         assert data["hierarchy"] is None  # hierarchy requires -m
 
 
+class TestInspectWarningNoise:
+    """Default inspect output hides third-party warning chatter."""
+
+    def test_default_table_hides_common_third_party_warning_noise(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        args = ["inspect", "--model-type", "bert"]
+        _require_unsuppressed_warning_noise(args)
+        monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
+
+        proc = _run_winml_cli_subprocess(args)
+
+        assert proc.returncode == 0, f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        combined = _combined_output(proc)
+        for pattern in WARNING_NOISE_PATTERNS:
+            assert pattern not in combined
+
+    def test_default_json_keeps_warning_noise_out_of_streams(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        args = ["inspect", "--model-type", "bert", "-f", "json"]
+        _require_unsuppressed_warning_noise(args)
+        monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
+
+        proc = _run_winml_cli_subprocess(args)
+
+        assert proc.returncode == 0, f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        json.loads(proc.stdout)
+        combined = _combined_output(proc)
+        for pattern in WARNING_NOISE_PATTERNS:
+            assert pattern not in combined
+
+    def test_inspect_restores_huggingface_warning_environment(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TRANSFORMERS_VERBOSITY", "debug")
+        monkeypatch.setenv("HF_HUB_VERBOSITY", "debug")
+
+        result = _run("--model-type", "bert", "-f", "json")
+
+        assert result.exit_code == 0, result.output
+        assert os.environ["TRANSFORMERS_VERBOSITY"] == "debug"
+        assert os.environ["HF_HUB_VERBOSITY"] == "debug"
+
+
 # ===========================================================================
 # Network tests — require HuggingFace Hub access
 # ===========================================================================
@@ -295,7 +388,6 @@ class TestInspectDETR:
 
 @pytest.mark.network
 class TestInspectDinoV2:
-
     MODEL = "facebook/dinov2-base"
 
     def test_image_feature_extraction_override(self):

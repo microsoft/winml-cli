@@ -107,6 +107,12 @@ class WinMLEvaluationConfig:
         model_path: Path to .onnx model file, or a ``{role: path}`` dict for
             composite models (e.g. ``{"image-encoder": "...", "text-encoder": "..."}``).
             None = build from model_id.
+        input_data: Path to a ``.npz`` archive of real input tensors for
+            ``--mode compare``. When set, the candidate and reference are compared
+            on these tensors (validated against the candidate's inputs) instead of
+            randomly generated ones. The leading axis of each array is the sample
+            axis, so one archive can hold ``N`` samples; all inputs must share the
+            same leading length.
         task: HF pipeline task. Auto-detected from model_id if omitted.
         device: Target device for inference.
         ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides
@@ -137,6 +143,7 @@ class WinMLEvaluationConfig:
 
     model_id: str | None = None
     model_path: str | dict[str, str] | None = None
+    input_data: str | None = None
     task: str | None = None
     device: str = "auto"
     precision: str = "auto"
@@ -168,6 +175,8 @@ class WinMLEvaluationConfig:
             result["model_id"] = self.model_id
         if self.model_path is not None:
             result["model_path"] = self.model_path
+        if self.input_data is not None:
+            result["input_data"] = self.input_data
         if self.task is not None:
             result["task"] = self.task
         result["device"] = self.device
@@ -219,6 +228,7 @@ class WinMLEvaluationConfig:
         return cls(
             model_id=data.get("model_id"),
             model_path=data.get("model_path"),
+            input_data=data.get("input_data"),
             task=data.get("task"),
             device=data.get("device", "auto"),
             precision=data.get("precision", "auto"),

@@ -186,6 +186,18 @@ logger = logging.getLogger(__name__)
         "random inputs and report tensor-similarity metrics per output tensor."
     ),
 )
+@click.option(
+    "--input-data",
+    "input_data",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help=(
+        "Path to a .npz file of real input tensors to compare with instead of "
+        "randomly generated ones (use with --mode compare). Keys must match the "
+        "candidate model's input names; the leading axis of each array is the "
+        "sample axis (N samples), and all inputs must share the same N."
+    ),
+)
 @cli_utils.skip_build_option()
 @cli_utils.format_option()
 @cli_utils.build_config_option()
@@ -227,6 +239,7 @@ def eval(
     allow_unsupported_nodes: bool,
     show_schema: bool,
     mode: EvalMode,
+    input_data: str | None,
     config_file: Path | None,
     skip_build: bool,
 ) -> None:
@@ -236,6 +249,8 @@ def eval(
         winml eval -m microsoft/resnet-50
 
         winml eval -m model.onnx --model-id microsoft/resnet-50
+
+        winml eval --mode compare -m cand.onnx --model-id microsoft/resnet-50 --input-data data.npz
 
     Run `winml eval --schema --task <task>` to see the dataset columns
     and options expected by each task.
@@ -269,6 +284,9 @@ def eval(
     # ── 1. Build config: defaults ← config file ← CLI ──
     cfg = _build_eval_config(ctx, config_file, column, label_mapping_path)
 
+    if cfg.input_data is not None and cfg.mode != "compare":
+        raise click.UsageError("--input-data is only valid with --mode compare.")
+
     # ── 2. Resolve in place ──
     _resolve_model(cfg, model, model_id)
     _apply_export_overrides(cfg, shape_config_path, input_specs, export_config, dynamic_axes)
@@ -285,6 +303,16 @@ def eval(
             "--precision %s is ignored for pre-built ONNX inputs "
             "(precision is already baked into the model).",
             cfg.precision,
+        )
+
+    # --samples sizes the random/dataset sample count; with --input-data the
+    # count comes from the archive's leading axis, so an explicit --samples is
+    # ignored — warn instead of silently discarding it (mirrors perf's
+    # --batch-size warning).
+    if cfg.input_data is not None and cli_utils.is_cli_provided(ctx, "samples"):
+        logger.warning(
+            "--samples is ignored when --input-data is set; the sample count "
+            "comes from the leading axis of the provided tensors."
         )
 
     # The build-pipeline flags only take effect when eval rebuilds the model.
@@ -650,6 +678,9 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
     cfg = result.config
     ds = cfg.dataset
     metrics = result.metrics
+    # For --input-data compare the effective sample count comes from the
+    # archive (via EvalResult.num_samples), not the unused config default.
+    samples = result.num_samples if result.num_samples is not None else ds.samples
 
     # Header
     console.print()
@@ -664,9 +695,11 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
     console.print()
     console.print(f"[dim]Task:[/dim]       {cfg.task}")
     console.print(f"[dim]Device:[/dim]     {cfg.device}")
-    if ds.path:
+    if cfg.input_data:
+        console.print(f"[dim]Input data:[/dim] {cfg.input_data}")
+    elif ds.path:
         console.print(f"[dim]Dataset:[/dim]    {ds.path}")
-    console.print(f"[dim]Samples:[/dim]    {ds.samples}")
+    console.print(f"[dim]Samples:[/dim]    {samples}")
     if cfg.model_path:
         console.print(f"[dim]ONNX:[/dim]       {cfg.model_path}")
 

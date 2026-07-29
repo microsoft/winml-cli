@@ -95,6 +95,22 @@ class TestEvaluationConfig:
         assert ds.revision is None
         assert "revision" not in ds.to_dict()
 
+    def test_input_data_default_is_none(self):
+        """input_data defaults to None and is omitted from to_dict."""
+        config = WinMLEvaluationConfig(model_id="test/model")
+        assert config.input_data is None
+        assert "input_data" not in config.to_dict()
+
+    def test_config_roundtrip_preserves_input_data(self):
+        """input_data survives to_dict/from_dict roundtrip."""
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            input_data="inputs.npz",
+            mode="compare",
+        )
+        restored = WinMLEvaluationConfig.from_dict(config.to_dict())
+        assert restored.input_data == "inputs.npz"
+
     def test_eval_result_to_dict(self):
         config = WinMLEvaluationConfig(
             model_id="test/model",
@@ -105,6 +121,29 @@ class TestEvaluationConfig:
         d = result.to_dict()
         assert d["metrics"]["accuracy"] == 0.9
         assert d["dataset"]["path"] == "imagenet-1k"
+
+    def test_eval_result_num_samples_overrides_dataset_samples(self):
+        """num_samples surfaces the effective count in to_dict without mutating config."""
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            model_id="test/model",
+            mode="compare",
+            input_data="inputs.npz",
+        )
+        result = EvalResult(config=config, metrics={}, num_samples=2)
+        d = result.to_dict()
+        assert d["dataset"]["samples"] == 2
+        # The config itself is untouched (still the default).
+        assert config.dataset.samples == 100
+
+    def test_eval_result_num_samples_defaults_to_config(self):
+        """Without num_samples, to_dict keeps the config's dataset samples."""
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            dataset=DatasetConfig(path="imagenet-1k", samples=33),
+        )
+        result = EvalResult(config=config, metrics={})
+        assert result.to_dict()["dataset"]["samples"] == 33
 
 
 class TestResolveTask:
