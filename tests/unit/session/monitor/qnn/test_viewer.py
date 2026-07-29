@@ -98,13 +98,18 @@ def test_run_qhas_viewer_uses_output_stem_config_per_run(monkeypatch, tmp_path):
     def _fake_run(cmd: list[str], **_kwargs):
         commands.append(cmd)
         output = Path(cmd[cmd.index("--output") + 1])
-        output.write_text("{}", encoding="utf-8")
+        summary = output.with_name(f"{output.stem}_qnn_htp_analysis_summary.json")
+        summary.write_text("{}", encoding="utf-8")
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(subprocess, "run", _fake_run)
 
-    assert run_qhas_viewer(qnn_log_a, schematic_a, output_a, sdk_root=tmp_path / "sdk") == output_a
-    assert run_qhas_viewer(qnn_log_b, schematic_b, output_b, sdk_root=tmp_path / "sdk") == output_b
+    assert run_qhas_viewer(
+        qnn_log_a, schematic_a, output_a, sdk_root=tmp_path / "sdk"
+    ) == output_a.with_name(f"{output_a.stem}_qnn_htp_analysis_summary.json")
+    assert run_qhas_viewer(
+        qnn_log_b, schematic_b, output_b, sdk_root=tmp_path / "sdk"
+    ) == output_b.with_name(f"{output_b.stem}_qnn_htp_analysis_summary.json")
 
     config_paths = [Path(cmd[cmd.index("--config") + 1]) for cmd in commands]
     assert all(Path(cmd[cmd.index("--reader") + 1]) == reader for cmd in commands)
@@ -139,3 +144,33 @@ def test_run_qhas_viewer_requires_matching_optrace_reader(monkeypatch, tmp_path,
         is None
     )
     assert "QnnHtpOptraceProfilingReader.dll not found" in caplog.text
+
+
+def test_run_qhas_viewer_rejects_direct_output_without_analysis_summary(
+    monkeypatch, tmp_path, caplog
+):
+    from pathlib import Path
+
+    from winml.modelkit.session.monitor.qnn.viewer import run_qhas_viewer
+
+    sdk_root = tmp_path / "sdk"
+    viewer_path = sdk_root / "bin" / "x64" / "qnn-profile-viewer.exe"
+    viewer_path.parent.mkdir(parents=True)
+    viewer_path.write_bytes(b"")
+    reader = sdk_root / "lib" / viewer_path.parent.name / "QnnHtpOptraceProfilingReader.dll"
+    reader.parent.mkdir(parents=True)
+    reader.write_bytes(b"")
+    qnn_log = tmp_path / "profile.log"
+    schematic = tmp_path / "schematic.bin"
+    output = tmp_path / "qhas_output.json"
+    qnn_log.write_bytes(b"")
+    schematic.write_bytes(b"")
+
+    def _fake_run(cmd: list[str], **_kwargs):
+        Path(cmd[cmd.index("--output") + 1]).write_text("{}", encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    assert run_qhas_viewer(qnn_log, schematic, output, sdk_root=sdk_root) is None
+    assert "did not produce analysis summary" in caplog.text

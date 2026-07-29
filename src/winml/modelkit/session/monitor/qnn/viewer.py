@@ -47,6 +47,7 @@ _COMMON_SDK_PATHS: list[Path] = [
     Path(r"C:\Qualcomm\AIStack\qairt"),
 ]
 _OPTRACE_READER_NAME = "QnnHtpOptraceProfilingReader.dll"
+_QHAS_SUMMARY_SUFFIX = "_qnn_htp_analysis_summary.json"
 
 
 def find_qnn_sdk() -> Path | None:
@@ -161,7 +162,8 @@ def run_qhas_viewer(
     schematic:
         Path to the ``*_schematic.bin`` file.
     output:
-        Path for the resulting QHAS JSON file.
+        Output prefix passed to the viewer. The optrace reader appends its QHAS
+        artifact suffixes to this path.
     config:
         Post-processing features config.  Uses default if ``None``.
     sdk_root:
@@ -169,7 +171,7 @@ def run_qhas_viewer(
 
     Returns:
     -------
-    Path to the generated QHAS JSON, or ``None`` on failure.
+    Path to the generated QNN HTP analysis summary JSON, or ``None`` on failure.
     """
     viewer = _find_viewer_exe(sdk_root)
     if viewer is None:
@@ -220,6 +222,8 @@ def run_qhas_viewer(
         logger.error("qnn-profile-viewer executable not found at %s", viewer)
         return None
 
-    if output.is_file():
-        return output
+    summary_output = output.with_name(f"{output.stem}{_QHAS_SUMMARY_SUFFIX}")
+    if summary_output.is_file():
+        return summary_output
+    logger.warning("QHAS viewer did not produce analysis summary: %s", summary_output)
     return None
