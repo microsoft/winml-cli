@@ -499,7 +499,7 @@ class TestPerfModuleMonitor:
         fake_display.__enter__.return_value = fake_display
 
         with patch(
-            "winml.modelkit.commands.perf.LiveMonitorDisplay",
+            "winml.modelkit.commands._live_chart.LiveMonitorDisplay",
             return_value=fake_display,
         ) as mock_display:
             _run_monitored_loop(

@@ -24,7 +24,7 @@ import re
 import sys
 import threading
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from .._env import env_flag_enabled
 
@@ -223,7 +223,7 @@ def _is_native_warning_line(line: bytes) -> bool:
 def _get_win32_stderr_handle() -> object | None:
     if sys.platform != "win32":
         return None
-    return _k32.GetStdHandle(_STD_ERROR_HANDLE)
+    return cast("object", _k32.GetStdHandle(_STD_ERROR_HANDLE))
 
 
 def _set_win32_stderr_to_current_fd() -> None:
