@@ -840,9 +840,7 @@ class WinMLSession:
             or self._session is None
         )
         if had_baseline_session and _session_rebuilt:
-            logger.warning(
-                "auto-resetting compiled session to apply monitor session/provider options"
-            )
+            logger.info("auto-resetting compiled session to apply monitor session/provider options")
             self.reset()
 
         stats = PerfStats(warmup=warmup)
