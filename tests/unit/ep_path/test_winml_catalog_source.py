@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 import sys
+import threading
 import types
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -652,3 +654,116 @@ class TestAtexitCleanup:
         catalog = _FakeCatalog([])
         _ep._release_winml_catalog(catalog)
         assert catalog.closed is True
+        # A close that returned must not be disarmed -- __del__ is then a
+        # cheap no-op on its own because the handle is already cleared.
+        assert "close" not in vars(catalog)
+
+    def test_release_catalog_gives_up_when_close_blocks(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # WinMLEpCatalogRelease can block forever at interpreter shutdown
+        # (it waits on an async close whose completion can no longer be
+        # scheduled). Cleanup must time out rather than hang the process.
+        entered = threading.Event()
+        release = threading.Event()
+
+        class _HangingCatalog:
+            def close(self) -> None:
+                entered.set()
+                release.wait()
+
+        monkeypatch.setattr(_ep, "_CATALOG_CLOSE_TIMEOUT_S", 0.05)
+        catalog = _HangingCatalog()
+        try:
+            # Returns even though close() is still blocked.
+            _ep._release_winml_catalog(catalog)
+            assert entered.is_set()
+            # The instance-level shadow is what keeps EpCatalog.__del__'s
+            # second close() from re-entering the same native wait.
+            assert "close" in vars(catalog)
+            catalog.close()
+        finally:
+            release.set()
+
+
+# ---------------------------------------------------------------------------
+# Real interpreter shutdown.
+# ---------------------------------------------------------------------------
+
+# Calling ``_release_winml_catalog`` directly (above) does not prove the guard
+# works where it actually has to: inside ``Py_FinalizeEx``. Starting a thread
+# once the interpreter has begun shutting down is a genuinely different
+# situation, so drive it as a real ``atexit`` callback in a child process.
+_SHUTDOWN_PROBE = '''\
+"""Probe: block forever in a fake EpCatalog.close() at interpreter shutdown.
+
+``guarded``   -- cleanup goes through ``_release_winml_catalog``; the process
+                 must still exit.
+``unguarded`` -- cleanup calls ``close()`` directly; the process must hang,
+                 which is what proves the probe reproduces the real failure.
+"""
+
+import atexit
+import sys
+import threading
+
+from winml.modelkit import ep_path
+
+# Never set: stands in for the async close whose completion can no longer be
+# scheduled once the interpreter is shutting down.
+_never = threading.Event()
+
+
+class _HangingCatalog:
+    def close(self):
+        _never.wait()
+
+    def __del__(self):
+        # windowsml.EpCatalog.__del__ does exactly this.
+        self.close()
+
+
+catalog = _HangingCatalog()
+
+if sys.argv[1] == "guarded":
+    ep_path._CATALOG_CLOSE_TIMEOUT_S = 1.0
+    atexit.register(ep_path._release_winml_catalog, catalog)
+else:
+    atexit.register(catalog.close)
+
+print("registered", flush=True)
+'''
+
+
+def _write_shutdown_probe(tmp_path: Path) -> Path:
+    probe = tmp_path / "shutdown_probe.py"
+    probe.write_text(_SHUTDOWN_PROBE, encoding="utf-8")
+    return probe
+
+
+class TestReleaseCatalogAtRealShutdown:
+    """The timeout guard has to hold during actual interpreter finalization."""
+
+    def test_process_exits_when_close_blocks(self, tmp_path: Path) -> None:
+        proc = subprocess.run(  # noqa: S603 -- trusted args (sys.executable + generated probe)
+            [sys.executable, str(_write_shutdown_probe(tmp_path)), "guarded"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        # A TimeoutExpired here would mean the guard does not work at shutdown.
+        assert proc.returncode == 0, f"stdout={proc.stdout!r} stderr={proc.stderr!r}"
+        assert "registered" in proc.stdout
+
+    def test_probe_hangs_without_the_guard(self, tmp_path: Path) -> None:
+        # Control: without the guard the same probe must hang, otherwise the
+        # test above proves nothing.
+        with pytest.raises(subprocess.TimeoutExpired):
+            subprocess.run(  # noqa: S603 -- trusted args (sys.executable + generated probe)
+                [sys.executable, str(_write_shutdown_probe(tmp_path)), "unguarded"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )

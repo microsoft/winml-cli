@@ -47,6 +47,7 @@ import logging
 import os
 import platform
 import sys
+import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
@@ -723,13 +724,59 @@ class DirectorySource(EPSource):
 # guarantee it is invoked on shutdown.
 _winml_catalog_warned_keys: set[str] = set()
 
+# Grace period for ``EpCatalog.close()`` at interpreter shutdown. The call
+# either returns promptly or never returns at all -- there is no meaningful
+# middle ground -- so this only bounds the worst case. It is a fuse, not a
+# tuning knob; see :func:`_release_winml_catalog`.
+_CATALOG_CLOSE_TIMEOUT_S = 5.0
+
 
 def _release_winml_catalog(catalog: Any) -> None:
-    """Close the process-wide Windows ML catalog during interpreter shutdown."""
+    """Close the process-wide Windows ML catalog, giving up if it blocks.
+
+    Workaround for a deadlock in the ``windowsml`` binding, kept until that
+    package (or the Windows ML runtime under it) stops blocking here.
+
+    ``EpCatalog.close()`` calls ``WinMLEpCatalogRelease``, which internally goes
+    through ``WinMLAsyncClose``: it starts an asynchronous close and then waits
+    synchronously for it to finish. Run from an ``atexit`` callback -- i.e.
+    inside ``Py_FinalizeEx`` -- that completion can no longer be scheduled, so
+    the wait never returns. Observed on a CI agent with three MSIX EPs
+    installed: a pytest run finished every test and then sat in
+    ``WinMLEpCatalogRelease`` until the job timed out, holding the agent.
+
+    Cleanup at shutdown is best-effort by nature (the previous version already
+    swallowed exceptions), so treat "never returns" the same way: run the close
+    on a daemon thread and abandon it after ``_CATALOG_CLOSE_TIMEOUT_S``.
+    ``ctypes`` releases the GIL around the native call, so the join really does
+    time out instead of deadlocking with it. The catalog handle is
+    process-scoped, so nothing leaks past the process -- the OS reclaims it.
+    """
+
+    def _close() -> None:
+        try:
+            catalog.close()
+        except Exception as e:  # pragma: no cover - shutdown best-effort
+            logger.debug("Windows ML catalog cleanup raised: %s", e)
+
+    closer = threading.Thread(target=_close, name="winml-catalog-close", daemon=True)
+    closer.start()
+    closer.join(_CATALOG_CLOSE_TIMEOUT_S)
+    if not closer.is_alive():
+        return
+
+    logger.debug(
+        "Windows ML catalog close did not return within %.1fs; leaving the handle to OS cleanup",
+        _CATALOG_CLOSE_TIMEOUT_S,
+    )
+    # ``EpCatalog.__del__`` calls ``close()`` again. The handle is still set
+    # (the blocked call never cleared it), so without this the same native
+    # wait is re-entered during GC and hangs the process anyway. Shadowing the
+    # bound method on the instance makes that second attempt a no-op.
     try:
-        catalog.close()
+        catalog.close = lambda: None
     except Exception as e:  # pragma: no cover - shutdown best-effort
-        logger.debug("Windows ML catalog cleanup raised: %s", e)
+        logger.debug("Could not disarm Windows ML catalog close: %s", e)
 
 
 @functools.cache

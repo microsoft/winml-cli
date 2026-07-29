@@ -43,6 +43,14 @@ parameters:
     type: number
     default: 1000
 
+  # Wall-clock cap for one pytest step. `pytestTimeout` is pytest-timeout's
+  # per-test limit and does not bound the run as a whole, so a hang outside a
+  # test (e.g. a native EP teardown deadlocking at interpreter shutdown) would
+  # otherwise hold the agent until the job timeout.
+  - name: pytestStepTimeoutMinutes
+    type: number
+    default: 90
+
 jobs:
   - job: E2ETest_${{ parameters.agentSuffix }}
     displayName: 'E2E Test (${{ parameters.agentSuffix }})'
@@ -263,6 +271,11 @@ jobs:
               exit $LASTEXITCODE
             workingDirectory: $(Build.SourcesDirectory)
             condition: always()
+            # `--timeout` only bounds a single test; it does not cover the run
+            # as a whole, and notably not interpreter shutdown -- a native EP
+            # teardown that deadlocks there would otherwise hold the
+            # self-hosted agent until the 360-minute job timeout.
+            timeoutInMinutes: ${{ parameters.pytestStepTimeoutMinutes }}
             displayName: 'pytest: test_${{ target }}_e2e.py'
 
       # ----------------------------------------------------------------------

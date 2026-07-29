@@ -160,6 +160,15 @@ parameters:
     type: number
     default: 2400
 
+  # `pytestTimeout` above only bounds a single test. This bounds the whole
+  # step, covering hangs that happen outside any test -- e.g. a native EP
+  # teardown deadlocking at interpreter shutdown, which would otherwise hold
+  # the self-hosted agent until the 360-minute job timeout.
+  - name: pytestStepTimeoutMinutes
+    displayName: 'Wall-clock cap for one pytest step (minutes)'
+    type: number
+    default: 90
+
   # --------------------------------------------------------------------
   # Agent / EP-device pair configuration
   # --------------------------------------------------------------------
@@ -214,6 +223,7 @@ stages:
           runEval: ${{ parameters.runEval }}
           pytestTargets: ${{ parameters.pytestTargets }}
           pytestTimeout: ${{ parameters.pytestTimeout }}
+          pytestStepTimeoutMinutes: ${{ parameters.pytestStepTimeoutMinutes }}
 
   - stage: NPU_OV
     displayName: 'E2E Test — OV'
@@ -229,6 +239,7 @@ stages:
           runEval: ${{ parameters.runEval }}
           pytestTargets: ${{ parameters.pytestTargets }}
           pytestTimeout: ${{ parameters.pytestTimeout }}
+          pytestStepTimeoutMinutes: ${{ parameters.pytestStepTimeoutMinutes }}
 
   - stage: NPU_AMD
     displayName: 'E2E Test — AMD'
@@ -244,3 +255,4 @@ stages:
           runEval: ${{ parameters.runEval }}
           pytestTargets: ${{ parameters.pytestTargets }}
           pytestTimeout: ${{ parameters.pytestTimeout }}
+          pytestStepTimeoutMinutes: ${{ parameters.pytestStepTimeoutMinutes }}
