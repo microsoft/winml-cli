@@ -51,6 +51,25 @@ def get_console() -> Console:
     return Console(stderr=True)
 
 
+class SafeConsole(Console):
+    """Rich Console variant that does not fail commands on Windows console write errors."""
+
+    def print(self, *objects: Any, **kwargs: Any) -> None:
+        """Print objects, ignoring Windows console handle/mode write errors."""
+        try:
+            super().print(*objects, **kwargs)
+        except OSError:
+            logger.debug("Ignoring OSError from Console.print", exc_info=True)
+
+
+def safe_console_print(console: Console, *objects: Any, **kwargs: Any) -> None:
+    """Print to Rich console, ignoring Windows console handle/mode write errors."""
+    try:
+        console.print(*objects, **kwargs)
+    except OSError:
+        logger.debug("Ignoring OSError from Console.print", exc_info=True)
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # SHARED FORMATTING
 # ══════════════════════════════════════════════════════════════════════════

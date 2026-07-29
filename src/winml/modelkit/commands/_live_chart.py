@@ -13,10 +13,10 @@ from __future__ import annotations
 import time
 from typing import Any, Final
 
-from rich.console import Console
 from rich.panel import Panel
 
 from ..session.monitor.hw_monitor import adapter_label
+from ..utils.console import SafeConsole, _SafeLive
 from ..utils.constants import ACCELERATOR_DEVICE_TYPES
 
 
@@ -100,7 +100,7 @@ class LiveMonitorDisplay:
         self._chart_height = chart_height
         self._poll_interval_s = poll_interval_ms / 1000.0
         self._live: Any = None
-        self._console: Console | None = None
+        self._console: SafeConsole | None = None
         # Track the last rendered panel for transient=False final display
         self._last_panel: Any = None
 
@@ -160,10 +160,8 @@ class LiveMonitorDisplay:
         return label
 
     def __enter__(self) -> LiveMonitorDisplay:
-        from rich.live import Live
-
-        self._console = Console(stderr=True)
-        self._live = Live(
+        self._console = SafeConsole(stderr=True)
+        self._live = _SafeLive(
             refresh_per_second=_REFRESH_FPS,
             console=self._console,
             transient=False,  # Keep last frame visible in scrollback

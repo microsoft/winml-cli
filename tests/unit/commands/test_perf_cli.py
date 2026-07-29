@@ -1745,6 +1745,18 @@ class TestPerfFormatJson:
 
 
 class TestDisplayConsoleReport:
+    class _FailingConsoleFile:
+        encoding = "utf-8"
+
+        def write(self, _text: str) -> int:
+            raise OSError(1, "Incorrect function")
+
+        def flush(self) -> None:
+            pass
+
+        def isatty(self) -> bool:
+            return True
+
     def test_prefers_adapter_block_over_gpu_aggregate(self) -> None:
         result = BenchmarkResult(
             config=BenchmarkConfig(model_id="microsoft/resnet-50", warmup=1),
@@ -1787,6 +1799,27 @@ class TestDisplayConsoleReport:
         out = console.export_text()
         assert "GPU: 91.2% avg, 98.8% peak" in out
         assert "GPU: 1.1% avg, 2.2% peak" not in out
+
+    def test_ignores_windows_console_write_oserror(self) -> None:
+        result = BenchmarkResult(
+            config=BenchmarkConfig(model_id="microsoft/resnet-50", warmup=1),
+            mean_ms=10.0,
+            min_ms=9.0,
+            max_ms=11.0,
+            p50_ms=10.0,
+            p90_ms=10.5,
+            p95_ms=10.8,
+            p99_ms=11.0,
+            std_ms=0.5,
+            warmup_mean_ms=12.0,
+            samples_per_sec=100.0,
+            effective_batch_size=1,
+            actual_device="gpu",
+            actual_task="image-classification",
+        )
+        console = Console(file=self._FailingConsoleFile(), width=120, force_terminal=False)
+
+        display_console_report(result, console)
 
 
 class TestPerfSubmodel:

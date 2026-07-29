@@ -18,6 +18,8 @@ from rich.console import Group
 from rich.panel import Panel
 from rich.text import Text
 
+from ..utils.console import safe_console_print
+
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -89,17 +91,13 @@ def print_pre_bench_block(
     model_lines: list[Text] = []
     if model_id:
         model_lines.append(
-            _labeled_line(
-                "Model:", f"[bold cyan]{model_id}[/bold cyan]  [dim](HF)[/dim]"
-            )
+            _labeled_line("Model:", f"[bold cyan]{model_id}[/bold cyan]  [dim](HF)[/dim]")
         )
         if cached_onnx_path:
             model_lines.append(_labeled_line("ONNX:", f"[dim]{cached_onnx_path}[/dim]"))
     elif onnx_file:
         model_lines.append(
-            _labeled_line(
-                "Model:", f"[bold cyan]{onnx_file}[/bold cyan]  [dim](local)[/dim]"
-            )
+            _labeled_line("Model:", f"[bold cyan]{onnx_file}[/bold cyan]  [dim](local)[/dim]")
         )
 
     if task:
@@ -112,7 +110,7 @@ def print_pre_bench_block(
         model_lines.extend(_io_lines("Outputs:", outputs))
 
     if model_lines:
-        console.print(Panel(Group(*model_lines), title="Model", expand=True))
+        safe_console_print(console, Panel(Group(*model_lines), title="Model", expand=True))
 
     # --- Device panel: resolved device + EP + DLL -------------------------
     hw_suffix = f"  [dim]({hardware_name})[/dim]" if hardware_name else ""
@@ -126,7 +124,7 @@ def print_pre_bench_block(
         _labeled_line("EP:", ep_line),
         _labeled_line("EP DLL:", f"[dim]{dll_display}[/dim]"),
     ]
-    console.print(Panel(Group(*device_lines), title="Device", expand=True))
+    safe_console_print(console, Panel(Group(*device_lines), title="Device", expand=True))
 
 
 def _labeled_line(label: str, value_markup: str) -> Text:
@@ -147,9 +145,7 @@ def _io_lines(
     name_width = max((len(name) for name, _, _ in specs), default=0)
     out: list[Text] = []
     for i, (name, dtype, shape) in enumerate(specs):
-        prefix = (
-            f"{label:<{_LABEL_WIDTH}}" if i == 0 else " " * _LABEL_WIDTH
-        )
+        prefix = f"{label:<{_LABEL_WIDTH}}" if i == 0 else " " * _LABEL_WIDTH
         shape_str = "[" + ", ".join(str(d) for d in shape) + "]"
         dtype_suffix = f"   [dim]{dtype}[/dim]" if dtype else ""
         out.append(

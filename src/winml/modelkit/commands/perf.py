@@ -32,6 +32,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from ..utils import cli as cli_utils
+from ..utils.console import SafeConsole, safe_console_print
 from ..utils.constants import ACCELERATOR_DEVICE_TYPES, EPName, EPNameOrAlias
 from ..utils.logging import configure_logging, suppress_huggingface_warning_logs
 from ..utils.model_input import ModelInputKind, classify_model_input
@@ -866,7 +867,7 @@ class PerfBenchmark:
         }
         assert self._ep_device is not None
         pre_bench_kwargs = _pre_bench_kwargs_from_ep_device(self._ep_device, **pre_bench_common)
-        print_pre_bench_block(Console(stderr=True), **pre_bench_kwargs)
+        print_pre_bench_block(SafeConsole(stderr=True), **pre_bench_kwargs)
 
         # [3] Run benchmark
         if self.config.duration is not None:
@@ -1649,9 +1650,13 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
     even though they no longer render to stdout — the data model is
     unchanged, only the console rendering was pruned.
     """
+
+    def print_(*objects: Any, **kwargs: Any) -> None:
+        safe_console_print(console, *objects, **kwargs)
+
     # Latency table
-    console.print()
-    console.print("[bold]Latency (ms)[/bold]")
+    print_()
+    print_("[bold]Latency (ms)[/bold]")
 
     table = Table(show_header=True, header_style="bold cyan")
     for col in ["Avg", "P50", "P90", "P95", "P99", "Min", "Max", "Std"]:
@@ -1668,24 +1673,24 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
         f"{result.std_ms:.2f}",
     )
 
-    console.print(table)
+    print_(table)
 
     if result.warmup_mean_ms > 0:
-        console.print(
+        print_(
             f"  [dim]Warmup: {result.warmup_mean_ms:.2f} ms avg "
             f"(first {result.config.warmup} iterations)[/dim]"
         )
 
     # Throughput
-    console.print()
+    print_()
     throughput_line = f"[bold]Throughput:[/bold] {result.samples_per_sec:.2f} samples/sec"
     if result.effective_batch_size != 1:
         throughput_line += f" [dim](batch {result.effective_batch_size})[/dim]"
-    console.print(throughput_line)
+    print_(throughput_line)
     # Flag when the requested batch couldn't be honored so a static-batch model
     # doesn't look like it silently ran the requested batch.
     if result.config.batch_size != result.effective_batch_size:
-        console.print(
+        print_(
             f"  [yellow]Note:[/yellow] requested batch {result.config.batch_size} "
             f"could not be applied (model has a static batch of "
             f"{result.effective_batch_size})."
@@ -1693,8 +1698,8 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
 
     # Hardware section (only when monitoring was active)
     if result.hw_monitor:
-        console.print()
-        console.print("[bold]Hardware (during benchmark)[/bold]")
+        print_()
+        print_("[bold]Hardware (during benchmark)[/bold]")
         cpu = result.hw_monitor.get("cpu", {})
         ram = result.hw_monitor.get("ram", {})
         # ``hw_monitor["gpu"]`` is aggregate GPU telemetry. Selected-adapter
@@ -1705,23 +1710,23 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
         device_kind = result.hw_monitor.get("device_kind")
         if device_kind in ACCELERATOR_DEVICE_TYPES:
             adapter = result.hw_monitor.get("adapter") or result.hw_monitor.get(device_kind, {})
-            console.print(
+            print_(
                 f"  {device_kind.upper()}: {adapter.get('mean_pct', 0):.1f}% avg, "
                 f"{adapter.get('peak_pct', 0):.1f}% peak  |  "
                 f"CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  "
                 f"RAM: {ram.get('used_mb', 0):.0f} MB"
             )
         else:
-            console.print(
+            print_(
                 f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  RAM: {ram.get('used_mb', 0):.0f} MB"
             )
 
     # Memory section (only when --memory is enabled)
     if result.memory_profile:
         mem = result.memory_profile
-        console.print()
-        console.print("[bold]Memory:[/bold]")
-        console.print(
+        print_()
+        print_("[bold]Memory:[/bold]")
+        print_(
             f"  RAM:  {mem['rss_after_inference_mb']:.1f} MB -> "
             f"model load: {mem['rss_model_load_delta_mb']:+.1f} MB  |  "
             f"inference: {mem['rss_inference_delta_mb']:+.1f} MB  |  "
@@ -1730,7 +1735,7 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
         vram_local = mem.get("vram_local_after_inference_mb", 0)
         vram_shared = mem.get("vram_shared_after_inference_mb", 0)
         if vram_local > 0 or vram_shared > 0:
-            console.print(
+            print_(
                 f"  VRAM: {vram_local:.1f}/{vram_shared:.1f} MB (local/shared) -> "
                 f"model load: {mem['vram_local_model_load_delta_mb']:+.1f}/"
                 f"{mem['vram_shared_model_load_delta_mb']:+.1f} MB  |  "
@@ -1740,7 +1745,7 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
                 f"{mem['vram_shared_total_delta_mb']:+.1f} MB"
             )
 
-    console.print()
+    print_()
 
 
 def write_json_report(result: BenchmarkResult, output_path: Path) -> None:
@@ -2726,7 +2731,7 @@ def perf(
     ep_provider_options = cli_utils.parse_ep_options(ep_options)
 
     json_mode = output_format == "json"
-    console = Console(stderr=True) if json_mode else Console()
+    console = SafeConsole(stderr=True) if json_mode else SafeConsole()
 
     # =========================================================================
     # GENAI RUNTIME: benchmark an onnxruntime-genai bundle folder
