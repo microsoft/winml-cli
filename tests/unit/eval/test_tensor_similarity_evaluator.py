@@ -314,3 +314,43 @@ class TestONNXReferenceWithInputData:
         # per-metric table over the common "logits" output.
         assert result
         assert all("logits" in per_output for per_output in result.values())
+
+
+class _FakePathAwareSession:
+    """Fake session returning a different output name per model path, so the
+    candidate and reference disagree and compute() hits the no-overlap error."""
+
+    def __init__(self, onnx_path, device="auto", ep=None):
+        self._path = str(onnx_path)
+        self.io_config = {"input_names": ["input"], "input_types": ["float32"]}
+
+    def run(self, inputs):
+        name = "cand_out" if "cand" in self._path else "ref_out"
+        return {name: np.zeros((1, 3), dtype=np.float32)}
+
+
+class TestReferenceLabelInDiagnostics:
+    def test_non_overlapping_outputs_error_names_reference_onnx(self, monkeypatch, tmp_path):
+        import winml.modelkit.session.session as session_mod
+
+        monkeypatch.setattr(session_mod, "WinMLSession", _FakePathAwareSession)
+
+        npz = tmp_path / "inputs.npz"
+        np.savez(npz, input=np.ones((1, 3), dtype=np.float32))
+
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            reference_path="ref.onnx",
+            mode="compare",
+            input_data=str(npz),
+        )
+        evaluator = TensorSimilarityEvaluator(config, None)  # type: ignore[arg-type]
+
+        with pytest.raises(ValueError) as exc:
+            evaluator.compute()
+
+        # Two raw ONNX sides -> the diagnostic must say "reference ONNX", never
+        # the misleading "HF reference".
+        msg = str(exc.value)
+        assert "reference ONNX" in msg
+        assert "HF reference" not in msg

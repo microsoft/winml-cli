@@ -179,6 +179,9 @@ class TensorSimilarityEvaluator:
         common_keys: list[str] | None = None
         ort_keys: set[str] = set()
         hf_keys: set[str] = set()
+        # Both sides are raw ONNX in the two-ONNX path; only the default path
+        # has an HF PyTorch reference. Label diagnostics accordingly.
+        reference_label = "reference ONNX" if self.config.reference_path else "HF reference"
 
         with torch.no_grad():
             for i in tqdm(range(len(self.data)), desc="compare", unit="sample"):
@@ -193,8 +196,9 @@ class TensorSimilarityEvaluator:
                     common_keys = [name for name in hf_out if name in ort_keys & hf_keys]
                     if not common_keys:
                         raise ValueError(
-                            f"ONNX and HF reference output names do not overlap. "
-                            f"ONNX: {sorted(ort_keys)}, HF: {sorted(hf_keys)}."
+                            f"Candidate ONNX and {reference_label} output names do not "
+                            f"overlap. candidate: {sorted(ort_keys)}, "
+                            f"reference: {sorted(hf_keys)}."
                         )
 
                 for name in common_keys:
@@ -205,7 +209,8 @@ class TensorSimilarityEvaluator:
 
         if ort_keys != hf_keys:
             logger.warning(
-                "ONNX and HF reference output names differ. ONNX: %s, HF: %s.",
+                "Candidate ONNX and %s output names differ. candidate: %s, reference: %s.",
+                reference_label,
                 sorted(ort_keys),
                 sorted(hf_keys),
             )
