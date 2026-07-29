@@ -20,6 +20,7 @@ Design Principles:
 from __future__ import annotations
 
 import datetime
+import gc
 import logging
 import time
 from dataclasses import dataclass, field
@@ -232,6 +233,8 @@ def build_hf_model(
     stage_timings["export"] = time.monotonic() - t0
     stages_completed.append("export")
     logger.info("Export done (%.1fs) -> %s", stage_timings["export"], export_path)
+    pytorch_model = None
+    gc.collect()
 
     # =========================================================================
     # [3]-[6] OPTIMIZE -> QUANTIZE -> COMPILE -> FINALIZE

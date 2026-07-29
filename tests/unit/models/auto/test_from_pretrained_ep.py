@@ -285,6 +285,47 @@ def test_cache_reuse_does_not_eagerly_load_hf_weights(
     assert received.get("pytorch_model") is None
 
 
+def test_build_pretrained_artifact_does_not_create_runtime_wrapper(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    from winml.modelkit.models import WinMLAutoModel
+    from winml.modelkit.models import auto as auto_module
+
+    build_config = MagicMock()
+    build_config.loader.task = "image-classification"
+    build_config.loader.trust_remote_code = False
+    build_config.compile = None
+    build_config.generate_cache_key.return_value = "cache-key"
+    hf_config = SimpleNamespace(model_type="unit-type")
+    build_result = SimpleNamespace(final_onnx_path=tmp_path / "cached.onnx")
+    build_result.final_onnx_path.write_bytes(b"cached")
+
+    monkeypatch.setattr(
+        "winml.modelkit.config.generate_hf_build_config",
+        lambda *_args, **_kwargs: build_config,
+    )
+    monkeypatch.setattr(
+        "winml.modelkit.loader.load_hf_config",
+        lambda *_args, **_kwargs: hf_config,
+    )
+    monkeypatch.setattr(auto_module, "get_cache_dir", lambda **_kwargs: tmp_path)
+    monkeypatch.setattr(auto_module, "get_model_dir", lambda *_args, **_kwargs: tmp_path)
+    monkeypatch.setattr("winml.modelkit.build.build_hf_model", lambda **_kwargs: build_result)
+    monkeypatch.setattr(
+        auto_module,
+        "get_winml_class",
+        lambda *_args: pytest.fail("artifact build must not create a runtime wrapper"),
+    )
+
+    result = WinMLAutoModel._build_pretrained_artifact(
+        "unit/model",
+        ep_device=MagicMock(device=MagicMock(device_type="CPU", ep_name="CPUExecutionProvider")),
+        task="image-classification",
+    )
+
+    assert result.result is build_result
+
+
 def test_cache_key_matches_shared_helper(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     """API cache keys must match the shared helper and ignore non-artifact flags."""
     from winml.modelkit.cache import get_cache_key

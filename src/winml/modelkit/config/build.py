@@ -138,13 +138,7 @@ class WinMLBuildConfig:
     compile: WinMLCompileConfig | None = field(default_factory=WinMLCompileConfig)
     eval: WinMLEvaluationConfig | None = None
     auto: bool = True
-    # Stamped True by generate_*_build_config (or by the build_*_model
-    # entry-point defensive fallback) when the input ONNX is already
-    # quantized (QDQ or QOperator format). When True, the optimize stage
-    # is bypassed for downstream pipelines (no ORT graph optimization,
-    # no autoconf analyze loop). This is the SINGLE source of truth for
-    # "is this model pre-quantized?" — downstream stages must read this
-    # flag instead of calling ``is_quantized_onnx`` again.
+    # Skip ORT optimization. Pre-quantized inputs also clear ``quant``.
     skip_optimize: bool = False
 
     def __post_init__(self) -> None:
@@ -597,8 +591,6 @@ def generate_onnx_build_config(
 
         if is_quantized_onnx(onnx_path_resolved):
             # Skip optimize+quantize, compile with resolved policy.
-            # ``skip_optimize`` is the single source of truth — downstream
-            # pipelines must read this flag and not re-detect.
             config.quant = None
             config.skip_optimize = True
             config.compile = resolved_compile

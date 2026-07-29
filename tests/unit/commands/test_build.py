@@ -2051,6 +2051,49 @@ class TestBuildEpResolution:
         assert mock_gen.call_count == 1
         assert mock_gen.call_args.kwargs["onnx_path"] == str(onnx_file)
 
+    def test_explicit_device_preserves_quant_for_raw_skip_optimize_config(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ) -> None:
+        from winml.modelkit.config import WinMLBuildConfig
+
+        cfg = WinMLBuildConfig.from_dict(
+            {
+                "loader": {"task": "text-generation"},
+                "export": {"opset_version": 18},
+                "optim": {},
+                "quant": {
+                    "mode": "static",
+                    "samples": 1,
+                    "task": "text-generation",
+                    "model_id": "Qwen/Qwen3-1.7B",
+                },
+                "compile": None,
+                "skip_optimize": True,
+            }
+        )
+
+        with (
+            patch("winml.modelkit.config.generate_build_config", return_value=cfg),
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = _invoke(
+                [
+                    "-m",
+                    "Qwen/Qwen3-1.7B",
+                    "-o",
+                    str(tmp_path / "out"),
+                    "--device",
+                    "npu",
+                    "--no-compile",
+                ]
+            )
+
+        assert result.exit_code == 0, result.output
+        assert mock_run_single_build.call_args.kwargs["config"].quant is not None
+
     def test_shape_config_rejected_for_onnx_input(
         self, tmp_path: Path, mock_run_single_build: MagicMock
     ):
@@ -2084,7 +2127,7 @@ class TestBuildOnnxPipelineRegressions:
     def test_pre_quantized_stamp_clears_quant_when_already_skip_optimize(
         self, tmp_path: Path
     ) -> None:
-        """skip_optimize is the pre-quantized invariant and must imply no quant."""
+        """Pre-quantized detection clears quant even when skip_optimize is already set."""
         from winml.modelkit.build.common import ensure_pre_quantized_stamped
         from winml.modelkit.config import WinMLBuildConfig
         from winml.modelkit.quant.config import WinMLQuantizationConfig
@@ -2094,18 +2137,18 @@ class TestBuildOnnxPipelineRegressions:
         config = WinMLBuildConfig(quant=WinMLQuantizationConfig())
         config.skip_optimize = True
 
-        ensure_pre_quantized_stamped(config, onnx_file)
+        with patch("winml.modelkit.build.common.is_quantized_onnx", return_value=True):
+            ensure_pre_quantized_stamped(config, onnx_file)
 
         assert config.skip_optimize is True
         assert config.quant is None
 
     @patch("winml.modelkit.quant.quantize_onnx")
-    def test_quantize_stage_skips_when_config_skip_optimize_is_set(
+    def test_quantize_stage_runs_when_raw_model_only_skips_optimize(
         self,
         mock_quantize: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """The quantize stage must not double-quantize pre-quantized inputs."""
         from winml.modelkit.commands.build import _run_quantize_stage
         from winml.modelkit.config import WinMLBuildConfig
         from winml.modelkit.quant.config import WinMLQuantizationConfig
@@ -2115,18 +2158,24 @@ class TestBuildOnnxPipelineRegressions:
         config = WinMLBuildConfig(quant=WinMLQuantizationConfig())
         config.skip_optimize = True
         timings: list[tuple[str, float | None]] = []
+        quantized_path = tmp_path / "quantized.onnx"
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.output_path = quantized_path
+        mock_result.errors = []
+        mock_quantize.return_value = mock_result
 
         result = _run_quantize_stage(
             config=config,
             current_path=input_path,
-            quantized_path=tmp_path / "quantized.onnx",
+            quantized_path=quantized_path,
             stage_timings=timings,
         )
 
-        assert result == input_path
-        assert config.quant is None
-        assert timings == []
-        mock_quantize.assert_not_called()
+        assert result == quantized_path
+        assert config.quant is not None
+        assert timings and timings[0][0] == "Quantize"
+        mock_quantize.assert_called_once()
 
     def test_pre_quantized_stamp_runs_before_optimize(self, tmp_path: Path) -> None:
         """_build_onnx_pipeline must stamp config before optimize/quantize stages.
