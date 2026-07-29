@@ -29,6 +29,7 @@ Sample line: ``[14:32:11 INFO    winml.modelkit.export] Loaded config.json``
 import logging
 import os
 import sys
+import warnings
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
@@ -63,6 +64,7 @@ _HUGGINGFACE_WARNING_LOGGERS = (
     "transformers",
 )
 _HUGGINGFACE_VERBOSITY_ENVS = ("TRANSFORMERS_VERBOSITY", "HF_HUB_VERBOSITY")
+_HUGGINGFACE_WARNING_MODULE_RE = r"(huggingface_hub|transformers)(\.|$).*"
 
 
 def configure_logging(
@@ -126,11 +128,12 @@ def suppress_huggingface_warning_logs(
     *,
     verbose: bool = False,
 ) -> "Iterator[None]":
-    """Temporarily hide Hugging Face warning chatter for an inspect operation."""
+    """Temporarily hide Hugging Face warning chatter for model loading."""
     verbosity = _normalize_verbosity(verbosity, verbose)
     log_level = _cli_log_level(verbosity, quiet)
     show_all_warnings = env_flag_enabled("WINMLCLI_SHOW_ALL_WARNINGS")
     huggingface_level = log_level if verbosity > 0 or show_all_warnings else logging.ERROR
+    hide_python_warnings = verbosity == 0 and not show_all_warnings
 
     saved_logger_levels = {
         name: logging.getLogger(name).level for name in _HUGGINGFACE_WARNING_LOGGERS
@@ -146,7 +149,17 @@ def suppress_huggingface_warning_logs(
         for env_name in _HUGGINGFACE_VERBOSITY_ENVS:
             os.environ[env_name] = library_verbosity
         _sync_imported_huggingface_verbosity(huggingface_level)
-        yield
+        if hide_python_warnings:
+            with warnings.catch_warnings():
+                for category in (FutureWarning, DeprecationWarning, UserWarning):
+                    warnings.filterwarnings(
+                        "ignore",
+                        category=category,
+                        module=_HUGGINGFACE_WARNING_MODULE_RE,
+                    )
+                yield
+        else:
+            yield
     finally:
         for env_name, value in saved_env.items():
             if value is None:

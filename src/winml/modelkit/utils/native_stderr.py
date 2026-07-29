@@ -49,6 +49,7 @@ if sys.platform == "win32":
     _k32.GetStdHandle.restype = ctypes.wintypes.HANDLE
     _k32.SetStdHandle.argtypes = [ctypes.wintypes.DWORD, ctypes.wintypes.HANDLE]
     _k32.SetStdHandle.restype = ctypes.wintypes.BOOL
+    _STD_OUTPUT_HANDLE = ctypes.wintypes.DWORD(0xFFFFFFF5)
     _STD_ERROR_HANDLE = ctypes.wintypes.DWORD(0xFFFFFFF4)
 
 
@@ -68,17 +69,17 @@ def suppress_native_stderr(*, enabled: bool = True) -> Iterator[None]:
         return
 
     old_fd = os.dup(2)
-    old_w32 = _k32.GetStdHandle(_STD_ERROR_HANDLE)
     devnull = os.open(os.devnull, os.O_WRONLY)
     os.dup2(devnull, 2)
     os.close(devnull)
-    _k32.SetStdHandle(_STD_ERROR_HANDLE, msvcrt.get_osfhandle(2))
+    _set_win32_std_handle_to_current_fd(2)
     try:
         yield
     finally:
         os.dup2(old_fd, 2)
         os.close(old_fd)
-        _k32.SetStdHandle(_STD_ERROR_HANDLE, old_w32)
+        _set_win32_std_handle_to_current_fd(2)
+        _refresh_click_windows_console_stream(2)
 
 
 @contextmanager
@@ -112,10 +113,9 @@ def capture_native_stderr(level: int = logging.INFO) -> Iterator[None]:
     reader = threading.Thread(target=_drain, name="capture-native-stderr", daemon=True)
 
     old_fd = os.dup(2)
-    old_w32 = _k32.GetStdHandle(_STD_ERROR_HANDLE)
     os.dup2(write_fd, 2)
     os.close(write_fd)
-    _k32.SetStdHandle(_STD_ERROR_HANDLE, msvcrt.get_osfhandle(2))
+    _set_win32_std_handle_to_current_fd(2)
     reader.start()
     try:
         yield
@@ -124,7 +124,8 @@ def capture_native_stderr(level: int = logging.INFO) -> Iterator[None]:
         # signals EOF to the reader thread so it can finish and close the read end.
         os.dup2(old_fd, 2)
         os.close(old_fd)
-        _k32.SetStdHandle(_STD_ERROR_HANDLE, old_w32)
+        _set_win32_std_handle_to_current_fd(2)
+        _refresh_click_windows_console_stream(2)
         reader.join()
         # Re-emit each captured line through Python logging.
         _ansi_re = re.compile(r"\x1b\[[0-9;]*m")
@@ -135,7 +136,11 @@ def capture_native_stderr(level: int = logging.INFO) -> Iterator[None]:
 
 
 @contextmanager
-def suppress_native_warnings(*, enabled: bool = True) -> Iterator[None]:
+def suppress_native_warnings(
+    *,
+    enabled: bool = True,
+    preserve_unclassified: bool = True,
+) -> Iterator[None]:
     """Hide native warning lines while preserving native errors and diagnostics.
 
     Native ORT/QNN diagnostics use severity tokens such as ``[W:...]`` and
@@ -148,23 +153,23 @@ def suppress_native_warnings(*, enabled: bool = True) -> Iterator[None]:
 
     read_fd, write_fd = os.pipe()
     old_fd = os.dup(2)
-    old_w32 = _get_win32_stderr_handle()
     reader = threading.Thread(
         target=_drain_filtered_native_stderr,
-        args=(read_fd, old_fd),
+        args=(read_fd, old_fd, preserve_unclassified),
         name="suppress-native-warnings",
         daemon=True,
     )
     try:
         os.dup2(write_fd, 2)
         os.close(write_fd)
-        _set_win32_stderr_to_current_fd()
+        _set_win32_std_handle_to_current_fd(2)
         reader.start()
         try:
             yield
         finally:
             os.dup2(old_fd, 2)
-            _restore_win32_stderr_handle(old_w32)
+            _set_win32_std_handle_to_current_fd(2)
+            _refresh_click_windows_console_stream(2)
             reader.join()
     finally:
         os.close(old_fd)
@@ -176,25 +181,36 @@ def _show_native_warnings_requested() -> bool:
     )
 
 
-def _drain_filtered_native_stderr(read_fd: int, target_fd: int) -> None:
+def _drain_filtered_native_stderr(
+    read_fd: int,
+    target_fd: int,
+    preserve_unclassified: bool,
+) -> None:
     pending = b""
     try:
         while chunk := os.read(read_fd, 4096):
             pending += chunk
             while b"\n" in pending:
                 line, pending = pending.split(b"\n", 1)
-                _write_non_warning_line(target_fd, line + b"\n")
+                _write_non_warning_line(target_fd, line + b"\n", preserve_unclassified)
         if pending:
-            _write_non_warning_line(target_fd, pending)
+            _write_non_warning_line(target_fd, pending, preserve_unclassified)
     except OSError:
         pass
     finally:
         os.close(read_fd)
 
 
-def _write_non_warning_line(fd: int, line: bytes) -> None:
-    if not _is_native_warning_line(line):
+def _write_non_warning_line(fd: int, line: bytes, preserve_unclassified: bool) -> None:
+    if _should_preserve_native_line(line, preserve_unclassified):
         _write_all(fd, line)
+
+
+def _should_preserve_native_line(line: bytes, preserve_unclassified: bool) -> bool:
+    match = _NATIVE_SEVERITY_TOKEN_RE.search(line)
+    if match is None:
+        return preserve_unclassified
+    return match.group(1).lower() != b"w"
 
 
 def _is_native_warning_line(line: bytes) -> bool:
@@ -211,13 +227,99 @@ def _get_win32_stderr_handle() -> object | None:
 
 
 def _set_win32_stderr_to_current_fd() -> None:
-    if sys.platform == "win32":
-        _k32.SetStdHandle(_STD_ERROR_HANDLE, msvcrt.get_osfhandle(2))
+    _set_win32_std_handle_to_current_fd(2)
+
+
+def _set_win32_std_handle_to_current_fd(fd: int) -> None:
+    if sys.platform != "win32":
+        return
+    if fd == 1:
+        std_handle = _STD_OUTPUT_HANDLE
+    elif fd == 2:
+        std_handle = _STD_ERROR_HANDLE
+    else:
+        return
+    _k32.SetStdHandle(std_handle, msvcrt.get_osfhandle(fd))
 
 
 def _restore_win32_stderr_handle(handle: object | None) -> None:
     if sys.platform == "win32":
         _k32.SetStdHandle(_STD_ERROR_HANDLE, handle)
+
+
+def _refresh_click_windows_console_stream(fd: int) -> None:
+    """Refresh Click's cached Windows console writer after fd redirection.
+
+    Click caches ``STDOUT_HANDLE`` / ``STDERR_HANDLE`` at import time and may
+    cache ConsoleStream instances keyed by ``sys.stdout`` / ``sys.stderr``.
+    ``os.dup2`` closes the original OS handle, so those cached writers must be
+    repointed at the restored fd handle to avoid ``Windows error: 6`` later.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import click._compat as click_compat
+        import click._winconsole as click_winconsole
+    except ImportError:
+        return
+
+    try:
+        handle = msvcrt.get_osfhandle(fd)
+    except OSError:
+        return
+
+    if fd == 1:
+        click_winconsole.STDOUT_HANDLE = handle
+        getters = (
+            click_compat.get_text_stdout,
+            getattr(click_compat, "_default_text_stdout", None),
+        )
+    elif fd == 2:
+        click_winconsole.STDERR_HANDLE = handle
+        getters = (
+            click_compat.get_text_stderr,
+            getattr(click_compat, "_default_text_stderr", None),
+        )
+    else:
+        return
+
+    seen: set[int] = set()
+    for getter in getters:
+        if getter is None:
+            continue
+        try:
+            stream = getter()
+        except Exception:
+            continue
+        _replace_click_console_handle(stream, handle, seen)
+
+
+def _replace_click_console_handle(obj: object, handle: object, seen: set[int]) -> None:
+    ident = id(obj)
+    if ident in seen:
+        return
+    seen.add(ident)
+
+    if hasattr(obj, "handle"):
+        try:
+            obj.handle = handle
+        except Exception:
+            pass
+
+    for attr in (
+        "_text_stream",
+        "buffer",
+        "raw",
+        "wrapped",
+        "stream",
+        "_StreamWrapper__wrapped",
+    ):
+        try:
+            child = getattr(obj, attr)
+        except Exception:
+            continue
+        if child is not None and child is not obj:
+            _replace_click_console_handle(child, handle, seen)
 
 
 def _write_all(fd: int, data: bytes) -> None:

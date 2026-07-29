@@ -52,12 +52,26 @@ from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Final
 
 from packaging.version import InvalidVersion, Version
 
 
 logger = logging.getLogger(__name__)
+
+
+# Canonical EPSource origin tags accepted by ``--ep <name>@<source>`` and
+# ``EPDeviceTarget(source=...)``.
+VALID_SOURCE_TAGS: Final[frozenset[str]] = frozenset(
+    {
+        "bundled",
+        "pypi",
+        "nuget",
+        "msix",
+        "winml-catalog",
+        "directory",
+    }
+)
 
 
 # ---------------------------------------------------------------------------

@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import pytest
 
-from winml.modelkit.session import VALID_SOURCE_TAGS
+from winml.modelkit.ep_path import VALID_SOURCE_TAGS
 
 
 # ---------------------------------------------------------------------------

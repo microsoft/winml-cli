@@ -47,19 +47,10 @@ class TestSuppressNativeStderr:
         assert "visible when disabled" in capfd.readouterr().err
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Win32 only")
-    def test_win32_std_error_handle_restored(self):
-        import ctypes.wintypes
-
-        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        k32.GetStdHandle.argtypes = [ctypes.wintypes.DWORD]
-        k32.GetStdHandle.restype = ctypes.wintypes.HANDLE
-        std_error_handle = ctypes.wintypes.DWORD(0xFFFFFFF4)
-
-        before = k32.GetStdHandle(std_error_handle)
+    def test_win32_std_error_handle_usable_after_restore(self):
         with suppress_native_stderr():
             pass
-        after = k32.GetStdHandle(std_error_handle)
-        assert before == after, "STD_ERROR_HANDLE not restored"
+        _write_win32_stderr(b"after restore\n")
 
     @pytest.mark.skipif(sys.platform == "win32", reason="Non-Windows only")
     def test_noop_on_non_windows(self, capfd):
@@ -160,6 +151,18 @@ class TestSuppressNativeWarnings:
 
         assert "failed after previous [W:note]" in capfd.readouterr().err
 
+    def test_can_filter_unclassified_native_diagnostics(self, monkeypatch, capfd):
+        monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
+        logging.getLogger().setLevel(logging.WARNING)
+
+        with native_stderr_module.suppress_native_warnings(preserve_unclassified=False):
+            os.write(2, b"DSP_INFO UNSUPPORTED_KEY: 49\n")
+            os.write(2, b"2026 [E:custom-native:, file.cc:2 ErrorFunc] useful error\n")
+
+        stderr = capfd.readouterr().err
+        assert "DSP_INFO" not in stderr
+        assert "useful error" in stderr
+
     def test_verbose_logging_leaves_native_warnings_visible(self, monkeypatch, capfd):
         monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
         logging.getLogger().setLevel(logging.INFO)
@@ -192,18 +195,17 @@ class TestSuppressNativeWarnings:
         assert "win32 error" in stderr
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Win32 native stderr only")
-    def test_restores_win32_std_error_handle_after_exception(self, monkeypatch):
+    def test_win32_std_error_handle_usable_after_exception(self, monkeypatch):
         monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
         logging.getLogger().setLevel(logging.WARNING)
 
-        before = _get_win32_stderr_handle()
         with (
             pytest.raises(RuntimeError, match="boom"),
             native_stderr_module.suppress_native_warnings(),
         ):
             raise RuntimeError("boom")
 
-        assert _get_win32_stderr_handle() == before
+        _write_win32_stderr(b"after exception\n")
 
     def test_restore_win32_std_error_handle_accepts_null_handle(self, monkeypatch):
         calls = []
@@ -229,6 +231,69 @@ class TestSuppressNativeWarnings:
         native_stderr_module._restore_win32_stderr_handle(None)
 
         assert calls == [(std_error_handle, None)]
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="Click Win32 console only")
+    def test_refreshes_click_console_handle_cache(self, monkeypatch):
+        import click._compat as click_compat
+        import click._winconsole as click_winconsole
+
+        class FakeRaw:
+            handle = 1
+
+        class FakeBuffer:
+            raw = FakeRaw()
+
+        class FakeText:
+            buffer = FakeBuffer()
+
+        class FakeConsoleStream:
+            _text_stream = FakeText()
+
+        stream = FakeConsoleStream()
+
+        monkeypatch.setattr(click_compat, "get_text_stderr", lambda: stream)
+        monkeypatch.setattr(click_winconsole, "STDERR_HANDLE", 1)
+        monkeypatch.setattr(native_stderr_module.msvcrt, "get_osfhandle", lambda fd: 12345)
+
+        native_stderr_module._refresh_click_windows_console_stream(2)
+
+        assert click_winconsole.STDERR_HANDLE == 12345
+        assert stream._text_stream.buffer.raw.handle == 12345
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="Click Win32 console only")
+    def test_refreshes_click_default_console_handle_cache(self, monkeypatch):
+        import click._compat as click_compat
+        import click._winconsole as click_winconsole
+
+        class FakeRaw:
+            def __init__(self) -> None:
+                self.handle = 1
+
+        class FakeBuffer:
+            def __init__(self) -> None:
+                self.raw = FakeRaw()
+
+        class FakeText:
+            def __init__(self) -> None:
+                self.buffer = FakeBuffer()
+
+        class FakeConsoleStream:
+            def __init__(self) -> None:
+                self._text_stream = FakeText()
+
+        uncached_stream = FakeConsoleStream()
+        default_cached_stream = FakeConsoleStream()
+
+        monkeypatch.setattr(click_compat, "get_text_stderr", lambda: uncached_stream)
+        monkeypatch.setattr(click_compat, "_default_text_stderr", lambda: default_cached_stream)
+        monkeypatch.setattr(click_winconsole, "STDERR_HANDLE", 1)
+        monkeypatch.setattr(native_stderr_module.msvcrt, "get_osfhandle", lambda fd: 12345)
+
+        native_stderr_module._refresh_click_windows_console_stream(2)
+
+        assert click_winconsole.STDERR_HANDLE == 12345
+        assert uncached_stream._text_stream.buffer.raw.handle == 12345
+        assert default_cached_stream._text_stream.buffer.raw.handle == 12345
 
     @pytest.mark.timeout(30)
     def test_no_deadlock_on_large_warning_output(self, monkeypatch, capfd):

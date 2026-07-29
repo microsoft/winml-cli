@@ -19,7 +19,11 @@ import onnxruntime as ort
 
 from ..core.onnx_utils import get_io_config
 from ..onnx import is_compiled_onnx
-from ..utils.native_stderr import suppress_native_warnings
+from ..utils.native_stderr import (
+    _refresh_click_windows_console_stream,
+    _set_win32_std_handle_to_current_fd,
+    suppress_native_warnings,
+)
 from .ep_device import (
     WinMLEPMonitorMismatch,
     expand_ep_name,
@@ -57,11 +61,14 @@ def _suppress_native_output(log_path: str | Path | None = None) -> Iterator[None
     old_stdout = os.dup(1)
     os.dup2(fd, 1)
     os.close(fd)
+    _set_win32_std_handle_to_current_fd(1)
     try:
         yield
     finally:
         os.dup2(old_stdout, 1)
         os.close(old_stdout)
+        _set_win32_std_handle_to_current_fd(1)
+        _refresh_click_windows_console_stream(1)
 
 
 class SessionState(Enum):
@@ -354,7 +361,7 @@ class WinMLSession:
                 session_option_entries=self._active_session_option_entries,
                 provider_options=self._provider_options,
             )
-            with suppress_native_warnings():
+            with _suppress_native_output(), suppress_native_warnings(preserve_unclassified=False):
                 self._session = ort.InferenceSession(self._onnx_path, sess_options=so)
             self._running_model_path = self._onnx_path
             _dev = self._ep_device.device
@@ -389,7 +396,10 @@ class WinMLSession:
 
         if not self._persist_jit:
             try:
-                with suppress_native_warnings():
+                with (
+                    _suppress_native_output(),
+                    suppress_native_warnings(preserve_unclassified=False),
+                ):
                     session = ort.InferenceSession(
                         str(self._onnx_path),
                         sess_options=_build_session_options(
@@ -471,7 +481,10 @@ class WinMLSession:
                 session_option_entries=self._active_session_option_entries,
                 provider_options=self._provider_options,
             )
-            with _suppress_native_output(compile_log), suppress_native_warnings():
+            with (
+                _suppress_native_output(compile_log),
+                suppress_native_warnings(preserve_unclassified=False),
+            ):
                 session = ort.InferenceSession(str(model_path), sess_options=runtime_so)
 
             actual_providers = session.get_providers()
@@ -837,9 +850,7 @@ class WinMLSession:
             or self._session is None
         )
         if had_baseline_session and _session_rebuilt:
-            logger.warning(
-                "auto-resetting compiled session to apply monitor session/provider options"
-            )
+            logger.info("auto-resetting compiled session to apply monitor session/provider options")
             self.reset()
 
         stats = PerfStats(warmup=warmup)
@@ -862,7 +873,10 @@ class WinMLSession:
                 return None
 
             try:
-                with suppress_native_warnings():
+                with (
+                    _suppress_native_output(),
+                    suppress_native_warnings(preserve_unclassified=False),
+                ):
                     self._session = ort.InferenceSession(
                         active_model_path,
                         sess_options=_build_session_options(
@@ -897,7 +911,10 @@ class WinMLSession:
                     session_option_entries=desired_sess_entries,
                     provider_options=new_prov,
                 )
-                with suppress_native_warnings():
+                with (
+                    _suppress_native_output(),
+                    suppress_native_warnings(preserve_unclassified=False),
+                ):
                     self._session = ort.InferenceSession(active_model_path, sess_options=so)
                 self._provider_options = new_prov
                 self._active_session_option_entries = desired_sess_entries
@@ -1252,7 +1269,7 @@ class WinMLSession:
                 self._session_options_factory,
             )
             sess_options.log_severity_level = 4  # Suppress ORT logs during probe
-            with suppress_native_warnings():
+            with _suppress_native_output(), suppress_native_warnings(preserve_unclassified=False):
                 ort.InferenceSession(
                     test_model.SerializeToString(),
                     sess_options=sess_options,

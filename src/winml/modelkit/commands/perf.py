@@ -33,10 +33,10 @@ from rich.table import Table
 
 from ..utils import cli as cli_utils
 from ..utils.constants import ACCELERATOR_DEVICE_TYPES, EPName, EPNameOrAlias
-from ..utils.logging import configure_logging
+from ..utils.logging import configure_logging, suppress_huggingface_warning_logs
 from ..utils.model_input import ModelInputKind, classify_model_input
+from ..utils.native_stderr import suppress_native_warnings
 from ._ep_arg import EpAtSourceParamType
-from ._live_chart import LiveMonitorDisplay
 from ._pre_bench import print_pre_bench_block
 
 
@@ -1968,6 +1968,8 @@ def _run_monitored_loop(
     duration_sec: float | None = None,
 ) -> None:
     """Run the benchmark iteration loop with live hardware monitoring."""
+    from ._live_chart import LiveMonitorDisplay
+
     # In duration mode the display and the loop share one benchmark-phase clock
     # so the progress bar tracks the same budget the loop stops on.
     clock = _BenchmarkClock() if duration_sec is not None else None
@@ -2660,6 +2662,11 @@ def perf(
     if not model:
         raise click.UsageError("A model is required via -m/--model.")
 
+    # Merge top-level -v/-q with subcommand-level flags before any model
+    # resolution that can touch Hugging Face Hub and emit warning records.
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
+    configure_logging(verbosity=verbose, quiet=quiet)
+
     # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
     # is downloaded once and treated as a local .onnx path thereafter.
     # Must run BEFORE the ``Path(hf_model).suffix == ".onnx"`` check below
@@ -2667,7 +2674,8 @@ def perf(
     # ``normalize_model_arg`` returns ``str | None`` per its signature;
     # the ``or model`` keeps the narrowed ``str`` type for downstream use.
     try:
-        hf_model: str = cli_utils.normalize_model_arg(model) or model
+        with suppress_huggingface_warning_logs(verbosity=verbose, quiet=quiet):
+            hf_model: str = cli_utils.normalize_model_arg(model) or model
     except Exception as e:
         raise click.ClickException(f"Failed to resolve Hub-hosted ONNX path {model!r}: {e}") from e
     model = hf_model
@@ -2714,10 +2722,6 @@ def perf(
                 ep = (configured_target.ep, configured_target.source)
             elif "execution_provider" in cc:
                 ep = (cc["execution_provider"], None)
-
-    # Merge top-level -v/-q with subcommand-level flags so either position works.
-    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
-    configure_logging(verbosity=verbose, quiet=quiet)
 
     # Runtime EP provider options (e.g. QNN htp_performance_mode) forwarded to
     # the inference session for both HF model IDs and ONNX file inputs.
@@ -3040,7 +3044,11 @@ def perf(
             console.print(f"[dim]Loading model:[/dim] {hf_model}")
 
         benchmark = PerfBenchmark(config)
-        result = benchmark.run()
+        with (
+            suppress_huggingface_warning_logs(verbosity=verbose, quiet=quiet),
+            suppress_native_warnings(),
+        ):
+            result = benchmark.run()
 
         # Composite models (e.g. CLIP/SigLIP dual-encoders) have no single ORT
         # session; each sub-model is benchmarked individually and reported as

@@ -10,10 +10,12 @@ import json
 import sys
 import threading
 import time
+from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from rich.console import Console
 
 from winml.modelkit.session import PerfStats, VitisAIMonitor, WinMLEPMonitor
 
@@ -1880,6 +1882,59 @@ class TestLiveMonitorDisplay:
         # Bar reflects warmup progress (5/10 = 50%), not 5/110 (~5%).
         assert "] 50%" in status
         assert "Time:" not in status
+
+    def test_render_chart_fits_narrow_console_panel(self):
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        console = Console(file=StringIO(), width=80, force_terminal=False)
+        display = LiveMonitorDisplay(
+            total_iterations=10,
+            warmup=0,
+            model_id="test",
+            device="npu",
+            chart_width=120,
+        )
+        display._console = console
+
+        renderable = display._render_chart(
+            util_samples=[10.0, 30.0, 50.0],
+            cpu_samples=[2.0, 4.0, 6.0],
+            gpu_samples=[1.0, 2.0, 3.0],
+        )
+
+        panel_content_width = console.width - 4
+        chart_lines = [line.plain for line in renderable.renderables[1:]]
+        assert max(len(line) for line in chart_lines) <= panel_content_width
+
+    def test_render_status_fits_narrow_console_panel(self):
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        console = Console(file=StringIO(), width=60, force_terminal=False)
+        display = LiveMonitorDisplay(
+            total_iterations=10,
+            warmup=0,
+            model_id="test",
+            device="gpu",
+        )
+        display._console = console
+
+        status = display._render_status(
+            iteration=1,
+            latency_ms=10.0,
+            util_samples=[80.0, 90.0],
+            cpu_pct=15.0,
+            cpu_samples=[10.0, 15.0],
+            gpu_pct=42.5,
+            gpu_samples=[40.0, 45.0],
+            memory_local_mb=36.0,
+            memory_shared_mb=60.0,
+            ram_mb=1377.0,
+        )
+
+        panel_content_width = console.width - 4
+        assert "GPU (selected): 90.0%/85.0%" in status
+        assert "GPU (aggregate): 45.0%/42.5%" in status
+        assert max(len(line) for line in status.splitlines()) <= panel_content_width
 
 
 # ============================================================================

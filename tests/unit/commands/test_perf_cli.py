@@ -11,7 +11,10 @@ NO WinMLAutoModel involvement, NO actual inference.
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
+import warnings
 from io import StringIO
 from pathlib import Path
 from typing import ClassVar
@@ -441,6 +444,74 @@ class TestPerfUnifiedPipeline:
         assert "Benchmarking ONNX" in result.output
         assert captured["config"].shape_config == {"input_ids": [1, 128]}
 
+    def test_cli_onnx_hub_resolution_suppresses_huggingface_warnings_by_default(
+        self, runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Default perf output hides Hugging Face warnings from Hub ONNX resolution."""
+        resolved = tmp_path / "model.onnx"
+        resolved.write_bytes(b"fake onnx")
+
+        def resolve_with_warning(model: str) -> str:
+            logging.getLogger("huggingface_hub.utils._http").warning(
+                "Warning: You are sending unauthenticated requests to the HF Hub."
+            )
+            return str(resolved)
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf.cli_utils.normalize_model_arg",
+                side_effect=resolve_with_warning,
+            ),
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_perf,
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            mock_perf.return_value.run.return_value = MagicMock()
+            caplog.clear()
+            result = runner.invoke(
+                perf,
+                ["-m", "org/repo/path/model.onnx", "-o", str(tmp_path / "out.json")],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Benchmarking ONNX" in result.output
+        assert "unauthenticated requests" not in result.output
+        assert not any("unauthenticated requests" in record.message for record in caplog.records)
+
+    def test_cli_onnx_hub_resolution_reveals_huggingface_warnings_when_verbose(
+        self, runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Verbose perf output keeps Hub ONNX resolution warnings visible."""
+        resolved = tmp_path / "model.onnx"
+        resolved.write_bytes(b"fake onnx")
+
+        def resolve_with_warning(model: str) -> str:
+            logging.getLogger("huggingface_hub.utils._http").warning(
+                "Warning: You are sending unauthenticated requests to the HF Hub."
+            )
+            return str(resolved)
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf.cli_utils.normalize_model_arg",
+                side_effect=resolve_with_warning,
+            ),
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_perf,
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            mock_perf.return_value.run.return_value = MagicMock()
+            caplog.clear()
+            result = runner.invoke(
+                perf,
+                ["-m", "org/repo/path/model.onnx", "-v", "-o", str(tmp_path / "out.json")],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert any("unauthenticated requests" in record.message for record in caplog.records)
+
     def test_cli_hf_forwards_export_overrides(self, runner: CliRunner, tmp_path: Path) -> None:
         """HF perf builds should pass export-related CLI overrides into BenchmarkConfig."""
         input_specs = tmp_path / "inputs.json"
@@ -492,6 +563,196 @@ class TestPerfUnifiedPipeline:
         assert export_override["dynamic_axes"] == {"pixel_values": {"0": "batch"}}
         assert export_override["input_tensors"][0].name == "pixel_values"
         assert export_override["input_tensors"][0].shape == ("batch", 3, 224, 224)
+
+    def test_cli_hf_suppresses_huggingface_warning_logs_by_default(
+        self, runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Default perf output hides Hugging Face warning chatter during model load."""
+
+        def emit_huggingface_warnings() -> MagicMock:
+            logging.getLogger("huggingface_hub.utils._http").warning(
+                "Warning: You are sending unauthenticated requests to the HF Hub."
+            )
+            logging.getLogger("transformers").warning("`Siglip2ImageProcessorFast` is deprecated.")
+            return MagicMock()
+
+        with (
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_perf,
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            mock_perf.return_value.run.side_effect = emit_huggingface_warnings
+            caplog.clear()
+            result = runner.invoke(
+                perf,
+                ["-m", "microsoft/resnet-50", "-o", str(tmp_path / "out.json")],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Loading model" in result.output
+        assert "unauthenticated requests" not in result.output
+        assert "Siglip2ImageProcessorFast" not in result.output
+        assert not any("unauthenticated requests" in record.message for record in caplog.records)
+        assert not any("Siglip2ImageProcessorFast" in record.message for record in caplog.records)
+
+    def test_cli_hf_suppresses_huggingface_python_warnings_by_default(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """Default perf output hides Hugging Face warnings.warn chatter during model load."""
+
+        def emit_huggingface_warning() -> MagicMock:
+            warnings.warn_explicit(
+                "Warning: You are sending unauthenticated requests to the HF Hub.",
+                UserWarning,
+                filename="huggingface_hub/utils/_http.py",
+                lineno=1,
+                module="huggingface_hub.utils._http",
+            )
+            return MagicMock()
+
+        with (
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_perf,
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            mock_perf.return_value.run.side_effect = emit_huggingface_warning
+            with warnings.catch_warnings(record=True) as records:
+                warnings.simplefilter("always")
+                result = runner.invoke(
+                    perf,
+                    ["-m", "microsoft/resnet-50", "-o", str(tmp_path / "out.json")],
+                    obj={},
+                )
+
+        assert result.exit_code == 0, result.output
+        assert not any("unauthenticated requests" in str(record.message) for record in records)
+
+    def test_cli_hf_suppresses_native_warning_logs_by_default(
+        self, runner: CliRunner, tmp_path: Path, capfd: pytest.CaptureFixture[str]
+    ) -> None:
+        """Default perf output hides native ORT warning-level stderr during model load."""
+
+        def emit_native_warning() -> MagicMock:
+            os.write(
+                2,
+                b"2026 [W:onnxruntime:Default, onnxruntime_pybind_module.cc:44 "
+                b"onnxruntime::python::CreateOrtEnv] Init provider bridge failed.\n",
+            )
+            os.write(
+                2,
+                b"2026 [E:onnxruntime:Default, onnxruntime_pybind_module.cc:45 "
+                b"onnxruntime::python::CreateOrtEnv] real native error.\n",
+            )
+            return MagicMock()
+
+        with (
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_perf,
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            mock_perf.return_value.run.side_effect = emit_native_warning
+            result = runner.invoke(
+                perf,
+                ["-m", "microsoft/resnet-50", "-o", str(tmp_path / "out.json")],
+                obj={},
+            )
+
+        fd_stderr = capfd.readouterr().err
+        assert result.exit_code == 0, result.output
+        assert "Loading model" in result.output
+        assert "Init provider bridge failed" not in result.output
+        assert "Init provider bridge failed" not in fd_stderr
+        assert "real native error" in fd_stderr
+
+    def test_cli_hf_reveals_huggingface_warning_logs_when_verbose(
+        self, runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Verbose perf output keeps Hugging Face warning chatter visible."""
+
+        def emit_huggingface_warnings() -> MagicMock:
+            logging.getLogger("huggingface_hub.utils._http").warning(
+                "Warning: You are sending unauthenticated requests to the HF Hub."
+            )
+            logging.getLogger("transformers").warning("`Siglip2ImageProcessorFast` is deprecated.")
+            return MagicMock()
+
+        with (
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_perf,
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            mock_perf.return_value.run.side_effect = emit_huggingface_warnings
+            caplog.clear()
+            result = runner.invoke(
+                perf,
+                ["-m", "microsoft/resnet-50", "-v", "-o", str(tmp_path / "out.json")],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert any("unauthenticated requests" in record.message for record in caplog.records)
+        assert any("Siglip2ImageProcessorFast" in record.message for record in caplog.records)
+
+    def test_cli_hf_reveals_huggingface_python_warnings_when_verbose(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """Verbose perf output keeps Hugging Face warnings.warn chatter visible."""
+
+        def emit_huggingface_warning() -> MagicMock:
+            warnings.warn_explicit(
+                "Warning: You are sending unauthenticated requests to the HF Hub.",
+                UserWarning,
+                filename="huggingface_hub/utils/_http.py",
+                lineno=1,
+                module="huggingface_hub.utils._http",
+            )
+            return MagicMock()
+
+        with (
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_perf,
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            mock_perf.return_value.run.side_effect = emit_huggingface_warning
+            with warnings.catch_warnings(record=True) as records:
+                warnings.simplefilter("always")
+                result = runner.invoke(
+                    perf,
+                    ["-m", "microsoft/resnet-50", "-v", "-o", str(tmp_path / "out.json")],
+                    obj={},
+                )
+
+        assert result.exit_code == 0, result.output
+        assert any("unauthenticated requests" in str(record.message) for record in records)
+
+    def test_cli_hf_reveals_native_warning_logs_when_verbose(
+        self, runner: CliRunner, tmp_path: Path, capfd: pytest.CaptureFixture[str]
+    ) -> None:
+        """Verbose perf output keeps native ORT warning-level stderr visible."""
+
+        def emit_native_warning() -> MagicMock:
+            os.write(
+                2,
+                b"2026 [W:onnxruntime:Default, onnxruntime_pybind_module.cc:44 "
+                b"onnxruntime::python::CreateOrtEnv] Init provider bridge failed.\n",
+            )
+            return MagicMock()
+
+        with (
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_perf,
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            mock_perf.return_value.run.side_effect = emit_native_warning
+            result = runner.invoke(
+                perf,
+                ["-m", "microsoft/resnet-50", "-v", "-o", str(tmp_path / "out.json")],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Init provider bridge failed" in capfd.readouterr().err
 
     def test_cli_onnx_warns_ignored_build_flags(self, runner: CliRunner, tmp_path: Path) -> None:
         """Build-pipeline flags are no-ops for a pre-built ONNX with skip_build,

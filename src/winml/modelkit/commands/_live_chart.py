@@ -25,6 +25,9 @@ _CHART_WINDOW_SECONDS = 15.0
 
 # Display refresh rate (frames per second)
 _REFRESH_FPS = 5
+_PANEL_HORIZONTAL_OVERHEAD = 4
+_PLOTEXT_HORIZONTAL_OVERHEAD = 21
+_MIN_CHART_WIDTH = 20
 
 
 class _OmittedDeviceKind:
@@ -97,8 +100,42 @@ class LiveMonitorDisplay:
         self._chart_height = chart_height
         self._poll_interval_s = poll_interval_ms / 1000.0
         self._live: Any = None
+        self._console: Console | None = None
         # Track the last rendered panel for transient=False final display
         self._last_panel: Any = None
+
+    def _panel_content_width(self) -> int | None:
+        """Return the Rich panel content width available in the current console."""
+        width = getattr(self._console, "width", None)
+        if not isinstance(width, int) or width <= _PANEL_HORIZONTAL_OVERHEAD:
+            return None
+        return width - _PANEL_HORIZONTAL_OVERHEAD
+
+    def _effective_chart_width(self) -> int:
+        """Clamp plotext's canvas width so its full output fits in the panel."""
+        content_width = self._panel_content_width()
+        if content_width is None:
+            return self._chart_width
+        available_chart_width = content_width - _PLOTEXT_HORIZONTAL_OVERHEAD
+        return min(self._chart_width, max(_MIN_CHART_WIDTH, available_chart_width))
+
+    def _pack_status_cells(self, cells: list[str]) -> list[str]:
+        """Pack status cells into as few panel-safe lines as possible."""
+        if not cells:
+            return []
+        max_width = self._panel_content_width()
+        separator = " | "
+        lines: list[str] = []
+        current = f"  {cells[0]}"
+        for cell in cells[1:]:
+            candidate = f"{current}{separator}{cell}"
+            if max_width is not None and len(candidate) > max_width:
+                lines.append(current)
+                current = f"  {cell}"
+            else:
+                current = candidate
+        lines.append(current)
+        return lines
 
     def _resolved_device_label(self) -> str:
         """Return the display label for the requested or resolved device."""
@@ -125,9 +162,10 @@ class LiveMonitorDisplay:
     def __enter__(self) -> LiveMonitorDisplay:
         from rich.live import Live
 
+        self._console = Console(stderr=True)
         self._live = Live(
             refresh_per_second=_REFRESH_FPS,
-            console=Console(stderr=True),
+            console=self._console,
             transient=False,  # Keep last frame visible in scrollback
         )
         self._live.__enter__()
@@ -279,7 +317,7 @@ class LiveMonitorDisplay:
         plt.xlim(x_min, x_max)
         plt.xlabel("Time (s)")
 
-        plt.plotsize(self._chart_width, self._chart_height)
+        plt.plotsize(self._effective_chart_width(), self._chart_height)
 
         from rich.console import Group
         from rich.text import Text
@@ -358,7 +396,9 @@ class LiveMonitorDisplay:
 
         # Row 1: Progress
         pct_cell = f"{bar} {pct:.0%}"
-        row1 = f"  {pct_cell:<30}|  {progress}  |  Device: {self._resolved_device_label()}"
+        row1_lines = self._pack_status_cells(
+            [pct_cell, progress, f"Device: {self._resolved_device_label()}"]
+        )
 
         # Row 2: Compute (unified now/avg format across all three)
         adapter_label_text = self._selected_adapter_label()
@@ -369,19 +409,19 @@ class LiveMonitorDisplay:
         row2_cells = [cpu_cell, gpu_cell]
         if self._show_adapter:
             row2_cells.insert(0, adapter_cell)
-        row2 = "  " + "| ".join(f"{cell:<28}" for cell in row2_cells)
+        row2_lines = self._pack_status_cells(row2_cells)
 
         # Row 3: Memory
         ram_cell = f"Sys Mem: {ram_mb:.0f} MB"
         mem_cell = f"Device Mem: {memory_local_mb:.0f}/{memory_shared_mb:.0f} MB (local/shared)"
-        row3 = f"  {ram_cell:<24}|  {mem_cell}"
+        row3_lines = self._pack_status_cells([ram_cell, mem_cell])
 
         # Row 4: Inference
         lat_cell = f"Latency: {latency_ms:.2f} ms"
         thr_cell = f"Throughput: ~{throughput:.0f} smp/s"
-        row4 = f"  {lat_cell:<24}|  {thr_cell}"
+        row4_lines = self._pack_status_cells([lat_cell, thr_cell])
 
-        return f"{row1}\n{row2}\n{row3}\n{row4}"
+        return "\n".join([*row1_lines, *row2_lines, *row3_lines, *row4_lines])
 
     def print_final_snapshot(
         self,
