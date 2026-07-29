@@ -186,6 +186,7 @@ include = [ "winml", "winml.*" ]
   "runtime_checker/need_rerun_errors.json",
 ]
 "winml.modelkit.export" = [
+  "compatibility_rules.json",
   "htp/htp_metadata_schema.json",
 ]
 "winml.modelkit.pattern" = [

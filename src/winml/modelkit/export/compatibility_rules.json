@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "match": {
+        "ep": "QNNExecutionProvider",
+        "device": null
+      },
+      "export": {
+        "transformers_attention": "eager"
+      },
+      "reason": "QNN does not reliably support SDPA-exported attention guard paths."
+    }
+  ]
+}

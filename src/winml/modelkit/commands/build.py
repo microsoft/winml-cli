@@ -1002,11 +1002,7 @@ def build(
                     config_or_configs = merge_export_overrides(config_or_configs, export_overrides)
             from ..config.build import apply_export_compatibility_policy
 
-            config_list = (
-                config_or_configs if isinstance(config_or_configs, list) else [config_or_configs]
-            )
-            for cfg in config_list:
-                apply_export_compatibility_policy(cfg, export_policy_targets)
+            apply_export_compatibility_policy(config_or_configs, export_policy_targets)
         else:
             if not model:
                 raise click.UsageError("-m/--model is required when -c is not provided.")

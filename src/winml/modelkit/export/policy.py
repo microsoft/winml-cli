@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from importlib import resources
 from typing import TYPE_CHECKING, Any, Literal
 
 from ..utils.constants import normalize_ep_name
@@ -81,14 +83,7 @@ class ExportCompatibilityRule:
         )
 
 
-EXPORT_COMPATIBILITY_RULES: tuple[ExportCompatibilityRule, ...] = (
-    ExportCompatibilityRule(
-        ep="QNNExecutionProvider",
-        device=None,
-        compatibility=ExportCompatibilityConfig(transformers_attention="eager"),
-        reason="QNN does not reliably support SDPA-exported attention guard paths.",
-    ),
-)
+_RULES_RESOURCE = "compatibility_rules.json"
 
 
 def export_policy_targets_for_request(
@@ -107,12 +102,26 @@ def export_policy_targets_for_request(
     return (ExportPolicyTarget(ep=resolved.ep, device=resolved.device),)
 
 
+def load_export_compatibility_rules() -> tuple[ExportCompatibilityRule, ...]:
+    """Load built-in export compatibility rules from package JSON."""
+    data = json.loads(resources.files(__package__).joinpath(_RULES_RESOURCE).read_text())
+    if data.get("schema_version") != 1:
+        raise ValueError(
+            f"{_RULES_RESOURCE} schema_version must be 1, got {data.get('schema_version')!r}"
+        )
+    rules = data.get("rules")
+    if not isinstance(rules, list):
+        raise TypeError(f"{_RULES_RESOURCE} must contain a 'rules' array")
+    return tuple(_rule_from_dict(rule, index=index) for index, rule in enumerate(rules))
+
+
 def resolve_export_compatibility(
     targets: Sequence[object] | None = None,
     *,
-    rules: Sequence[ExportCompatibilityRule] = EXPORT_COMPATIBILITY_RULES,
+    rules: Sequence[ExportCompatibilityRule] | None = None,
 ) -> ExportCompatibilityConfig:
     """Resolve export compatibility for explicit targets or the portable catalog."""
+    rules = EXPORT_COMPATIBILITY_RULES if rules is None else rules
     resolved_targets = (
         _catalog_targets() if targets is None else tuple(_coerce_target(t) for t in targets)
     )
@@ -157,3 +166,44 @@ def _coerce_target(target: object) -> ExportPolicyTarget:
             f"got {type(target).__name__}"
         )
     return ExportPolicyTarget(ep=ep, device=device)
+
+
+def _rule_from_dict(data: object, *, index: int) -> ExportCompatibilityRule:
+    if not isinstance(data, dict):
+        raise TypeError(f"{_RULES_RESOURCE} rules[{index}] must be an object")
+    unknown = set(data) - {"match", "export", "reason"}
+    if unknown:
+        raise ValueError(
+            f"{_RULES_RESOURCE} rules[{index}] has unknown field(s): {sorted(unknown)}"
+        )
+
+    match = data.get("match")
+    if not isinstance(match, dict):
+        raise TypeError(f"{_RULES_RESOURCE} rules[{index}].match must be an object")
+    match_unknown = set(match) - {"ep", "device"}
+    if match_unknown:
+        raise ValueError(
+            f"{_RULES_RESOURCE} rules[{index}].match has unknown field(s): {sorted(match_unknown)}"
+        )
+    ep = match.get("ep")
+    if not isinstance(ep, str) or not ep:
+        raise ValueError(f"{_RULES_RESOURCE} rules[{index}].match.ep must be a non-empty string")
+    device = match.get("device")
+    if device is not None and not isinstance(device, str):
+        raise ValueError(f"{_RULES_RESOURCE} rules[{index}].match.device must be a string or null")
+
+    export = data.get("export")
+    compatibility = ExportCompatibilityConfig.from_dict(export)
+    reason = data.get("reason")
+    if not isinstance(reason, str) or not reason:
+        raise ValueError(f"{_RULES_RESOURCE} rules[{index}].reason must be a non-empty string")
+
+    return ExportCompatibilityRule(
+        ep=ep,
+        device=device.lower() if isinstance(device, str) else None,
+        compatibility=compatibility,
+        reason=reason,
+    )
+
+
+EXPORT_COMPATIBILITY_RULES: tuple[ExportCompatibilityRule, ...] = load_export_compatibility_rules()

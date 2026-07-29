@@ -248,6 +248,17 @@ class TestLoadedConfigExportCompatibilityPolicy:
         assert cfg.export is not None
         assert cfg.export.compatibility.transformers_attention == "eager"
 
+    def test_apply_export_policy_accepts_config_lists(self) -> None:
+        from winml.modelkit.config.build import apply_export_compatibility_policy
+
+        cfgs = [WinMLBuildConfig(export=WinMLExportConfig()), WinMLBuildConfig(export=None)]
+
+        apply_export_compatibility_policy(cfgs, None)
+
+        assert cfgs[0].export is not None
+        assert cfgs[0].export.compatibility.transformers_attention == "eager"
+        assert cfgs[1].export is None
+
 
 # =============================================================================
 # TestGetIoSpecsFromConfig - Unit tests for resolve_io_specs()

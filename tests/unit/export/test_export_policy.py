@@ -22,6 +22,21 @@ def test_qnn_gpu_target_requires_eager_transformers_attention() -> None:
     assert cfg.transformers_attention == "eager"
 
 
+def test_default_rules_load_from_json_catalog() -> None:
+    from winml.modelkit.export import policy
+
+    rules = policy.load_export_compatibility_rules()
+
+    assert rules == (
+        ExportCompatibilityRule(
+            ep="QNNExecutionProvider",
+            device=None,
+            compatibility=ExportCompatibilityConfig(transformers_attention="eager"),
+            reason="QNN does not reliably support SDPA-exported attention guard paths.",
+        ),
+    )
+
+
 def test_non_qnn_target_does_not_force_transformers_attention() -> None:
     cfg = resolve_export_compatibility(
         [ExportPolicyTarget(ep="DmlExecutionProvider", device="gpu")]

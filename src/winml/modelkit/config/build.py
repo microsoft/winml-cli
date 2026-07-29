@@ -459,15 +459,17 @@ def _apply_target_policy(
 
 
 def apply_export_compatibility_policy(
-    config: WinMLBuildConfig,
+    config: WinMLBuildConfig | Sequence[WinMLBuildConfig],
     export_policy_targets: Sequence[object] | None,
 ) -> None:
     """Populate export compatibility when the config has an export stage."""
-    if config.export is None:
-        return
-    if config.export.compatibility:
-        return
-    config.export.compatibility = resolve_export_compatibility(export_policy_targets)
+    configs = config if isinstance(config, list) else [config]
+    for cfg in configs:
+        if cfg.export is None:
+            continue
+        if cfg.export.compatibility:
+            continue
+        cfg.export.compatibility = resolve_export_compatibility(export_policy_targets)
 
 
 def resolve_quant_compile_config(
