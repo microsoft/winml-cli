@@ -1383,6 +1383,11 @@ def _merge_export_config(
             if override.hierarchy_tag_format != defaults.hierarchy_tag_format
             else base.hierarchy_tag_format
         ),
+        compatibility=(
+            copy.deepcopy(override.compatibility)
+            if override.compatibility
+            else copy.deepcopy(base.compatibility)
+        ),
     )
 
 
