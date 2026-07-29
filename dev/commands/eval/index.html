@@ -2850,7 +2850,7 @@
 <td></td>
 <td><code>onnx\|compare</code></td>
 <td><code>onnx</code></td>
-<td>Evaluation mode. <code>onnx</code> evaluates the ONNX candidate on a dataset. <code>compare</code> runs the ONNX candidate and the HuggingFace reference on identical random inputs and reports per-tensor similarity metrics — no dataset required.</td>
+<td>Evaluation mode. <code>onnx</code> evaluates the ONNX candidate on a dataset. <code>compare</code> runs the ONNX candidate and a reference on identical random inputs and reports per-tensor similarity metrics — no dataset required. The reference is the HuggingFace model from <code>--model-id</code> by default, or a second ONNX file when <code>--reference</code> is given.</td>
 </tr>
 <tr>
 <td><code>--input-data</code></td>
@@ -2858,6 +2858,13 @@
 <td><code>PATH</code></td>
 <td>—</td>
 <td>Path to a <code>.npz</code> file of real input tensors to compare with instead of randomly generated ones (used with <code>--mode compare</code>). Keys must match the candidate model's input names. The <strong>leading axis of each array is the sample axis</strong>, so an archive shaped <code>(N, ...)</code> yields <code>N</code> samples (mean/std/min/max are computed across them); all inputs must share the same <code>N</code>. Each run is shaped to the candidate's batch size — a dynamic batch runs one row per sample, a static batch <code>B</code> chunks the axis into <code>N // B</code> batches (trailing rows are dropped with a warning). Note this differs from <code>winml perf --input-data</code>, which runs the <strong>whole archive as a single batch</strong>.</td>
+</tr>
+<tr>
+<td><code>--reference</code></td>
+<td></td>
+<td><code>TEXT</code></td>
+<td>—</td>
+<td>Reference <code>.onnx</code> file to compare the candidate against (used with <code>--mode compare</code>). Compares two ONNX models on identical random inputs; <code>--model-id</code> and <code>--task</code> are not required in this mode. Both models run on the same <code>--device</code> / <code>--ep</code>.</td>
 </tr>
 </tbody>
 </table>
@@ -2884,41 +2891,44 @@
 <p>Compare an ONNX candidate against its HuggingFace reference on real input tensors instead of random ones by passing a <code>.npz</code> archive whose keys match the candidate's input names. The leading axis of each array is the sample axis, so an archive shaped <code>(N, ...)</code> runs <code>N</code> samples:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--mode<span class="w"> </span>compare<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--model-id<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--input-data<span class="w"> </span>inputs.npz
 </span></code></pre></div>
-<p>Check what dataset columns are expected before running, then remap them to match your dataset:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--schema<span class="w"> </span>--task<span class="w"> </span>text-classification
+<p>Compare two ONNX files directly (e.g. an fp32 baseline vs a quantized build), reporting per-output tensor-similarity metrics on identical random inputs — no <code>--model-id</code> or dataset needed:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--mode<span class="w"> </span>compare<span class="w"> </span>-m<span class="w"> </span>quantized.onnx<span class="w"> </span>--reference<span class="w"> </span>baseline.onnx
 </span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>Input schema for text-classification models
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>==================================================
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>--column option schema
-</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>
-</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>Evaluating needs a dataset with the following columns:
-</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>  input_column
-</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>      input text (default: text)
-</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>  label_column
-</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>      class label (ClassLabel or integer) (default: label)
-</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>  second_input_column
-</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>      second text for sentence-pair tasks (optional) (default: None)
-</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>
-</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a>Override any default with --column:
-</span><span id="__span-7-15"><a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a>  --column input_column=&lt;your_text_column&gt;
-</span><span id="__span-7-16"><a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a>  --column label_column=&lt;your_label_column&gt;
-</span><span id="__span-7-17"><a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a>  --column second_input_column=&lt;your_pair_column&gt;
+<p>Check what dataset columns are expected before running, then remap them to match your dataset:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--schema<span class="w"> </span>--task<span class="w"> </span>text-classification
+</span></code></pre></div>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>Input schema for text-classification models
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>==================================================
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>--column option schema
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>Evaluating needs a dataset with the following columns:
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>  input_column
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>      input text (default: text)
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>  label_column
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>      class label (ClassLabel or integer) (default: label)
+</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>  second_input_column
+</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>      second text for sentence-pair tasks (optional) (default: None)
+</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>
+</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>Override any default with --column:
+</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>  --column input_column=&lt;your_text_column&gt;
+</span><span id="__span-8-16"><a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>  --column label_column=&lt;your_label_column&gt;
+</span><span id="__span-8-17"><a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>  --column second_input_column=&lt;your_pair_column&gt;
 </span></code></pre></div>
 <p>The GLUE SST-2 dataset uses <code>sentence</code> instead of the default <code>text</code> column, so remap it with a single <code>--column</code> override:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span>distilbert/distilbert-base-uncased-finetuned-sst-2-english<span class="w"> </span>--dataset<span class="w"> </span>nyu-mll/glue<span class="w"> </span>--dataset-name<span class="w"> </span>sst2<span class="w"> </span>--column<span class="w"> </span><span class="nv">input_column</span><span class="o">=</span>sentence<span class="w"> </span>--samples<span class="w"> </span><span class="m">500</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span>distilbert/distilbert-base-uncased-finetuned-sst-2-english<span class="w"> </span>--dataset<span class="w"> </span>nyu-mll/glue<span class="w"> </span>--dataset-name<span class="w"> </span>sst2<span class="w"> </span>--column<span class="w"> </span><span class="nv">input_column</span><span class="o">=</span>sentence<span class="w"> </span>--samples<span class="w"> </span><span class="m">500</span>
 </span></code></pre></div>
 <p>Evaluate against a custom dataset whose label names differ from the model's class IDs. The <code>--label-mapping</code> flag points to a JSON file whose <strong>keys are the label name strings as they appear in the dataset</strong> and whose <strong>values are the integer class IDs the model emits</strong>. For example, ResNet-50 outputs ImageNet-1k class IDs (<code>0</code>–<code>999</code>), so if your custom dataset uses readable strings like <code>"tabby cat"</code> or <code>"golden retriever"</code>, <code>labels.json</code> translates each dataset label to the corresponding ImageNet ID the model predicts:</p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="p">{</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">&quot;tabby cat&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">281</span><span class="p">,</span>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">  </span><span class="nt">&quot;Egyptian cat&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">285</span><span class="p">,</span>
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">  </span><span class="nt">&quot;golden retriever&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">207</span>
-</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="p">}</span>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="p">{</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">&quot;tabby cat&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">281</span><span class="p">,</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span><span class="nt">&quot;Egyptian cat&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">285</span><span class="p">,</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span><span class="nt">&quot;golden retriever&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">207</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="p">}</span>
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--dataset<span class="w"> </span>my-org/my-pets-dataset<span class="w"> </span>--label-mapping<span class="w"> </span>labels.json<span class="w"> </span>-o<span class="w"> </span>results/resnet_eval.json
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--dataset<span class="w"> </span>my-org/my-pets-dataset<span class="w"> </span>--label-mapping<span class="w"> </span>labels.json<span class="w"> </span>-o<span class="w"> </span>results/resnet_eval.json
 </span></code></pre></div>
 <p>Evaluate a composite model from pre-exported ONNX files. Some tasks (e.g., <code>image-to-text</code>, encoder-decoder, dual-encoder) split the model across multiple ONNX files, one per role. Pass <code>-m</code> once per role as <code>&lt;role&gt;=&lt;path&gt;.onnx</code> and supply <code>--model-id</code> so the preprocessor and tokenizer can be resolved. Run <code>winml eval --schema --task image-to-text</code> to see the expected roles for a task:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span><span class="nv">encoder</span><span class="o">=</span>encoder.onnx<span class="w"> </span>-m<span class="w"> </span><span class="nv">decoder</span><span class="o">=</span>decoder.onnx<span class="w"> </span>--model-id<span class="w"> </span>microsoft/trocr-base-printed
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span><span class="nv">encoder</span><span class="o">=</span>encoder.onnx<span class="w"> </span>-m<span class="w"> </span><span class="nv">decoder</span><span class="o">=</span>decoder.onnx<span class="w"> </span>--model-id<span class="w"> </span>microsoft/trocr-base-printed
 </span></code></pre></div>
 <h2 id="common-pitfalls">Common pitfalls<a class="headerlink" href="#common-pitfalls" title="Permanent link">&para;</a></h2>
 <ul>
