@@ -852,7 +852,13 @@ Do this for both normal config generation and helper generation paths in the fil
 
 - [ ] **Step 5: Update `commands\perf.py`**
 
-In `_run_module_perf(...)`, after `resolved_target = resolve_device(...)` and after `resolved_device = resolved_target.device` / `ep = cast("EPName", resolved_target.ep)`, compute:
+In `_run_module_perf(...)`, before `resolved_target = resolve_device(...)`, capture whether the caller supplied a target:
+
+```python
+    export_target_was_explicit = ep is not None or device is not None
+```
+
+After `resolved_target = resolve_device(...)` and after `resolved_device = resolved_target.device` / `ep = cast("EPName", resolved_target.ep)`, compute:
 
 ```python
         from ..export.policy import export_policy_targets_for_request
@@ -860,7 +866,7 @@ In `_run_module_perf(...)`, after `resolved_target = resolve_device(...)` and af
         export_policy_targets = export_policy_targets_for_request(
             ep=ep,
             device=resolved_device,
-            target_was_explicit=ep is not None or device is not None,
+            target_was_explicit=export_target_was_explicit,
         )
 ```
 
