@@ -400,6 +400,46 @@ class TestExtractOnnxPath:
         ) == str(artifact)
 
 
+class TestRunBuildAccessViolationAfterArtifact:
+    """Native teardown crashes after a completed build must not hide usable artifacts."""
+
+    def test_access_violation_after_final_artifact_is_treated_as_built(self, run_eval, tmp_path):
+        entry = MagicMock()
+        entry.hf_id = "google-bert/bert-base-multilingual-cased"
+        entry.task = "fill-mask"
+        entry.perf_args = []
+        artifact = tmp_path / "mask_hash_model.onnx"
+        artifact.write_bytes(b"onnx")
+
+        def fake_subprocess(args, _timeout):
+            if "config" in args:
+                (tmp_path / "build_config.json").write_text(
+                    json.dumps({"loader": {"task": "fill-mask"}}),
+                    encoding="utf-8",
+                )
+                return {
+                    "exit_code": 0,
+                    "stdout": "",
+                    "stderr": "",
+                    "elapsed": 0.1,
+                    "command": "winml config",
+                }
+            return {
+                "exit_code": 3221225477,
+                "stdout": f"Build complete\nFinal artifact:\n{artifact}\n",
+                "stderr": "",
+                "elapsed": 0.1,
+                "command": "winml build",
+            }
+
+        with patch.object(run_eval, "_run_subprocess", side_effect=fake_subprocess):
+            result = run_eval._run_build(entry, "gpu", "fp16", 300, tmp_path, ep="qnn")
+
+        assert result["success"] is True
+        assert result["stage"] == "complete"
+        assert result["onnx_paths"] == {"": str(artifact)}
+
+
 class TestRunBuildPrecisionForwarding:
     """``_run_build`` must forward ``--precision`` to both ``winml config`` and
     ``winml build``.
@@ -1194,6 +1234,28 @@ class TestRunRecipeBuild:
             result = run_eval._run_recipe_build(_entry(), variant, 300, tmp_path / "o")
         assert result["success"] is False
         assert result["stage"] == "build"
+
+    def test_access_violation_after_final_artifact_is_treated_as_built(self, run_eval, tmp_path):
+        variant = self._variant(run_eval, tmp_path, composite=False)
+        artifact = tmp_path / "imgcls_hash_model.onnx"
+        artifact.write_bytes(b"onnx")
+
+        def _crash_after_artifact(args, _timeout):
+            return {
+                "exit_code": 3221225477,
+                "stdout": f"Build complete\nFinal artifact:\n{artifact}\n",
+                "stderr": "",
+                "elapsed": 0.1,
+                "timeout": False,
+                "command": " ".join(args),
+            }
+
+        with patch.object(run_eval, "_run_subprocess", side_effect=_crash_after_artifact):
+            result = run_eval._run_recipe_build(_entry(), variant, 300, tmp_path / "o")
+
+        assert result["success"] is True
+        assert result["stage"] == "complete"
+        assert result["onnx_paths"] == {"": str(artifact)}
 
     def test_missing_cached_artifact_is_failure(self, run_eval, tmp_path):
         # Build exits 0 but the artifact can't be located in the cache -> the job

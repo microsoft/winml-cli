@@ -102,6 +102,7 @@ _DEFAULT_PRECISION_NPU = "w8a16"
 # An explicit per-model precision (``ModelEntry.precision``) overrides this. This
 # expansion is NPU-only; off-NPU devices never build quantized variants.
 _NPU_FALLBACK_PRECISIONS: tuple[str, ...] = ("w8a8", "w8a16")
+_WINDOWS_ACCESS_VIOLATION_EXIT_CODES = frozenset({-1073741819, 3221225477})
 
 # EPs whose eval track keeps the model unquantized (the "fp" variant)
 # rather than running winml's QDQ pass on top.  This is an eval-setup
@@ -696,7 +697,19 @@ def _run_build(
 
         build_proc = _run_subprocess(build_args, timeout)
         last_proc = build_proc
+        task_hint = _extract_task_from_config(sub_cfg) or entry.task
         if build_proc["exit_code"] != 0:
+            if not build_only:
+                path = _completed_artifact_after_native_teardown_crash(
+                    build_proc, entry.hf_id, task_hint
+                )
+                if path:
+                    safe_print(
+                        "    [build] Native teardown crash after artifact write; "
+                        "continuing with completed ONNX artifact."
+                    )
+                    onnx_paths[label] = path
+                    continue
             stage = f"build_{label}" if label else "build"
             return {
                 "success": False,
@@ -714,7 +727,6 @@ def _run_build(
             onnx_paths[label] = str(build_out)
             continue
 
-        task_hint = _extract_task_from_config(sub_cfg) or entry.task
         path = _extract_onnx_path(build_proc, entry.hf_id, task_hint)
         if path:
             onnx_paths[label] = path
@@ -823,7 +835,16 @@ def _run_recipe_build(
 
         proc = _run_subprocess(build_args, timeout)
         last_proc = proc
+        task_hint = _extract_task_from_config(component.path) or entry.task
         if proc["exit_code"] != 0:
+            onnx = _completed_artifact_after_native_teardown_crash(proc, entry.hf_id, task_hint)
+            if onnx:
+                safe_print(
+                    "    [build] Native teardown crash after artifact write; "
+                    "continuing with completed ONNX artifact."
+                )
+                onnx_paths[role or ""] = str(onnx)
+                continue
             stage = f"build_{role}" if role else "build"
             return {
                 "success": False,
@@ -832,11 +853,9 @@ def _run_recipe_build(
                 "proc": proc,
                 "meta_config": meta_config,
             }
-
         # Locate the cached artifact from the build output (same mechanism as
         # the winml-config fallback). The component's own config carries the
         # task, needed to disambiguate a model's multiple cached tasks.
-        task_hint = _extract_task_from_config(component.path) or entry.task
         onnx = _extract_onnx_path(proc, entry.hf_id, task_hint)
         if onnx is None:
             proc = dict(proc)
@@ -861,6 +880,15 @@ def _run_recipe_build(
         "proc": last_proc,
         "meta_config": meta_config,
     }
+
+
+def _completed_artifact_after_native_teardown_crash(
+    proc: dict, hf_id: str, task: str | None
+) -> str | None:
+    """Return the completed artifact when only interpreter/native teardown crashed."""
+    if proc.get("timeout") or proc.get("exit_code") not in _WINDOWS_ACCESS_VIOLATION_EXIT_CODES:
+        return None
+    return _extract_onnx_path(proc, hf_id, task)
 
 
 def _extract_onnx_path(build_proc: dict, hf_id: str, task: str | None) -> str | None:
