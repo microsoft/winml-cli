@@ -40,7 +40,6 @@ Public API:
 
 from __future__ import annotations
 
-import atexit
 import dataclasses
 import functools
 import logging
@@ -713,22 +712,8 @@ class DirectorySource(EPSource):
         return self.dll_patterns.keys()
 
 
-# ---------------------------------------------------------------------------
-# windowsml EpCatalog singleton.
-# ---------------------------------------------------------------------------
 # Lazy, process-wide initialization of the ``windowsml.EpCatalog``.
-# We register an ``atexit`` cleanup so the catalog is closed on interpreter
-# shutdown. ``__del__`` is intentionally NOT used — Python does not
-# guarantee it is invoked on shutdown.
 _winml_catalog_warned_keys: set[str] = set()
-
-
-def _release_winml_catalog(catalog: Any) -> None:
-    """Close the process-wide Windows ML catalog during interpreter shutdown."""
-    try:
-        catalog.close()
-    except Exception as e:  # pragma: no cover - shutdown best-effort
-        logger.debug("Windows ML catalog cleanup raised: %s", e)
 
 
 @functools.cache
@@ -762,7 +747,6 @@ def _get_catalog() -> Any | None:
         logger.warning("WinMLCatalogSource: EpCatalog() failed: %s", e)
         return None
 
-    atexit.register(_release_winml_catalog, catalog)
     return catalog
 
 

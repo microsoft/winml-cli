@@ -15,12 +15,13 @@ The ONLY mocked surface is the ``windowsml`` Python package itself
 Also covers:
     - The default EP source list includes the 5 ``WinMLCatalogSource`` rows
       with the canonical EP names from the design doc.
-    - ``atexit`` cleanup is registered exactly once across many
-      ``_get_catalog()`` calls.
+    - ``_get_catalog()`` does not register native catalog cleanup at process
+      exit.
 """
 
 from __future__ import annotations
 
+import atexit
 import logging
 import os
 import sys
@@ -542,27 +543,26 @@ def test_is_ready(value: Any, expected: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# atexit cleanup.
+# catalog lifecycle.
 # ---------------------------------------------------------------------------
 
 
-class TestAtexitCleanup:
-    """The catalog is registered for cleanup exactly once."""
+class TestCatalogLifecycle:
+    """The catalog singleton avoids process-exit native cleanup hooks."""
 
-    def test_atexit_registered_once_across_multiple_calls(
+    def test_get_catalog_does_not_register_atexit_cleanup(
         self,
         reset_catalog_singleton: None,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
     ) -> None:
-        # Track atexit.register calls within ep_path.
         registered: list[Any] = []
 
         def fake_register(func: Any, *args: Any, **kwargs: Any) -> Any:
             registered.append((func, args, kwargs))
             return func
 
-        monkeypatch.setattr(_ep.atexit, "register", fake_register)
+        monkeypatch.setattr(atexit, "register", fake_register)
 
         # Install a working fake module.
         dll = tmp_path / "x.dll"
@@ -586,22 +586,4 @@ class TestAtexitCleanup:
         assert c1 is not None
         assert c2 is c1
         assert c3 is c1
-        # Exactly one atexit registration.
-        cleanup_callbacks = [r for r in registered if r[0] is _ep._release_winml_catalog]
-        assert len(cleanup_callbacks) == 1
-        # The catalog object itself is what gets registered for cleanup.
-        assert cleanup_callbacks[0][1][0] is catalog
-
-    def test_release_catalog_swallows_exceptions(self, caplog: pytest.LogCaptureFixture) -> None:
-        # Cleanup must not propagate exceptions during interpreter shutdown.
-        class _BoomCatalog:
-            def close(self) -> None:
-                raise RuntimeError("cleanup failure")
-
-        # Should not raise.
-        _ep._release_winml_catalog(_BoomCatalog())
-
-    def test_release_catalog_calls_close(self) -> None:
-        catalog = _FakeCatalog([])
-        _ep._release_winml_catalog(catalog)
-        assert catalog.closed is True
+        assert registered == []
