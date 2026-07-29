@@ -91,6 +91,8 @@ from .siglip import MODEL_CLASS_MAPPING as _SIGLIP_CLASS_MAPPING
 from .siglip import SIGLIP_CONFIG
 from .siglip import SiglipTextModelIOConfig as _SiglipTextModelIOConfig  # triggers registration
 from .siglip import SiglipVisionModelIOConfig as _SiglipVisionModelIOConfig  # triggers registration
+from .swin2sr import MODEL_CLASS_MAPPING as _SWIN2SR_CLASS_MAPPING
+from .swin2sr import Swin2SRIOConfig as _Swin2SRIOConfig  # triggers registration
 from .t5 import MODEL_CLASS_MAPPING as _T5_CLASS_MAPPING
 from .t5 import T5_CONFIG
 from .t5 import T5DecoderIOConfig as _T5DecoderIOConfig  # triggers registration
@@ -132,6 +134,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
         _SAM2_CLASS_MAPPING,
         _SEGFORMER_CLASS_MAPPING,
         _SIGLIP_CLASS_MAPPING,
+        _SWIN2SR_CLASS_MAPPING,
         _T5_CLASS_MAPPING,
         _VED_CLASS_MAPPING,
         _VITPOSE_CLASS_MAPPING,
