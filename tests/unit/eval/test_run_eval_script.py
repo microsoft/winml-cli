@@ -604,6 +604,51 @@ class TestBuildForJobPrecision:
         assert build_result["precision"] is None
 
 
+class TestMergeBackfillResult:
+    """``_merge_backfill_result`` splices accuracy into an existing result.
+
+    The backfill rebuilds the model, so the rebuild's precision is authoritative
+    for the merged result -- including when it is None.
+    """
+
+    @staticmethod
+    def _existing(**extra):
+        return {
+            "model": "some/model",
+            "perf": {"passed": True, "elapsed": 3.5},
+            "accuracy": None,
+            "eval_types_run": ["perf"],
+            **extra,
+        }
+
+    def test_stale_precision_cleared_when_rebuild_reports_none(self, run_eval):
+        # A perf-only result written before this fix (VitisAI + declared w8a16)
+        # must not keep claiming that precision once the rebuild -- which runs
+        # with --no-quant -- reports none.
+        existing = self._existing(precision="w8a16")
+        merged = run_eval._merge_backfill_result(existing, {"metrics": {}}, None)
+        assert "precision" not in merged
+
+    def test_rebuild_precision_replaces_recorded_value(self, run_eval):
+        existing = self._existing(precision="w8a16")
+        merged = run_eval._merge_backfill_result(existing, {"metrics": {}}, "w8a8")
+        assert merged["precision"] == "w8a8"
+
+    def test_perf_preserved_and_accuracy_spliced(self, run_eval):
+        existing = self._existing()
+        accuracy = {"metrics": {"top1_accuracy": 1.0}}
+        merged = run_eval._merge_backfill_result(existing, accuracy, "fp16")
+        assert merged["perf"] == existing["perf"]
+        assert merged["accuracy"] is accuracy
+        assert merged["eval_types_run"] == ["perf", "accuracy"]
+        assert existing["accuracy"] is None  # input not mutated
+
+    def test_accuracy_eval_type_not_duplicated(self, run_eval):
+        existing = self._existing(eval_types_run=["perf", "accuracy"])
+        merged = run_eval._merge_backfill_result(existing, {"metrics": {}}, None)
+        assert merged["eval_types_run"] == ["perf", "accuracy"]
+
+
 class TestFeedVersionForCombo:
     """``_feed_version_for`` embeds the EP/device combo after the run-stamp."""
 

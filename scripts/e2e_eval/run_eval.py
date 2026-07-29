@@ -2520,6 +2520,32 @@ def _build_for_job(
     return build_result, recipe_meta, trust
 
 
+def _merge_backfill_result(
+    existing: dict, accuracy_result: dict | None, precision: str | None
+) -> dict:
+    """Splice a freshly-run accuracy into an existing result.
+
+    The recorded perf section is preserved verbatim (it already ran and passed);
+    ``accuracy_result`` has the same shape :func:`build_eval_result` stores, so
+    it is spliced in directly.
+
+    ``precision`` is what the backfill's rebuild reported and always replaces the
+    recorded value -- including when it is None (a skip-quant/unquantized build),
+    since leaving the old value would let a stale declared precision keep
+    claiming an artifact that was never built.
+    """
+    result = dict(existing)
+    result["accuracy"] = accuracy_result
+    if precision is None:
+        result.pop("precision", None)
+    else:
+        result["precision"] = precision
+    eval_types = result.get("eval_types_run") or []
+    if "accuracy" not in eval_types:
+        result["eval_types_run"] = [*eval_types, "accuracy"]
+    return result
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -3118,18 +3144,7 @@ def main() -> None:
             break
 
         if backfill_existing is not None:
-            # Merge the freshly-run accuracy into the existing result, preserving
-            # its recorded perf verbatim. accuracy_result has the same shape
-            # build_eval_result would store, so it's spliced in directly.
-            result = dict(backfill_existing)
-            result["accuracy"] = accuracy_result
-            # The backfill rebuilt the model, so stamp the precision it used —
-            # results written before the build reported it carry none at all.
-            if recorded_precision is not None:
-                result["precision"] = recorded_precision
-            etr = result.get("eval_types_run") or []
-            if "accuracy" not in etr:
-                result["eval_types_run"] = [*etr, "accuracy"]
+            result = _merge_backfill_result(backfill_existing, accuracy_result, recorded_precision)
         else:
             result = build_eval_result(
                 entry,
