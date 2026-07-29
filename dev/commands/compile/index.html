@@ -2722,6 +2722,13 @@ model) that loads faster and avoids online graph compilation at inference time.<
 <td>Force a specific execution provider, overriding device-to-provider mapping. Accepts full names (e.g., <code>QNNExecutionProvider</code>) or aliases (<code>qnn</code>, <code>dml</code>, <code>openvino</code>, <code>vitisai</code>, <code>migraphx</code>, <code>cpu</code>, <code>nvtensorrtrtx</code>).</td>
 </tr>
 <tr>
+<td><code>--ep-options</code></td>
+<td></td>
+<td><code>KEY=VALUE</code></td>
+<td>—</td>
+<td>Execution-provider option for the compilation session. Repeat for multiple options; later duplicate keys win. Explicit CLI values override matching <code>compile.provider_options</code> keys from <code>--config</code>.</td>
+</tr>
+<tr>
 <td><code>--validate</code> / <code>--no-validate</code></td>
 <td></td>
 <td>flag</td>
@@ -2797,8 +2804,13 @@ target EP; skip it with <code>--no-validate</code> when the target hardware is a
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Compile a pre-quantized BERT model for NPU with context embedded inline</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased_qdq.onnx<span class="w"> </span>--embed
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Compile for GPU using the OpenVINO execution provider</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>microsoft_resnet50.onnx<span class="w"> </span>--device<span class="w"> </span>gpu<span class="w"> </span>--ep<span class="w"> </span>openvino
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Pass provider-specific options to the compilation session</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--ep<span class="w"> </span>qnn<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--ep-options<span class="w"> </span><span class="nv">htp_performance_mode</span><span class="o">=</span>burst<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>--ep-options<span class="w"> </span><span class="nv">soc_model</span><span class="o">=</span><span class="m">57</span>
+</span></code></pre></div>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Compile for GPU using the OpenVINO execution provider</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>microsoft_resnet50.onnx<span class="w"> </span>--device<span class="w"> </span>gpu<span class="w"> </span>--ep<span class="w"> </span>openvino
 </span></code></pre></div>
 <h2 id="common-pitfalls">Common pitfalls<a class="headerlink" href="#common-pitfalls" title="Permanent link">&para;</a></h2>
 <ul>
