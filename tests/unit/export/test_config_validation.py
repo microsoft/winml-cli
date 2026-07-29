@@ -414,19 +414,13 @@ class TestExportCompatibilitySerialization:
 
         assert "compatibility" not in cfg.to_dict()
 
-    def test_resolved_empty_compatibility_round_trips_when_present(self) -> None:
-        from winml.modelkit.export.policy import ExportPolicyTarget, resolve_export_compatibility
-
-        cfg = WinMLExportConfig(
-            compatibility=resolve_export_compatibility(
-                [ExportPolicyTarget(ep="DmlExecutionProvider", device="gpu")]
-            )
-        )
+    def test_empty_compatibility_is_omitted_from_export_dict(self) -> None:
+        cfg = WinMLExportConfig.from_dict({"compatibility": {}})
 
         data = cfg.to_dict()
         round_tripped = WinMLExportConfig.from_dict(data)
 
-        assert data["compatibility"] == {}
+        assert "compatibility" not in data
         assert round_tripped.compatibility.transformers_attention is None
 
     def test_invalid_compatibility_value_raises(self) -> None:

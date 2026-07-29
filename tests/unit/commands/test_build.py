@@ -1154,10 +1154,9 @@ class TestBuildEpDevice:
                 obj={"debug": False},
             )
 
-        assert result.exit_code == 0, result.output
-        assert "export_policy_targets" not in mock_gen.call_args.kwargs
-        assert mock_gen.call_args.kwargs["device"] == "auto"
-        assert mock_gen.call_args.kwargs["ep"] == "qnn"
+            assert result.exit_code == 0, result.output
+            assert mock_gen.call_args.kwargs["device"] == "auto"
+            assert mock_gen.call_args.kwargs["ep"] == "qnn"
 
     def test_auto_generated_config_uses_portable_export_policy_when_no_target_supplied(
         self,
@@ -1186,10 +1185,9 @@ class TestBuildEpDevice:
                 obj={"debug": False},
             )
 
-        assert result.exit_code == 0, result.output
-        assert "export_policy_targets" not in mock_gen.call_args.kwargs
-        assert mock_gen.call_args.kwargs["device"] == "auto"
-        assert mock_gen.call_args.kwargs["ep"] is None
+            assert result.exit_code == 0, result.output
+            assert mock_gen.call_args.kwargs["device"] == "auto"
+            assert mock_gen.call_args.kwargs["ep"] is None
 
     def test_input_specs_patches_config_file_inputs(
         self,

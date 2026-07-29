@@ -3,13 +3,13 @@
   "rules": [
     {
       "match": {
-        "ep": "QNNExecutionProvider",
+        "ep": null,
         "device": null
       },
       "export": {
         "transformers_attention": "eager"
       },
-      "reason": "QNN does not reliably support SDPA-exported attention guard paths."
+      "reason": "Transformers SDPA-exported attention guard paths are not broadly portable."
     }
   ]
 }

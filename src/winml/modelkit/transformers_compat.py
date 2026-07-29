@@ -49,7 +49,7 @@ _MODEL_PATCHER_MODULE = "optimum.exporters.onnx.model_patcher"
 @contextlib.contextmanager
 def use_eager_attention_for_export(model: nn.Module) -> Iterator[None]:
     """Temporarily prefer eager attention on HF-style module configs."""
-    restored: list[tuple[object, object]] = []
+    restored: list[tuple[Any, Any]] = []
     seen_configs: set[int] = set()
 
     for module in model.modules():
@@ -60,17 +60,20 @@ def use_eager_attention_for_export(model: nn.Module) -> Iterator[None]:
         if not hasattr(config, "_attn_implementation"):
             continue
 
+        config = cast("Any", config)
         current = config._attn_implementation
         if current in (None, "eager"):
             continue
 
-        config._attn_implementation = "eager"
         restored.append((config, current))
+
+    for config, _previous in restored:
+        config._attn_implementation = "eager"
 
     try:
         yield
     finally:
-        for config, previous in reversed(restored):
+        for config, previous in restored:
             config._attn_implementation = previous
 
 

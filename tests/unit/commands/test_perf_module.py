@@ -247,7 +247,6 @@ class TestPerfModuleParameterForwarding:
         assert gen_kwargs["device"] == "npu"
         assert gen_kwargs["ep"] == "qnn"
         assert gen_kwargs["precision"] == "auto"
-        assert "export_policy_targets" not in gen_kwargs
 
         build_kwargs = mock_build.call_args.kwargs
         assert build_kwargs["ep"] == "QNNExecutionProvider"
@@ -417,9 +416,8 @@ class TestPerfModuleParameterForwarding:
                     str(tmp_path / "out.json"),
                 ],
             )
-
         assert result.exit_code == 0, result.output
-        assert "export_policy_targets" not in mock_gen.call_args.kwargs
+        assert result.exit_code == 0, result.output
         assert mock_gen.call_args.kwargs["device"] == "auto"
         assert mock_gen.call_args.kwargs["ep"] is None
 

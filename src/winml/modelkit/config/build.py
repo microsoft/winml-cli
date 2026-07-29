@@ -477,7 +477,7 @@ def apply_export_compatibility_policy(
         device=device,
         target_was_explicit=_is_explicit_export_policy_target(device=device, ep=ep),
     )
-    configs = config if isinstance(config, list) else [config]
+    configs = (config,) if isinstance(config, WinMLBuildConfig) else config
     for cfg in configs:
         if cfg.export is None:
             continue

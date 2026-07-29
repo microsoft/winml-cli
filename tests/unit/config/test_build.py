@@ -162,7 +162,7 @@ class TestGeneratedExportCompatibilityPolicy:
         assert cfg.export is not None
         assert cfg.export.compatibility.transformers_attention == "eager"
 
-    def test_generated_hf_config_respects_explicit_non_qnn_target_export_policy(
+    def test_generated_hf_config_applies_global_export_policy_to_explicit_target(
         self,
         monkeypatch: pytest.MonkeyPatch,
         mock_loader_config: WinMLLoaderConfig,
@@ -193,7 +193,7 @@ class TestGeneratedExportCompatibilityPolicy:
         )
 
         assert cfg.export is not None
-        assert cfg.export.compatibility.transformers_attention is None
+        assert cfg.export.compatibility.transformers_attention == "eager"
 
     def test_submodule_config_inherits_export_compatibility(self) -> None:
         parent = WinMLBuildConfig(
@@ -243,19 +243,14 @@ class TestLoadedConfigExportCompatibilityPolicy:
         assert cfg.export is not None
         assert cfg.export.compatibility.transformers_attention == "eager"
 
-    def test_explicit_empty_compatibility_round_trips_without_portable_override(self) -> None:
+    def test_serialized_empty_compatibility_receives_policy(self) -> None:
         from winml.modelkit.config.build import apply_export_compatibility_policy
 
-        cfg = WinMLBuildConfig(export=WinMLExportConfig())
+        cfg = WinMLBuildConfig.from_dict({"export": {"compatibility": {}}})
+        apply_export_compatibility_policy(cfg)
 
-        apply_export_compatibility_policy(cfg, device="gpu", ep="DmlExecutionProvider")
-        data = cfg.to_dict()
-        round_tripped = WinMLBuildConfig.from_dict(data)
-        apply_export_compatibility_policy(round_tripped)
-
-        assert data["export"]["compatibility"] == {}
-        assert round_tripped.export is not None
-        assert round_tripped.export.compatibility.transformers_attention is None
+        assert cfg.export is not None
+        assert cfg.export.compatibility.transformers_attention == "eager"
 
     def test_apply_export_policy_accepts_config_lists(self) -> None:
         from winml.modelkit.config.build import apply_export_compatibility_policy

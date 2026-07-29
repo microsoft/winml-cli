@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from functools import cache
 from importlib import resources
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from ..utils.constants import normalize_ep_name
 
@@ -16,18 +17,15 @@ from ..utils.constants import normalize_ep_name
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-TransformersAttentionPolicy = Literal["eager"]
-
 
 @dataclass(frozen=True)
 class ExportCompatibilityConfig:
     """Resolved export-time compatibility knobs."""
 
     transformers_attention: str | None = None
-    is_resolved: bool = False
 
     def __bool__(self) -> bool:  # pragma: no cover - trivial
-        return self.is_resolved or self.transformers_attention is not None
+        return self.transformers_attention is not None
 
     def to_dict(self) -> dict[str, str]:
         """Serialize resolved compatibility knobs to a dict."""
@@ -40,12 +38,10 @@ class ExportCompatibilityConfig:
     def from_dict(
         cls,
         data: dict[str, Any] | None,
-        *,
-        is_resolved: bool = True,
     ) -> ExportCompatibilityConfig:
         """Deserialize compatibility config from a dict (or None)."""
         if data is None:
-            return cls(is_resolved=is_resolved)
+            return cls()
         if not isinstance(data, dict):
             raise TypeError(f"export.compatibility must be an object, got {type(data).__name__}")
         unknown = set(data) - {"transformers_attention"}
@@ -57,7 +53,7 @@ class ExportCompatibilityConfig:
                 "export.compatibility.transformers_attention must be 'eager' or null, "
                 f"got {attention!r}"
             )
-        return cls(transformers_attention=attention, is_resolved=is_resolved)
+        return cls(transformers_attention=attention)
 
 
 @dataclass(frozen=True)
@@ -77,14 +73,14 @@ class ExportPolicyTarget:
 class ExportCompatibilityRule:
     """One EP/device compatibility rule."""
 
-    ep: str
+    ep: str | None
     device: str | None
     compatibility: ExportCompatibilityConfig
     reason: str
 
     def matches(self, target: ExportPolicyTarget) -> bool:
         """Return True if this rule applies to the given target."""
-        return target.ep == normalize_ep_name(self.ep) and (
+        return (self.ep is None or target.ep == normalize_ep_name(self.ep)) and (
             self.device is None or target.device == self.device
         )
 
@@ -110,6 +106,11 @@ def export_policy_targets_for_request(
 
 def load_export_compatibility_rules() -> tuple[ExportCompatibilityRule, ...]:
     """Load built-in export compatibility rules from package JSON."""
+    return _load_export_compatibility_rules()
+
+
+@cache
+def _load_export_compatibility_rules() -> tuple[ExportCompatibilityRule, ...]:
     data = json.loads(resources.files(__package__).joinpath(_RULES_RESOURCE).read_text())
     if data.get("schema_version") != 1:
         raise ValueError(
@@ -127,7 +128,7 @@ def resolve_export_compatibility(
     rules: Sequence[ExportCompatibilityRule] | None = None,
 ) -> ExportCompatibilityConfig:
     """Resolve export compatibility for explicit targets or the portable catalog."""
-    rules = EXPORT_COMPATIBILITY_RULES if rules is None else rules
+    rules = load_export_compatibility_rules() if rules is None else rules
     resolved_targets = (
         _catalog_targets() if targets is None else tuple(_coerce_target(t) for t in targets)
     )
@@ -144,18 +145,15 @@ def resolve_export_compatibility(
                 continue
             if transformers_attention is None:
                 transformers_attention = incoming
-                transformers_attention_source = f"{rule.ep}/{rule.device or '*'}"
+                transformers_attention_source = f"{rule.ep or '*'}/{rule.device or '*'}"
             elif transformers_attention != incoming:
                 raise ValueError(
                     "Conflicting export compatibility for transformers_attention: "
                     f"{transformers_attention!r} from {transformers_attention_source} vs "
-                    f"{incoming!r} from {rule.ep}/{rule.device or '*'}"
+                    f"{incoming!r} from {rule.ep or '*'}/{rule.device or '*'}"
                 )
 
-    return ExportCompatibilityConfig(
-        transformers_attention=transformers_attention,
-        is_resolved=True,
-    )
+    return ExportCompatibilityConfig(transformers_attention=transformers_attention)
 
 
 def _catalog_targets() -> tuple[ExportPolicyTarget, ...]:
@@ -195,14 +193,16 @@ def _rule_from_dict(data: object, *, index: int) -> ExportCompatibilityRule:
             f"{_RULES_RESOURCE} rules[{index}].match has unknown field(s): {sorted(match_unknown)}"
         )
     ep = match.get("ep")
-    if not isinstance(ep, str) or not ep:
-        raise ValueError(f"{_RULES_RESOURCE} rules[{index}].match.ep must be a non-empty string")
+    if ep is not None and (not isinstance(ep, str) or not ep):
+        raise ValueError(
+            f"{_RULES_RESOURCE} rules[{index}].match.ep must be a non-empty string or null"
+        )
     device = match.get("device")
     if device is not None and not isinstance(device, str):
         raise ValueError(f"{_RULES_RESOURCE} rules[{index}].match.device must be a string or null")
 
     export = data.get("export")
-    compatibility = ExportCompatibilityConfig.from_dict(export, is_resolved=False)
+    compatibility = ExportCompatibilityConfig.from_dict(export)
     reason = data.get("reason")
     if not isinstance(reason, str) or not reason:
         raise ValueError(f"{_RULES_RESOURCE} rules[{index}].reason must be a non-empty string")
@@ -213,6 +213,3 @@ def _rule_from_dict(data: object, *, index: int) -> ExportCompatibilityRule:
         compatibility=compatibility,
         reason=reason,
     )
-
-
-EXPORT_COMPATIBILITY_RULES: tuple[ExportCompatibilityRule, ...] = load_export_compatibility_rules()

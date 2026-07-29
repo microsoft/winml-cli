@@ -29,21 +29,20 @@ def test_default_rules_load_from_json_catalog() -> None:
 
     assert rules == (
         ExportCompatibilityRule(
-            ep="QNNExecutionProvider",
+            ep=None,
             device=None,
             compatibility=ExportCompatibilityConfig(transformers_attention="eager"),
-            reason="QNN does not reliably support SDPA-exported attention guard paths.",
+            reason="Transformers SDPA-exported attention guard paths are not broadly portable.",
         ),
     )
 
 
-def test_non_qnn_target_does_not_force_transformers_attention() -> None:
+def test_global_rule_forces_transformers_attention_for_non_qnn_target() -> None:
     cfg = resolve_export_compatibility(
         [ExportPolicyTarget(ep="DmlExecutionProvider", device="gpu")]
     )
 
-    assert cfg.transformers_attention is None
-    assert cfg.to_dict() == {}
+    assert cfg.transformers_attention == "eager"
 
 
 def test_no_targets_uses_supported_catalog_and_includes_qnn_requirement() -> None:

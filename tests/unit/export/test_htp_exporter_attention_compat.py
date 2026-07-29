@@ -31,6 +31,31 @@ class _AttentionConfig:
         self._attn_implementation = implementation
 
 
+class _CascadingAttentionConfig:
+    """HF-style config whose setter cascades attention into child configs."""
+
+    model_type = "fake"
+
+    def __init__(
+        self,
+        implementation: str,
+        *,
+        sub_configs: list[_CascadingAttentionConfig] | None = None,
+    ) -> None:
+        self._implementation = implementation
+        self.sub_configs = sub_configs or []
+
+    @property
+    def _attn_implementation(self) -> str:
+        return self._implementation
+
+    @_attn_implementation.setter
+    def _attn_implementation(self, value: str) -> None:
+        self._implementation = value
+        for config in self.sub_configs:
+            config._attn_implementation = value
+
+
 class _NestedAttentionModel(nn.Module):
     """Model with root and child configs to mirror HF module trees."""
 
@@ -39,6 +64,20 @@ class _NestedAttentionModel(nn.Module):
         self.config = _AttentionConfig()
         self.proj = nn.Linear(2, 2)
         self.proj.config = _AttentionConfig()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.proj(x)
+
+
+class _CascadingAttentionModel(nn.Module):
+    """Model shaped like HF composite configs where the root setter recurses."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        child_config = _CascadingAttentionConfig("flash_attention_2")
+        self.config = _CascadingAttentionConfig("sdpa", sub_configs=[child_config])
+        self.proj = nn.Linear(2, 2)
+        self.proj.config = child_config
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.proj(x)
@@ -78,6 +117,32 @@ def test_htp_exporter_uses_eager_attention_when_policy_requests_it(
     assert captured == {"root": "eager", "child": "eager"}
     assert model.config._attn_implementation == "sdpa"
     assert model.proj.config._attn_implementation == "sdpa"
+
+
+def test_htp_exporter_restores_nested_attention_configs_losslessly(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    model = _CascadingAttentionModel()
+    captured: dict[str, str] = {}
+
+    def fake_export(*args: object, **kwargs: object) -> None:
+        captured["root"] = model.config._attn_implementation
+        captured["child"] = model.proj.config._attn_implementation
+
+    monkeypatch.setattr(torch.onnx, "export", fake_export)
+
+    HTPExporter()._convert_model_to_onnx(
+        model,
+        str(tmp_path / "model.onnx"),
+        {"x": torch.ones(1, 2)},
+        _export_config(eager_attention=True),
+        task=None,
+    )
+
+    assert captured == {"root": "eager", "child": "eager"}
+    assert model.config._attn_implementation == "sdpa"
+    assert model.proj.config._attn_implementation == "flash_attention_2"
 
 
 def test_htp_exporter_leaves_attention_unchanged_without_policy(

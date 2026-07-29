@@ -216,7 +216,6 @@ class TestPerfUnifiedPipeline:
         benchmark._load_model()
 
         assert received["ep_device"] is fake_ep_device
-        assert "export_target_was_explicit" not in received
 
     def test_close_releases_single_model_session(self) -> None:
         """Closing a benchmark resets the loaded model's native session."""
