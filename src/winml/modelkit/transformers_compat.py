@@ -2,17 +2,20 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Compat shim for optimum-onnx 0.1.0 against transformers 5.x, armed lazily.
+"""Compatibility helpers for transformers-dependent export paths.
+
+The import hook below provides an optimum-onnx 0.1.0 shim against transformers
+5.x, armed lazily.
 
 optimum-onnx 0.1.0 (last PyPI release as of 2026-04-30) hardcodes imports
 against transformers 4.x internals. This module re-injects those symbols so
 optimum-onnx's imports succeed on transformers 5.x.
 
-Module load only inserts a ``sys.meta_path`` finder — it does NOT load
-transformers. The finder calls :func:`install` the first time anything
-imports ``optimum.*``; :func:`install` is idempotent. Lightweight commands
-that never touch optimum (``winml sys``, ``winml --help``) pay zero
-transformers cost.
+Module load only defines lightweight helpers and inserts a ``sys.meta_path``
+finder — it does NOT load transformers. The finder calls :func:`install` the
+first time anything imports ``optimum.*``; :func:`install` is idempotent.
+Lightweight commands that never touch optimum (``winml sys``, ``winml --help``)
+pay zero transformers cost.
 
 Drop this file (and the corresponding override in pyproject.toml) once
 optimum-onnx 0.2+ ships with transformers 5.x compatibility.
@@ -20,15 +23,18 @@ optimum-onnx 0.2+ ships with transformers 5.x compatibility.
 
 from __future__ import annotations
 
+import contextlib
 import sys
 from importlib.abc import Loader, MetaPathFinder
 from typing import TYPE_CHECKING, Any, cast
 
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterator, Sequence
     from importlib.machinery import ModuleSpec
     from types import ModuleType
+
+    import torch.nn as nn
 
 
 _installed = False
@@ -38,6 +44,34 @@ _installed = False
 # it finishes executing (see _PatchModelPatcherLoader), not while install()
 # is still running.
 _MODEL_PATCHER_MODULE = "optimum.exporters.onnx.model_patcher"
+
+
+@contextlib.contextmanager
+def use_eager_attention_for_export(model: nn.Module) -> Iterator[None]:
+    """Temporarily prefer eager attention on HF-style module configs."""
+    restored: list[tuple[object, object]] = []
+    seen_configs: set[int] = set()
+
+    for module in model.modules():
+        config = getattr(module, "config", None)
+        if config is None or id(config) in seen_configs:
+            continue
+        seen_configs.add(id(config))
+        if not hasattr(config, "_attn_implementation"):
+            continue
+
+        current = config._attn_implementation
+        if current in (None, "eager"):
+            continue
+
+        config._attn_implementation = "eager"
+        restored.append((config, current))
+
+    try:
+        yield
+    finally:
+        for config, previous in reversed(restored):
+            config._attn_implementation = previous
 
 
 def install() -> None:
