@@ -16,9 +16,16 @@ We export the decode of a *single spatial tile* as one graph:
   * Spatial height/width are **dynamic** so the smaller edge tiles decode at
     their true size (exact parity with tiled_decode, no padding).
 
+Because unrolling fixes the latent frame count, the graph has a frame
+*capacity* rather than a dynamic frame axis. The decode is strictly **causal**
+in time, though, so a shorter latent can simply be zero-padded up to the
+capacity and the extra output frames dropped -- bit-exact, no seams. Use
+``--lat-frames`` to build a graph for a different capacity.
+
 The outer spatial tiling + blend loop stays in Python (see run_vae_onnx.py), so
 all heavy compute (convs, group/RMS norms, upsamples) runs in ORT on any EP.
 """
+import argparse
 import os
 
 import torch
@@ -63,21 +70,31 @@ class VaeDecoderTile(torch.nn.Module):
 
 
 def main():
-    os.makedirs(OUT_DIR, exist_ok=True)
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--lat-frames", type=int, default=LAT_FRAMES,
+                    help=f"latent frame capacity (default {LAT_FRAMES} -> "
+                         f"{(LAT_FRAMES - 1) * 4 + 1} output frames)")
+    ap.add_argument("--out", default=FP32_PATH, help="output .onnx path")
+    args = ap.parse_args()
+
+    os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     print("Loading VAE (fp32) ...")
     vae = AutoencoderKLWan.from_pretrained(
         MODEL_ID, subfolder="vae", torch_dtype=torch.float32).eval()
 
-    model = VaeDecoderTile(vae, LAT_FRAMES).eval()
+    model = VaeDecoderTile(vae, args.lat_frames).eval()
 
     # A min-size latent tile (32x32) is enough to trace the graph; spatial dims
     # are exported dynamic so any tile size (incl. smaller edge tiles) works.
-    z = torch.randn(1, vae.config.z_dim, LAT_FRAMES, 32, 32, dtype=torch.float32)
+    z = torch.randn(1, vae.config.z_dim, args.lat_frames, 32, 32,
+                    dtype=torch.float32)
 
     h = Dim("h", min=2, max=256)
     w = Dim("w", min=2, max=256)
 
-    print("Exporting VAE decoder to ONNX fp32 (dynamo / torch.export) ...")
+    print(f"Exporting VAE decoder to ONNX fp32 "
+          f"({args.lat_frames} latent frames -> "
+          f"{(args.lat_frames - 1) * 4 + 1} output frames, dynamic H/W) ...")
     onnx_program = torch.onnx.export(
         model,
         (z,),
@@ -87,8 +104,8 @@ def main():
         opset_version=OPSET,
         dynamo=True,
     )
-    onnx_program.save(FP32_PATH, external_data=True)
-    print(f"Saved fp32 VAE decoder ONNX to {FP32_PATH}")
+    onnx_program.save(args.out, external_data=True)
+    print(f"Saved fp32 VAE decoder ONNX to {args.out}")
 
 
 if __name__ == "__main__":
