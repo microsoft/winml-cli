@@ -1094,8 +1094,9 @@ def test_try_qhas_uses_csv_bound_artifacts(tmp_path, monkeypatch):
         seen_logs.append(log)
         seen_schematics.append(selected_schematic)
         seen_outputs.append(output)
-        _write_minimal_qhas(output)
-        return output
+        summary_output = output.with_name(f"{output.stem}_qnn_htp_analysis_summary.json")
+        _write_minimal_qhas(summary_output)
+        return summary_output
 
     monkeypatch.setattr(
         "winml.modelkit.session.monitor.qnn_monitor.find_qnn_sdk",
@@ -1113,7 +1114,7 @@ def test_try_qhas_uses_csv_bound_artifacts(tmp_path, monkeypatch):
     assert seen_outputs == [qhas_output]
     assert summary is not None
     assert operators is not None
-    assert result_path == qhas_output
+    assert result_path == qhas_output.with_name(f"{qhas_output.stem}_qnn_htp_analysis_summary.json")
 
 
 def test_try_qhas_ignores_other_runs_newer_qnn_log(tmp_path, monkeypatch):

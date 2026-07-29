@@ -458,10 +458,8 @@ def ep_option(
 def ep_options_option(optional_message: str | None = None) -> Callable[[F], F]:
     """Add a repeatable ``--ep-options KEY=VALUE`` option to a Click command.
 
-    Collects runtime EP provider options (e.g. QNN ``htp_performance_mode``)
-    that are forwarded to ``add_provider_for_devices`` when the inference
-    session is created. Distinct from build-time provider options set via
-    ``--config``: these affect the runtime session, not the compiled graph.
+    Collects EP provider options (e.g. QNN ``htp_performance_mode``) that are
+    forwarded when the command creates its execution-provider session.
 
     Use :func:`parse_ep_options` to turn the collected tuple into a dict.
 
@@ -472,8 +470,8 @@ def ep_options_option(optional_message: str | None = None) -> Callable[[F], F]:
         Decorator function.
     """
     help_text = (
-        "Runtime EP provider option as KEY=VALUE (repeatable). Forwarded to the "
-        "inference session's execution provider (e.g. "
+        "EP provider option as KEY=VALUE (repeatable). Forwarded to the command's "
+        "execution-provider session (e.g. "
         "--ep-options htp_performance_mode=burst). Duplicate keys: later "
         "occurrence wins."
     )

@@ -161,6 +161,7 @@ class RuntimeChecker:
         run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
         on_node_result: Callable | None = None,
+        node_output_filter: set[str] | None = None,
     ) -> list[PatternRuntime]:
         """Check operator-level runtime support.
 
@@ -185,6 +186,12 @@ class RuntimeChecker:
                   level enum. Call ``.value`` to get the string, e.g.
                   ``"supported"``, ``"partial"``, ``"unsupported"``,
                   ``"unknown"``.
+            node_output_filter: Optional set of output tensor names. When
+                provided, only nodes that produce at least one of these tensors
+                are checked; all other nodes are skipped. This lets callers
+                restrict the check to a specific subset of the graph (e.g. the
+                operators an optimization introduced) without paying to check
+                every node.
 
         Returns:
             List[PatternRuntime]: Runtime results for each operator pattern
@@ -228,6 +235,11 @@ class RuntimeChecker:
         # Use tqdm for progress unless caller provides a callback
         iterator = nodes if on_node_result else tqdm.tqdm(nodes)
         for node in iterator:
+            if node_output_filter is not None and not (
+                node_output_filter.intersection(node.output)
+            ):
+                # Node is outside the requested subset — skip it.
+                continue
             node_start = time.perf_counter()
             result = query.run_for_node(
                 node,

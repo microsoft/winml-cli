@@ -1117,11 +1117,9 @@ class PerfBenchmark:
         The EP monitor is integrated into ``session.perf()`` so op-tracing
         observes the user's actual benchmark iterations.
 
-        HWMonitor (system-wide CPU/RAM/NPU metrics) is engaged when available
-        AND either ``--monitor`` was set or HW data is otherwise needed. When
-        HWMonitor is unavailable but op-tracing is still requested, the run
-        proceeds with the EP monitor only — op-tracing is the headline goal
-        and must not be blocked by missing HW telemetry.
+        HWMonitor (system-wide CPU/RAM/NPU metrics) is engaged only when
+        ``--monitor`` was set. Op-tracing still uses the EP monitor required to
+        collect its profiling artifacts, without enabling hardware telemetry.
         """
         from ..session.monitor.hw_monitor import HWMonitor
 
@@ -1142,10 +1140,9 @@ class PerfBenchmark:
             output_dir=output_dir,
         )
 
-        # HWMonitor is best-effort: required only for the live-chart UI on
-        # --monitor. When it's unavailable but op-tracing is requested, run
-        # without HW telemetry rather than degrading op-tracing to a no-op.
-        hw_available = HWMonitor.is_available()
+        # Keep system telemetry under explicit --monitor control. The EP monitor
+        # remains active independently when op-tracing needs profiling data.
+        hw_available = self.config.monitor and HWMonitor.is_available()
         if self.config.monitor and not hw_available:
             Console(stderr=True).print(
                 "[yellow]Warning:[/yellow] HWMonitor unavailable on this system. "
@@ -1191,7 +1188,8 @@ class PerfBenchmark:
             if ep_dict:  # NullEPMonitor returns {}, real monitors return data
                 self._hw_metrics["ep_proof"] = ep_dict
         else:
-            # HW unavailable: run with EP monitor only (op-tracing path).
+            # No --monitor (or HWMonitor unavailable): run with the EP monitor
+            # only so op-tracing and proof-of-execution still work.
             with session.perf(warmup=self.config.warmup, monitor=ep_monitor) as ctx:
                 _run_simple_loop(
                     session,

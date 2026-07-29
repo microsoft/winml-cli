@@ -345,6 +345,115 @@ class TestOpTracingIterationsSmartDefault:
         assert captured.get("iterations") == 100
 
 
+class TestOpTracingHardwareMonitor:
+    """--op-tracing must not implicitly enable system hardware monitoring."""
+
+    def test_op_tracing_without_monitor_uses_only_ep_monitor(self):
+        from winml.modelkit.commands.perf import BenchmarkConfig, PerfBenchmark
+
+        config = BenchmarkConfig(
+            model_id="fake/model",
+            device="npu",
+            ep="qnn",
+            iterations=1,
+            warmup=0,
+            monitor=False,
+            op_tracing="detail",
+        )
+        benchmark = PerfBenchmark(config)
+        benchmark._inputs = {}
+
+        ep_monitor = MagicMock()
+        ep_monitor.result = None
+        ep_monitor.to_dict.return_value = {"ep": "qnn"}
+        ctx = MagicMock()
+        ctx.monitor = ep_monitor
+        ctx.stats = MagicMock()
+        session = MagicMock()
+        session.perf.return_value.__enter__.return_value = ctx
+        benchmark._model = SimpleNamespace(
+            _session=session,
+            ep_name="QNNExecutionProvider",
+            device="npu",
+        )
+
+        hw_monitor = MagicMock()
+        with (
+            patch(
+                "winml.modelkit.commands.perf._open_ep_monitor_or_exit",
+                return_value=ep_monitor,
+            ),
+            patch(
+                "winml.modelkit.session.monitor.hw_monitor.HWMonitor",
+                hw_monitor,
+            ),
+            patch("winml.modelkit.commands.perf._run_simple_loop") as simple_loop,
+            patch("winml.modelkit.commands.perf._run_monitored_loop") as monitored_loop,
+        ):
+            result = benchmark._run_benchmark_monitored()
+
+        assert result is ctx.stats
+        hw_monitor.is_available.assert_not_called()
+        hw_monitor.assert_not_called()
+        simple_loop.assert_called_once()
+        monitored_loop.assert_not_called()
+        session.perf.assert_called_once_with(warmup=0, monitor=ep_monitor)
+
+    def test_op_tracing_with_monitor_enables_hardware_monitor(self):
+        from winml.modelkit.commands.perf import BenchmarkConfig, PerfBenchmark
+
+        config = BenchmarkConfig(
+            model_id="fake/model",
+            device="npu",
+            ep="qnn",
+            iterations=1,
+            warmup=0,
+            monitor=True,
+            op_tracing="detail",
+        )
+        benchmark = PerfBenchmark(config)
+        benchmark._inputs = {}
+
+        ep_monitor = MagicMock()
+        ep_monitor.result = None
+        ep_monitor.to_dict.return_value = {"ep": "qnn"}
+        ctx = MagicMock()
+        ctx.monitor = ep_monitor
+        ctx.stats = MagicMock()
+        session = MagicMock()
+        session.perf.return_value.__enter__.return_value = ctx
+        benchmark._model = SimpleNamespace(
+            _session=session,
+            ep_name="QNNExecutionProvider",
+            device="npu",
+        )
+
+        hw = MagicMock()
+        hw.__enter__.return_value = hw
+        hw.to_dict.return_value = {"monitor": "HWMonitor"}
+        hw_monitor = MagicMock(return_value=hw)
+        hw_monitor.is_available.return_value = True
+        with (
+            patch(
+                "winml.modelkit.commands.perf._open_ep_monitor_or_exit",
+                return_value=ep_monitor,
+            ),
+            patch(
+                "winml.modelkit.session.monitor.hw_monitor.HWMonitor",
+                hw_monitor,
+            ),
+            patch("winml.modelkit.commands.perf._run_simple_loop") as simple_loop,
+            patch("winml.modelkit.commands.perf._run_monitored_loop") as monitored_loop,
+        ):
+            result = benchmark._run_benchmark_monitored()
+
+        assert result is ctx.stats
+        hw_monitor.is_available.assert_called_once_with()
+        hw_monitor.assert_called_once()
+        simple_loop.assert_not_called()
+        monitored_loop.assert_called_once()
+
+
 class _ConfigStub:
     """Lightweight stand-in for BenchmarkConfig used by capture tests."""
 
