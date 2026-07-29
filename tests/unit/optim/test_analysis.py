@@ -22,6 +22,7 @@ from winml.modelkit.optim import (
     iter_optimization_outputs,
 )
 from winml.modelkit.optim.analysis import (
+    _clone,
     _collect_initializers,
     _collect_nodes,
     _diff_initializers,
@@ -177,6 +178,64 @@ class TestInitializerDiff:
         assert removed == []
         assert added == []
         assert modified == ["BIG"]
+
+
+class TestClone:
+    """_clone produces a fully independent deep copy (subgraphs + initializers)."""
+
+    @staticmethod
+    def _model_with_subgraph() -> ModelProto:
+        then_graph = helper.make_graph(
+            [helper.make_node("Identity", ["x"], ["t"], name="then_id")],
+            "then",
+            [],
+            [helper.make_tensor_value_info("t", TensorProto.FLOAT, [1])],
+        )
+        else_graph = helper.make_graph(
+            [helper.make_node("Identity", ["x"], ["e"], name="else_id")],
+            "else",
+            [],
+            [helper.make_tensor_value_info("e", TensorProto.FLOAT, [1])],
+        )
+        w = numpy_helper.from_array(np.ones(4, np.float32), "W")
+        outer = helper.make_graph(
+            [
+                helper.make_node(
+                    "If",
+                    ["cond"],
+                    ["out"],
+                    name="if",
+                    then_branch=then_graph,
+                    else_branch=else_graph,
+                )
+            ],
+            "outer",
+            [helper.make_tensor_value_info("cond", TensorProto.BOOL, [])],
+            [helper.make_tensor_value_info("out", TensorProto.FLOAT, [1])],
+            initializer=[w],
+        )
+        return _finalize(outer)
+
+    def test_mutating_original_does_not_affect_clone(self) -> None:
+        model = self._model_with_subgraph()
+        clone = _clone(model)
+        snapshot = clone.SerializeToString()
+
+        # Mutate the original in several places, including a nested subgraph node
+        # and an initializer, to prove the copy shares no nested state.
+        model.graph.node[0].name = "if_renamed"
+        then_attr = next(a for a in model.graph.node[0].attribute if a.name == "then_branch")
+        then_attr.g.node[0].op_type = "Relu"
+        model.graph.initializer[0].CopyFrom(numpy_helper.from_array(np.zeros(4, np.float32), "W"))
+
+        # The clone is byte-for-byte unchanged by any of those mutations.
+        assert clone.SerializeToString() == snapshot
+        assert clone.graph.node[0].name == "if"
+        clone_then = next(a for a in clone.graph.node[0].attribute if a.name == "then_branch").g
+        assert clone_then.node[0].op_type == "Identity"
+        np.testing.assert_array_equal(
+            numpy_helper.to_array(clone.graph.initializer[0]), np.ones(4, np.float32)
+        )
 
 
 # =============================================================================

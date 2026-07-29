@@ -148,6 +148,14 @@ def _node_identity(node: NodeProto) -> tuple[Any, ...]:
     node identifiable even when its inputs are rewired or its attributes change
     (that manifests as a "modified" node rather than a remove+add pair).
 
+    Conversely, an optimization that *renames* a node's outputs (e.g. a MatMul
+    output ``mm`` -> ``mm/MatMulAddFusion``) changes this key, so the same
+    logical node is reported as a remove + add pair rather than a single
+    modification. This is an intentional semantics choice: the diff describes
+    the concrete graph delta (which tensors/nodes appear and disappear), not a
+    logical node-to-node correspondence, so output renames can inflate the
+    removed/added counts even though the net effect is a single rewritten node.
+
     Nodes without outputs (rare) fall back to a structural signature.
     """
     if len(node.output) > 0:

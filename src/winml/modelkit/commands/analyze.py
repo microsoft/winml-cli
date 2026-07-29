@@ -1210,6 +1210,15 @@ def analyze(
                 )
                 optim_proto = onnx.load(str(model))
                 optim_outputs = list(iter_optimization_outputs(optim_proto, get_all_capabilities()))
+                # Each entry retains a full produced-model clone so the (cheap)
+                # per-target support lookup below can reuse them across every
+                # resolved EP/device without re-running the probe. The trade-off
+                # is peak memory ~ (#applicable optimizations x model size); log
+                # the count so that cost is visible for large models.
+                logger.info(
+                    "Probed %d applicable optimization(s) for output support checking",
+                    len(optim_outputs),
+                )
             except Exception as exc:
                 logger.warning("Could not probe optimization outputs: %s", exc)
                 optim_outputs = []
