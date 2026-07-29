@@ -914,7 +914,7 @@ def _build_runtime_debug_output_path(model_path: Path, ep_name: str, device_name
     help="Save auto-discovered optimization config to JSON file",
 )
 @click.option(
-    "--check-optim-output/--no-check-optim-output",
+    "--check-optim/--no-check-optim",
     default=False,
     help=(
         "For each optimization that would change the model, check whether the "
@@ -940,7 +940,7 @@ def analyze(
     debug: bool,
     save_node: tuple[str, ...],
     optim_config: Path | None,
-    check_optim_output: bool,
+    check_optim: bool,
 ) -> None:
     r"""Analyze ONNX model for runtime support with live progress.
 
@@ -1194,11 +1194,11 @@ def analyze(
         console = Console(stderr=True)
 
         # Optionally probe which optimizations would change the model and what
-        # operators they would introduce. The dry-run is target-independent, so
+        # operators they would introduce. This probe is target-independent, so
         # materialize it once here and only re-run the (cheap) support lookup per
         # EP/device below. Console-only feature — skipped in quiet mode.
         optim_outputs: list[tuple[Any, Any]] = []
-        if check_optim_output and not quiet:
+        if check_optim and not quiet:
             try:
                 import onnx
 
@@ -1513,7 +1513,7 @@ def analyze(
                         console.print()
 
                     # Optimization output support section (per-EP), when opted in.
-                    if check_optim_output:
+                    if check_optim:
                         from ..analyze.optim_output import check_optimization_output_support
 
                         optim_support = check_optimization_output_support(

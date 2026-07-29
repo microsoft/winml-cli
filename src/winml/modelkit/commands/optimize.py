@@ -152,8 +152,8 @@ def capability_options(func: F) -> F:
     return func
 
 
-def _render_dry_run(findings: list[Any], verbose: bool) -> None:
-    """Render the applicability report produced by a dry run.
+def _render_check_optim(findings: list[Any], verbose: bool) -> None:
+    """Render the applicability report produced by a ``--check-optim`` probe.
 
     Args:
         findings: Applicable ``CapabilityFinding`` objects in pipeline order.
@@ -227,7 +227,7 @@ def _render_dry_run(findings: list[Any], verbose: bool) -> None:
     )
 
 
-def _run_dry_run(model: Path, all_caps: dict[str, Any], verbose: bool) -> None:
+def _run_check_optim(model: Path, all_caps: dict[str, Any], verbose: bool) -> None:
     """Probe which optimizations apply to the model and print a report.
 
     No output file is written. Every boolean capability that is off by default
@@ -245,7 +245,9 @@ def _run_dry_run(model: Path, all_caps: dict[str, Any], verbose: bool) -> None:
     )
 
     console.print(f"[bold blue]Input:[/bold blue] {model}")
-    console.print("[dim]Dry run — analyzing applicable optimizations (no output written).[/dim]")
+    console.print(
+        "[dim]--check-optim — analyzing applicable optimizations (no output written).[/dim]"
+    )
     console.print("\n[bold]Loading model...[/bold]")
     onnx_model = load_onnx(model)
 
@@ -256,7 +258,7 @@ def _run_dry_run(model: Path, all_caps: dict[str, Any], verbose: bool) -> None:
     with console.status("[bold]Analyzing...[/bold]", spinner="dots"):
         findings = analyze_model(onnx_model, all_caps)
 
-    _render_dry_run(findings, verbose)
+    _render_check_optim(findings, verbose)
 
 
 @click.command()
@@ -274,7 +276,7 @@ def _run_dry_run(model: Path, all_caps: dict[str, Any], verbose: bool) -> None:
     help="List available pattern rewrite families and exit",
 )
 @click.option(
-    "--dry-run",
+    "--check-optim",
     is_flag=True,
     default=False,
     help="Analyze which optimizations apply to the model (and the nodes they "
@@ -302,7 +304,7 @@ def optimize(
     ctx: click.Context,
     list_capabilities: bool,
     list_rewrites: bool,
-    dry_run: bool,
+    check_optim: bool,
     model: Path | None,
     output: Path | None,
     overwrite: bool,
@@ -333,7 +335,7 @@ def optimize(
 
         # Check which optimizations apply to a model (and the nodes they
         # affect) without writing any output
-        winml optimize -m model.onnx --dry-run
+        winml optimize -m model.onnx --check-optim
 
         # Pattern rewrite flags follow: --enable-{source-slug}-{target-slug}
         # Run --list-rewrites to discover all available flag names.
@@ -460,9 +462,9 @@ def optimize(
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
 
-    # Handle --dry-run: report which optimizations apply, write nothing.
-    if dry_run:
-        _run_dry_run(model, all_caps, bool(verbose))
+    # Handle --check-optim: report which optimizations apply, write nothing.
+    if check_optim:
+        _run_check_optim(model, all_caps, bool(verbose))
         return
 
     # Import optimizer

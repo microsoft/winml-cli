@@ -28,7 +28,7 @@ $ winml analyze [options]
 | `--run-unknown-op` / `--no-run-unknown-op` | | flag | disabled | For operators not in the rule database, build a minimal ONNX graph and run it on the target EP locally to determine support. Enable when local EP libraries are available. |
 | `--save-node` | | `partial\|unsupported` | *(none)* | Save partial or unsupported node subgraphs to disk for further investigation. Can be specified multiple times: `--save-node partial --save-node unsupported`. |
 | `--optim-config` | | `PATH` | *(none)* | Save the auto-discovered optimization config (merged across all analyzed EPs) to a JSON file. |
-| `--check-optim-output` / `--no-check-optim-output` | | flag | disabled | For each optimization that would change the model, check whether the operators it *introduces* (its added/modified nodes) are supported on the resolved EP/device. Answers "if I apply this optimization, will its output run on my target?" before you commit to it. |
+| `--check-optim` / `--no-check-optim` | | flag | disabled | For each optimization that would change the model, check whether the operators it *introduces* (its added/modified nodes) are supported on the resolved EP/device. Answers "if I apply this optimization, will its output run on my target?" before you commit to it. |
 
 ## How it works
 
@@ -106,7 +106,7 @@ $ winml analyze --model model.onnx --ep qnn --device NPU --run-unknown-op
 Check whether the operators each applicable optimization would introduce are supported on the target:
 
 ```bash
-$ winml analyze --model model.onnx --ep qnn --device NPU --check-optim-output
+$ winml analyze --model model.onnx --ep qnn --device NPU --check-optim
 ```
 
 ## Common pitfalls

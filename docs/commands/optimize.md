@@ -22,7 +22,7 @@ $ winml optimize [options]
 | `--verbose` | `-v` | flag | off | Enable verbose output. |
 | `--list-capabilities` | `-l` | flag | off | Print all registered optimization capabilities grouped by category and exit. Add `--verbose` for descriptions and ORT names. |
 | `--list-rewrites` | | flag | off | Print all available pattern-rewrite families with their source-to-target mappings and exit. |
-| `--dry-run` | | flag | off | Analyze which optimizations would apply to `--model` and the nodes/constants they affect, then exit **without writing any output**. Probes every capability independently. |
+| `--check-optim` | | flag | off | Analyze which optimizations would apply to `--model` and the nodes/constants they affect, then exit **without writing any output**. Probes every capability independently. |
 | *(dynamic)* | | flag | *(per capability)* | Each registered capability generates a `--enable-<name>` / `--disable-<name>` pair. Run `--list-capabilities` to see the full current list. Examples: `--enable-gelu-fusion`, `--disable-constant-folding`. Pattern-rewrite flags follow the form `--enable-<source-slug>-<target-slug>`; run `--list-rewrites` to discover all names. |
 
 ### Configuration precedence
@@ -89,12 +89,12 @@ $ winml optimize --list-rewrites
 Check which optimizations apply to a model before committing to a run (writes nothing):
 
 ```bash
-$ winml optimize -m bert-base-uncased.onnx --dry-run
+$ winml optimize -m bert-base-uncased.onnx --check-optim
 ```
 
 ```text
 Input: bert-base-uncased.onnx
-Dry run — analyzing applicable optimizations (no output written).
+--check-optim — analyzing applicable optimizations (no output written).
 
 Loading model...
 Probing 61 optimization capabilities... (this can take a while on large models)

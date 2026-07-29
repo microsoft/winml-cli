@@ -2140,8 +2140,8 @@ class TestAnalyzeFormatJson:
         assert "metadata" in file_data
 
 
-class TestAnalyzeCheckOptimOutput:
-    """Test the --check-optim-output flag wiring and rendering."""
+class TestAnalyzeCheckOptim:
+    """Test the --check-optim flag wiring and rendering."""
 
     @staticmethod
     def _write_model(path: Path) -> None:
@@ -2166,7 +2166,7 @@ class TestAnalyzeCheckOptimOutput:
     def test_flag_appears_in_help(self, runner: CliRunner) -> None:
         result = runner.invoke(analyze, ["--help"])
         assert result.exit_code == 0
-        assert "--check-optim-output" in result.output
+        assert "--check-optim" in result.output
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
     def test_opt_in_renders_section(
@@ -2177,7 +2177,7 @@ class TestAnalyzeCheckOptimOutput:
         mock_analyzer_result: Mock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """--check-optim-output renders a produced-operator support section."""
+        """--check-optim renders a produced-operator support section."""
         from winml.modelkit.analyze.models.support_level import SupportLevel
         from winml.modelkit.analyze.optim_output import (
             OptimizationOutputSupport,
@@ -2219,7 +2219,7 @@ class TestAnalyzeCheckOptimOutput:
                 "qnn",
                 "--device",
                 "NPU",
-                "--check-optim-output",
+                "--check-optim",
             ],
         )
 
