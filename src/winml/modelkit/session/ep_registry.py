@@ -14,6 +14,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, cast
@@ -291,6 +292,7 @@ class WinMLEPRegistry:
     """
 
     _instance: ClassVar[WinMLEPRegistry | None] = None
+    _instance_lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __init__(self) -> None:
         """Discover plugin EPs from the default EP source list.
@@ -366,6 +368,7 @@ class WinMLEPRegistry:
         # is frozen post-init, so the result never changes; rebuilding
         # on every call wastes work in hot paths (auto_device, --list-ep).
         self._available_eps_cache: frozenset[str] | None = None
+        self._registration_lock = threading.RLock()
 
     def _entries_for(self, ep_full_name: str) -> list[EPEntry]:
         """Return cached EPEntries for the given EP name (no fresh scan).
@@ -408,82 +411,86 @@ class WinMLEPRegistry:
             WinMLEPRegistrationFailed: DLL load failed, or ORT exposed
                 zero matching devices.
         """
-        # BuiltinSource uses _builtin_registered (not _registered) —
-        # Path("") collision avoidance (F-08).
-        if isinstance(entry.source, BuiltinSource):
-            cached = self._builtin_registered.get(entry.ep_name)
-            if cached is not None:
-                return cached
-            all_handles = _ort_get_ep_devices_or_fail(entry)
-            matching = [d for d in all_handles if d.ep_name == entry.ep_name]
-            deduped = _dedup_ort_devices(matching)
-            if not deduped:
-                raise WinMLEPRegistrationFailed(
-                    f"Built-in EP {entry.ep_name!r} exposed no devices via ort.get_ep_devices()."
-                )
-            devices = tuple(WinMLDevice(h) for h in deduped)
-            # arg0 is a semantic placeholder for built-ins; unregister_ep
-            # short-circuits on BuiltinSource.
-            winml_ep = WinMLEP(source=entry, devices=devices, arg0=entry.ep_name)
-            self._builtin_registered[entry.ep_name] = winml_ep
-            return winml_ep
+        with self._registration_lock:
+            # BuiltinSource uses _builtin_registered (not _registered) —
+            # Path("") collision avoidance (F-08).
+            if isinstance(entry.source, BuiltinSource):
+                cached = self._builtin_registered.get(entry.ep_name)
+                if cached is not None:
+                    return cached
+                all_handles = _ort_get_ep_devices_or_fail(entry)
+                matching = [d for d in all_handles if d.ep_name == entry.ep_name]
+                deduped = _dedup_ort_devices(matching)
+                if not deduped:
+                    raise WinMLEPRegistrationFailed(
+                        f"Built-in EP {entry.ep_name!r} exposed no devices "
+                        "via ort.get_ep_devices()."
+                    )
+                devices = tuple(WinMLDevice(h) for h in deduped)
+                # arg0 is a semantic placeholder for built-ins; unregister_ep
+                # short-circuits on BuiltinSource.
+                winml_ep = WinMLEP(source=entry, devices=devices, arg0=entry.ep_name)
+                self._builtin_registered[entry.ep_name] = winml_ep
+                return winml_ep
 
-        # Idempotency: cache hit means this DLL was already loaded by an
-        # earlier call. Return the cached WinMLEP without re-registering
-        # with ORT (which would fail with "library already registered").
-        if entry.dll_path in self._registered:
-            return self._registered[entry.dll_path]
+            # Idempotency: cache hit means this DLL was already loaded by an
+            # earlier call. Return the cached WinMLEP without re-registering
+            # with ORT (which would fail with "library already registered").
+            if entry.dll_path in self._registered:
+                return self._registered[entry.dll_path]
 
-        n = self._registration_count.get(entry.ep_name, 0)
-        arg0 = entry.ep_name if n == 0 else f"{entry.ep_name}_{n}"
+            n = self._registration_count.get(entry.ep_name, 0)
+            arg0 = entry.ep_name if n == 0 else f"{entry.ep_name}_{n}"
 
-        try:
-            # Suppress WER "This app requires ..." dialogs that Windows'
-            # loader raises when a plugin's dependency DLL cascade fails
-            # to resolve — the error surfaces via the ORT exception below,
-            # which the caller renders to the console.
-            with _suppress_dll_load_dialogs():
-                ort.register_execution_provider_library(arg0, str(entry.dll_path))
-        except Exception as exc:
-            raise WinMLEPRegistrationFailed(
-                f"ort.register_execution_provider_library({arg0!r}, "
-                f"{str(entry.dll_path)!r}) failed: {exc}",
-                dll_path=entry.dll_path,
-            ) from exc
-        # Filter ORT's device list by THIS DLL's library_path — the
-        # device's self-reported ep_name is canonical (not suffixed), so
-        # filtering on ep_name would collapse multiple registrations of
-        # the same ep_name into one set.
-        try:
-            all_handles = _ort_get_ep_devices_or_fail(entry)
-            matching = [
-                d for d in all_handles if d.ep_metadata.get("library_path") == str(entry.dll_path)
-            ]
-            deduped = _dedup_ort_devices(matching)
-
-            if not deduped:
-                raise WinMLEPRegistrationFailed(
-                    f"Registered {arg0!r} from {entry.dll_path} but no "
-                    f"OrtEpDevices visible in ort.get_ep_devices().",
-                    dll_path=entry.dll_path,
-                )
-        except WinMLEPRegistrationFailed:
             try:
-                ort.unregister_execution_provider_library(arg0)
-            except Exception:
-                logger.warning(
-                    "Failed to roll back native EP registration %r after "
-                    "device enumeration failure.",
-                    arg0,
-                    exc_info=True,
-                )
-            raise
+                # Suppress WER "This app requires ..." dialogs that Windows'
+                # loader raises when a plugin's dependency DLL cascade fails
+                # to resolve — the error surfaces via the ORT exception below,
+                # which the caller renders to the console.
+                with _suppress_dll_load_dialogs():
+                    ort.register_execution_provider_library(arg0, str(entry.dll_path))
+            except Exception as exc:
+                raise WinMLEPRegistrationFailed(
+                    f"ort.register_execution_provider_library({arg0!r}, "
+                    f"{str(entry.dll_path)!r}) failed: {exc}",
+                    dll_path=entry.dll_path,
+                ) from exc
+            # Filter ORT's device list by THIS DLL's library_path — the
+            # device's self-reported ep_name is canonical (not suffixed), so
+            # filtering on ep_name would collapse multiple registrations of
+            # the same ep_name into one set.
+            try:
+                all_handles = _ort_get_ep_devices_or_fail(entry)
+                matching = [
+                    d
+                    for d in all_handles
+                    if d.ep_metadata.get("library_path") == str(entry.dll_path)
+                ]
+                deduped = _dedup_ort_devices(matching)
 
-        devices = tuple(WinMLDevice(h) for h in deduped)
-        winml_ep = WinMLEP(source=entry, devices=devices, arg0=arg0)
-        self._registered[entry.dll_path] = winml_ep
-        self._registration_count[entry.ep_name] = n + 1
-        return winml_ep
+                if not deduped:
+                    raise WinMLEPRegistrationFailed(
+                        f"Registered {arg0!r} from {entry.dll_path} but no "
+                        f"OrtEpDevices visible in ort.get_ep_devices().",
+                        dll_path=entry.dll_path,
+                    )
+            except WinMLEPRegistrationFailed:
+                try:
+                    ort.unregister_execution_provider_library(arg0)
+                except Exception:
+                    logger.warning(
+                        "Failed to roll back native EP registration %r after "
+                        "device enumeration failure.",
+                        arg0,
+                        exc_info=True,
+                    )
+                raise
+
+            devices = tuple(WinMLDevice(h) for h in deduped)
+            winml_ep = WinMLEP(source=entry, devices=devices, arg0=arg0)
+            self._registered[entry.dll_path] = winml_ep
+            self._registration_count[entry.ep_name] = n + 1
+            return winml_ep
 
     def unregister_ep(self, winml_ep: WinMLEP) -> None:
         """Undo :meth:`register_ep` — evicts from ORT + our cache.
@@ -496,10 +503,11 @@ class WinMLEPRegistry:
         BuiltinSource EPs are wrapped in-process — ORT owns their
         lifecycle, so this method skips them.
         """
-        if isinstance(winml_ep.source.source, BuiltinSource):
-            return
-        ort.unregister_execution_provider_library(winml_ep.arg0)
-        self._registered.pop(winml_ep.source.dll_path, None)
+        with self._registration_lock:
+            if isinstance(winml_ep.source.source, BuiltinSource):
+                return
+            ort.unregister_execution_provider_library(winml_ep.arg0)
+            self._registered.pop(winml_ep.source.dll_path, None)
 
     def auto_device(self, target: EPDeviceTarget) -> WinMLEPDevice:
         """Find the first source satisfying ``target`` (ep + device + optional source).
@@ -635,9 +643,10 @@ class WinMLEPRegistry:
         sites enter through here; direct ``WinMLEPRegistry()`` calls
         bypass the cache and build a fresh instance (used by tests).
         """
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
+        with cls._instance_lock:
+            if cls._instance is None:
+                cls._instance = cls()
+            return cls._instance
 
     # Alias for callers/tests from origin/main that used the earlier name.
     get_instance = instance

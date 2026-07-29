@@ -888,10 +888,16 @@ def _completed_artifact_after_native_teardown_crash(
     """Return the completed artifact when only interpreter/native teardown crashed."""
     if proc.get("timeout") or proc.get("exit_code") not in _WINDOWS_ACCESS_VIOLATION_EXIT_CODES:
         return None
-    return _extract_onnx_path(proc, hf_id, task)
+    return _extract_onnx_path(proc, hf_id, task, allow_cache_fallback=False)
 
 
-def _extract_onnx_path(build_proc: dict, hf_id: str, task: str | None) -> str | None:
+def _extract_onnx_path(
+    build_proc: dict,
+    hf_id: str,
+    task: str | None,
+    *,
+    allow_cache_fallback: bool = True,
+) -> str | None:
     """Extract ONNX path from build subprocess output."""
     # Patterns used by winml build to report the artifact path
     markers = ("Final artifact:", "Existing artifact found:", "Artifact:")
@@ -907,7 +913,7 @@ def _extract_onnx_path(build_proc: dict, hf_id: str, task: str | None) -> str | 
         if onnx_path:
             break
 
-    if not onnx_path or not Path(onnx_path).exists():
+    if allow_cache_fallback and (not onnx_path or not Path(onnx_path).exists()):
         onnx_path = _find_cached_model(hf_id, build_proc, task)
 
     return onnx_path

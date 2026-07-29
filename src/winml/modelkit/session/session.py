@@ -270,8 +270,6 @@ class WinMLSession:
         # ergonomic entry.
         _ergonomic_lazy = False
         if ep_device is None:
-            if ep is not None and device is None:
-                raise TypeError("WinMLSession requires device= when ep= is specified.")
             from .ep_device import EPDeviceTarget, resolve_device
             from .ep_registry import WinMLEPRegistry
 

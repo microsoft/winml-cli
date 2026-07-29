@@ -439,6 +439,27 @@ class TestRunBuildAccessViolationAfterArtifact:
         assert result["stage"] == "complete"
         assert result["onnx_paths"] == {"": str(artifact)}
 
+    def test_access_violation_without_reported_artifact_ignores_stale_cache(
+        self, run_eval, tmp_path
+    ):
+        stale = tmp_path / "stale_model.onnx"
+        stale.write_bytes(b"onnx")
+        proc = {
+            "exit_code": 3221225477,
+            "stdout": "native teardown failed after build\n",
+            "stderr": "",
+        }
+
+        with patch.object(run_eval, "_find_cached_model", return_value=str(stale)) as mock_find:
+            result = run_eval._completed_artifact_after_native_teardown_crash(
+                proc,
+                "google-bert/bert-base-multilingual-cased",
+                "fill-mask",
+            )
+
+        assert result is None
+        mock_find.assert_not_called()
+
 
 class TestRunBuildPrecisionForwarding:
     """``_run_build`` must forward ``--precision`` to both ``winml config`` and

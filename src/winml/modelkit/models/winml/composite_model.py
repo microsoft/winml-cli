@@ -135,6 +135,7 @@ class WinMLCompositeModel(PreTrainedModel):
         force_rebuild: bool = False,
         sub_model_kwargs: dict[str, dict[str, Any]] | None = None,
         trust_remote_code: bool = False,
+        export_target_was_explicit: bool | None = None,
         **kwargs: Any,
     ) -> WinMLCompositeModel:
         """Build all sub-components and return ready-to-use model.
@@ -202,9 +203,13 @@ class WinMLCompositeModel(PreTrainedModel):
                 force_rebuild=force_rebuild,
                 sub_model_kwargs=sub_model_kwargs,
                 trust_remote_code=trust_remote_code,
+                export_target_was_explicit=export_target_was_explicit,
                 **kwargs,
             )
         from ..auto import WinMLAutoModel
+
+        if export_target_was_explicit is None:
+            export_target_was_explicit = ep_device is not None or ep is not None or device != "cpu"
 
         # Sub-model API requires a WinMLEPDevice — derive one from the
         # device short name when the caller didn't hand one in.
@@ -226,6 +231,7 @@ class WinMLCompositeModel(PreTrainedModel):
                 use_cache=use_cache,
                 force_rebuild=force_rebuild,
                 trust_remote_code=trust_remote_code,
+                export_target_was_explicit=export_target_was_explicit,
                 **merged,
             )
 

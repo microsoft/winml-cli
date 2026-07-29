@@ -313,6 +313,7 @@ class WinMLAutoModel:
         no_compile: bool = False,
         skip_optimize: bool = False,
         hack_max_optim_iterations: int = 3,
+        export_target_was_explicit: bool | None = None,
         **kwargs: Any,
     ) -> WinMLPreTrainedModel | WinMLCompositeModel:
         """Load appropriate WinML model based on task detection.
@@ -362,7 +363,10 @@ class WinMLAutoModel:
 
         # Resolve a concrete target before every dispatch path, including
         # composites. Explicit incompatible requests intentionally propagate.
-        export_target_was_explicit = ep_device is not None or device is not None or ep is not None
+        if export_target_was_explicit is None:
+            export_target_was_explicit = (
+                ep_device is not None or device is not None or ep is not None
+            )
         if ep_device is None:
             from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
 
@@ -453,6 +457,7 @@ class WinMLAutoModel:
                     no_compile=no_compile,
                     skip_optimize=skip_optimize,
                     hack_max_optim_iterations=hack_max_optim_iterations,
+                    export_target_was_explicit=export_target_was_explicit,
                     **kwargs,
                 )
 

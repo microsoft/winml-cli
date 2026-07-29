@@ -367,6 +367,9 @@ def _build_eval_config(
     eval_kwargs = cli_utils.collect_cli_overrides(ctx, WinMLEvaluationConfig)
     dataset_kwargs = cli_utils.collect_cli_overrides(ctx, DatasetConfig)
     cfg = WinMLEvaluationConfig(dataset=DatasetConfig(**dataset_kwargs), **eval_kwargs)
+    cfg._export_target_was_explicit = cli_utils.is_cli_provided(
+        ctx, "device"
+    ) or cli_utils.is_cli_provided(ctx, "ep")
 
     # ── Config file layer (only explicitly-present keys) ──
     if config_file is not None:
@@ -381,11 +384,14 @@ def _build_eval_config(
         compile_section = raw.get("compile") or {}
         if "execution_provider" in compile_section:
             cfg.ep = compile_section["execution_provider"]
+            cfg._export_target_was_explicit = True
 
         # Eval section overrides loader/compile fallbacks
         eval_data = raw.get("eval")
         if eval_data:
             cfg = merge_config(cfg, eval_data)
+            if "device" in eval_data or "ep" in eval_data:
+                cfg._export_target_was_explicit = True
 
     # ── CLI layer (highest priority, auto-mapped via metadata) ──
     overrides = cli_utils.collect_cli_overrides(ctx, type(cfg))
@@ -412,6 +418,8 @@ def _build_eval_config(
 
     if overrides:
         cfg = merge_config(cfg, overrides)
+        if "device" in overrides or "ep" in overrides:
+            cfg._export_target_was_explicit = True
 
     return cfg
 

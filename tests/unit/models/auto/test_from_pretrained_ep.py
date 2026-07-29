@@ -183,6 +183,27 @@ def test_portable_policy_is_used_when_no_target_is_supplied(
     assert received["generate_hf_build_config"]["export_policy_targets"] is None
 
 
+def test_pre_resolved_ep_device_can_keep_portable_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Internal callers may pre-resolve runtime target while keeping portable export."""
+    from winml.modelkit.models import WinMLAutoModel
+
+    received = _install_stubs(monkeypatch, compile_provider=None)
+    ep_device = MagicMock()
+    ep_device.device.device_type = "GPU"
+    ep_device.device.ep_name = "DmlExecutionProvider"
+
+    with pytest.raises(_StopAfterEpCheckError):
+        WinMLAutoModel.from_pretrained(
+            "microsoft/resnet-50",
+            ep_device=ep_device,
+            export_target_was_explicit=False,
+        )
+
+    assert received["generate_hf_build_config"]["export_policy_targets"] is None
+
+
 @pytest.mark.parametrize("flag", [True, False])
 def test_allow_unsupported_nodes_reaches_build(monkeypatch: pytest.MonkeyPatch, flag: bool) -> None:
     """``allow_unsupported_nodes`` propagates to build_hf_model (HF path)."""
@@ -250,6 +271,7 @@ def test_allow_unsupported_nodes_reaches_composite(monkeypatch: pytest.MonkeyPat
 
     assert result == "COMPOSITE_SENTINEL"
     assert received.get("allow_unsupported_nodes") is True
+    assert received.get("export_target_was_explicit") is False
 
 
 def test_cache_reuse_does_not_eagerly_load_hf_weights(

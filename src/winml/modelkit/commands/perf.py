@@ -291,6 +291,7 @@ class BenchmarkConfig:
     shape_config: dict | None = None
     op_tracing: str | None = None
     export_overrides: dict[str, Any] | None = None
+    export_target_was_explicit: bool = False
     # Path to a .npz file of real input tensors. When set, benchmarking uses
     # these instead of randomly generated inputs (single-model path only).
     input_data: Path | None = None
@@ -987,6 +988,7 @@ class PerfBenchmark:
             "task": resolved_task,
             "config": override,
             "ep_device": self._ep_device,
+            "export_target_was_explicit": self.config.export_target_was_explicit,
             "precision": self.config.precision,
             "provider_options": self.config.ep_options,
             "use_cache": use_cache,
@@ -2714,16 +2716,20 @@ def perf(
         if not cli_utils.is_cli_provided(ctx, "device"):
             if configured_target is not None:
                 device = configured_target.device
+                export_target_was_explicit = True
             elif "device" in cc:
                 device = cc["device"]
+                export_target_was_explicit = True
         if not cli_utils.is_cli_provided(ctx, "ep"):
             # Normalize to the (ep, source) tuple shape that EpAtSourceParamType
             # produces at parse time, so the downstream unpack is uniform
             # regardless of whether --ep came from the CLI or the config file.
             if configured_target is not None:
                 ep = (configured_target.ep, configured_target.source)
+                export_target_was_explicit = True
             elif "execution_provider" in cc:
                 ep = (cc["execution_provider"], None)
+                export_target_was_explicit = True
 
     # Merge top-level -v/-q with subcommand-level flags so either position works.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
@@ -3010,6 +3016,7 @@ def perf(
         shape_config=shape_config,
         op_tracing=op_tracing,
         export_overrides=export_overrides,
+        export_target_was_explicit=export_target_was_explicit,
         input_data=input_data,
     )
 

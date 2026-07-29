@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 import functools
+from pathlib import Path
 
 from .ep_path import EPSource, discover_all_eps
 
@@ -143,13 +144,12 @@ class WinML:
         # When extra_sources is supplied the caller is explicitly asking
         # for the override path to win — bypass the per-process registered
         # EP-name cache so a second call with new extra_sources isn't
-        # silently no-op'd by the first call's registrations. ORT's
-        # register_execution_provider_library is idempotent for the same
-        # (name, path) pair and returns the existing handle; re-calling
-        # with a different path replaces the registration, which is what
-        # extra_sources callers want.
+        # silently no-op'd by the first call's registrations. If the same
+        # canonical EP is already loaded from a different DLL, register the
+        # override path under a unique ORT key.
         skip_cache = extra_sources is not None
         for name, path in ep_paths.items():
+            requested_path = _canonical_path(path)
             for module in modules:
                 if not skip_cache and name in self._registered_eps[module.__name__]:
                     continue
@@ -158,8 +158,17 @@ class WinML:
                 # no Python traceback (surfaces as STATUS_DLL_NOT_FOUND / 0xC000026F).
                 # WinMLEPRegistry (session/ep_registry.py) may have already registered
                 # this EP in the same process. Consult the live ORT device list first.
+                loaded_devices = []
                 try:
-                    already_loaded = any(d.ep_name == name for d in module.get_ep_devices())
+                    loaded_devices = [d for d in module.get_ep_devices() if d.ep_name == name]
+                    already_loaded = any(
+                        _canonical_path(_device_library_path(d)) == requested_path
+                        for d in loaded_devices
+                    )
+                    if not skip_cache:
+                        already_loaded = already_loaded or any(
+                            _device_library_path(d) is None for d in loaded_devices
+                        )
                 except Exception:
                     already_loaded = False  # conservative: attempt the load
                 if already_loaded:
@@ -167,7 +176,10 @@ class WinML:
                         self._registered_eps[module.__name__].append(name)
                     continue
                 try:
-                    module.register_execution_provider_library(name, path)
+                    arg0 = name
+                    if skip_cache and loaded_devices:
+                        arg0 = f"{name}_{len(self._registered_eps[module.__name__])}"
+                    module.register_execution_provider_library(arg0, path)
                     if name not in self._registered_eps[module.__name__]:
                         self._registered_eps[module.__name__].append(name)
                 except Exception as e:
@@ -176,6 +188,20 @@ class WinML:
                         file=sys.stderr,
                     )
         return self._registered_eps
+
+
+def _canonical_path(path: str | None) -> str | None:
+    if not path:
+        return None
+    return str(Path(path).resolve())
+
+
+def _device_library_path(device: Any) -> str | None:
+    metadata = getattr(device, "ep_metadata", None)
+    if not isinstance(metadata, dict):
+        return None
+    path = metadata.get("library_path")
+    return path if isinstance(path, str) else None
 
 
 def register_execution_providers(

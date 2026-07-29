@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -122,6 +123,41 @@ def test_winml_register_idempotent_on_second_call():
 
     # DLL load happens exactly once regardless of call count.
     assert fake_ort.register_execution_provider_library.call_count == 1
+
+
+def test_winml_extra_sources_registers_distinct_loaded_path():
+    """extra_sources should override an already loaded EP from a different DLL."""
+    instance = _make_winml_instance()
+    winml_mod = _winml_mod()
+
+    loaded_dev = MagicMock()
+    loaded_dev.ep_name = "QNNExecutionProvider"
+    loaded_dev.ep_metadata = {"library_path": str(Path("C:/old/qnn.dll"))}
+    new_entry = SimpleNamespace(
+        ep_name="QNNExecutionProvider",
+        dll_path=Path("C:/new/qnn.dll"),
+        status="primary",
+        source=object(),
+    )
+
+    fake_ort = SimpleNamespace(
+        get_ep_devices=MagicMock(return_value=[loaded_dev]),
+        register_execution_provider_library=MagicMock(),
+        __name__="onnxruntime",
+    )
+
+    with (
+        patch.dict(sys.modules, {"onnxruntime": fake_ort}),
+        patch.object(winml_mod, "discover_all_eps", return_value=[new_entry]),
+    ):
+        result = instance.register_execution_providers(
+            ort=True, ort_genai=False, extra_sources=[MagicMock()]
+        )
+
+    fake_ort.register_execution_provider_library.assert_called_once_with(
+        "QNNExecutionProvider_0", str(Path("C:/new/qnn.dll"))
+    )
+    assert "QNNExecutionProvider" in result["onnxruntime"]
 
 
 def test_winml_register_get_ep_devices_failure_attempts_load():
