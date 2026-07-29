@@ -901,6 +901,9 @@ def build(
         "EPNameOrAlias | None",
         _reject_ep_source(ep, "winml build"),
     )
+    export_target_was_explicit = cli_utils.is_cli_provided(ctx, "ep") or cli_utils.is_cli_provided(
+        ctx, "device"
+    )
 
     # Validate mutual exclusion
     if output_dir and use_cache:
@@ -947,6 +950,14 @@ def build(
         ep_value = cast("EPNameOrAlias", resolved_target.ep)
         logger.info("Auto-resolved device=%s, EP=%s", device, ep_value)
 
+    from ..export.policy import export_policy_targets_for_request
+
+    export_policy_targets = export_policy_targets_for_request(
+        ep=cast("str | None", ep_value),
+        device=device,
+        target_was_explicit=export_target_was_explicit,
+    )
+
     try:
         # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
         # is downloaded once and treated as a local .onnx file thereafter.
@@ -989,6 +1000,13 @@ def build(
                     ]
                 else:
                     config_or_configs = merge_export_overrides(config_or_configs, export_overrides)
+            from ..config.build import apply_export_compatibility_policy
+
+            config_list = (
+                config_or_configs if isinstance(config_or_configs, list) else [config_or_configs]
+            )
+            for cfg in config_list:
+                apply_export_compatibility_policy(cfg, export_policy_targets)
         else:
             if not model:
                 raise click.UsageError("-m/--model is required when -c is not provided.")
@@ -1026,6 +1044,7 @@ def build(
                     ep=ep_value,
                     shape_config=shape_overrides,
                     override={"export": export_overrides} if export_overrides else None,
+                    export_policy_targets=export_policy_targets,
                 )
             if not quant:
                 config_or_configs.quant = None

@@ -362,6 +362,7 @@ class WinMLAutoModel:
 
         # Resolve a concrete target before every dispatch path, including
         # composites. Explicit incompatible requests intentionally propagate.
+        export_target_was_explicit = ep_device is not None or device is not None or ep is not None
         if ep_device is None:
             from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
 
@@ -459,6 +460,7 @@ class WinMLAutoModel:
         # [1] CONFIG PHASE - Generate complete config with I/O specs (Lightweight, ~2s)
         # =====================================================================
         from ..config import generate_hf_build_config
+        from ..export.policy import export_policy_targets_for_request
 
         # Config fields merge on top of defaults, while the already resolved
         # runtime target remains authoritative for quant/compile policy.
@@ -474,6 +476,11 @@ class WinMLAutoModel:
             trust_remote_code=trust_remote_code,
             policy_overrides_config=True,
             no_compile=no_compile,
+            export_policy_targets=export_policy_targets_for_request(
+                ep=_resolved_ep_short_name(ep_device),
+                device=ep_device.device.device_type.lower(),
+                target_was_explicit=export_target_was_explicit,
+            ),
         )
 
         resolved_task = build_config.loader.task

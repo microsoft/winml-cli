@@ -1292,6 +1292,7 @@ def _perf_modules(
     ep_options: dict[str, str] | None = None,
     precision: str = "auto",
     allow_unsupported_nodes: bool = False,
+    export_target_was_explicit: bool = False,
     rebuild: bool = False,
     ignore_cache: bool = False,
 ) -> None:
@@ -1344,6 +1345,7 @@ def _perf_modules(
     from ..build import build_hf_model
     from ..cache import get_cache_dir, get_cache_key, get_model_dir
     from ..config import SubmoduleClassNotFoundError, generate_hf_build_config
+    from ..export.policy import export_policy_targets_for_request
     from ..loader.task import get_task_abbrev
     from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
     from .build import _instantiate_parent_model
@@ -1365,6 +1367,11 @@ def _perf_modules(
             device=resolved_device,
             precision=precision,
             ep=ep,
+            export_policy_targets=export_policy_targets_for_request(
+                ep=ep,
+                device=resolved_device,
+                target_was_explicit=export_target_was_explicit,
+            ),
         )
     except SubmoduleClassNotFoundError as e:
         # User-error: --module pattern didn't match. List what's available so
@@ -2671,6 +2678,9 @@ def perf(
     except Exception as e:
         raise click.ClickException(f"Failed to resolve Hub-hosted ONNX path {model!r}: {e}") from e
     model = hf_model
+    export_target_was_explicit = cli_utils.is_cli_provided(
+        ctx, "device"
+    ) or cli_utils.is_cli_provided(ctx, "ep")
 
     # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
     # op-tracing section the flag is meaningless, so reject it explicitly
@@ -2885,6 +2895,7 @@ def perf(
             ep_options=ep_provider_options,
             precision=precision.lower(),
             allow_unsupported_nodes=allow_unsupported_nodes,
+            export_target_was_explicit=export_target_was_explicit,
             rebuild=rebuild,
             ignore_cache=ignore_cache,
         )

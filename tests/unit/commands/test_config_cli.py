@@ -340,6 +340,39 @@ class TestConfigCliInterface:
         call_kwargs = mock_generate_config.call_args.kwargs
         assert call_kwargs.get("trust_remote_code") is True
 
+    def test_export_policy_targets_default_to_portable_catalog(
+        self,
+        runner: CliRunner,
+        mock_generate_config: MagicMock,
+    ) -> None:
+        from winml.modelkit.commands.config import config
+
+        result = runner.invoke(config, ["-m", "test"])
+        assert result.exit_code == 0, result.output
+        call_kwargs = mock_generate_config.call_args.kwargs
+        assert call_kwargs["export_policy_targets"] is None
+
+    def test_explicit_ep_forwards_export_policy_targets(
+        self,
+        runner: CliRunner,
+        mock_generate_config: MagicMock,
+    ) -> None:
+        from winml.modelkit.commands.config import config
+        from winml.modelkit.export.policy import ExportPolicyTarget
+        from winml.modelkit.session import EPDeviceTarget
+
+        with patch(
+            "winml.modelkit.session.resolve_device",
+            return_value=EPDeviceTarget(ep="QNNExecutionProvider", device="npu"),
+        ):
+            result = runner.invoke(config, ["-m", "test", "--ep", "qnn"])
+
+        assert result.exit_code == 0, result.output
+        call_kwargs = mock_generate_config.call_args.kwargs
+        assert call_kwargs["export_policy_targets"] == (
+            ExportPolicyTarget(ep="QNNExecutionProvider", device="npu"),
+        )
+
 
 # =============================================================================
 # ONNX PATH OVERRIDE TESTS

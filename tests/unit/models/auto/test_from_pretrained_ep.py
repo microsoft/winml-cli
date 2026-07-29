@@ -102,6 +102,11 @@ def test_explicit_ep_reaches_build_when_compile_is_none(
         "Without this, analyze_onnx defaults to ep=None and aggregates across "
         "all EPs."
     )
+    from winml.modelkit.export.policy import ExportPolicyTarget
+
+    assert received["generate_hf_build_config"]["export_policy_targets"] == (
+        ExportPolicyTarget(ep="CPUExecutionProvider", device="cpu"),
+    )
 
 
 def test_compile_provider_used_when_user_ep_absent(
@@ -163,6 +168,19 @@ def test_resolved_target_outranks_supplied_build_config(
         )
 
     assert received["generate_hf_build_config"]["policy_overrides_config"] is True
+
+
+def test_portable_policy_is_used_when_no_target_is_supplied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from winml.modelkit.models import WinMLAutoModel
+
+    received = _install_stubs(monkeypatch, compile_provider=None)
+
+    with pytest.raises(_StopAfterEpCheckError):
+        WinMLAutoModel.from_pretrained("microsoft/resnet-50")
+
+    assert received["generate_hf_build_config"]["export_policy_targets"] is None
 
 
 @pytest.mark.parametrize("flag", [True, False])

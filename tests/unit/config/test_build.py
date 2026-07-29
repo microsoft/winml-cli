@@ -220,6 +220,35 @@ class TestGeneratedExportCompatibilityPolicy:
         assert sub_cfg.export.compatibility.transformers_attention == "eager"
 
 
+class TestLoadedConfigExportCompatibilityPolicy:
+    def test_apply_export_policy_populates_loaded_config_without_compatibility(self) -> None:
+        from winml.modelkit.config.build import apply_export_compatibility_policy
+
+        cfg = WinMLBuildConfig(export=WinMLExportConfig())
+
+        apply_export_compatibility_policy(cfg, None)
+
+        assert cfg.export is not None
+        assert cfg.export.compatibility.transformers_attention == "eager"
+
+    def test_apply_export_policy_preserves_serialized_compatibility(self) -> None:
+        from winml.modelkit.config.build import apply_export_compatibility_policy
+
+        cfg = WinMLBuildConfig(
+            export=WinMLExportConfig(
+                compatibility=ExportCompatibilityConfig(transformers_attention="eager")
+            )
+        )
+
+        apply_export_compatibility_policy(
+            cfg,
+            (ExportPolicyTarget(ep="DmlExecutionProvider", device="gpu"),),
+        )
+
+        assert cfg.export is not None
+        assert cfg.export.compatibility.transformers_attention == "eager"
+
+
 # =============================================================================
 # TestGetIoSpecsFromConfig - Unit tests for resolve_io_specs()
 # =============================================================================

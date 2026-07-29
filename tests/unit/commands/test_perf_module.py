@@ -247,6 +247,11 @@ class TestPerfModuleParameterForwarding:
         assert gen_kwargs["device"] == "npu"
         assert gen_kwargs["ep"] == "QNNExecutionProvider"
         assert gen_kwargs["precision"] == "auto"
+        from winml.modelkit.export.policy import ExportPolicyTarget
+
+        assert gen_kwargs["export_policy_targets"] == (
+            ExportPolicyTarget(ep="QNNExecutionProvider", device="npu"),
+        )
 
         build_kwargs = mock_build.call_args.kwargs
         assert build_kwargs["ep"] == "QNNExecutionProvider"
@@ -357,6 +362,68 @@ class TestPerfModuleParameterForwarding:
         report = json.loads(out_path.read_text(encoding="utf-8"))
         instance = report["instances"][0]
         assert instance["running_model_path"] == str(running_model_path)
+
+    def test_module_path_defaults_to_portable_policy_when_no_target_supplied(
+        self, tmp_path: Path
+    ) -> None:
+        fake_cfg = MagicMock()
+        fake_cfg.loader.model_type = "bert"
+        fake_cfg.loader.module_path = "encoder.layer.0"
+
+        fake_build_result = MagicMock()
+        fake_build_result.final_onnx_path = tmp_path / "model.onnx"
+
+        fake_session = MagicMock()
+        fake_session.perf.side_effect = RuntimeError("test-skip-benchmark")
+        fake_loader_cfg = MagicMock()
+        fake_loader_cfg.task = "fill-mask"
+
+        with (
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=[fake_cfg],
+            ) as mock_gen,
+            patch(
+                "winml.modelkit.loader.resolve_loader_config",
+                return_value=(fake_loader_cfg, MagicMock(), MagicMock(), MagicMock()),
+            ),
+            patch(
+                "winml.modelkit.commands.build._instantiate_parent_model",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "winml.modelkit.build.build_hf_model",
+                return_value=fake_build_result,
+            ),
+            patch(
+                "winml.modelkit.session.WinMLSession",
+                return_value=fake_session,
+            ),
+            patch(
+                "winml.modelkit.commands.perf.generate_random_inputs",
+                return_value={},
+            ),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                main,
+                [
+                    "perf",
+                    "-m",
+                    "fake/model",
+                    "--module",
+                    "BertLayer",
+                    "--iterations",
+                    "1",
+                    "--warmup",
+                    "0",
+                    "-o",
+                    str(tmp_path / "out.json"),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert mock_gen.call_args.kwargs["export_policy_targets"] is None
 
 
 class TestPerfModuleMonitor:
