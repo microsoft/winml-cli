@@ -43,6 +43,7 @@ from winml.modelkit.export import (
     WinMLExportConfig,
     resolve_io_specs,
 )
+from winml.modelkit.export.policy import ExportCompatibilityConfig
 from winml.modelkit.loader import WinMLLoaderConfig
 from winml.modelkit.optim import WinMLOptimizationConfig
 from winml.modelkit.quant import WinMLQuantizationConfig
@@ -268,6 +269,30 @@ class TestMergeExportOverrides:
         assert merged.export.opset_version == 18
         # input_tensors untouched when not patched
         assert [t.name for t in merged.export.input_tensors] == ["input_ids", "attention_mask"]
+
+
+class TestExportCompatibilityBuildConfig:
+    def test_export_compatibility_changes_cache_key(self) -> None:
+        default_config = WinMLBuildConfig(export=WinMLExportConfig())
+        eager_config = WinMLBuildConfig(
+            export=WinMLExportConfig(
+                compatibility=ExportCompatibilityConfig(transformers_attention="eager")
+            )
+        )
+
+        assert default_config.generate_cache_key() != eager_config.generate_cache_key()
+
+    def test_registered_export_merge_preserves_override_compatibility(self) -> None:
+        from winml.modelkit.config.build import _merge_export_config
+
+        base = WinMLExportConfig()
+        override = WinMLExportConfig(
+            compatibility=ExportCompatibilityConfig(transformers_attention="eager")
+        )
+
+        merged = _merge_export_config(base, override)
+
+        assert merged.compatibility.transformers_attention == "eager"
 
 
 class TestGetIoSpecsFromConfig:
