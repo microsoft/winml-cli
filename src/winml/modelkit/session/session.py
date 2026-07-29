@@ -19,7 +19,7 @@ import onnxruntime as ort
 
 from ..core.onnx_utils import get_io_config
 from ..onnx import is_compiled_onnx
-from ..utils.logging import suppress_noisy_ort_native_warnings
+from ..utils.native_stderr import suppress_native_warnings
 from .ep_device import (
     WinMLEPMonitorMismatch,
     expand_ep_name,
@@ -354,7 +354,7 @@ class WinMLSession:
                 session_option_entries=self._active_session_option_entries,
                 provider_options=self._provider_options,
             )
-            with suppress_noisy_ort_native_warnings():
+            with suppress_native_warnings():
                 self._session = ort.InferenceSession(self._onnx_path, sess_options=so)
             self._running_model_path = self._onnx_path
             _dev = self._ep_device.device
@@ -389,7 +389,7 @@ class WinMLSession:
 
         if not self._persist_jit:
             try:
-                with suppress_noisy_ort_native_warnings():
+                with suppress_native_warnings():
                     session = ort.InferenceSession(
                         str(self._onnx_path),
                         sess_options=_build_session_options(
@@ -471,7 +471,7 @@ class WinMLSession:
                 session_option_entries=self._active_session_option_entries,
                 provider_options=self._provider_options,
             )
-            with _suppress_native_output(compile_log), suppress_noisy_ort_native_warnings():
+            with _suppress_native_output(compile_log), suppress_native_warnings():
                 session = ort.InferenceSession(str(model_path), sess_options=runtime_so)
 
             actual_providers = session.get_providers()
@@ -862,7 +862,7 @@ class WinMLSession:
                 return None
 
             try:
-                with suppress_noisy_ort_native_warnings():
+                with suppress_native_warnings():
                     self._session = ort.InferenceSession(
                         active_model_path,
                         sess_options=_build_session_options(
@@ -897,7 +897,7 @@ class WinMLSession:
                     session_option_entries=desired_sess_entries,
                     provider_options=new_prov,
                 )
-                with suppress_noisy_ort_native_warnings():
+                with suppress_native_warnings():
                     self._session = ort.InferenceSession(active_model_path, sess_options=so)
                 self._provider_options = new_prov
                 self._active_session_option_entries = desired_sess_entries
@@ -1252,7 +1252,7 @@ class WinMLSession:
                 self._session_options_factory,
             )
             sess_options.log_severity_level = 4  # Suppress ORT logs during probe
-            with suppress_noisy_ort_native_warnings():
+            with suppress_native_warnings():
                 ort.InferenceSession(
                     test_model.SerializeToString(),
                     sess_options=sess_options,

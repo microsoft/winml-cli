@@ -20,9 +20,12 @@ import logging
 import os
 import re
 import sys
+import tempfile
 import threading
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
+
+from .._env import env_flag_enabled
 
 
 if TYPE_CHECKING:
@@ -30,6 +33,7 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+_NATIVE_WARNING_LINE_RE = re.compile(rb"\[[Ww]:")
 
 # ---------------------------------------------------------------------------
 # Win32 kernel32 (configured once)
@@ -127,3 +131,70 @@ def capture_native_stderr(level: int = logging.INFO) -> Iterator[None]:
             line = _ansi_re.sub("", raw).strip()
             if line:
                 logger.log(level, "[ORT] %s", line)
+
+
+@contextmanager
+def suppress_native_warnings(*, enabled: bool = True) -> Iterator[None]:
+    """Hide native warning lines while preserving native errors and diagnostics.
+
+    Native ORT/QNN diagnostics use severity tokens such as ``[W:...]`` and
+    ``[E:...]``. Normal CLI output hides warning-level native chatter; ``-v`` /
+    ``-vv`` or ``WINMLCLI_SHOW_ALL_WARNINGS=1`` leaves stderr untouched.
+    """
+    if not enabled or _show_native_warnings_requested():
+        yield
+        return
+
+    old_fd = os.dup(2)
+    old_w32 = _get_win32_stderr_handle()
+    try:
+        with tempfile.TemporaryFile() as captured:
+            os.dup2(captured.fileno(), 2)
+            _set_win32_stderr_to_current_fd()
+            try:
+                yield
+            finally:
+                os.dup2(old_fd, 2)
+                _restore_win32_stderr_handle(old_w32)
+                captured.seek(0)
+                _write_all(old_fd, _filter_native_warning_stderr(captured.read()))
+    finally:
+        os.close(old_fd)
+
+
+def _show_native_warnings_requested() -> bool:
+    return env_flag_enabled("WINMLCLI_SHOW_ALL_WARNINGS") or logging.getLogger().isEnabledFor(
+        logging.INFO
+    )
+
+
+def _filter_native_warning_stderr(data: bytes) -> bytes:
+    return b"".join(
+        line for line in data.splitlines(keepends=True) if not _is_native_warning_line(line)
+    )
+
+
+def _is_native_warning_line(line: bytes) -> bool:
+    return bool(_NATIVE_WARNING_LINE_RE.search(line))
+
+
+def _get_win32_stderr_handle() -> object | None:
+    if sys.platform != "win32":
+        return None
+    return _k32.GetStdHandle(_STD_ERROR_HANDLE)
+
+
+def _set_win32_stderr_to_current_fd() -> None:
+    if sys.platform == "win32":
+        _k32.SetStdHandle(_STD_ERROR_HANDLE, msvcrt.get_osfhandle(2))
+
+
+def _restore_win32_stderr_handle(handle: object | None) -> None:
+    if sys.platform == "win32" and handle is not None:
+        _k32.SetStdHandle(_STD_ERROR_HANDLE, handle)
+
+
+def _write_all(fd: int, data: bytes) -> None:
+    while data:
+        written = os.write(fd, data)
+        data = data[written:]
