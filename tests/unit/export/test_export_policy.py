@@ -11,6 +11,7 @@ from winml.modelkit.export.policy import (
     ExportCompatibilityConfig,
     ExportCompatibilityRule,
     ExportPolicyTarget,
+    _rule_from_dict,
     export_policy_targets_for_request,
     resolve_export_compatibility,
 )
@@ -91,4 +92,28 @@ def test_conflicting_rules_raise_clear_error() -> None:
         resolve_export_compatibility(
             [ExportPolicyTarget(ep="qnn", device="gpu")],
             rules=rules,
+        )
+
+
+def test_json_rule_rejects_unknown_ep() -> None:
+    with pytest.raises(ValueError, match=r"match\.ep"):
+        _rule_from_dict(
+            {
+                "match": {"ep": "TypoExecutionProvider", "device": None},
+                "export": {"transformers_attention": "eager"},
+                "reason": "typo should not create a dead rule",
+            },
+            index=0,
+        )
+
+
+def test_json_rule_rejects_unsupported_device_for_ep() -> None:
+    with pytest.raises(ValueError, match="does not support device"):
+        _rule_from_dict(
+            {
+                "match": {"ep": "CPUExecutionProvider", "device": "gpu"},
+                "export": {"transformers_attention": "eager"},
+                "reason": "device mismatch should not create a dead rule",
+            },
+            index=0,
         )

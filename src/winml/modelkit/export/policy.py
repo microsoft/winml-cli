@@ -9,13 +9,15 @@ import json
 from dataclasses import dataclass
 from functools import cache
 from importlib import resources
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-from ..utils.constants import normalize_ep_name
+from ..utils.constants import EP_SUPPORTED_DEVICES, normalize_ep_name
 
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from ..utils.constants import EPName
 
 
 @dataclass(frozen=True)
@@ -193,13 +195,37 @@ def _rule_from_dict(data: object, *, index: int) -> ExportCompatibilityRule:
             f"{_RULES_RESOURCE} rules[{index}].match has unknown field(s): {sorted(match_unknown)}"
         )
     ep = match.get("ep")
+    normalized_ep: str | None = None
     if ep is not None and (not isinstance(ep, str) or not ep):
         raise ValueError(
             f"{_RULES_RESOURCE} rules[{index}].match.ep must be a non-empty string or null"
         )
+    if isinstance(ep, str):
+        normalized_ep = normalize_ep_name(ep)
+        if normalized_ep not in EP_SUPPORTED_DEVICES:
+            raise ValueError(
+                f"{_RULES_RESOURCE} rules[{index}].match.ep must be a supported EP "
+                f"or alias, got {ep!r}"
+            )
     device = match.get("device")
-    if device is not None and not isinstance(device, str):
-        raise ValueError(f"{_RULES_RESOURCE} rules[{index}].match.device must be a string or null")
+    if device is not None and (not isinstance(device, str) or not device):
+        raise ValueError(
+            f"{_RULES_RESOURCE} rules[{index}].match.device must be a non-empty string or null"
+        )
+    normalized_device = device.lower() if isinstance(device, str) else None
+    supported_devices = {d for devices in EP_SUPPORTED_DEVICES.values() for d in devices}
+    if normalized_device is not None and normalized_device not in supported_devices:
+        raise ValueError(
+            f"{_RULES_RESOURCE} rules[{index}].match.device must be one of "
+            f"{sorted(supported_devices)}, got {device!r}"
+        )
+    if normalized_ep is not None and normalized_device is not None:
+        canonical_ep = cast("EPName", normalized_ep)
+        if normalized_device not in EP_SUPPORTED_DEVICES[canonical_ep]:
+            raise ValueError(
+                f"{_RULES_RESOURCE} rules[{index}].match.ep {normalized_ep!r} "
+                f"does not support device {normalized_device!r}"
+            )
 
     export = data.get("export")
     compatibility = ExportCompatibilityConfig.from_dict(export)
@@ -208,8 +234,8 @@ def _rule_from_dict(data: object, *, index: int) -> ExportCompatibilityRule:
         raise ValueError(f"{_RULES_RESOURCE} rules[{index}].reason must be a non-empty string")
 
     return ExportCompatibilityRule(
-        ep=ep,
-        device=device.lower() if isinstance(device, str) else None,
+        ep=normalized_ep,
+        device=normalized_device,
         compatibility=compatibility,
         reason=reason,
     )
