@@ -749,11 +749,20 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
     # archive (via EvalResult.num_samples), not the unused config default.
     samples = result.num_samples if result.num_samples is not None else ds.samples
 
-    # Header
+    # Header — model_id when building from HF, otherwise the ONNX path(s). A
+    # composite model_path is a {role: path} dict; join its paths so the title
+    # stays a readable string instead of a raw dict repr.
+    if cfg.model_id:
+        eval_name = cfg.model_id
+    elif isinstance(cfg.model_path, dict):
+        eval_name = ", ".join(str(path) for path in cfg.model_path.values())
+    else:
+        eval_name = str(cfg.model_path)
+
     console.print()
     console.print(
         Panel.fit(
-            f"[bold]Evaluation: {cfg.model_id or cfg.model_path}[/bold]",
+            f"[bold]Evaluation: {eval_name}[/bold]",
             border_style="blue",
         )
     )
@@ -767,7 +776,10 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
     elif ds.path:
         console.print(f"[dim]Dataset:[/dim]    {ds.path}")
     console.print(f"[dim]Samples:[/dim]    {samples}")
-    if cfg.model_path:
+    if isinstance(cfg.model_path, dict):
+        for role, path in cfg.model_path.items():
+            console.print(f"[dim]ONNX ({role}):[/dim] {path}")
+    elif cfg.model_path:
         console.print(f"[dim]ONNX:[/dim]       {cfg.model_path}")
     if cfg.reference_path:
         console.print(f"[dim]Reference:[/dim]  {cfg.reference_path}")

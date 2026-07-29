@@ -63,6 +63,9 @@ class _ONNXSessionModel:
         """Run one sample and return raw outputs as named ``torch`` tensors."""
         import torch
 
+        # ``inputs`` may be torch tensors (fed by _inference_model); WinMLSession.run
+        # -> _prepare_inputs converts them to numpy and enforces the graph dtype, so
+        # no explicit .numpy() conversion is needed here.
         outputs = self._session.run(inputs)
         return {name: torch.from_numpy(arr) for name, arr in outputs.items()}
 

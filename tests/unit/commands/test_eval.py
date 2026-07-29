@@ -1136,6 +1136,49 @@ class TestEvalFormatJson:
         assert result.exit_code != 0
 
 
+class TestDisplayEvalReportHeader:
+    """The report header/detail lines render a readable model name for every input shape."""
+
+    def _render(self, config) -> str:
+        from rich.console import Console
+
+        from winml.modelkit.commands.eval import display_eval_report
+        from winml.modelkit.eval.evaluate import EvalResult
+
+        console = Console(record=True, width=200)
+        display_eval_report(EvalResult(config=config, metrics={}, num_samples=1), console)
+        return console.export_text()
+
+    def test_composite_model_path_dict_renders_readable_not_dict_repr(self):
+        from winml.modelkit.eval import WinMLEvaluationConfig
+
+        text = self._render(
+            WinMLEvaluationConfig(
+                model_path={"encoder": "enc.onnx", "decoder": "dec.onnx"},
+                task="image-to-text",
+            )
+        )
+        # Header joins the sub-model paths; detail lines list them per role ...
+        assert "enc.onnx" in text
+        assert "dec.onnx" in text
+        assert "ONNX (encoder):" in text
+        # ... and never leak a raw Python dict repr.
+        assert "{'encoder'" not in text
+
+    def test_two_onnx_compare_shows_candidate_path_without_model_id(self):
+        from winml.modelkit.eval import WinMLEvaluationConfig
+
+        text = self._render(
+            WinMLEvaluationConfig(
+                model_path="cand.onnx",
+                reference_path="ref.onnx",
+                mode="compare",
+            )
+        )
+        assert "Evaluation: cand.onnx" in text
+        assert "ref.onnx" in text
+
+
 # ---------------------------------------------------------------------------
 # HuggingFace export overrides (--shape-config/--input-specs/--export-config/
 # --dynamic-axes) — parity with winml build/perf.
