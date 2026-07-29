@@ -66,11 +66,11 @@ def find_qnn_sdk() -> Path | None:
     for base_path in _COMMON_SDK_PATHS:
         if not base_path.is_dir():
             continue
-        if (base_path / "bin").is_dir():
-            return base_path
         for child in sorted(base_path.iterdir(), reverse=True):
             if child.is_dir() and (child / "bin").is_dir():
                 return child
+        if (base_path / "bin").is_dir():
+            return base_path
 
     return None
 
@@ -104,9 +104,11 @@ def _find_optrace_reader(viewer: Path) -> Path | None:
     """Locate the optrace reader matching the selected viewer architecture."""
     bin_dir = viewer.parent
     if bin_dir.parent.name == "bin":
+        # Architecture-specific layout: bin/<arch> mirrors lib/<arch>.
         sdk_root = bin_dir.parent.parent
         candidate = sdk_root / "lib" / bin_dir.name / _OPTRACE_READER_NAME
     else:
+        # Flat layout: bin/qnn-profile-viewer.exe pairs with lib/<reader>.
         sdk_root = bin_dir.parent
         candidate = sdk_root / "lib" / _OPTRACE_READER_NAME
     return candidate if candidate.is_file() else None

@@ -56,6 +56,18 @@ def test_find_qnn_sdk_accepts_common_path_as_sdk_root(monkeypatch, tmp_path):
     assert find_qnn_sdk() == sdk_root
 
 
+def test_find_qnn_sdk_prefers_versioned_child_over_flat_root(monkeypatch, tmp_path):
+    """A versioned SDK takes priority when a common root also contains bin."""
+    common_root = tmp_path / "qairt"
+    (common_root / "bin").mkdir(parents=True)
+    versioned_root = common_root / "2.30.0"
+    (versioned_root / "bin").mkdir(parents=True)
+    monkeypatch.delenv("QNN_SDK_ROOT", raising=False)
+    monkeypatch.setattr(viewer, "_COMMON_SDK_PATHS", [common_root])
+
+    assert find_qnn_sdk() == versioned_root
+
+
 def test_legacy_viewer_shim_delegates_sdk_discovery_with_one_warning(monkeypatch, tmp_path):
     """The compatibility shim exposes the canonical discovery implementation."""
     from winml.modelkit.optracing.qnn import viewer as legacy_viewer

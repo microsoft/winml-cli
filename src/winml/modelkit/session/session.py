@@ -206,11 +206,12 @@ def _build_session_options(
         else _build_provider_options(ep_device, ep_config, ep_monitor)
     )
     logger.info(
-        "Building session options for ep=%s device=%s with provider_options=%s",
+        "Building session options for ep=%s device=%s with provider_option_keys=%s",
         ep_device.ep.arg0,
         ep_device.device.device_type,
-        options,
+        sorted(options),
     )
+    logger.debug("Session provider options: %s", options)
     so.add_provider_for_devices([handle], options)
     return so
 
