@@ -148,6 +148,18 @@ class TestSuppressNativeWarnings:
         assert "useful error" in stderr
         assert "plain diagnostic" in stderr
 
+    def test_preserves_error_lines_that_reference_warning_tokens(self, monkeypatch, capfd):
+        monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
+        logging.getLogger().setLevel(logging.WARNING)
+
+        with native_stderr_module.suppress_native_warnings():
+            os.write(
+                2,
+                b"2026 [E:onnxruntime:, qnn.cc:2 ErrorFunc] failed after previous [W:note]\n",
+            )
+
+        assert "failed after previous [W:note]" in capfd.readouterr().err
+
     def test_verbose_logging_leaves_native_warnings_visible(self, monkeypatch, capfd):
         monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
         logging.getLogger().setLevel(logging.INFO)
@@ -179,6 +191,64 @@ class TestSuppressNativeWarnings:
         assert "win32 warning" not in stderr
         assert "win32 error" in stderr
 
+    @pytest.mark.skipif(sys.platform != "win32", reason="Win32 native stderr only")
+    def test_restores_win32_std_error_handle_after_exception(self, monkeypatch):
+        monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
+        logging.getLogger().setLevel(logging.WARNING)
+
+        before = _get_win32_stderr_handle()
+        with (
+            pytest.raises(RuntimeError, match="boom"),
+            native_stderr_module.suppress_native_warnings(),
+        ):
+            raise RuntimeError("boom")
+
+        assert _get_win32_stderr_handle() == before
+
+    def test_restore_win32_std_error_handle_accepts_null_handle(self, monkeypatch):
+        calls = []
+        std_error_handle = object()
+
+        class FakeKernel32:
+            def __init__(self) -> None:
+                self.SetStdHandle = self._set_std_handle
+
+            def _set_std_handle(self, handle_kind: object, handle: object | None) -> bool:
+                calls.append((handle_kind, handle))
+                return True
+
+        monkeypatch.setattr(native_stderr_module.sys, "platform", "win32")
+        monkeypatch.setattr(native_stderr_module, "_k32", FakeKernel32(), raising=False)
+        monkeypatch.setattr(
+            native_stderr_module,
+            "_STD_ERROR_HANDLE",
+            std_error_handle,
+            raising=False,
+        )
+
+        native_stderr_module._restore_win32_stderr_handle(None)
+
+        assert calls == [(std_error_handle, None)]
+
+    @pytest.mark.timeout(30)
+    def test_no_deadlock_on_large_warning_output(self, monkeypatch, capfd):
+        monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
+        logging.getLogger().setLevel(logging.WARNING)
+        warning_line = b"2026 [W:custom-native:, file.cc:1 WarningFunc] noisy warning\n"
+        error_line = b"2026 [E:custom-native:, file.cc:2 ErrorFunc] useful error\n"
+        written = 0
+
+        with native_stderr_module.suppress_native_warnings():
+            for _ in range(20000):
+                os.write(2, warning_line)
+                written += len(warning_line)
+            os.write(2, error_line)
+
+        assert written > 64 * 1024
+        stderr = capfd.readouterr().err
+        assert "noisy warning" not in stderr
+        assert "useful error" in stderr
+
 
 def _write_win32_stderr(data: bytes) -> None:
     import ctypes.wintypes
@@ -207,3 +277,12 @@ def _write_win32_stderr(data: bytes) -> None:
     )
     assert ok
     assert written.value == len(data)
+
+
+def _get_win32_stderr_handle() -> int:
+    import ctypes.wintypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.GetStdHandle.argtypes = [ctypes.wintypes.DWORD]
+    k32.GetStdHandle.restype = ctypes.wintypes.HANDLE
+    return k32.GetStdHandle(ctypes.wintypes.DWORD(0xFFFFFFF4))

@@ -25,6 +25,7 @@ from ...session import (
     resolve_device,
 )
 from ...utils.constants import ORT_SESSION_COMPILER
+from ...utils.native_stderr import suppress_native_warnings
 from ..configs import WinMLCompileConfig
 from .base import BaseStage
 
@@ -173,7 +174,8 @@ class CompileStage(BaseStage):
 
         if context.use_inference_session:
             session_options.add_session_config_entry("ep.context_file_path", str(ctx_path))
-            session = ort.InferenceSession(str(model_path), sess_options=session_options)
+            with suppress_native_warnings():
+                session = ort.InferenceSession(str(model_path), sess_options=session_options)
             try:
                 context.session = session
                 context.log(f"Actual providers: {session.get_providers()}")

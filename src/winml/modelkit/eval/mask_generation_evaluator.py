@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
+from ..utils.native_stderr import suppress_native_warnings
 from .base_evaluator import WinMLEvaluator
 
 
@@ -294,18 +295,19 @@ class WinMLMaskGenerationEvaluator(WinMLEvaluator):
         sess_opts = ort.SessionOptions()
         sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
 
-        enc = ort.InferenceSession(
-            paths[self._ENCODER_ROLE],
-            sess_options=sess_opts,
-            providers=providers,
-            provider_options=provider_options,
-        )
-        dec = ort.InferenceSession(
-            paths[self._DECODER_ROLE],
-            sess_options=sess_opts,
-            providers=providers,
-            provider_options=provider_options,
-        )
+        with suppress_native_warnings():
+            enc = ort.InferenceSession(
+                paths[self._ENCODER_ROLE],
+                sess_options=sess_opts,
+                providers=providers,
+                provider_options=provider_options,
+            )
+            dec = ort.InferenceSession(
+                paths[self._DECODER_ROLE],
+                sess_options=sess_opts,
+                providers=providers,
+                provider_options=provider_options,
+            )
         logger.info("  encoder providers: %s", enc.get_providers())
         logger.info("  decoder providers: %s", dec.get_providers())
         return enc, dec

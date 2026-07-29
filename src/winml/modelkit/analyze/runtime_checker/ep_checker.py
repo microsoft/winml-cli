@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 import onnx
 import onnxruntime as ort
 
+from ...utils.native_stderr import suppress_native_warnings
+
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -31,8 +33,7 @@ class _RulesPrefilterProtocol(Protocol):
     def build_skip_check_result_for_rules_all_nodes_compile_run_pass(
         self,
         onnx_model: onnx.ModelProto,
-    ) -> dict[str, Any] | None:
-        ...
+    ) -> dict[str, Any] | None: ...
 
 
 class EPChecker:
@@ -46,9 +47,7 @@ class EPChecker:
     # EP/device combinations that are known to leak resources/state across many
     # sequential checks inside a single worker process. Running each case in an
     # isolated process avoids "first case passes, later cases fail" behavior.
-    EPS_REQUIRING_CASE_ISOLATION_BY_DEVICE: ClassVar[
-        dict[str, set[ort.OrtHardwareDeviceType]]
-    ] = {
+    EPS_REQUIRING_CASE_ISOLATION_BY_DEVICE: ClassVar[dict[str, set[ort.OrtHardwareDeviceType]]] = {
         "OpenVINOExecutionProvider": {ort.OrtHardwareDeviceType.NPU},
     }
 
@@ -176,11 +175,12 @@ class EPChecker:
         input_args: dict[str, Any],
     ) -> dict[str, Any]:
         """Test model execution with execution provider."""
-        session = ort.InferenceSession(
-            path_or_bytes,
-            self._get_sess_options(),
-            provider_options=self._provider_options,
-        )
+        with suppress_native_warnings():
+            session = ort.InferenceSession(
+                path_or_bytes,
+                self._get_sess_options(),
+                provider_options=self._provider_options,
+            )
         # inputs = self._generate_inputs(session)
         graph_input_names = {inp.name for inp in session.get_inputs()}
         inputs = {k: v for k, v in input_args.items() if k in graph_input_names}

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from ...onnx import load_onnx, save_onnx
+from ...utils.native_stderr import suppress_native_warnings
 from .base import BasePipe, OptimizationError, PipeConfig, caps_dict
 
 
@@ -568,9 +569,10 @@ class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
 
             # Create session to trigger optimization
             try:
-                _ = ort.InferenceSession(
-                    str(input_file), sess_opts, providers=["CPUExecutionProvider"]
-                )
+                with suppress_native_warnings():
+                    _ = ort.InferenceSession(
+                        str(input_file), sess_opts, providers=["CPUExecutionProvider"]
+                    )
             except Exception as e:
                 raise OptimizationError(
                     f"ONNX Runtime optimization failed: {e}",

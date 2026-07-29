@@ -21,6 +21,7 @@ from colorama import Fore, Style
 from onnx.defs import OpSchema
 
 from ...onnx import ONNXDomain, SupportedONNXType
+from ...utils.native_stderr import suppress_native_warnings
 from ...utils.result_sanitizer import sanitize_check_result_payload
 from ..utils import get_op_input_properties
 from .qdq_gen import QDQGenerator
@@ -1542,6 +1543,7 @@ class OpInputGenerator(ABC):
         isolate_case_execution = ep_checker.needs_case_isolation()
 
         with ResilientRunner(capture_output=capture_output, timeout_sec=60) as runner:
+
             def _run_ep_check(
                 fn: Callable[[Any, Any], dict[str, Any]],
                 model_bytes: bytes,
@@ -1663,9 +1665,7 @@ class OpInputGenerator(ABC):
                             f"all<{compile_count['all']}>"
                             f"{Style.RESET_ALL}"
                         )
-                    if (
-                        not compile_success and save_failed_model
-                    ) or save_model:
+                    if (not compile_success and save_failed_model) or save_model:
                         if save_dir is None:
                             save_dir = (
                                 Path(model_output_dir)
@@ -1918,9 +1918,10 @@ class OpInputGenerator(ABC):
         model = self._create_model(kwargs, is_constant_map, output_dtypes, qdq_types=qdq_types)
 
         # Create inference session
-        sess = ort.InferenceSession(
-            model.SerializeToString(),
-        )
+        with suppress_native_warnings():
+            sess = ort.InferenceSession(
+                model.SerializeToString(),
+            )
 
         input_dict = {k: v for k, v in kwargs.items() if k not in self.op_attribute_names}
         input_dict = self.create_input_dict(input_dict, qdq_types=qdq_types)

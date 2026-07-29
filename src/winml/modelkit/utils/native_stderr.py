@@ -2,16 +2,18 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Redirect native stderr written by ORT / QNN on Windows.
+"""Redirect/filter native stderr written by ORT / QNN.
 
 ORT's native code writes diagnostics (e.g. "Init provider bridge failed.")
 directly to fd 2 / Win32 STD_ERROR_HANDLE, bypassing Python logging.
-Two context managers are provided:
+Three context managers are provided:
 
 * ``suppress_native_stderr``  - discard to devnull  (startup noise)
 * ``capture_native_stderr``   - capture via pipe and re-log  (compilation output)
+* ``suppress_native_warnings`` - hide warning lines, replay everything else
 
-Both are no-ops on non-Windows.
+The first two are no-ops on non-Windows. ``suppress_native_warnings`` works via
+fd 2 on all platforms and also keeps the Win32 stderr handle in sync on Windows.
 """
 
 from __future__ import annotations
@@ -20,7 +22,6 @@ import logging
 import os
 import re
 import sys
-import tempfile
 import threading
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
@@ -33,7 +34,7 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
-_NATIVE_WARNING_LINE_RE = re.compile(rb"\[[Ww]:")
+_NATIVE_SEVERITY_TOKEN_RE = re.compile(rb"\[([A-Za-z]):")
 
 # ---------------------------------------------------------------------------
 # Win32 kernel32 (configured once)
@@ -145,19 +146,26 @@ def suppress_native_warnings(*, enabled: bool = True) -> Iterator[None]:
         yield
         return
 
+    read_fd, write_fd = os.pipe()
     old_fd = os.dup(2)
     old_w32 = _get_win32_stderr_handle()
+    reader = threading.Thread(
+        target=_drain_filtered_native_stderr,
+        args=(read_fd, old_fd),
+        name="suppress-native-warnings",
+        daemon=True,
+    )
     try:
-        with tempfile.TemporaryFile() as captured:
-            os.dup2(captured.fileno(), 2)
-            _set_win32_stderr_to_current_fd()
-            try:
-                yield
-            finally:
-                os.dup2(old_fd, 2)
-                _restore_win32_stderr_handle(old_w32)
-                captured.seek(0)
-                _write_all(old_fd, _filter_native_warning_stderr(captured.read()))
+        os.dup2(write_fd, 2)
+        os.close(write_fd)
+        _set_win32_stderr_to_current_fd()
+        reader.start()
+        try:
+            yield
+        finally:
+            os.dup2(old_fd, 2)
+            _restore_win32_stderr_handle(old_w32)
+            reader.join()
     finally:
         os.close(old_fd)
 
@@ -168,14 +176,32 @@ def _show_native_warnings_requested() -> bool:
     )
 
 
-def _filter_native_warning_stderr(data: bytes) -> bytes:
-    return b"".join(
-        line for line in data.splitlines(keepends=True) if not _is_native_warning_line(line)
-    )
+def _drain_filtered_native_stderr(read_fd: int, target_fd: int) -> None:
+    pending = b""
+    try:
+        while chunk := os.read(read_fd, 4096):
+            pending += chunk
+            while b"\n" in pending:
+                line, pending = pending.split(b"\n", 1)
+                _write_non_warning_line(target_fd, line + b"\n")
+        if pending:
+            _write_non_warning_line(target_fd, pending)
+    except OSError:
+        pass
+    finally:
+        os.close(read_fd)
+
+
+def _write_non_warning_line(fd: int, line: bytes) -> None:
+    if not _is_native_warning_line(line):
+        _write_all(fd, line)
 
 
 def _is_native_warning_line(line: bytes) -> bool:
-    return bool(_NATIVE_WARNING_LINE_RE.search(line))
+    match = _NATIVE_SEVERITY_TOKEN_RE.search(line)
+    if match is None:
+        return False
+    return match.group(1).lower() == b"w"
 
 
 def _get_win32_stderr_handle() -> object | None:
@@ -190,7 +216,7 @@ def _set_win32_stderr_to_current_fd() -> None:
 
 
 def _restore_win32_stderr_handle(handle: object | None) -> None:
-    if sys.platform == "win32" and handle is not None:
+    if sys.platform == "win32":
         _k32.SetStdHandle(_STD_ERROR_HANDLE, handle)
 
 
