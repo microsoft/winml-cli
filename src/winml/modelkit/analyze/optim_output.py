@@ -197,6 +197,11 @@ def _matched_node(runtime: object) -> NodeProto | None:
     matched_nodes = getattr(skeleton, "matched_nodes", None)
     if matched_nodes:
         return cast("NodeProto", matched_nodes[0])
+    logger.debug(
+        "Could not extract matched node from runtime (type=%s); produced operators "
+        "correlated via this runtime will report UNKNOWN support",
+        type(runtime).__name__,
+    )
     return None
 
 

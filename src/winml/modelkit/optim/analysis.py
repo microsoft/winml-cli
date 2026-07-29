@@ -235,6 +235,10 @@ def _run_pipe(pipe: Any, model: ModelProto, config: Any) -> ModelProto:
     can rewrite tensors to external-data references in place. Returning the
     input unchanged when the pipe opts out keeps the baseline faithful to the
     real pipeline.
+
+    Because every pipe run operates on a fresh clone, the shared model threaded
+    through the pipeline is never mutated in place, so returning the input
+    object unchanged when the pipe opts out cannot alias into a later probe.
     """
     should_process = getattr(pipe, "should_process", None)
     if callable(should_process) and not should_process(config):
@@ -270,7 +274,10 @@ def _iter_findings(
     default_kwargs = {cap.python_name: cap.default for cap in capabilities.values()}
     kebab_defaults = {name: cap.default for name, cap in capabilities.items()}
 
-    # Mandatory pre-stage — mirrors Optimizer.optimize().
+    # Mandatory pre-stage — mirrors Optimizer.optimize(). The clone is required:
+    # infer_shapes may mutate large models in place (for models over the protobuf
+    # limit it round-trips through save_onnx with external data), and this
+    # function must never modify the caller's input model.
     current = infer_shapes(_clone(model))
 
     for pipe_class in PIPES:
@@ -306,6 +313,12 @@ def _iter_findings(
                 # Pipe would not run for this capability — nothing to apply.
                 continue
 
+            # NB: this deliberately calls pipe.process directly rather than
+            # reusing _run_pipe. The probe must distinguish "pipe opts out"
+            # (handled above by continuing without emitting a finding) from
+            # "pipe ran but changed nothing", and it must isolate a failing
+            # capability in try/except so one bad probe cannot abort the scan —
+            # neither of which _run_pipe's return-unchanged contract expresses.
             try:
                 probe_out = pipe.process(_clone(current), probe_config)
             except Exception as exc:

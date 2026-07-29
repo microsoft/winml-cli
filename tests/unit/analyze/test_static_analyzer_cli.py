@@ -2147,8 +2147,7 @@ class TestAnalyzeCheckOptim:
     def _write_model(path: Path) -> None:
         """Write a small valid MatMul+Add model (a Gemm-fusion candidate)."""
         import numpy as np
-        import onnx
-        from onnx import TensorProto, helper, numpy_helper
+        from onnx import TensorProto, helper, numpy_helper, save
 
         x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [4, 8])
         y = helper.make_tensor_value_info("y", TensorProto.FLOAT, [4, 16])
@@ -2161,7 +2160,7 @@ class TestAnalyzeCheckOptim:
         graph = helper.make_graph(nodes, "matmul_add", [x], [y], initializer=[w, b])
         model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
         model.ir_version = 10
-        onnx.save(model, str(path))
+        save(model, str(path))
 
     def test_flag_appears_in_help(self, runner: CliRunner) -> None:
         result = runner.invoke(analyze, ["--help"])

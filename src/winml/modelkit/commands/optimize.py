@@ -152,10 +152,11 @@ def capability_options(func: F) -> F:
     return func
 
 
-def _render_check_optim(findings: list[Any], verbose: bool) -> None:
+def _render_check_optim(console: Console, findings: list[Any], verbose: bool) -> None:
     """Render the applicability report produced by a ``--check-optim`` probe.
 
     Args:
+        console: Rich console for output.
         findings: Applicable ``CapabilityFinding`` objects in pipeline order.
         verbose: When True, list every affected node instead of a sample.
     """
@@ -258,7 +259,7 @@ def _run_check_optim(model: Path, all_caps: dict[str, Any], verbose: bool) -> No
     with console.status("[bold]Analyzing...[/bold]", spinner="dots"):
         findings = analyze_model(onnx_model, all_caps)
 
-    _render_check_optim(findings, verbose)
+    _render_check_optim(console, findings, verbose)
 
 
 @click.command()
