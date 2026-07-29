@@ -36,7 +36,7 @@ def _make_cpu_session(model_path):
 
 def test_auto_reset_fires_when_options_contributed(caplog):
     """If session is already compiled AND monitor contributes provider_options,
-    session.perf().__enter__ auto-resets with a WARNING log.
+    session.perf().__enter__ auto-resets with an INFO log.
     """
     from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
     from winml.modelkit.session.session import WinMLSession
@@ -69,15 +69,15 @@ def test_auto_reset_fires_when_options_contributed(caplog):
     assert session._session is not None
     pre_session = session._session
 
-    with caplog.at_level(logging.WARNING), session.perf(monitor=_ContributingMonitor()):
+    with caplog.at_level(logging.INFO), session.perf(monitor=_ContributingMonitor()):
         pass
 
-    # NFR-3: the verbatim phrase MUST appear as a substring of the log.
+    # The diagnostic remains available under -v without warning on a normal path.
     expected = "auto-resetting compiled session to apply monitor session/provider options"
-    warnings = [r.message for r in caplog.records if r.levelname == "WARNING"]
-    assert any(expected in m for m in warnings), (
-        f"NFR-3 verbatim phrase not in WARNING records. expected substring: "
-        f"{expected!r}; got: {warnings}"
+    info_messages = [r.message for r in caplog.records if r.levelname == "INFO"]
+    assert any(expected in message for message in info_messages), (
+        f"Auto-reset phrase not in INFO records. expected substring: "
+        f"{expected!r}; got: {info_messages}"
     )
     # Old session object was dropped
     assert session._session is None or session._session is not pre_session

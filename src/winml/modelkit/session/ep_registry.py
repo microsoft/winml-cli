@@ -481,6 +481,12 @@ class WinMLEPRegistry:
                 # which the caller renders to the console.
                 with _suppress_dll_load_dialogs():
                     ort.register_execution_provider_library(arg0, str(entry.dll_path))
+                    logger.info(
+                        "Registered EP %r from %r (arg0=%r)",
+                        entry.ep_name,
+                        entry.dll_path,
+                        arg0,
+                    )
             except Exception as exc:
                 raise WinMLEPRegistrationFailed(
                     f"ort.register_execution_provider_library({arg0!r}, "

@@ -24,6 +24,7 @@ import click
 from rich.console import Console
 from rich.live import Live
 from rich.logging import RichHandler
+from rich.markup import escape
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -51,6 +52,7 @@ from ..utils.logging import configure_logging
 
 if TYPE_CHECKING:
     from ..analyze.models.runtime_checks import PatternRuntime
+    from ..analyze.optim_output import OptimizationOutputSupport
 
 
 logger = logging.getLogger(__name__)
@@ -498,6 +500,82 @@ def _render_analysis_summary(
         console.print()
 
 
+def _render_optim_output_support(
+    console: Console,
+    results: list[OptimizationOutputSupport],
+    target_label: str,
+    *,
+    verbose: bool = False,
+) -> None:
+    """Render produced-operator target support for applicable optimizations.
+
+    For each optimization that would change the model, this shows whether the
+    operators it *introduces* (added/modified nodes) are supported on the
+    resolved EP/device, using the same runtime-support rule data as the op
+    check above.
+
+    Args:
+        console: Rich console for output.
+        results: Per-optimization support results for one target, in pipeline
+            order (from :func:`check_optimization_output_support`).
+        target_label: Human-readable EP/device label for the section header.
+        verbose: When True, always show the per-operator reason string.
+    """
+    console.print("\u2550" * 80)
+    console.print(f"\U0001f9e9 [bold]OPTIMIZATION OUTPUT SUPPORT[/bold] \u2014 {target_label}")
+    console.print("\u2550" * 80)
+
+    from ..analyze.models.support_level import SupportLevel
+
+    if not results:
+        console.print(
+            "   [dim]No registered optimization would change this model \u2014 "
+            "nothing to check.[/dim]"
+        )
+        console.print()
+        return
+
+    for opt in results:
+        worst_color = _COLORS.get(opt.worst_support.value, "white")
+        console.print(
+            f"[bold green]{escape(opt.enable_flag)}[/bold green]  "
+            f"[dim]({escape(opt.category)})[/dim]  "
+            f"[{worst_color}]{opt.worst_support.value}[/{worst_color}]"
+        )
+        console.print(f"  [dim]{escape(opt.description)}[/dim]")
+
+        if opt.error:
+            console.print(
+                f"  [yellow]Could not check produced operators: {escape(opt.error)}[/yellow]"
+            )
+            console.print()
+            continue
+
+        if not opt.operators:
+            console.print("  [dim]No new operators produced.[/dim]")
+            console.print()
+            continue
+
+        for op in opt.operators:
+            color = _COLORS.get(op.support.value, "white")
+            marker = "+" if op.change == "added" else "~"
+            line = (
+                f"    [{color}]\u25cf[/{color}] {marker} {escape(op.label)} "
+                f"[{color}]{op.support.value}[/{color}]"
+            )
+            if op.reason and (verbose or op.support is not SupportLevel.SUPPORTED):
+                line += f" [dim]({escape(op.reason)})[/dim]"
+            console.print(line)
+
+        console.print()
+
+    console.print(
+        "  [dim]Shows whether operators an optimization would introduce are supported "
+        "on the target. Enable one with its --enable-* flag (dependencies auto-enabled).[/dim]"
+    )
+    console.print()
+
+
 def _resolve_run_unknown_op(
     ep: EPName,
     device: str,
@@ -835,6 +913,15 @@ def _build_runtime_debug_output_path(model_path: Path, ep_name: str, device_name
     default=None,
     help="Save auto-discovered optimization config to JSON file",
 )
+@click.option(
+    "--check-optim/--no-check-optim",
+    default=False,
+    help=(
+        "For each optimization that would change the model, check whether the "
+        "operators it introduces are supported on the resolved EP/device "
+        "(default: disabled)"
+    ),
+)
 @click.pass_context
 def analyze(
     ctx: click.Context,
@@ -853,6 +940,7 @@ def analyze(
     debug: bool,
     save_node: tuple[str, ...],
     optim_config: Path | None,
+    check_optim: bool,
 ) -> None:
     r"""Analyze ONNX model for runtime support with live progress.
 
@@ -1104,6 +1192,36 @@ def analyze(
 
         # Console for Rich output (stderr so stdout stays clean for JSON)
         console = Console(stderr=True)
+
+        # Optionally probe which optimizations would change the model and what
+        # operators they would introduce. This probe is target-independent, so
+        # materialize it once here and only re-run the (cheap) support lookup per
+        # EP/device below. Console-only feature — skipped in quiet mode.
+        optim_outputs: list[tuple[Any, Any]] = []
+        if check_optim and not quiet:
+            try:
+                import onnx
+
+                from ..optim import get_all_capabilities, iter_optimization_outputs
+
+                console.print(
+                    "[dim]Probing optimization outputs "
+                    "(this can take a while on large models)…[/dim]"
+                )
+                optim_proto = onnx.load(str(model))
+                optim_outputs = list(iter_optimization_outputs(optim_proto, get_all_capabilities()))
+                # Each entry retains a full produced-model clone so the (cheap)
+                # per-target support lookup below can reuse them across every
+                # resolved EP/device without re-running the probe. The trade-off
+                # is peak memory ~ (#applicable optimizations x model size); log
+                # the count so that cost is visible for large models.
+                logger.info(
+                    "Probed %d applicable optimization(s) for output support checking",
+                    len(optim_outputs),
+                )
+            except Exception as exc:
+                logger.warning("Could not probe optimization outputs: %s", exc)
+                optim_outputs = []
 
         # Model info header
         if not quiet:
@@ -1402,6 +1520,23 @@ def analyze(
                             "  [bright_black]██[/bright_black] unknown"
                         )
                         console.print()
+
+                    # Optimization output support section (per-EP), when opted in.
+                    if check_optim:
+                        from ..analyze.optim_output import check_optimization_output_support
+
+                        optim_support = check_optimization_output_support(
+                            optim_outputs,
+                            ep=target_ep,
+                            device=target_device,
+                            model_path=str(model),
+                        )
+                        _render_optim_output_support(
+                            console,
+                            optim_support,
+                            _ep_name_device_display_name(target_ep, target_device),
+                            verbose=verbose > 0,
+                        )
             finally:
                 # Safety: stop Live if still running (e.g. on exception)
                 _finalize_live(mark_complete=False)

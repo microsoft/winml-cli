@@ -14,7 +14,8 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from winml.modelkit.commands.eval import _resolve_model_path
+from winml.modelkit.commands.eval import _resolve_model_path, _resolve_reference
+from winml.modelkit.eval import WinMLEvaluationConfig
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +101,14 @@ class TestSinglePlain:
     def test_plain_onnx_without_model_id_raises(self, onnx_file):
         with pytest.raises(click.UsageError, match="--model-id is required"):
             _resolve_model_path(model=(str(onnx_file),), model_id=None)
+
+    def test_plain_onnx_without_model_id_allowed_for_compare(self, onnx_file):
+        """allow_missing_model_id (two-ONNX compare) accepts a bare ONNX path."""
+        path, mid = _resolve_model_path(
+            model=(str(onnx_file),), model_id=None, allow_missing_model_id=True
+        )
+        assert path == str(onnx_file)
+        assert mid is None
 
     def test_plain_onnx_missing_file_raises(self, tmp_path):
         missing = tmp_path / "does-not-exist.onnx"
@@ -334,6 +343,82 @@ class TestEvalHelp:
 
         assert result.exit_code == 0, result.output
         assert "--input-data" in result.output
+
+    def test_help_mentions_reference(self, runner: CliRunner):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(eval_cmd, ["--help"])
+
+        assert result.exit_code == 0, result.output
+        assert "--reference" in result.output
+
+
+class TestResolveReference:
+    def test_none_is_noop(self):
+        cfg = WinMLEvaluationConfig(model_path="m.onnx", mode="compare")
+        _resolve_reference(cfg)
+        assert cfg.reference_path is None
+
+    def test_happy_path(self, onnx_file, onnx_vision):
+        cfg = WinMLEvaluationConfig(
+            model_path=str(onnx_file),
+            reference_path=str(onnx_vision),
+            mode="compare",
+        )
+        _resolve_reference(cfg)
+        assert cfg.reference_path == str(onnx_vision)
+
+    def test_requires_onnx_candidate(self):
+        cfg = WinMLEvaluationConfig(
+            model_path=None,
+            reference_path="ref.onnx",
+            mode="compare",
+        )
+        with pytest.raises(click.UsageError, match="single ONNX file"):
+            _resolve_reference(cfg)
+
+    def test_composite_candidate_rejected(self, onnx_vision):
+        cfg = WinMLEvaluationConfig(
+            model_path={"encoder": "a.onnx"},
+            reference_path=str(onnx_vision),
+            mode="compare",
+        )
+        with pytest.raises(click.UsageError, match="single ONNX file"):
+            _resolve_reference(cfg)
+
+    def test_non_onnx_suffix_raises(self, onnx_file, tmp_path):
+        bad = tmp_path / "ref.txt"
+        bad.write_bytes(b"")
+        cfg = WinMLEvaluationConfig(
+            model_path=str(onnx_file),
+            reference_path=str(bad),
+            mode="compare",
+        )
+        with pytest.raises(click.BadParameter, match=r"must be an \.onnx file"):
+            _resolve_reference(cfg)
+
+    def test_missing_file_raises(self, onnx_file, tmp_path):
+        missing = tmp_path / "missing.onnx"
+        cfg = WinMLEvaluationConfig(
+            model_path=str(onnx_file),
+            reference_path=str(missing),
+            mode="compare",
+        )
+        with pytest.raises(click.BadParameter, match="not found"):
+            _resolve_reference(cfg)
+
+
+class TestReferenceModeGuard:
+    def test_reference_requires_compare_mode(self, runner: CliRunner, onnx_file):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(
+            eval_cmd,
+            ["-m", str(onnx_file), "--reference", str(onnx_file)],
+            obj={"debug": False},
+        )
+        assert result.exit_code != 0
+        assert "--reference is only valid with --mode compare" in result.output
 
 
 class TestInputDataModeGuard:
@@ -1100,6 +1185,49 @@ class TestEvalFormatJson:
 
         result = runner.invoke(eval_cmd, ["-m", "test", "--format", "xml"])
         assert result.exit_code != 0
+
+
+class TestDisplayEvalReportHeader:
+    """The report header/detail lines render a readable model name for every input shape."""
+
+    def _render(self, config) -> str:
+        from rich.console import Console
+
+        from winml.modelkit.commands.eval import display_eval_report
+        from winml.modelkit.eval.evaluate import EvalResult
+
+        console = Console(record=True, width=200)
+        display_eval_report(EvalResult(config=config, metrics={}, num_samples=1), console)
+        return console.export_text()
+
+    def test_composite_model_path_dict_renders_readable_not_dict_repr(self):
+        from winml.modelkit.eval import WinMLEvaluationConfig
+
+        text = self._render(
+            WinMLEvaluationConfig(
+                model_path={"encoder": "enc.onnx", "decoder": "dec.onnx"},
+                task="image-to-text",
+            )
+        )
+        # Header joins the sub-model paths; detail lines list them per role ...
+        assert "enc.onnx" in text
+        assert "dec.onnx" in text
+        assert "ONNX (encoder):" in text
+        # ... and never leak a raw Python dict repr.
+        assert "{'encoder'" not in text
+
+    def test_two_onnx_compare_shows_candidate_path_without_model_id(self):
+        from winml.modelkit.eval import WinMLEvaluationConfig
+
+        text = self._render(
+            WinMLEvaluationConfig(
+                model_path="cand.onnx",
+                reference_path="ref.onnx",
+                mode="compare",
+            )
+        )
+        assert "Evaluation: cand.onnx" in text
+        assert "ref.onnx" in text
 
 
 # ---------------------------------------------------------------------------

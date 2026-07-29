@@ -120,7 +120,7 @@ def compile_cli_mocks() -> CompileCliMocks:
 
 
 class TestCompileCliHelp:
-    """Verify that --device and --ep appear in --help output."""
+    """Verify compile options appear in --help output."""
 
     def test_device_option_in_help(self, runner: CliRunner) -> None:
         result = runner.invoke(compile, ["--help"])
@@ -131,6 +131,11 @@ class TestCompileCliHelp:
         result = runner.invoke(compile, ["--help"])
         assert result.exit_code == 0
         assert "--ep" in result.output
+
+    def test_ep_options_option_in_help(self, runner: CliRunner) -> None:
+        result = runner.invoke(compile, ["--help"])
+        assert result.exit_code == 0
+        assert "--ep-options" in result.output
 
     def test_device_choices_in_help(self, runner: CliRunner) -> None:
         """Help text must expose the device choices."""
@@ -283,6 +288,78 @@ class TestCompileCliDeviceEpFlags:
         """Unknown EP string is rejected by Click."""
         result = runner.invoke(compile, ["-m", str(fake_onnx), "--ep", "unknown_ep"])
         assert result.exit_code != 0
+
+
+class TestCompileCliEpOptions:
+    """Verify CLI EP options reach the compilation provider configuration."""
+
+    def test_ep_options_forwarded_to_compile_config(
+        self, runner: CliRunner, fake_onnx: Path, compile_cli_mocks: CompileCliMocks
+    ) -> None:
+        result = runner.invoke(
+            compile,
+            [
+                "-m",
+                str(fake_onnx),
+                "--ep-options",
+                "htp_performance_mode=burst",
+                "--ep-options",
+                "soc_model=57",
+            ],
+        )
+
+        _assert_successful_compile_call(result, compile_cli_mocks, fake_onnx)
+        assert compile_cli_mocks.compile_config.ep_config.provider_options == {
+            "htp_performance_mode": "burst",
+            "soc_model": "57",
+        }
+
+    def test_cli_ep_options_override_matching_config_keys(
+        self, runner: CliRunner, fake_onnx: Path, compile_cli_mocks: CompileCliMocks
+    ) -> None:
+        config_path = fake_onnx.parent / "compile.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "compile": {
+                        "provider_options": {
+                            "htp_performance_mode": "sustained_high_performance",
+                            "soc_model": "57",
+                        }
+                    }
+                }
+            )
+        )
+
+        result = runner.invoke(
+            compile,
+            [
+                "-m",
+                str(fake_onnx),
+                "--config",
+                str(config_path),
+                "--ep-options",
+                "htp_performance_mode=burst",
+            ],
+        )
+
+        _assert_successful_compile_call(result, compile_cli_mocks, fake_onnx)
+        assert compile_cli_mocks.compile_config.ep_config.provider_options == {
+            "htp_performance_mode": "burst",
+            "soc_model": "57",
+        }
+
+    def test_invalid_ep_option_is_rejected(
+        self, runner: CliRunner, fake_onnx: Path, compile_cli_mocks: CompileCliMocks
+    ) -> None:
+        result = runner.invoke(
+            compile,
+            ["-m", str(fake_onnx), "--ep-options", "missing-separator"],
+        )
+
+        assert result.exit_code == 2
+        assert "Use KEY=VALUE" in result.output
+        compile_cli_mocks.compile_onnx.assert_not_called()
 
 
 class TestCompileCliConfigPriority:
