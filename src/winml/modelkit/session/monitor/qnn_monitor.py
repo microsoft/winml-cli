@@ -793,7 +793,7 @@ class QNNMonitor(WinMLEPMonitor):
             if not self._csv_path.is_file():
                 return None
         except OSError as exc:
-            logger.debug(
+            logger.info(
                 (
                     "QNNMonitor: unable to read profiling CSV metadata "
                     "for schematic discovery (%s): %s"
@@ -831,7 +831,7 @@ class QNNMonitor(WinMLEPMonitor):
         try:
             return select_main_epcontext_partition_name(self._running_model_path)
         except Exception as exc:
-            logger.debug(
+            logger.info(
                 "QNNMonitor: unable to inspect EPContext partition metadata from %s: %s",
                 self._running_model_path,
                 exc,

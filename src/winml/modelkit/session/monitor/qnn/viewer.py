@@ -46,6 +46,7 @@ _COMMON_SDK_PATHS: list[Path] = [
     Path(r"D:\QC"),
     Path(r"C:\Qualcomm\AIStack\qairt"),
 ]
+_OPTRACE_READER_NAME = "QnnHtpOptraceProfilingReader.dll"
 
 
 def find_qnn_sdk() -> Path | None:
@@ -64,6 +65,8 @@ def find_qnn_sdk() -> Path | None:
     for base_path in _COMMON_SDK_PATHS:
         if not base_path.is_dir():
             continue
+        if (base_path / "bin").is_dir():
+            return base_path
         for child in sorted(base_path.iterdir(), reverse=True):
             if child.is_dir() and (child / "bin").is_dir():
                 return child
@@ -94,6 +97,18 @@ def _find_viewer_exe(sdk_root: Path | None = None) -> Path | None:
         return candidate
 
     return None
+
+
+def _find_optrace_reader(viewer: Path) -> Path | None:
+    """Locate the optrace reader matching the selected viewer architecture."""
+    bin_dir = viewer.parent
+    if bin_dir.parent.name == "bin":
+        sdk_root = bin_dir.parent.parent
+        candidate = sdk_root / "lib" / bin_dir.name / _OPTRACE_READER_NAME
+    else:
+        sdk_root = bin_dir.parent
+        candidate = sdk_root / "lib" / _OPTRACE_READER_NAME
+    return candidate if candidate.is_file() else None
 
 
 def run_basic_viewer(
@@ -163,6 +178,14 @@ def run_qhas_viewer(
             "(falling back to basic CSV)"
         )
         return None
+    reader = _find_optrace_reader(viewer)
+    if reader is None:
+        logger.warning(
+            "%s not found for qnn-profile-viewer at %s; falling back to basic CSV",
+            _OPTRACE_READER_NAME,
+            viewer,
+        )
+        return None
 
     if not schematic.is_file():
         logger.warning("Schematic file not found: %s", schematic)
@@ -180,7 +203,7 @@ def run_qhas_viewer(
         "--output",
         str(output),
         "--reader",
-        "optrace",
+        str(reader),
         "--schematic",
         str(schematic),
         "--config",
