@@ -13,6 +13,7 @@ import torch.nn as nn
 
 from winml.modelkit.export import InputTensorSpec, OutputTensorSpec, WinMLExportConfig
 from winml.modelkit.export.htp import HTPExporter
+from winml.modelkit.export.policy import ExportCompatibilityConfig
 
 
 if TYPE_CHECKING:
@@ -43,15 +44,21 @@ class _NestedAttentionModel(nn.Module):
         return self.proj(x)
 
 
-def test_htp_exporter_uses_eager_attention_only_during_onnx_export(
+def _export_config(*, eager_attention: bool) -> WinMLExportConfig:
+    return WinMLExportConfig(
+        input_tensors=[InputTensorSpec(name="x", dtype="float32", shape=(1, 2))],
+        output_tensors=[OutputTensorSpec(name="y")],
+        compatibility=ExportCompatibilityConfig(
+            transformers_attention="eager" if eager_attention else None
+        ),
+    )
+
+
+def test_htp_exporter_uses_eager_attention_when_policy_requests_it(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     model = _NestedAttentionModel()
-    export_config = WinMLExportConfig(
-        input_tensors=[InputTensorSpec(name="x", dtype="float32", shape=(1, 2))],
-        output_tensors=[OutputTensorSpec(name="y")],
-    )
     captured: dict[str, str] = {}
 
     def fake_export(*args: object, **kwargs: object) -> None:
@@ -64,10 +71,36 @@ def test_htp_exporter_uses_eager_attention_only_during_onnx_export(
         model,
         str(tmp_path / "model.onnx"),
         {"x": torch.ones(1, 2)},
-        export_config,
+        _export_config(eager_attention=True),
         task=None,
     )
 
     assert captured == {"root": "eager", "child": "eager"}
+    assert model.config._attn_implementation == "sdpa"
+    assert model.proj.config._attn_implementation == "sdpa"
+
+
+def test_htp_exporter_leaves_attention_unchanged_without_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    model = _NestedAttentionModel()
+    captured: dict[str, str] = {}
+
+    def fake_export(*args: object, **kwargs: object) -> None:
+        captured["root"] = model.config._attn_implementation
+        captured["child"] = model.proj.config._attn_implementation
+
+    monkeypatch.setattr(torch.onnx, "export", fake_export)
+
+    HTPExporter()._convert_model_to_onnx(
+        model,
+        str(tmp_path / "model.onnx"),
+        {"x": torch.ones(1, 2)},
+        _export_config(eager_attention=False),
+        task=None,
+    )
+
+    assert captured == {"root": "sdpa", "child": "sdpa"}
     assert model.config._attn_implementation == "sdpa"
     assert model.proj.config._attn_implementation == "sdpa"
