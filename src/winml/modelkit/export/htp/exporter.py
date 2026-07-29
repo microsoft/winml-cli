@@ -38,6 +38,7 @@ from ...core.onnx_node_tagger import (
     create_node_tagger_from_hierarchy,
 )
 from ...core.onnx_utils import infer_output_names
+from ..attention import use_eager_attention_for_export
 from .base_writer import ExportStep
 from .hierarchy import TracingHierarchyBuilder
 from .monitor import HTPExportMonitor
@@ -595,7 +596,7 @@ class HTPExporter:
         if export_config.dynamic_axes:
             onnx_kwargs["dynamic_axes"] = export_config.dynamic_axes
 
-        with self._get_optimum_patcher(model, task):
+        with self._get_optimum_patcher(model, task), use_eager_attention_for_export(model):
             # Models can override input binding by implementing
             # get_export_args(inputs) → tuple of positional args.
             # Default: pass inputs dict as kwargs.
