@@ -161,6 +161,47 @@ class TestNodeDiff:
         op_types = sorted(ref.op_type for _, ref in table.values())
         assert op_types == ["Identity", "Identity", "If"]
 
+    def test_deeply_nested_subgraphs_collected(self) -> None:
+        """Iterative traversal collects multi-level nested nodes correctly.
+
+        Builds a chain of nested ``If`` subgraphs to exercise the explicit-stack
+        traversal across many levels (protobuf itself caps message nesting, so
+        this also bounds how deep any real model can be — the traversal is no
+        longer the limiting factor).
+        """
+        depth = 12
+
+        def _leaf(i: int) -> GraphProto:
+            return helper.make_graph(
+                [helper.make_node("Identity", ["x"], [f"o{i}"], name=f"id{i}")],
+                f"g{i}",
+                [],
+                [helper.make_tensor_value_info(f"o{i}", TensorProto.FLOAT, [1])],
+            )
+
+        inner = _leaf(0)
+        for i in range(1, depth):
+            if_node = helper.make_node(
+                "If",
+                ["cond"],
+                [f"out{i}"],
+                name=f"if{i}",
+                then_branch=inner,
+                else_branch=_leaf(i),
+            )
+            inner = helper.make_graph(
+                [if_node],
+                f"wrap{i}",
+                [],
+                [helper.make_tensor_value_info(f"out{i}", TensorProto.FLOAT, [1])],
+            )
+
+        table: dict = {}
+        _collect_nodes(inner, (), table)
+        collected = [ref.op_type for _, ref in table.values()]
+        assert collected.count("If") == depth - 1
+        assert collected.count("Identity") == depth
+
 
 class TestInitializerDiff:
     """The initializer diff reports removed, added and modified constants."""
@@ -178,6 +219,47 @@ class TestInitializerDiff:
         assert removed == []
         assert added == []
         assert modified == ["BIG"]
+
+
+class TestExternalDataInitializerDiff:
+    """External-data location churn must not read as a modified initializer."""
+
+    @staticmethod
+    def _external_init_model(offset: str, dims: tuple[int, ...] = (4,)) -> ModelProto:
+        init = TensorProto()
+        init.name = "W"
+        init.data_type = TensorProto.FLOAT
+        init.dims.extend(dims)
+        init.data_location = TensorProto.EXTERNAL
+        for key, value in (("location", "weights.bin"), ("offset", offset), ("length", "16")):
+            entry = init.external_data.add()
+            entry.key = key
+            entry.value = value
+        x = helper.make_tensor_value_info("x", TensorProto.FLOAT, list(dims))
+        z = helper.make_tensor_value_info("z", TensorProto.FLOAT, list(dims))
+        node = helper.make_node("Add", ["x", "W"], ["z"], name="add")
+        return _finalize(helper.make_graph([node], "ext", [x], [z], initializer=[init]))
+
+    def test_offset_change_is_not_a_modification(self) -> None:
+        # Same tensor identity, only the external offset moved (e.g. after a
+        # pipe re-saved the model) — this must not be reported as modified.
+        base = self._external_init_model("0")
+        probe = self._external_init_model("1024")
+        removed, added, modified = _diff_initializers(
+            _collect_initializers(base), _collect_initializers(probe)
+        )
+        assert removed == []
+        assert added == []
+        assert modified == []
+
+    def test_shape_change_still_detected(self) -> None:
+        # A genuine change to an external-data initializer is still caught.
+        base = self._external_init_model("0", dims=(4,))
+        probe = self._external_init_model("0", dims=(8,))
+        _, _, modified = _diff_initializers(
+            _collect_initializers(base), _collect_initializers(probe)
+        )
+        assert modified == ["W"]
 
 
 class TestClone:

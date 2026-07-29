@@ -28,7 +28,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from onnx import AttributeProto, GraphProto, ModelProto, NodeProto
+from onnx import AttributeProto, GraphProto, ModelProto, NodeProto, TensorProto
 
 
 if TYPE_CHECKING:
@@ -170,22 +170,27 @@ def _collect_nodes(
 ) -> None:
     """Populate ``table`` with ``{key: (serialized, NodeRef)}`` for every node.
 
-    Recurses into subgraphs (If/Loop/Scan bodies) so nested rewrites are not
-    missed. Keys are scoped by the containing node to keep subgraph nodes
-    distinct from top-level nodes.
+    Walks subgraphs (If/Loop/Scan bodies) so nested rewrites are not missed.
+    Keys are scoped by the containing node to keep subgraph nodes distinct from
+    top-level nodes. Traversal is iterative (explicit stack) rather than
+    recursive so that pathologically deep subgraph nesting cannot exhaust
+    Python's recursion limit.
     """
-    for node in graph.node:
-        key = (scope, _node_identity(node))
-        table[key] = (
-            node.SerializeToString(),
-            NodeRef(node.op_type, node.name, tuple(node.output)),
-        )
-        for attr in node.attribute:
-            if attr.type == AttributeProto.GRAPH:
-                _collect_nodes(attr.g, (*scope, _node_identity(node), attr.name), table)
-            elif attr.type == AttributeProto.GRAPHS:
-                for i, sub in enumerate(attr.graphs):
-                    _collect_nodes(sub, (*scope, _node_identity(node), attr.name, i), table)
+    stack: list[tuple[GraphProto, tuple[Any, ...]]] = [(graph, scope)]
+    while stack:
+        cur_graph, cur_scope = stack.pop()
+        for node in cur_graph.node:
+            key = (cur_scope, _node_identity(node))
+            table[key] = (
+                node.SerializeToString(),
+                NodeRef(node.op_type, node.name, tuple(node.output)),
+            )
+            for attr in node.attribute:
+                if attr.type == AttributeProto.GRAPH:
+                    stack.append((attr.g, (*cur_scope, _node_identity(node), attr.name)))
+                elif attr.type == AttributeProto.GRAPHS:
+                    for i, sub in enumerate(attr.graphs):
+                        stack.append((sub, (*cur_scope, _node_identity(node), attr.name, i)))
 
 
 def _diff_nodes(
@@ -201,9 +206,29 @@ def _diff_nodes(
     return removed, added, modified
 
 
+def _initializer_key(init: TensorProto) -> bytes:
+    """Serialize an initializer for diffing, ignoring external-data location.
+
+    An external-data ``TensorProto`` keeps its file path/offset/length in
+    ``external_data`` (with ``data_location = EXTERNAL``) instead of inline
+    ``raw_data``. Those location fields change whenever a pipe re-saves the
+    model — relocated offsets, a different sidecar path — even when the tensor
+    itself is unchanged, which would otherwise surface as a spurious "modified"
+    initializer. Stripping them keeps the diff keyed on tensor identity/content
+    rather than on where the bytes happen to live.
+    """
+    if init.data_location == TensorProto.EXTERNAL or len(init.external_data):
+        normalized = TensorProto()
+        normalized.CopyFrom(init)
+        normalized.ClearField("external_data")
+        normalized.ClearField("data_location")
+        return normalized.SerializeToString()
+    return init.SerializeToString()
+
+
 def _collect_initializers(model: ModelProto) -> dict[str, bytes]:
-    """Return ``{initializer_name: serialized_bytes}`` for the top-level graph."""
-    return {init.name: init.SerializeToString() for init in model.graph.initializer}
+    """Return ``{initializer_name: signature_bytes}`` for the top-level graph."""
+    return {init.name: _initializer_key(init) for init in model.graph.initializer}
 
 
 def _diff_initializers(
@@ -292,7 +317,18 @@ def _iter_findings(
         pipe = pipe_class()
 
         base_config = pipe.build_config(**default_kwargs)
-        base_out = _run_pipe(pipe, current, base_config)
+        try:
+            base_out = _run_pipe(pipe, current, base_config)
+        except Exception as exc:
+            # A pipe failing on its own default config would otherwise abort the
+            # whole scan. Skip this pipe's probes and leave ``current`` untouched
+            # so downstream pipes still see the last good model.
+            logger.warning(
+                "Skipping pipe '%s' — baseline run failed on default config: %s",
+                getattr(pipe, "name", pipe_class.__name__),
+                exc,
+            )
+            continue
         base_nodes: dict[tuple[Any, ...], tuple[bytes, NodeRef]] = {}
         _collect_nodes(base_out.graph, (), base_nodes)
         base_inits = _collect_initializers(base_out)
