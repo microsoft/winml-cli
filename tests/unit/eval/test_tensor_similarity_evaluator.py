@@ -234,3 +234,83 @@ class TestONNXSessionModel:
 
         model = _ONNXSessionModel("x.onnx")
         assert model.io_config["input_names"] == ["input"]
+
+
+# ---------------------------------------------------------------------------
+# --input-data combined with two-ONNX compare (reference_path + input_data)
+# ---------------------------------------------------------------------------
+
+
+class _FakeIOSession:
+    """Fake session exposing ``input_types`` so ``InputDataDataset`` validates,
+    and echoing a fixed named output so ``compute()`` finds overlapping outputs.
+
+    ``run`` mirrors ``WinMLSession`` by accepting torch-tensor inputs (the real
+    session converts them via ``_prepare_inputs``), so this doubles as a guard
+    that ``_ONNXSessionModel`` forwarding torch tensors is safe.
+    """
+
+    def __init__(self, onnx_path, device="auto", ep=None):
+        self.io_config = {"input_names": ["input"], "input_types": ["float32"]}
+
+    def run(self, inputs):
+        arr = np.asarray(next(iter(inputs.values()))).astype(np.float32)
+        return {"logits": arr.reshape(1, -1)[:, :3]}
+
+
+class TestONNXReferenceWithInputData:
+    def test_prepare_data_uses_input_data_over_candidate_session(self, monkeypatch, tmp_path):
+        import winml.modelkit.session.session as session_mod
+        from winml.modelkit.datasets.input_data import InputDataDataset
+
+        monkeypatch.setattr(session_mod, "WinMLSession", _FakeIOSession)
+
+        npz = tmp_path / "inputs.npz"
+        np.savez(npz, input=np.ones((3, 4), dtype=np.float32))
+
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            reference_path="ref.onnx",
+            mode="compare",
+            input_data=str(npz),
+        )
+
+        # ``model`` is None in the two-ONNX path (evaluate._load_model returns None).
+        evaluator = TensorSimilarityEvaluator(config, None)  # type: ignore[arg-type]
+
+        # Both sides are raw ORT wrappers ...
+        assert isinstance(evaluator.model, _ONNXSessionModel)
+        assert isinstance(evaluator.reference_model, _ONNXSessionModel)
+        # ... and the real-input dataset is built over the candidate session's
+        # io_config (not a RandomDataset), proving --input-data composes with
+        # --reference.
+        assert isinstance(evaluator.data, InputDataDataset)
+        assert len(evaluator.data) == 3
+        sample = evaluator.data[0]
+        assert set(sample) == {"input"}
+        assert sample["input"].shape == (1, 4)
+
+    def test_compute_runs_real_inputs_through_both_sessions(self, monkeypatch, tmp_path):
+        import winml.modelkit.session.session as session_mod
+
+        monkeypatch.setattr(session_mod, "WinMLSession", _FakeIOSession)
+
+        npz = tmp_path / "inputs.npz"
+        np.savez(npz, input=np.ones((2, 3), dtype=np.float32))
+
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            reference_path="ref.onnx",
+            mode="compare",
+            input_data=str(npz),
+        )
+        evaluator = TensorSimilarityEvaluator(config, None)  # type: ignore[arg-type]
+
+        result = evaluator.compute()
+
+        # Candidate and reference share the same fake session, so the compare
+        # loop ran end-to-end on the two real samples through both raw ORT
+        # sessions (torch tensors in, numpy out) without error and produced a
+        # per-metric table over the common "logits" output.
+        assert result
+        assert all("logits" in per_output for per_output in result.values())
