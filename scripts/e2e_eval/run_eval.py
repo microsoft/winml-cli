@@ -14,7 +14,7 @@ and a recipe-less NPU model falls back to ``winml config`` expanded into ``w8a8`
 + ``w8a16`` jobs (an explicit per-model precision overrides this). CPU/GPU build
 only the non-quantized recipe variants (e.g. ``fp16``), or a single ``winml
 config`` fallback when a model has no applicable recipe. EPs that are evaluated
-unquantized (see ``_EPS_SKIP_WINML_QUANT``) follow the same non-quantized-only
+unquantized (see ``_should_skip_winml_quant``) follow the same non-quantized-only
 rule even on NPU.
 
 The runner records facts only (perf output + the winml-eval metrics/dataset).
@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import functools
 import hashlib
 import json
 import logging
@@ -104,29 +105,60 @@ _DEFAULT_PRECISION_NPU = "w8a16"
 _NPU_FALLBACK_PRECISIONS: tuple[str, ...] = ("w8a8", "w8a16")
 
 # EPs whose eval track keeps the model unquantized (the "fp" variant)
-# rather than running winml's QDQ pass on top.  This is an eval-setup
-# choice -- e.g. VitisAI / AMD Ryzen AI is benchmarked on the fp32/fp16
-# model -- not a claim about the EP's internal pipeline.  For these EPs
-# the harness passes ``--no-quant`` to both ``winml config`` and
-# ``winml build`` (see :func:`_run_build` and :func:`run_model`) and skips
-# authored quantized recipe variants (see :func:`_build_jobs`), which carry
-# their own ``quant`` section that ``--no-quant`` cannot override.
-#
-# Entries are canonical ``EPName`` values (the ``*ExecutionProvider`` form);
-# user-facing aliases like ``vitisai`` are normalised via
-# ``normalize_ep_name`` in :func:`_should_skip_winml_quant` so each EP only
-# needs to be listed once.
-_EPS_SKIP_WINML_QUANT = frozenset({"VitisAIExecutionProvider"})
+# rather than running winml's QDQ pass on top.  The EP list itself is the
+# product-level policy constant ``EPS_WITH_INTERNAL_QUANT`` -- e.g. VitisAI /
+# AMD Ryzen AI quantizes internally (XINT8) and aborts inside xir when handed a
+# winml-produced QDQ graph.  ``winml config`` / ``winml build`` already fall
+# back to the unquantized track for these EPs on their own; the harness still
+# passes ``--no-quant`` explicitly (see :func:`_run_build` and
+# :func:`run_model`) and additionally skips authored quantized recipe variants
+# (see :func:`_build_jobs`), which carry their own ``quant`` section that
+# ``--no-quant`` cannot override.
 
 
-def _should_skip_winml_quant(ep: str | None) -> bool:
-    """True if the eval harness should run this EP on the unquantized model."""
+@functools.cache
+def _deduce_ep_for_device(device: str) -> str | None:
+    """Canonical EP a concrete device resolves to on this host, or ``None``.
+
+    Mirrors what ``winml config`` / ``winml build`` do internally when ``--ep``
+    is omitted, so harness-side policy decisions see the same EP the product
+    will. ``"auto"`` is deliberately excluded: the product resolves it through
+    its own device detection, and the harness never forces a precision for it,
+    so the product's auto-precision policy already applies.
+    """
+    if not device or device.lower() == "auto":
+        return None
+    # Lazy import: keeps ``scripts/e2e_eval`` cheap to load (winml.modelkit
+    # transitively imports onnxruntime).
+    from winml.modelkit.session import default_ep_for_device
+
+    return default_ep_for_device(device.lower())
+
+
+def _effective_ep(ep: str | None, device: str | None) -> str | None:
+    """Canonical EP this run will actually target: explicit ``--ep``, else deduced."""
+    from winml.modelkit.utils.constants import normalize_ep_name
+
+    if ep:
+        return normalize_ep_name(ep)
+    return _deduce_ep_for_device(device or "auto")
+
+
+def _should_skip_winml_quant(ep: str | None, device: str | None = None) -> bool:
+    """True if the eval harness should run this EP on the unquantized model.
+
+    ``ep`` is ``None`` whenever only ``--device`` was pinned, so the effective EP
+    has to be deduced from the device before deciding. Without that,
+    ``run_eval.py --device npu`` on an AMD-only host would keep expanding
+    quantized jobs and forcing ``--precision w8a16`` on VitisAI -- exactly the
+    QDQ graph this policy exists to avoid.
+    """
     # Lazy import: keeps ``scripts/e2e_eval`` cheap to load (winml.modelkit
     # transitively imports onnxruntime) and matches the existing in-function
     # import pattern used elsewhere in this script.
-    from winml.modelkit.utils.constants import normalize_ep_name
+    from winml.modelkit.utils.constants import EPS_WITH_INTERNAL_QUANT
 
-    return normalize_ep_name(ep) in _EPS_SKIP_WINML_QUANT
+    return _effective_ep(ep, device) in EPS_WITH_INTERNAL_QUANT
 
 
 def _resolve_precision(device: str, explicit: str | None, ep: str | None = None) -> str | None:
@@ -138,7 +170,8 @@ def _resolve_precision(device: str, explicit: str | None, ep: str | None = None)
     (NHWC layout transformer inserts Conv nodes that QNN GPU's GetCapability
     does not claim).
 
-    For EPs in :data:`_EPS_SKIP_WINML_QUANT` (e.g. VitisAI) the flag is forced
+    For EPs matched by :func:`_should_skip_winml_quant` (e.g. VitisAI) the flag
+    is forced
     off regardless of ``explicit``: the harness pairs these EPs with
     ``--no-quant`` at config/build time, so a non-empty ``--precision`` would
     produce a config that says "quantize to X" while the build says "skip
@@ -147,11 +180,12 @@ def _resolve_precision(device: str, explicit: str | None, ep: str | None = None)
 
     Otherwise an explicit per-model precision always takes precedence.
     """
-    if _should_skip_winml_quant(ep):
+    if _should_skip_winml_quant(ep, device):
         if explicit:
             safe_print(
-                f"  [precision] Ignoring explicit precision={explicit!r} for EP {ep!r}: "
-                "this EP is run on the unquantized variant (--no-quant)."
+                f"  [precision] Ignoring explicit precision={explicit!r} for EP "
+                f"{_effective_ep(ep, device)!r}: this EP is run on the unquantized "
+                "variant (--no-quant)."
             )
         return None
     if explicit:
@@ -678,12 +712,12 @@ def _run_build(
         config_args += ["--task", entry.task]
     if ep:
         config_args += ["--ep", ep]
-    # EPs in _EPS_SKIP_WINML_QUANT are evaluated on the unquantized variant.
+    # Internal-quant EPs are evaluated on the unquantized variant.
     # Pass --no-quant to winml config so the generated build_config.json is
     # written with quant=None up-front; otherwise on NPU the config command
     # would still apply its default precision (w8a16) and we'd be relying on
     # --no-quant at build time alone to override it.
-    if _should_skip_winml_quant(ep):
+    if _should_skip_winml_quant(ep, device):
         config_args += ["--no-quant"]
 
     config_proc = _run_subprocess(config_args, timeout)
@@ -741,8 +775,8 @@ def _run_build(
             build_args += ["--ep", ep]
         # Mirror the --no-quant passed to winml config above so the build
         # stage also skips QDQ regardless of what the config carries (defence
-        # in depth; see _EPS_SKIP_WINML_QUANT for the rationale).
-        if _should_skip_winml_quant(ep):
+        # in depth; see _should_skip_winml_quant for the rationale).
+        if _should_skip_winml_quant(ep, device):
             build_args += ["--no-quant"]
 
         build_proc = _run_subprocess(build_args, timeout)
@@ -1781,7 +1815,7 @@ def run_model(
             args += ["--task", entry.task]
         if ep:
             args += ["--ep", ep]
-        if _should_skip_winml_quant(ep):
+        if _should_skip_winml_quant(ep, device):
             args += ["--no-quant"]
         args += ["--iterations", "10", "--warmup", "2"]
         if trace:
@@ -2457,7 +2491,7 @@ def _build_jobs(
     # would produce duplicate artifacts under distinct precision slugs, and an
     # authored quantized recipe would hand the EP a QDQ graph its compiler is
     # not expected to consume.  Both are suppressed.
-    skip_quant = _should_skip_winml_quant(ep)
+    skip_quant = _should_skip_winml_quant(ep, device)
     expand_npu_quant = npu and not skip_quant
     jobs: list[EvalJob] = []
     for entry in entries:
