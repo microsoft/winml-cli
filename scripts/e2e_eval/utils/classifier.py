@@ -24,7 +24,7 @@ class FailureType(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
-# Ordered by pipeline stage — first match wins.
+# Ordered by classification priority — first match wins.
 # All patterns are lowercase (matching is case-insensitive).
 # Pattern sources:
 #   modelkit/build/hf.py          ("compilation failed", "quantization failed")
@@ -62,6 +62,16 @@ CLASSIFICATION_RULES: list[tuple[FailureType, list[str]]] = [
         ],
     ),
     (
+        FailureType.RUNTIME_FAIL,
+        [
+            "inferenceerror",
+            "inference failed",
+            "out of memory",
+            "memoryerror",
+            "cuda error",
+        ],
+    ),
+    (
         FailureType.UNSUPPORTED,
         [
             "qnn.backendvalidateopconfig() failed",
@@ -76,16 +86,6 @@ CLASSIFICATION_RULES: list[tuple[FailureType, list[str]]] = [
             "compilationerror",
             "quantization failed",
             "compile_onnx",
-        ],
-    ),
-    (
-        FailureType.RUNTIME_FAIL,
-        [
-            "inferenceerror",
-            "inference failed",
-            "out of memory",
-            "memoryerror",
-            "cuda error",
         ],
     ),
     (

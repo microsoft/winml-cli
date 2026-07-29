@@ -897,6 +897,18 @@ class TestUnsupportedRuntimeFailures:
 
         assert run_eval.classify_result(result) == "UNSUPPORTED"
 
+    def test_qnn_finalize_out_of_memory_is_runtime_failure(self, run_eval):
+        result = self._failed_result(
+            run_eval,
+            "Failed to finalize QNN graph: out of memory",
+        )
+
+        run_eval._mark_unsupported_perf_result(result)
+
+        assert run_eval.classify_result(result) == "RUNTIME_FAIL"
+        assert "unsupported_skip" not in result["perf"]
+        assert run_eval._all_results_pass([result]) is False
+
     def test_unsupported_perf_result_is_marked_and_does_not_fail_run(self, run_eval):
         result = self._failed_result(run_eval, "Failed to compose Qnn graph")
 

@@ -424,6 +424,61 @@ def test_legacy_qnn_detail_rejects_compile_fallback_to_raw_model(tmp_path, monke
     assert events == ["compile"]
 
 
+def test_legacy_qnn_detail_compiles_model_copy_under_output_dir(tmp_path, monkeypatch) -> None:
+    _reset_optracing_modules()
+    profiler_module = importlib.import_module("winml.modelkit.optracing.qnn.profiler")
+    onnx_module = importlib.import_module("winml.modelkit.onnx")
+    session_module = importlib.import_module("winml.modelkit.session")
+    monitor_module = importlib.import_module("winml.modelkit.session.monitor.qnn_monitor")
+    profiler_class, _ = _capture_deprecation(lambda: profiler_module.QNNProfiler)
+    source_dir = tmp_path / "readonly_source"
+    output_dir = tmp_path / "trace"
+    source_dir.mkdir()
+    raw_model = source_dir / "model.onnx"
+    raw_model.write_bytes(b"fake")
+    session_paths: list[Path] = []
+    result = object()
+
+    class _Monitor:
+        def __init__(self, **kwargs) -> None:
+            self.result = result
+
+    class _PerfContext:
+        def __init__(self, monitor) -> None:
+            self.monitor = monitor
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+    class _Session:
+        running_model_path = output_dir / "model_ctx.onnx"
+
+        def __init__(self, onnx_path, *args, **kwargs) -> None:
+            session_paths.append(Path(onnx_path))
+
+        def compile(self) -> None:
+            return None
+
+        def perf(self, *, warmup, monitor):
+            return _PerfContext(monitor)
+
+        def run(self, inputs) -> None:
+            return None
+
+    monkeypatch.setattr(onnx_module, "is_compiled_onnx", lambda path: True)
+    monkeypatch.setattr(session_module, "WinMLSession", _Session)
+    monkeypatch.setattr(monitor_module, "QNNMonitor", _Monitor)
+    monkeypatch.setattr(profiler_class, "_resolve_inputs", lambda self, session: {})
+
+    profiler = profiler_class(raw_model, output_dir=output_dir, level="detail")
+
+    assert profiler.run(iterations=0, warmup=0) is result
+    assert session_paths == [output_dir / raw_model.name]
+
+
 def test_legacy_tracer_registry_round_trips_with_substring_match() -> None:
     _reset_optracing_modules()
     base_module = importlib.import_module("winml.modelkit.optracing.base")

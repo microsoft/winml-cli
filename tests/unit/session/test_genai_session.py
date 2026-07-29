@@ -455,7 +455,7 @@ class TestEPRegistration:
 
         assert registered == [("QNNExecutionProvider", "C:\\fake\\qnn.dll")]
 
-    def test_registration_ignores_shadowed_discovery_entry(
+    def test_registration_prefers_primary_discovery_entry(
         self, bundle_dir_with_pipeline: Path, fresh_registry, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Only the discovery winner is passed to ORT GenAI registration."""
@@ -474,6 +474,40 @@ class TestEPRegistration:
             GenaiSession(bundle_dir_with_pipeline).load()
 
         assert registered == [("QNNExecutionProvider", "C:\\fake\\primary-qnn.dll")]
+
+    def test_registration_falls_back_to_shadowed_entry_after_primary_failure(
+        self, bundle_dir_with_pipeline: Path, fresh_registry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A broken primary plugin should not suppress lower-precedence viable sources."""
+        from dataclasses import replace
+
+        self._reset_process_registration_cache(monkeypatch)
+        primary = _plugin_entry("QNNExecutionProvider", "C:/fake/primary-qnn.dll")
+        shadowed = replace(
+            _plugin_entry("QNNExecutionProvider", "C:/fake/shadowed-qnn.dll"),
+            status="shadowed",
+        )
+        fresh_registry._discovered = [primary, shadowed]
+        attempts: list[tuple[str, str]] = []
+        og = types.ModuleType("onnxruntime_genai")
+
+        def _register(name: str, path: str) -> None:
+            attempts.append((name, path))
+            if "primary" in path:
+                raise RuntimeError("broken primary")
+
+        og.register_execution_provider_library = _register
+        og.Config = MagicMock()
+        og.Model = MagicMock()
+        og.Tokenizer = MagicMock()
+
+        with _patch_og(og):
+            GenaiSession(bundle_dir_with_pipeline).load()
+
+        assert attempts == [
+            ("QNNExecutionProvider", "C:\\fake\\primary-qnn.dll"),
+            ("QNNExecutionProvider", "C:\\fake\\shadowed-qnn.dll"),
+        ]
 
     def test_multi_stage_bundle_registers_each_unique_plugin_in_config_order(
         self, bundle_dir_with_pipeline: Path, fresh_registry, monkeypatch: pytest.MonkeyPatch

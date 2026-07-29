@@ -279,11 +279,17 @@ def load_hf_model(
         if len(matching_subconfigs) == 1:
             model_config = cast("PretrainedConfig", matching_subconfigs[0])
 
-    model = loader_cls.from_pretrained(
-        model_name_or_path,
-        trust_remote_code=trust_remote_code,
-        config=model_config,
-    )
+    if user_script is not None:
+        model = loader_cls.from_pretrained(
+            model_name_or_path,
+            trust_remote_code=trust_remote_code,
+        )
+    else:
+        model = loader_cls.from_pretrained(
+            model_name_or_path,
+            trust_remote_code=trust_remote_code,
+            config=model_config,
+        )
 
     # [5] Export Preparation
     model.eval()

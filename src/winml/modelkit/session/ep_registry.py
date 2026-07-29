@@ -21,6 +21,15 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import onnxruntime as ort
 
+from .._native_ep_registration import (
+    _NATIVE_REGISTERED_ARG0_BY_PATH,
+    _NATIVE_REGISTERED_BY_PATH,
+    _NATIVE_REGISTRATION_COUNT,
+    _NATIVE_REGISTRATION_LOCK,
+    forget_native_registration,
+    native_registration_key,
+    record_native_registration,
+)
 from ..ep_path import BuiltinSource, EPEntry, discover_all_eps
 from .ep_device import (
     DeviceNotFound,
@@ -368,7 +377,7 @@ class WinMLEPRegistry:
         # is frozen post-init, so the result never changes; rebuilding
         # on every call wastes work in hot paths (auto_device, --list-ep).
         self._available_eps_cache: frozenset[str] | None = None
-        self._registration_lock = threading.RLock()
+        self._registration_lock = _NATIVE_REGISTRATION_LOCK
 
     def _entries_for(self, ep_full_name: str) -> list[EPEntry]:
         """Return cached EPEntries for the given EP name (no fresh scan).
@@ -438,9 +447,32 @@ class WinMLEPRegistry:
             # with ORT (which would fail with "library already registered").
             if entry.dll_path in self._registered:
                 return self._registered[entry.dll_path]
+            process_cached = _NATIVE_REGISTERED_BY_PATH.get(entry.dll_path)
+            if process_cached is not None:
+                self._registered[entry.dll_path] = process_cached
+                return process_cached
+            process_arg0 = _NATIVE_REGISTERED_ARG0_BY_PATH.get(entry.dll_path)
+            if process_arg0 is not None:
+                all_handles = _ort_get_ep_devices_or_fail(entry)
+                matching = [
+                    d
+                    for d in all_handles
+                    if d.ep_metadata.get("library_path") == str(entry.dll_path)
+                ]
+                deduped = _dedup_ort_devices(matching)
+                if not deduped:
+                    raise WinMLEPRegistrationFailed(
+                        f"Native EP {process_arg0!r} from {entry.dll_path} is already "
+                        "registered but no matching OrtEpDevices are visible.",
+                        dll_path=entry.dll_path,
+                    )
+                devices = tuple(WinMLDevice(h) for h in deduped)
+                winml_ep = WinMLEP(source=entry, devices=devices, arg0=process_arg0)
+                self._registered[entry.dll_path] = winml_ep
+                _NATIVE_REGISTERED_BY_PATH[entry.dll_path] = winml_ep
+                return winml_ep
 
-            n = self._registration_count.get(entry.ep_name, 0)
-            arg0 = entry.ep_name if n == 0 else f"{entry.ep_name}_{n}"
+            arg0 = native_registration_key(entry.ep_name)
 
             try:
                 # Suppress WER "This app requires ..." dialogs that Windows'
@@ -489,7 +521,13 @@ class WinMLEPRegistry:
             devices = tuple(WinMLDevice(h) for h in deduped)
             winml_ep = WinMLEP(source=entry, devices=devices, arg0=arg0)
             self._registered[entry.dll_path] = winml_ep
-            self._registration_count[entry.ep_name] = n + 1
+            record_native_registration(
+                ep_name=entry.ep_name,
+                dll_path=entry.dll_path,
+                arg0=arg0,
+                winml_ep=winml_ep,
+            )
+            self._registration_count[entry.ep_name] = _NATIVE_REGISTRATION_COUNT[entry.ep_name]
             return winml_ep
 
     def unregister_ep(self, winml_ep: WinMLEP) -> None:
@@ -508,6 +546,7 @@ class WinMLEPRegistry:
                 return
             ort.unregister_execution_provider_library(winml_ep.arg0)
             self._registered.pop(winml_ep.source.dll_path, None)
+            forget_native_registration(winml_ep.source.dll_path)
 
     def auto_device(self, target: EPDeviceTarget) -> WinMLEPDevice:
         """Find the first source satisfying ``target`` (ep + device + optional source).

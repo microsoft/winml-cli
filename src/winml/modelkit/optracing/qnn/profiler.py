@@ -69,8 +69,15 @@ class QNNProfiler(_OpTracer):
             output_dir=self.output_dir,
         )
         ep_config = EPConfig(provider="qnn") if level == "detail" else None
+        session_onnx_path = self.onnx_path
+        if level == "detail":
+            from ...onnx import copy_onnx_model
+
+            session_onnx_path = self.output_dir / self.onnx_path.name
+            if self.onnx_path.resolve() != session_onnx_path.resolve():
+                copy_onnx_model(self.onnx_path, session_onnx_path)
         session = WinMLSession(
-            self.onnx_path,
+            session_onnx_path,
             device="npu",
             ep="qnn",
             ep_config=ep_config,

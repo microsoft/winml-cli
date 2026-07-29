@@ -389,6 +389,10 @@ def _build_eval_config(
         # Eval section overrides loader/compile fallbacks
         eval_data = raw.get("eval")
         if eval_data:
+            eval_data = dict(eval_data)
+            typed_eval = WinMLEvaluationConfig.from_dict(eval_data)
+            if "export_overrides" in eval_data:
+                eval_data["export_overrides"] = typed_eval.export_overrides
             cfg = merge_config(cfg, eval_data)
             if "device" in eval_data or "ep" in eval_data:
                 cfg._export_target_was_explicit = True

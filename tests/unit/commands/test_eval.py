@@ -520,6 +520,57 @@ class TestEvalConfigPrecedence:
         # And config-file dataset.samples (33) wins over CLI default
         assert cfg.dataset.samples == 33
 
+    def test_config_file_export_input_specs_are_typed(self, runner: CliRunner, tmp_path):
+        """Config-file eval.export_overrides must deserialize sparse input specs."""
+        from winml.modelkit.commands.eval import eval as eval_cmd
+        from winml.modelkit.onnx import InputTensorSpec
+
+        cfg_path = tmp_path / "eval_config.json"
+        cfg_path.write_text(
+            json.dumps(
+                {
+                    "eval": {
+                        "task": "feature-extraction",
+                        "export_overrides": {
+                            "input_tensors": [
+                                {"name": "input_ids", "dtype": "int64", "shape": [1, 8]}
+                            ]
+                        },
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        captured_cfg = {}
+
+        def _fake_evaluate(cfg):
+            captured_cfg["cfg"] = cfg
+
+            class _R:
+                config = cfg
+                metrics = {"accuracy": 1.0}  # noqa: RUF012
+
+                def to_dict(self):
+                    return {"metrics": self.metrics, "config": cfg.to_dict()}
+
+            return _R()
+
+        with (
+            patch("winml.modelkit.eval.evaluate", side_effect=_fake_evaluate),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
+            patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
+        ):
+            result = runner.invoke(
+                eval_cmd,
+                ["--config", str(cfg_path), "-m", "microsoft/resnet-50"],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        input_tensors = captured_cfg["cfg"].export_overrides["input_tensors"]
+        assert isinstance(input_tensors[0], InputTensorSpec)
+        assert input_tensors[0].name == "input_ids"
+
     def test_auto_resolution_preserves_automatic_selection_intent(self):
         from winml.modelkit.commands.eval import _resolve_device
         from winml.modelkit.eval import WinMLEvaluationConfig

@@ -1232,6 +1232,25 @@ def test_winml_session_positional_device_uses_legacy_policy(
     assert target.device.lower() == "cpu"
 
 
+def test_winml_session_accepts_legacy_positional_device_and_ep_config(
+    tmp_path, cpu_ep_device, monkeypatch
+) -> None:
+    """WinMLSession(path, device, ep_config) remains source compatible."""
+    onnx_path = tmp_path / "noop.onnx"
+    onnx_path.write_bytes(b"\x08\x01")
+    _stub_registry(monkeypatch, cpu_ep_device)
+    ep_config = EPConfig(
+        provider="cpu",
+        provider_options={"arena_extend_strategy": "kNextPowerOfTwo"},
+    )
+
+    with pytest.warns(DeprecationWarning, match="positional"):
+        session = WinMLSession(onnx_path, "cpu", ep_config)
+
+    assert session._session is None
+    assert session._ep_config is ep_config
+
+
 def test_winml_session_positional_resolved_target_retains_current_api(
     tmp_path, qnn_npu_ep_device, fake_ort_npu
 ) -> None:
