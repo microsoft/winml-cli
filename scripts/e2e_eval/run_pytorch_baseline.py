@@ -152,6 +152,21 @@ def _measure_pytorch_latency(task_evaluator: Any, warmup: int, iterations: int) 
 def _load_pytorch_model(model_id: str, task: str, device_str: str):
     """Load a native PyTorch model with the task-appropriate AutoModel class."""
     import torch
+
+    device = torch.device(
+        device_str if device_str != "cuda" or torch.cuda.is_available() else "cpu"
+    )
+
+    # text-generation resolves to a composite (embeddings/ctx/iter/lm_head) that
+    # is not a runnable HF model. Wrap a plain causal LM in the perplexity
+    # scoring contract so the evaluator scores it through the same path as a
+    # genai bundle.
+    if task == "text-generation":
+        from winml.modelkit.models.winml import HFCausalLM
+
+        _out(f"Loading causal LM baseline adapter for {model_id} on {device}")
+        return HFCausalLM(model_id, device)
+
     from transformers import AutoConfig
 
     from winml.modelkit.loader import resolve_task
@@ -159,9 +174,6 @@ def _load_pytorch_model(model_id: str, task: str, device_str: str):
     config = AutoConfig.from_pretrained(model_id)
     cls = resolve_task(config, task=task).model_class
     _out(f"Loading {cls.__name__} for {model_id} on {device_str}")
-    device = torch.device(
-        device_str if device_str != "cuda" or torch.cuda.is_available() else "cpu"
-    )
     return cls.from_pretrained(model_id).to(device).eval()
 
 
@@ -353,16 +365,25 @@ def main() -> None:
         metrics = task_evaluator.compute()
 
         if args.perf_iterations > 0:
-            latency = _measure_pytorch_latency(
-                task_evaluator,
-                warmup=args.perf_warmup,
-                iterations=args.perf_iterations,
-            )
-            _out(
-                f"PyTorch latency: mean={latency['mean_ms']}ms "
-                f"p50={latency['p50_ms']}ms p90={latency['p90_ms']}ms"
-            )
-            _emit_latency(latency)
+            if task == "text-generation":
+                # The perplexity evaluator's ``data`` items are token-ID lists
+                # and its ``pipe`` is None, so the HF-pipeline latency path does
+                # not apply. Genai baseline latency is out of scope here.
+                _out(
+                    "Skipping --perf-iterations: latency measurement is not "
+                    "supported for text-generation baselines."
+                )
+            else:
+                latency = _measure_pytorch_latency(
+                    task_evaluator,
+                    warmup=args.perf_warmup,
+                    iterations=args.perf_iterations,
+                )
+                _out(
+                    f"PyTorch latency: mean={latency['mean_ms']}ms "
+                    f"p50={latency['p50_ms']}ms p90={latency['p90_ms']}ms"
+                )
+                _emit_latency(latency)
 
         value = float(metrics[winml_metric_key])
         # Emit result as last stdout line (parsed by run_eval.py accuracy phase)

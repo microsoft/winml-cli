@@ -1044,6 +1044,14 @@ def build(
         # to honor the requested policy. fp16/fp32 clear quant; npu/int8 etc set it.
         if cli_utils.is_cli_provided(ctx, "device") or cli_utils.is_cli_provided(ctx, "precision"):
             from ..compiler.configs import WinMLCompileConfig
+            from ..onnx import is_quantized_onnx
+
+            is_pre_quantized_onnx_input = (
+                model_input is not None
+                and model_input.kind is ModelInputKind.ONNX_FILE
+                and model is not None
+                and is_quantized_onnx(Path(model))
+            )
 
             def _patch_device(cfg: WinMLBuildConfig) -> None:
                 from ..config import resolve_quant_compile_config
@@ -1051,7 +1059,7 @@ def build(
                 resolved_quant, _ = resolve_quant_compile_config(
                     device=runtime_device, precision=precision, ep=runtime_ep_value
                 )
-                if cfg.skip_optimize or not quant or resolved_quant is None:
+                if not quant or resolved_quant is None or is_pre_quantized_onnx_input:
                     cfg.quant = None
                 elif cfg.quant is None:
                     # Populate calibration identifiers from the loader/model
@@ -1645,8 +1653,6 @@ def _run_optimize_stage(
         show_io_first: If True, show I/O tensors at the start of the stage
             (used in ONNX mode where there is no export stage).
         skip_optimize: When True, skip the ORT graph-optimization pass.
-            Used for pre-quantized models (QDQ or QOperator format) whose
-            integer ops have no kernel on the host EP.
 
     Returns:
         Tuple of (current_path, opt_elapsed).
@@ -1800,10 +1806,6 @@ def _run_quantize_stage(
     """
     from ..quant import quantize_onnx
     from ..utils.console import StageLive
-
-    if config.skip_optimize:
-        config.quant = None
-        return current_path
 
     if config.quant is None:
         # ``generate_onnx_build_config`` and ``ensure_pre_quantized_stamped``
@@ -2181,14 +2183,6 @@ def _build_onnx_pipeline(
     # run on integer ops and the quantize stage may try to re-quantize.
     ensure_pre_quantized_stamped(config, current_path)
 
-    # Pre-quantized models (QDQ or QOperator format) cannot pass through
-    # ORT-based graph optimization on hosts that lack kernels for ops like
-    # ``ConvInteger``. The unified pipeline stamps ``config.skip_optimize``
-    # exactly once in ``generate_onnx_build_config`` -- downstream stages
-    # (here and inside ``build_onnx_model``) read the flag instead of
-    # re-running ``is_quantized_onnx`` on the same file.
-    is_pre_quantized = config.skip_optimize
-
     # ── Optimize stage (first stage for ONNX — show I/O here) ────
     current_path, _ = _run_optimize_stage(
         config=config,
@@ -2201,7 +2195,7 @@ def _build_onnx_pipeline(
         show_io_first=True,
         analyze_output_path=analyze_result_path,
         allow_unsupported_nodes=allow_unsupported_nodes,
-        skip_optimize=is_pre_quantized,
+        skip_optimize=config.skip_optimize,
     )
 
     config_path.write_text(json.dumps(config.to_dict(), indent=2))

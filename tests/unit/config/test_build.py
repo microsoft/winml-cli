@@ -1132,6 +1132,47 @@ class TestRegistryShortCircuit:
         # Optimum SHOULD have been called
         mock_optimum.assert_called_once()
 
+    def test_registry_skip_optimize_survives_assembly(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        """Registered skip_optimize is carried into generated configs."""
+        registry_config = WinMLBuildConfig(
+            export=WinMLExportConfig(dynamo=False, opset_version=18),
+            optim=WinMLOptimizationConfig(),
+            skip_optimize=True,
+        )
+        loader_config = WinMLLoaderConfig(
+            task="text-generation",
+            model_class="Qwen3ForCausalLM",
+            model_type="qwen3_transformer_only",
+        )
+        mock_hf_config.model_type = "qwen3"
+
+        with (
+            patch(
+                "winml.modelkit.config.build.resolve_loader_config",
+                return_value=(loader_config, mock_hf_config, mock_model_class, MagicMock()),
+            ),
+            patch(
+                "winml.modelkit.config.build._resolve_export_config_from_specs",
+                return_value=mock_export_config,
+            ),
+            patch(
+                "winml.modelkit.models.hf.MODEL_BUILD_CONFIGS",
+                {"qwen3-transformer-only": registry_config},
+            ),
+        ):
+            result = generate_hf_build_config(
+                "Qwen/Qwen3-1.7B",
+                model_type="qwen3_transformer_only",
+                task="text-generation",
+            )
+
+        assert result.skip_optimize is True
+
     def test_registry_with_none_input_tensors_falls_through(
         self,
         mock_hf_config: MagicMock,

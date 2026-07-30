@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
+    from ..models.winml.genai_causal_lm import WinMLGenaiCausalLM
     from .base_evaluator import WinMLEvaluator
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,8 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
         "winml.modelkit.eval.tensor_similarity_evaluator:TensorSimilarityEvaluator",
     "mask-generation":
         "winml.modelkit.eval.mask_generation_evaluator:WinMLMaskGenerationEvaluator",
+    "text-generation":
+        "winml.modelkit.eval.text_generation_evaluator:WinMLTextGenerationEvaluator",
 }
 # fmt: on
 
@@ -201,6 +204,14 @@ _DEFAULT_DATASETS: dict[str, dict] = {
         "path": "mattmdjaga/human_parsing_dataset",
         "split": "train",
     },
+    "text-generation": {
+        # Raw wikitext-2 test split scored token-by-token for perplexity;
+        # ``input_column`` names the text field the corpus is built from.
+        "path": "Salesforce/wikitext",
+        "name": "wikitext-2-raw-v1",
+        "split": "test",
+        "columns_mapping": {"input_column": "text"},
+    },
 }
 
 
@@ -228,7 +239,9 @@ class EvalResult:
         return result
 
 
-def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCompositeModel | None:
+def _load_model(
+    config: WinMLEvaluationConfig,
+) -> WinMLPreTrainedModel | WinMLCompositeModel | WinMLGenaiCausalLM | None:
     """Load model from ONNX path or HF model ID.
 
     For evaluators that handle their own ORT session construction from a
@@ -243,10 +256,14 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCo
     from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
     from ..utils import cli as cli_utils
 
+    if config.task == "text-generation":
+        return _load_genai_causal_lm(config)
+
     # Two-ONNX compare: the evaluator builds both raw ORT sessions directly from
     # config.model_path / config.reference_path — no WinMLAutoModel / HF config.
     if config.mode == "compare" and config.reference_path is not None:
         return None
+
 
     quant_override: Any = None
     if not config.quant:
@@ -346,6 +363,51 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCo
         return _load_model(config)
 
 
+def _load_genai_causal_lm(config: WinMLEvaluationConfig) -> WinMLGenaiCausalLM:
+    """Load a causal LM from an onnxruntime-genai bundle directory.
+
+    ``-m <bundle_dir>`` resolves to ``config.model_path`` (a local directory),
+    so the bundle directory is read from there. ``ep`` / ``device`` pass straight
+    through: an explicit ``--ep`` (or an explicit ``--device`` resolved to an EP
+    by the CLI) forces the whole decoder pipeline onto that EP, while ``ep=None``
+    respects the bundle's ``genai_config.json`` routing. The session compiles the
+    bundle to EPContext when needed (reusing a cached ``_compiled/``), matching
+    the safety path ``winml perf`` relies on.
+
+    Raises:
+        ValueError: no bundle directory was provided, the path is not a
+            directory, or it is missing the ``genai_config.json`` / ONNX files
+            that mark a genai bundle.
+    """
+    from pathlib import Path
+
+    from ..models.winml.genai_causal_lm import WinMLGenaiCausalLM
+
+    bundle_path = config.model_path
+    if not bundle_path or isinstance(bundle_path, dict):
+        raise ValueError(
+            "text-generation evaluation requires a genai bundle *directory* via "
+            "-m <bundle_dir>."
+        )
+
+    bundle_dir = Path(bundle_path).expanduser()
+    if not bundle_dir.is_dir():
+        raise ValueError(f"Genai bundle directory not found: {bundle_dir}")
+    if not (bundle_dir / "genai_config.json").is_file():
+        raise ValueError(
+            f"'{bundle_dir}' is not a genai bundle: no genai_config.json found. "
+            "Point -m at a bundle built with 'winml build ... --device npu --ep qnn'."
+        )
+    if not any(bundle_dir.rglob("*.onnx")):
+        raise ValueError(f"'{bundle_dir}' contains no .onnx files; not a valid genai bundle.")
+
+    return WinMLGenaiCausalLM(
+        bundle_dir,
+        config.ep,
+        device=config.device,
+    )
+
+
 def _resolve_task(config: WinMLEvaluationConfig) -> str:
     """Resolve the eval task and validate it is supported.
 
@@ -407,11 +469,20 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
             raise ValueError(
                 f"No dataset provided and no default for task '{config.task}'. Use --dataset."
             )
+        user_columns = dict(config.dataset.columns_mapping or {})
         for k, v in default.items():
             setattr(config.dataset, k, deepcopy(v))
+        # Preserve user-supplied --column values (e.g. the text-generation
+        # scoring parameters num_tokens / seqlen): the default mapping only
+        # fills columns the user did not provide, so an explicit --column wins.
+        config.dataset.columns_mapping = {
+            **deepcopy(default.get("columns_mapping", {})),
+            **user_columns,
+        }
         logger.warning(
             "--dataset not specified; attempting default dataset '%s' for task '%s'. "
-            "Any --split / --column / --streaming / --dataset-name options are ignored.",
+            "Any --split / --streaming / --dataset-name options are ignored; "
+            "explicit --column values are preserved.",
             config.dataset.path,
             config.task,
         )
