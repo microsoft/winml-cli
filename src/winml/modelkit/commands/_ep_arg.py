@@ -17,7 +17,7 @@ from typing import Any
 
 import click
 
-from ..session import VALID_SOURCE_TAGS
+from ..ep_path import VALID_SOURCE_TAGS
 
 
 def split_ep_at_source(value: str) -> tuple[str, str | None]:
