@@ -165,11 +165,10 @@ def add_first_op_output_to_graph_output(
         output_type.tensor_type.elem_type,
         None,
     )
-    new_nodes = list(model.graph.node)
     new_outputs = [*list(model.graph.output), new_output]
 
     new_graph = helper.make_graph(
-        nodes=new_nodes,
+        nodes=list(model.graph.node),
         name=model.graph.name,
         inputs=list(model.graph.input),
         outputs=new_outputs,

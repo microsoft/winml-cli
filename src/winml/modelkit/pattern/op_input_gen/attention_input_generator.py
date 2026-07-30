@@ -54,6 +54,7 @@ class AttentionInputGenerator(OpInputGenerator):
                 "K": InputShapeConstraint((2, 4, 8, 16)),
                 "V": InputShapeConstraint((2, 4, 8, 16)),
                 "attn_mask": InputShapeConstraint((2, 4, 8, 8)),
+                # Non-input entries are forwarded as operator attributes.
                 "scale": 1.0 / 16,
             },
         ]
