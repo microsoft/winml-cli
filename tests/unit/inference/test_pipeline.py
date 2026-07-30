@@ -164,6 +164,35 @@ class TestHFPipelineTaskMap:
         assert "image-classification" not in _HF_PIPELINE_TASK_MAP
 
 
+class TestMgpstrPipeline:
+    def test_three_heads_are_decoded_to_generated_text(self) -> None:
+        import torch
+
+        processor = MagicMock()
+        processor.image_processor.size = {"height": 32, "width": 128}
+        processor.return_value = {"pixel_values": torch.zeros((1, 3, 32, 128))}
+        processor.batch_decode.return_value = {
+            "generated_text": ["hello"],
+            "scores": [torch.tensor(0.9)],
+        }
+        model = MagicMock()
+        model.config.model_type = "mgp-str"
+        model.io_config = {"input_shapes": [[1, 3, 32, 128]]}
+        model.return_value.logits = (
+            torch.zeros((1, 27, 38)),
+            torch.zeros((1, 27, 50257)),
+            torch.zeros((1, 27, 30522)),
+        )
+
+        with patch("transformers.AutoProcessor.from_pretrained", return_value=processor):
+            pipe = create_pipeline("image-to-text", model, "local/mgp-str")
+            result = pipe("image")
+
+        processor.batch_decode.assert_called_once_with(model.return_value.logits)
+        assert result[0]["generated_text"] == "hello"
+        assert abs(result[0]["score"] - 0.9) < 1e-6
+
+
 class TestPipelineComponentKwargs:
     def test_omits_components_disabled_by_pipeline(self) -> None:
         class ProcessorOnlyPipeline:

@@ -118,6 +118,21 @@ def test_unimportable_architecture_falls_back_to_hf_task_default():
     assert r.source == TaskSource.HF_TASK_DEFAULT
 
 
+def test_mgp_str_stale_architecture_uses_image_to_text_pipeline_tag(monkeypatch):
+    cfg = _cfg("mgp-str", ["MGPSTRModel"])
+    cfg._name_or_path = "local-mgp-str-checkpoint"
+    monkeypatch.setattr(
+        "winml.modelkit.utils.hub_utils.get_pipeline_tag",
+        lambda _model_id: "image-to-text",
+    )
+
+    result = resolve_task(cfg)
+
+    assert result.task == "image-to-text"
+    assert result.model_class.__name__ == "MgpstrForSceneTextRecognition"
+    assert result.source == TaskSource.PIPELINE_TAG
+
+
 # --- ported from the deleted test_detect_task_from_config.py -----------------
 # These pin the architecture-class -> TasksManager task inference that the
 # (now-removed) ``_detect_task_from_config`` covered, asserted against the
