@@ -21,7 +21,9 @@ from ..core.onnx_utils import get_io_config
 from ..onnx import is_compiled_onnx
 from ..utils.native_stderr import (
     _refresh_click_windows_console_stream,
+    _restore_redirected_fd,
     _set_win32_std_handle_to_current_fd,
+    native_fd_redirect_lock,
     suppress_native_warnings,
 )
 from .ep_device import (
@@ -54,21 +56,50 @@ def _suppress_native_output(log_path: str | Path | None = None) -> Iterator[None
     logging can't intercept. Only stdout — stderr is left alone so Rich
     displays and Python logging still work.
     """
-    if log_path is not None:
-        fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
-    else:
-        fd = os.open(os.devnull, os.O_WRONLY)
-    old_stdout = os.dup(1)
-    os.dup2(fd, 1)
-    os.close(fd)
-    _set_win32_std_handle_to_current_fd(1)
-    try:
-        yield
-    finally:
-        os.dup2(old_stdout, 1)
-        os.close(old_stdout)
+    with native_fd_redirect_lock():
+        fd: int | None = None
+        old_stdout: int | None = None
+        try:
+            if log_path is not None:
+                fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+            else:
+                fd = os.open(os.devnull, os.O_WRONLY)
+            old_stdout = os.dup(1)
+            os.dup2(fd, 1)
+        except OSError:
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    logger.debug("Could not close native stdout suppression fd", exc_info=True)
+            if old_stdout is not None:
+                try:
+                    os.close(old_stdout)
+                except OSError:
+                    logger.debug("Could not close saved native stdout fd", exc_info=True)
+            logger.debug(
+                "Native stdout suppression setup failed; leaving stdout unchanged",
+                exc_info=True,
+            )
+            yield
+            return
+
+        assert old_stdout is not None
+        try:
+            os.close(fd)
+        except OSError:
+            logger.debug("Could not close native stdout suppression fd", exc_info=True)
         _set_win32_std_handle_to_current_fd(1)
-        _refresh_click_windows_console_stream(1)
+        try:
+            yield
+        finally:
+            _restore_redirected_fd(1, old_stdout)
+            _set_win32_std_handle_to_current_fd(1)
+            _refresh_click_windows_console_stream(1)
+            try:
+                os.close(old_stdout)
+            except OSError:
+                logger.debug("Could not close saved native stdout fd", exc_info=True)
 
 
 class SessionState(Enum):
@@ -858,7 +889,8 @@ class WinMLSession:
         )
         if had_baseline_session and _session_rebuilt:
             logger.info("auto-resetting compiled session to apply monitor session/provider options")
-            self.reset()
+            with suppress_native_warnings(preserve_unclassified=False):
+                self.reset()
 
         stats = PerfStats(warmup=warmup)
         restore_baseline = _session_rebuilt or getattr(
@@ -973,7 +1005,8 @@ class WinMLSession:
             # C-2: for monitors that require session teardown, reset() BEFORE
             # monitor.__exit__ so the flushed data is available in __exit__.
             if getattr(effective_monitor, "requires_session_teardown", False):
-                self.reset()
+                with suppress_native_warnings(preserve_unclassified=False):
+                    self.reset()
 
             # Call monitor.__exit__ — propagate exc_info so monitor sees the
             # exception (exception transparency contract).

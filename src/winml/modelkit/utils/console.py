@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import functools
 import logging
+import re
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
@@ -34,6 +36,8 @@ if TYPE_CHECKING:
     from .constants import EPName
 
 logger = logging.getLogger(__name__)
+_WINDOWS_CONSOLE_OSERROR_CODES = frozenset({1, 6})
+_WINDOWS_ERROR_RE = re.compile(r"Windows error:\s*(\d+)")
 
 HEAVY_SEP = "\u2550" * 60  # ═
 LIGHT_SEP = "\u2500" * 60  # ─
@@ -58,16 +62,34 @@ class SafeConsole(Console):
         """Print objects, ignoring Windows console handle/mode write errors."""
         try:
             super().print(*objects, **kwargs)
-        except OSError:
-            logger.debug("Ignoring OSError from Console.print", exc_info=True)
+        except OSError as exc:
+            if _is_expected_windows_console_oserror(exc):
+                logger.debug("Ignoring Windows console OSError from Console.print", exc_info=True)
+                return
+            raise
 
 
 def safe_console_print(console: Console, *objects: Any, **kwargs: Any) -> None:
     """Print to Rich console, ignoring Windows console handle/mode write errors."""
     try:
         console.print(*objects, **kwargs)
-    except OSError:
-        logger.debug("Ignoring OSError from Console.print", exc_info=True)
+    except OSError as exc:
+        if _is_expected_windows_console_oserror(exc):
+            logger.debug("Ignoring Windows console OSError from Console.print", exc_info=True)
+            return
+        raise
+
+
+def _is_expected_windows_console_oserror(exc: OSError) -> bool:
+    if sys.platform != "win32":
+        return False
+    code = getattr(exc, "winerror", None)
+    if isinstance(code, int):
+        return code in _WINDOWS_CONSOLE_OSERROR_CODES
+    if isinstance(exc.errno, int):
+        return exc.errno in _WINDOWS_CONSOLE_OSERROR_CODES
+    match = _WINDOWS_ERROR_RE.search(str(exc))
+    return match is not None and int(match.group(1)) in _WINDOWS_CONSOLE_OSERROR_CODES
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -316,9 +338,15 @@ class _SafeLive(Live):
         def wrapper(self: _SafeLive, *args: Any, **kwargs: Any) -> Any:
             try:
                 return method(self, *args, **kwargs)
-            except OSError:
-                logger.debug("Ignoring OSError from Live.%s", method.__name__, exc_info=True)
-                return None
+            except OSError as exc:
+                if _is_expected_windows_console_oserror(exc):
+                    logger.debug(
+                        "Ignoring Windows console OSError from Live.%s",
+                        method.__name__,
+                        exc_info=True,
+                    )
+                    return None
+                raise
 
         return wrapper  # type: ignore[return-value]
 
@@ -331,12 +359,14 @@ class _SafeLive(Live):
             return
         try:
             super().refresh()
-        except OSError:
+        except OSError as exc:
+            if not _is_expected_windows_console_oserror(exc):
+                raise
             # Console handle is unusable (typically VT/handle state damaged
             # by a native library).  Disable further refreshes so the
             # daemon thread does not spam tracebacks.
             self._refresh_disabled = True
-            logger.debug("Disabling Live refresh after OSError", exc_info=True)
+            logger.debug("Disabling Live refresh after Windows console OSError", exc_info=True)
 
     @_swallow_oserror
     def start(self, refresh: bool = False) -> None:

@@ -16,11 +16,13 @@ from winml.modelkit.utils.logging import (
     _NOISY_LIBRARY_LOGGERS,
     configure_logging,
     suppress_huggingface_warning_logs,
+    suppress_third_party_progress,
 )
 
 
 _MISSING = object()
 _HUGGINGFACE_VERBOSITY_ENVS = ("TRANSFORMERS_VERBOSITY", "HF_HUB_VERBOSITY")
+_PROGRESS_ENVS = ("TQDM_DISABLE", "HF_DATASETS_DISABLE_PROGRESS_BARS")
 
 
 @pytest.fixture(autouse=True)
@@ -30,7 +32,10 @@ def _restore_logging_state():
     for name in (*_NOISY_LIBRARY_LOGGERS, *_HUGGINGFACE_WARNING_LOGGERS):
         logger = logging.getLogger(name)
         saved.append((logger, logger.level))
-    saved_env = {name: os.environ.get(name, _MISSING) for name in _HUGGINGFACE_VERBOSITY_ENVS}
+    saved_env = {
+        name: os.environ.get(name, _MISSING)
+        for name in (*_HUGGINGFACE_VERBOSITY_ENVS, *_PROGRESS_ENVS)
+    }
     yield
     for logger, level in saved:
         logger.setLevel(level)
@@ -254,6 +259,146 @@ def test_huggingface_warning_context_restores_imported_library_verbosity(monkeyp
     assert hub_state.level == logging.INFO
 
 
+def test_third_party_progress_suppression_disables_datasets_progress(monkeypatch):
+    datasets_state = _install_fake_datasets_progress(monkeypatch, enabled=True)
+
+    with suppress_third_party_progress(verbosity=0):
+        assert not datasets_state.enabled
+
+    assert datasets_state.enabled
+
+
+def test_third_party_progress_suppression_ignores_datasets_api_failures(monkeypatch):
+    package = ModuleType("datasets")
+    package.is_progress_bar_enabled = lambda: True
+
+    def fail_disable() -> None:
+        raise OSError(1, "Incorrect function")
+
+    package.disable_progress_bars = fail_disable
+    monkeypatch.setitem(sys.modules, "datasets", package)
+
+    with suppress_third_party_progress(verbosity=0):
+        assert os.environ["TQDM_DISABLE"] == "1"
+
+
+def test_third_party_progress_suppression_restores_disabled_datasets_progress(monkeypatch):
+    datasets_state = _install_fake_datasets_progress(monkeypatch, enabled=False)
+
+    with suppress_third_party_progress(verbosity=0):
+        assert not datasets_state.enabled
+
+    assert not datasets_state.enabled
+
+
+def test_third_party_progress_suppression_sets_tqdm_disable_env(monkeypatch):
+    monkeypatch.delenv("TQDM_DISABLE", raising=False)
+
+    with suppress_third_party_progress(verbosity=0):
+        assert os.environ["TQDM_DISABLE"] == "1"
+
+    assert "TQDM_DISABLE" not in os.environ
+
+
+def test_third_party_progress_suppression_restores_existing_tqdm_disable_env(monkeypatch):
+    monkeypatch.setenv("TQDM_DISABLE", "0")
+
+    with suppress_third_party_progress(verbosity=0):
+        assert os.environ["TQDM_DISABLE"] == "1"
+
+    assert os.environ["TQDM_DISABLE"] == "0"
+
+
+def test_third_party_progress_suppression_disables_already_imported_tqdm():
+    from tqdm import tqdm
+
+    class FailingStream:
+        def write(self, text: str) -> int:
+            raise OSError(1, "Incorrect function")
+
+        def flush(self) -> None:
+            return None
+
+    with suppress_third_party_progress(verbosity=0):
+        bar = tqdm(range(1), file=FailingStream())
+        assert bar.disable is True
+        assert list(bar) == [0]
+        bar.close()
+
+
+def test_third_party_progress_suppression_overrides_explicit_tqdm_enable():
+    from tqdm import tqdm
+
+    class FailingStream:
+        def write(self, text: str) -> int:
+            raise OSError(1, "Incorrect function")
+
+        def flush(self) -> None:
+            return None
+
+    with suppress_third_party_progress(verbosity=0):
+        bar = tqdm(range(1), file=FailingStream(), disable=False)
+        assert bar.disable is True
+        assert list(bar) == [0]
+        bar.close()
+
+
+def test_third_party_progress_suppression_overrides_positional_tqdm_disable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed_disable: list[bool] = []
+
+    class FakeTqdm:
+        def __init__(
+            self,
+            iterable: object | None = None,
+            desc: object | None = None,
+            total: object | None = None,
+            leave: bool = True,
+            file: object | None = None,
+            ncols: object | None = None,
+            mininterval: float = 0.1,
+            maxinterval: float = 10.0,
+            miniters: object | None = None,
+            ascii: object | None = None,
+            disable: bool = False,
+        ) -> None:
+            observed_disable.append(disable)
+
+    fake_tqdm_module = ModuleType("tqdm")
+    fake_tqdm_module.tqdm = FakeTqdm
+    monkeypatch.setitem(sys.modules, "tqdm", fake_tqdm_module)
+
+    with suppress_third_party_progress(verbosity=0):
+        FakeTqdm(None, None, None, True, None, None, 0.1, 10.0, None, None, False)
+
+    assert observed_disable == [True]
+
+
+@pytest.mark.parametrize("verbosity", [1, 2])
+def test_third_party_progress_suppression_preserves_progress_when_verbose(monkeypatch, verbosity):
+    datasets_state = _install_fake_datasets_progress(monkeypatch, enabled=True)
+    monkeypatch.delenv("TQDM_DISABLE", raising=False)
+
+    with suppress_third_party_progress(verbosity=verbosity):
+        assert datasets_state.enabled
+        assert "TQDM_DISABLE" not in os.environ
+
+    assert datasets_state.enabled
+
+
+def test_show_all_warnings_env_preserves_third_party_progress(monkeypatch):
+    datasets_state = _install_fake_datasets_progress(monkeypatch, enabled=True)
+    monkeypatch.setenv("WINMLCLI_SHOW_ALL_WARNINGS", "1")
+    monkeypatch.delenv("TQDM_DISABLE", raising=False)
+
+    with suppress_third_party_progress(verbosity=0):
+        assert datasets_state.enabled
+        assert "TQDM_DISABLE" not in os.environ
+
+    assert datasets_state.enabled
+
+
 def _install_fake_huggingface_logging(
     monkeypatch: pytest.MonkeyPatch,
     package_name: str,
@@ -271,4 +416,17 @@ def _install_fake_huggingface_logging(
 
     monkeypatch.setitem(sys.modules, package_name, package)
     monkeypatch.setitem(sys.modules, f"{package_name}.utils", utils)
+    return state
+
+
+def _install_fake_datasets_progress(
+    monkeypatch: pytest.MonkeyPatch, *, enabled: bool
+) -> SimpleNamespace:
+    state = SimpleNamespace(enabled=enabled)
+    package = ModuleType("datasets")
+    package.is_progress_bar_enabled = lambda: state.enabled
+    package.disable_progress_bars = lambda: setattr(state, "enabled", False)
+    package.enable_progress_bars = lambda: setattr(state, "enabled", True)
+
+    monkeypatch.setitem(sys.modules, "datasets", package)
     return state

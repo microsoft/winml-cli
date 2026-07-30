@@ -35,6 +35,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 _NATIVE_SEVERITY_TOKEN_RE = re.compile(rb"\[([A-Za-z]):")
+_NATIVE_READER_JOIN_TIMEOUT_SECONDS = 1.0
+_NATIVE_FD_REDIRECT_LOCK = threading.RLock()
 
 # ---------------------------------------------------------------------------
 # Win32 kernel32 (configured once)
@@ -68,18 +70,32 @@ def suppress_native_stderr(*, enabled: bool = True) -> Iterator[None]:
         yield
         return
 
-    old_fd = os.dup(2)
-    devnull = os.open(os.devnull, os.O_WRONLY)
-    os.dup2(devnull, 2)
-    os.close(devnull)
-    _set_win32_std_handle_to_current_fd(2)
-    try:
-        yield
-    finally:
-        os.dup2(old_fd, 2)
-        os.close(old_fd)
+    with native_fd_redirect_lock():
+        old_fd: int | None = None
+        devnull: int | None = None
+        try:
+            old_fd = os.dup(2)
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, 2)
+        except OSError:
+            _close_fd(devnull)
+            _close_fd(old_fd)
+            logger.debug(
+                "Native stderr suppression setup failed; leaving stderr unchanged",
+                exc_info=True,
+            )
+            yield
+            return
+
+        _close_fd(devnull)
         _set_win32_std_handle_to_current_fd(2)
-        _refresh_click_windows_console_stream(2)
+        try:
+            yield
+        finally:
+            _restore_redirected_fd(2, old_fd)
+            _set_win32_std_handle_to_current_fd(2)
+            _refresh_click_windows_console_stream(2)
+            _close_fd(old_fd)
 
 
 @contextmanager
@@ -92,7 +108,19 @@ def capture_native_stderr(level: int = logging.INFO) -> Iterator[None]:
         yield
         return
 
-    read_fd, write_fd = os.pipe()
+    read_fd: int | None = None
+    write_fd: int | None = None
+    old_fd: int | None = None
+    try:
+        read_fd, write_fd = os.pipe()
+    except OSError:
+        logger.debug(
+            "Native stderr capture setup failed; leaving stderr unchanged",
+            exc_info=True,
+        )
+        yield
+        return
+
     # Drain the pipe on a background thread *while* the wrapped block runs.
     # A chatty native EP (e.g. a VitisAI model compilation) can emit far more
     # than the OS pipe buffer holds (~64 KB on Windows) before we regain
@@ -102,6 +130,7 @@ def capture_native_stderr(level: int = logging.INFO) -> Iterator[None]:
     chunks: list[bytes] = []
 
     def _drain() -> None:
+        assert read_fd is not None
         try:
             while chunk := os.read(read_fd, 4096):
                 chunks.append(chunk)
@@ -112,27 +141,47 @@ def capture_native_stderr(level: int = logging.INFO) -> Iterator[None]:
 
     reader = threading.Thread(target=_drain, name="capture-native-stderr", daemon=True)
 
-    old_fd = os.dup(2)
-    os.dup2(write_fd, 2)
-    os.close(write_fd)
-    _set_win32_std_handle_to_current_fd(2)
-    reader.start()
-    try:
-        yield
-    finally:
-        # Restoring fd 2 drops the last reference to the pipe's write end, which
-        # signals EOF to the reader thread so it can finish and close the read end.
-        os.dup2(old_fd, 2)
-        os.close(old_fd)
-        _set_win32_std_handle_to_current_fd(2)
-        _refresh_click_windows_console_stream(2)
-        reader.join()
-        # Re-emit each captured line through Python logging.
-        _ansi_re = re.compile(r"\x1b\[[0-9;]*m")
-        for raw in b"".join(chunks).decode("utf-8", errors="replace").splitlines():
-            line = _ansi_re.sub("", raw).strip()
-            if line:
-                logger.log(level, "[ORT] %s", line)
+    with native_fd_redirect_lock():
+        try:
+            old_fd = os.dup(2)
+            os.dup2(write_fd, 2)
+            _close_fd(write_fd)
+            write_fd = None
+            _set_win32_std_handle_to_current_fd(2)
+            reader.start()
+        except (OSError, RuntimeError):
+            _restore_redirected_fd(2, old_fd)
+            _close_fd(old_fd)
+            _close_fd(read_fd)
+            _close_fd(write_fd)
+            _set_win32_std_handle_to_current_fd(2)
+            _refresh_click_windows_console_stream(2)
+            logger.debug(
+                "Native stderr capture redirect failed; leaving stderr unchanged",
+                exc_info=True,
+            )
+            yield
+            return
+
+        assert old_fd is not None
+        try:
+            yield
+        finally:
+            # Restoring fd 2 drops the last reference to the pipe's write end, which
+            # signals EOF to the reader thread so it can finish and close the read end.
+            _restore_redirected_fd(2, old_fd)
+            _set_win32_std_handle_to_current_fd(2)
+            _refresh_click_windows_console_stream(2)
+            reader.join(timeout=_NATIVE_READER_JOIN_TIMEOUT_SECONDS)
+            if reader.is_alive():
+                logger.debug("Native stderr capture reader did not finish after stderr restore")
+            _close_fd(old_fd)
+            # Re-emit each captured line through Python logging.
+            _ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+            for raw in b"".join(chunks).decode("utf-8", errors="replace").splitlines():
+                line = _ansi_re.sub("", raw).strip()
+                if line:
+                    logger.log(level, "[ORT] %s", line)
 
 
 @contextmanager
@@ -151,34 +200,111 @@ def suppress_native_warnings(
         yield
         return
 
-    read_fd, write_fd = os.pipe()
-    old_fd = os.dup(2)
-    reader = threading.Thread(
-        target=_drain_filtered_native_stderr,
-        args=(read_fd, old_fd, preserve_unclassified),
-        name="suppress-native-warnings",
-        daemon=True,
-    )
+    read_fd: int | None = None
+    write_fd: int | None = None
+    old_fd: int | None = None
     try:
-        os.dup2(write_fd, 2)
-        os.close(write_fd)
-        _set_win32_std_handle_to_current_fd(2)
-        reader.start()
+        read_fd, write_fd = os.pipe()
+    except OSError:
+        _close_fd(read_fd)
+        _close_fd(write_fd)
+        logger.debug(
+            "Native warning suppression setup failed; leaving stderr unchanged",
+            exc_info=True,
+        )
+        yield
+        return
+
+    redirect_failed = False
+    with native_fd_redirect_lock():
         try:
-            yield
-        finally:
-            os.dup2(old_fd, 2)
-            _set_win32_std_handle_to_current_fd(2)
-            _refresh_click_windows_console_stream(2)
-            reader.join()
-    finally:
-        os.close(old_fd)
+            old_fd = os.dup(2)
+        except OSError:
+            _close_fd(read_fd)
+            _close_fd(write_fd)
+            logger.debug(
+                "Native warning suppression setup failed; leaving stderr unchanged",
+                exc_info=True,
+            )
+            redirect_failed = True
+        if not redirect_failed:
+            assert old_fd is not None
+            reader = threading.Thread(
+                target=_drain_filtered_native_stderr,
+                args=(read_fd, old_fd, preserve_unclassified),
+                name="suppress-native-warnings",
+                daemon=True,
+            )
+            try:
+                os.dup2(write_fd, 2)
+            except OSError:
+                _close_fd(read_fd)
+                _close_fd(write_fd)
+                _close_fd(old_fd)
+                logger.debug(
+                    "Native warning suppression redirect failed; leaving stderr unchanged",
+                    exc_info=True,
+                )
+                redirect_failed = True
+            if not redirect_failed:
+                _close_fd(write_fd)
+                _set_win32_std_handle_to_current_fd(2)
+                reader.start()
+                try:
+                    yield
+                finally:
+                    _restore_redirected_native_stderr_fd(old_fd)
+                    _set_win32_std_handle_to_current_fd(2)
+                    _refresh_click_windows_console_stream(2)
+                    reader.join(timeout=_NATIVE_READER_JOIN_TIMEOUT_SECONDS)
+                    if reader.is_alive():
+                        logger.debug(
+                            "Native warning suppression reader did not finish after stderr restore"
+                        )
+                    _close_fd(old_fd)
+    if redirect_failed:
+        yield
+
+
+@contextmanager
+def native_fd_redirect_lock() -> Iterator[None]:
+    """Serialize process-wide fd/Win32 stdout/stderr redirection helpers."""
+    with _NATIVE_FD_REDIRECT_LOCK:
+        yield
 
 
 def _show_native_warnings_requested() -> bool:
     return env_flag_enabled("WINMLCLI_SHOW_ALL_WARNINGS") or logging.getLogger().isEnabledFor(
         logging.INFO
     )
+
+
+def _restore_redirected_native_stderr_fd(old_fd: int) -> None:
+    _restore_redirected_fd(2, old_fd)
+
+
+def _restore_redirected_fd(fd: int, old_fd: int | None) -> None:
+    if old_fd is None:
+        return
+    try:
+        os.dup2(old_fd, fd)
+        return
+    except OSError:
+        logger.debug("Could not restore redirected native fd %d", fd, exc_info=True)
+
+    try:
+        os.close(fd)
+    except OSError:
+        logger.debug("Could not close redirected native fd %d", fd, exc_info=True)
+
+    try:
+        os.dup2(old_fd, fd)
+    except OSError:
+        logger.debug(
+            "Could not restore native fd %d after closing redirected fd",
+            fd,
+            exc_info=True,
+        )
 
 
 def _drain_filtered_native_stderr(
@@ -196,6 +322,7 @@ def _drain_filtered_native_stderr(
         if pending:
             _write_non_warning_line(target_fd, pending, preserve_unclassified)
     except OSError:
+        # fd redirection is best-effort cleanup; restore path handles usability.
         pass
     finally:
         os.close(read_fd)
@@ -239,7 +366,10 @@ def _set_win32_std_handle_to_current_fd(fd: int) -> None:
         std_handle = _STD_ERROR_HANDLE
     else:
         return
-    _k32.SetStdHandle(std_handle, msvcrt.get_osfhandle(fd))
+    try:
+        _k32.SetStdHandle(std_handle, msvcrt.get_osfhandle(fd))
+    except OSError:
+        logger.debug("Could not sync Win32 std handle for fd %d", fd, exc_info=True)
 
 
 def _restore_win32_stderr_handle(handle: object | None) -> None:
@@ -304,6 +434,7 @@ def _replace_click_console_handle(obj: object, handle: object, seen: set[int]) -
         try:
             obj.handle = handle
         except Exception:
+            # Best effort: not every object in Click's stream wrapper graph is mutable.
             pass
 
     for attr in (
@@ -326,3 +457,12 @@ def _write_all(fd: int, data: bytes) -> None:
     while data:
         written = os.write(fd, data)
         data = data[written:]
+
+
+def _close_fd(fd: int | None) -> None:
+    if fd is None:
+        return
+    try:
+        os.close(fd)
+    except OSError:
+        logger.debug("Could not close fd %d", fd, exc_info=True)

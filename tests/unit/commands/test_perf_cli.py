@@ -10,13 +10,17 @@ NO WinMLAutoModel involvement, NO actual inference.
 
 from __future__ import annotations
 
+import builtins
 import json
 import logging
 import os
 import re
+import sys
 import warnings
+from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
+from types import ModuleType
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
@@ -25,6 +29,7 @@ import pytest
 from click.testing import CliRunner
 from rich.console import Console
 
+import winml.modelkit.commands.perf as perf_module
 from winml.modelkit.commands.perf import (
     BenchmarkConfig,
     BenchmarkResult,
@@ -203,6 +208,21 @@ class TestPerfUnifiedPipeline:
         assert benchmark._model is None
         assert benchmark._inputs is None
 
+    def test_close_suppresses_native_warning_from_session_reset(self, capfd) -> None:
+        """Closing a benchmark hides warning-level native stderr from session teardown."""
+        benchmark = PerfBenchmark(BenchmarkConfig(model_id="m"))
+        model = MagicMock()
+        model._session = MagicMock()
+        model._session.reset.side_effect = lambda: os.write(
+            2,
+            b"2026 [W:custom-native:, file.cc:1 ResetWarn] reset warning\n",
+        )
+        benchmark._model = model
+
+        benchmark.close()
+
+        assert "reset warning" not in capfd.readouterr().err
+
     def test_close_releases_composite_sub_model_sessions(self) -> None:
         """Composite benchmarks reset every sub-model session before process teardown."""
         benchmark = PerfBenchmark(BenchmarkConfig(model_id="m"))
@@ -220,6 +240,138 @@ class TestPerfUnifiedPipeline:
         first._session.reset.assert_called_once()
         second._session.reset.assert_called_once()
         assert benchmark._model is None
+
+    def test_run_does_not_redirect_native_stderr_around_model_load_or_ui(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Perf must not route model-load UI or pre-bench rendering through fd2 filtering."""
+        inside_native_suppression = False
+        observed: dict[str, bool] = {}
+
+        @contextmanager
+        def mark_native_suppression():
+            nonlocal inside_native_suppression
+            previous = inside_native_suppression
+            inside_native_suppression = True
+            try:
+                yield
+            finally:
+                inside_native_suppression = previous
+
+        def fake_load(self: PerfBenchmark) -> None:
+            observed["load"] = inside_native_suppression
+            self._model = MagicMock()
+
+        def fake_run_single(self: PerfBenchmark) -> MagicMock:
+            observed["run_single"] = inside_native_suppression
+            return MagicMock()
+
+        monkeypatch.setattr(
+            "winml.modelkit.commands.perf.suppress_native_warnings",
+            mark_native_suppression,
+        )
+        monkeypatch.setattr(PerfBenchmark, "_load_model", fake_load)
+        monkeypatch.setattr(PerfBenchmark, "_run_single", fake_run_single)
+        monkeypatch.setattr(
+            PerfBenchmark,
+            "_is_composite",
+            property(lambda self: False),
+        )
+
+        benchmark = PerfBenchmark(BenchmarkConfig(model_id="m"))
+        benchmark.run()
+
+        assert observed == {"load": False, "run_single": False}
+
+    def test_load_model_imports_auto_model_under_native_suppression_only(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Import-time ORT warnings are filtered without wrapping the build path."""
+        inside_native_suppression = False
+        import_observed: list[bool] = []
+        load_observed: list[bool] = []
+
+        @contextmanager
+        def mark_native_suppression():
+            nonlocal inside_native_suppression
+            previous = inside_native_suppression
+            inside_native_suppression = True
+            try:
+                yield
+            finally:
+                inside_native_suppression = previous
+
+        class FakeWinMLAutoModel:
+            @staticmethod
+            def from_pretrained(*args: object, **kwargs: object) -> MagicMock:
+                load_observed.append(inside_native_suppression)
+                return MagicMock()
+
+        def fake_model_getattr(name: str) -> object:
+            if name == "WinMLAutoModel":
+                import_observed.append(inside_native_suppression)
+                return FakeWinMLAutoModel
+            raise AttributeError(name)
+
+        def resolve_ep_device(self: PerfBenchmark) -> None:
+            self._ep_device = MagicMock()
+            self._resolved_device = "cpu"
+            self._resolved_ep = "cpu"
+
+        fake_models_pkg = ModuleType("winml.modelkit.models")
+        fake_models_pkg.__getattr__ = fake_model_getattr
+        monkeypatch.setitem(sys.modules, "winml.modelkit.models", fake_models_pkg)
+        monkeypatch.setattr(
+            "winml.modelkit.commands.perf.suppress_native_warnings",
+            mark_native_suppression,
+        )
+        monkeypatch.setattr(PerfBenchmark, "_resolve_device_ep", resolve_ep_device)
+
+        benchmark = PerfBenchmark(
+            BenchmarkConfig(model_id="microsoft/resnet-50", task="image-classification")
+        )
+        benchmark._load_model()
+
+        assert import_observed
+        assert all(import_observed)
+        assert load_observed == [False]
+
+    def test_resolve_device_ep_filters_native_warnings_and_preserves_errors(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capfd: pytest.CaptureFixture[str],
+    ) -> None:
+        """Device/EP probes can hit ORT and should hide only warning-level noise."""
+        from winml.modelkit import session as session_module
+
+        monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
+        logging.getLogger().setLevel(logging.WARNING)
+        fake_ep_device = MagicMock()
+        fake_ep_device.device.ep_name = "QNNExecutionProvider"
+        fake_ep_device.device.device_type = "NPU"
+
+        def fake_resolve_device(target: object) -> object:
+            os.write(2, b"2026 [W:custom-native:, file.cc:1 Probe] hidden warning\n")
+            return target
+
+        class FakeRegistry:
+            def auto_device(self, target: object) -> object:
+                os.write(2, b"2026 [E:custom-native:, file.cc:2 Probe] useful error\n")
+                return fake_ep_device
+
+        monkeypatch.setattr(session_module, "resolve_device", fake_resolve_device)
+        monkeypatch.setattr(
+            session_module.WinMLEPRegistry,
+            "instance",
+            staticmethod(lambda: FakeRegistry()),
+        )
+
+        benchmark = PerfBenchmark(BenchmarkConfig(model_id="m", ep="qnn", device="npu"))
+        benchmark._resolve_device_ep()
+
+        stderr = capfd.readouterr().err
+        assert "hidden warning" not in stderr
+        assert "useful error" in stderr
 
     def test_onnx_load_model_calls_from_onnx(self, tmp_path: Path) -> None:
         """ONNX file input should use WinMLAutoModel.from_onnx in _load_model."""
@@ -628,22 +780,106 @@ class TestPerfUnifiedPipeline:
         assert result.exit_code == 0, result.output
         assert not any("unauthenticated requests" in str(record.message) for record in records)
 
-    def test_cli_hf_suppresses_native_warning_logs_by_default(
-        self, runner: CliRunner, tmp_path: Path, capfd: pytest.CaptureFixture[str]
+    def test_cli_does_not_wrap_entire_benchmark_in_native_stderr_redirect(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Default perf output hides native ORT warning-level stderr during model load."""
+        """Perf CLI must not route Rich/report output through native stderr filtering."""
+        inside_native_suppression = False
 
-        def emit_native_warning() -> MagicMock:
-            os.write(
-                2,
-                b"2026 [W:onnxruntime:Default, onnxruntime_pybind_module.cc:44 "
-                b"onnxruntime::python::CreateOrtEnv] Init provider bridge failed.\n",
+        @contextmanager
+        def mark_native_suppression():
+            nonlocal inside_native_suppression
+            previous = inside_native_suppression
+            inside_native_suppression = True
+            try:
+                yield
+            finally:
+                inside_native_suppression = previous
+
+        def assert_not_suppressed() -> MagicMock:
+            assert not inside_native_suppression
+            return MagicMock()
+
+        monkeypatch.setattr(
+            "winml.modelkit.commands.perf.suppress_native_warnings",
+            mark_native_suppression,
+        )
+
+        with (
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_perf,
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            mock_perf.return_value.run.side_effect = assert_not_suppressed
+            result = runner.invoke(
+                perf,
+                ["-m", "microsoft/resnet-50", "-o", str(tmp_path / "out.json")],
+                obj={},
             )
-            os.write(
-                2,
-                b"2026 [E:onnxruntime:Default, onnxruntime_pybind_module.cc:45 "
-                b"onnxruntime::python::CreateOrtEnv] real native error.\n",
-            )
+
+        assert result.exit_code == 0, result.output
+
+    def test_op_tracing_monitor_probe_suppresses_native_warning_output(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ORT imports/probes used to choose op-tracing monitor should be filtered."""
+        from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+        inside_native_suppression = False
+        import_observed: list[bool] = []
+        probe_observed: list[bool] = []
+
+        @contextmanager
+        def mark_native_suppression():
+            nonlocal inside_native_suppression
+            previous = inside_native_suppression
+            inside_native_suppression = True
+            try:
+                yield
+            finally:
+                inside_native_suppression = previous
+
+        real_import = builtins.__import__
+
+        def observe_session_import(
+            name: str,
+            globals: dict[str, object] | None = None,
+            locals: dict[str, object] | None = None,
+            fromlist: tuple[str, ...] | None = (),
+            level: int = 0,
+        ) -> object:
+            requested_names = tuple(fromlist or ())
+            if "short_ep_name" in requested_names and (level or name.endswith("session")):
+                import_observed.append(inside_native_suppression)
+            return real_import(name, globals, locals, fromlist, level)
+
+        def qnn_is_available() -> bool:
+            probe_observed.append(inside_native_suppression)
+            return True
+
+        monkeypatch.setattr(
+            "winml.modelkit.commands.perf.suppress_native_warnings",
+            mark_native_suppression,
+        )
+        monkeypatch.setattr(builtins, "__import__", observe_session_import)
+        monkeypatch.setattr(QNNMonitor, "is_available", qnn_is_available)
+
+        monitor = perf_module._resolve_ep_monitor("qnn", "basic", tmp_path, device="npu")
+
+        assert monitor is not None
+        assert import_observed == [True]
+        assert probe_observed == [True]
+
+    def test_cli_hf_disables_third_party_progress_by_default(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Default perf hides third-party tqdm/datasets progress during benchmark."""
+        monkeypatch.delenv("TQDM_DISABLE", raising=False)
+
+        observed: dict[str, str | None] = {}
+
+        def capture_progress_env() -> MagicMock:
+            observed["tqdm_disable"] = os.environ.get("TQDM_DISABLE")
             return MagicMock()
 
         with (
@@ -651,19 +887,43 @@ class TestPerfUnifiedPipeline:
             patch("winml.modelkit.commands.perf.display_console_report"),
             patch("winml.modelkit.commands.perf.write_json_report"),
         ):
-            mock_perf.return_value.run.side_effect = emit_native_warning
+            mock_perf.return_value.run.side_effect = capture_progress_env
             result = runner.invoke(
                 perf,
                 ["-m", "microsoft/resnet-50", "-o", str(tmp_path / "out.json")],
                 obj={},
             )
 
-        fd_stderr = capfd.readouterr().err
         assert result.exit_code == 0, result.output
-        assert "Loading model" in result.output
-        assert "Init provider bridge failed" not in result.output
-        assert "Init provider bridge failed" not in fd_stderr
-        assert "real native error" in fd_stderr
+        assert observed["tqdm_disable"] == "1"
+        assert "TQDM_DISABLE" not in os.environ
+
+    def test_cli_hf_keeps_third_party_progress_when_verbose(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verbose perf preserves third-party progress diagnostics."""
+        monkeypatch.delenv("TQDM_DISABLE", raising=False)
+
+        observed: dict[str, str | None] = {}
+
+        def capture_progress_env() -> MagicMock:
+            observed["tqdm_disable"] = os.environ.get("TQDM_DISABLE")
+            return MagicMock()
+
+        with (
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_perf,
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            mock_perf.return_value.run.side_effect = capture_progress_env
+            result = runner.invoke(
+                perf,
+                ["-m", "microsoft/resnet-50", "-v", "-o", str(tmp_path / "out.json")],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert observed["tqdm_disable"] is None
 
     def test_cli_hf_reveals_huggingface_warning_logs_when_verbose(
         self, runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture

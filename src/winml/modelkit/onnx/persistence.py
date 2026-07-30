@@ -15,6 +15,7 @@ from __future__ import annotations
 import errno
 import logging
 import os
+import uuid
 from pathlib import Path
 from typing import NoReturn
 
@@ -30,6 +31,14 @@ logger = logging.getLogger(__name__)
 # Windows ERROR_DISK_FULL. Python usually maps this to errno.ENOSPC via the CRT,
 # but we check the raw winerror too so a disk-full write is always recognised.
 _WINDOWS_ERROR_DISK_FULL = 112
+
+
+def _unique_external_data_location(path: Path) -> str:
+    """Return an unused default-derived external data sidecar filename."""
+    while True:
+        location = f"{path.name}.{uuid.uuid4().hex}.data"
+        if not (path.parent / location).exists():
+            return location
 
 
 class ONNXSaveError(OSError):
@@ -77,8 +86,7 @@ class ONNXSaveError(OSError):
 def _is_disk_full_error(error: OSError) -> bool:
     """Return ``True`` when *error* represents an out-of-disk-space condition."""
     return (
-        error.errno == errno.ENOSPC
-        or getattr(error, "winerror", None) == _WINDOWS_ERROR_DISK_FULL
+        error.errno == errno.ENOSPC or getattr(error, "winerror", None) == _WINDOWS_ERROR_DISK_FULL
     )
 
 
@@ -108,9 +116,7 @@ def _raise_save_error(error: OSError, path: Path) -> NoReturn:
         )
     else:
         message = f"Failed to write ONNX model to {path}: {error}"
-    raise ONNXSaveError(
-        message, path=path, disk_full=disk_full, errno_code=error.errno
-    ) from error
+    raise ONNXSaveError(message, path=path, disk_full=disk_full, errno_code=error.errno) from error
 
 
 def load_onnx(
@@ -199,8 +205,22 @@ def save_onnx(
         # FileExistsError (e.g. when ORT quantize() already wrote the file).
         ext_path = path.parent / ext_location
         if ext_path.exists():
-            ext_path.unlink()
-            logger.debug("Removed existing external data sidecar: %s", ext_path)
+            try:
+                ext_path.unlink()
+                logger.debug("Removed existing external data sidecar: %s", ext_path)
+            except FileNotFoundError:
+                pass
+            except PermissionError:
+                if location is not None:
+                    raise
+                logger.debug(
+                    "Existing external data sidecar is locked; saving with a new "
+                    "default-derived sidecar name: %s",
+                    ext_path,
+                    exc_info=True,
+                )
+                ext_location = _unique_external_data_location(path)
+                ext_path = path.parent / ext_location
         logger.debug(
             "Saving ONNX model with external data to %s (location=%s)",
             path,

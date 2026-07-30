@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import threading
+import time
 
 import pytest
 
@@ -41,10 +43,73 @@ class TestSuppressNativeStderr:
         os.write(2, b"after\n")
         assert "after" in capfd.readouterr().err
 
+    def test_serializes_concurrent_warning_and_stderr_redirects(self, monkeypatch):
+        monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
+        logging.getLogger().setLevel(logging.WARNING)
+        first_entered = threading.Event()
+        first_can_exit = threading.Event()
+        second_entered_while_first_active = False
+
+        def first_redirect() -> None:
+            with native_stderr_module.suppress_native_warnings():
+                first_entered.set()
+                assert first_can_exit.wait(timeout=5)
+
+        def second_redirect() -> None:
+            nonlocal second_entered_while_first_active
+            assert first_entered.wait(timeout=5)
+            with suppress_native_stderr():
+                second_entered_while_first_active = not first_can_exit.is_set()
+
+        first = threading.Thread(target=first_redirect)
+        second = threading.Thread(target=second_redirect)
+        first.start()
+        assert first_entered.wait(timeout=5)
+        second.start()
+        time.sleep(0.1)
+        assert not second_entered_while_first_active
+        first_can_exit.set()
+        first.join(timeout=5)
+        second.join(timeout=5)
+
+        assert not first.is_alive()
+        assert not second.is_alive()
+        assert not second_entered_while_first_active
+
     def test_disabled_leaves_native_stderr_visible(self, capfd):
         with suppress_native_stderr(enabled=False):
             os.write(2, b"visible when disabled\n")
         assert "visible when disabled" in capfd.readouterr().err
+
+    def test_setup_failure_does_not_abort_wrapped_code(self, monkeypatch):
+        monkeypatch.setattr(native_stderr_module.sys, "platform", "win32")
+
+        def fail_dup(fd: int) -> int:
+            raise OSError("dup failed")
+
+        monkeypatch.setattr(native_stderr_module.os, "dup", fail_dup)
+        ran = False
+
+        with suppress_native_stderr():
+            ran = True
+
+        assert ran
+
+    def test_redirect_failure_does_not_abort_wrapped_code(self, monkeypatch):
+        ran = False
+
+        with monkeypatch.context() as m:
+            m.setattr(native_stderr_module.sys, "platform", "win32")
+
+            def fail_dup2(src: int, dst: int) -> None:
+                raise OSError("dup2 failed")
+
+            m.setattr(native_stderr_module.os, "dup2", fail_dup2)
+
+            with suppress_native_stderr():
+                ran = True
+
+        assert ran
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Win32 only")
     def test_win32_std_error_handle_usable_after_restore(self):
@@ -84,6 +149,36 @@ class TestCaptureNativeStderr:
             pass
         os.write(2, b"after\n")
         assert "after" in capfd.readouterr().err
+
+    def test_pipe_setup_failure_does_not_abort_wrapped_code(self, monkeypatch):
+        monkeypatch.setattr(native_stderr_module.sys, "platform", "win32")
+
+        def fail_pipe() -> tuple[int, int]:
+            raise OSError("pipe failed")
+
+        monkeypatch.setattr(native_stderr_module.os, "pipe", fail_pipe)
+        ran = False
+
+        with capture_native_stderr():
+            ran = True
+
+        assert ran
+
+    def test_redirect_failure_does_not_abort_wrapped_code(self, monkeypatch):
+        ran = False
+
+        with monkeypatch.context() as m:
+            m.setattr(native_stderr_module.sys, "platform", "win32")
+
+            def fail_dup2(src: int, dst: int) -> None:
+                raise OSError("dup2 failed")
+
+            m.setattr(native_stderr_module.os, "dup2", fail_dup2)
+
+            with capture_native_stderr():
+                ran = True
+
+        assert ran
 
     def test_skips_blank_lines(self, caplog):
         with (
@@ -180,6 +275,89 @@ class TestSuppressNativeWarnings:
             os.write(2, b"2026 [W:custom-native:, file.cc:1 WarningFunc] env warning\n")
 
         assert "env warning" in capfd.readouterr().err
+
+    def test_pipe_setup_failure_does_not_abort_wrapped_code(self, monkeypatch):
+        monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
+        logging.getLogger().setLevel(logging.WARNING)
+
+        def fail_pipe() -> tuple[int, int]:
+            raise OSError(1, "Incorrect function")
+
+        monkeypatch.setattr(native_stderr_module.os, "pipe", fail_pipe)
+
+        ran = False
+        with native_stderr_module.suppress_native_warnings():
+            ran = True
+
+        assert ran
+
+    def test_restore_failure_closes_redirected_fd_and_bounds_reader_join(self, monkeypatch):
+        monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
+        logging.getLogger().setLevel(logging.WARNING)
+        closed: list[int] = []
+        join_timeouts: list[float | None] = []
+        dup2_calls = 0
+
+        class FakeThread:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                pass
+
+            def start(self) -> None:
+                pass
+
+            def join(self, timeout: float | None = None) -> None:
+                join_timeouts.append(timeout)
+
+            def is_alive(self) -> bool:
+                return False
+
+        def fake_dup2(src: int, dst: int) -> None:
+            nonlocal dup2_calls
+            dup2_calls += 1
+            if dup2_calls == 2:
+                raise OSError(1, "restore failed")
+
+        monkeypatch.setattr(native_stderr_module.os, "pipe", lambda: (10, 11))
+        monkeypatch.setattr(native_stderr_module.os, "dup", lambda fd: 12)
+        monkeypatch.setattr(native_stderr_module.os, "dup2", fake_dup2)
+        monkeypatch.setattr(native_stderr_module.os, "close", lambda fd: closed.append(fd))
+        monkeypatch.setattr(native_stderr_module.threading, "Thread", FakeThread)
+        monkeypatch.setattr(
+            native_stderr_module,
+            "_set_win32_std_handle_to_current_fd",
+            lambda fd: None,
+        )
+        monkeypatch.setattr(
+            native_stderr_module,
+            "_refresh_click_windows_console_stream",
+            lambda fd: None,
+        )
+
+        with native_stderr_module.suppress_native_warnings():
+            pass
+
+        assert 2 in closed
+        assert join_timeouts == [native_stderr_module._NATIVE_READER_JOIN_TIMEOUT_SECONDS]
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="Win32 only")
+    def test_win32_std_handle_sync_failure_does_not_abort_wrapped_code(self, monkeypatch):
+        monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
+        logging.getLogger().setLevel(logging.WARNING)
+
+        def fail_get_osfhandle(fd: int) -> int:
+            raise OSError(1, "Incorrect function")
+
+        monkeypatch.setattr(
+            native_stderr_module.msvcrt,
+            "get_osfhandle",
+            fail_get_osfhandle,
+        )
+
+        ran = False
+        with native_stderr_module.suppress_native_warnings():
+            ran = True
+
+        assert ran
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Win32 native stderr only")
     def test_filters_win32_std_error_handle_warning(self, monkeypatch, capfd):
@@ -313,6 +491,19 @@ class TestSuppressNativeWarnings:
         stderr = capfd.readouterr().err
         assert "noisy warning" not in stderr
         assert "useful error" in stderr
+
+    def test_nested_warning_suppression_is_reentrant(self, monkeypatch):
+        monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
+        logging.getLogger().setLevel(logging.WARNING)
+        started = time.monotonic()
+
+        with (
+            native_stderr_module.suppress_native_warnings(),
+            native_stderr_module.suppress_native_warnings(),
+        ):
+            pass
+
+        assert time.monotonic() - started < 1.0
 
 
 def _write_win32_stderr(data: bytes) -> None:

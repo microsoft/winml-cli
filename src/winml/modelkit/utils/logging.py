@@ -26,12 +26,13 @@ All log output goes to stderr so stdout stays clean for structured data
 Sample line: ``[14:32:11 INFO    winml.modelkit.export] Loaded config.json``
 """
 
+import inspect
 import logging
 import os
 import sys
 import warnings
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from .._env import env_flag_enabled
 
@@ -43,6 +44,7 @@ if TYPE_CHECKING:
 _HANDLER_MARKER = "_winml_cli_handler"
 _LOG_FORMAT = "[%(asctime)s %(levelname)-7s %(name)s] %(message)s"
 _DATE_FORMAT = "%H:%M:%S"
+logger = logging.getLogger(__name__)
 
 # Third-party loggers whose INFO/WARNING chatter is noise for CLI users and can
 # interleave with rich progress output. Examples: optimum's "No model type passed
@@ -65,6 +67,11 @@ _HUGGINGFACE_WARNING_LOGGERS = (
 )
 _HUGGINGFACE_VERBOSITY_ENVS = ("TRANSFORMERS_VERBOSITY", "HF_HUB_VERBOSITY")
 _HUGGINGFACE_WARNING_MODULE_RE = r"(huggingface_hub|transformers)(\.|$).*"
+_PROGRESS_ENV_OVERRIDES = {
+    "TQDM_DISABLE": "1",
+    "HF_DATASETS_DISABLE_PROGRESS_BARS": "1",
+}
+_TQDM_MODULES = ("tqdm.std", "tqdm", "tqdm.auto", "tqdm.autonotebook")
 
 
 def configure_logging(
@@ -138,7 +145,9 @@ def suppress_huggingface_warning_logs(
     saved_logger_levels = {
         name: logging.getLogger(name).level for name in _HUGGINGFACE_WARNING_LOGGERS
     }
-    saved_env = {name: os.environ.get(name) for name in _HUGGINGFACE_VERBOSITY_ENVS}
+    saved_env: dict[str, str | None] = {
+        name: os.environ.get(name) for name in _HUGGINGFACE_VERBOSITY_ENVS
+    }
     saved_library_verbosity = _get_imported_huggingface_verbosity()
 
     try:
@@ -161,14 +170,48 @@ def suppress_huggingface_warning_logs(
         else:
             yield
     finally:
-        for env_name, value in saved_env.items():
-            if value is None:
+        for env_name, saved_value in saved_env.items():
+            if saved_value is None:
                 os.environ.pop(env_name, None)
             else:
-                os.environ[env_name] = value
+                os.environ[env_name] = saved_value
         _restore_imported_huggingface_verbosity(saved_library_verbosity)
         for name, level in saved_logger_levels.items():
             logging.getLogger(name).setLevel(level)
+
+
+@contextmanager
+def suppress_third_party_progress(
+    verbosity: int = 0,
+    quiet: bool = False,
+    *,
+    verbose: bool = False,
+) -> "Iterator[None]":
+    """Temporarily hide third-party tqdm/datasets progress in normal output."""
+    verbosity = _normalize_verbosity(verbosity, verbose)
+    show_all_warnings = env_flag_enabled("WINMLCLI_SHOW_ALL_WARNINGS")
+    if verbosity > 0 or show_all_warnings:
+        yield
+        return
+
+    saved_env: dict[str, str | None] = {
+        name: os.environ.get(name) for name in _PROGRESS_ENV_OVERRIDES
+    }
+    saved_datasets_progress = _disable_imported_datasets_progress()
+    patched_tqdm = _disable_imported_tqdm_progress()
+
+    try:
+        for name, env_value in _PROGRESS_ENV_OVERRIDES.items():
+            os.environ[name] = env_value
+        yield
+    finally:
+        _restore_imported_tqdm_progress(patched_tqdm)
+        _restore_imported_datasets_progress(saved_datasets_progress)
+        for name, saved_value in saved_env.items():
+            if saved_value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = saved_value
 
 
 def _normalize_verbosity(verbosity: int, verbose: bool) -> int:
@@ -193,6 +236,116 @@ def _library_verbosity_name(level: int) -> str:
     if level <= logging.ERROR:
         return "error"
     return "critical"
+
+
+def _disable_imported_datasets_progress() -> bool | None:
+    datasets = sys.modules.get("datasets")
+    if datasets is None:
+        return None
+
+    is_enabled = getattr(datasets, "is_progress_bar_enabled", None)
+    try:
+        saved_enabled = is_enabled() if callable(is_enabled) else None
+    except Exception:
+        logger.debug("Could not read datasets progress-bar state", exc_info=True)
+        saved_enabled = None
+    disable = getattr(datasets, "disable_progress_bars", None)
+    if callable(disable):
+        try:
+            disable()
+        except Exception:
+            logger.debug("Could not disable datasets progress bars", exc_info=True)
+    return saved_enabled
+
+
+def _restore_imported_datasets_progress(saved_enabled: bool | None) -> None:
+    if saved_enabled is None:
+        return
+    datasets = sys.modules.get("datasets")
+    if datasets is None:
+        return
+
+    method_name = "enable_progress_bars" if saved_enabled else "disable_progress_bars"
+    restore = getattr(datasets, method_name, None)
+    if callable(restore):
+        try:
+            restore()
+        except Exception:
+            logger.debug("Could not restore datasets progress-bar state", exc_info=True)
+
+
+def _disable_imported_tqdm_progress() -> list[tuple[Any, Any]]:
+    patched: list[tuple[Any, Any]] = []
+    seen: set[int] = set()
+    for module_name in _TQDM_MODULES:
+        module = sys.modules.get(module_name)
+        if module is None:
+            continue
+        tqdm_attr = getattr(module, "tqdm", None)
+        if not isinstance(tqdm_attr, type):
+            continue
+        if id(tqdm_attr) in seen:
+            continue
+        seen.add(id(tqdm_attr))
+        tqdm_type = cast("Any", tqdm_attr)
+        original_init = tqdm_type.__init__
+        disable_arg_index = _positional_arg_index(original_init, "disable")
+
+        def quiet_init(
+            self: Any,
+            *args: Any,
+            _original_init: Any = original_init,
+            _disable_arg_index: int | None = disable_arg_index,
+            **kwargs: Any,
+        ) -> None:
+            args_list = list(args)
+            if _disable_arg_index is not None and len(args_list) > _disable_arg_index:
+                args_list[_disable_arg_index] = True
+                kwargs.pop("disable", None)
+            else:
+                kwargs["disable"] = True
+            _original_init(self, *args_list, **kwargs)
+
+        try:
+            tqdm_type.__init__ = quiet_init
+        except Exception:
+            logger.debug("Could not patch tqdm progress constructor", exc_info=True)
+            continue
+        patched.append((tqdm_type, original_init))
+    return patched
+
+
+def _restore_imported_tqdm_progress(patched: list[tuple[Any, Any]]) -> None:
+    for tqdm_type, original_init in reversed(patched):
+        _restore_tqdm_progress_constructor(tqdm_type, original_init)
+
+
+def _positional_arg_index(func: Any, parameter_name: str) -> int | None:
+    try:
+        parameters = inspect.signature(func).parameters.values()
+    except (TypeError, ValueError):
+        return None
+
+    arg_index = 0
+    for parameter in parameters:
+        if parameter.kind not in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        ):
+            continue
+        if parameter.name == "self":
+            continue
+        if parameter.name == parameter_name:
+            return arg_index
+        arg_index += 1
+    return None
+
+
+def _restore_tqdm_progress_constructor(tqdm_type: Any, original_init: Any) -> None:
+    try:
+        tqdm_type.__init__ = original_init
+    except Exception:
+        logger.debug("Could not restore tqdm progress constructor", exc_info=True)
 
 
 def _sync_imported_huggingface_verbosity(verbosity: int) -> None:

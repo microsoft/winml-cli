@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
+import time
 from unittest.mock import MagicMock
 
 import onnxruntime as ort
@@ -124,6 +126,44 @@ def test_native_stdout_suppression_refreshes_click_handle(monkeypatch):
     assert calls == [1]
 
 
+def test_native_stdout_suppression_shares_redirect_lock(monkeypatch):
+    """Stdout and stderr native redirects must not overlap across threads."""
+    from winml.modelkit.session import session as session_module
+    from winml.modelkit.utils import native_stderr as native_stderr_module
+
+    monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
+    logging.getLogger().setLevel(logging.WARNING)
+    first_entered = threading.Event()
+    first_can_exit = threading.Event()
+    stdout_entered_while_first_active = False
+
+    def first_redirect() -> None:
+        with native_stderr_module.suppress_native_warnings():
+            first_entered.set()
+            assert first_can_exit.wait(timeout=5)
+
+    def stdout_redirect() -> None:
+        nonlocal stdout_entered_while_first_active
+        assert first_entered.wait(timeout=5)
+        with session_module._suppress_native_output():
+            stdout_entered_while_first_active = not first_can_exit.is_set()
+
+    first = threading.Thread(target=first_redirect)
+    second = threading.Thread(target=stdout_redirect)
+    first.start()
+    assert first_entered.wait(timeout=5)
+    second.start()
+    time.sleep(0.1)
+    assert not stdout_entered_while_first_active
+    first_can_exit.set()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert not stdout_entered_while_first_active
+
+
 def test_auto_reset_suppresses_native_stdout(monkeypatch, capfd):
     """Monitor-triggered session rebuild/restore also suppresses native stdout."""
     from winml.modelkit.session import session as session_module
@@ -209,6 +249,40 @@ def test_auto_reset_suppresses_unclassified_native_stderr(monkeypatch, capfd):
     stderr = capfd.readouterr().err
     assert "DSP_INFO" not in stderr
     assert "useful error" in stderr
+
+
+def test_requires_teardown_reset_suppresses_native_warning_stderr(monkeypatch, capfd):
+    """Monitor-required teardown hides warning-level native stderr from reset()."""
+    from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
+
+    class _TeardownMonitor(WinMLEPMonitor):
+        requires_session_teardown = True
+
+        @classmethod
+        def is_available(cls):
+            return True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def to_dict(self):
+            return {"ep": "test"}
+
+    session, _cpu_dev, _cpu_ep = _make_cpu_session(get_minimal_onnx_model_path())
+    session.compile()
+
+    def noisy_reset() -> None:
+        os.write(2, b"2026 [W:custom-native:, file.cc:1 ResetWarn] reset warning\n")
+
+    monkeypatch.setattr(session, "reset", noisy_reset)
+
+    with session.perf(monitor=_TeardownMonitor()):
+        pass
+
+    assert "reset warning" not in capfd.readouterr().err
 
 
 def test_no_auto_reset_when_monitor_empty():

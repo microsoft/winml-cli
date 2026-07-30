@@ -34,7 +34,11 @@ from rich.table import Table
 from ..utils import cli as cli_utils
 from ..utils.console import SafeConsole, safe_console_print
 from ..utils.constants import ACCELERATOR_DEVICE_TYPES, EPName, EPNameOrAlias
-from ..utils.logging import configure_logging, suppress_huggingface_warning_logs
+from ..utils.logging import (
+    configure_logging,
+    suppress_huggingface_warning_logs,
+    suppress_third_party_progress,
+)
 from ..utils.model_input import ModelInputKind, classify_model_input
 from ..utils.native_stderr import suppress_native_warnings
 from ._ep_arg import EpAtSourceParamType
@@ -151,8 +155,9 @@ def _resolve_ep_monitor(
     op-tracing is requested but no supporting monitor is available on this
     system.
     """
-    from ..session import short_ep_name
-    from ..session.monitor.ep_monitor import NullEPMonitor
+    with suppress_native_warnings():
+        from ..session import short_ep_name
+        from ..session.monitor.ep_monitor import NullEPMonitor
 
     # Normalize the EP to its short catalog alias so a canonical ORT name
     # ("QNNExecutionProvider"), a short alias ("qnn"), or any-case variant all
@@ -165,11 +170,20 @@ def _resolve_ep_monitor(
     if op_tracing:
         from ..session.monitor.qnn_monitor import QNNMonitor
 
-        if not ep_norm and device_norm in ("npu", "auto", "") and QNNMonitor.is_available():
+        qnn_available: bool | None = None
+
+        def is_qnn_available() -> bool:
+            nonlocal qnn_available
+            if qnn_available is None:
+                with suppress_native_warnings():
+                    qnn_available = QNNMonitor.is_available()
+            return qnn_available
+
+        if not ep_norm and device_norm in ("npu", "auto", "") and is_qnn_available():
             ep_norm = "qnn"
 
         if ep_norm == "qnn":
-            if not QNNMonitor.is_available():
+            if not is_qnn_available():
                 raise RuntimeError(
                     "Op-tracing --ep qnn requested but QNN is not available on "
                     "this system. Install onnxruntime-qnn or onnxruntime-windowsml "
@@ -670,18 +684,20 @@ class PerfBenchmark:
         if self._resolved_device is not None:
             return
 
-        from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
+        with suppress_native_warnings():
+            from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
 
-        # resolve_device() availability-checks even when --ep is explicit, so a
-        # named-but-absent EP is caught here too.
-        target = resolve_device(
-            EPDeviceTarget(
-                ep=self.config.ep or "auto",
-                device=self.config.device or "auto",
-                source=self.config.ep_source,
+        with suppress_native_warnings():
+            # resolve_device() availability-checks even when --ep is explicit, so a
+            # named-but-absent EP is caught here too.
+            target = resolve_device(
+                EPDeviceTarget(
+                    ep=self.config.ep or "auto",
+                    device=self.config.device or "auto",
+                    source=self.config.ep_source,
+                )
             )
-        )
-        self._ep_device = WinMLEPRegistry.instance().auto_device(target)
+            self._ep_device = WinMLEPRegistry.instance().auto_device(target)
         self._resolved_device = target.device
         self._resolved_ep = cast("EPNameOrAlias", target.ep)
 
@@ -711,7 +727,8 @@ class PerfBenchmark:
 
         session = getattr(model, "_session", None)
         if session is not None:
-            session.reset()
+            with suppress_native_warnings(preserve_unclassified=False):
+                session.reset()
 
     @property
     def _is_composite(self) -> bool:
@@ -920,8 +937,9 @@ class PerfBenchmark:
         optimize → [quantize] → [compile], and ONNX runs the same pipeline
         minus export.
         """
-        from ..config import WinMLBuildConfig
-        from ..models import WinMLAutoModel
+        with suppress_native_warnings():
+            from ..config import WinMLBuildConfig
+            from ..models import WinMLAutoModel
 
         # Resolve the concrete device + EP first so a bad combo fails fast,
         # before from_pretrained/from_onnx kick off the build pipeline.
@@ -2677,7 +2695,10 @@ def perf(
     # ``normalize_model_arg`` returns ``str | None`` per its signature;
     # the ``or model`` keeps the narrowed ``str`` type for downstream use.
     try:
-        with suppress_huggingface_warning_logs(verbosity=verbose, quiet=quiet):
+        with (
+            suppress_huggingface_warning_logs(verbosity=verbose, quiet=quiet),
+            suppress_third_party_progress(verbosity=verbose, quiet=quiet),
+        ):
             hf_model: str = cli_utils.normalize_model_arg(model) or model
     except Exception as e:
         raise click.ClickException(f"Failed to resolve Hub-hosted ONNX path {model!r}: {e}") from e
@@ -3049,7 +3070,7 @@ def perf(
         benchmark = PerfBenchmark(config)
         with (
             suppress_huggingface_warning_logs(verbosity=verbose, quiet=quiet),
-            suppress_native_warnings(),
+            suppress_third_party_progress(verbosity=verbose, quiet=quiet),
         ):
             result = benchmark.run()
 
