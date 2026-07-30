@@ -382,8 +382,6 @@ class WinMLAutoModel:
                 EPDeviceTarget(ep=ep or "auto", device=(device or "auto").lower())
             )
             ep_device = WinMLEPRegistry.instance().auto_device(target)
-        runtime_device = ep_device.device.device_type.lower()
-        runtime_ep = _resolved_ep_short_name(ep_device)
 
         # =====================================================================
         # ONNX FAST PATH -- skip HF loading and export when given an .onnx file
@@ -479,6 +477,7 @@ class WinMLAutoModel:
             task=task,
             config=config,
             ep_device=ep_device,
+            device=request_device,
             ep=ep,
             precision=precision,
             cache_dir=cache_dir,
@@ -538,14 +537,16 @@ class WinMLAutoModel:
 
         model_input = resolve_model_input(str(model_id_or_path))
         model_id = model_input.local_path or model_input.raw
+        request_device = (device or "auto").lower()
+        request_ep = ep
 
         if ep_device is None:
             from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
 
-            target = resolve_device(
-                EPDeviceTarget(ep=ep or "auto", device=(device or "auto").lower())
-            )
+            target = resolve_device(EPDeviceTarget(ep=request_ep or "auto", device=request_device))
             ep_device = WinMLEPRegistry.instance().auto_device(target)
+        runtime_device = ep_device.device.device_type.lower()
+        runtime_ep = _resolved_ep_short_name(ep_device)
 
         from ..config import generate_hf_build_config
 
