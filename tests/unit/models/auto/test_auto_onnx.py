@@ -396,13 +396,13 @@ class TestFromPretrainedDelegatesToFromOnnx:
 class TestFromPretrainedBuildConfigTarget:
     """Target request forwarding for HF from_pretrained builds."""
 
-    def test_forwarded_request_target_stays_auto_for_export_policy(self, tmp_path: Path) -> None:
-        """A resolved runtime EP must not look like an explicit export-policy target."""
+    def test_config_uses_runtime_target_and_requested_export_policy(self, tmp_path: Path) -> None:
+        """Runtime target drives quant/compile while request target drives export policy."""
         from winml.modelkit.config import WinMLBuildConfig
         from winml.modelkit.loader import WinMLLoaderConfig
 
         ep_device = MagicMock()
-        ep_device.device.ep_name = "DmlExecutionProvider"
+        ep_device.device.ep_name = "QNNExecutionProvider"
         ep_device.device.device_type = "GPU"
         build_config = WinMLBuildConfig(
             loader=WinMLLoaderConfig(task="image-classification", model_type="resnet"),
@@ -428,15 +428,16 @@ class TestFromPretrainedBuildConfigTarget:
                 "fake/model",
                 ep_device=ep_device,
                 device="auto",
-                ep=None,
+                ep="qnn",
                 task="image-classification",
             )
 
-        assert mock_gen.call_args.kwargs["device"] == "auto"
-        assert mock_gen.call_args.kwargs["ep"] is None
+        assert mock_gen.call_args.kwargs["device"] == "gpu"
+        assert mock_gen.call_args.kwargs["ep"] == "qnn"
+        assert mock_gen.call_args.kwargs["export_policy_target"] == ("auto", "qnn")
 
     def test_bare_default_request_stays_auto_after_runtime_resolution(self, tmp_path: Path) -> None:
-        """Internal runtime resolution must not turn default export policy target-specific."""
+        """Default export policy stays portable while quant/compile use runtime target."""
         from winml.modelkit.config import WinMLBuildConfig
         from winml.modelkit.loader import WinMLLoaderConfig
         from winml.modelkit.session import EPDeviceTarget
@@ -472,8 +473,9 @@ class TestFromPretrainedBuildConfigTarget:
             mock_registry.return_value.auto_device.return_value = ep_device
             WinMLAutoModel.from_pretrained("fake/model", task="image-classification")
 
-        assert mock_gen.call_args.kwargs["device"] == "auto"
-        assert mock_gen.call_args.kwargs["ep"] is None
+        assert mock_gen.call_args.kwargs["device"] == "gpu"
+        assert mock_gen.call_args.kwargs["ep"] == "dml"
+        assert mock_gen.call_args.kwargs["export_policy_target"] == ("auto", None)
 
 
 # =============================================================================

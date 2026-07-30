@@ -80,6 +80,8 @@ if TYPE_CHECKING:
     from ..eval.config import WinMLEvaluationConfig  # noqa: TC004
     from ..utils.constants import EPNameOrAlias
 
+ExportPolicyTargetRequest = tuple[str | None, str | None]
+
 __all__ = [
     "WinMLBuildConfig",
     "generate_build_config",
@@ -831,6 +833,7 @@ def generate_hf_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    export_policy_target: ExportPolicyTargetRequest | None = None,
     policy_overrides_config: bool = False,
     no_compile: bool = False,
 ) -> WinMLBuildConfig: ...
@@ -851,6 +854,7 @@ def generate_hf_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    export_policy_target: ExportPolicyTargetRequest | None = None,
     policy_overrides_config: bool = False,
     no_compile: bool = False,
 ) -> list[WinMLBuildConfig]: ...
@@ -875,6 +879,7 @@ def generate_hf_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    export_policy_target: ExportPolicyTargetRequest | None = None,
     policy_overrides_config: bool = False,
     no_compile: bool = False,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]: ...
@@ -894,6 +899,7 @@ def generate_hf_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    export_policy_target: ExportPolicyTargetRequest | None = None,
     policy_overrides_config: bool = False,
     no_compile: bool = False,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
@@ -934,6 +940,9 @@ def generate_hf_build_config(
             "int16", or "w{x}a{y}" e.g. "w8a16").
         trust_remote_code: Allow running custom code from model repository.
         ep: Explicit execution provider override.
+        export_policy_target: Optional ``(device, ep)`` request used only for
+            export compatibility resolution. When omitted, the build target is
+            used for both quant/compile policy and export compatibility.
         policy_overrides_config: Apply device/precision/EP policy after
             ``override``. CLI callers set this only when a target option was
             explicitly supplied; otherwise sparse config values remain higher
@@ -1109,7 +1118,8 @@ def generate_hf_build_config(
 
     # Apply export compatibility policy so parent_config.export.compatibility is populated
     # (used for serialization/cache-key participation and inheritance by submodules).
-    apply_export_compatibility_policy(parent_config, device=device, ep=ep)
+    policy_device, policy_ep = export_policy_target or (device, ep)
+    apply_export_compatibility_policy(parent_config, device=policy_device, ep=policy_ep)
 
     # =========================================================================
     # STEP 5: Specialize for submodules if requested

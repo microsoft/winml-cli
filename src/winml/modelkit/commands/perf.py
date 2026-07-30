@@ -1364,9 +1364,10 @@ def _perf_modules(
             model_id=hf_model,
             task=task,
             module=module_class,
-            device=request_device,
+            device=resolved_device,
             precision=precision,
-            ep=request_ep,
+            ep=ep,
+            export_policy_target=(request_device, request_ep),
         )
     except SubmoduleClassNotFoundError as e:
         # User-error: --module pattern didn't match. List what's available so

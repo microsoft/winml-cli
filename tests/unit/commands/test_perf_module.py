@@ -182,7 +182,7 @@ class TestPerfModuleParameterForwarding:
         fake_loader_cfg.task = "fill-mask"
         resolved_target = EPDeviceTarget(
             ep="QNNExecutionProvider",
-            device="npu",
+            device="gpu",
             source="pypi",
         )
         resolved_ep_device = MagicMock(name="resolved_ep_device")
@@ -244,13 +244,14 @@ class TestPerfModuleParameterForwarding:
         assert result.exit_code == 0, result.output
 
         gen_kwargs = mock_gen.call_args.kwargs
-        assert gen_kwargs["device"] == "npu"
-        assert gen_kwargs["ep"] == "qnn"
+        assert gen_kwargs["device"] == "gpu"
+        assert gen_kwargs["ep"] == "QNNExecutionProvider"
+        assert gen_kwargs["export_policy_target"] == ("npu", "qnn")
         assert gen_kwargs["precision"] == "auto"
 
         build_kwargs = mock_build.call_args.kwargs
         assert build_kwargs["ep"] == "QNNExecutionProvider"
-        assert build_kwargs["device"] == "npu"
+        assert build_kwargs["device"] == "gpu"
 
         fake_registry.auto_device.assert_called_once_with(resolved_target)
         session_kwargs = mock_session_cls.call_args.kwargs
@@ -418,8 +419,9 @@ class TestPerfModuleParameterForwarding:
             )
         assert result.exit_code == 0, result.output
         assert result.exit_code == 0, result.output
-        assert mock_gen.call_args.kwargs["device"] == "auto"
-        assert mock_gen.call_args.kwargs["ep"] is None
+        assert mock_gen.call_args.kwargs["device"] == "cpu"
+        assert mock_gen.call_args.kwargs["ep"] == "auto"
+        assert mock_gen.call_args.kwargs["export_policy_target"] == ("auto", None)
 
 
 class TestPerfModuleMonitor:

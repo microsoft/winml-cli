@@ -195,6 +195,52 @@ class TestGeneratedExportCompatibilityPolicy:
         assert cfg.export is not None
         assert cfg.export.compatibility.transformers_attention == "eager"
 
+    def test_generated_hf_config_can_split_build_and_export_policy_targets(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        target_policy_calls: list[tuple[str, str, str | None]] = []
+        export_policy_calls: list[tuple[str | None, str | None]] = []
+
+        monkeypatch.setattr(
+            "winml.modelkit.config.build.resolve_loader_config",
+            lambda *args, **kwargs: (
+                mock_loader_config,
+                mock_hf_config,
+                mock_model_class,
+                MagicMock(),
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.config.build._resolve_export_config_from_specs",
+            lambda *args, **kwargs: mock_export_config,
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.config.build._apply_target_policy",
+            lambda config, *, device, precision, ep: target_policy_calls.append(
+                (device, precision, ep)
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.config.build.apply_export_compatibility_policy",
+            lambda config, *, device, ep: export_policy_calls.append((device, ep)),
+        )
+
+        generate_hf_build_config(
+            "local-model",
+            device="gpu",
+            ep="DmlExecutionProvider",
+            export_policy_target=("auto", None),
+            policy_overrides_config=True,
+        )
+
+        assert target_policy_calls == [("gpu", "auto", "DmlExecutionProvider")]
+        assert export_policy_calls == [("auto", None)]
+
     def test_submodule_config_inherits_export_compatibility(self) -> None:
         parent = WinMLBuildConfig(
             loader=WinMLLoaderConfig(model_type="bert", task="fill-mask"),
