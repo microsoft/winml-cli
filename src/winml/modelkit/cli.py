@@ -138,11 +138,45 @@ def _print_banner(version: str, *, _console: Console | None = None) -> None:
 _DISABLED_COMMANDS: frozenset[str] = frozenset({"run", "serve"})
 
 
+def _command_decorator(node: ast.FunctionDef) -> ast.expr | None:
+    """Return the ``@click.command`` / ``@click.group`` decorator on *node*.
+
+    Matches both ``@click.command`` and bare ``@command`` forms, whether or
+    not they are called (``@click.command`` vs ``@click.command("name")``).
+    Returns ``None`` when the function carries no Click command decorator.
+    """
+    for decorator in node.decorator_list:
+        target = decorator.func if isinstance(decorator, ast.Call) else decorator
+        name = getattr(target, "attr", None) or getattr(target, "id", None)
+        if name in {"command", "group"}:
+            return decorator
+    return None
+
+
+def _short_help_kwarg(decorator: ast.expr) -> str | None:
+    """Return an explicit ``short_help="..."`` argument on *decorator*, if any."""
+    if isinstance(decorator, ast.Call):
+        for keyword in decorator.keywords:
+            if (
+                keyword.arg == "short_help"
+                and isinstance(keyword.value, ast.Constant)
+                and isinstance(keyword.value.value, str)
+            ):
+                return keyword.value.value
+    return None
+
+
 def _parse_click_help(path: Path) -> str:
     """Extract short help from a command module without importing it.
 
-    Parses the module's AST to find the first decorated function's docstring,
-    which Click uses as the command help text.
+    Parses the module's AST to find the function decorated with Click's
+    ``@click.command`` / ``@click.group`` and returns its short help: an
+    explicit ``short_help=`` decorator argument when present, otherwise the
+    first line of the function docstring (which Click uses as short help).
+
+    Only the Click command function is considered, so unrelated decorated
+    helpers in the module (e.g. a ``@contextlib.contextmanager``) never leak
+    their docstring into the command listing.
     """
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -150,11 +184,19 @@ def _parse_click_help(path: Path) -> str:
         return ""
 
     for node in ast.iter_child_nodes(tree):
-        if isinstance(node, ast.FunctionDef) and node.decorator_list:
-            docstring = ast.get_docstring(node)
-            if docstring:
-                # Return first line only (Click's short help)
-                return docstring.split("\n")[0]
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        decorator = _command_decorator(node)
+        if decorator is None:
+            continue
+        short_help = _short_help_kwarg(decorator)
+        if short_help:
+            return short_help.split("\n")[0].strip()
+        docstring = ast.get_docstring(node)
+        if docstring:
+            # Return first line only (Click's short help)
+            return docstring.split("\n")[0].strip()
+        return ""
     return ""
 
 
