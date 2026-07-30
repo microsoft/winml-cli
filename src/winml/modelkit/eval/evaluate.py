@@ -303,10 +303,11 @@ def _load_genai_causal_lm(config: WinMLEvaluationConfig) -> WinMLGenaiCausalLM:
 
     ``-m <bundle_dir>`` resolves to ``config.model_path`` (a local directory),
     so the bundle directory is read from there. ``ep`` / ``device`` pass straight
-    through: an explicit ``--ep`` forces the whole decoder pipeline onto that EP,
-    while ``ep=None`` respects the bundle's ``genai_config.json`` routing. The
-    bundle is loaded as-is (``compile=False``); building or compiling a bundle is
-    ``winml build``'s job, not eval's.
+    through: an explicit ``--ep`` (or an explicit ``--device`` resolved to an EP
+    by the CLI) forces the whole decoder pipeline onto that EP, while ``ep=None``
+    respects the bundle's ``genai_config.json`` routing. The session compiles the
+    bundle to EPContext when needed (reusing a cached ``_compiled/``), matching
+    the safety path ``winml perf`` relies on.
 
     Raises:
         ValueError: no bundle directory was provided, the path is not a
@@ -396,11 +397,20 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
             raise ValueError(
                 f"No dataset provided and no default for task '{config.task}'. Use --dataset."
             )
+        user_columns = dict(config.dataset.columns_mapping or {})
         for k, v in default.items():
             setattr(config.dataset, k, deepcopy(v))
+        # Preserve user-supplied --column values (e.g. the text-generation
+        # scoring parameters num_tokens / seqlen): the default mapping only
+        # fills columns the user did not provide, so an explicit --column wins.
+        config.dataset.columns_mapping = {
+            **deepcopy(default.get("columns_mapping", {})),
+            **user_columns,
+        }
         logger.warning(
             "--dataset not specified; attempting default dataset '%s' for task '%s'. "
-            "Any --split / --column / --streaming / --dataset-name options are ignored.",
+            "Any --split / --streaming / --dataset-name options are ignored; "
+            "explicit --column values are preserved.",
             config.dataset.path,
             config.task,
         )

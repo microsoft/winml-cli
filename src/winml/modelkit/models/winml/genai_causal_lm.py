@@ -118,8 +118,20 @@ class WinMLGenaiCausalLM:
 
         params = og.GeneratorParams(model)
         # Fixed max_length is required by the compiled pipeline; do_sample=False
-        # keeps the decode deterministic.
-        params.set_search_options(max_length=max_length, do_sample=False)
+        # keeps the decode deterministic. The remaining options neutralize any
+        # search constraints inherited from the bundle's genai_config.json:
+        # ORT GenAI applies them inside generate_next_token() *after* set_logits,
+        # so a live min_length / no_repeat_ngram_size / repetition_penalty could
+        # re-mask the forced target (e.g. a target EOS below min_length), break
+        # teacher forcing, and condition every later logit on the wrong prefix.
+        params.set_search_options(
+            max_length=max_length,
+            do_sample=False,
+            min_length=0,
+            no_repeat_ngram_size=0,
+            repetition_penalty=1.0,
+            num_beams=1,
+        )
         gen = og.Generator(model, params)
         gen.append_tokens([input_ids[0]])
 

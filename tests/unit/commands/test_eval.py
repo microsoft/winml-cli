@@ -342,6 +342,82 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+class TestResolveGenaiEp:
+    """``_resolve_genai_ep`` turns an explicit ``--device`` into an EP override
+    for a genai bundle, while the default (``auto``) respects bundle routing."""
+
+    @staticmethod
+    def _bundle(tmp_path):
+        (tmp_path / "genai_config.json").write_text("{}")
+        return str(tmp_path)
+
+    @staticmethod
+    def _ctx(source):
+        class _Ctx:
+            def get_parameter_source(self, _name):
+                return source
+
+        return _Ctx()
+
+    @staticmethod
+    def _cfg(**kw):
+        import types
+
+        kw.setdefault("ep", None)
+        kw.setdefault("device", "npu")
+        kw.setdefault("model_path", None)
+        return types.SimpleNamespace(**kw)
+
+    def test_explicit_device_forces_ep_override(self, tmp_path):
+        from winml.modelkit.commands.eval import _resolve_genai_ep
+
+        cfg = self._cfg(device="npu", model_path=self._bundle(tmp_path))
+        ctx = self._ctx(click.core.ParameterSource.COMMANDLINE)
+        with patch(
+            "winml.modelkit.commands._perf_genai.resolve_genai_ep",
+            return_value="qnn",
+        ) as resolve:
+            _resolve_genai_ep(ctx, cfg)
+        resolve.assert_called_once_with("npu")
+        assert cfg.ep == "qnn"
+
+    def test_default_device_respects_bundle_routing(self, tmp_path):
+        from winml.modelkit.commands.eval import _resolve_genai_ep
+
+        cfg = self._cfg(device="npu", model_path=self._bundle(tmp_path))
+        ctx = self._ctx(click.core.ParameterSource.DEFAULT)
+        with patch(
+            "winml.modelkit.commands._perf_genai.resolve_genai_ep",
+        ) as resolve:
+            _resolve_genai_ep(ctx, cfg)
+        resolve.assert_not_called()
+        assert cfg.ep is None
+
+    def test_explicit_ep_wins_untouched(self, tmp_path):
+        from winml.modelkit.commands.eval import _resolve_genai_ep
+
+        cfg = self._cfg(ep="cpu", device="npu", model_path=self._bundle(tmp_path))
+        ctx = self._ctx(click.core.ParameterSource.COMMANDLINE)
+        with patch(
+            "winml.modelkit.commands._perf_genai.resolve_genai_ep",
+        ) as resolve:
+            _resolve_genai_ep(ctx, cfg)
+        resolve.assert_not_called()
+        assert cfg.ep == "cpu"
+
+    def test_non_bundle_model_left_alone(self, tmp_path):
+        from winml.modelkit.commands.eval import _resolve_genai_ep
+
+        cfg = self._cfg(device="npu", model_path=str(tmp_path))  # no genai_config.json
+        ctx = self._ctx(click.core.ParameterSource.COMMANDLINE)
+        with patch(
+            "winml.modelkit.commands._perf_genai.resolve_genai_ep",
+        ) as resolve:
+            _resolve_genai_ep(ctx, cfg)
+        resolve.assert_not_called()
+        assert cfg.ep is None
+
+
 class TestEvalHelp:
     def test_model_help_mentions_onnx_model_id_and_role_path(self, runner: CliRunner):
         from winml.modelkit.commands.eval import eval as eval_cmd
@@ -760,13 +836,13 @@ class TestPerTaskDefaultDataset:
         )
         assert cfg.dataset.split == "test"  # the default's split wins
 
-    def test_user_column_ignored_when_default_dataset_used(
+    def test_user_column_merged_when_default_dataset_used(
         self,
         runner: CliRunner,
     ):
-        """``--column`` overrides are ignored when the default dataset fills
-        in. The default owns ``columns_mapping`` wholesale. To customize
-        columns, the user must also pass ``--dataset``.
+        """``--column`` overrides are preserved when the default dataset fills
+        in: the default only supplies columns the user did not provide, so an
+        explicit ``--column`` wins while the remaining defaults fill in.
         """
         cfg = self._run_and_capture(
             runner,
@@ -779,10 +855,38 @@ class TestPerTaskDefaultDataset:
                 "input_column=my_text",
             ],
         )
-        # Default's columns_mapping wins wholesale; user's --column dropped.
+        # User's --column wins for input_column; the default supplies the rest.
         assert cfg.dataset.columns_mapping == {
-            "input_column": "sentence1",
+            "input_column": "my_text",
             "second_input_column": "sentence2",
+        }
+
+    def test_scoring_columns_preserved_for_text_generation_default(
+        self,
+        runner: CliRunner,
+    ):
+        """The text-generation scoring parameters (num_tokens / seqlen) survive
+        default-dataset injection, so they are usable without repeating
+        ``--dataset``. The default only fills the missing ``input_column``.
+        """
+        cfg = self._run_and_capture(
+            runner,
+            [
+                "-m",
+                "some/model",
+                "--task",
+                "text-generation",
+                "--column",
+                "num_tokens=1024",
+                "--column",
+                "seqlen=512",
+            ],
+        )
+        assert cfg.dataset.path == "Salesforce/wikitext"
+        assert cfg.dataset.columns_mapping == {
+            "input_column": "text",
+            "num_tokens": "1024",
+            "seqlen": "512",
         }
 
     def test_user_streaming_ignored_when_default_dataset_used(

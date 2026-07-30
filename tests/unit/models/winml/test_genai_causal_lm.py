@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import torch
 
-from winml.modelkit.models.winml import HFCausalLM
+from winml.modelkit.models.winml import HFCausalLM, WinMLGenaiCausalLM
 
 
 def _make_adapter(*, logits=None, token_ids=None):
@@ -87,3 +87,63 @@ class TestForward:
 
     def test_call_is_forward(self) -> None:
         assert HFCausalLM.__call__ is HFCausalLM.forward
+
+
+def _make_genai_adapter(*, logits, context_length=2048):
+    """Build a ``WinMLGenaiCausalLM`` over a stubbed :class:`GenaiSession`.
+
+    ``GenaiSession`` is patched so construction does no real work; the returned
+    session exposes the ``_ensure_loaded`` / ``context_length`` / ``_model``
+    attributes ``forward`` reads. ``logits`` is the ``(vocab,)`` vector the fake
+    generator returns at every position.
+    """
+    logits = np.asarray(logits, dtype=np.float32)
+
+    with patch(
+        "winml.modelkit.models.winml.genai_causal_lm.GenaiSession"
+    ) as session_cls:
+        session = session_cls.return_value
+        session.context_length = context_length
+        session._model = MagicMock(name="model")
+        adapter = WinMLGenaiCausalLM("dummy/bundle")
+
+    gen = MagicMock(name="generator")
+    # Fake genai returns (batch, seq, vocab); forward reads [0, -1, :].
+    gen.get_logits.return_value = logits.reshape(1, 1, -1)
+
+    og = MagicMock(name="onnxruntime_genai")
+    params = og.GeneratorParams.return_value
+    og.Generator.return_value = gen
+    return adapter, og, params, gen
+
+
+class TestGenaiForwardSearchOptions:
+    """``WinMLGenaiCausalLM.forward`` must isolate teacher forcing from the
+    bundle's search policy so a forced target is never re-masked."""
+
+    def test_neutralizes_bundle_search_constraints(self) -> None:
+        """A non-default bundle search config (e.g. min_length) is overridden:
+        forward always pins the neutralizing options on the generator."""
+        adapter, og, params, _ = _make_genai_adapter(logits=[0.0, 1.0, 0.0, 0.0])
+        with patch.dict("sys.modules", {"onnxruntime_genai": og}):
+            list(adapter.forward([1, 2, 3]))
+
+        params.set_search_options.assert_called_once()
+        kwargs = params.set_search_options.call_args.kwargs
+        assert kwargs["do_sample"] is False
+        assert kwargs["min_length"] == 0
+        assert kwargs["no_repeat_ngram_size"] == 0
+        assert kwargs["repetition_penalty"] == 1.0
+        assert kwargs["num_beams"] == 1
+
+    def test_forces_target_when_model_argmax_differs(self) -> None:
+        """When the model would pick another token, forward overrides the
+        generator logits so the pinned next input is the corpus target."""
+        # get_logits argmax is index 0, but the middle target is token 3.
+        adapter, og, _, gen = _make_genai_adapter(logits=[9.0, 0.0, 0.0, 0.0, 0.0])
+        with patch.dict("sys.modules", {"onnxruntime_genai": og}):
+            list(adapter.forward([0, 3, 0]))
+
+        gen.set_logits.assert_called_once()
+        forced = np.asarray(gen.set_logits.call_args.args[0])
+        assert int(forced.reshape(-1).argmax()) == 3
