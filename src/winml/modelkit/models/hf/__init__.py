@@ -37,6 +37,9 @@ from .bart import (
     BartSequenceClassificationIOConfig as _BartSequenceClassificationIOConfig,
 )
 from .bert import BERT_CONFIG
+from .birefnet import BIREFNET_CONFIG
+from .birefnet import MODEL_CLASS_MAPPING as _BIREFNET_CLASS_MAPPING
+from .birefnet import BiRefNetIOConfig as _BiRefNetIOConfig  # triggers registration
 from .blip import BLIP_CONFIG
 from .blip import MODEL_CLASS_MAPPING as _BLIP_CLASS_MAPPING
 from .blip import BlipCaptioningIOConfig as _BlipCaptioningIOConfig  # triggers registration
@@ -121,6 +124,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
     _key: _model_cls
     for _sub_mapping in (
         _BART_CLASS_MAPPING,
+        _BIREFNET_CLASS_MAPPING,
         _BLIP_CLASS_MAPPING,
         _CLIP_CLASS_MAPPING,
         _MARIAN_CLASS_MAPPING,
@@ -145,6 +149,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
 MODEL_BUILD_CONFIGS = {
     "bart": BART_CONFIG,
     "bert": BERT_CONFIG,
+    "segformerforsemanticsegmentation": BIREFNET_CONFIG,
     "blip": BLIP_CONFIG,
     "camembert": ROBERTA_FAMILY_CONFIG,
     "clip": CLIP_CONFIG,

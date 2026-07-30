@@ -181,30 +181,66 @@ def _get_onnx_config(
     from ..loader import resolve_optimum_library
 
     library_name = resolve_optimum_library(model_type, library_name)
+    model_type_candidates = tuple(
+        dict.fromkeys(
+            (
+                model_type,
+                model_type.lower(),
+                model_type.lower().replace("_", "-"),
+            )
+        )
+    )
 
     logger.debug(
-        "Getting OnnxConfig: model_type=%s, task=%s -> %s (library=%s)",
+        "Getting OnnxConfig: model_type=%s, candidates=%s, task=%s -> %s (library=%s)",
         model_type,
+        model_type_candidates,
         task,
         normalized_task,
         library_name,
     )
 
-    try:
-        config_constructor = TasksManager.get_exporter_config_constructor(
+    last_error: KeyError | None = None
+    for candidate_model_type in model_type_candidates:
+        result = _try_get_exporter_config_constructor(
             exporter=exporter,
-            model_type=model_type,
+            model_type=candidate_model_type,
             task=normalized_task,
             library_name=library_name,
         )
-    except KeyError as e:
-        raise ONNXConfigNotFoundError(
-            f"No OnnxConfig registered for model_type='{model_type}' with task='{task}'. "
-            f"Ensure the model's ONNX config is registered with TasksManager. "
-            f"Original error: {e}"
-        ) from e
+        config_constructor, error = result
+        if config_constructor is not None:
+            return config_constructor(hf_config, task=normalized_task)
+        last_error = error
+    raise ONNXConfigNotFoundError(
+        f"No OnnxConfig registered for model_type='{model_type}' with task='{task}'. "
+        f"Ensure the model's ONNX config is registered with TasksManager. "
+        f"Original error: {last_error}"
+    ) from last_error
 
-    return config_constructor(hf_config, task=normalized_task)
+
+def _try_get_exporter_config_constructor(
+    *,
+    exporter: str,
+    model_type: str,
+    task: str,
+    library_name: str,
+) -> tuple[Any | None, KeyError | None]:
+    """Return an Optimum exporter config constructor or its lookup error."""
+    from optimum.exporters.tasks import TasksManager
+
+    try:
+        return (
+            TasksManager.get_exporter_config_constructor(
+                exporter=exporter,
+                model_type=model_type,
+                task=task,
+                library_name=library_name,
+            ),
+            None,
+        )
+    except KeyError as e:
+        return None, e
 
 
 def _populate_image_size_from_preprocessor(
@@ -311,7 +347,7 @@ def _synthesize_preprocessor_dict(hf_config: PretrainedConfig) -> dict:
         return {}
 
     input_size = pretrained_cfg.get("input_size")
-    if isinstance(input_size, (list, tuple)):
+    if isinstance(input_size, list | tuple):
         if len(input_size) == 3:
             return {"size": {"height": input_size[1], "width": input_size[2]}}
         if len(input_size) == 1:

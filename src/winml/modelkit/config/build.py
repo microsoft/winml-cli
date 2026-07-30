@@ -771,7 +771,7 @@ def _get_export_batch_size_override(override: BuildConfigOverride | None) -> int
         export_override = override.export
     elif isinstance(override, dict):
         candidate = override.get("export")
-        export_override = candidate if isinstance(candidate, (WinMLExportConfig, dict)) else None
+        export_override = candidate if isinstance(candidate, WinMLExportConfig | dict) else None
     else:
         export_override = None
 
@@ -957,8 +957,20 @@ def generate_hf_build_config(
     # Lazy import to avoid circular dependency: config -> models.hf -> config
     from ..models.hf import MODEL_BUILD_CONFIGS
 
-    _registry_key = loader_config.model_type.replace("_", "-")
-    registered = MODEL_BUILD_CONFIGS.get(_registry_key)
+    _registry_keys = tuple(
+        dict.fromkeys(
+            (
+                loader_config.model_type,
+                loader_config.model_type.lower(),
+                loader_config.model_type.lower().replace("_", "-"),
+            )
+        )
+    )
+    registered = next(
+        (MODEL_BUILD_CONFIGS[key] for key in _registry_keys if key in MODEL_BUILD_CONFIGS),
+        None,
+    )
+    _registry_key = _registry_keys[0]
 
     # =========================================================================
     # STEP 3: Generate export config
