@@ -217,7 +217,9 @@ class WinMLAutoModel:
             override=config,
             no_compile=no_compile,
         )
-        if compile_provider_options and config.compile is not None:
+        if compile_provider_options:
+            if config.compile is None:
+                raise ValueError("compile_provider_options requires compilation to be enabled.")
             config.compile.ep_config.provider_options.update(compile_provider_options)
 
         # Resolve task from explicit arg or generated config

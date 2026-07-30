@@ -209,6 +209,30 @@ class TestFromOnnx:
             "profiling_file_path": "compile.csv",
         }
 
+    def test_compile_provider_options_require_compile_config(
+        self, fake_onnx: Path, cpu_ep_device: EPDeviceTarget
+    ) -> None:
+        """Compile-only provider options cannot be silently dropped."""
+        from winml.modelkit.config import WinMLBuildConfig
+
+        mock_config = WinMLBuildConfig(export=None, quant=None, compile=None)
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+            patch(
+                "winml.modelkit.config.generate_onnx_build_config",
+                return_value=mock_config,
+            ),
+            pytest.raises(
+                ValueError,
+                match="compile_provider_options requires compilation to be enabled",
+            ),
+        ):
+            WinMLAutoModel.from_onnx(
+                fake_onnx,
+                ep_device=cpu_ep_device,
+                compile_provider_options={"profiling_level": "optrace"},
+            )
+
     def test_uses_resolved_catalog_ep_when_runtime_handle_reports_bridge_provider(
         self, fake_onnx: Path, tmp_path: Path
     ) -> None:

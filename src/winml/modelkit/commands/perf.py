@@ -2970,11 +2970,12 @@ def perf(
     compile_ep_options = None
     from ..session import short_ep_name
 
-    qnn_tracing_target = (
-        short_ep_name(ep_name) == "qnn"
-        if ep_name is not None
-        else device.lower() in ("auto", "npu")
-    )
+    if ep_name is not None:
+        qnn_tracing_target = short_ep_name(ep_name) == "qnn"
+    else:
+        from ..session.monitor.qnn_monitor import QNNMonitor
+
+        qnn_tracing_target = device.lower() in ("auto", "npu") and QNNMonitor.is_available()
     if op_tracing == "detail" and is_onnx and qnn_tracing_target:
         from ..onnx import is_compiled_onnx
 
@@ -3041,8 +3042,6 @@ def perf(
         export_overrides=export_overrides,
         input_data=input_data,
     )
-
-    is_onnx = model_path.suffix.lower() == ".onnx"
 
     # Both ONNX and HF inputs run through the same PerfBenchmark instance
     # (see #596); the op_tracing block reads the perf context off the

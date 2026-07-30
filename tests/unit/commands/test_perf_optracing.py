@@ -480,6 +480,43 @@ class TestDetailOpTracingAutoCompile:
         assert captured["compile_ep_options"] is None
         assert "Raw ONNX detected" not in result.output
 
+    def test_auto_device_without_qnn_does_not_auto_compile(self, tmp_path: Path) -> None:
+        model_path = tmp_path / "model.onnx"
+        model_path.write_bytes(b"raw onnx")
+        captured: dict = {}
+        runner = CliRunner()
+
+        with (
+            patch(
+                "winml.modelkit.session.monitor.qnn_monitor.QNNMonitor.is_available",
+                return_value=False,
+            ),
+            patch(
+                "winml.modelkit.commands.perf.BenchmarkConfig",
+                side_effect=lambda **kw: (captured.update(kw), _ConfigStub(**kw))[1],
+            ),
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_bench,
+        ):
+            mock_bench.return_value.run.side_effect = RuntimeError("stop")
+            result = runner.invoke(
+                perf,
+                [
+                    "-m",
+                    str(model_path),
+                    "--op-tracing",
+                    "detail",
+                    "-o",
+                    str(tmp_path / "result.json"),
+                ],
+                obj={},
+            )
+
+        assert result.exit_code != 0
+        assert captured["no_compile"] is True
+        assert captured["skip_build"] is True
+        assert captured["compile_ep_options"] is None
+        assert "Raw ONNX detected" not in result.output
+
 
 class TestOpTracingHardwareMonitor:
     """--op-tracing must not implicitly enable system hardware monitoring."""
