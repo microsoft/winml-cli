@@ -233,7 +233,7 @@ def build_hf_model(
     stage_timings["export"] = time.monotonic() - t0
     stages_completed.append("export")
     logger.info("Export done (%.1fs) -> %s", stage_timings["export"], export_path)
-    pytorch_model = None
+    del pytorch_model
     gc.collect()
 
     # =========================================================================
