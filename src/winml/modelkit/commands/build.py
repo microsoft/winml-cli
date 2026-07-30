@@ -1348,9 +1348,10 @@ def build(
                             model,
                             task=component_task,
                             trust_remote_code=trust_remote_code,
-                            device=device,
+                            device=runtime_device,
                             precision=precision,
-                            ep=ep_value,
+                            ep=runtime_ep_value,
+                            export_policy_target=(request_device, request_ep_value),
                             shape_config=shape_overrides,
                             override={"export": export_overrides} if export_overrides else None,
                         )

@@ -2455,6 +2455,17 @@ class TestBuildComposite:
             if "task" in call.kwargs and call.kwargs["task"] is not None
         }
         assert component_tasks == set(components.values())
+        component_config_targets = {
+            call.kwargs["task"]: (
+                call.kwargs["device"],
+                call.kwargs["ep"],
+                call.kwargs["export_policy_target"],
+            )
+            for call in mock_gen_cfg.call_args_list
+            if "task" in call.kwargs and call.kwargs["task"] is not None
+        }
+        expected_target = ("npu", "QNNExecutionProvider", ("auto", None))
+        assert component_config_targets == dict.fromkeys(components.values(), expected_target)
 
     def test_composite_autogen_passes_task_none_to_resolver(
         self,
