@@ -377,11 +377,14 @@ class TestSuppressNativeWarnings:
         monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
         logging.getLogger().setLevel(logging.WARNING)
 
+        def fail_with_runtime_error() -> None:
+            raise RuntimeError("boom")
+
         with (
             pytest.raises(RuntimeError, match="boom"),
             native_stderr_module.suppress_native_warnings(),
         ):
-            raise RuntimeError("boom")
+            fail_with_runtime_error()
 
         _write_win32_stderr(b"after exception\n")
 
