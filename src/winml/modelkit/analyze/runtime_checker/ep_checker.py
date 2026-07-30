@@ -31,7 +31,8 @@ class _RulesPrefilterProtocol(Protocol):
     def build_skip_check_result_for_rules_all_nodes_compile_run_pass(
         self,
         onnx_model: onnx.ModelProto,
-    ) -> dict[str, Any] | None: ...
+    ) -> dict[str, Any] | None:
+        raise NotImplementedError
 
 
 class EPChecker:
