@@ -31,6 +31,7 @@ import os
 import sys
 import warnings
 from contextlib import contextmanager
+from importlib import import_module
 from typing import TYPE_CHECKING
 
 from .._env import env_flag_enabled
@@ -276,12 +277,16 @@ def _restore_imported_datasets_progress(saved_enabled: bool | None) -> None:
 
 def _disable_imported_huggingface_hub_progress() -> bool | None:
     try:
-        from huggingface_hub.utils import are_progress_bars_disabled, disable_progress_bars
+        hub_utils = import_module("huggingface_hub.utils")
     except ImportError:
+        return None
+    are_progress_bars_disabled = getattr(hub_utils, "are_progress_bars_disabled", None)
+    disable_progress_bars = getattr(hub_utils, "disable_progress_bars", None)
+    if not callable(are_progress_bars_disabled) or not callable(disable_progress_bars):
         return None
 
     try:
-        saved_disabled = are_progress_bars_disabled()
+        saved_disabled = bool(are_progress_bars_disabled())
     except Exception:
         logger.debug("Could not read Hugging Face Hub progress-bar state", exc_info=True)
         saved_disabled = None
@@ -296,11 +301,14 @@ def _restore_imported_huggingface_hub_progress(saved_disabled: bool | None) -> N
     if saved_disabled is None:
         return
     try:
-        from huggingface_hub.utils import disable_progress_bars, enable_progress_bars
+        hub_utils = import_module("huggingface_hub.utils")
     except ImportError:
         return
 
-    restore = disable_progress_bars if saved_disabled else enable_progress_bars
+    method_name = "disable_progress_bars" if saved_disabled else "enable_progress_bars"
+    restore = getattr(hub_utils, method_name, None)
+    if not callable(restore):
+        return
     try:
         restore()
     except Exception:
