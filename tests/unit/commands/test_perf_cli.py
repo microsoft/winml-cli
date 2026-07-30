@@ -359,15 +359,16 @@ class TestPerfUnifiedPipeline:
                 os.write(2, b"2026 [E:custom-native:, file.cc:2 Probe] useful error\n")
                 return fake_ep_device
 
-        monkeypatch.setattr(session_module, "resolve_device", fake_resolve_device)
-        monkeypatch.setattr(
-            session_module.WinMLEPRegistry,
-            "instance",
-            staticmethod(lambda: FakeRegistry()),
-        )
+        with monkeypatch.context() as local_patch:
+            local_patch.setattr(session_module, "resolve_device", fake_resolve_device)
+            local_patch.setattr(
+                session_module.WinMLEPRegistry,
+                "instance",
+                staticmethod(lambda: FakeRegistry()),
+            )
 
-        benchmark = PerfBenchmark(BenchmarkConfig(model_id="m", ep="qnn", device="npu"))
-        benchmark._resolve_device_ep()
+            benchmark = PerfBenchmark(BenchmarkConfig(model_id="m", ep="qnn", device="npu"))
+            benchmark._resolve_device_ep()
 
         stderr = capfd.readouterr().err
         assert "hidden warning" not in stderr
