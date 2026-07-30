@@ -186,6 +186,37 @@ class TestPerfOutputPath:
 class TestPerfUnifiedPipeline:
     """Test that both ONNX and HF models go through PerfBenchmark._load_model."""
 
+    def test_load_model_does_not_forward_export_policy_details(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Pre-resolved runtime EPs should not force target-specific export policy."""
+        from winml.modelkit.models import WinMLAutoModel
+
+        benchmark = PerfBenchmark(
+            BenchmarkConfig(
+                model_id="microsoft/resnet-50",
+                task="image-classification",
+            )
+        )
+        fake_ep_device = MagicMock()
+        benchmark._ep_device = fake_ep_device
+        benchmark._resolved_device = "gpu"
+        benchmark._resolved_ep = "DmlExecutionProvider"
+        monkeypatch.setattr(benchmark, "_resolve_device_ep", lambda: None)
+
+        received: dict[str, object] = {}
+
+        def _from_pretrained(*args: object, **kwargs: object) -> MagicMock:
+            received["args"] = args
+            received.update(kwargs)
+            return MagicMock()
+
+        monkeypatch.setattr(WinMLAutoModel, "from_pretrained", _from_pretrained)
+
+        benchmark._load_model()
+
+        assert received["ep_device"] is fake_ep_device
+
     def test_close_releases_single_model_session(self) -> None:
         """Closing a benchmark resets the loaded model's native session."""
         benchmark = PerfBenchmark(BenchmarkConfig(model_id="m"))

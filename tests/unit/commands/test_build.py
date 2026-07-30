@@ -765,6 +765,26 @@ class TestBuildInvocation:
         assert result.exit_code == 0, f"Build failed: {result.output}"
         assert mock_build_api.called
 
+    def test_loaded_config_gets_default_export_compatibility(
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        from winml.modelkit.commands.build import build
+
+        result = runner.invoke(
+            build,
+            ["-c", str(sample_config_file), "-m", "test-model", "-o", str(tmp_path / "out")],
+            obj={"debug": False},
+        )
+        assert result.exit_code == 0, result.output
+
+        config = mock_build_api.call_args.kwargs["config"]
+        assert config.export is not None
+        assert config.export.compatibility.transformers_attention == "eager"
+
     def test_model_id_passed(
         self,
         runner: CliRunner,
@@ -1106,6 +1126,70 @@ class TestBuildEpDevice:
         )
         call_kwargs = mock_build_api.call_args.kwargs
         assert call_kwargs["device"] == "npu"
+
+    def test_auto_generated_config_leaves_export_policy_to_config_generation(
+        self,
+        runner: CliRunner,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        from winml.modelkit.commands.build import build
+        from winml.modelkit.config import WinMLBuildConfig
+
+        fake_cfg = WinMLBuildConfig.from_dict(
+            {
+                "loader": {"task": "image-classification"},
+                "export": {"opset_version": 17, "batch_size": 1},
+                "optim": {},
+                "quant": None,
+                "compile": None,
+            }
+        )
+        with patch(
+            "winml.modelkit.config.generate_build_config", return_value=fake_cfg
+        ) as mock_gen:
+            result = runner.invoke(
+                build,
+                ["-m", "microsoft/resnet-50", "-o", str(tmp_path), "--ep", "qnn"],
+                obj={"debug": False},
+            )
+
+            assert result.exit_code == 0, result.output
+            assert mock_gen.call_args.kwargs["device"] == "auto"
+            assert mock_gen.call_args.kwargs["ep"] == "qnn"
+            assert mock_gen.call_args.kwargs["export_policy_target"] == ("auto", "qnn")
+
+    def test_auto_generated_config_uses_portable_export_policy_when_no_target_supplied(
+        self,
+        runner: CliRunner,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        from winml.modelkit.commands.build import build
+        from winml.modelkit.config import WinMLBuildConfig
+
+        fake_cfg = WinMLBuildConfig.from_dict(
+            {
+                "loader": {"task": "image-classification"},
+                "export": {"opset_version": 17, "batch_size": 1},
+                "optim": {},
+                "quant": None,
+                "compile": None,
+            }
+        )
+        with patch(
+            "winml.modelkit.config.generate_build_config", return_value=fake_cfg
+        ) as mock_gen:
+            result = runner.invoke(
+                build,
+                ["-m", "microsoft/resnet-50", "-o", str(tmp_path)],
+                obj={"debug": False},
+            )
+
+            assert result.exit_code == 0, result.output
+            assert mock_gen.call_args.kwargs["device"] == "npu"
+            assert mock_gen.call_args.kwargs["ep"] == "QNNExecutionProvider"
+            assert mock_gen.call_args.kwargs["export_policy_target"] == ("auto", None)
 
     def test_input_specs_patches_config_file_inputs(
         self,
@@ -1967,6 +2051,33 @@ class TestBuildEpResolution:
         assert result.exit_code == 0, result.output
         assert mock_gen.call_args.kwargs["ep"] == "openvino"
 
+    def test_auto_config_uses_resolved_runtime_target_for_build_policy(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ) -> None:
+        """Auto-generated configs use runtime target while export policy keeps request."""
+        fake_cfg = MagicMock()
+        fake_cfg.compile = None
+        fake_cfg.validate.return_value = None
+        fake_cfg.loader = MagicMock()
+        fake_cfg.loader.task = "image-classification"
+        resolved_target = EPDeviceTarget(ep="DmlExecutionProvider", device="gpu")
+
+        with (
+            patch("winml.modelkit.session.resolve_device", return_value=resolved_target),
+            patch("winml.modelkit.config.generate_build_config", return_value=fake_cfg) as mock_gen,
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = _invoke(["-m", "microsoft/resnet-50", "-o", str(tmp_path / "out")])
+
+        assert result.exit_code == 0, result.output
+        kwargs = mock_gen.call_args.kwargs
+        assert kwargs["device"] == "gpu"
+        assert kwargs["ep"] == "DmlExecutionProvider"
+        assert kwargs["export_policy_target"] == ("auto", None)
+
     def test_export_overrides_forwarded_to_generate_build_config(
         self, tmp_path: Path, mock_run_single_build: MagicMock
     ):
@@ -2344,6 +2455,17 @@ class TestBuildComposite:
             if "task" in call.kwargs and call.kwargs["task"] is not None
         }
         assert component_tasks == set(components.values())
+        component_config_targets = {
+            call.kwargs["task"]: (
+                call.kwargs["device"],
+                call.kwargs["ep"],
+                call.kwargs["export_policy_target"],
+            )
+            for call in mock_gen_cfg.call_args_list
+            if "task" in call.kwargs and call.kwargs["task"] is not None
+        }
+        expected_target = ("npu", "QNNExecutionProvider", ("auto", None))
+        assert component_config_targets == dict.fromkeys(components.values(), expected_target)
 
     def test_composite_autogen_passes_task_none_to_resolver(
         self,

@@ -987,6 +987,8 @@ class PerfBenchmark:
             "task": resolved_task,
             "config": override,
             "ep_device": self._ep_device,
+            "device": self.config.device,
+            "ep": self.config.ep,
             "precision": self.config.precision,
             "provider_options": self.config.ep_options,
             "use_cache": use_cache,
@@ -1346,8 +1348,10 @@ def _perf_modules(
     from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
     from .build import _instantiate_parent_model
 
+    request_device = (device or "auto").lower()
+    request_ep = ep
     resolved_target = resolve_device(
-        EPDeviceTarget(ep=ep or "auto", device=device or "auto", source=ep_source)
+        EPDeviceTarget(ep=request_ep or "auto", device=request_device, source=ep_source)
     )
     resolved_ep_device = WinMLEPRegistry.instance().auto_device(resolved_target)
     resolved_device = resolved_target.device
@@ -1363,6 +1367,7 @@ def _perf_modules(
             device=resolved_device,
             precision=precision,
             ep=ep,
+            export_policy_target=(request_device, request_ep),
         )
     except SubmoduleClassNotFoundError as e:
         # User-error: --module pattern didn't match. List what's available so
@@ -2669,7 +2674,6 @@ def perf(
     except Exception as e:
         raise click.ClickException(f"Failed to resolve Hub-hosted ONNX path {model!r}: {e}") from e
     model = hf_model
-
     # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
     # op-tracing section the flag is meaningless, so reject it explicitly
     # rather than silently ignoring a user's intent.

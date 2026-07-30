@@ -43,6 +43,7 @@ from winml.modelkit.export import (
     WinMLExportConfig,
     resolve_io_specs,
 )
+from winml.modelkit.export.policy import ExportCompatibilityConfig
 from winml.modelkit.loader import WinMLLoaderConfig
 from winml.modelkit.optim import WinMLOptimizationConfig
 from winml.modelkit.quant import WinMLQuantizationConfig
@@ -126,6 +127,187 @@ def mock_io_specs() -> dict:
         },
         "input_shapes": [(2, 16), (2, 16)],
     }
+
+
+class TestGeneratedExportCompatibilityPolicy:
+    def test_generated_hf_config_uses_portable_policy_by_default(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        monkeypatch.setattr(
+            "winml.modelkit.config.build.resolve_loader_config",
+            lambda *args, **kwargs: (
+                mock_loader_config,
+                mock_hf_config,
+                mock_model_class,
+                MagicMock(),
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.config.build._resolve_export_config_from_specs",
+            lambda *args, **kwargs: mock_export_config,
+        )
+
+        cfg = generate_hf_build_config(
+            "local-model",
+            device="auto",
+            ep=None,
+            policy_overrides_config=True,
+        )
+
+        assert cfg.export is not None
+        assert cfg.export.compatibility.transformers_attention == "eager"
+
+    def test_generated_hf_config_applies_global_export_policy_to_explicit_target(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        # MonkeyPatch fixture typing note.
+        monkeypatch.setattr(
+            "winml.modelkit.config.build.resolve_loader_config",
+            lambda *args, **kwargs: (
+                mock_loader_config,
+                mock_hf_config,
+                mock_model_class,
+                MagicMock(),
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.config.build._resolve_export_config_from_specs",
+            lambda *args, **kwargs: mock_export_config,
+        )
+
+        cfg = generate_hf_build_config(
+            "local-model",
+            device="gpu",
+            ep="DmlExecutionProvider",
+            policy_overrides_config=True,
+        )
+
+        assert cfg.export is not None
+        assert cfg.export.compatibility.transformers_attention == "eager"
+
+    def test_generated_hf_config_can_split_build_and_export_policy_targets(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        target_policy_calls: list[tuple[str, str, str | None]] = []
+        export_policy_calls: list[tuple[str | None, str | None]] = []
+
+        monkeypatch.setattr(
+            "winml.modelkit.config.build.resolve_loader_config",
+            lambda *args, **kwargs: (
+                mock_loader_config,
+                mock_hf_config,
+                mock_model_class,
+                MagicMock(),
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.config.build._resolve_export_config_from_specs",
+            lambda *args, **kwargs: mock_export_config,
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.config.build._apply_target_policy",
+            lambda config, *, device, precision, ep: target_policy_calls.append(
+                (device, precision, ep)
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.config.build.apply_export_compatibility_policy",
+            lambda config, *, device, ep: export_policy_calls.append((device, ep)),
+        )
+
+        generate_hf_build_config(
+            "local-model",
+            device="gpu",
+            ep="DmlExecutionProvider",
+            export_policy_target=("auto", None),
+            policy_overrides_config=True,
+        )
+
+        assert target_policy_calls == [("gpu", "auto", "DmlExecutionProvider")]
+        assert export_policy_calls == [("auto", None)]
+
+    def test_submodule_config_inherits_export_compatibility(self) -> None:
+        parent = WinMLBuildConfig(
+            loader=WinMLLoaderConfig(model_type="bert", task="fill-mask"),
+            export=WinMLExportConfig(
+                compatibility=ExportCompatibilityConfig(transformers_attention="eager")
+            ),
+        )
+        sub_info = SubmoduleInfo(
+            class_name="Linear",
+            module_path="encoder.layer.0.output.dense",
+            input_shapes=[[1, 4]],
+            output_shapes=[[1, 4]],
+            input_dtypes=["float32"],
+            output_dtypes=["float32"],
+            input_names=["hidden_states"],
+        )
+
+        sub_cfg = _build_submodule_config(sub_info, parent)
+
+        assert sub_cfg.export is not None
+        assert sub_cfg.export.compatibility.transformers_attention == "eager"
+
+
+class TestLoadedConfigExportCompatibilityPolicy:
+    def test_apply_export_policy_populates_loaded_config_without_compatibility(self) -> None:
+        from winml.modelkit.config.build import apply_export_compatibility_policy
+
+        cfg = WinMLBuildConfig(export=WinMLExportConfig())
+
+        apply_export_compatibility_policy(cfg)
+
+        assert cfg.export is not None
+        assert cfg.export.compatibility.transformers_attention == "eager"
+
+    def test_apply_export_policy_preserves_serialized_compatibility(self) -> None:
+        from winml.modelkit.config.build import apply_export_compatibility_policy
+
+        cfg = WinMLBuildConfig(
+            export=WinMLExportConfig(
+                compatibility=ExportCompatibilityConfig(transformers_attention="eager")
+            )
+        )
+
+        apply_export_compatibility_policy(cfg, device="gpu", ep="DmlExecutionProvider")
+
+        assert cfg.export is not None
+        assert cfg.export.compatibility.transformers_attention == "eager"
+
+    def test_serialized_empty_compatibility_receives_policy(self) -> None:
+        from winml.modelkit.config.build import apply_export_compatibility_policy
+
+        cfg = WinMLBuildConfig.from_dict({"export": {"compatibility": {}}})
+        apply_export_compatibility_policy(cfg)
+
+        assert cfg.export is not None
+        assert cfg.export.compatibility.transformers_attention == "eager"
+
+    def test_apply_export_policy_accepts_config_lists(self) -> None:
+        from winml.modelkit.config.build import apply_export_compatibility_policy
+
+        cfgs = [WinMLBuildConfig(export=WinMLExportConfig()), WinMLBuildConfig(export=None)]
+
+        apply_export_compatibility_policy(cfgs)
+
+        assert cfgs[0].export is not None
+        assert cfgs[0].export.compatibility.transformers_attention == "eager"
+        assert cfgs[1].export is None
 
 
 # =============================================================================
@@ -268,6 +450,30 @@ class TestMergeExportOverrides:
         assert merged.export.opset_version == 18
         # input_tensors untouched when not patched
         assert [t.name for t in merged.export.input_tensors] == ["input_ids", "attention_mask"]
+
+
+class TestExportCompatibilityBuildConfig:
+    def test_export_compatibility_changes_cache_key(self) -> None:
+        default_config = WinMLBuildConfig(export=WinMLExportConfig())
+        eager_config = WinMLBuildConfig(
+            export=WinMLExportConfig(
+                compatibility=ExportCompatibilityConfig(transformers_attention="eager")
+            )
+        )
+
+        assert default_config.generate_cache_key() != eager_config.generate_cache_key()
+
+    def test_registered_export_merge_preserves_override_compatibility(self) -> None:
+        from winml.modelkit.config.build import _merge_export_config
+
+        base = WinMLExportConfig()
+        override = WinMLExportConfig(
+            compatibility=ExportCompatibilityConfig(transformers_attention="eager")
+        )
+
+        merged = _merge_export_config(base, override)
+
+        assert merged.compatibility.transformers_attention == "eager"
 
 
 class TestGetIoSpecsFromConfig:

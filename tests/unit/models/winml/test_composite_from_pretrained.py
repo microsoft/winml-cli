@@ -151,6 +151,30 @@ def test_from_pretrained_resolves_explicit_ep_without_ep_device() -> None:
     assert targets[0].ep == "qnn"
 
 
+def test_sub_models_receive_original_request_target() -> None:
+    """Composite sub-model builds must not infer export policy from the runtime handle."""
+    hf_cfg = SimpleNamespace(model_type="_test_model_type")
+    fake_ep_device = _fake_ep_device()
+
+    with (
+        patch("winml.modelkit.loader.load_hf_config", return_value=hf_cfg),
+        patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
+            return_value=MagicMock(),
+        ) as mock_from_pretrained,
+    ):
+        _StubComposite.from_pretrained(
+            "hf/id",
+            task="_test_task",
+            device="auto",
+            ep_device=fake_ep_device,
+        )
+
+    call_kwargs = mock_from_pretrained.call_args.kwargs
+    assert call_kwargs["device"] == "auto"
+    assert call_kwargs["ep"] is None
+
+
 def test_device_is_forwarded_from_from_onnx() -> None:
     """The resolved component target must also reach the composite wrapper."""
     fake_ep_device = _fake_ep_device()
