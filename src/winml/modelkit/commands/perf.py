@@ -20,7 +20,6 @@ import logging
 import math
 import sys
 import time
-from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -76,22 +75,28 @@ RuntimeName = Literal["winml", "winml-genai"]
 RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
 
 
-@contextmanager
-def _native_warning_filtered_perf(session: Any, **kwargs: Any) -> Iterator[Any]:
+class _NativeWarningFilteredPerfContext:
     """Filter native warnings from session.perf enter/exit without wrapping the loop."""
-    perf_context = session.perf(**kwargs)
-    with suppress_native_warnings(enabled=True):
-        ctx = perf_context.__enter__()
-    try:
-        yield ctx
-    except BaseException as exc:
+
+    def __init__(self, perf_context: Any) -> None:
+        self._perf_context = perf_context
+
+    def __enter__(self) -> Any:
         with suppress_native_warnings(enabled=True):
-            suppress = perf_context.__exit__(type(exc), exc, exc.__traceback__)
-        if not suppress:
-            raise
-    else:
+            return self._perf_context.__enter__()
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: Any,
+    ) -> Any:
         with suppress_native_warnings(enabled=True):
-            perf_context.__exit__(None, None, None)
+            return self._perf_context.__exit__(exc_type, exc, traceback)
+
+
+def _native_warning_filtered_perf(session: Any, **kwargs: Any) -> _NativeWarningFilteredPerfContext:
+    return _NativeWarningFilteredPerfContext(session.perf(**kwargs))
 
 
 # =============================================================================

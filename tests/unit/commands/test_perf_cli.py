@@ -387,19 +387,34 @@ class TestPerfUnifiedPipeline:
         benchmark._model = fake_model
         benchmark._ep_device = MagicMock()
 
+        def generate_inputs() -> None:
+            return None
+
+        def pre_bench_kwargs_from_ep_device(*_args: object, **_kwargs: object) -> dict[str, object]:
+            return {}
+
+        def print_pre_bench(*_args: object, **_kwargs: object) -> bool:
+            return observed.setdefault("pre_bench", inside_native_suppression)
+
+        def run_benchmark() -> MagicMock:
+            return MagicMock()
+
+        def collect_results(_stats: object) -> MagicMock:
+            return MagicMock()
+
         monkeypatch.setattr(
             "winml.modelkit.commands.perf.suppress_native_warnings",
             mark_native_suppression,
         )
-        monkeypatch.setattr(benchmark, "_generate_inputs", lambda: None)
-        monkeypatch.setattr(perf_module, "_pre_bench_kwargs_from_ep_device", lambda *a, **k: {})
+        monkeypatch.setattr(benchmark, "_generate_inputs", generate_inputs)
         monkeypatch.setattr(
             perf_module,
-            "print_pre_bench_block",
-            lambda *a, **k: observed.setdefault("pre_bench", inside_native_suppression),
+            "_pre_bench_kwargs_from_ep_device",
+            pre_bench_kwargs_from_ep_device,
         )
-        monkeypatch.setattr(benchmark, "_run_benchmark", lambda: MagicMock())
-        monkeypatch.setattr(benchmark, "_collect_results", lambda _stats: MagicMock())
+        monkeypatch.setattr(perf_module, "print_pre_bench_block", print_pre_bench)
+        monkeypatch.setattr(benchmark, "_run_benchmark", run_benchmark)
+        monkeypatch.setattr(benchmark, "_collect_results", collect_results)
 
         benchmark._run_single()
 
