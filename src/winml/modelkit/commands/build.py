@@ -1040,6 +1040,14 @@ def build(
         # to honor the requested policy. fp16/fp32 clear quant; npu/int8 etc set it.
         if cli_utils.is_cli_provided(ctx, "device") or cli_utils.is_cli_provided(ctx, "precision"):
             from ..compiler.configs import WinMLCompileConfig
+            from ..onnx import is_quantized_onnx
+
+            is_pre_quantized_onnx_input = (
+                model_input is not None
+                and model_input.kind is ModelInputKind.ONNX_FILE
+                and model is not None
+                and is_quantized_onnx(Path(model))
+            )
 
             def _patch_device(cfg: WinMLBuildConfig) -> None:
                 from ..config import resolve_quant_compile_config
@@ -1047,7 +1055,7 @@ def build(
                 resolved_quant, _ = resolve_quant_compile_config(
                     device=device, precision=precision, ep=ep_value
                 )
-                if not quant or resolved_quant is None or (cfg.skip_optimize and cfg.quant is None):
+                if not quant or resolved_quant is None or is_pre_quantized_onnx_input:
                     cfg.quant = None
                 elif cfg.quant is None:
                     # Populate calibration identifiers from the loader/model

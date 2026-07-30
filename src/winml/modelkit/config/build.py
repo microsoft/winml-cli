@@ -1441,6 +1441,7 @@ def _assemble_config(
         optim=optim_config,
         quant=quant_config,
         compile=compile_config,
+        skip_optimize=registered.skip_optimize if registered else False,
     )
 
 

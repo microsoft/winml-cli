@@ -2094,6 +2094,48 @@ class TestBuildEpResolution:
         assert result.exit_code == 0, result.output
         assert mock_run_single_build.call_args.kwargs["config"].quant is not None
 
+    def test_explicit_device_populates_quant_for_raw_skip_optimize_config(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ) -> None:
+        from winml.modelkit.config import WinMLBuildConfig
+
+        cfg = WinMLBuildConfig.from_dict(
+            {
+                "loader": {"task": "text-generation"},
+                "export": {"opset_version": 18},
+                "optim": {},
+                "quant": None,
+                "compile": None,
+                "skip_optimize": True,
+            }
+        )
+
+        with (
+            patch("winml.modelkit.config.generate_build_config", return_value=cfg),
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = _invoke(
+                [
+                    "-m",
+                    "Qwen/Qwen3-1.7B",
+                    "-o",
+                    str(tmp_path / "out"),
+                    "--device",
+                    "npu",
+                    "--no-compile",
+                ]
+            )
+
+        assert result.exit_code == 0, result.output
+        patched = mock_run_single_build.call_args.kwargs["config"]
+        assert patched.skip_optimize is True
+        assert patched.quant is not None
+        assert patched.quant.task == "text-generation"
+        assert patched.quant.model_id == "Qwen/Qwen3-1.7B"
+
     def test_shape_config_rejected_for_onnx_input(
         self, tmp_path: Path, mock_run_single_build: MagicMock
     ):
