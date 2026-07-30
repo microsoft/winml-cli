@@ -475,10 +475,9 @@ class TestEvalPerTask:
         data = _assert_metrics_present(out, ["accuracy", "f1"])
         # nli-deberta-v3-small zero-shot on AG News, N=10. 4-class random
         # baseline = 0.25; tiny-N variance can push real models below
-        # baseline. Accuracy keeps the non-degenerate smoke floor; macro-F1 can
-        # be lower on this tiny, quantized sample, so only assert its bounds.
+        # baseline. Use a very loose floor here.
         _assert_in_range(data["metrics"], "accuracy", 0.1, 1.0)
-        _assert_in_range(data["metrics"], "f1", 0.0, 1.0)
+        _assert_in_range(data["metrics"], "f1", 0.1, 1.0)
 
     def test_zero_shot_image_classification(
         self,
