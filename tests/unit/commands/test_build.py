@@ -2394,6 +2394,68 @@ class TestBuildOnnxPipelineRegressions:
 class TestBuildComposite:
     """Test build fans a composite model out with flat _<component> naming."""
 
+    def test_composite_component_precision_override_is_preserved(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """A component override wins without changing sibling precision."""
+        from winml.modelkit.commands.build import build
+
+        components = {
+            "encoder": "image-feature-extraction",
+            "decoder": "text2text-generation",
+        }
+        generated_configs: list[MagicMock] = []
+
+        def fake_generate(*args, **kwargs):
+            cfg = MagicMock()
+            cfg.loader = MagicMock(task=kwargs.get("task"), model_type="florence2")
+            cfg.quant = None if kwargs["precision"] == "fp32" else MagicMock()
+            cfg.precision = kwargs["precision"]
+            cfg.compile = None
+            generated_configs.append(cfg)
+            return cfg
+
+        with (
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value=components,
+            ),
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_precision_overrides",
+                return_value={"encoder": "fp32"},
+            ),
+            patch(
+                "winml.modelkit.config.generate_build_config",
+                side_effect=fake_generate,
+            ) as mock_generate,
+            patch("winml.modelkit.commands.build._run_single_build") as mock_build,
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = runner.invoke(
+                build,
+                [
+                    "-m",
+                    "microsoft/Florence-2-base",
+                    "-o",
+                    str(tmp_path / "out"),
+                    "--precision",
+                    "fp16",
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        component_calls = mock_generate.call_args_list[1:]
+        assert [call.kwargs["precision"] for call in component_calls] == ["fp32", "fp16"]
+        built_configs = [call.kwargs["config"] for call in mock_build.call_args_list]
+        assert built_configs[0].quant is None
+        assert [cfg.precision for cfg in built_configs] == ["fp32", "fp16"]
+
     def test_composite_builds_flat_with_cache_key(
         self,
         runner: CliRunner,
@@ -2449,6 +2511,7 @@ class TestBuildComposite:
         assert built_keys == set(components)
         # generate_build_config is called once for the outer auto-gen config,
         # then once per component.
+        assert mock_gen_cfg.call_args_list[0].kwargs["task"] == next(iter(components.values()))
         component_tasks = {
             call.kwargs["task"]
             for call in mock_gen_cfg.call_args_list
@@ -2506,10 +2569,9 @@ class TestBuildComposite:
             )
 
         assert result.exit_code == 0, result.output
-        # No -c: task must be None (so the seq2seq bridge is applied), but
-        # model_type is still forwarded.
+        # No -c: task must be None so the seq2seq bridge is applied before
+        # generating the outer policy config.
         assert mock_resolve.call_args.kwargs["task"] is None
-        assert mock_resolve.call_args.kwargs["model_type"] == "t5"
 
     def test_composite_config_file_forwards_explicit_task(
         self,

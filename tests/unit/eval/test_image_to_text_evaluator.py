@@ -13,10 +13,8 @@ from winml.modelkit.eval.image_to_text_evaluator import WinMLImageToTextEvaluato
 from winml.modelkit.inference.pipeline import _HF_PIPELINE_TASK_MAP
 
 
-def make_evaluator(columns_mapping=None):
+def make_evaluator(columns_mapping=None, prompt=None):
     """Instantiate evaluator with mocked dataset + pipeline."""
-    import transformers
-
     from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
     mapping = columns_mapping or {}
@@ -37,20 +35,29 @@ def make_evaluator(columns_mapping=None):
     config = WinMLEvaluationConfig(
         model_id="microsoft/trocr-base-handwritten",
         task="image-to-text",
+        prompt=prompt,
         dataset=DatasetConfig(path="Teklia/IAM-line", columns_mapping=mapping),
     )
 
-    # Resolve the lazy Transformers export before patching it.
-    assert hasattr(transformers, "pipeline")
     with (
         patch("datasets.load_dataset", return_value=mock_ds),
-        patch("transformers.pipelines.pipeline", return_value=mock_pipe),
-        patch.object(transformers, "pipeline", return_value=mock_pipe),
+        patch(
+            "winml.modelkit.eval.base_evaluator.WinMLEvaluator.prepare_pipeline",
+            return_value=mock_pipe,
+        ),
     ):
         return WinMLImageToTextEvaluator(config, model)
 
 
 class TestInit:
+    def test_config_serializes_prompt(self):
+        from winml.modelkit.eval import WinMLEvaluationConfig
+
+        config = WinMLEvaluationConfig(task="image-to-text", prompt="<CAPTION>")
+
+        assert config.to_dict()["prompt"] == "<CAPTION>"
+        assert WinMLEvaluationConfig.from_dict(config.to_dict()).prompt == "<CAPTION>"
+
     def test_uses_transformers_pipeline_task_name(self):
         assert _HF_PIPELINE_TASK_MAP["image-to-text"] == "image-text-to-text"
 
@@ -114,6 +121,15 @@ class TestCompute:
         assert result["cer"] == 0.0
         assert result["n_samples"] == 2
         assert "cider" in result
+
+    def test_passes_configured_prompt_as_native_pipeline_text(self):
+        ev = make_evaluator(prompt="<CAPTION>")
+        ev.data = [{"image": "img1", "text": "caption"}]
+        ev.pipe = MagicMock(return_value=[{"generated_text": "caption"}])
+
+        ev.compute()
+
+        ev.pipe.assert_called_once_with("img1", text="<CAPTION>")
 
     def test_dict_output_shape(self):
         """Pipeline may also return a single dict (not a list)."""

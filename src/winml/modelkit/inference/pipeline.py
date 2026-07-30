@@ -547,11 +547,15 @@ def create_pipeline(
     if compatibility_factory is not None:
         pipe = compatibility_factory(model, model_id)
     else:
+        component_kwargs = _pipeline_component_kwargs(hf_task, model_id)
+        processor_loader = getattr(type(model), "load_pipeline_processor", None)
+        if processor_loader is not None and model_id is not None:
+            component_kwargs["processor"] = processor_loader(model, model_id)
         kwargs: dict[str, Any] = {
             # "device" is for HF pipeline tensor placement, not ORT EP.
             # WinMLSession handles device delegation internally.
             "device": "cpu",
-            **_pipeline_component_kwargs(hf_task, model_id),
+            **component_kwargs,
         }
 
         # transformers.pipeline has 60+ Literal overloads — runtime task strings can't

@@ -141,6 +141,7 @@ class WinMLBuildConfig:
     compile: WinMLCompileConfig | None = field(default_factory=WinMLCompileConfig)
     eval: WinMLEvaluationConfig | None = None
     auto: bool = True
+    precision: str = "auto"
     # Skip ORT optimization. Pre-quantized inputs also clear ``quant``.
     skip_optimize: bool = False
 
@@ -176,6 +177,7 @@ class WinMLBuildConfig:
             ),
             eval=eval_cfg,
             auto=config_dict.get("auto", True),
+            precision=config_dict.get("precision", "auto"),
             skip_optimize=config_dict.get("skip_optimize", False),
         )
 
@@ -186,6 +188,8 @@ class WinMLBuildConfig:
             result["auto"] = False
         if self.skip_optimize:
             result["skip_optimize"] = True
+        if self.precision != "auto":
+            result["precision"] = self.precision
         result.update(
             {
                 "export": self.export.to_dict() if self.export is not None else None,
@@ -436,7 +440,7 @@ def _apply_target_policy(
         config.quant = None
 
     # Store resolved precision for multi-pass expansion.
-    config.precision = policy.precision  # type: ignore[attr-defined]
+    config.precision = policy.precision
 
     if policy.compile_provider is not None:
         config.compile = WinMLCompileConfig.for_provider(

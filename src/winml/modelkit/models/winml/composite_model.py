@@ -107,6 +107,7 @@ class WinMLCompositeModel(PreTrainedModel):
     """
 
     _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {}
+    _SUB_MODEL_PRECISION_OVERRIDES: ClassVar[dict[str, str]] = {}
 
     def __init__(
         self,

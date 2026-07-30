@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,8 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 ShapeDim = int | str
+DummyValue = int | float
+DummyValueRun = tuple[int, DummyValue]
 
 
 # =============================================================================
@@ -69,6 +72,28 @@ class InputTensorSpec:
     dtype: str | None = None  # "float32", "float16", "int64", "int32", etc.
     shape: tuple[ShapeDim, ...] | None = None
     value_range: tuple[float, float] | None = None  # (min, max_exclusive)
+    dummy_value_runs: tuple[DummyValueRun, ...] | None = None
+
+    def __post_init__(self) -> None:
+        """Normalize and validate serialized semantic dummy values."""
+        if self.dummy_value_runs is None:
+            return
+
+        normalized_runs: list[DummyValueRun] = []
+        for run in self.dummy_value_runs:
+            if not isinstance(run, (tuple, list)) or len(run) != 2:
+                raise TypeError("dummy_value_runs entries must be (count, value) pairs")
+            count, value = run
+            if not isinstance(count, int) or isinstance(count, bool):
+                raise TypeError("dummy_value_runs counts must be integers")
+            if count <= 0:
+                raise ValueError("dummy_value_runs counts must be positive")
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                raise TypeError("dummy_value_runs values must be numeric")
+            if isinstance(value, float) and not math.isfinite(value):
+                raise ValueError("dummy_value_runs values must be finite")
+            normalized_runs.append((count, value))
+        self.dummy_value_runs = tuple(normalized_runs)
 
     def to_tensor(self) -> Any:
         """Generate a dummy tensor from this spec.
@@ -101,6 +126,26 @@ class InputTensorSpec:
         torch_dtype = dtype_map.get(self.dtype or "float32", torch.float32)
 
         concrete_shape = self.concrete_shape()
+
+        if self.dummy_value_runs is not None:
+            if sum(count for count, _ in self.dummy_value_runs) != math.prod(concrete_shape):
+                raise ValueError(
+                    f"dummy_value_runs for '{self.name}' must fill the concrete tensor shape"
+                )
+            if not torch_dtype.is_floating_point and any(
+                not isinstance(value, int) for _, value in self.dummy_value_runs
+            ):
+                raise TypeError(
+                    f"dummy_value_runs for integer tensor '{self.name}' must contain integers"
+                )
+
+            tensor = torch.empty(concrete_shape, dtype=torch_dtype)
+            flat_tensor = tensor.reshape(-1)
+            start = 0
+            for count, value in self.dummy_value_runs:
+                flat_tensor[start : start + count] = value
+                start += count
+            return tensor
 
         if self.value_range is not None:
             lo, hi = self.value_range
@@ -146,6 +191,30 @@ class InputTensorSpec:
                 )
         return tuple(concrete)
 
+    @staticmethod
+    def compact_dummy_value_runs(tensor: Any) -> tuple[DummyValueRun, ...] | None:
+        """Run-length encode deterministic tensors without serializing random inputs."""
+        import torch
+
+        if not isinstance(tensor, torch.Tensor) or tensor.numel() < 2:
+            return None
+        if tensor.dtype == torch.bool or tensor.is_complex():
+            return None
+
+        flat_tensor = tensor.detach().cpu().reshape(-1)
+        values, counts = torch.unique_consecutive(flat_tensor, return_counts=True)
+        if values.numel() >= flat_tensor.numel():
+            return None
+
+        runs: list[DummyValueRun] = []
+        for count, value in zip(counts.tolist(), values.tolist(), strict=True):
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                return None
+            if isinstance(value, float) and not math.isfinite(value):
+                return None
+            runs.append((count, value))
+        return tuple(runs)
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values."""
         result: dict[str, Any] = {}
@@ -157,6 +226,8 @@ class InputTensorSpec:
             result["shape"] = self.shape
         if self.value_range is not None:
             result["value_range"] = list(self.value_range)
+        if self.dummy_value_runs is not None:
+            result["dummy_value_runs"] = [list(run) for run in self.dummy_value_runs]
         return result
 
     @classmethod
@@ -172,6 +243,7 @@ class InputTensorSpec:
             dtype=data.get("dtype"),
             shape=shape,
             value_range=value_range,
+            dummy_value_runs=data.get("dummy_value_runs"),
         )
 
 

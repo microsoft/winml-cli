@@ -31,7 +31,7 @@ Common interface (called by ``WinMLEncoderDecoderModel.forward``):
 - ``build_decoder_mask(max_len)``: 2D attention mask for current step
 - ``get_query_cache_position(max_len)``: buffer indices of query tokens
   (used by HF's ``create_causal_mask`` and by T5's ``compute_bias``)
-- ``update_all_layers(outputs)``: write present KV from ONNX output, advance step
+- ``update_all_layers(outputs)``: write present KV and advance logical step
 - ``reset()``: zero out for new generation
 - ``create(config, kv_shape, dtype)``: factory from ONNX metadata
 
@@ -114,6 +114,12 @@ class WinMLCache(StaticCache, ABC):
         """Provide the position tensor when a model omits cache update kwargs."""
         self._trace_position = position
 
+    def get_seq_length(self, layer_idx: int = 0) -> int:
+        """Return the logical token count rather than fixed buffer occupancy."""
+        if self._trace_position is not None:
+            return cast("int", self._trace_position.reshape(-1)[0])
+        return self.step
+
     def early_initialization(
         self,
         batch_size: int,
@@ -187,23 +193,38 @@ class WinMLCache(StaticCache, ABC):
         """
 
     def update_all_layers(self, outputs: dict[str, Any]) -> None:
-        """Write present KV for all layers via ``update()`` and advance step.
-
-        Step advances by N where N is the seq_len of the present KV tensors
-        (1 for gen, chunk_len for prefill).
-        """
+        """Write present KV and advance by the logical decoder query length."""
         import torch
 
-        n = 0
+        logits = outputs.get("logits")
+        num_new_tokens = (
+            int(logits.shape[1])
+            if logits is not None
+            else int(outputs["present_0_key"].shape[2])
+        )
         for i in range(self.num_layers):
             k = outputs[f"present_{i}_key"]
             v = outputs[f"present_{i}_value"]
             k = k if isinstance(k, torch.Tensor) else torch.tensor(k)
             v = v if isinstance(v, torch.Tensor) else torch.tensor(v)
-            n = k.size(2)
-            ck = {"cache_position": torch.arange(self.step, self.step + n, dtype=torch.int64)}
-            self.update(k, v, i, cache_kwargs=ck)
-        self.step += n
+            layer = self._layer(i)
+            layer_keys = cast("torch.Tensor", layer.keys)
+            layer_values = cast("torch.Tensor", layer.values)
+            if k.shape == layer_keys.shape and v.shape == layer_values.shape:
+                layer_keys.copy_(k)
+                layer_values.copy_(v)
+                continue
+            if k.size(2) != num_new_tokens or v.size(2) != num_new_tokens:
+                raise ValueError(
+                    "Present KV sequence length must match either the cache capacity "
+                    "or the number of new decoder tokens."
+                )
+            cache_position = self.get_query_cache_position(
+                layer_keys.size(2),
+                num_new_tokens,
+            )
+            self.update(k, v, i, cache_kwargs={"cache_position": cache_position})
+        self.step += num_new_tokens
 
     def reset(self) -> None:
         """Zero out all layers and reset step (start of new generation)."""
