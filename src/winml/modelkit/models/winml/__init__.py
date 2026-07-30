@@ -37,6 +37,7 @@ TASK_TO_WINML_CLASS: dict[str, str] = {
     "text-classification": "WinMLModelForSequenceClassification",
     "sequence-classification": "WinMLModelForSequenceClassification",
     "next-sentence-prediction": "WinMLModelForSequenceClassification",
+    "tabular-classification": "WinMLModelForSequenceClassification",
     "image-segmentation": "WinMLModelForImageSegmentation",
     "semantic-segmentation": "WinMLModelForSemanticSegmentation",
     "object-detection": "WinMLModelForObjectDetection",
