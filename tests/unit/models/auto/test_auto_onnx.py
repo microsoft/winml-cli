@@ -175,6 +175,40 @@ class TestFromOnnx:
         assert call_kwargs["ep"] == "qnn"
         assert call_kwargs["device"] == "npu"
 
+    def test_applies_compile_provider_options(
+        self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: EPDeviceTarget
+    ) -> None:
+        """Compile-only provider options are added to the generated compile config."""
+        from winml.modelkit.config import WinMLBuildConfig
+
+        mock_config = WinMLBuildConfig(export=None, quant=None)
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+            patch(
+                "winml.modelkit.config.generate_onnx_build_config",
+                return_value=mock_config,
+            ),
+            patch("winml.modelkit.build.build_onnx_model") as mock_build,
+            patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
+        ):
+            mock_build.return_value = _make_build_result(tmp_path)
+            mock_get_class.return_value = lambda **kw: MagicMock()
+
+            WinMLAutoModel.from_onnx(
+                fake_onnx,
+                ep_device=cpu_ep_device,
+                compile_provider_options={
+                    "profiling_level": "optrace",
+                    "profiling_file_path": "compile.csv",
+                },
+            )
+
+        compile_options = mock_build.call_args.kwargs["config"].compile.ep_config.provider_options
+        assert compile_options == {
+            "profiling_level": "optrace",
+            "profiling_file_path": "compile.csv",
+        }
+
     def test_uses_resolved_catalog_ep_when_runtime_handle_reports_bridge_provider(
         self, fake_onnx: Path, tmp_path: Path
     ) -> None:
