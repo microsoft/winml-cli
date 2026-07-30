@@ -31,6 +31,7 @@ _PANEL_HORIZONTAL_OVERHEAD = 4
 # border text. Keep this fixed overhead out of the Rich panel width budget.
 _PLOTEXT_HORIZONTAL_OVERHEAD = 21
 _MIN_CHART_WIDTH = 20
+_STATUS_CELL_WIDTH = 28
 
 
 class _OmittedDeviceKind:
@@ -128,6 +129,17 @@ class LiveMonitorDisplay:
             return []
         max_width = self._panel_content_width()
         separator = " | "
+        padded_line = "  " + separator.join(
+            [
+                self._pad_status_cell(cell, _STATUS_CELL_WIDTH)
+                if index < len(cells) - 1
+                else cell
+                for index, cell in enumerate(cells)
+            ]
+        )
+        if max_width is None or cell_len(padded_line) <= max_width:
+            return [padded_line]
+
         lines: list[str] = []
         current = f"  {cells[0]}"
         for cell in cells[1:]:
@@ -139,6 +151,11 @@ class LiveMonitorDisplay:
                 current = candidate
         lines.append(current)
         return lines
+
+    @staticmethod
+    def _pad_status_cell(cell: str, width: int) -> str:
+        """Pad a status cell by terminal display width."""
+        return cell + (" " * max(width - cell_len(cell), 0))
 
     def _resolved_device_label(self) -> str:
         """Return the display label for the requested or resolved device."""

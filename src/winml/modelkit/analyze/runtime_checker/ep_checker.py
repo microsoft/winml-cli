@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import tempfile
+from abc import abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
 class _RulesPrefilterProtocol(Protocol):
     """Protocol for rules-prefilter service used by EPChecker."""
 
+    @abstractmethod
     def build_skip_check_result_for_rules_all_nodes_compile_run_pass(
         self,
         onnx_model: onnx.ModelProto,
@@ -46,7 +48,9 @@ class EPChecker:
     # EP/device combinations that are known to leak resources/state across many
     # sequential checks inside a single worker process. Running each case in an
     # isolated process avoids "first case passes, later cases fail" behavior.
-    EPS_REQUIRING_CASE_ISOLATION_BY_DEVICE: ClassVar[dict[str, set[ort.OrtHardwareDeviceType]]] = {
+    EPS_REQUIRING_CASE_ISOLATION_BY_DEVICE: ClassVar[
+        dict[str, set[ort.OrtHardwareDeviceType]]
+    ] = {
         "OpenVINOExecutionProvider": {ort.OrtHardwareDeviceType.NPU},
     }
 

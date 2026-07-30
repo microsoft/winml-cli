@@ -20,6 +20,7 @@ import logging
 import math
 import sys
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,12 +28,11 @@ from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 
 import click
 import numpy as np
-from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
 from ..utils import cli as cli_utils
-from ..utils.console import SafeConsole, safe_console_print
+from ..utils.console import SafeConsole
 from ..utils.constants import ACCELERATOR_DEVICE_TYPES, EPName, EPNameOrAlias
 from ..utils.logging import (
     configure_logging,
@@ -48,6 +48,8 @@ from ._pre_bench import print_pre_bench_block
 if TYPE_CHECKING:
     import contextlib
     from collections.abc import Iterator
+
+    from rich.console import Console
 
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
@@ -72,6 +74,24 @@ _HW_POLL_INTERVAL_MS = 200
 #   "winml-genai" -> onnxruntime-genai decoder-pipeline generation
 RuntimeName = Literal["winml", "winml-genai"]
 RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
+
+
+@contextmanager
+def _native_warning_filtered_perf(session: Any, **kwargs: Any) -> Iterator[Any]:
+    """Filter native warnings from session.perf enter/exit without wrapping the loop."""
+    perf_context = session.perf(**kwargs)
+    with suppress_native_warnings(enabled=True):
+        ctx = perf_context.__enter__()
+    try:
+        yield ctx
+    except BaseException as exc:
+        with suppress_native_warnings(enabled=True):
+            suppress = perf_context.__exit__(type(exc), exc, exc.__traceback__)
+        if not suppress:
+            raise
+    else:
+        with suppress_native_warnings(enabled=True):
+            perf_context.__exit__(None, None, None)
 
 
 # =============================================================================
@@ -263,7 +283,7 @@ def _open_ep_monitor_or_exit(
             device=device,
         )
     except RuntimeError as e:
-        Console(stderr=True).print(f"[red]Error:[/red] {e}")
+        SafeConsole(stderr=True).print(f"[red]Error:[/red] {e}")
         raise SystemExit(1) from None
 
 
@@ -811,7 +831,7 @@ class PerfBenchmark:
         results: dict[str, BenchmarkResult] = {}
         for name, sub in self._sub_models.items():
             logger.info("Benchmarking sub-model '%s'", name)
-            Console(stderr=True).print(f"\n[bold]Sub-model:[/bold] {name}")
+            SafeConsole(stderr=True).print(f"\n[bold]Sub-model:[/bold] {name}")
             child = PerfBenchmark(replace(self.config, op_tracing=None))
             child._model = sub
             # A composite is resolved once (via the parent's _load_model); each
@@ -861,7 +881,8 @@ class PerfBenchmark:
         self._generate_inputs()
 
         # Compile session early so model.device is resolved for display
-        self._single._session.compile()
+        with suppress_native_warnings(enabled=True):
+            self._single._session.compile()
 
         if self.config.memory:
             gc.collect()
@@ -1023,16 +1044,18 @@ class PerfBenchmark:
         }
 
         if is_onnx:
-            self._model = WinMLAutoModel.from_onnx(
-                onnx_path=model_path,
-                skip_build=self.config.skip_build,
-                **common_kwargs,
-            )
+            with suppress_native_warnings(enabled=True):
+                self._model = WinMLAutoModel.from_onnx(
+                    onnx_path=model_path,
+                    skip_build=self.config.skip_build,
+                    **common_kwargs,
+                )
         else:
-            self._model = WinMLAutoModel.from_pretrained(
-                model_id,
-                **common_kwargs,
-            )
+            with suppress_native_warnings(enabled=True):
+                self._model = WinMLAutoModel.from_pretrained(
+                    model_id,
+                    **common_kwargs,
+                )
 
     def _generate_inputs(self) -> None:
         """Generate random inputs, or load real inputs from a .npz file."""
@@ -1115,7 +1138,7 @@ class PerfBenchmark:
         total_iterations = self.config.warmup + self.config.iterations
 
         session = self._single._session
-        with session.perf(warmup=self.config.warmup) as ctx:
+        with _native_warning_filtered_perf(session, warmup=self.config.warmup) as ctx:
             _run_simple_loop(
                 session,
                 self._inputs,
@@ -1126,7 +1149,7 @@ class PerfBenchmark:
 
         # Expose ctx for post-benchmark reporting (parity with monitored path).
         self._perf_ctx = ctx
-        return ctx.stats
+        return cast("PerfStats", ctx.stats)
 
     def _run_benchmark_monitored(self) -> PerfStats:
         """Execute benchmark with live hardware monitoring and/or op-tracing.
@@ -1163,7 +1186,7 @@ class PerfBenchmark:
         # remains active independently when op-tracing needs profiling data.
         hw_available = self.config.monitor and HWMonitor.is_available()
         if self.config.monitor and not hw_available:
-            Console(stderr=True).print(
+            SafeConsole(stderr=True).print(
                 "[yellow]Warning:[/yellow] HWMonitor unavailable on this system. "
                 "Running without hardware monitoring."
             )
@@ -1184,7 +1207,9 @@ class PerfBenchmark:
                 ep_name=ep_name,
             )
             with (
-                session.perf(warmup=self.config.warmup, monitor=ep_monitor) as ctx,
+                _native_warning_filtered_perf(
+                    session, warmup=self.config.warmup, monitor=ep_monitor
+                ) as ctx,
                 hw_monitor as hw,
             ):
                 _run_monitored_loop(
@@ -1209,7 +1234,9 @@ class PerfBenchmark:
         else:
             # No --monitor (or HWMonitor unavailable): run with the EP monitor
             # only so op-tracing and proof-of-execution still work.
-            with session.perf(warmup=self.config.warmup, monitor=ep_monitor) as ctx:
+            with _native_warning_filtered_perf(
+                session, warmup=self.config.warmup, monitor=ep_monitor
+            ) as ctx:
                 _run_simple_loop(
                     session,
                     self._inputs,
@@ -1223,7 +1250,7 @@ class PerfBenchmark:
 
         # Store the op-trace context for post-benchmark reporting
         self._perf_ctx = ctx
-        return ctx.stats
+        return cast("PerfStats", ctx.stats)
 
     def _collect_results(self, stats: PerfStats) -> BenchmarkResult:
         """Collect benchmark results from PerfStats."""
@@ -1513,7 +1540,8 @@ def _perf_modules(
                 inputs = generate_random_inputs(io_cfg, batch_size=batch_size)
 
                 # Compile session early so session.device is resolved for display
-                session.compile()
+                with suppress_native_warnings(enabled=True):
+                    session.compile()
 
                 total_iters = warmup + iterations
                 hw_ctx = None
@@ -1533,7 +1561,7 @@ def _perf_modules(
                     # Drive the same live chart single-model mode uses so
                     # --monitor renders a per-module HW utilization chart
                     # instead of silently dumping metrics to JSON (issue #654).
-                    with session.perf(warmup=warmup) as ctx, hw_ctx as hw:
+                    with _native_warning_filtered_perf(session, warmup=warmup) as ctx, hw_ctx as hw:
                         _run_monitored_loop(
                             session,
                             inputs,
@@ -1551,7 +1579,7 @@ def _perf_modules(
                         hw_metrics = hw.to_dict()
                     mod_stats = ctx.stats
                 else:
-                    with session.perf(warmup=warmup) as ctx:
+                    with _native_warning_filtered_perf(session, warmup=warmup) as ctx:
                         _run_simple_loop(
                             session,
                             inputs,
@@ -1655,7 +1683,7 @@ def _device_string(req_device: str, act_device: str, ep_name: EPName | None) -> 
     return device_str
 
 
-def display_console_report(result: BenchmarkResult, console: Console) -> None:
+def display_console_report(result: BenchmarkResult, console: SafeConsole) -> None:
     """Display benchmark results in formatted console output.
 
     Device/EP/DLL/hardware and I/O tensor identity are rendered before
@@ -1668,13 +1696,9 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
     even though they no longer render to stdout — the data model is
     unchanged, only the console rendering was pruned.
     """
-
-    def print_(*objects: Any, **kwargs: Any) -> None:
-        safe_console_print(console, *objects, **kwargs)
-
     # Latency table
-    print_()
-    print_("[bold]Latency (ms)[/bold]")
+    console.print()
+    console.print("[bold]Latency (ms)[/bold]")
 
     table = Table(show_header=True, header_style="bold cyan")
     for col in ["Avg", "P50", "P90", "P95", "P99", "Min", "Max", "Std"]:
@@ -1691,24 +1715,24 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
         f"{result.std_ms:.2f}",
     )
 
-    print_(table)
+    console.print(table)
 
     if result.warmup_mean_ms > 0:
-        print_(
+        console.print(
             f"  [dim]Warmup: {result.warmup_mean_ms:.2f} ms avg "
             f"(first {result.config.warmup} iterations)[/dim]"
         )
 
     # Throughput
-    print_()
+    console.print()
     throughput_line = f"[bold]Throughput:[/bold] {result.samples_per_sec:.2f} samples/sec"
     if result.effective_batch_size != 1:
         throughput_line += f" [dim](batch {result.effective_batch_size})[/dim]"
-    print_(throughput_line)
+    console.print(throughput_line)
     # Flag when the requested batch couldn't be honored so a static-batch model
     # doesn't look like it silently ran the requested batch.
     if result.config.batch_size != result.effective_batch_size:
-        print_(
+        console.print(
             f"  [yellow]Note:[/yellow] requested batch {result.config.batch_size} "
             f"could not be applied (model has a static batch of "
             f"{result.effective_batch_size})."
@@ -1716,8 +1740,8 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
 
     # Hardware section (only when monitoring was active)
     if result.hw_monitor:
-        print_()
-        print_("[bold]Hardware (during benchmark)[/bold]")
+        console.print()
+        console.print("[bold]Hardware (during benchmark)[/bold]")
         cpu = result.hw_monitor.get("cpu", {})
         ram = result.hw_monitor.get("ram", {})
         # ``hw_monitor["gpu"]`` is aggregate GPU telemetry. Selected-adapter
@@ -1728,23 +1752,23 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
         device_kind = result.hw_monitor.get("device_kind")
         if device_kind in ACCELERATOR_DEVICE_TYPES:
             adapter = result.hw_monitor.get("adapter") or result.hw_monitor.get(device_kind, {})
-            print_(
+            console.print(
                 f"  {device_kind.upper()}: {adapter.get('mean_pct', 0):.1f}% avg, "
                 f"{adapter.get('peak_pct', 0):.1f}% peak  |  "
                 f"CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  "
                 f"RAM: {ram.get('used_mb', 0):.0f} MB"
             )
         else:
-            print_(
+            console.print(
                 f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  RAM: {ram.get('used_mb', 0):.0f} MB"
             )
 
     # Memory section (only when --memory is enabled)
     if result.memory_profile:
         mem = result.memory_profile
-        print_()
-        print_("[bold]Memory:[/bold]")
-        print_(
+        console.print()
+        console.print("[bold]Memory:[/bold]")
+        console.print(
             f"  RAM:  {mem['rss_after_inference_mb']:.1f} MB -> "
             f"model load: {mem['rss_model_load_delta_mb']:+.1f} MB  |  "
             f"inference: {mem['rss_inference_delta_mb']:+.1f} MB  |  "
@@ -1753,7 +1777,7 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
         vram_local = mem.get("vram_local_after_inference_mb", 0)
         vram_shared = mem.get("vram_shared_after_inference_mb", 0)
         if vram_local > 0 or vram_shared > 0:
-            print_(
+            console.print(
                 f"  VRAM: {vram_local:.1f}/{vram_shared:.1f} MB (local/shared) -> "
                 f"model load: {mem['vram_local_model_load_delta_mb']:+.1f}/"
                 f"{mem['vram_shared_model_load_delta_mb']:+.1f} MB  |  "
@@ -1763,7 +1787,7 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
                 f"{mem['vram_shared_total_delta_mb']:+.1f} MB"
             )
 
-    print_()
+    console.print()
 
 
 def write_json_report(result: BenchmarkResult, output_path: Path) -> None:
@@ -3069,7 +3093,6 @@ def perf(
 
         benchmark = PerfBenchmark(config)
         with (
-            suppress_native_warnings(enabled=True),
             suppress_huggingface_warning_logs(verbosity=verbose, quiet=quiet),
             suppress_third_party_progress(verbosity=verbose, quiet=quiet),
         ):
@@ -3253,7 +3276,7 @@ def _print_model_info(
     actual_shapes: dict[str, tuple] | None = None,
 ) -> None:
     """Print model I/O metadata before the benchmark starts."""
-    console = Console(stderr=True)
+    console = SafeConsole(stderr=True)
     console.print()
     device_line = _device_string(req_device, act_device, ep_name)
     console.print(f"[dim]Device:[/dim]      {device_line}")

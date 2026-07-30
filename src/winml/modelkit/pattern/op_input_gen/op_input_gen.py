@@ -1542,7 +1542,6 @@ class OpInputGenerator(ABC):
         isolate_case_execution = ep_checker.needs_case_isolation()
 
         with ResilientRunner(capture_output=capture_output, timeout_sec=60) as runner:
-
             def _run_ep_check(
                 fn: Callable[[Any, Any], dict[str, Any]],
                 model_bytes: bytes,
@@ -1664,7 +1663,9 @@ class OpInputGenerator(ABC):
                             f"all<{compile_count['all']}>"
                             f"{Style.RESET_ALL}"
                         )
-                    if (not compile_success and save_failed_model) or save_model:
+                    if (
+                        not compile_success and save_failed_model
+                    ) or save_model:
                         if save_dir is None:
                             save_dir = (
                                 Path(model_output_dir)

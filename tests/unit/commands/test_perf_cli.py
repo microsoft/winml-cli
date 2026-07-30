@@ -20,7 +20,7 @@ import warnings
 from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
@@ -38,6 +38,7 @@ from winml.modelkit.commands.perf import (
     generate_output_path,
     perf,
 )
+from winml.modelkit.utils.console import SafeConsole
 
 
 @pytest.fixture(autouse=True)
@@ -283,10 +284,132 @@ class TestPerfUnifiedPipeline:
 
         assert observed == {"load": False, "run_single": False}
 
-    def test_load_model_imports_auto_model_under_native_suppression_only(
+    def test_native_perf_context_filters_enter_exit_not_benchmark_body(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Import-time ORT warnings are filtered without wrapping the build path."""
+        """session.perf native setup/teardown is filtered without wrapping the loop."""
+        inside_native_suppression = False
+        observed: list[tuple[str, bool]] = []
+
+        @contextmanager
+        def mark_native_suppression(*_args: object, **_kwargs: object):
+            nonlocal inside_native_suppression
+            previous = inside_native_suppression
+            inside_native_suppression = True
+            try:
+                yield
+            finally:
+                inside_native_suppression = previous
+
+        class FakePerfContext:
+            def __enter__(self) -> SimpleNamespace:
+                observed.append(("enter", inside_native_suppression))
+                return SimpleNamespace(stats=MagicMock())
+
+            def __exit__(self, *exc: object) -> bool:
+                observed.append(("exit", inside_native_suppression))
+                return False
+
+        class FakeSession:
+            def perf(self, **_kwargs: object) -> FakePerfContext:
+                return FakePerfContext()
+
+        monkeypatch.setattr(
+            "winml.modelkit.commands.perf.suppress_native_warnings",
+            mark_native_suppression,
+        )
+
+        with perf_module._native_warning_filtered_perf(FakeSession(), warmup=1) as ctx:
+            assert ctx.stats is not None
+            observed.append(("body", inside_native_suppression))
+
+        assert observed == [("enter", True), ("body", False), ("exit", True)]
+
+    def test_native_perf_context_suppresses_native_warning_from_exit(
+        self, capfd: pytest.CaptureFixture[str]
+    ) -> None:
+        """Native warning lines from session.perf teardown stay hidden."""
+
+        class FakePerfContext:
+            def __enter__(self) -> SimpleNamespace:
+                return SimpleNamespace(stats=MagicMock())
+
+            def __exit__(self, *exc: object) -> bool:
+                os.write(2, b"2026 [W:custom-native:, file.cc:1 PerfExit] hidden warning\n")
+                return False
+
+        class FakeSession:
+            def perf(self, **_kwargs: object) -> FakePerfContext:
+                return FakePerfContext()
+
+        with perf_module._native_warning_filtered_perf(FakeSession(), warmup=1):
+            pass
+
+        assert "hidden warning" not in capfd.readouterr().err
+
+    def test_run_single_filters_native_warnings_only_around_session_compile(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Session compile is native-heavy, but pre-bench UI must stay outside fd2 filtering."""
+        inside_native_suppression = False
+        observed: dict[str, bool] = {}
+
+        @contextmanager
+        def mark_native_suppression(*_args: object, **_kwargs: object):
+            nonlocal inside_native_suppression
+            previous = inside_native_suppression
+            inside_native_suppression = True
+            try:
+                yield
+            finally:
+                inside_native_suppression = previous
+
+        class FakeSession:
+            def compile(self) -> None:
+                observed["compile"] = inside_native_suppression
+
+        fake_model = MagicMock()
+        fake_model._session = FakeSession()
+        fake_model.io_config = {
+            "input_names": ["input"],
+            "input_shapes": [(1,)],
+            "input_types": ["float32"],
+            "output_names": ["output"],
+            "output_shapes": [(1,)],
+            "output_types": ["float32"],
+        }
+        fake_model.task = "image-classification"
+        fake_model.device = "npu"
+        fake_model.ep_name = "QNNExecutionProvider"
+        fake_model._onnx_path = None
+
+        benchmark = PerfBenchmark(BenchmarkConfig(model_id="m", warmup=0, iterations=1))
+        benchmark._model = fake_model
+        benchmark._ep_device = MagicMock()
+
+        monkeypatch.setattr(
+            "winml.modelkit.commands.perf.suppress_native_warnings",
+            mark_native_suppression,
+        )
+        monkeypatch.setattr(benchmark, "_generate_inputs", lambda: None)
+        monkeypatch.setattr(perf_module, "_pre_bench_kwargs_from_ep_device", lambda *a, **k: {})
+        monkeypatch.setattr(
+            perf_module,
+            "print_pre_bench_block",
+            lambda *a, **k: observed.setdefault("pre_bench", inside_native_suppression),
+        )
+        monkeypatch.setattr(benchmark, "_run_benchmark", lambda: MagicMock())
+        monkeypatch.setattr(benchmark, "_collect_results", lambda _stats: MagicMock())
+
+        benchmark._run_single()
+
+        assert observed["compile"] is True
+        assert observed["pre_bench"] is False
+
+    def test_load_model_filters_native_warnings_around_auto_model_factory(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Import-time and model-factory native warnings are filtered."""
         inside_native_suppression = False
         import_observed: list[bool] = []
         load_observed: list[bool] = []
@@ -334,7 +457,7 @@ class TestPerfUnifiedPipeline:
 
         assert import_observed
         assert all(import_observed)
-        assert load_observed == [False]
+        assert load_observed == [True]
 
     def test_resolve_device_ep_filters_native_warnings_and_preserves_errors(
         self,
@@ -781,10 +904,10 @@ class TestPerfUnifiedPipeline:
         assert result.exit_code == 0, result.output
         assert not any("unauthenticated requests" in str(record.message) for record in records)
 
-    def test_cli_filters_native_warnings_only_around_benchmark_run(
+    def test_cli_does_not_wrap_entire_benchmark_in_native_stderr_redirect(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Perf CLI filters native benchmark noise without wrapping report rendering."""
+        """Perf CLI must not route Rich/report output through native stderr filtering."""
         inside_native_suppression = False
 
         @contextmanager
@@ -797,8 +920,8 @@ class TestPerfUnifiedPipeline:
             finally:
                 inside_native_suppression = previous
 
-        def assert_run_suppressed() -> MagicMock:
-            assert inside_native_suppression
+        def assert_run_not_suppressed() -> MagicMock:
+            assert not inside_native_suppression
             return MagicMock()
 
         def assert_report_not_suppressed(*_args: object, **_kwargs: object) -> MagicMock:
@@ -818,7 +941,7 @@ class TestPerfUnifiedPipeline:
             ),
             patch("winml.modelkit.commands.perf.write_json_report"),
         ):
-            mock_perf.return_value.run.side_effect = assert_run_suppressed
+            mock_perf.return_value.run.side_effect = assert_run_not_suppressed
             result = runner.invoke(
                 perf,
                 ["-m", "microsoft/resnet-50", "-o", str(tmp_path / "out.json")],
@@ -2092,7 +2215,7 @@ class TestDisplayConsoleReport:
             actual_device="gpu",
             actual_task="image-classification",
         )
-        console = Console(file=self._FailingConsoleFile(), width=120, force_terminal=False)
+        console = SafeConsole(file=self._FailingConsoleFile(), width=120, force_terminal=False)
 
         display_console_report(result, console)
 

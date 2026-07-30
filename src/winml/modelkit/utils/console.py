@@ -67,17 +67,6 @@ class SafeConsole(Console):
             raise
 
 
-def safe_console_print(console: Console, *objects: Any, **kwargs: Any) -> None:
-    """Print to Rich console, ignoring Windows console handle/mode write errors."""
-    try:
-        console.print(*objects, **kwargs)
-    except OSError as exc:
-        if _is_expected_windows_console_oserror(exc):
-            logger.debug("Ignoring Windows console OSError from Console.print", exc_info=True)
-            return
-        raise
-
-
 def _is_expected_windows_console_oserror(exc: OSError) -> bool:
     if sys.platform != "win32":
         return False

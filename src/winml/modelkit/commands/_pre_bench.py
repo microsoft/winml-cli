@@ -18,13 +18,11 @@ from rich.console import Group
 from rich.panel import Panel
 from rich.text import Text
 
-from ..utils.console import safe_console_print
-
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from rich.console import Console
+    from ..utils.console import SafeConsole
 
 
 # Every label column is padded to LABEL_WIDTH so the values on the right
@@ -34,7 +32,7 @@ _LABEL_WIDTH = 10
 
 
 def print_pre_bench_block(
-    console: Console,
+    console: SafeConsole,
     *,
     model_id: str | None,
     task: str | None,
@@ -110,7 +108,7 @@ def print_pre_bench_block(
         model_lines.extend(_io_lines("Outputs:", outputs))
 
     if model_lines:
-        safe_console_print(console, Panel(Group(*model_lines), title="Model", expand=True))
+        console.print(Panel(Group(*model_lines), title="Model", expand=True))
 
     # --- Device panel: resolved device + EP + DLL -------------------------
     hw_suffix = f"  [dim]({hardware_name})[/dim]" if hardware_name else ""
@@ -124,7 +122,7 @@ def print_pre_bench_block(
         _labeled_line("EP:", ep_line),
         _labeled_line("EP DLL:", f"[dim]{dll_display}[/dim]"),
     ]
-    safe_console_print(console, Panel(Group(*device_lines), title="Device", expand=True))
+    console.print(Panel(Group(*device_lines), title="Device", expand=True))
 
 
 def _labeled_line(label: str, value_markup: str) -> Text:

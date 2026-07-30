@@ -12,6 +12,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from winml.modelkit.commands._pre_bench import print_pre_bench_block
+from winml.modelkit.utils.console import SafeConsole
 
 
 class _FailingConsoleFile:
@@ -86,7 +87,7 @@ def test_hf_block_shows_model_id():
 
 
 def test_hf_block_ignores_windows_console_write_oserror():
-    console = Console(file=_FailingConsoleFile(), width=120, force_terminal=False)
+    console = SafeConsole(file=_FailingConsoleFile(), width=120, force_terminal=False)
 
     print_pre_bench_block(
         console,
