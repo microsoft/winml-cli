@@ -312,6 +312,39 @@ def resolve_composite(model_type: str, task: str) -> CompositeComponents | None:
     return dict(cls._SUB_MODEL_CONFIG) if cls is not None else None
 
 
+def resolve_composite_precision_overrides(
+    model_type: str | None,
+    components: CompositeComponents,
+    *,
+    hf_model: str | None = None,
+    trust_remote_code: bool = False,
+) -> dict[str, str]:
+    """Return component precision overrides declared by the matching composite."""
+    if model_type is None and hf_model is not None:
+        from transformers import AutoConfig
+
+        from ._autoconfig import load_hf_config
+
+        model_type = load_hf_config(
+            AutoConfig,
+            hf_model,
+            trust_remote_code=trust_remote_code,
+        ).model_type
+    if model_type is None:
+        return {}
+    matching = {
+        tuple(sorted(cls._SUB_MODEL_PRECISION_OVERRIDES.items()))
+        for (registered_type, _), cls in _composite_registry().items()
+        if registered_type == model_type and components == cls._SUB_MODEL_CONFIG
+    }
+    if len(matching) > 1:
+        raise ValueError(
+            f"Composite registrations for {model_type!r} declare inconsistent "
+            "component precision overrides."
+        )
+    return dict(next(iter(matching), ()))
+
+
 def resolve_composite_components(
     hf_model: str | None,
     *,

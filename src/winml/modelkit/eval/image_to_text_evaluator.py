@@ -50,6 +50,7 @@ class WinMLImageToTextEvaluator(WinMLEvaluator):
         cm = config.dataset.columns_mapping
         self._image_col = cm.get("input_column", get_default("image-to-text", "input_column"))
         self._label_col = cm.get("label_column", get_default("image-to-text", "label_column"))
+        self._prompt = config.prompt or ""
         super().__init__(config, model)
 
     def align_labels(self, dataset: Dataset, ds_config: DatasetConfig) -> Dataset:
@@ -73,7 +74,7 @@ class WinMLImageToTextEvaluator(WinMLEvaluator):
                 continue
 
             try:
-                out = self.pipe(image, text="")
+                out = self.pipe(image, text=self._prompt)
             except Exception as e:
                 logger.warning("Pipeline call failed (skipping): %s", e)
                 skipped += 1

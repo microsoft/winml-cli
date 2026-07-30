@@ -128,6 +128,7 @@ KNOWN_TASKS: frozenset[str] = frozenset(_TASK_REGISTRY)
 # the live registry by `tests/unit/loader/test_composite_tasks.py`.
 COMPOSITE_TASKS: frozenset[str] = frozenset(
     {
+        "image-text-to-text",
         "image-to-text",
         "summarization",
         "table-question-answering",

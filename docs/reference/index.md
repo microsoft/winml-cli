@@ -68,6 +68,7 @@ stages based on the target device and precision.
 | `dtype` | `str \| null` | Data type (e.g., `float32`, `int64`). |
 | `shape` | `list[int \| str] \| null` | Tensor shape (e.g., `[1, 3, 224, 224]`). String entries declare symbolic dynamic axes and use size `1` for dummy inputs. |
 | `value_range` | `[float, float] \| null` | Min/max for dummy tensor generation. |
+| `dummy_value_runs` | `list[[int, int \| float]] \| null` | Run-length encoded semantic dummy values as `[count, value]` pairs. Counts must exactly fill the concrete tensor shape. |
 
 ---
 
@@ -137,6 +138,7 @@ Set to `null` (default) to skip evaluation.
 | `model_id` | `str \| null` | `null` | HuggingFace model ID for config resolution. |
 | `model_path` | `str \| dict[str, str] \| null` | `null` | Path to .onnx file, or a `{role: path}` dict for composite models. |
 | `task` | `str \| null` | `null` | Task type. |
+| `prompt` | `str \| null` | `null` | Optional text prompt passed with each image for prompt-conditioned image-to-text models. |
 | `device` | `str` | `"auto"` | Inference device. |
 | `precision` | `str` | `"auto"` | Precision (`fp32`, `fp16`, `w8a16`, etc.). |
 | `ep` | `str \| null` | `null` | EP override. |

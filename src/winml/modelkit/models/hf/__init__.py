@@ -48,6 +48,10 @@ from .convnext import ConvNextIOConfig as _ConvNextIOConfig  # triggers registra
 from .depth_anything import DepthAnythingIOConfig as _DepthAnythingIOConfig  # triggers registration
 from .depth_pro import DepthProIOConfig as _DepthProIOConfig  # triggers registration
 from .detr import DETR_CONFIG
+from .florence2 import FLORENCE2_CONFIG
+from .florence2 import MODEL_CLASS_MAPPING as _FLORENCE2_CLASS_MAPPING
+from .florence2 import Florence2DecoderIOConfig as _Florence2DecoderIOConfig
+from .florence2 import Florence2EncoderIOConfig as _Florence2EncoderIOConfig
 from .layoutlm import LayoutLMQAIOConfig as _LayoutLMQAIOConfig  # triggers registration
 from .layoutlmv3 import LAYOUTLMV3_CONFIG
 from .layoutlmv3 import LayoutLMv3IOConfig as _LayoutLMv3IOConfig  # triggers registration
@@ -123,6 +127,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
         _BART_CLASS_MAPPING,
         _BLIP_CLASS_MAPPING,
         _CLIP_CLASS_MAPPING,
+        _FLORENCE2_CLASS_MAPPING,
         _MARIAN_CLASS_MAPPING,
         _MU2_CLASS_MAPPING,
         _QWEN_CLASS_MAPPING,
@@ -151,6 +156,7 @@ MODEL_BUILD_CONFIGS = {
     "clip-text-model": CLIP_CONFIG,
     "clip-vision-model": CLIP_CONFIG,
     "detr": DETR_CONFIG,
+    "florence2": FLORENCE2_CONFIG,
     "layoutlmv3": LAYOUTLMV3_CONFIG,
     "marian": MARIAN_CONFIG,
     "roberta": ROBERTA_FAMILY_CONFIG,

@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 
 import pytest
+import torch
 
 from winml.modelkit.export import (
     InputTensorSpec,
@@ -270,6 +271,29 @@ class TestInputTensorSpecRoundtrip:
         assert restored.name == "input_ids"
         assert restored.dtype is None
         assert restored.shape is None
+
+    def test_semantic_dummy_values_roundtrip(self):
+        original = InputTensorSpec(
+            name="input_ids",
+            dtype="int64",
+            shape=(1, 5),
+            dummy_value_runs=((3, 42), (1, 0), (1, 2)),
+        )
+        restored = InputTensorSpec.from_dict(original.to_dict())
+
+        assert restored.dummy_value_runs == original.dummy_value_runs
+        assert torch.equal(restored.to_tensor(), torch.tensor([[42, 42, 42, 0, 2]]))
+
+    def test_semantic_dummy_values_must_fill_shape(self):
+        spec = InputTensorSpec(
+            name="input_ids",
+            dtype="int64",
+            shape=(1, 4),
+            dummy_value_runs=((3, 42),),
+        )
+
+        with pytest.raises(ValueError, match="must fill the concrete tensor shape"):
+            spec.to_tensor()
 
 
 # =============================================================================

@@ -151,6 +151,7 @@ class WinMLEvaluationConfig:
     input_data: str | None = None
     reference_path: str | None = field(default=None, metadata={"cli_name": "reference"})
     task: str | None = None
+    prompt: str | None = None
     device: str = "auto"
     precision: str = "auto"
     ep: EPNameOrAlias | None = None
@@ -187,6 +188,8 @@ class WinMLEvaluationConfig:
             result["reference_path"] = self.reference_path
         if self.task is not None:
             result["task"] = self.task
+        if self.prompt is not None:
+            result["prompt"] = self.prompt
         result["device"] = self.device
         if self.precision != "auto":
             result["precision"] = self.precision
@@ -239,6 +242,7 @@ class WinMLEvaluationConfig:
             input_data=data.get("input_data"),
             reference_path=data.get("reference_path"),
             task=data.get("task"),
+            prompt=data.get("prompt"),
             device=data.get("device", "auto"),
             precision=data.get("precision", "auto"),
             ep=data.get("ep"),

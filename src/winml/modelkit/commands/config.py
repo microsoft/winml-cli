@@ -653,6 +653,14 @@ def _generate_pipeline_configs(
 ) -> None:
     """Generate and save one config file per pipeline sub-component."""
     from ..config import generate_hf_build_config
+    from ..loader.resolution import resolve_composite_precision_overrides
+
+    precision_overrides = resolve_composite_precision_overrides(
+        model_type,
+        components,
+        hf_model=hf_model,
+        trust_remote_code=trust_remote_code,
+    )
 
     for component_name, component_task in components.items():
         console.print(
@@ -660,6 +668,7 @@ def _generate_pipeline_configs(
             f"(task={component_task})...[/dim]"
         )
 
+        component_precision = precision_overrides.get(component_name, precision)
         cfg = generate_hf_build_config(
             model_id=hf_model,
             task=component_task,
@@ -669,7 +678,7 @@ def _generate_pipeline_configs(
             shape_config=shape_config,
             library_name=library_name,
             device=device,
-            precision=precision,
+            precision=component_precision,
             trust_remote_code=trust_remote_code,
             ep=ep,
             policy_overrides_config=policy_overrides_config,

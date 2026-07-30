@@ -493,6 +493,7 @@ def _resolve_export_config_from_specs(
             )
 
         value_ranges = io_specs.get("value_ranges", {})
+        dummy_value_runs = io_specs.get("dummy_value_runs", {})
 
         input_tensors = [
             InputTensorSpec(
@@ -500,6 +501,7 @@ def _resolve_export_config_from_specs(
                 shape=shape,
                 dtype=dtype,
                 value_range=value_ranges.get(name),
+                dummy_value_runs=dummy_value_runs.get(name),
             )
             for name, shape, dtype in zip(input_names, input_shapes, input_dtypes, strict=False)
         ]

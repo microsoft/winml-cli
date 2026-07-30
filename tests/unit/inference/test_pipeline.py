@@ -16,7 +16,7 @@ from __future__ import annotations
 import inspect
 import warnings
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -182,6 +182,30 @@ class TestPipelineComponentKwargs:
 
 
 class TestCreatePipeline:
+    def test_uses_model_supplied_pipeline_processor(self) -> None:
+        processor = MagicMock()
+
+        class ModelWithProcessor:
+            io_config: ClassVar[dict[str, Any]] = {}
+
+            def load_pipeline_processor(self, model_id: str) -> Any:
+                assert model_id == "test-model"
+                return processor
+
+        pipe = MagicMock()
+        pipe.tokenizer = None
+        pipe.image_processor = None
+        with (
+            patch(
+                "winml.modelkit.inference.pipeline._pipeline_component_kwargs",
+                return_value={"processor": "test-model"},
+            ),
+            patch("transformers.pipeline", return_value=pipe) as pipeline,
+        ):
+            create_pipeline("image-to-text", ModelWithProcessor(), "test-model")
+
+        assert pipeline.call_args.kwargs["processor"] is processor
+
     def test_constructs_real_transformers_pipeline(self) -> None:
         from transformers import ViTConfig, ViTForImageClassification, ViTImageProcessor
         from transformers.pipelines import ImageClassificationPipeline

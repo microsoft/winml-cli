@@ -1,0 +1,109 @@
+{
+  "precision": "fp32",
+  "export": {
+    "opset_version": 17,
+    "batch_size": 1,
+    "export_params": true,
+    "do_constant_folding": true,
+    "verbose": false,
+    "dynamo": false,
+    "enable_hierarchy_tags": true,
+    "clean_onnx": false,
+    "hierarchy_tag_format": "full",
+    "input_tensors": [
+      {
+        "name": "input_ids",
+        "dtype": "int64",
+        "shape": [
+          1,
+          585
+        ],
+        "dummy_value_runs": [
+          [
+            577,
+            50265
+          ],
+          [
+            1,
+            0
+          ],
+          [
+            1,
+            2264
+          ],
+          [
+            1,
+            473
+          ],
+          [
+            1,
+            5
+          ],
+          [
+            1,
+            2274
+          ],
+          [
+            1,
+            6190
+          ],
+          [
+            1,
+            116
+          ],
+          [
+            1,
+            2
+          ]
+        ]
+      },
+      {
+        "name": "pixel_values",
+        "dtype": "float32",
+        "shape": [
+          1,
+          3,
+          768,
+          768
+        ],
+        "dummy_value_runs": [
+          [
+            1769472,
+            0.0
+          ]
+        ]
+      },
+      {
+        "name": "attention_mask",
+        "dtype": "int64",
+        "shape": [
+          1,
+          585
+        ],
+        "dummy_value_runs": [
+          [
+            585,
+            1
+          ]
+        ]
+      }
+    ],
+    "output_tensors": [
+      {
+        "name": "last_hidden_state"
+      }
+    ]
+  },
+  "optim": {
+    "gelu_fusion": true,
+    "layer_norm_fusion": true,
+    "matmul_add_fusion": true
+  },
+  "quant": null,
+  "compile": null,
+  "loader": {
+    "task": "image-feature-extraction",
+    "model_class": "Florence2EncoderWrapper",
+    "model_type": "florence2"
+  }
+}
