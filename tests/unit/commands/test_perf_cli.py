@@ -214,10 +214,14 @@ class TestPerfUnifiedPipeline:
         benchmark = PerfBenchmark(BenchmarkConfig(model_id="m"))
         model = MagicMock()
         model._session = MagicMock()
-        model._session.reset.side_effect = lambda: os.write(
-            2,
-            b"2026 [W:custom-native:, file.cc:1 ResetWarn] reset warning\n",
-        )
+
+        def write_reset_warning() -> int:
+            return os.write(
+                2,
+                b"2026 [W:custom-native:, file.cc:1 ResetWarn] reset warning\n",
+            )
+
+        model._session.reset.side_effect = write_reset_warning
         benchmark._model = model
 
         benchmark.close()
@@ -267,6 +271,9 @@ class TestPerfUnifiedPipeline:
             observed["run_single"] = inside_native_suppression
             return MagicMock()
 
+        def is_not_composite(self: PerfBenchmark) -> bool:
+            return False
+
         monkeypatch.setattr(
             "winml.modelkit.commands.perf.suppress_native_warnings",
             mark_native_suppression,
@@ -276,7 +283,7 @@ class TestPerfUnifiedPipeline:
         monkeypatch.setattr(
             PerfBenchmark,
             "_is_composite",
-            property(lambda self: False),
+            property(is_not_composite),
         )
 
         benchmark = PerfBenchmark(BenchmarkConfig(model_id="m"))
@@ -497,12 +504,15 @@ class TestPerfUnifiedPipeline:
                 os.write(2, b"2026 [E:custom-native:, file.cc:2 Probe] useful error\n")
                 return fake_ep_device
 
+        def registry_instance() -> FakeRegistry:
+            return FakeRegistry()
+
         with monkeypatch.context() as local_patch:
             local_patch.setattr(session_module, "resolve_device", fake_resolve_device)
             local_patch.setattr(
                 session_module.WinMLEPRegistry,
                 "instance",
-                staticmethod(lambda: FakeRegistry()),
+                staticmethod(registry_instance),
             )
 
             benchmark = PerfBenchmark(BenchmarkConfig(model_id="m", ep="qnn", device="npu"))
@@ -2487,7 +2497,11 @@ class TestBenchmarkIndices:
         from winml.modelkit.commands import perf as perf_mod
 
         clock = {"t": 0.0}
-        monkeypatch.setattr(perf_mod.time, "perf_counter", lambda: clock["t"])
+
+        def perf_counter() -> float:
+            return clock["t"]
+
+        monkeypatch.setattr(perf_mod.time, "perf_counter", perf_counter)
 
         indices = []
         # total_iterations is huge so only the time budget can end the loop.
@@ -2506,7 +2520,11 @@ class TestBenchmarkIndices:
         from winml.modelkit.commands import perf as perf_mod
 
         clock = {"t": 0.0}
-        monkeypatch.setattr(perf_mod.time, "perf_counter", lambda: clock["t"])
+
+        def perf_counter() -> float:
+            return clock["t"]
+
+        monkeypatch.setattr(perf_mod.time, "perf_counter", perf_counter)
 
         indices = []
         for idx in perf_mod._benchmark_indices(
