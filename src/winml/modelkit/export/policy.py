@@ -9,15 +9,13 @@ import json
 from dataclasses import dataclass
 from functools import cache
 from importlib import resources
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from ..utils.constants import EP_SUPPORTED_DEVICES, normalize_ep_name
 
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-
-    from ..utils.constants import EPName
 
 
 @dataclass(frozen=True)
@@ -88,6 +86,12 @@ class ExportCompatibilityRule:
 
 
 _RULES_RESOURCE = "compatibility_rules.json"
+_SUPPORTED_POLICY_DEVICES_BY_EP: dict[str, frozenset[str]] = {
+    ep: frozenset(devices) for ep, devices in EP_SUPPORTED_DEVICES.items()
+}
+_SUPPORTED_POLICY_DEVICES = frozenset(
+    device for devices in _SUPPORTED_POLICY_DEVICES_BY_EP.values() for device in devices
+)
 
 
 def export_policy_targets_for_request(
@@ -202,7 +206,7 @@ def _rule_from_dict(data: object, *, index: int) -> ExportCompatibilityRule:
         )
     if isinstance(ep, str):
         normalized_ep = normalize_ep_name(ep)
-        if normalized_ep not in EP_SUPPORTED_DEVICES:
+        if normalized_ep not in _SUPPORTED_POLICY_DEVICES_BY_EP:
             raise ValueError(
                 f"{_RULES_RESOURCE} rules[{index}].match.ep must be a supported EP "
                 f"or alias, got {ep!r}"
@@ -213,19 +217,20 @@ def _rule_from_dict(data: object, *, index: int) -> ExportCompatibilityRule:
             f"{_RULES_RESOURCE} rules[{index}].match.device must be a non-empty string or null"
         )
     normalized_device = device.lower() if isinstance(device, str) else None
-    supported_devices = {d for devices in EP_SUPPORTED_DEVICES.values() for d in devices}
-    if normalized_device is not None and normalized_device not in supported_devices:
+    if normalized_device is not None and normalized_device not in _SUPPORTED_POLICY_DEVICES:
         raise ValueError(
             f"{_RULES_RESOURCE} rules[{index}].match.device must be one of "
-            f"{sorted(supported_devices)}, got {device!r}"
+            f"{sorted(_SUPPORTED_POLICY_DEVICES)}, got {device!r}"
         )
-    if normalized_ep is not None and normalized_device is not None:
-        canonical_ep = cast("EPName", normalized_ep)
-        if normalized_device not in EP_SUPPORTED_DEVICES[canonical_ep]:
-            raise ValueError(
-                f"{_RULES_RESOURCE} rules[{index}].match.ep {normalized_ep!r} "
-                f"does not support device {normalized_device!r}"
-            )
+    if (
+        normalized_ep is not None
+        and normalized_device is not None
+        and normalized_device not in _SUPPORTED_POLICY_DEVICES_BY_EP[normalized_ep]
+    ):
+        raise ValueError(
+            f"{_RULES_RESOURCE} rules[{index}].match.ep {normalized_ep!r} "
+            f"does not support device {normalized_device!r}"
+        )
 
     export = data.get("export")
     compatibility = ExportCompatibilityConfig.from_dict(export)
