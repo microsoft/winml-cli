@@ -2866,6 +2866,12 @@ stages based on the target device and precision.</p>
 <td>Use PyTorch's TorchDynamo ONNX exporter; the default <code>false</code> selects the legacy TorchScript exporter.</td>
 </tr>
 <tr>
+<td><code>compatibility</code></td>
+<td><code>dict \| null</code></td>
+<td>omitted</td>
+<td>Resolved export compatibility knobs. Currently supports <code>transformers_attention: "eager"</code> to request eager Transformers attention during ONNX export.</td>
+</tr>
+<tr>
 <td><code>enable_hierarchy_tags</code></td>
 <td><code>bool</code></td>
 <td><code>true</code></td>

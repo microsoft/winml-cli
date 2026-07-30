@@ -2761,6 +2761,13 @@
 <td>Print all available pattern-rewrite families with their source-to-target mappings and exit.</td>
 </tr>
 <tr>
+<td><code>--check-optim</code></td>
+<td></td>
+<td>flag</td>
+<td>off</td>
+<td>Analyze which optimizations would apply to <code>--model</code> and the nodes/constants they affect, then exit <strong>without writing any output</strong>. Probes every capability independently.</td>
+</tr>
+<tr>
 <td><em>(dynamic)</em></td>
 <td></td>
 <td>flag</td>
@@ -2809,6 +2816,33 @@
 <p>Discover pattern-rewrite families and their flag names:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>$<span class="w"> </span>winml<span class="w"> </span>optimize<span class="w"> </span>--list-rewrites
 </span></code></pre></div>
+<p>Check which optimizations apply to a model before committing to a run (writes nothing):</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>$<span class="w"> </span>winml<span class="w"> </span>optimize<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased.onnx<span class="w"> </span>--check-optim
+</span></code></pre></div>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>Input: bert-base-uncased.onnx
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>--check-optim — analyzing applicable optimizations (no output written).
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>Loading model...
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>Probing 61 optimization capabilities... (this can take a while on large models)
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>2 applicable optimization(s):
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>--enable-matmul-add-fusion  (matmul)
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>  Fuse MatMul+Add operations into single kernel
+</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>  nodes: -1 ~1
+</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>    removed: MatMul (1)
+</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>      - MatMul &#39;mm&#39;
+</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>    modified: Gemm (1)
+</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>      - Gemm &#39;mm/MatMulAddFusion&#39;
+</span><span id="__span-8-16"><a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>
+</span><span id="__span-8-17"><a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>--enable-clamp-constant-values  (surgery)
+</span><span id="__span-8-18"><a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a>  Clamp extreme float constants (e.g., -inf -&gt; -1e3) to prevent quantization issues
+</span><span id="__span-8-19"><a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a>  constants: ~1
+</span><span id="__span-8-20"><a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a>      - BIG
+</span><span id="__span-8-21"><a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a>
+</span><span id="__span-8-22"><a id="__codelineno-8-22" name="__codelineno-8-22" href="#__codelineno-8-22"></a>Enable any of the above with its --enable-* flag (dependencies are auto-enabled).
+</span></code></pre></div>
+<p>Add <code>-v</code> to list every affected node and constant instead of a sample.</p>
 <h2 id="common-pitfalls">Common pitfalls<a class="headerlink" href="#common-pitfalls" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong><code>--model</code> is required for actual optimization</strong> — it can be omitted only when using <code>--list-capabilities</code> or <code>--list-rewrites</code>. Missing <code>--model</code> in any other case raises a usage error.</li>

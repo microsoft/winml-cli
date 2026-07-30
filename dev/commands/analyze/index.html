@@ -2802,6 +2802,13 @@
 <td><em>(none)</em></td>
 <td>Save the auto-discovered optimization config (merged across all analyzed EPs) to a JSON file.</td>
 </tr>
+<tr>
+<td><code>--check-optim</code> / <code>--no-check-optim</code></td>
+<td></td>
+<td>flag</td>
+<td>disabled</td>
+<td>For each optimization that would change the model, check whether the operators it <em>introduces</em> (its added/modified nodes) are supported on the resolved EP/device. Answers "if I apply this optimization, will its output run on my target?" before you commit to it.</td>
+</tr>
 </tbody>
 </table>
 <h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
@@ -2861,6 +2868,9 @@
 </span></code></pre></div>
 <p>Enable local execution for operators not in the rule database:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>$<span class="w"> </span>winml<span class="w"> </span>analyze<span class="w"> </span>--model<span class="w"> </span>model.onnx<span class="w"> </span>--ep<span class="w"> </span>qnn<span class="w"> </span>--device<span class="w"> </span>NPU<span class="w"> </span>--run-unknown-op
+</span></code></pre></div>
+<p>Check whether the operators each applicable optimization would introduce are supported on the target:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>$<span class="w"> </span>winml<span class="w"> </span>analyze<span class="w"> </span>--model<span class="w"> </span>model.onnx<span class="w"> </span>--ep<span class="w"> </span>qnn<span class="w"> </span>--device<span class="w"> </span>NPU<span class="w"> </span>--check-optim
 </span></code></pre></div>
 <h2 id="common-pitfalls">Common pitfalls<a class="headerlink" href="#common-pitfalls" title="Permanent link">&para;</a></h2>
 <ul>
