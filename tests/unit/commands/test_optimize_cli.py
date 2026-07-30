@@ -192,8 +192,83 @@ class TestOptimizeInvocation:
 
 
 # =============================================================================
-# CONFIG FILE TESTS
+# --check-optim TESTS
 # =============================================================================
+
+_ANALYZE_MODEL = "winml.modelkit.optim.analyze_model"
+
+
+def _make_finding(name: str = "clamp-constant-values") -> MagicMock:
+    """Build a stand-in CapabilityFinding for renderer tests."""
+    from winml.modelkit.optim import CapabilityFinding, NodeRef
+
+    return CapabilityFinding(
+        name=name,
+        python_name=name.replace("-", "_"),
+        enable_flag=f"--enable-{name}",
+        category="surgery",
+        description="clamp things",
+        pipe_name="surgery",
+        modified_initializers=["BIG"],
+        removed_nodes=[NodeRef("MatMul", "mm", ("mm",))],
+    )
+
+
+class TestCheckOptim:
+    """--check-optim reports applicability and never writes output."""
+
+    def test_check_optim_flag_in_help(self, runner: CliRunner) -> None:
+        result = runner.invoke(optimize, ["--help"])
+        assert result.exit_code == 0
+        assert "--check-optim" in result.output
+
+    def test_check_optim_requires_model(self, runner: CliRunner) -> None:
+        result = runner.invoke(optimize, ["--check-optim"], obj={})
+        assert result.exit_code != 0
+
+    def test_check_optim_does_not_write_output(self, runner: CliRunner, tmp_path: Path) -> None:
+        model_file = tmp_path / "model.onnx"
+        model_file.touch()
+
+        with (
+            patch(_LOAD_ONNX, return_value=_make_mock_model()),
+            patch(_SAVE_ONNX) as mock_save,
+            patch(_ANALYZE_MODEL, return_value=[_make_finding()]) as mock_analyze,
+        ):
+            result = runner.invoke(optimize, ["-m", str(model_file), "--check-optim"])
+
+        assert result.exit_code == 0, result.output
+        mock_analyze.assert_called_once()
+        mock_save.assert_not_called()
+        # No optimized artifact should be produced next to the input.
+        assert not (tmp_path / "model_opt.onnx").exists()
+
+    def test_check_optim_lists_applicable_flag(self, runner: CliRunner, tmp_path: Path) -> None:
+        model_file = tmp_path / "model.onnx"
+        model_file.touch()
+
+        with (
+            patch(_LOAD_ONNX, return_value=_make_mock_model()),
+            patch(_ANALYZE_MODEL, return_value=[_make_finding("matmul-add-fusion")]),
+        ):
+            result = runner.invoke(optimize, ["-m", str(model_file), "--check-optim"])
+
+        assert result.exit_code == 0, result.output
+        assert "--enable-matmul-add-fusion" in result.output
+        assert "1 applicable optimization" in result.output
+
+    def test_check_optim_no_findings_message(self, runner: CliRunner, tmp_path: Path) -> None:
+        model_file = tmp_path / "model.onnx"
+        model_file.touch()
+
+        with (
+            patch(_LOAD_ONNX, return_value=_make_mock_model()),
+            patch(_ANALYZE_MODEL, return_value=[]),
+        ):
+            result = runner.invoke(optimize, ["-m", str(model_file), "--check-optim"])
+
+        assert result.exit_code == 0, result.output
+        assert "No registered optimizations" in result.output
 
 
 class TestConfigFile:

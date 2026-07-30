@@ -19,6 +19,8 @@ from .config import WinMLEvaluationConfig
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
     from ..models.winml.genai_causal_lm import WinMLGenaiCausalLM
@@ -219,13 +221,22 @@ class EvalResult:
 
     config: WinMLEvaluationConfig
     metrics: dict[str, Any] = field(default_factory=dict)
+    # Effective number of samples actually run, when it differs from
+    # ``config.dataset.samples`` (e.g. ``--mode compare --input-data`` derives
+    # it from the archive). ``None`` means "use ``config.dataset.samples``".
+    num_samples: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        return {
+        result = {
             **self.config.to_dict(),
             "metrics": self.metrics,
         }
+        # Reflect the real sample count without mutating the config: override the
+        # serialized dataset's ``samples`` so the JSON matches the console report.
+        if self.num_samples is not None and isinstance(result.get("dataset"), dict):
+            result["dataset"] = {**result["dataset"], "samples": self.num_samples}
+        return result
 
 
 def _load_model(
@@ -242,10 +253,17 @@ def _load_model(
     ONNX exports be evaluated today.
     """
     from ..models import WinMLAutoModel
+    from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
     from ..utils import cli as cli_utils
 
     if config.task == "text-generation":
         return _load_genai_causal_lm(config)
+
+    # Two-ONNX compare: the evaluator builds both raw ORT sessions directly from
+    # config.model_path / config.reference_path — no WinMLAutoModel / HF config.
+    if config.mode == "compare" and config.reference_path is not None:
+        return None
+
 
     quant_override: Any = None
     if not config.quant:
@@ -267,35 +285,80 @@ def _load_model(
         # Evaluator-driven session loading; skip WinMLAutoModel entirely.
         return None
 
-    if config.model_path is not None:
-        # Pre-built ONNX: precision is already baked into the model and is
-        # ignored here (mirrors winml perf's ONNX path).
-        from transformers import AutoConfig
+    # Resolve EPDeviceTarget then bind a WinMLEPDevice at the boundary. Eval
+    # config carries an optional ep field; resolve_device deduces device/ep
+    # when either is 'auto'.
+    device = (config.device or "auto").lower()
+    target = resolve_device(EPDeviceTarget(ep=config.ep or "auto", device=device))
+    ep_device = WinMLEPRegistry.instance().auto_device(target)
 
-        hf_config = AutoConfig.from_pretrained(config.model_id)
-        model = WinMLAutoModel.from_onnx(
-            onnx_path=config.model_path,
+    from onnxruntime.capi.onnxruntime_pybind11_state import RuntimeException
+
+    try:
+        if config.model_path is not None:
+            # Pre-built ONNX: precision is already baked into the model and is
+            # ignored here (mirrors winml perf's ONNX path).
+            from transformers import AutoConfig
+
+            from ..loader import load_hf_config
+
+            hf_config = load_hf_config(AutoConfig, config.model_id)
+            model = WinMLAutoModel.from_onnx(
+                # ``model_path`` is narrowed to ``str | dict[str, str]`` here;
+                # cast bridges dict value-type invariance (str vs str | Path).
+                onnx_path=cast("str | dict[str, str | Path]", config.model_path),
+                ep_device=ep_device,
+                task=config.task,
+                skip_build=config.skip_build,
+                config=quant_override,
+                hf_config=hf_config,
+                **pipeline_kwargs,
+            )
+            model.config = hf_config
+            return model
+
+        # HuggingFace build path — export overrides (--input-specs/
+        # --export-config/--dynamic-axes) are merged under the build config's
+        # ``export`` section as a sparse dict so from_pretrained routes them
+        # through merge_export_overrides (patching auto-resolved input_tensors
+        # by name / re-deriving dynamic_axes). Passing a dict rather than a
+        # WinMLBuildConfig avoids clobbering the auto-resolved export config
+        # with default fields. Mirrors winml build/perf.
+        build_override: Any = quant_override
+        if config.export_overrides:
+            override_dict: dict[str, Any] = {"export": config.export_overrides}
+            if not config.quant:
+                override_dict["quant"] = None
+            build_override = override_dict
+
+        return WinMLAutoModel.from_pretrained(
+            config.model_id,
+            ep_device,
             task=config.task,
-            device=config.device,
-            ep=config.ep,
-            skip_build=config.skip_build,
-            config=quant_override,
-            hf_config=hf_config,
+            precision=config.precision,
+            allow_unsupported_nodes=config.allow_unsupported_nodes,
+            config=build_override,
+            shape_config=config.shape_config,
             **pipeline_kwargs,
         )
-        model.config = hf_config
-        return model
-
-    return WinMLAutoModel.from_pretrained(
-        config.model_id,
-        task=config.task,
-        device=config.device,
-        precision=config.precision,
-        ep=config.ep,
-        allow_unsupported_nodes=config.allow_unsupported_nodes,
-        config=quant_override,
-        **pipeline_kwargs,
-    )
+    except RuntimeException as error:
+        auto_device = (
+            config._auto_device_selected or config.device is None or config.device.lower() == "auto"
+        )
+        auto_ep = config.ep is None or config.ep.lower() == "auto"
+        if not (auto_device and auto_ep) or target.device.lower() == "cpu":
+            raise
+        logger.warning(
+            "Automatically selected %s on %s could not initialize an ORT session: %s. "
+            "Retrying with CPUExecutionProvider.",
+            target.ep,
+            target.device,
+            error,
+        )
+        config.device = "cpu"
+        config.ep = "cpu"
+        config._auto_device_selected = False
+        return _load_model(config)
 
 
 def _load_genai_causal_lm(config: WinMLEvaluationConfig) -> WinMLGenaiCausalLM:
@@ -363,9 +426,10 @@ def _resolve_task(config: WinMLEvaluationConfig) -> str:
 
         from transformers import AutoConfig
 
+        from ..loader import load_hf_config
         from ..loader.resolution import resolve_task
 
-        hf_config = AutoConfig.from_pretrained(config.model_id)
+        hf_config = load_hf_config(AutoConfig, config.model_id)
         task = resolve_task(hf_config).task
 
     console.print(f"[dim]Use[/dim] {task} [dim]to evaluate[/dim]")
@@ -388,8 +452,14 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
     mode = config.mode if config.mode is not None else "onnx"
     if mode not in EVAL_MODES:
         raise ValueError(f"Invalid mode {mode!r}; expected one of {EVAL_MODES} or None.")
+    # Two-ONNX compare: both candidate and reference run as raw ORT sessions, so
+    # HF task resolution / model_id are not required — keep task as-is.
+    onnx_compare = mode == "compare" and config.reference_path is not None
     config = replace(
-        config, mode=mode, task=_resolve_task(config), dataset=deepcopy(config.dataset)
+        config,
+        mode=mode,
+        task=config.task if onnx_compare else _resolve_task(config),
+        dataset=deepcopy(config.dataset),
     )
     if config.mode != "compare" and config.dataset.path is None:
         default = _DEFAULT_DATASETS.get(config.task) if config.task is not None else None
@@ -453,17 +523,32 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
             f"Run 'winml eval --schema --task {config.task}' to see the expected schema.",
         ) from error
 
-    return EvalResult(config=config, metrics=metrics)
+    # For --input-data compare, the real sample count comes from the archive
+    # (leading axis, chunked to the model's batch). Surface it on the result so
+    # the report/JSON reflect N without writing back into the (copied) config.
+    num_samples: int | None = None
+    if config.input_data is not None:
+        data = getattr(task_evaluator, "data", None)
+        if data is not None:
+            num_samples = len(data)
+
+    return EvalResult(config=config, metrics=metrics, num_samples=num_samples)
 
 
 def print_config(config: WinMLEvaluationConfig) -> None:
     """Print effective evaluation config to the console (quantize.py style)."""
     ds = config.dataset
     output_console = Console()
-    output_console.print(f"[bold blue]Model:[/bold blue] {config.model_id}")
+    if config.model_id is not None:
+        output_console.print(f"[bold blue]Model:[/bold blue] {config.model_id}")
     if config.model_path is not None:
         output_console.print(f"[bold blue]Model path:[/bold blue] {config.model_path}")
-    output_console.print(f"[bold blue]Task:[/bold blue] {config.task}")
+    if config.input_data is not None:
+        output_console.print(f"[bold blue]Input data:[/bold blue] {config.input_data}")
+    if config.reference_path is not None:
+        output_console.print(f"[bold blue]Reference:[/bold blue] {config.reference_path}")
+    if config.task is not None:
+        output_console.print(f"[bold blue]Task:[/bold blue] {config.task}")
     output_console.print(f"[bold blue]Device:[/bold blue] {config.device}")
     if config.ep is not None:
         output_console.print(f"[bold blue]EP:[/bold blue] {config.ep}")

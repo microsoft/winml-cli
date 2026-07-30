@@ -59,6 +59,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
+from winml.modelkit.session import EPDeviceTarget
+
 
 # =============================================================================
 # Shared helpers
@@ -252,10 +254,14 @@ def _run_compile(
         ),
         patch(
             "winml.modelkit.commands.compile.resolve_device",
-            return_value=("npu", None),
+            side_effect=lambda target: EPDeviceTarget(
+                ep=(target.ep if target.ep and target.ep != "auto" else "qnn"),
+                device=("npu" if target.device == "auto" else target.device),
+                source=target.source,
+            ),
         ),
         patch(
-            "winml.modelkit.commands.compile.resolve_eps",
+            "winml.modelkit.commands.compile.available_eps_for_device",
             return_value=["QNNExecutionProvider"],
         ),
         patch(
@@ -327,7 +333,12 @@ def _run_perf(
     )
 
     cfg = captured["config"]
-    return {"ep": cfg.ep, "skip_build": cfg.skip_build}
+    return {
+        "device": cfg.device,
+        "ep": cfg.ep,
+        "ep_source": cfg.ep_source,
+        "skip_build": cfg.skip_build,
+    }
 
 
 def _run_analyze(
@@ -373,19 +384,15 @@ def _run_analyze(
             return_value=True,
         ),
         # Deterministic Tier-3 default: when ep stays "auto" through the merge
-        # block, analyze resolves it via resolve_eps(resolved_device)[0]. Pin the
-        # ORT device->EP map so npu -> QNN, fixing the resolved target EP.
+        # block, analyze intersects the ranked providers with exact local pairs.
+        # Patch both inputs so NPU resolves to QNN without querying hardware.
         patch(
-            "winml.modelkit.sysinfo.device._get_device_ep_map_from_ort",
-            return_value={"npu": ("QNNExecutionProvider",)},
-        ),
-        patch(
-            "winml.modelkit.sysinfo.device._get_available_eps",
+            "winml.modelkit.session.available_eps_for_device",
             return_value=["QNNExecutionProvider"],
         ),
         patch(
             "winml.modelkit.commands.analyze._get_local_ep_device_pairs",
-            return_value=[("QNNExecutionProvider", "npu")],
+            return_value=[("QNNExecutionProvider", "NPU")],
         ),
         patch("winml.modelkit.analyze.ONNXStaticAnalyzer") as mock_analyzer_cls,
     ):
@@ -609,8 +616,8 @@ ANALYZE_CASES = [
         json_key="execution_provider",
         json_value="vitisai",
         json_value_effective="VitisAIExecutionProvider",
-        # CLI default is ``"auto"``, expanded to ``_get_available_eps()`` which
-        # the adapter mocks to ``["QNNExecutionProvider"]``.
+        # CLI default is ``"auto"``, resolved from the exact local pair and EP
+        # ranking mocked by the adapter.
         cli_default_effective="QNNExecutionProvider",
     ),
 ]
@@ -750,16 +757,52 @@ class TestPerfPriority:
     def test_t3_not_shadowed_by_absent_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_absent_section(_run_perf, case, tmp_path)
 
+    def test_serialized_ep_device_target_preserves_device_and_source(self, tmp_path: Path) -> None:
+        effective = _run_perf(
+            [],
+            {
+                "compile": {
+                    "ep_device": {
+                        "ep": "QNNExecutionProvider",
+                        "device": "gpu",
+                        "source": "pypi",
+                    }
+                }
+            },
+            tmp_path,
+        )
+
+        assert effective["ep"] == "QNNExecutionProvider"
+        assert effective["device"] == "gpu"
+        assert effective["ep_source"] == "pypi"
+
+    def test_cli_target_overrides_serialized_ep_device_target(self, tmp_path: Path) -> None:
+        effective = _run_perf(
+            ["--ep", "openvino@pypi", "--device", "cpu"],
+            {
+                "compile": {
+                    "ep_device": {
+                        "ep": "QNNExecutionProvider",
+                        "device": "gpu",
+                        "source": "nuget",
+                    }
+                }
+            },
+            tmp_path,
+        )
+
+        assert effective["ep"] == "openvino"
+        assert effective["device"] == "cpu"
+        assert effective["ep_source"] == "pypi"
+
     # ------------------------------------------------------------------
     # Targeted tests for the ``--skip-build/--no-skip-build`` toggle.
-    # Unlike ``ep``, ``skip_build`` has NO JSON config source: perf's merge
-    # block (perf.py) only reads ``task`` and ``execution_provider`` from
-    # the ``-c`` file, so ``skip_build`` flows CLI -> BenchmarkConfig
-    # directly with no Tier-2 path. That, plus the boolean flag not fitting
-    # the FieldCase ``[flag, value]`` shape, is why it's tested explicitly
-    # here rather than as a PERF_CASES FieldCase. These guard against a
-    # param-name mismatch in the ``perf()`` signature and against the CLI
-    # option default drifting from the BenchmarkConfig field default.
+    # Unlike ``ep`` and ``device``, ``skip_build`` has NO JSON config source,
+    # so it flows CLI -> BenchmarkConfig directly with no Tier-2 path. That,
+    # plus the boolean flag not fitting the FieldCase ``[flag, value]`` shape,
+    # is why it's tested explicitly here rather than as a PERF_CASES FieldCase.
+    # These guard against a param-name mismatch in the ``perf()`` signature and
+    # against the CLI option default drifting from the BenchmarkConfig default.
     # ------------------------------------------------------------------
 
     def test_skip_build_default_is_true(self, tmp_path: Path) -> None:
@@ -855,7 +898,7 @@ class TestExportPriority:
         Guards the same fix as ``enable_hierarchy_tags`` above.
         """
         eff = _run_export([], {"export": {}}, tmp_path)
-        assert eff["dynamo"] is True  # CLI default (dynamo is the default exporter)
+        assert eff["dynamo"] is False  # CLI and shared config default
 
 
 class TestQuantizePriority:

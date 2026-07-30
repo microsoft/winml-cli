@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import requests
@@ -267,7 +267,7 @@ def _parse_kill_tokens(header_value: str) -> set[str]:
 
 
 def _ns_to_datetime(ts_ns: int) -> datetime:
-    return datetime.fromtimestamp(ts_ns / 1_000_000_000, tz=timezone.utc)
+    return datetime.fromtimestamp(ts_ns / 1_000_000_000, tz=UTC)
 
 
 def _resource_to_ext(resource: Resource | None) -> dict:

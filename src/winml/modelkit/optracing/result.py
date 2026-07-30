@@ -2,108 +2,42 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Op-tracing result dataclasses for structured profiling output."""
+"""Deprecated compatibility shim for op-tracing result dataclasses."""
 
 from __future__ import annotations
 
-import json
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any
 
-from ..utils.constants import EPName
-
-
-@dataclass
-class OperatorMetrics:
-    """Per-operator profiling metrics."""
-
-    # Identity
-    name: str  # QNN op type ("Conv2d", "LayerNorm")
-    op_path: str  # Framework path ("/layer1/conv/Conv")
-    op_id: int | None = None
-
-    # P0: Temporal Localization
-    start_time_us: float | None = None
-    duration_us: float = 0.0
-    percent_of_total: float = 0.0
-
-    # P1: Roofline Analysis (detail only)
-    hardware_time_us: float | None = None
-    memory_time_us: float | None = None
-    dominant_path_us: float | None = None
-
-    # P2: DMA Traffic (detail only, per-op)
-    dram_read_bytes: int | None = None
-    dram_write_bytes: int | None = None
-    vtcm_read_bytes: int | None = None
-    vtcm_write_bytes: int | None = None
-
-    # P3: Cache Efficiency (detail only, derived)
-    vtcm_hit_ratio: float | None = None
-
-    # Context
-    num_htp_ops: int | None = None
-    data_type: str | None = None
-    dims: list[int] | None = None
-    onnx_op_type: str | None = None
-    onnx_attributes: dict[str, Any] | None = None
-    onnx_inputs: dict[str, dict[str, Any]] | None = None
-    onnx_outputs: dict[str, dict[str, Any]] | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize to dict, omitting fields left unset (``None``).
-
-        Basic-mode traces only populate identity + timing, so dropping ``None``
-        keeps the output free of the many detail-only fields (DMA/VTCM/roofline)
-        that would otherwise serialize as ``null``.
-        """
-        return {k: v for k, v in asdict(self).items() if v is not None}
+from ..session.monitor.op_metrics import OperatorMetrics as _OperatorMetrics
+from ..session.monitor.op_metrics import OpTraceResult as _OpTraceResult
+from ._compat import warn_deprecated
 
 
-@dataclass
-class OpTraceResult:
-    """Complete op-tracing result."""
+if TYPE_CHECKING:
+    OperatorMetrics = _OperatorMetrics
+    OpTraceResult = _OpTraceResult
 
-    # Required
-    model: str
-    device: str
-    tracing_level: str  # "basic" or "detail"
-    operators: list[OperatorMetrics] = field(default_factory=list)
 
-    # Optional metadata
-    ep: EPName | Literal[""] = ""
-    tracing_backend: str = ""
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    num_samples: int = 0
+def __getattr__(name: str) -> Any:
+    if name == "OperatorMetrics":
+        warn_deprecated(
+            "result.OperatorMetrics",
+            "winml.modelkit.session.monitor.OperatorMetrics",
+            stacklevel=2,
+        )
+        return _OperatorMetrics
+    if name == "OpTraceResult":
+        warn_deprecated(
+            "result.OpTraceResult",
+            "winml.modelkit.session.monitor.OpTraceResult",
+            stacklevel=2,
+        )
+        return _OpTraceResult
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-    # Summary (model-level aggregates)
-    summary: dict[str, Any] = field(default_factory=dict)
 
-    # Per-operator multi-sample statistics
-    statistics: dict[str, dict[str, float]] = field(default_factory=dict)
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))
 
-    # Raw artifact paths
-    artifacts: dict[str, str] = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize to structured dict for JSON output."""
-        return {
-            "metadata": {
-                "model": self.model,
-                "device": self.device,
-                "ep": self.ep,
-                "tracing_level": self.tracing_level,
-                "tracing_backend": self.tracing_backend,
-                "timestamp": self.timestamp,
-                "num_samples": self.num_samples,
-            },
-            "summary": self.summary,
-            "operators": [op.to_dict() for op in self.operators],
-            "statistics": self.statistics,
-            "artifacts": self.artifacts,
-        }
-
-    def to_json(self, indent: int = 2) -> str:
-        """Serialize to JSON string."""
-        return json.dumps(self.to_dict(), indent=indent)
+__all__ = ["OpTraceResult", "OperatorMetrics"]

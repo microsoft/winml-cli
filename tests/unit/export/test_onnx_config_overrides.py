@@ -58,6 +58,7 @@ class TestOnnxConfigRegistration:
             ("camembert", "fill-mask", "CamemBERTIOConfig"),
             ("mpnet", "fill-mask", "MPNetIOConfig"),
             ("layoutlm", "question-answering", "LayoutLMQAIOConfig"),
+            ("layoutlmv3", "question-answering", "LayoutLMv3IOConfig"),
             ("zoedepth", "depth-estimation", "ZoeDepthIOConfig"),
         ],
         ids=[
@@ -69,6 +70,7 @@ class TestOnnxConfigRegistration:
             "camembert",
             "mpnet",
             "layoutlm-qa",
+            "layoutlmv3-qa",
             "zoedepth",
         ],
     )
@@ -184,6 +186,63 @@ class TestLayoutLMQuestionAnsweringOverride:
         ]
         assert specs["input_shapes"] == [(1, 32), (1, 32, 4), (1, 32), (1, 32)]
         assert specs["output_names"] == ["start_logits", "end_logits"]
+
+
+class TestLayoutLMv3QuestionAnsweringOverride:
+    """LayoutLMv3 QA export must use usable sequence length and page pixels."""
+
+    def _config(self):
+        from transformers import LayoutLMv3Config
+
+        return LayoutLMv3Config(
+            vocab_size=100,
+            hidden_size=64,
+            num_hidden_layers=2,
+            num_attention_heads=2,
+            intermediate_size=128,
+            max_position_embeddings=514,
+            pad_token_id=1,
+            input_size=224,
+            patch_size=16,
+            num_channels=3,
+            type_vocab_size=1,
+        )
+
+    def test_layoutlmv3_qa_dummy_inputs_use_usable_sequence_length(self) -> None:
+        """Dummy inputs must use 512 text/layout tokens, not raw 514."""
+        layoutlmv3_config = self._config()
+
+        inputs = generate_dummy_inputs("layoutlmv3", "question-answering", layoutlmv3_config)
+
+        assert set(inputs) == {"input_ids", "attention_mask", "bbox", "pixel_values"}
+        assert inputs["input_ids"].shape == (1, 512)
+        assert inputs["attention_mask"].shape == (1, 512)
+        assert inputs["bbox"].shape == (1, 512, 4)
+        assert inputs["pixel_values"].shape == (1, 3, 224, 224)
+
+    def test_layoutlmv3_qa_io_specs_include_span_outputs(self) -> None:
+        """LayoutLMv3 QA specs expose text/layout/image inputs and span logits."""
+        layoutlmv3_config = self._config()
+
+        specs = resolve_io_specs("layoutlmv3", "question-answering", layoutlmv3_config)
+
+        assert specs["input_names"] == [
+            "input_ids",
+            "attention_mask",
+            "bbox",
+            "pixel_values",
+        ]
+        assert specs["input_shapes"] == [(1, 512), (1, 512), (1, 512, 4), (1, 3, 224, 224)]
+        assert specs["output_names"] == ["start_logits", "end_logits"]
+
+    def test_layoutlmv3_build_config_disables_dynamo(self) -> None:
+        """LayoutLMv3 uses TorchScript export to avoid invalid dynamo Split attrs."""
+        from winml.modelkit.models.hf import MODEL_BUILD_CONFIGS
+
+        config = MODEL_BUILD_CONFIGS["layoutlmv3"]
+        assert config.export is not None
+        assert config.export.dynamo is False
+        assert config.optim.get("clamp_constant_values") is True
 
 
 # =============================================================================

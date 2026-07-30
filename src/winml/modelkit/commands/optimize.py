@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 import click
 from rich.console import Console
+from rich.markup import escape
 
 from ..onnx import load_onnx, save_onnx
 from ..utils import cli as cli_utils
@@ -151,6 +152,116 @@ def capability_options(func: F) -> F:
     return func
 
 
+def _render_check_optim(console: Console, findings: list[Any], verbose: bool) -> None:
+    """Render the applicability report produced by a ``--check-optim`` probe.
+
+    Args:
+        console: Rich console for output.
+        findings: Applicable ``CapabilityFinding`` objects in pipeline order.
+        verbose: When True, list every affected node instead of a sample.
+    """
+    if not findings:
+        console.print("\n[yellow]No registered optimizations would change this model.[/yellow]")
+        return
+
+    console.print(f"\n[bold]{len(findings)} applicable optimization(s):[/bold]\n")
+
+    sample_limit = 6
+    for finding in findings:
+        console.print(
+            f"[bold green]{finding.enable_flag}[/bold green]  [dim]({finding.category})[/dim]"
+        )
+        console.print(f"  {escape(finding.description)}")
+
+        segments: list[str] = []
+        if finding.removed_nodes:
+            segments.append(f"[red]-{len(finding.removed_nodes)}[/red]")
+        if finding.added_nodes:
+            segments.append(f"[green]+{len(finding.added_nodes)}[/green]")
+        if finding.modified_nodes:
+            segments.append(f"[yellow]~{len(finding.modified_nodes)}[/yellow]")
+        if segments:
+            console.print(f"  nodes: {' '.join(segments)}")
+
+        for kind, nodes in (
+            ("removed", finding.removed_nodes),
+            ("added", finding.added_nodes),
+            ("modified", finding.modified_nodes),
+        ):
+            if not nodes:
+                continue
+            histogram = ", ".join(
+                f"{escape(op)} ({count})" for op, count in finding.op_histogram(kind)
+            )
+            console.print(f"    {kind}: {histogram}")
+            shown = nodes if verbose else nodes[:sample_limit]
+            for node in shown:
+                console.print(f"      [dim]- {escape(node.label())}[/dim]")
+            if not verbose and len(nodes) > sample_limit:
+                console.print(f"      [dim]… and {len(nodes) - sample_limit} more (use -v)[/dim]")
+
+        const_segments: list[str] = []
+        if finding.modified_initializers:
+            const_segments.append(f"[yellow]~{len(finding.modified_initializers)}[/yellow]")
+        if finding.added_initializers:
+            const_segments.append(f"[green]+{len(finding.added_initializers)}[/green]")
+        if finding.removed_initializers:
+            const_segments.append(f"[red]-{len(finding.removed_initializers)}[/red]")
+        if const_segments:
+            console.print(f"  constants: {' '.join(const_segments)}")
+            touched = (
+                finding.modified_initializers
+                + finding.added_initializers
+                + finding.removed_initializers
+            )
+            shown_inits = touched if verbose else touched[:sample_limit]
+            for name in shown_inits:
+                console.print(f"      [dim]- {escape(name)}[/dim]")
+            if not verbose and len(touched) > sample_limit:
+                console.print(f"      [dim]… and {len(touched) - sample_limit} more (use -v)[/dim]")
+
+        console.print()
+
+    console.print(
+        "[dim]Enable any of the above with its --enable-* flag "
+        "(dependencies are auto-enabled).[/dim]"
+    )
+
+
+def _run_check_optim(model: Path, all_caps: dict[str, Any], verbose: bool) -> None:
+    """Probe which optimizations apply to the model and print a report.
+
+    No output file is written. Every boolean capability that is off by default
+    is evaluated independently against the model.
+
+    Args:
+        model: Path to the input ONNX model.
+        all_caps: The full capability registry.
+        verbose: Whether to show every affected node/constant.
+    """
+    from ..optim import BoolCapability, analyze_model
+
+    probe_count = sum(
+        1 for cap in all_caps.values() if isinstance(cap, BoolCapability) and not cap.default
+    )
+
+    console.print(f"[bold blue]Input:[/bold blue] {model}")
+    console.print(
+        "[dim]--check-optim — analyzing applicable optimizations (no output written).[/dim]"
+    )
+    console.print("\n[bold]Loading model...[/bold]")
+    onnx_model = load_onnx(model)
+
+    console.print(
+        f"[bold]Probing {probe_count} optimization capabilities...[/bold] "
+        "[dim](this can take a while on large models)[/dim]"
+    )
+    with console.status("[bold]Analyzing...[/bold]", spinner="dots"):
+        findings = analyze_model(onnx_model, all_caps)
+
+    _render_check_optim(console, findings, verbose)
+
+
 @click.command()
 @click.option(
     "--list-capabilities",
@@ -164,6 +275,13 @@ def capability_options(func: F) -> F:
     is_flag=True,
     default=False,
     help="List available pattern rewrite families and exit",
+)
+@click.option(
+    "--check-optim",
+    is_flag=True,
+    default=False,
+    help="Analyze which optimizations apply to the model (and the nodes they "
+    "affect) without writing any output",
 )
 @cli_utils.model_path_option(
     # Not required when --list-capabilities/--list-rewrites is used
@@ -187,6 +305,7 @@ def optimize(
     ctx: click.Context,
     list_capabilities: bool,
     list_rewrites: bool,
+    check_optim: bool,
     model: Path | None,
     output: Path | None,
     overwrite: bool,
@@ -214,6 +333,10 @@ def optimize(
 
         # List available rewrite pattern families
         winml optimize --list-rewrites
+
+        # Check which optimizations apply to a model (and the nodes they
+        # affect) without writing any output
+        winml optimize -m model.onnx --check-optim
 
         # Pattern rewrite flags follow: --enable-{source-slug}-{target-slug}
         # Run --list-rewrites to discover all available flag names.
@@ -339,6 +462,11 @@ def optimize(
     # Merge top-level -v/-q with subcommand-level flags so either position works.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
+
+    # Handle --check-optim: report which optimizations apply, write nothing.
+    if check_optim:
+        _run_check_optim(model, all_caps, bool(verbose))
+        return
 
     # Import optimizer
     from ..optim import Optimizer

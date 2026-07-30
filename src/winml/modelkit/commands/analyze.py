@@ -24,6 +24,7 @@ import click
 from rich.console import Console
 from rich.live import Live
 from rich.logging import RichHandler
+from rich.markup import escape
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -35,9 +36,10 @@ from rich.progress import (
 from rich.table import Table
 from rich.text import Text
 
+from ..session import DEVICE_TYPE_TO_DEVICE
 from ..utils import cli as cli_utils
 from ..utils.constants import (
-    DEVICE_TYPE_TO_DEVICE,
+    DEVICE_PRIORITY,
     EP_SUPPORTED_DEVICES,
     SUPPORTED_DEVICES,
     SUPPORTED_EPS,
@@ -50,6 +52,7 @@ from ..utils.logging import configure_logging
 
 if TYPE_CHECKING:
     from ..analyze.models.runtime_checks import PatternRuntime
+    from ..analyze.optim_output import OptimizationOutputSupport
 
 
 logger = logging.getLogger(__name__)
@@ -497,6 +500,82 @@ def _render_analysis_summary(
         console.print()
 
 
+def _render_optim_output_support(
+    console: Console,
+    results: list[OptimizationOutputSupport],
+    target_label: str,
+    *,
+    verbose: bool = False,
+) -> None:
+    """Render produced-operator target support for applicable optimizations.
+
+    For each optimization that would change the model, this shows whether the
+    operators it *introduces* (added/modified nodes) are supported on the
+    resolved EP/device, using the same runtime-support rule data as the op
+    check above.
+
+    Args:
+        console: Rich console for output.
+        results: Per-optimization support results for one target, in pipeline
+            order (from :func:`check_optimization_output_support`).
+        target_label: Human-readable EP/device label for the section header.
+        verbose: When True, always show the per-operator reason string.
+    """
+    console.print("\u2550" * 80)
+    console.print(f"\U0001f9e9 [bold]OPTIMIZATION OUTPUT SUPPORT[/bold] \u2014 {target_label}")
+    console.print("\u2550" * 80)
+
+    from ..analyze.models.support_level import SupportLevel
+
+    if not results:
+        console.print(
+            "   [dim]No registered optimization would change this model \u2014 "
+            "nothing to check.[/dim]"
+        )
+        console.print()
+        return
+
+    for opt in results:
+        worst_color = _COLORS.get(opt.worst_support.value, "white")
+        console.print(
+            f"[bold green]{escape(opt.enable_flag)}[/bold green]  "
+            f"[dim]({escape(opt.category)})[/dim]  "
+            f"[{worst_color}]{opt.worst_support.value}[/{worst_color}]"
+        )
+        console.print(f"  [dim]{escape(opt.description)}[/dim]")
+
+        if opt.error:
+            console.print(
+                f"  [yellow]Could not check produced operators: {escape(opt.error)}[/yellow]"
+            )
+            console.print()
+            continue
+
+        if not opt.operators:
+            console.print("  [dim]No new operators produced.[/dim]")
+            console.print()
+            continue
+
+        for op in opt.operators:
+            color = _COLORS.get(op.support.value, "white")
+            marker = "+" if op.change == "added" else "~"
+            line = (
+                f"    [{color}]\u25cf[/{color}] {marker} {escape(op.label)} "
+                f"[{color}]{op.support.value}[/{color}]"
+            )
+            if op.reason and (verbose or op.support is not SupportLevel.SUPPORTED):
+                line += f" [dim]({escape(op.reason)})[/dim]"
+            console.print(line)
+
+        console.print()
+
+    console.print(
+        "  [dim]Shows whether operators an optimization would introduce are supported "
+        "on the target. Enable one with its --enable-* flag (dependencies auto-enabled).[/dim]"
+    )
+    console.print()
+
+
 def _resolve_run_unknown_op(
     ep: EPName,
     device: str,
@@ -543,33 +622,27 @@ def _get_local_ep_device_pairs() -> list[tuple[EPName, str]]:
     """
     pairs: set[tuple[EPName, str]] = set()
 
-    try:
-        from .. import winml
+    from .. import winml
 
-        for registered_ep_device in winml.get_registered_ep_devices():
-            ep_name_raw = str(getattr(registered_ep_device, "ep_name", ""))
-            if not ep_name_raw or ep_name_raw.endswith(".AUTO"):
-                continue
+    for registered_ep_device in winml.get_registered_ep_devices():
+        ep_name_raw = str(getattr(registered_ep_device, "ep_name", ""))
+        if not ep_name_raw or ep_name_raw.endswith(".AUTO"):
+            continue
 
-            # ep_name_raw is an arbitrary attribute string from ORT; cast lets
-            # normalize_ep_name (typed for EPNameOrAlias | None) accept it.
-            # Unknown values return None and get filtered below.
-            ep_name = normalize_ep_name(cast("EPNameOrAlias", ep_name_raw))
-            if ep_name is None or ep_name not in SUPPORTED_EPS:
-                continue
+        # ep_name_raw is an arbitrary attribute string from ORT; cast lets
+        # normalize_ep_name (typed for EPNameOrAlias | None) accept it.
+        # Unknown values return None and get filtered below.
+        ep_name = normalize_ep_name(cast("EPNameOrAlias", ep_name_raw))
+        if ep_name is None or ep_name not in SUPPORTED_EPS:
+            continue
 
-            device_obj = getattr(registered_ep_device, "device", None)
-            device_type = getattr(device_obj, "type", None)
-            device_name = DEVICE_TYPE_TO_DEVICE.get(device_type)
-            if device_name is None:
-                continue
+        device_obj = getattr(registered_ep_device, "device", None)
+        device_type = getattr(device_obj, "type", None)
+        device_name = DEVICE_TYPE_TO_DEVICE.get(device_type)
+        if device_name is None:
+            continue
 
-            pairs.add((ep_name, device_name))
-    except Exception:
-        logger.debug(
-            "Failed to query local EP/device pairs via ort.get_ep_devices()",
-            exc_info=True,
-        )
+        pairs.add((ep_name, device_name.upper()))
 
     return _sort_ep_device_pairs(pairs)
 
@@ -602,6 +675,68 @@ def _sort_ep_device_pairs(
         set(pairs),
         key=_pair_sort_key,
     )
+
+
+def _filter_supported_local_ep_device_pairs(
+    pairs: list[tuple[EPName, str]] | set[tuple[EPName, str]],
+) -> list[tuple[EPName, str]]:
+    """Keep only local EP/device pairs supported by the legacy matrix."""
+    return [
+        (ep_name, device_name)
+        for ep_name, device_name in pairs
+        if device_name.lower() in EP_SUPPORTED_DEVICES.get(ep_name, ())
+    ]
+
+
+def _select_best_exact_local_pair_for_device(
+    device_name: str,
+    supported_local_pairs: list[tuple[EPName, str]],
+    ranked_eps_for_device: list[str],
+) -> tuple[EPName, str] | None:
+    """Pick the best exact supported local pair for one device.
+
+    ``ranked_eps_for_device`` is treated as a preference list only. The chosen
+    pair must come from ``supported_local_pairs`` so analyze never fabricates an
+    EP/device combination that is not available locally. When the ranking omits
+    local candidates, fall back to the existing deterministic local pair order.
+    """
+    target_device = str(device_name).upper()
+    local_candidates = [
+        (candidate_ep, candidate_device)
+        for candidate_ep, candidate_device in supported_local_pairs
+        if candidate_device == target_device
+    ]
+    if not local_candidates:
+        return None
+
+    candidate_by_ep = {
+        candidate_ep: (candidate_ep, candidate_device)
+        for candidate_ep, candidate_device in local_candidates
+    }
+    for ranked_ep in ranked_eps_for_device:
+        canonical_ep = normalize_ep_name(cast("EPNameOrAlias", ranked_ep))
+        ranked_pair = candidate_by_ep.get(canonical_ep)
+        if ranked_pair is not None:
+            return ranked_pair
+
+    return local_candidates[0]
+
+
+def _select_best_auto_local_pair(
+    supported_local_pairs: list[tuple[EPName, str]],
+) -> tuple[EPName, str] | None:
+    """Pick the best default target from exact local bindings."""
+    from ..session import available_eps_for_device
+
+    for device_name in DEVICE_PRIORITY:
+        best_local_pair = _select_best_exact_local_pair_for_device(
+            device_name.upper(),
+            supported_local_pairs,
+            available_eps_for_device(device_name),
+        )
+        if best_local_pair is not None:
+            return best_local_pair
+    return None
 
 
 def _ep_name_device_display_name(ep_name: str, device_name: str) -> str:
@@ -778,6 +913,15 @@ def _build_runtime_debug_output_path(model_path: Path, ep_name: str, device_name
     default=None,
     help="Save auto-discovered optimization config to JSON file",
 )
+@click.option(
+    "--check-optim/--no-check-optim",
+    default=False,
+    help=(
+        "For each optimization that would change the model, check whether the "
+        "operators it introduces are supported on the resolved EP/device "
+        "(default: disabled)"
+    ),
+)
 @click.pass_context
 def analyze(
     ctx: click.Context,
@@ -796,6 +940,7 @@ def analyze(
     debug: bool,
     save_node: tuple[str, ...],
     optim_config: Path | None,
+    check_optim: bool,
 ) -> None:
     r"""Analyze ONNX model for runtime support with live progress.
 
@@ -813,7 +958,7 @@ def analyze(
     Examples:
     \b
         winml analyze --model model.onnx --ep qnn
-        winml analyze --model model.onnx --ep ov --device GPU
+        winml analyze --model model.onnx --ep openvino --device gpu
         winml analyze --model model.onnx --output results.json
     """
     # Apply build config defaults (CLI explicit options take precedence).
@@ -899,10 +1044,11 @@ def analyze(
             raise click.UsageError("No runtime rule parquet files were found.")
 
         # Resolve the EP/device selection. `all` keeps the full rule-data-backed
-        # set (fan-out, unchanged). `auto` resolves to a single best target from
-        # local availability via the shared sysinfo helpers — the same path
-        # build/run/perf use. A concrete value is used as-is.
-        from ..sysinfo import resolve_device, resolve_eps
+        # set (fan-out, unchanged). `auto` uses exact local OrtEpDevice bindings
+        # when the request needs them (concrete EP + auto device, or auto EP +
+        # all devices); the remaining auto cases keep using the shared session
+        # helpers from build/run/perf.
+        from ..session import EPDeviceTarget, available_eps_for_device, resolve_device
 
         # Only a pinned (concrete) EP can constrain device auto-resolution.
         # ``ep`` is a concrete EP/alias here unless it is the "auto"/"all"
@@ -910,16 +1056,47 @@ def analyze(
         ep_hint: EPNameOrAlias | None = (
             None if ep in ("auto", "all") or ep is None else cast("EPNameOrAlias", ep)
         )
+        concrete_requested_ep = None if ep_hint is None else normalize_ep_name(ep_hint)
+        needs_local_inventory = ep in (None, "auto") or device in (None, "auto") or run_unknown_op
+        local_pair_list = (
+            _sort_ep_device_pairs(_get_local_ep_device_pairs()) if needs_local_inventory else []
+        )
+        supported_local_pair_list = _sort_ep_device_pairs(
+            _filter_supported_local_ep_device_pairs(local_pair_list)
+        )
+        local_pairs = set(supported_local_pair_list)
+        default_auto_pair = (
+            _select_best_auto_local_pair(supported_local_pair_list)
+            if ep in (None, "auto") and device in (None, "auto")
+            else None
+        )
 
         devices: list[str]
         if device == "all":
             devices = list(SUPPORTED_DEVICES)
         elif device == "auto":
-            try:
-                resolved_device, _ = resolve_device(device="auto", ep=ep_hint)
-            except (ValueError, RuntimeError) as e:
-                raise click.UsageError(f"Could not auto-select a device: {e}") from e
-            devices = [resolved_device]
+            if concrete_requested_ep is not None:
+                matching_local_pairs = [
+                    (candidate_ep, candidate_device)
+                    for candidate_ep, candidate_device in supported_local_pair_list
+                    if candidate_ep == concrete_requested_ep
+                ]
+                if not matching_local_pairs:
+                    raise click.UsageError(
+                        "Could not auto-select a device: "
+                        f"{ep} has no supported local binding available on this system."
+                    )
+                devices = [matching_local_pairs[0][1]]
+            elif default_auto_pair is not None:
+                devices = [default_auto_pair[1]]
+            else:
+                try:
+                    resolved_device = resolve_device(
+                        EPDeviceTarget(ep=ep_hint or "auto", device="auto")
+                    ).device
+                except (ValueError, RuntimeError) as e:
+                    raise click.UsageError(f"Could not auto-select a device: {e}") from e
+                devices = [resolved_device]
         elif device is not None:
             devices = [device]
         else:
@@ -928,73 +1105,81 @@ def analyze(
 
         execution_pairs: list[tuple[EPName, str]]
         if ep == "auto" and device == "all":
-            # auto + all: resolve the best available EP per device rather than
-            # picking a single EP from one ref device and fanning it across
-            # unrelated devices. resolve_eps() already returns only EPs that are
-            # valid and locally available for the given device, so the resulting
-            # pairs need no further EP_SUPPORTED_DEVICES filtering.
-            execution_pairs = _sort_ep_device_pairs(
-                [
-                    (device_eps[0], target_device)
-                    for target_device in devices
-                    if (device_eps := resolve_eps(target_device))
-                ]
-            )
+            # auto + all: resolve the best exact local binding per represented
+            # device using the same per-device ranking as auto + concrete
+            # device, while keeping full fan-out unchanged.
+            best_local_pairs: list[tuple[EPName, str]] = []
+            for target_device in devices:
+                best_local_pair = _select_best_exact_local_pair_for_device(
+                    target_device,
+                    supported_local_pair_list,
+                    available_eps_for_device(target_device),
+                )
+                if best_local_pair is not None:
+                    best_local_pairs.append(best_local_pair)
+            execution_pairs = _sort_ep_device_pairs(best_local_pairs)
         else:
-            eps: list[EPName | None]
             if ep == "all":
-                eps = list(SUPPORTED_EPS)
+                eps: list[EPName | None] = list(SUPPORTED_EPS)
             elif ep == "auto":
-                # Single highest-priority EP available on the target device.
-                # device == "all" is handled above, so a concrete device context
-                # exists here -- but guard against an empty device list (e.g. a
-                # programmatic ``device=None`` call) so we exit cleanly instead
-                # of raising an unguarded IndexError on ``devices[0]``.
-                ref_device = devices[0] if devices else None
+                # Single highest-priority exact local EP available on the target
+                # device. device == "all" is handled above, so a concrete device
+                # context exists here -- but guard against an empty device list
+                # (e.g. a programmatic ``device=None`` call) so we exit cleanly
+                # instead of raising an unguarded IndexError on ``devices[0]``.
+                ref_device = default_auto_pair[1] if default_auto_pair is not None else None
+                ref_device = ref_device or (devices[0] if devices else None)
+                if default_auto_pair is not None:
+                    best_local_pair = default_auto_pair
+                elif ref_device:
+                    best_local_pair = _select_best_exact_local_pair_for_device(
+                        ref_device,
+                        supported_local_pair_list,
+                        available_eps_for_device(ref_device),
+                    )
+                else:
+                    best_local_pair = None
                 if not ref_device:
                     raise click.UsageError("No device context available for EP auto-resolution.")
-                compatible_eps = resolve_eps(ref_device)
-                if not compatible_eps:
+                if best_local_pair is None:
                     raise click.UsageError(
                         f"No execution provider is available for device '{ref_device}'."
                     )
-                eps = [compatible_eps[0]]
+                execution_pairs = _sort_ep_device_pairs([best_local_pair])
+                eps = []
             else:
                 # ep is a specific EP or alias
                 eps = [normalize_ep_name(ep)]
 
-            # Build with a for-loop rather than a single nested comprehension so
-            # the `candidate_ep is not None and ... in EP_SUPPORTED_DEVICES`
-            # narrowing carries through to the appended tuple's type (EPName,
-            # not str). The inner generator stays a comprehension to satisfy
-            # ruff PERF401.
-            execution_pairs = []
-            for candidate_ep in eps:
-                if candidate_ep is None or candidate_ep not in EP_SUPPORTED_DEVICES:
-                    continue
-                execution_pairs.extend(
-                    (candidate_ep, candidate_device)
-                    for candidate_device in devices
-                    if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
-                )
-            execution_pairs = _sort_ep_device_pairs(execution_pairs)
-
-        # Local pairs are still needed to gate --run-unknown-op probing
-        # (_resolve_run_unknown_op). Single-target `auto` selection is already
-        # local by construction, so no extra intersection/warning is required.
-        local_pairs = set(_get_local_ep_device_pairs())
+            if ep != "auto":
+                # Build with a for-loop rather than a single nested comprehension so
+                # the `candidate_ep is not None and ... in EP_SUPPORTED_DEVICES`
+                # narrowing carries through to the appended tuple's type (EPName,
+                # not str). The inner generator stays a comprehension to satisfy
+                # ruff PERF401.
+                execution_pairs = []
+                for candidate_ep in eps:
+                    if candidate_ep is None or candidate_ep not in EP_SUPPORTED_DEVICES:
+                        continue
+                    execution_pairs.extend(
+                        (candidate_ep, candidate_device)
+                        for candidate_device in devices
+                        if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
+                    )
+                execution_pairs = _sort_ep_device_pairs(execution_pairs)
 
         if not execution_pairs:
             raise click.UsageError("No EP/device combination matched the current selection.")
 
         logger.info("Analyzing model: %s", model)
-        logger.info(
-            "Local targets: %s",
-            ", ".join(
-                _ep_name_device_display_name(candidate_ep, candidate_device)
-                for candidate_ep, candidate_device in local_pairs
-            ),
-        )
+        if needs_local_inventory:
+            logger.info(
+                "Local targets: %s",
+                ", ".join(
+                    _ep_name_device_display_name(candidate_ep, candidate_device)
+                    for candidate_ep, candidate_device in local_pair_list
+                ),
+            )
         logger.info(
             "Execution targets: %s",
             ", ".join(
@@ -1007,6 +1192,36 @@ def analyze(
 
         # Console for Rich output (stderr so stdout stays clean for JSON)
         console = Console(stderr=True)
+
+        # Optionally probe which optimizations would change the model and what
+        # operators they would introduce. This probe is target-independent, so
+        # materialize it once here and only re-run the (cheap) support lookup per
+        # EP/device below. Console-only feature — skipped in quiet mode.
+        optim_outputs: list[tuple[Any, Any]] = []
+        if check_optim and not quiet:
+            try:
+                import onnx
+
+                from ..optim import get_all_capabilities, iter_optimization_outputs
+
+                console.print(
+                    "[dim]Probing optimization outputs "
+                    "(this can take a while on large models)…[/dim]"
+                )
+                optim_proto = onnx.load(str(model))
+                optim_outputs = list(iter_optimization_outputs(optim_proto, get_all_capabilities()))
+                # Each entry retains a full produced-model clone so the (cheap)
+                # per-target support lookup below can reuse them across every
+                # resolved EP/device without re-running the probe. The trade-off
+                # is peak memory ~ (#applicable optimizations x model size); log
+                # the count so that cost is visible for large models.
+                logger.info(
+                    "Probed %d applicable optimization(s) for output support checking",
+                    len(optim_outputs),
+                )
+            except Exception as exc:
+                logger.warning("Could not probe optimization outputs: %s", exc)
+                optim_outputs = []
 
         # Model info header
         if not quiet:
@@ -1305,6 +1520,23 @@ def analyze(
                             "  [bright_black]██[/bright_black] unknown"
                         )
                         console.print()
+
+                    # Optimization output support section (per-EP), when opted in.
+                    if check_optim:
+                        from ..analyze.optim_output import check_optimization_output_support
+
+                        optim_support = check_optimization_output_support(
+                            optim_outputs,
+                            ep=target_ep,
+                            device=target_device,
+                            model_path=str(model),
+                        )
+                        _render_optim_output_support(
+                            console,
+                            optim_support,
+                            _ep_name_device_display_name(target_ep, target_device),
+                            verbose=verbose > 0,
+                        )
             finally:
                 # Safety: stop Live if still running (e.g. on exception)
                 _finalize_live(mark_complete=False)

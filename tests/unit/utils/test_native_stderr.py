@@ -32,6 +32,11 @@ class TestSuppressNativeStderr:
         os.write(2, b"after\n")
         assert "after" in capfd.readouterr().err
 
+    def test_disabled_leaves_native_stderr_visible(self, capfd):
+        with suppress_native_stderr(enabled=False):
+            os.write(2, b"visible when disabled\n")
+        assert "visible when disabled" in capfd.readouterr().err
+
     @pytest.mark.skipif(sys.platform != "win32", reason="Win32 only")
     def test_win32_std_error_handle_restored(self):
         import ctypes.wintypes
@@ -89,3 +94,29 @@ class TestCaptureNativeStderr:
         messages = [r.message for r in caplog.records]
         assert any("keep" in m for m in messages)
         assert not any(m == "  " for m in messages)
+
+    @pytest.mark.timeout(30)
+    def test_no_deadlock_on_large_output(self, caplog):
+        """Regression: a native writer emitting more than the OS pipe buffer
+        (~64 KB on Windows) inside the context must not stall.
+
+        The pipe used to be drained only after the wrapped block returned, so a
+        native write() that filled the buffer blocked forever -- observed as an
+        indefinite stall while an EP compiled a model. The reader thread now
+        drains concurrently, so this loop completes immediately. The timeout
+        marker turns a reintroduced deadlock into a failure instead of a hang.
+        """
+        line = b"[ORT] partitioning subgraph node ...\n"
+        written = 0
+        with (
+            caplog.at_level(logging.INFO, logger="winml.modelkit.utils.native_stderr"),
+            capture_native_stderr(logging.INFO),
+        ):
+            for _ in range(20000):  # ~720 KB, dwarfs the ~64 KB pipe buffer
+                os.write(2, line)
+                written += len(line)
+        assert written > 64 * 1024
+        # On Windows the redirected output is re-logged; elsewhere the context is
+        # a no-op. Either way the point is that the loop above did not deadlock.
+        if sys.platform == "win32":
+            assert any("partitioning subgraph" in r.message for r in caplog.records)

@@ -65,7 +65,7 @@ class TestResolveLoaderConfig:
 
         with (
             patch(
-                "transformers.AutoConfig.from_pretrained",
+                "winml.modelkit.loader._autoconfig.load_hf_config",
                 return_value=mock_config,
             ),
             patch(
@@ -101,7 +101,7 @@ class TestResolveLoaderConfig:
         mock_class.config_class = None
 
         with (
-            patch("transformers.AutoConfig.from_pretrained") as mock_from_pretrained,
+            patch("winml.modelkit.loader._autoconfig.load_hf_config") as mock_from_pretrained,
             patch(
                 "winml.modelkit.loader.resolution.resolve_task",
                 return_value=_make_resolution("fill-mask", mock_class),
@@ -159,7 +159,7 @@ class TestResolveLoaderConfig:
 
         with (
             patch(
-                "transformers.AutoConfig.from_pretrained",
+                "winml.modelkit.loader._autoconfig.load_hf_config",
                 return_value=mock_config,
             ),
             patch(
@@ -188,7 +188,7 @@ class TestResolveLoaderConfig:
 
         with (
             patch(
-                "transformers.AutoConfig.from_pretrained",
+                "winml.modelkit.loader._autoconfig.load_hf_config",
                 return_value=mock_config,
             ),
             patch(
@@ -212,7 +212,7 @@ class TestResolveLoaderConfig:
 
         with (
             patch(
-                "transformers.AutoConfig.from_pretrained",
+                "winml.modelkit.loader._autoconfig.load_hf_config",
                 return_value=mock_config,
             ),
             patch(
@@ -229,7 +229,7 @@ class TestResolveLoaderConfig:
 
         with (
             patch(
-                "transformers.AutoConfig.from_pretrained",
+                "winml.modelkit.loader._autoconfig.load_hf_config",
                 return_value=mock_config,
             ),
             pytest.raises(ValueError, match="does not have 'model_type'"),
@@ -246,7 +246,7 @@ class TestResolveLoaderConfig:
 
         with (
             patch(
-                "transformers.AutoConfig.from_pretrained",
+                "winml.modelkit.loader._autoconfig.load_hf_config",
                 return_value=mock_config,
             ),
             patch(
@@ -270,7 +270,7 @@ class TestResolveLoaderConfig:
 
         with (
             patch(
-                "transformers.AutoConfig.from_pretrained",
+                "winml.modelkit.loader._autoconfig.load_hf_config",
                 return_value=mock_config,
             ),
             patch(
@@ -293,7 +293,7 @@ class TestResolveLoaderConfig:
 
         with (
             patch(
-                "transformers.AutoConfig.from_pretrained",
+                "winml.modelkit.loader._autoconfig.load_hf_config",
                 return_value=mock_config,
             ),
             patch(
@@ -338,7 +338,7 @@ class TestSubConfigConsolidation:
         mock_cls = _make_mock_class("BertForMaskedLM", base_config_key="")
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=parent),
+            patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=parent),
             patch(
                 "winml.modelkit.loader.resolution.resolve_task",
                 return_value=_make_resolution("fill-mask", mock_cls),
@@ -362,7 +362,7 @@ class TestSubConfigConsolidation:
         mock_cls = _make_mock_class("CLIPTextModelWithProjection", base_config_key="text_config")
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=parent),
+            patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=parent),
             patch(
                 "winml.modelkit.loader.resolution.resolve_task",
                 return_value=_make_resolution("feature-extraction", mock_cls),
@@ -389,7 +389,7 @@ class TestSubConfigConsolidation:
         )
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=parent),
+            patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=parent),
             patch(
                 "winml.modelkit.loader.resolution.resolve_task",
                 return_value=_make_resolution("image-feature-extraction", mock_cls),
@@ -410,7 +410,7 @@ class TestSubConfigConsolidation:
         mock_cls = _make_mock_class("CustomModel", base_config_key="text_config")
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=parent),
+            patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=parent),
             patch(
                 "winml.modelkit.loader.resolution.resolve_task",
                 return_value=_make_resolution("feature-extraction", mock_cls),
@@ -432,7 +432,7 @@ class TestSubConfigConsolidation:
         mock_cls.config_class = None
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=parent),
+            patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=parent),
             patch(
                 "winml.modelkit.loader.resolution.resolve_task",
                 return_value=_make_resolution("feature-extraction", mock_cls),
@@ -457,7 +457,7 @@ class TestSubConfigConsolidation:
         mock_cls.config_class = mock_config_cls
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=parent),
+            patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=parent),
             patch(
                 "winml.modelkit.loader.resolution.resolve_task",
                 return_value=_make_resolution("feature-extraction", mock_cls),
@@ -490,7 +490,7 @@ class TestResolveLoaderConfigInputOutput:
         mock_cls.config_class = None
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=parent),
+            patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=parent),
             patch(
                 "winml.modelkit.loader.resolution.resolve_task",
                 return_value=_make_resolution("fill-mask", mock_cls),
@@ -530,7 +530,7 @@ class TestResolveLoaderConfigInputOutput:
         mock_cls = _make_mock_class("CLIPTextModelWithProjection", base_config_key="text_config")
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=parent),
+            patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=parent),
             patch(
                 "winml.modelkit.loader.resolution.resolve_task",
                 return_value=_make_resolution("feature-extraction", mock_cls),
@@ -557,7 +557,7 @@ class TestResolveLoaderConfigInputOutput:
         mock_cls.config_class = None
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=parent),
+            patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=parent),
             patch(
                 "winml.modelkit.loader.resolution.resolve_task",
                 return_value=_make_resolution("image-classification", mock_cls),
@@ -582,7 +582,7 @@ class TestResolveLoaderConfigInputOutput:
         mock_cls.config_class = None
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=parent),
+            patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=parent),
             patch(
                 "winml.modelkit.loader.resolution.resolve_task",
                 return_value=_make_resolution("text-classification", mock_cls),
@@ -606,7 +606,7 @@ class TestResolveLoaderConfigInputOutput:
         mock_cls = _make_mock_class("CLIPTextModelWithProjection", base_config_key="text_config")
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=parent),
+            patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=parent),
             patch(
                 "winml.modelkit.loader.resolution.resolve_task",
                 return_value=_make_resolution("feature-extraction", mock_cls),

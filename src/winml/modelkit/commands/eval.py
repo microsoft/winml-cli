@@ -88,6 +88,32 @@ logger = logging.getLogger(__name__)
     optional_message="Applied during model build. Ignored for pre-built ONNX inputs."
 )
 @cli_utils.max_optim_iterations_option(optional_message="Ignored for pre-built ONNX inputs.")
+@cli_utils.shape_config_option(
+    param_name="shape_config_path",
+    help_text=(
+        "JSON with shape overrides for auto-generated HuggingFace export configs. "
+        "Ignored for pre-built ONNX inputs."
+    ),
+)
+@cli_utils.input_specs_option(
+    help_text=(
+        "JSON file with input specifications for HuggingFace export. "
+        "Ignored for pre-built ONNX inputs."
+    ),
+)
+@cli_utils.export_config_option(
+    help_text=(
+        "ONNX export configuration JSON for HuggingFace model builds "
+        "(opset_version, do_constant_folding, etc.). Ignored for pre-built ONNX inputs."
+    ),
+)
+@cli_utils.dynamic_axes_option(
+    help_text=(
+        "JSON dynamic axes mapping for HuggingFace ONNX export "
+        '(e.g., {"input_ids": {"0": "batch", "1": "sequence"}}). '
+        "Ignored for pre-built ONNX inputs."
+    ),
+)
 @click.option(
     "--samples",
     type=int,
@@ -160,6 +186,29 @@ logger = logging.getLogger(__name__)
         "random inputs and report tensor-similarity metrics per output tensor."
     ),
 )
+@click.option(
+    "--input-data",
+    "input_data",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help=(
+        "Path to a .npz file of real input tensors to compare with instead of "
+        "randomly generated ones (use with --mode compare). Keys must match the "
+        "candidate model's input names; the leading axis of each array is the "
+        "sample axis (N samples), and all inputs must share the same N."
+    ),
+)
+@click.option(
+    "--reference",
+    "reference",
+    type=str,
+    default=None,
+    help=(
+        "Reference ONNX file to compare the candidate against (use with "
+        "--mode compare). Compares two ONNX models on identical random inputs; "
+        "--model-id / --task are not required in this mode."
+    ),
+)
 @cli_utils.skip_build_option()
 @cli_utils.format_option()
 @cli_utils.build_config_option()
@@ -180,6 +229,10 @@ def eval(
     optimize: bool,
     analyze: bool,
     max_optim_iterations: int | None,
+    shape_config_path: Path | None,
+    input_specs: Path | None,
+    export_config: Path | None,
+    dynamic_axes: Path | None,
     ep: EPNameOrAlias | None,
     samples: int,
     split: str,
@@ -197,6 +250,8 @@ def eval(
     allow_unsupported_nodes: bool,
     show_schema: bool,
     mode: EvalMode,
+    input_data: str | None,
+    reference: str | None,
     config_file: Path | None,
     skip_build: bool,
 ) -> None:
@@ -206,6 +261,10 @@ def eval(
         winml eval -m microsoft/resnet-50
 
         winml eval -m model.onnx --model-id microsoft/resnet-50
+
+        winml eval --mode compare -m cand.onnx --model-id microsoft/resnet-50 --input-data data.npz
+
+        winml eval --mode compare -m cand.onnx --reference baseline.onnx
 
     Run `winml eval --schema --task <task>` to see the dataset columns
     and options expected by each task.
@@ -239,8 +298,16 @@ def eval(
     # ── 1. Build config: defaults ← config file ← CLI ──
     cfg = _build_eval_config(ctx, config_file, column, label_mapping_path)
 
+    if cfg.input_data is not None and cfg.mode != "compare":
+        raise click.UsageError("--input-data is only valid with --mode compare.")
+
+    if cfg.reference_path is not None and cfg.mode != "compare":
+        raise click.UsageError("--reference is only valid with --mode compare.")
+
     # ── 2. Resolve in place ──
-    _resolve_model(cfg, model, model_id)
+    _resolve_model(cfg, model, model_id, allow_missing_model_id=cfg.reference_path is not None)
+    _resolve_reference(cfg)
+    _apply_export_overrides(cfg, shape_config_path, input_specs, export_config, dynamic_axes)
     _resolve_device(cfg)
     _resolve_genai_ep(ctx, cfg)
     _resolve_label_mapping(cfg)
@@ -255,6 +322,16 @@ def eval(
             "--precision %s is ignored for pre-built ONNX inputs "
             "(precision is already baked into the model).",
             cfg.precision,
+        )
+
+    # --samples sizes the random/dataset sample count; with --input-data the
+    # count comes from the archive's leading axis, so an explicit --samples is
+    # ignored — warn instead of silently discarding it (mirrors perf's
+    # --batch-size warning).
+    if cfg.input_data is not None and cli_utils.is_cli_provided(ctx, "samples"):
+        logger.warning(
+            "--samples is ignored when --input-data is set; the sample count "
+            "comes from the leading axis of the provided tensors."
         )
 
     # The build-pipeline flags only take effect when eval rebuilds the model.
@@ -362,11 +439,106 @@ def _resolve_model(
     cfg: WinMLEvaluationConfig,
     model: tuple[str, ...],
     model_id: str | None,
+    *,
+    allow_missing_model_id: bool = False,
 ) -> None:
     """Resolve ``-m`` / ``--model-id`` into ``cfg.model_path`` / ``cfg.model_id``."""
-    model_path, resolved_id = _resolve_model_path(model=model, model_id=model_id)
+    model_path, resolved_id = _resolve_model_path(
+        model=model, model_id=model_id, allow_missing_model_id=allow_missing_model_id
+    )
     cfg.model_path = model_path
     cfg.model_id = resolved_id
+
+
+def _resolve_reference(cfg: WinMLEvaluationConfig) -> None:
+    """Validate and normalize ``cfg.reference_path`` for two-ONNX compare.
+
+    Requires the candidate (``-m``) to be a single ONNX file (composite
+    ``role=path`` candidates and build-from-id are not supported with
+    ``--reference`` yet). Resolves Hub-hosted ONNX refs to local paths.
+    """
+    if cfg.reference_path is None:
+        return
+
+    if not isinstance(cfg.model_path, str):
+        raise click.UsageError(
+            "--reference requires the candidate (-m) to be a single ONNX file. "
+            "Composite (role=path) candidates and build-from-id are not "
+            "supported with --reference."
+        )
+
+    ref = cfg.reference_path
+    if Path(ref).suffix.lower() != ".onnx":
+        raise click.BadParameter(
+            f"--reference must be an .onnx file, got: {ref}",
+            param_hint="--reference",
+        )
+    try:
+        ref = cli_utils.normalize_model_arg(ref) or ref
+    except Exception as e:
+        raise click.ClickException(
+            f"Failed to resolve Hub-hosted reference ONNX path {ref!r}: {e}"
+        ) from e
+    if not Path(ref).exists():
+        raise click.BadParameter(
+            f"Reference ONNX file not found: {ref}",
+            param_hint="--reference",
+        )
+    cfg.reference_path = ref
+
+
+def _apply_export_overrides(
+    cfg: WinMLEvaluationConfig,
+    shape_config_path: Path | None,
+    input_specs: Path | None,
+    export_config: Path | None,
+    dynamic_axes: Path | None,
+) -> None:
+    """Parse the HuggingFace export CLI overrides onto *cfg* (in place).
+
+    ``--shape-config``/``--input-specs``/``--export-config``/``--dynamic-axes``
+    only affect the HF-build path (``model_path is None``), where eval exports
+    and builds the model. A pre-built ONNX input is consumed as-is (no export
+    step), so any export/shape overrides are dropped with a warning — mirroring
+    the ``--precision``/build-flag warnings and winml perf's ONNX path.
+    Requires ``cfg.model_path`` to already be resolved (call after
+    :func:`_resolve_model`).
+    """
+    export_flags = (
+        ("--shape-config", shape_config_path),
+        ("--input-specs", input_specs),
+        ("--export-config", export_config),
+        ("--dynamic-axes", dynamic_axes),
+    )
+    provided = [flag for flag, value in export_flags if value is not None]
+    if not provided:
+        return
+
+    if cfg.model_path is not None:
+        logger.warning(
+            "%s ignored for pre-built ONNX inputs "
+            "(no export runs; these apply only when building from a model ID).",
+            ", ".join(provided),
+        )
+        return
+
+    if shape_config_path is not None:
+        cfg.shape_config = cli_utils.load_json_object(shape_config_path, "--shape-config")
+
+    export_overrides = cli_utils.load_export_overrides(
+        export_config=export_config,
+        input_specs=input_specs,
+        dynamic_axes=dynamic_axes,
+    )
+    if export_overrides:
+        # Shallow-merge over any config-file export_overrides so CLI-provided
+        # sub-keys win while config-file sub-keys the CLI didn't set survive
+        # (config-file explicit > CLI default). load_export_overrides returns a
+        # sparse dict, so a wholesale assignment would drop the untouched
+        # config-file keys — mirrors build's merge_export_overrides intent.
+        merged = dict(cfg.export_overrides or {})
+        merged.update(export_overrides)
+        cfg.export_overrides = merged
 
 
 def _resolve_device(cfg: WinMLEvaluationConfig) -> None:
@@ -374,13 +546,16 @@ def _resolve_device(cfg: WinMLEvaluationConfig) -> None:
     if cfg.device and cfg.device.lower() != "auto":
         return
 
-    from ..sysinfo import resolve_device
+    cfg._auto_device_selected = True
+    from ..session import EPDeviceTarget, resolve_device
 
     console = Console(stderr=True)
     console.print("[bold]Detecting available devices...[/bold]")
-    resolved, _ = resolve_device(cfg.device, ep=cfg.ep)
-    cfg.device = resolved
-    console.print(f"[dim]Using device:[/dim] {resolved}")
+    resolved_target = resolve_device(
+        EPDeviceTarget(ep=cfg.ep or "auto", device=cfg.device or "auto")
+    )
+    cfg.device = resolved_target.device
+    console.print(f"[dim]Using device:[/dim] {resolved_target.device}")
 
 
 def _resolve_genai_ep(ctx: click.Context, cfg: WinMLEvaluationConfig) -> None:
@@ -482,8 +657,14 @@ def _resolve_model_path(
     *,
     model: tuple[str, ...],
     model_id: str | None,
+    allow_missing_model_id: bool = False,
 ) -> tuple[str | dict[str, str] | None, str | None]:
-    """Turn repeated -m values + --model-id into (model_path, model_id)."""
+    """Turn repeated -m values + --model-id into (model_path, model_id).
+
+    When ``allow_missing_model_id`` is set (two-ONNX ``--mode compare``), a
+    plain ``-m <file>.onnx`` is accepted without ``--model-id`` because the
+    candidate runs as a raw ORT session with no HF config resolution.
+    """
     if not model:
         if model_id is not None:
             return None, model_id
@@ -559,6 +740,8 @@ def _resolve_model_path(
                 param_hint="-m/--model",
             )
         if model_id is None:
+            if allow_missing_model_id:
+                return value, None
             raise click.UsageError(
                 "When using an ONNX file, --model-id is required "
                 "for preprocessor and config resolution."
@@ -603,12 +786,24 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
     cfg = result.config
     ds = cfg.dataset
     metrics = result.metrics
+    # For --input-data compare the effective sample count comes from the
+    # archive (via EvalResult.num_samples), not the unused config default.
+    samples = result.num_samples if result.num_samples is not None else ds.samples
 
-    # Header
+    # Header — model_id when building from HF, otherwise the ONNX path(s). A
+    # composite model_path is a {role: path} dict; join its paths so the title
+    # stays a readable string instead of a raw dict repr.
+    if cfg.model_id:
+        eval_name = cfg.model_id
+    elif isinstance(cfg.model_path, dict):
+        eval_name = ", ".join(str(path) for path in cfg.model_path.values())
+    else:
+        eval_name = str(cfg.model_path)
+
     console.print()
     console.print(
         Panel.fit(
-            f"[bold]Evaluation: {cfg.model_id}[/bold]",
+            f"[bold]Evaluation: {eval_name}[/bold]",
             border_style="blue",
         )
     )
@@ -617,11 +812,18 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
     console.print()
     console.print(f"[dim]Task:[/dim]       {cfg.task}")
     console.print(f"[dim]Device:[/dim]     {cfg.device}")
-    if ds.path:
+    if cfg.input_data:
+        console.print(f"[dim]Input data:[/dim] {cfg.input_data}")
+    elif ds.path:
         console.print(f"[dim]Dataset:[/dim]    {ds.path}")
-    console.print(f"[dim]Samples:[/dim]    {ds.samples}")
-    if cfg.model_path:
+    console.print(f"[dim]Samples:[/dim]    {samples}")
+    if isinstance(cfg.model_path, dict):
+        for role, path in cfg.model_path.items():
+            console.print(f"[dim]ONNX ({role}):[/dim] {path}")
+    elif cfg.model_path:
         console.print(f"[dim]ONNX:[/dim]       {cfg.model_path}")
+    if cfg.reference_path:
+        console.print(f"[dim]Reference:[/dim]  {cfg.reference_path}")
 
     # Metrics table
     console.print()

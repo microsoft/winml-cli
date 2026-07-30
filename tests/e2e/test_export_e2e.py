@@ -247,21 +247,9 @@ class TestExportHappyPath:
         _assert_all_nodes_have(model, "winml.hierarchy.tag")
         _assert_all_nodes_have(model, "winml.hierarchy.depth")
 
-        # Dynamo is the default exporter, so nodes carry torch's native module
-        # metadata and the hierarchy tags are derived from it — not collapsed to
-        # the model root (the pre-fix regression). Assert both facts generically,
-        # without referencing any architecture-specific names.
-        _assert_some_node_has(model, "pkg.torch.onnx.class_hierarchy")
-        depths = [
-            int(prop.value)
-            for node in model.graph.node
-            for prop in node.metadata_props
-            if prop.key == "winml.hierarchy.depth"
-        ]
-        assert depths and max(depths) >= 2, (
-            "expected dynamo-derived hierarchy tags deeper than the model root; "
-            f"got max depth {max(depths) if depths else 0}"
-        )
+        # TorchScript is the default exporter, so torch's Dynamo-native module
+        # metadata must be absent.
+        _assert_no_node_has(model, "pkg.torch.onnx.class_hierarchy")
 
 
 class TestExportDinoV2:
@@ -351,10 +339,9 @@ class TestExportFlagVariants:
         _assert_some_node_has(model, "pkg.onnxscript.rewriter.rule_name")
 
     def test_no_dynamo_uses_torchscript_hierarchy(self, tmp_path: Path):
-        # Dynamo is the default, so --no-dynamo selects the legacy TorchScript
-        # exporter. It must still populate hierarchy tags (derived from node
-        # names via the module trace) and, unlike dynamo, emit no torch-native
-        # class_hierarchy metadata — proving the two paths stay distinct.
+        # --no-dynamo explicitly selects the default TorchScript path. It must
+        # still populate hierarchy tags (derived from node names via the module
+        # trace) and emit no torch-native class_hierarchy metadata.
         onnx_path = tmp_path / "model.onnx"
         model = _assert_succeeds(_happy_args(onnx_path, "--no-dynamo"), onnx_path)
         _assert_all_nodes_have(model, "winml.hierarchy.tag")
