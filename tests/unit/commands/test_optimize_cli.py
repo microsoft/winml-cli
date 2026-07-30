@@ -332,6 +332,49 @@ class TestCheckOptim:
         assert result.exit_code == 0, result.output
         assert "No registered optimizations" in result.output
 
+    def test_check_optim_forwards_resolved_target(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        model_file = tmp_path / "model.onnx"
+        model_file.touch()
+        target = MagicMock(ep="DmlExecutionProvider", device="gpu")
+        ep_device = MagicMock()
+
+        with (
+            patch(_LOAD_ONNX, return_value=_make_mock_model()),
+            patch(_ANALYZE_MODEL, return_value=[]) as mock_analyze,
+            patch(
+                "winml.modelkit.commands.optimize._resolve_optimization_target",
+                return_value=(target, ep_device),
+            ) as mock_resolve,
+        ):
+            result = runner.invoke(
+                optimize,
+                ["-m", str(model_file), "--check-optim", "--device", "gpu"],
+            )
+
+        assert result.exit_code == 0, result.output
+        mock_resolve.assert_called_once_with(None, "gpu")
+        assert mock_analyze.call_args.kwargs["ep_device"] is ep_device
+        assert "DmlExecutionProvider on GPU" in result.output
+
+    def test_check_optim_accepts_cuda_ep(self, runner: CliRunner, tmp_path: Path) -> None:
+        model_file = tmp_path / "model.onnx"
+        model_file.touch()
+
+        with patch(
+            "winml.modelkit.commands.optimize._resolve_optimization_target",
+            side_effect=ValueError("CUDA unavailable"),
+        ) as mock_resolve:
+            result = runner.invoke(
+                optimize,
+                ["-m", str(model_file), "--check-optim", "--ep", "cuda"],
+            )
+
+        assert result.exit_code != 0
+        mock_resolve.assert_called_once_with("cuda", None)
+        assert "Invalid value for '--ep'" not in result.output
+
 
 class TestConfigFile:
     """Config file loading and precedence."""

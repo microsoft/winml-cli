@@ -228,7 +228,26 @@ def _render_check_optim(console: Console, findings: list[Any], verbose: bool) ->
     )
 
 
-def _run_check_optim(model: Path, all_caps: dict[str, Any], verbose: bool) -> None:
+def _resolve_optimization_target(ep: str | None, device: str | None) -> tuple[Any, Any]:
+    """Resolve an explicit optimization EP/device request."""
+    from ..session import (
+        EPDeviceTarget,
+        WinMLEPRegistry,
+        resolve_device,
+    )
+
+    target = resolve_device(EPDeviceTarget(ep=ep or "auto", device=(device or "auto").lower()))
+    return target, WinMLEPRegistry.instance().auto_device(target)
+
+
+def _run_check_optim(
+    model: Path,
+    all_caps: dict[str, Any],
+    verbose: bool,
+    *,
+    target: Any | None = None,
+    ep_device: Any | None = None,
+) -> None:
     """Probe which optimizations apply to the model and print a report.
 
     No output file is written. Every boolean capability that is off by default
@@ -238,6 +257,8 @@ def _run_check_optim(model: Path, all_caps: dict[str, Any], verbose: bool) -> No
         model: Path to the input ONNX model.
         all_caps: The full capability registry.
         verbose: Whether to show every affected node/constant.
+        target: Resolved EP/device target, if explicitly requested.
+        ep_device: Resolved runtime EP device used by each optimization probe.
     """
     from ..optim import BoolCapability, analyze_model
 
@@ -246,6 +267,8 @@ def _run_check_optim(model: Path, all_caps: dict[str, Any], verbose: bool) -> No
     )
 
     console.print(f"[bold blue]Input:[/bold blue] {model}")
+    if target is not None:
+        console.print(f"[bold blue]Target:[/bold blue] {target.ep} on {target.device.upper()}")
     console.print(
         "[dim]--check-optim — analyzing applicable optimizations (no output written).[/dim]"
     )
@@ -257,7 +280,7 @@ def _run_check_optim(model: Path, all_caps: dict[str, Any], verbose: bool) -> No
         "[dim](this can take a while on large models)[/dim]"
     )
     with console.status("[bold]Analyzing...[/bold]", spinner="dots"):
-        findings = analyze_model(onnx_model, all_caps)
+        findings = analyze_model(onnx_model, all_caps, ep_device=ep_device)
 
     _render_check_optim(console, findings, verbose)
 
@@ -294,6 +317,7 @@ def _run_check_optim(model: Path, all_caps: dict[str, Any], verbose: bool) -> No
     required=False,
     default=None,
     include_auto=True,
+    include_cuda=True,
     optional_message="If omitted with --device, selects a compatible EP automatically.",
 )
 @cli_utils.device_option(
@@ -477,9 +501,37 @@ def optimize(
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
 
+    target = None
+    ep_device = None
+    if ep is not None or device is not None:
+        from ..session import (
+            DeviceNotFound,
+            UnknownListingPick,
+            WinMLEPNotDiscovered,
+            WinMLEPRegistrationFailed,
+        )
+
+        try:
+            target, ep_device = _resolve_optimization_target(ep, device)
+        except (
+            DeviceNotFound,
+            RuntimeError,
+            UnknownListingPick,
+            ValueError,
+            WinMLEPNotDiscovered,
+            WinMLEPRegistrationFailed,
+        ) as e:
+            raise click.UsageError(f"Could not resolve optimization target: {e}") from e
+
     # Handle --check-optim: report which optimizations apply, write nothing.
     if check_optim:
-        _run_check_optim(model, all_caps, bool(verbose))
+        _run_check_optim(
+            model,
+            all_caps,
+            bool(verbose),
+            target=target,
+            ep_device=ep_device,
+        )
         return
 
     # Import optimizer
@@ -543,31 +595,8 @@ def optimize(
     if verbose:
         optimizer_kwargs["verbose"] = True
 
-    if ep is not None or device is not None:
-        from ..session import (
-            DeviceNotFound,
-            EPDeviceTarget,
-            UnknownListingPick,
-            WinMLEPNotDiscovered,
-            WinMLEPRegistrationFailed,
-            WinMLEPRegistry,
-            resolve_device,
-        )
-
-        try:
-            target = resolve_device(
-                EPDeviceTarget(ep=ep or "auto", device=(device or "auto").lower())
-            )
-            ep_device = WinMLEPRegistry.instance().auto_device(target)
-        except (
-            DeviceNotFound,
-            RuntimeError,
-            UnknownListingPick,
-            ValueError,
-            WinMLEPNotDiscovered,
-            WinMLEPRegistrationFailed,
-        ) as e:
-            raise click.UsageError(f"Could not resolve optimization target: {e}") from e
+    if ep_device is not None:
+        assert target is not None
         optimizer_kwargs["ep_device"] = ep_device
         console.print(
             f"[bold blue]Target:[/bold blue] {target.ep} on {target.device.upper()}"
