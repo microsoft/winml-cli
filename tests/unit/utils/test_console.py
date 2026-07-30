@@ -34,6 +34,13 @@ def test_safe_console_print_reraises_non_console_oserror(monkeypatch):
         console_module.safe_console_print(_FailingConsole(OSError(errno.ENOSPC, "No space")), "x")
 
 
+def test_safe_console_print_does_not_parse_error_code_from_message(monkeypatch):
+    monkeypatch.setattr(console_module.sys, "platform", "win32")
+
+    with pytest.raises(OSError, match="Windows error: 6"):
+        console_module.safe_console_print(_FailingConsole(OSError("Windows error: 6")), "x")
+
+
 def test_safe_console_print_reraises_console_error_on_non_windows(monkeypatch):
     monkeypatch.setattr(console_module.sys, "platform", "linux")
 
@@ -72,7 +79,7 @@ def test_safe_live_ignores_expected_windows_console_errors(monkeypatch):
 
     monkeypatch.setattr(console_module.Live, "start", fail_start)
 
-    console_module._SafeLive("x").start()
+    console_module.SafeLive("x").start()
 
 
 def test_safe_live_reraises_non_console_oserror_from_wrapped_methods(monkeypatch):
@@ -84,7 +91,7 @@ def test_safe_live_reraises_non_console_oserror_from_wrapped_methods(monkeypatch
     monkeypatch.setattr(console_module.Live, "start", fail_start)
 
     with pytest.raises(OSError, match="No space"):
-        console_module._SafeLive("x").start()
+        console_module.SafeLive("x").start()
 
 
 def test_safe_live_reraises_non_console_oserror_from_refresh(monkeypatch):
@@ -96,4 +103,4 @@ def test_safe_live_reraises_non_console_oserror_from_refresh(monkeypatch):
     monkeypatch.setattr(console_module.Live, "refresh", fail_refresh)
 
     with pytest.raises(OSError, match="No space"):
-        console_module._SafeLive("x").refresh()
+        console_module.SafeLive("x").refresh()

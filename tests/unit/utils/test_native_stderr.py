@@ -51,7 +51,7 @@ class TestSuppressNativeStderr:
         second_entered_while_first_active = False
 
         def first_redirect() -> None:
-            with native_stderr_module.suppress_native_warnings():
+            with native_stderr_module.suppress_native_warnings(enabled=True):
                 first_entered.set()
                 assert first_can_exit.wait(timeout=5)
 
@@ -220,11 +220,20 @@ class TestCaptureNativeStderr:
 class TestSuppressNativeWarnings:
     """Tests for warning-only native stderr suppression."""
 
-    def test_filters_native_warning_lines_and_preserves_errors(self, monkeypatch, capfd):
+    def test_warning_filtering_is_opt_in(self, monkeypatch, capfd):
         monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
         logging.getLogger().setLevel(logging.WARNING)
 
         with native_stderr_module.suppress_native_warnings():
+            os.write(2, b"2026 [W:custom-native:, file.cc:1 WarningFunc] library warning\n")
+
+        assert "library warning" in capfd.readouterr().err
+
+    def test_filters_native_warning_lines_and_preserves_errors(self, monkeypatch, capfd):
+        monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
+        logging.getLogger().setLevel(logging.WARNING)
+
+        with native_stderr_module.suppress_native_warnings(enabled=True):
             os.write(2, b"2026 [W:custom-native:, file.cc:1 WarningFunc] noisy warning\n")
             os.write(2, b"2026 [E:onnxruntime:, qnn_backend.cc:2 ErrorFunc] useful error\n")
             os.write(2, b"plain diagnostic\n")
@@ -234,11 +243,23 @@ class TestSuppressNativeWarnings:
         assert "useful error" in stderr
         assert "plain diagnostic" in stderr
 
+    def test_filters_native_prefix_info_without_dropping_python_stderr(self, monkeypatch, capfd):
+        monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
+        logging.getLogger().setLevel(logging.WARNING)
+
+        with native_stderr_module.suppress_native_warnings(enabled=True):
+            os.write(2, b"DSP_INFO UNSUPPORTED_KEY: 49\n")
+            os.write(2, b"plain Python diagnostic\n")
+
+        stderr = capfd.readouterr().err
+        assert "DSP_INFO" not in stderr
+        assert "plain Python diagnostic" in stderr
+
     def test_preserves_error_lines_that_reference_warning_tokens(self, monkeypatch, capfd):
         monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
         logging.getLogger().setLevel(logging.WARNING)
 
-        with native_stderr_module.suppress_native_warnings():
+        with native_stderr_module.suppress_native_warnings(enabled=True):
             os.write(
                 2,
                 b"2026 [E:onnxruntime:, qnn.cc:2 ErrorFunc] failed after previous [W:note]\n",
@@ -250,7 +271,9 @@ class TestSuppressNativeWarnings:
         monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
         logging.getLogger().setLevel(logging.WARNING)
 
-        with native_stderr_module.suppress_native_warnings(preserve_unclassified=False):
+        with native_stderr_module.suppress_native_warnings(
+            enabled=True, preserve_unclassified=False
+        ):
             os.write(2, b"DSP_INFO UNSUPPORTED_KEY: 49\n")
             os.write(2, b"2026 [E:custom-native:, file.cc:2 ErrorFunc] useful error\n")
 
@@ -262,7 +285,7 @@ class TestSuppressNativeWarnings:
         monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
         logging.getLogger().setLevel(logging.INFO)
 
-        with native_stderr_module.suppress_native_warnings():
+        with native_stderr_module.suppress_native_warnings(enabled=True):
             os.write(2, b"2026 [W:custom-native:, file.cc:1 WarningFunc] visible warning\n")
 
         assert "visible warning" in capfd.readouterr().err
@@ -271,7 +294,7 @@ class TestSuppressNativeWarnings:
         monkeypatch.setenv("WINMLCLI_SHOW_ALL_WARNINGS", "1")
         logging.getLogger().setLevel(logging.WARNING)
 
-        with native_stderr_module.suppress_native_warnings():
+        with native_stderr_module.suppress_native_warnings(enabled=True):
             os.write(2, b"2026 [W:custom-native:, file.cc:1 WarningFunc] env warning\n")
 
         assert "env warning" in capfd.readouterr().err
@@ -286,7 +309,7 @@ class TestSuppressNativeWarnings:
         monkeypatch.setattr(native_stderr_module.os, "pipe", fail_pipe)
 
         ran = False
-        with native_stderr_module.suppress_native_warnings():
+        with native_stderr_module.suppress_native_warnings(enabled=True):
             ran = True
 
         assert ran
@@ -330,14 +353,55 @@ class TestSuppressNativeWarnings:
         monkeypatch.setattr(
             native_stderr_module,
             "_refresh_click_windows_console_stream",
-            lambda fd: None,
+            lambda fd, handle=None: None,
         )
 
-        with native_stderr_module.suppress_native_warnings():
+        with native_stderr_module.suppress_native_warnings(enabled=True):
             pass
 
         assert 2 in closed
         assert join_timeouts == [native_stderr_module._NATIVE_READER_JOIN_TIMEOUT_SECONDS]
+
+    def test_reader_owned_old_fd_stays_open_when_reader_outlives_join(self, monkeypatch):
+        monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
+        logging.getLogger().setLevel(logging.WARNING)
+        closed: list[int] = []
+        join_timeouts: list[float | None] = []
+
+        class FakeThread:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                pass
+
+            def start(self) -> None:
+                pass
+
+            def join(self, timeout: float | None = None) -> None:
+                join_timeouts.append(timeout)
+
+            def is_alive(self) -> bool:
+                return True
+
+        monkeypatch.setattr(native_stderr_module.os, "pipe", lambda: (10, 11))
+        monkeypatch.setattr(native_stderr_module.os, "dup", lambda fd: 12)
+        monkeypatch.setattr(native_stderr_module.os, "dup2", lambda src, dst: None)
+        monkeypatch.setattr(native_stderr_module.os, "close", lambda fd: closed.append(fd))
+        monkeypatch.setattr(native_stderr_module.threading, "Thread", FakeThread)
+        monkeypatch.setattr(
+            native_stderr_module,
+            "_set_win32_std_handle_to_current_fd",
+            lambda fd: None,
+        )
+        monkeypatch.setattr(
+            native_stderr_module,
+            "_refresh_click_windows_console_stream",
+            lambda fd, handle=None: None,
+        )
+
+        with native_stderr_module.suppress_native_warnings(enabled=True):
+            pass
+
+        assert join_timeouts == [native_stderr_module._NATIVE_READER_JOIN_TIMEOUT_SECONDS]
+        assert 12 not in closed
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Win32 only")
     def test_win32_std_handle_sync_failure_does_not_abort_wrapped_code(self, monkeypatch):
@@ -354,7 +418,7 @@ class TestSuppressNativeWarnings:
         )
 
         ran = False
-        with native_stderr_module.suppress_native_warnings():
+        with native_stderr_module.suppress_native_warnings(enabled=True):
             ran = True
 
         assert ran
@@ -364,7 +428,7 @@ class TestSuppressNativeWarnings:
         monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
         logging.getLogger().setLevel(logging.WARNING)
 
-        with native_stderr_module.suppress_native_warnings():
+        with native_stderr_module.suppress_native_warnings(enabled=True):
             _write_win32_stderr(b"2026 [W:custom-native:, file.cc:1 WarningFunc] win32 warning\n")
             _write_win32_stderr(b"2026 [E:custom-native:, file.cc:2 ErrorFunc] win32 error\n")
 
@@ -382,13 +446,13 @@ class TestSuppressNativeWarnings:
 
         with (
             pytest.raises(RuntimeError, match="boom"),
-            native_stderr_module.suppress_native_warnings(),
+            native_stderr_module.suppress_native_warnings(enabled=True),
         ):
             fail_with_runtime_error()
 
         _write_win32_stderr(b"after exception\n")
 
-    def test_restore_win32_std_error_handle_accepts_null_handle(self, monkeypatch):
+    def test_set_win32_std_handle_accepts_null_handle(self, monkeypatch):
         calls = []
         std_error_handle = object()
 
@@ -409,7 +473,7 @@ class TestSuppressNativeWarnings:
             raising=False,
         )
 
-        native_stderr_module._restore_win32_stderr_handle(None)
+        native_stderr_module._set_win32_std_handle(2, None)
 
         assert calls == [(std_error_handle, None)]
 
@@ -484,7 +548,7 @@ class TestSuppressNativeWarnings:
         error_line = b"2026 [E:custom-native:, file.cc:2 ErrorFunc] useful error\n"
         written = 0
 
-        with native_stderr_module.suppress_native_warnings():
+        with native_stderr_module.suppress_native_warnings(enabled=True):
             for _ in range(20000):
                 os.write(2, warning_line)
                 written += len(warning_line)
@@ -501,8 +565,8 @@ class TestSuppressNativeWarnings:
         started = time.monotonic()
 
         with (
-            native_stderr_module.suppress_native_warnings(),
-            native_stderr_module.suppress_native_warnings(),
+            native_stderr_module.suppress_native_warnings(enabled=True),
+            native_stderr_module.suppress_native_warnings(enabled=True),
         ):
             pass
 
@@ -536,12 +600,3 @@ def _write_win32_stderr(data: bytes) -> None:
     )
     assert ok
     assert written.value == len(data)
-
-
-def _get_win32_stderr_handle() -> int:
-    import ctypes.wintypes
-
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    k32.GetStdHandle.argtypes = [ctypes.wintypes.DWORD]
-    k32.GetStdHandle.restype = ctypes.wintypes.HANDLE
-    return k32.GetStdHandle(ctypes.wintypes.DWORD(0xFFFFFFF4))

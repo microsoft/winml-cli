@@ -118,7 +118,11 @@ def test_native_stdout_suppression_refreshes_click_handle(monkeypatch):
     from winml.modelkit.session import session as session_module
 
     calls = []
-    monkeypatch.setattr(session_module, "_refresh_click_windows_console_stream", calls.append)
+    monkeypatch.setattr(
+        session_module,
+        "refresh_click_windows_console_stream",
+        lambda fd, handle=None: calls.append(fd),
+    )
 
     with session_module._suppress_native_output():
         pass
@@ -138,7 +142,7 @@ def test_native_stdout_suppression_shares_redirect_lock(monkeypatch):
     stdout_entered_while_first_active = False
 
     def first_redirect() -> None:
-        with native_stderr_module.suppress_native_warnings():
+        with native_stderr_module.suppress_native_warnings(enabled=True):
             first_entered.set()
             assert first_can_exit.wait(timeout=5)
 
@@ -206,8 +210,40 @@ def test_auto_reset_suppresses_native_stdout(monkeypatch, capfd):
     assert "native compiler progress" not in capfd.readouterr().out
 
 
-def test_auto_reset_suppresses_unclassified_native_stderr(monkeypatch, capfd):
-    """Monitor-triggered session rebuild hides native diagnostics without severity tokens."""
+def test_suppress_native_output_restores_original_win32_stdout_handle(monkeypatch):
+    from winml.modelkit.session import session as session_module
+
+    restored_handles: list[tuple[int, object | None]] = []
+
+    monkeypatch.setattr(
+        session_module,
+        "get_win32_std_handle",
+        lambda fd: "original" if fd == 1 else None,
+    )
+    monkeypatch.setattr(
+        session_module,
+        "set_win32_std_handle",
+        lambda fd, handle: restored_handles.append((fd, handle)),
+    )
+    monkeypatch.setattr(
+        session_module,
+        "set_win32_std_handle_to_current_fd",
+        lambda fd: restored_handles.append((fd, "current")),
+    )
+    monkeypatch.setattr(
+        session_module,
+        "refresh_click_windows_console_stream",
+        lambda fd, handle=None: None,
+    )
+
+    with session_module._suppress_native_output():
+        pass
+
+    assert restored_handles[-1] == (1, "original")
+
+
+def test_auto_reset_preserves_unclassified_stderr(monkeypatch, capfd):
+    """Monitor-triggered session rebuild must not swallow non-ORT Python stderr."""
     from winml.modelkit.session import session as session_module
     from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
     from winml.modelkit.session.session import WinMLSession
@@ -247,12 +283,12 @@ def test_auto_reset_suppresses_unclassified_native_stderr(monkeypatch, capfd):
         pass
 
     stderr = capfd.readouterr().err
-    assert "DSP_INFO" not in stderr
+    assert "DSP_INFO" in stderr
     assert "useful error" in stderr
 
 
-def test_requires_teardown_reset_suppresses_native_warning_stderr(monkeypatch, capfd):
-    """Monitor-required teardown hides warning-level native stderr from reset()."""
+def test_requires_teardown_reset_preserves_warning_stderr(monkeypatch, capfd):
+    """Library perf teardown leaves stderr untouched; CLI owns warning filtering."""
     from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
 
     class _TeardownMonitor(WinMLEPMonitor):
@@ -282,7 +318,7 @@ def test_requires_teardown_reset_suppresses_native_warning_stderr(monkeypatch, c
     with session.perf(monitor=_TeardownMonitor()):
         pass
 
-    assert "reset warning" not in capfd.readouterr().err
+    assert "reset warning" in capfd.readouterr().err
 
 
 def test_no_auto_reset_when_monitor_empty():

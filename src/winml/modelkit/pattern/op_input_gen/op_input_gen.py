@@ -21,7 +21,6 @@ from colorama import Fore, Style
 from onnx.defs import OpSchema
 
 from ...onnx import ONNXDomain, SupportedONNXType
-from ...utils.native_stderr import suppress_native_warnings
 from ...utils.result_sanitizer import sanitize_check_result_payload
 from ..utils import get_op_input_properties
 from .qdq_gen import QDQGenerator
@@ -1918,10 +1917,9 @@ class OpInputGenerator(ABC):
         model = self._create_model(kwargs, is_constant_map, output_dtypes, qdq_types=qdq_types)
 
         # Create inference session
-        with suppress_native_warnings():
-            sess = ort.InferenceSession(
-                model.SerializeToString(),
-            )
+        sess = ort.InferenceSession(
+            model.SerializeToString(),
+        )
 
         input_dict = {k: v for k, v in kwargs.items() if k not in self.op_attribute_names}
         input_dict = self.create_input_dict(input_dict, qdq_types=qdq_types)

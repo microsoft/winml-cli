@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import functools
 import logging
-import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -37,7 +36,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 _WINDOWS_CONSOLE_OSERROR_CODES = frozenset({1, 6})
-_WINDOWS_ERROR_RE = re.compile(r"Windows error:\s*(\d+)")
 
 HEAVY_SEP = "\u2550" * 60  # ═
 LIGHT_SEP = "\u2500" * 60  # ─
@@ -88,8 +86,7 @@ def _is_expected_windows_console_oserror(exc: OSError) -> bool:
         return code in _WINDOWS_CONSOLE_OSERROR_CODES
     if isinstance(exc.errno, int):
         return exc.errno in _WINDOWS_CONSOLE_OSERROR_CODES
-    match = _WINDOWS_ERROR_RE.search(str(exc))
-    return match is not None and int(match.group(1)) in _WINDOWS_CONSOLE_OSERROR_CODES
+    return False
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -312,7 +309,7 @@ def get_onnx_total_size(onnx_path: Path) -> int:
 # ══════════════════════════════════════════════════════════════════════════
 
 
-class _SafeLive(Live):
+class SafeLive(Live):
     """A :class:`rich.live.Live` that survives Windows console hiccups.
 
     Some native dependencies (e.g. OpenVINO / ONNX Runtime EPs) can put
@@ -325,7 +322,7 @@ class _SafeLive(Live):
     This subclass catches :class:`OSError` in :meth:`refresh` and, after
     the first failure, disables further refreshes for the lifetime of
     this Live instance.  ``start``/``stop``/``update`` are also wrapped
-    so callers can use ``_SafeLive`` exactly like :class:`Live`.  The
+    so callers can use ``SafeLive`` exactly like :class:`Live`.  The
     visible effect is that the final frame may not animate further, but
     no traceback escapes and the surrounding pipeline continues normally.
     """
@@ -335,7 +332,7 @@ class _SafeLive(Live):
         """Decorator: invoke ``method`` and swallow console ``OSError``."""
 
         @functools.wraps(method)
-        def wrapper(self: _SafeLive, *args: Any, **kwargs: Any) -> Any:
+        def wrapper(self: SafeLive, *args: Any, **kwargs: Any) -> Any:
             try:
                 return method(self, *args, **kwargs)
             except OSError as exc:
@@ -355,6 +352,7 @@ class _SafeLive(Live):
         self._refresh_disabled: bool = False
 
     def refresh(self) -> None:
+        """Refresh the live display unless Windows console writes are failing."""
         if self._refresh_disabled:
             return
         try:
@@ -370,15 +368,21 @@ class _SafeLive(Live):
 
     @_swallow_oserror
     def start(self, refresh: bool = False) -> None:
+        """Start the live display, swallowing expected Windows console errors."""
         super().start(refresh=refresh)
 
     @_swallow_oserror
     def stop(self) -> None:
+        """Stop the live display, swallowing expected Windows console errors."""
         super().stop()
 
     @_swallow_oserror
     def update(self, renderable: RenderableType, *, refresh: bool = False) -> None:
+        """Update the renderable, swallowing expected Windows console errors."""
         super().update(renderable, refresh=refresh)
+
+
+_SafeLive = SafeLive
 
 
 class StageLive:
@@ -402,13 +406,13 @@ class StageLive:
         self._name = name
         self._console = console
         self._lines: list[RenderableType] = []
-        self._live: _SafeLive | None = None
+        self._live: SafeLive | None = None
         self._status_idx: int = 0
 
     def __enter__(self) -> StageLive:
         self._lines = [self._make_running_line()]
         self._status_idx = 0
-        self._live = _SafeLive(
+        self._live = SafeLive(
             self._render(),
             console=self._console,
             refresh_per_second=15,

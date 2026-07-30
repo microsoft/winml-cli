@@ -36,6 +36,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 _NATIVE_SEVERITY_TOKEN_RE = re.compile(rb"\[([A-Za-z]):")
+_NATIVE_PREFIX_SEVERITY_RE = re.compile(
+    rb"^[A-Z][A-Z0-9_]*_(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|ERR|FATAL)\b"
+)
+_NATIVE_HIDDEN_PREFIX_SEVERITIES = {b"trace", b"debug", b"info", b"warning", b"warn"}
 _NATIVE_READER_JOIN_TIMEOUT_SECONDS = 1.0
 _NATIVE_FD_REDIRECT_LOCK = threading.RLock()
 
@@ -185,14 +189,15 @@ def capture_native_stderr(level: int = logging.INFO) -> Iterator[None]:
 @contextmanager
 def suppress_native_warnings(
     *,
-    enabled: bool = True,
+    enabled: bool = False,
     preserve_unclassified: bool = True,
 ) -> Iterator[None]:
     """Hide native warning lines while preserving native errors and diagnostics.
 
     Native ORT/QNN diagnostics use severity tokens such as ``[W:...]`` and
-    ``[E:...]``. Normal CLI output hides warning-level native chatter; ``-v`` /
-    ``-vv`` or ``WINMLCLI_SHOW_ALL_WARNINGS=1`` leaves stderr untouched.
+    ``[E:...]``. This process-wide fd redirect is opt-in; CLI entry points pass
+    ``enabled=True`` only around native-heavy work. ``-v`` / ``-vv`` or
+    ``WINMLCLI_SHOW_ALL_WARNINGS=1`` leaves stderr untouched.
     """
     if not enabled or _show_native_warnings_requested():
         yield
@@ -251,7 +256,7 @@ def suppress_native_warnings(
                 try:
                     yield
                 finally:
-                    _restore_redirected_native_stderr_fd(old_fd)
+                    _restore_redirected_fd(2, old_fd)
                     _set_win32_std_handle_to_current_fd(2)
                     _refresh_click_windows_console_stream(2)
                     reader.join(timeout=_NATIVE_READER_JOIN_TIMEOUT_SECONDS)
@@ -259,7 +264,8 @@ def suppress_native_warnings(
                         logger.debug(
                             "Native warning suppression reader did not finish after stderr restore"
                         )
-                    _close_fd(old_fd)
+                    else:
+                        _close_fd(old_fd)
     if redirect_failed:
         yield
 
@@ -275,10 +281,6 @@ def _show_native_warnings_requested() -> bool:
     return env_flag_enabled("WINMLCLI_SHOW_ALL_WARNINGS") or logging.getLogger().isEnabledFor(
         logging.INFO
     )
-
-
-def _restore_redirected_native_stderr_fd(old_fd: int) -> None:
-    _restore_redirected_fd(2, old_fd)
 
 
 def _restore_redirected_fd(fd: int, old_fd: int | None) -> None:
@@ -333,49 +335,63 @@ def _write_non_warning_line(fd: int, line: bytes, preserve_unclassified: bool) -
 
 def _should_preserve_native_line(line: bytes, preserve_unclassified: bool) -> bool:
     match = _NATIVE_SEVERITY_TOKEN_RE.search(line)
-    if match is None:
-        return preserve_unclassified
-    return match.group(1).lower() != b"w"
+    if match is not None:
+        return match.group(1).lower() != b"w"
+    prefix_match = _NATIVE_PREFIX_SEVERITY_RE.search(line.strip())
+    if prefix_match is not None:
+        return prefix_match.group(1).lower() not in _NATIVE_HIDDEN_PREFIX_SEVERITIES
+    return preserve_unclassified
 
 
-def _is_native_warning_line(line: bytes) -> bool:
-    match = _NATIVE_SEVERITY_TOKEN_RE.search(line)
-    if match is None:
-        return False
-    return match.group(1).lower() == b"w"
-
-
-def _get_win32_stderr_handle() -> object | None:
+def _get_win32_std_handle(fd: int) -> object | None:
     if sys.platform != "win32":
         return None
-    return cast("object", _k32.GetStdHandle(_STD_ERROR_HANDLE))
+    std_handle = _win32_std_handle_constant(fd)
+    if std_handle is None:
+        return None
+    return cast("object", _k32.GetStdHandle(std_handle))
 
 
-def _set_win32_stderr_to_current_fd() -> None:
-    _set_win32_std_handle_to_current_fd(2)
+def _set_win32_std_handle(fd: int, handle: object | None) -> None:
+    if sys.platform != "win32":
+        return
+    std_handle = _win32_std_handle_constant(fd)
+    if std_handle is None:
+        return
+    try:
+        _k32.SetStdHandle(std_handle, handle)
+    except OSError:
+        logger.debug("Could not restore Win32 std handle for fd %d", fd, exc_info=True)
 
 
 def _set_win32_std_handle_to_current_fd(fd: int) -> None:
     if sys.platform != "win32":
         return
-    if fd == 1:
-        std_handle = _STD_OUTPUT_HANDLE
-    elif fd == 2:
-        std_handle = _STD_ERROR_HANDLE
-    else:
+    handle = _get_win32_fd_handle(fd)
+    if handle is None:
         return
+    _set_win32_std_handle(fd, handle)
+
+
+def _get_win32_fd_handle(fd: int) -> object | None:
+    if sys.platform != "win32":
+        return None
     try:
-        _k32.SetStdHandle(std_handle, msvcrt.get_osfhandle(fd))
+        return cast("object", msvcrt.get_osfhandle(fd))
     except OSError:
-        logger.debug("Could not sync Win32 std handle for fd %d", fd, exc_info=True)
+        logger.debug("Could not read Win32 fd handle for fd %d", fd, exc_info=True)
+        return None
 
 
-def _restore_win32_stderr_handle(handle: object | None) -> None:
-    if sys.platform == "win32":
-        _k32.SetStdHandle(_STD_ERROR_HANDLE, handle)
+def _win32_std_handle_constant(fd: int) -> object | None:
+    if fd == 1:
+        return _STD_OUTPUT_HANDLE
+    if fd == 2:
+        return _STD_ERROR_HANDLE
+    return None
 
 
-def _refresh_click_windows_console_stream(fd: int) -> None:
+def _refresh_click_windows_console_stream(fd: int, handle: object | None = None) -> None:
     """Refresh Click's cached Windows console writer after fd redirection.
 
     Click caches ``STDOUT_HANDLE`` / ``STDERR_HANDLE`` at import time and may
@@ -391,10 +407,11 @@ def _refresh_click_windows_console_stream(fd: int) -> None:
     except ImportError:
         return
 
-    try:
-        handle = msvcrt.get_osfhandle(fd)
-    except OSError:
-        return
+    if handle is None:
+        try:
+            handle = msvcrt.get_osfhandle(fd)
+        except OSError:
+            return
 
     if fd == 1:
         click_winconsole.STDOUT_HANDLE = handle
@@ -464,3 +481,11 @@ def _close_fd(fd: int | None) -> None:
         os.close(fd)
     except OSError:
         logger.debug("Could not close fd %d", fd, exc_info=True)
+
+
+get_win32_fd_handle = _get_win32_fd_handle
+get_win32_std_handle = _get_win32_std_handle
+refresh_click_windows_console_stream = _refresh_click_windows_console_stream
+restore_redirected_fd = _restore_redirected_fd
+set_win32_std_handle = _set_win32_std_handle
+set_win32_std_handle_to_current_fd = _set_win32_std_handle_to_current_fd

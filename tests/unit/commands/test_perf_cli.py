@@ -249,7 +249,7 @@ class TestPerfUnifiedPipeline:
         observed: dict[str, bool] = {}
 
         @contextmanager
-        def mark_native_suppression():
+        def mark_native_suppression(*_args: object, **_kwargs: object):
             nonlocal inside_native_suppression
             previous = inside_native_suppression
             inside_native_suppression = True
@@ -292,7 +292,7 @@ class TestPerfUnifiedPipeline:
         load_observed: list[bool] = []
 
         @contextmanager
-        def mark_native_suppression():
+        def mark_native_suppression(*_args: object, **_kwargs: object):
             nonlocal inside_native_suppression
             previous = inside_native_suppression
             inside_native_suppression = True
@@ -781,14 +781,14 @@ class TestPerfUnifiedPipeline:
         assert result.exit_code == 0, result.output
         assert not any("unauthenticated requests" in str(record.message) for record in records)
 
-    def test_cli_does_not_wrap_entire_benchmark_in_native_stderr_redirect(
+    def test_cli_filters_native_warnings_only_around_benchmark_run(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Perf CLI must not route Rich/report output through native stderr filtering."""
+        """Perf CLI filters native benchmark noise without wrapping report rendering."""
         inside_native_suppression = False
 
         @contextmanager
-        def mark_native_suppression():
+        def mark_native_suppression(*_args: object, **_kwargs: object):
             nonlocal inside_native_suppression
             previous = inside_native_suppression
             inside_native_suppression = True
@@ -797,7 +797,11 @@ class TestPerfUnifiedPipeline:
             finally:
                 inside_native_suppression = previous
 
-        def assert_not_suppressed() -> MagicMock:
+        def assert_run_suppressed() -> MagicMock:
+            assert inside_native_suppression
+            return MagicMock()
+
+        def assert_report_not_suppressed(*_args: object, **_kwargs: object) -> MagicMock:
             assert not inside_native_suppression
             return MagicMock()
 
@@ -808,10 +812,13 @@ class TestPerfUnifiedPipeline:
 
         with (
             patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_perf,
-            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch(
+                "winml.modelkit.commands.perf.display_console_report",
+                side_effect=assert_report_not_suppressed,
+            ),
             patch("winml.modelkit.commands.perf.write_json_report"),
         ):
-            mock_perf.return_value.run.side_effect = assert_not_suppressed
+            mock_perf.return_value.run.side_effect = assert_run_suppressed
             result = runner.invoke(
                 perf,
                 ["-m", "microsoft/resnet-50", "-o", str(tmp_path / "out.json")],
@@ -831,7 +838,7 @@ class TestPerfUnifiedPipeline:
         probe_observed: list[bool] = []
 
         @contextmanager
-        def mark_native_suppression():
+        def mark_native_suppression(*_args: object, **_kwargs: object):
             nonlocal inside_native_suppression
             previous = inside_native_suppression
             inside_native_suppression = True
@@ -874,13 +881,15 @@ class TestPerfUnifiedPipeline:
     def test_cli_hf_disables_third_party_progress_by_default(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Default perf hides third-party tqdm/datasets progress during benchmark."""
-        monkeypatch.delenv("TQDM_DISABLE", raising=False)
+        """Default perf hides third-party Hub/datasets progress during benchmark."""
+        monkeypatch.delenv("HF_DATASETS_DISABLE_PROGRESS_BARS", raising=False)
+        monkeypatch.delenv("HF_HUB_DISABLE_PROGRESS_BARS", raising=False)
 
         observed: dict[str, str | None] = {}
 
         def capture_progress_env() -> MagicMock:
-            observed["tqdm_disable"] = os.environ.get("TQDM_DISABLE")
+            observed["datasets_disable"] = os.environ.get("HF_DATASETS_DISABLE_PROGRESS_BARS")
+            observed["hub_disable"] = os.environ.get("HF_HUB_DISABLE_PROGRESS_BARS")
             return MagicMock()
 
         with (
@@ -896,19 +905,23 @@ class TestPerfUnifiedPipeline:
             )
 
         assert result.exit_code == 0, result.output
-        assert observed["tqdm_disable"] == "1"
-        assert "TQDM_DISABLE" not in os.environ
+        assert observed["datasets_disable"] == "1"
+        assert observed["hub_disable"] == "1"
+        assert "HF_DATASETS_DISABLE_PROGRESS_BARS" not in os.environ
+        assert "HF_HUB_DISABLE_PROGRESS_BARS" not in os.environ
 
     def test_cli_hf_keeps_third_party_progress_when_verbose(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Verbose perf preserves third-party progress diagnostics."""
-        monkeypatch.delenv("TQDM_DISABLE", raising=False)
+        monkeypatch.delenv("HF_DATASETS_DISABLE_PROGRESS_BARS", raising=False)
+        monkeypatch.delenv("HF_HUB_DISABLE_PROGRESS_BARS", raising=False)
 
         observed: dict[str, str | None] = {}
 
         def capture_progress_env() -> MagicMock:
-            observed["tqdm_disable"] = os.environ.get("TQDM_DISABLE")
+            observed["datasets_disable"] = os.environ.get("HF_DATASETS_DISABLE_PROGRESS_BARS")
+            observed["hub_disable"] = os.environ.get("HF_HUB_DISABLE_PROGRESS_BARS")
             return MagicMock()
 
         with (
@@ -924,7 +937,8 @@ class TestPerfUnifiedPipeline:
             )
 
         assert result.exit_code == 0, result.output
-        assert observed["tqdm_disable"] is None
+        assert observed["datasets_disable"] is None
+        assert observed["hub_disable"] is None
 
     def test_cli_hf_reveals_huggingface_warning_logs_when_verbose(
         self, runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture

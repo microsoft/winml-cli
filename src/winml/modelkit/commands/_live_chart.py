@@ -13,10 +13,11 @@ from __future__ import annotations
 import time
 from typing import Any, Final
 
+from rich.cells import cell_len
 from rich.panel import Panel
 
 from ..session.monitor.hw_monitor import adapter_label
-from ..utils.console import SafeConsole, _SafeLive
+from ..utils.console import SafeConsole, SafeLive
 from ..utils.constants import ACCELERATOR_DEVICE_TYPES
 
 
@@ -26,6 +27,8 @@ _CHART_WINDOW_SECONDS = 15.0
 # Display refresh rate (frames per second)
 _REFRESH_FPS = 5
 _PANEL_HORIZONTAL_OVERHEAD = 4
+# plotext's requested canvas width excludes its y-axis labels, tick marks, and
+# border text. Keep this fixed overhead out of the Rich panel width budget.
 _PLOTEXT_HORIZONTAL_OVERHEAD = 21
 _MIN_CHART_WIDTH = 20
 
@@ -129,7 +132,7 @@ class LiveMonitorDisplay:
         current = f"  {cells[0]}"
         for cell in cells[1:]:
             candidate = f"{current}{separator}{cell}"
-            if max_width is not None and len(candidate) > max_width:
+            if max_width is not None and cell_len(candidate) > max_width:
                 lines.append(current)
                 current = f"  {cell}"
             else:
@@ -161,7 +164,7 @@ class LiveMonitorDisplay:
 
     def __enter__(self) -> LiveMonitorDisplay:
         self._console = SafeConsole(stderr=True)
-        self._live = _SafeLive(
+        self._live = SafeLive(
             refresh_per_second=_REFRESH_FPS,
             console=self._console,
             transient=False,  # Keep last frame visible in scrollback

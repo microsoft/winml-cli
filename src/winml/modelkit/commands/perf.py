@@ -155,7 +155,7 @@ def _resolve_ep_monitor(
     op-tracing is requested but no supporting monitor is available on this
     system.
     """
-    with suppress_native_warnings():
+    with suppress_native_warnings(enabled=True):
         from ..session import short_ep_name
         from ..session.monitor.ep_monitor import NullEPMonitor
 
@@ -175,7 +175,7 @@ def _resolve_ep_monitor(
         def is_qnn_available() -> bool:
             nonlocal qnn_available
             if qnn_available is None:
-                with suppress_native_warnings():
+                with suppress_native_warnings(enabled=True):
                     qnn_available = QNNMonitor.is_available()
             return qnn_available
 
@@ -684,10 +684,10 @@ class PerfBenchmark:
         if self._resolved_device is not None:
             return
 
-        with suppress_native_warnings():
+        with suppress_native_warnings(enabled=True):
             from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
 
-        with suppress_native_warnings():
+        with suppress_native_warnings(enabled=True):
             # resolve_device() availability-checks even when --ep is explicit, so a
             # named-but-absent EP is caught here too.
             target = resolve_device(
@@ -727,7 +727,7 @@ class PerfBenchmark:
 
         session = getattr(model, "_session", None)
         if session is not None:
-            with suppress_native_warnings(preserve_unclassified=False):
+            with suppress_native_warnings(enabled=True):
                 session.reset()
 
     @property
@@ -937,7 +937,7 @@ class PerfBenchmark:
         optimize → [quantize] → [compile], and ONNX runs the same pipeline
         minus export.
         """
-        with suppress_native_warnings():
+        with suppress_native_warnings(enabled=True):
             from ..config import WinMLBuildConfig
             from ..models import WinMLAutoModel
 
@@ -3069,6 +3069,7 @@ def perf(
 
         benchmark = PerfBenchmark(config)
         with (
+            suppress_native_warnings(enabled=True),
             suppress_huggingface_warning_logs(verbosity=verbose, quiet=quiet),
             suppress_third_party_progress(verbosity=verbose, quiet=quiet),
         ):

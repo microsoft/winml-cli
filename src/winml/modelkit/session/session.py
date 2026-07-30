@@ -20,11 +20,13 @@ import onnxruntime as ort
 from ..core.onnx_utils import get_io_config
 from ..onnx import is_compiled_onnx
 from ..utils.native_stderr import (
-    _refresh_click_windows_console_stream,
-    _restore_redirected_fd,
-    _set_win32_std_handle_to_current_fd,
+    get_win32_fd_handle,
+    get_win32_std_handle,
     native_fd_redirect_lock,
-    suppress_native_warnings,
+    refresh_click_windows_console_stream,
+    restore_redirected_fd,
+    set_win32_std_handle,
+    set_win32_std_handle_to_current_fd,
 )
 from .ep_device import (
     WinMLEPMonitorMismatch,
@@ -59,6 +61,8 @@ def _suppress_native_output(log_path: str | Path | None = None) -> Iterator[None
     with native_fd_redirect_lock():
         fd: int | None = None
         old_stdout: int | None = None
+        old_win32_stdout = get_win32_std_handle(1)
+        old_fd_stdout = get_win32_fd_handle(1)
         try:
             if log_path is not None:
                 fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
@@ -89,13 +93,17 @@ def _suppress_native_output(log_path: str | Path | None = None) -> Iterator[None
             os.close(fd)
         except OSError:
             logger.debug("Could not close native stdout suppression fd", exc_info=True)
-        _set_win32_std_handle_to_current_fd(1)
+        set_win32_std_handle_to_current_fd(1)
         try:
             yield
         finally:
-            _restore_redirected_fd(1, old_stdout)
-            _set_win32_std_handle_to_current_fd(1)
-            _refresh_click_windows_console_stream(1)
+            restore_redirected_fd(1, old_stdout)
+            if old_win32_stdout is not None and old_win32_stdout != old_fd_stdout:
+                set_win32_std_handle(1, old_win32_stdout)
+                refresh_click_windows_console_stream(1, old_win32_stdout)
+            else:
+                set_win32_std_handle_to_current_fd(1)
+                refresh_click_windows_console_stream(1)
             try:
                 os.close(old_stdout)
             except OSError:
@@ -399,7 +407,7 @@ class WinMLSession:
                 session_option_entries=self._active_session_option_entries,
                 provider_options=self._provider_options,
             )
-            with _suppress_native_output(), suppress_native_warnings(preserve_unclassified=False):
+            with _suppress_native_output():
                 self._session = ort.InferenceSession(self._onnx_path, sess_options=so)
             self._running_model_path = self._onnx_path
             _dev = self._ep_device.device
@@ -434,10 +442,7 @@ class WinMLSession:
 
         if not self._persist_jit:
             try:
-                with (
-                    _suppress_native_output(),
-                    suppress_native_warnings(preserve_unclassified=False),
-                ):
+                with _suppress_native_output():
                     session = ort.InferenceSession(
                         str(self._onnx_path),
                         sess_options=_build_session_options(
@@ -519,10 +524,7 @@ class WinMLSession:
                 session_option_entries=self._active_session_option_entries,
                 provider_options=self._provider_options,
             )
-            with (
-                _suppress_native_output(compile_log),
-                suppress_native_warnings(preserve_unclassified=False),
-            ):
+            with _suppress_native_output(compile_log):
                 session = ort.InferenceSession(str(model_path), sess_options=runtime_so)
 
             actual_providers = session.get_providers()
@@ -889,8 +891,7 @@ class WinMLSession:
         )
         if had_baseline_session and _session_rebuilt:
             logger.info("auto-resetting compiled session to apply monitor session/provider options")
-            with suppress_native_warnings(preserve_unclassified=False):
-                self.reset()
+            self.reset()
 
         stats = PerfStats(warmup=warmup)
         restore_baseline = _session_rebuilt or getattr(
@@ -912,10 +913,7 @@ class WinMLSession:
                 return None
 
             try:
-                with (
-                    _suppress_native_output(),
-                    suppress_native_warnings(preserve_unclassified=False),
-                ):
+                with _suppress_native_output():
                     self._session = ort.InferenceSession(
                         active_model_path,
                         sess_options=_build_session_options(
@@ -950,10 +948,7 @@ class WinMLSession:
                     session_option_entries=desired_sess_entries,
                     provider_options=new_prov,
                 )
-                with (
-                    _suppress_native_output(),
-                    suppress_native_warnings(preserve_unclassified=False),
-                ):
+                with _suppress_native_output():
                     self._session = ort.InferenceSession(active_model_path, sess_options=so)
                 self._provider_options = new_prov
                 self._active_session_option_entries = desired_sess_entries
@@ -1005,8 +1000,7 @@ class WinMLSession:
             # C-2: for monitors that require session teardown, reset() BEFORE
             # monitor.__exit__ so the flushed data is available in __exit__.
             if getattr(effective_monitor, "requires_session_teardown", False):
-                with suppress_native_warnings(preserve_unclassified=False):
-                    self.reset()
+                self.reset()
 
             # Call monitor.__exit__ — propagate exc_info so monitor sees the
             # exception (exception transparency contract).
@@ -1309,7 +1303,7 @@ class WinMLSession:
                 self._session_options_factory,
             )
             sess_options.log_severity_level = 4  # Suppress ORT logs during probe
-            with _suppress_native_output(), suppress_native_warnings(preserve_unclassified=False):
+            with _suppress_native_output():
                 ort.InferenceSession(
                     test_model.SerializeToString(),
                     sess_options=sess_options,

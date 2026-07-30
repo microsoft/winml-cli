@@ -13,7 +13,6 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ...utils.native_stderr import suppress_native_warnings
 from ...utils.python_env import ensure_venv
 from .. import EPDeviceTarget, WinMLEPDevice, WinMLEPRegistry, resolve_device
 from ..session import SessionState, WinMLSession
@@ -256,8 +255,7 @@ class WinMLQairtSession(WinMLSession):
             None,
             self._session_options_factory,
         )
-        with suppress_native_warnings():
-            self._session = ort.InferenceSession(str(self._ctx_path), sess_options=sess_options)
+        self._session = ort.InferenceSession(str(self._ctx_path), sess_options=sess_options)
         # Record the loaded model only after the session is successfully
         # created, so a failed load leaves running_model_path unset.
         self._running_model_path = self._ctx_path
