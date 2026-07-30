@@ -423,6 +423,31 @@ _MASK_GENERATION_SCHEMA = TaskSchema(
     roles=("image-encoder", "prompt-decoder"),
 )
 
+_TEXT_GENERATION_SCHEMA = TaskSchema(
+    columns=(
+        SchemaItem(
+            "input_column",
+            "text field the perplexity corpus is concatenated from",
+            default="text",
+            remap_hint="<your_text_column>",
+        ),
+    ),
+    params=(
+        SchemaItem(
+            "num_tokens",
+            "total corpus tokens to score",
+            default="8192",
+            remap_hint="<int>",
+        ),
+        SchemaItem(
+            "seqlen",
+            "non-overlapping block length (tokens)",
+            default="2048",
+            remap_hint="<int>",
+        ),
+    ),
+)
+
 TASK_SCHEMAS: dict[str, TaskSchema] = {
     "image-classification": _IMAGE_CLASSIFICATION_SCHEMA,
     "text-classification": _TEXT_CLASSIFICATION_SCHEMA,
@@ -442,6 +467,7 @@ TASK_SCHEMAS: dict[str, TaskSchema] = {
     "depth-estimation": _DEPTH_ESTIMATION_SCHEMA,
     "keypoint-detection": _KEYPOINT_DETECTION_SCHEMA,
     "mask-generation": _MASK_GENERATION_SCHEMA,
+    "text-generation": _TEXT_GENERATION_SCHEMA,
 }
 
 

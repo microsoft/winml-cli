@@ -309,6 +309,7 @@ def eval(
     _resolve_reference(cfg)
     _apply_export_overrides(cfg, shape_config_path, input_specs, export_config, dynamic_axes)
     _resolve_device(cfg)
+    _resolve_genai_ep(ctx, cfg)
     _resolve_label_mapping(cfg)
     _run_dataset_script(cfg, trust_remote_code)
 
@@ -557,6 +558,36 @@ def _resolve_device(cfg: WinMLEvaluationConfig) -> None:
     console.print(f"[dim]Using device:[/dim] {resolved_target.device}")
 
 
+def _resolve_genai_ep(ctx: click.Context, cfg: WinMLEvaluationConfig) -> None:
+    """Turn an explicit ``--device`` into an EP override for a genai bundle.
+
+    A genai bundle mixes stages across EPs by design (its ``genai_config.json``
+    encodes the per-stage routing), so :class:`GenaiSession` only re-routes when
+    an EP override is present and otherwise leaves the bundle untouched. Passing
+    the device straight through would make ``--device`` a no-op: the whole point
+    of an explicit device is to force the pipeline onto it. Mirroring the
+    ``winml-genai`` perf precedence, an explicitly supplied ``--device`` is
+    resolved to a concrete EP (via the same device→EP path the ONNX runtime
+    uses), while the default (``auto``) respects the bundle's own routing.
+
+    A user-supplied ``--ep`` already forces the pipeline, so it wins untouched.
+    """
+    if cfg.ep is not None:
+        return
+    model_path = cfg.model_path
+    if not isinstance(model_path, str):
+        return
+    bundle = Path(model_path).expanduser()
+    if not (bundle.is_dir() and (bundle / "genai_config.json").is_file()):
+        return
+    if ctx.get_parameter_source("device") != click.core.ParameterSource.COMMANDLINE:
+        return
+
+    from ._perf_genai import resolve_genai_ep
+
+    cfg.ep = resolve_genai_ep(cfg.device)
+
+
 def _resolve_label_mapping(cfg: WinMLEvaluationConfig) -> None:
     """Load label-mapping JSON file (if any) into ``cfg.dataset.label_mapping``."""
     if cfg.dataset.label_mapping_file:
@@ -716,6 +747,16 @@ def _resolve_model_path(
                 "for preprocessor and config resolution."
             )
         return value, model_id
+
+    # An onnxruntime-genai bundle is a local *directory* (holding
+    # ``genai_config.json``), not a Hub model id. Route it to model_path so the
+    # genai loader reads the bundle from disk. Gate on the genai marker so a
+    # plain local HF checkpoint directory still flows through the model_id path
+    # (``from_pretrained``) as before.
+    expanded = Path(value).expanduser()
+    if expanded.is_dir() and (expanded / "genai_config.json").is_file():
+        return str(expanded), model_id
+
     if model_id is not None and model_id != value:
         raise click.UsageError(
             "Cannot pass both `-m <hf_id>` and `--model-id`. "

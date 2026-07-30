@@ -198,6 +198,7 @@ from .genai_bundle import (
     register_genai_bundle,
     resolve_genai_bundle,
 )
+from .genai_causal_lm import HFCausalLM, WinMLGenaiCausalLM
 from .image_classification import WinMLModelForImageClassification
 from .image_segmentation import (
     ImageSegmentationOutput,
@@ -223,11 +224,13 @@ __all__ = [
     "GenaiCompanionSpec",
     "GenaiTarget",
     "GenaiTransformerSpec",
+    "HFCausalLM",
     "ImageSegmentationOutput",
     "WinMLCache",
     "WinMLCompositeModel",
     "WinMLDecoderOnlyModel",
     "WinMLEncoderDecoderModel",
+    "WinMLGenaiCausalLM",
     "WinMLModelForDepthEstimation",
     "WinMLModelForFeatureExtraction",
     "WinMLModelForGenericTask",
