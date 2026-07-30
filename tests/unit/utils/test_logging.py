@@ -16,11 +16,13 @@ from winml.modelkit.utils.logging import (
     _NOISY_LIBRARY_LOGGERS,
     configure_logging,
     suppress_huggingface_warning_logs,
+    suppress_third_party_progress,
 )
 
 
 _MISSING = object()
 _HUGGINGFACE_VERBOSITY_ENVS = ("TRANSFORMERS_VERBOSITY", "HF_HUB_VERBOSITY")
+_PROGRESS_ENVS = ("HF_DATASETS_DISABLE_PROGRESS_BARS", "HF_HUB_DISABLE_PROGRESS_BARS")
 
 
 @pytest.fixture(autouse=True)
@@ -30,7 +32,10 @@ def _restore_logging_state():
     for name in (*_NOISY_LIBRARY_LOGGERS, *_HUGGINGFACE_WARNING_LOGGERS):
         logger = logging.getLogger(name)
         saved.append((logger, logger.level))
-    saved_env = {name: os.environ.get(name, _MISSING) for name in _HUGGINGFACE_VERBOSITY_ENVS}
+    saved_env = {
+        name: os.environ.get(name, _MISSING)
+        for name in (*_HUGGINGFACE_VERBOSITY_ENVS, *_PROGRESS_ENVS)
+    }
     yield
     for logger, level in saved:
         logger.setLevel(level)
@@ -254,6 +259,105 @@ def test_huggingface_warning_context_restores_imported_library_verbosity(monkeyp
     assert hub_state.level == logging.INFO
 
 
+def test_third_party_progress_suppression_disables_datasets_progress(monkeypatch):
+    datasets_state = _install_fake_datasets_progress(monkeypatch, enabled=True)
+
+    with suppress_third_party_progress(verbosity=0):
+        assert not datasets_state.enabled
+
+    assert datasets_state.enabled
+
+
+def test_third_party_progress_suppression_disables_huggingface_hub_progress(monkeypatch):
+    hub_state = _install_fake_huggingface_hub_progress(monkeypatch, disabled=False)
+
+    with suppress_third_party_progress(verbosity=0):
+        assert hub_state.disabled
+
+    assert not hub_state.disabled
+
+
+def test_third_party_progress_suppression_ignores_datasets_api_failures(monkeypatch):
+    package = ModuleType("datasets")
+    package.is_progress_bar_enabled = lambda: True
+
+    def fail_disable() -> None:
+        raise OSError(1, "Incorrect function")
+
+    package.disable_progress_bars = fail_disable
+    monkeypatch.setitem(sys.modules, "datasets", package)
+
+    with suppress_third_party_progress(verbosity=0):
+        assert os.environ["HF_DATASETS_DISABLE_PROGRESS_BARS"] == "1"
+
+
+def test_third_party_progress_suppression_restores_disabled_datasets_progress(monkeypatch):
+    datasets_state = _install_fake_datasets_progress(monkeypatch, enabled=False)
+
+    with suppress_third_party_progress(verbosity=0):
+        assert not datasets_state.enabled
+
+    assert not datasets_state.enabled
+
+
+def test_third_party_progress_suppression_sets_official_progress_envs(monkeypatch):
+    monkeypatch.delenv("HF_DATASETS_DISABLE_PROGRESS_BARS", raising=False)
+    monkeypatch.delenv("HF_HUB_DISABLE_PROGRESS_BARS", raising=False)
+
+    with suppress_third_party_progress(verbosity=0):
+        assert os.environ["HF_DATASETS_DISABLE_PROGRESS_BARS"] == "1"
+        assert os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] == "1"
+
+    assert "HF_DATASETS_DISABLE_PROGRESS_BARS" not in os.environ
+    assert "HF_HUB_DISABLE_PROGRESS_BARS" not in os.environ
+
+
+def test_third_party_progress_suppression_restores_existing_progress_envs(monkeypatch):
+    monkeypatch.setenv("HF_DATASETS_DISABLE_PROGRESS_BARS", "0")
+    monkeypatch.setenv("HF_HUB_DISABLE_PROGRESS_BARS", "0")
+
+    with suppress_third_party_progress(verbosity=0):
+        assert os.environ["HF_DATASETS_DISABLE_PROGRESS_BARS"] == "1"
+        assert os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] == "1"
+
+    assert os.environ["HF_DATASETS_DISABLE_PROGRESS_BARS"] == "0"
+    assert os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] == "0"
+
+
+@pytest.mark.parametrize("verbosity", [1, 2])
+def test_third_party_progress_suppression_preserves_progress_when_verbose(monkeypatch, verbosity):
+    datasets_state = _install_fake_datasets_progress(monkeypatch, enabled=True)
+    hub_state = _install_fake_huggingface_hub_progress(monkeypatch, disabled=False)
+    monkeypatch.delenv("HF_DATASETS_DISABLE_PROGRESS_BARS", raising=False)
+    monkeypatch.delenv("HF_HUB_DISABLE_PROGRESS_BARS", raising=False)
+
+    with suppress_third_party_progress(verbosity=verbosity):
+        assert datasets_state.enabled
+        assert not hub_state.disabled
+        assert "HF_DATASETS_DISABLE_PROGRESS_BARS" not in os.environ
+        assert "HF_HUB_DISABLE_PROGRESS_BARS" not in os.environ
+
+    assert datasets_state.enabled
+    assert not hub_state.disabled
+
+
+def test_show_all_warnings_env_preserves_third_party_progress(monkeypatch):
+    datasets_state = _install_fake_datasets_progress(monkeypatch, enabled=True)
+    hub_state = _install_fake_huggingface_hub_progress(monkeypatch, disabled=False)
+    monkeypatch.setenv("WINMLCLI_SHOW_ALL_WARNINGS", "1")
+    monkeypatch.delenv("HF_DATASETS_DISABLE_PROGRESS_BARS", raising=False)
+    monkeypatch.delenv("HF_HUB_DISABLE_PROGRESS_BARS", raising=False)
+
+    with suppress_third_party_progress(verbosity=0):
+        assert datasets_state.enabled
+        assert not hub_state.disabled
+        assert "HF_DATASETS_DISABLE_PROGRESS_BARS" not in os.environ
+        assert "HF_HUB_DISABLE_PROGRESS_BARS" not in os.environ
+
+    assert datasets_state.enabled
+    assert not hub_state.disabled
+
+
 def _install_fake_huggingface_logging(
     monkeypatch: pytest.MonkeyPatch,
     package_name: str,
@@ -271,4 +375,32 @@ def _install_fake_huggingface_logging(
 
     monkeypatch.setitem(sys.modules, package_name, package)
     monkeypatch.setitem(sys.modules, f"{package_name}.utils", utils)
+    return state
+
+
+def _install_fake_datasets_progress(
+    monkeypatch: pytest.MonkeyPatch, *, enabled: bool
+) -> SimpleNamespace:
+    state = SimpleNamespace(enabled=enabled)
+    package = ModuleType("datasets")
+    package.is_progress_bar_enabled = lambda: state.enabled
+    package.disable_progress_bars = lambda: setattr(state, "enabled", False)
+    package.enable_progress_bars = lambda: setattr(state, "enabled", True)
+
+    monkeypatch.setitem(sys.modules, "datasets", package)
+    return state
+
+
+def _install_fake_huggingface_hub_progress(
+    monkeypatch: pytest.MonkeyPatch, *, disabled: bool
+) -> SimpleNamespace:
+    state = SimpleNamespace(disabled=disabled)
+    package = ModuleType("huggingface_hub")
+    utils = ModuleType("huggingface_hub.utils")
+    utils.are_progress_bars_disabled = lambda: state.disabled
+    utils.disable_progress_bars = lambda: setattr(state, "disabled", True)
+    utils.enable_progress_bars = lambda: setattr(state, "disabled", False)
+    package.utils = utils
+    monkeypatch.setitem(sys.modules, "huggingface_hub", package)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.utils", utils)
     return state
