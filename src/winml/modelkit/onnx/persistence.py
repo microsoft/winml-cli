@@ -209,6 +209,7 @@ def save_onnx(
                 ext_path.unlink()
                 logger.debug("Removed existing external data sidecar: %s", ext_path)
             except FileNotFoundError:
+                # Another process removed the stale sidecar between exists() and unlink().
                 pass
             except PermissionError:
                 if location is not None:

@@ -24,6 +24,7 @@ import re
 import sys
 import threading
 from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from .._env import env_flag_enabled
@@ -72,13 +73,11 @@ def suppress_native_stderr(*, enabled: bool = True) -> Iterator[None]:
 
     with native_fd_redirect_lock():
         old_fd: int | None = None
-        devnull: int | None = None
         try:
             old_fd = os.dup(2)
-            devnull = os.open(os.devnull, os.O_WRONLY)
-            os.dup2(devnull, 2)
+            with Path(os.devnull).open("wb") as devnull:
+                os.dup2(devnull.fileno(), 2)
         except OSError:
-            _close_fd(devnull)
             _close_fd(old_fd)
             logger.debug(
                 "Native stderr suppression setup failed; leaving stderr unchanged",
@@ -87,7 +86,6 @@ def suppress_native_stderr(*, enabled: bool = True) -> Iterator[None]:
             yield
             return
 
-        _close_fd(devnull)
         _set_win32_std_handle_to_current_fd(2)
         try:
             yield
