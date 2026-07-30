@@ -73,7 +73,19 @@ class TestOptimizeCliInterface:
     def test_help_shows_required_flags(self, runner: CliRunner) -> None:
         result = runner.invoke(optimize, ["--help"])
         assert result.exit_code == 0
-        for flag in ("--model", "-m", "--output", "-o", "--config", "-c", "--verbose", "-v"):
+        for flag in (
+            "--model",
+            "-m",
+            "--output",
+            "-o",
+            "--ep",
+            "--device",
+            "-d",
+            "--config",
+            "-c",
+            "--verbose",
+            "-v",
+        ):
             assert flag in result.output, f"Missing flag {flag} in help"
 
     def test_model_required_without_list_flags(self, runner: CliRunner) -> None:
@@ -189,6 +201,56 @@ class TestOptimizeInvocation:
         assert result.exit_code == 0, result.output
         assert "10" in result.output
         assert "8" in result.output
+        assert "20.0% reduction" in result.output
+
+    def test_node_increase_reported(self, runner: CliRunner, tmp_path: Path) -> None:
+        model_file = tmp_path / "model.onnx"
+        model_file.touch()
+
+        original = _make_mock_model(num_nodes=10)
+        optimized = _make_mock_model(num_nodes=12)
+        with (
+            patch(_LOAD_ONNX, return_value=original),
+            patch(_SAVE_ONNX),
+            patch(_OPTIMIZER) as mock_opt_cls,
+        ):
+            mock_opt_cls.return_value.optimize.return_value = optimized
+            result = runner.invoke(optimize, ["-m", str(model_file)])
+
+        assert result.exit_code == 0, result.output
+        assert "20.0% increase" in result.output
+
+    def test_device_target_forwarded_to_optimizer(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        model_file = tmp_path / "model.onnx"
+        model_file.touch()
+        mock_model = _make_mock_model()
+        resolved_target = MagicMock(ep="DmlExecutionProvider", device="gpu")
+        resolved_ep_device = MagicMock()
+
+        with (
+            patch(_LOAD_ONNX, return_value=mock_model),
+            patch(_SAVE_ONNX),
+            patch(_OPTIMIZER) as mock_opt_cls,
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=resolved_target,
+            ) as mock_resolve,
+            patch("winml.modelkit.session.WinMLEPRegistry") as mock_registry_cls,
+        ):
+            mock_registry_cls.instance.return_value.auto_device.return_value = resolved_ep_device
+            mock_opt_cls.return_value.optimize.return_value = mock_model
+            result = runner.invoke(optimize, ["-m", str(model_file), "--device", "gpu"])
+
+        assert result.exit_code == 0, result.output
+        requested_target = mock_resolve.call_args.args[0]
+        assert requested_target.ep == "auto"
+        assert requested_target.device == "gpu"
+        assert (
+            mock_opt_cls.return_value.optimize.call_args.kwargs["ep_device"]
+            is resolved_ep_device
+        )
 
 
 # =============================================================================

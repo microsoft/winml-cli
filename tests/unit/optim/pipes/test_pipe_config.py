@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock, patch
 
 from winml.modelkit.optim.pipes import (
     GRAPH_CAPABILITIES,
@@ -130,6 +131,44 @@ class TestORTGraphPipeConfigInit:
 
         assert config_verbose.verbose is True
         assert config_quiet.verbose is False
+
+    def test_ep_device_parameter(self) -> None:
+        ep_device = MagicMock()
+
+        config = ORTGraphPipeConfig(ep_device=ep_device)
+
+        assert config.ep_device is ep_device
+
+    def test_build_config_forwards_ep_device(self) -> None:
+        ep_device = MagicMock()
+
+        config = ORTGraphPipe.build_config(ep_device=ep_device)
+
+        assert config.ep_device is ep_device
+
+    def test_process_binds_resolved_ep_device(self) -> None:
+        model = MagicMock()
+        optimized_model = MagicMock()
+        ep_device = MagicMock()
+        handle = ep_device.device.ort_handle
+        session_options = MagicMock()
+        config = ORTGraphPipeConfig(ep_device=ep_device)
+
+        with (
+            patch("onnxruntime.SessionOptions", return_value=session_options),
+            patch("onnxruntime.InferenceSession") as inference_session,
+            patch("winml.modelkit.optim.pipes.graph.save_onnx"),
+            patch(
+                "winml.modelkit.optim.pipes.graph.load_onnx",
+                return_value=optimized_model,
+            ),
+            patch("winml.modelkit.session.lookup_device_spec", return_value=None),
+        ):
+            result = ORTGraphPipe().process(model, config)
+
+        assert result is optimized_model
+        session_options.add_provider_for_devices.assert_called_once_with([handle], {})
+        assert "providers" not in inference_session.call_args.kwargs
 
     def test_always_disabled_optimizers(self) -> None:
         """AttentionFusion and EmbedLayerNormFusion are ALWAYS disabled.

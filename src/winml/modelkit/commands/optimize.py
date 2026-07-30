@@ -290,6 +290,18 @@ def _run_check_optim(model: Path, all_caps: dict[str, Any], verbose: bool) -> No
 )
 @cli_utils.output_option("Output path (default: {input}_opt.onnx)")
 @cli_utils.overwrite_option()
+@cli_utils.ep_option(
+    required=False,
+    default=None,
+    include_auto=True,
+    optional_message="If omitted with --device, selects a compatible EP automatically.",
+)
+@cli_utils.device_option(
+    required=False,
+    default=None,
+    include_auto=True,
+    optional_message="If both --ep and --device are omitted, preserves CPU optimization.",
+)
 @click.option(
     "--config",
     "-c",
@@ -309,6 +321,8 @@ def optimize(
     model: Path | None,
     output: Path | None,
     overwrite: bool,
+    ep: str | None,
+    device: str | None,
     config: Path | None,
     verbose: int,
     quiet: bool,
@@ -529,6 +543,36 @@ def optimize(
     if verbose:
         optimizer_kwargs["verbose"] = True
 
+    if ep is not None or device is not None:
+        from ..session import (
+            DeviceNotFound,
+            EPDeviceTarget,
+            UnknownListingPick,
+            WinMLEPNotDiscovered,
+            WinMLEPRegistrationFailed,
+            WinMLEPRegistry,
+            resolve_device,
+        )
+
+        try:
+            target = resolve_device(
+                EPDeviceTarget(ep=ep or "auto", device=(device or "auto").lower())
+            )
+            ep_device = WinMLEPRegistry.instance().auto_device(target)
+        except (
+            DeviceNotFound,
+            RuntimeError,
+            UnknownListingPick,
+            ValueError,
+            WinMLEPNotDiscovered,
+            WinMLEPRegistrationFailed,
+        ) as e:
+            raise click.UsageError(f"Could not resolve optimization target: {e}") from e
+        optimizer_kwargs["ep_device"] = ep_device
+        console.print(
+            f"[bold blue]Target:[/bold blue] {target.ep} on {target.device.upper()}"
+        )
+
     try:
         console.print("\n[bold]Loading model...[/bold]")
         onnx_model = load_onnx(model)
@@ -543,10 +587,21 @@ def optimize(
 
         # Report results
         optimized_nodes = len(optimized_model.graph.node)
-        reduction = (1 - optimized_nodes / original_nodes) * 100 if original_nodes else 0
+        node_change = (
+            abs(optimized_nodes - original_nodes) / original_nodes * 100 if original_nodes else 0
+        )
 
         console.print(f"\n[bold green]Success![/bold green] Model optimized: {output}")
-        node_info = f"Nodes: {original_nodes} -> {optimized_nodes} ({reduction:.1f}% reduction)"
+        if optimized_nodes < original_nodes:
+            change_label = "reduction"
+        elif optimized_nodes > original_nodes:
+            change_label = "increase"
+        else:
+            change_label = "change"
+        node_info = (
+            f"Nodes: {original_nodes} -> {optimized_nodes} "
+            f"({node_change:.1f}% {change_label})"
+        )
         console.print(f"[dim]{node_info}[/dim]")
 
     except Exception as e:

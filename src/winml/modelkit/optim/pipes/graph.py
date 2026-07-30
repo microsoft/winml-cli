@@ -26,6 +26,8 @@ from .base import BasePipe, OptimizationError, PipeConfig, caps_dict
 if TYPE_CHECKING:
     import onnx
 
+    from ...session import WinMLEPDevice
+
 # Import all capability modules to build capabilities dict
 from ..capabilities import (
     activation,
@@ -146,12 +148,15 @@ class ORTGraphPipeConfig(PipeConfig):
         self,
         enabled: list[str] | None = None,
         verbose: bool = False,
+        ep_device: WinMLEPDevice | None = None,
     ) -> None:
         """Initialize with all advanced optimizers disabled, enable specified ones.
 
         Args:
             enabled: List of python_names to enable (e.g., ["gelu_fusion"])
             verbose: Enable verbose logging
+            ep_device: Resolved EP/device target for provider-aware optimization.
+                If omitted, optimization uses CPUExecutionProvider.
 
         Note:
             Only default=False capabilities are managed here. Basic ORT
@@ -159,6 +164,7 @@ class ORTGraphPipeConfig(PipeConfig):
         """
         self.optimization_level = 2  # Finalized at Level 2
         self.verbose = verbose
+        self.ep_device = ep_device
 
         # Special flag for GeluApproximation (requires separate session config)
         # ORT docs: "GeluApproximation has side effects which may change results.
@@ -356,7 +362,11 @@ class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
                 and cap.python_name not in explicitly_disabled
             ]
 
-        config = ORTGraphPipeConfig(enabled=enabled, verbose=verbose)
+        config = ORTGraphPipeConfig(
+            enabled=enabled,
+            verbose=verbose,
+            ep_device=kwargs.get("ep_device"),
+        )
 
         # Explicitly disable capabilities that user set to False
         # This handles default=True caps like constant_folding
@@ -456,7 +466,12 @@ class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
             "  graph_optimization_level: %d (ORT_ENABLE_EXTENDED)", config.optimization_level
         )
         logger.debug("  optimized_model_filepath: %s", output_file)
-        logger.debug("  providers: ['CPUExecutionProvider']")
+        provider = (
+            config.ep_device.device.ep_name
+            if config.ep_device is not None
+            else "CPUExecutionProvider"
+        )
+        logger.debug("  provider: %s", provider)
 
         # Session config entries
         logger.debug("[Session Config Entries]")
@@ -562,15 +577,31 @@ class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
                     "1",
                 )
 
+            if config.ep_device is not None:
+                from ...session import lookup_device_spec
+
+                spec = lookup_device_spec(
+                    config.ep_device.device.ep_name,
+                    config.ep_device.device.device_type.lower(),
+                )
+                provider_options = dict(spec.default_provider_options) if spec else {}
+                sess_opts.add_provider_for_devices(
+                    [config.ep_device.device.ort_handle],
+                    provider_options,
+                )
+
             # Verbose output for process
             if config.verbose:
                 self._log_process_verbose(config, model, input_file, output_file, disable_list)
 
             # Create session to trigger optimization
             try:
-                _ = ort.InferenceSession(
-                    str(input_file), sess_opts, providers=["CPUExecutionProvider"]
-                )
+                if config.ep_device is None:
+                    _ = ort.InferenceSession(
+                        str(input_file), sess_opts, providers=["CPUExecutionProvider"]
+                    )
+                else:
+                    _ = ort.InferenceSession(str(input_file), sess_opts)
             except Exception as e:
                 raise OptimizationError(
                     f"ONNX Runtime optimization failed: {e}",
