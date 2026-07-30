@@ -382,9 +382,6 @@ class SafeLive(Live):
         super().update(renderable, refresh=refresh)
 
 
-_SafeLive = SafeLive
-
-
 class StageLive:
     """Live region for a single build stage.
 

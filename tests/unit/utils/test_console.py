@@ -82,6 +82,10 @@ def test_safe_live_ignores_expected_windows_console_errors(monkeypatch):
     console_module.SafeLive("x").start()
 
 
+def test_safe_live_has_no_private_alias():
+    assert not hasattr(console_module, "_SafeLive")
+
+
 def test_safe_live_reraises_non_console_oserror_from_wrapped_methods(monkeypatch):
     monkeypatch.setattr(console_module.sys, "platform", "win32")
 
