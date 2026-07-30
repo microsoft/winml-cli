@@ -2,17 +2,13 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Unit tests for the genai-bundle orchestrator (``build_genai_bundle``).
-
-Wiring-only: ``WinMLAutoModel.from_pretrained`` and the recipe assembler are
-stubbed so no model is downloaded.  The tests verify the orchestrator maps
-recipe data + caller overrides onto the component builders and the assembler,
-and that it stays architecture-agnostic (a synthetic, non-Qwen recipe is used).
-"""
+"""Unit tests for the genai-bundle orchestrator (``build_genai_bundle``)."""
 
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from typing import ClassVar
 
 import pytest
 from onnx import TensorProto, helper, save
@@ -33,12 +29,6 @@ def _write_tiny_onnx(path: Path) -> None:
     node = helper.make_node("Relu", ["x"], ["y"])
     graph = helper.make_graph([node], "g", [x], [y])
     save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)]), str(path))
-
-
-class _StubModel:
-    def __init__(self, onnx_path: Path, sub_models: dict | None = None) -> None:
-        self.onnx_path = str(onnx_path)
-        self.sub_models = sub_models or {}
 
 
 def _dummy_pass(model):
@@ -76,6 +66,14 @@ def _by_model_type(calls: list[dict], model_type: str) -> dict:
     return next(c for c in calls if c.get("model_type") == model_type)
 
 
+def _by_model_type_and_task(calls: list[dict], model_type: str, task: str) -> dict:
+    return next(c for c in calls if c.get("model_type") == model_type and c.get("task") == task)
+
+
+def _by_transformer_task(calls: list[dict], task: str) -> dict:
+    return _by_model_type_and_task(calls, "T-transformer", task)
+
+
 @pytest.fixture
 def harness(tmp_path, monkeypatch):
     onnx_file = tmp_path / "tiny.onnx"
@@ -83,16 +81,32 @@ def harness(tmp_path, monkeypatch):
 
     calls: list[dict] = []
 
-    def fake_from_pretrained(model_id, **kwargs):
+    def fake_build_artifact(model_id, **kwargs):
         calls.append({"model_id": model_id, **kwargs})
-        if kwargs.get("model_type") == "T-transformer":
-            return _StubModel(
-                onnx_file,
-                sub_models={"ctx_sub": _StubModel(onnx_file), "iter_sub": _StubModel(onnx_file)},
-            )
-        return _StubModel(onnx_file)
+        return SimpleNamespace(result=SimpleNamespace(final_onnx_path=onnx_file))
 
-    monkeypatch.setattr(WinMLAutoModel, "from_pretrained", staticmethod(fake_from_pretrained))
+    monkeypatch.setattr(
+        WinMLAutoModel, "_build_pretrained_artifact", staticmethod(fake_build_artifact)
+    )
+    monkeypatch.setattr(
+        WinMLAutoModel,
+        "from_pretrained",
+        staticmethod(lambda *_args, **_kwargs: pytest.fail("runtime wrapper was created")),
+    )
+
+    import winml.modelkit.models.winml.composite_model as cm_mod
+
+    class _FakeTransformerComposite:
+        _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {
+            "ctx_sub": "feature-extraction",
+            "iter_sub": "text2text-generation",
+        }
+
+    monkeypatch.setattr(
+        cm_mod,
+        "COMPOSITE_MODEL_REGISTRY",
+        {("T-transformer", "text-generation"): _FakeTransformerComposite},
+    )
 
     assemble_kwargs: dict = {}
 
@@ -126,19 +140,26 @@ def test_transformer_built_with_recipe_defaults(harness):
     out = harness["tmp_path"] / "bundle"
     build_genai_bundle("some/model", out, harness["recipe"], ep="qnn", device="npu")
 
-    t = _by_model_type(harness["calls"], "T-transformer")
-    assert t["task"] == "text-generation"
-    assert t["device"] == "npu"
-    assert t["precision"] == "w8a16"
-    assert t["ep"] == "QNNExecutionProvider"  # normalized from short "qnn"
-    assert t["sub_model_kwargs"]["ctx_sub"]["shape_config"] == {
+    ctx = _by_transformer_task(harness["calls"], "feature-extraction")
+    it = _by_transformer_task(harness["calls"], "text2text-generation")
+    for transformer_call in (ctx, it):
+        assert transformer_call["device"] == "npu"
+        assert transformer_call["precision"] == "w8a16"
+        assert transformer_call["ep"] == "QNNExecutionProvider"
+    assert ctx["shape_config"] == {
         "max_cache_len": 2048,
         "seq_len": 64,
     }
-    assert t["sub_model_kwargs"]["iter_sub"]["shape_config"] == {
+    assert it["shape_config"] == {
         "max_cache_len": 2048,
         "seq_len": 1,
     }
+
+
+def test_components_use_artifact_builds_without_runtime_wrappers(harness):
+    build_genai_bundle("m", harness["tmp_path"] / "b", harness["recipe"])
+
+    assert all("build_only" not in call for call in harness["calls"])
 
 
 def test_companions_built_on_cpu(harness):
@@ -173,7 +194,8 @@ def test_precision_override_only_affects_transformer(harness):
     # ``T-transformer`` has no registered quant finalizer, so a precision
     # override is honored (forwarded to the transformer build).
     build_genai_bundle("m", harness["tmp_path"] / "b", harness["recipe"], precision="w4a16")
-    assert _by_model_type(harness["calls"], "T-transformer")["precision"] == "w4a16"
+    assert _by_transformer_task(harness["calls"], "feature-extraction")["precision"] == "w4a16"
+    assert _by_transformer_task(harness["calls"], "text2text-generation")["precision"] == "w4a16"
     assert _by_model_type(harness["calls"], "T-emb")["precision"] == "fp32"
     assert _by_model_type(harness["calls"], "T-lmh")["precision"] == "w4a32"
 
@@ -201,7 +223,8 @@ def test_matching_precision_override_allowed_when_finalizer_pinned(harness, monk
 
     monkeypatch.setattr(gb, "has_quant_finalizer", lambda model_type: True)
     build_genai_bundle("m", harness["tmp_path"] / "b", harness["recipe"], precision="w8a16")
-    assert _by_model_type(harness["calls"], "T-transformer")["precision"] == "w8a16"
+    assert _by_transformer_task(harness["calls"], "feature-extraction")["precision"] == "w8a16"
+    assert _by_transformer_task(harness["calls"], "text2text-generation")["precision"] == "w8a16"
 
 
 def test_no_precision_override_uses_recipe_default_when_finalizer_pinned(harness, monkeypatch):
@@ -210,7 +233,8 @@ def test_no_precision_override_uses_recipe_default_when_finalizer_pinned(harness
 
     monkeypatch.setattr(gb, "has_quant_finalizer", lambda model_type: True)
     build_genai_bundle("m", harness["tmp_path"] / "b", harness["recipe"])
-    assert _by_model_type(harness["calls"], "T-transformer")["precision"] == "w8a16"
+    assert _by_transformer_task(harness["calls"], "feature-extraction")["precision"] == "w8a16"
+    assert _by_transformer_task(harness["calls"], "text2text-generation")["precision"] == "w8a16"
 
 
 def test_auto_precision_override_allowed_when_finalizer_pinned(harness, monkeypatch):
@@ -225,7 +249,8 @@ def test_auto_precision_override_allowed_when_finalizer_pinned(harness, monkeypa
 
     monkeypatch.setattr(gb, "has_quant_finalizer", lambda model_type: True)
     build_genai_bundle("m", harness["tmp_path"] / "b", harness["recipe"], precision="auto")
-    assert _by_model_type(harness["calls"], "T-transformer")["precision"] == "w8a16"
+    assert _by_transformer_task(harness["calls"], "feature-extraction")["precision"] == "w8a16"
+    assert _by_transformer_task(harness["calls"], "text2text-generation")["precision"] == "w8a16"
 
 
 def test_case_variant_precision_override_allowed_when_finalizer_pinned(harness, monkeypatch):
@@ -239,19 +264,21 @@ def test_case_variant_precision_override_allowed_when_finalizer_pinned(harness, 
 
     monkeypatch.setattr(gb, "has_quant_finalizer", lambda model_type: True)
     build_genai_bundle("m", harness["tmp_path"] / "b", harness["recipe"], precision="W8A16")
-    assert _by_model_type(harness["calls"], "T-transformer")["precision"] == "w8a16"
+    assert _by_transformer_task(harness["calls"], "feature-extraction")["precision"] == "w8a16"
+    assert _by_transformer_task(harness["calls"], "text2text-generation")["precision"] == "w8a16"
 
 
 def test_length_overrides_flow_to_shapes_and_assembler(harness):
     build_genai_bundle(
         "m", harness["tmp_path"] / "b", harness["recipe"], max_cache_len=1024, prefill_seq_len=32
     )
-    t = _by_model_type(harness["calls"], "T-transformer")
-    assert t["sub_model_kwargs"]["ctx_sub"]["shape_config"] == {
+    ctx = _by_transformer_task(harness["calls"], "feature-extraction")
+    it = _by_transformer_task(harness["calls"], "text2text-generation")
+    assert ctx["shape_config"] == {
         "max_cache_len": 1024,
         "seq_len": 32,
     }
-    assert t["sub_model_kwargs"]["iter_sub"]["shape_config"] == {
+    assert it["shape_config"] == {
         "max_cache_len": 1024,
         "seq_len": 1,
     }
