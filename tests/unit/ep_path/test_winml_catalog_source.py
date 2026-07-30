@@ -15,8 +15,8 @@ The ONLY mocked surface is the ``windowsml`` Python package itself
 Also covers:
     - The default EP source list includes the 5 ``WinMLCatalogSource`` rows
       with the canonical EP names from the design doc.
-    - ``_get_catalog()`` does not register native catalog cleanup at process
-      exit.
+    - ``_get_catalog()`` disarms the native catalog handle at process exit
+      without calling into native release during interpreter shutdown.
 """
 
 from __future__ import annotations
@@ -90,6 +90,7 @@ class _FakeCatalog:
         self._providers = providers
         self._find_raises = find_raises
         self.closed = False
+        self._handle: object | None = object()
 
     def find_all_providers(self) -> list[_FakeProvider]:
         if self._find_raises is not None:
@@ -548,9 +549,9 @@ def test_is_ready(value: Any, expected: bool) -> None:
 
 
 class TestCatalogLifecycle:
-    """The catalog singleton avoids process-exit native cleanup hooks."""
+    """The catalog singleton avoids process-exit native release calls."""
 
-    def test_get_catalog_does_not_register_atexit_cleanup(
+    def test_get_catalog_registers_atexit_handle_disarm_without_close(
         self,
         reset_catalog_singleton: None,
         monkeypatch: pytest.MonkeyPatch,
@@ -586,4 +587,12 @@ class TestCatalogLifecycle:
         assert c1 is not None
         assert c2 is c1
         assert c3 is c1
-        assert registered == []
+        assert len(registered) == 1
+
+        cleanup, args, kwargs = registered[0]
+        assert args == (catalog,)
+        assert kwargs == {}
+        cleanup(*args, **kwargs)
+
+        assert catalog._handle is None
+        assert catalog.closed is False

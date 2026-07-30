@@ -40,6 +40,7 @@ Public API:
 
 from __future__ import annotations
 
+import atexit
 import dataclasses
 import functools
 import logging
@@ -716,6 +717,14 @@ class DirectorySource(EPSource):
 _winml_catalog_warned_keys: set[str] = set()
 
 
+def _disarm_winml_catalog(catalog: Any) -> None:
+    """Prevent ``EpCatalog.__del__`` from releasing native state during shutdown."""
+    if not hasattr(catalog, "_handle"):
+        logger.debug("Windows ML catalog cleanup skipped: catalog has no _handle")
+        return
+    catalog._handle = None
+
+
 @functools.cache
 def _get_catalog() -> Any | None:
     """Return the cached ``windowsml.EpCatalog`` or ``None``.
@@ -747,6 +756,7 @@ def _get_catalog() -> Any | None:
         logger.warning("WinMLCatalogSource: EpCatalog() failed: %s", e)
         return None
 
+    atexit.register(_disarm_winml_catalog, catalog)
     return catalog
 
 
