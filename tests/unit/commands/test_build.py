@@ -1157,6 +1157,7 @@ class TestBuildEpDevice:
             assert result.exit_code == 0, result.output
             assert mock_gen.call_args.kwargs["device"] == "auto"
             assert mock_gen.call_args.kwargs["ep"] == "qnn"
+            assert mock_gen.call_args.kwargs["export_policy_target"] == ("auto", "qnn")
 
     def test_auto_generated_config_uses_portable_export_policy_when_no_target_supplied(
         self,
@@ -1186,8 +1187,9 @@ class TestBuildEpDevice:
             )
 
             assert result.exit_code == 0, result.output
-            assert mock_gen.call_args.kwargs["device"] == "auto"
-            assert mock_gen.call_args.kwargs["ep"] is None
+            assert mock_gen.call_args.kwargs["device"] == "npu"
+            assert mock_gen.call_args.kwargs["ep"] == "QNNExecutionProvider"
+            assert mock_gen.call_args.kwargs["export_policy_target"] == ("auto", None)
 
     def test_input_specs_patches_config_file_inputs(
         self,
@@ -2048,6 +2050,33 @@ class TestBuildEpResolution:
             )
         assert result.exit_code == 0, result.output
         assert mock_gen.call_args.kwargs["ep"] == "openvino"
+
+    def test_auto_config_uses_resolved_runtime_target_for_build_policy(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ) -> None:
+        """Auto-generated configs use runtime target while export policy keeps request."""
+        fake_cfg = MagicMock()
+        fake_cfg.compile = None
+        fake_cfg.validate.return_value = None
+        fake_cfg.loader = MagicMock()
+        fake_cfg.loader.task = "image-classification"
+        resolved_target = EPDeviceTarget(ep="DmlExecutionProvider", device="gpu")
+
+        with (
+            patch("winml.modelkit.session.resolve_device", return_value=resolved_target),
+            patch("winml.modelkit.config.generate_build_config", return_value=fake_cfg) as mock_gen,
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = _invoke(["-m", "microsoft/resnet-50", "-o", str(tmp_path / "out")])
+
+        assert result.exit_code == 0, result.output
+        kwargs = mock_gen.call_args.kwargs
+        assert kwargs["device"] == "gpu"
+        assert kwargs["ep"] == "DmlExecutionProvider"
+        assert kwargs["export_policy_target"] == ("auto", None)
 
     def test_export_overrides_forwarded_to_generate_build_config(
         self, tmp_path: Path, mock_run_single_build: MagicMock

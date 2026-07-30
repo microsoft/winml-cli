@@ -943,6 +943,21 @@ def build(
                 if model_input.kind is ModelInputKind.INVALID:
                     raise click.UsageError(model_input.error or f"Invalid model input: {model}")
 
+        request_device = device
+        request_ep_value = ep_value
+        runtime_device = request_device
+        runtime_ep_value = request_ep_value
+        if runtime_ep_value is None:
+            from ..session import EPDeviceTarget, resolve_device
+
+            try:
+                resolved_target = resolve_device(EPDeviceTarget(ep="auto", device=runtime_device))
+            except ValueError as e:
+                raise click.UsageError(str(e)) from e
+            runtime_device = resolved_target.device
+            runtime_ep_value = cast("EPNameOrAlias", resolved_target.ep)
+            logger.info("Auto-resolved device=%s, EP=%s", runtime_device, runtime_ep_value)
+
         # Load or auto-generate config
         if config_file is not None:
             config_or_configs = _load_config(
@@ -1001,17 +1016,18 @@ def build(
                     )
                 config_or_configs = generate_build_config(
                     onnx_path=model,
-                    device=device,
+                    device=runtime_device,
                     precision=precision,
-                    ep=ep_value,
+                    ep=runtime_ep_value,
                 )
             else:
                 config_or_configs = generate_build_config(
                     model,
                     trust_remote_code=trust_remote_code,
-                    device=device,
+                    device=runtime_device,
                     precision=precision,
-                    ep=ep_value,
+                    ep=runtime_ep_value,
+                    export_policy_target=(request_device, request_ep_value),
                     shape_config=shape_overrides,
                     override={"export": export_overrides} if export_overrides else None,
                 )
@@ -1023,19 +1039,6 @@ def build(
                 no_compile = True
             if no_compile:
                 config_or_configs.compile = None
-
-        runtime_device = device
-        runtime_ep_value = ep_value
-        if runtime_ep_value is None:
-            from ..session import EPDeviceTarget, resolve_device
-
-            try:
-                resolved_target = resolve_device(EPDeviceTarget(ep="auto", device=runtime_device))
-            except ValueError as e:
-                raise click.UsageError(str(e)) from e
-            runtime_device = resolved_target.device
-            runtime_ep_value = cast("EPNameOrAlias", resolved_target.ep)
-            logger.info("Auto-resolved device=%s, EP=%s", runtime_device, runtime_ep_value)
 
         # If --device or --precision was explicitly provided, patch quant/compile
         # to honor the requested policy. fp16/fp32 clear quant; npu/int8 etc set it.

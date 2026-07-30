@@ -129,15 +129,13 @@ def _load_export_compatibility_rules() -> tuple[ExportCompatibilityRule, ...]:
 
 
 def resolve_export_compatibility(
-    targets: Sequence[object] | None = None,
+    targets: Sequence[ExportPolicyTarget] | None = None,
     *,
     rules: Sequence[ExportCompatibilityRule] | None = None,
 ) -> ExportCompatibilityConfig:
     """Resolve export compatibility for explicit targets or the portable catalog."""
     rules = load_export_compatibility_rules() if rules is None else rules
-    resolved_targets = (
-        _catalog_targets() if targets is None else tuple(_coerce_target(t) for t in targets)
-    )
+    resolved_targets = _catalog_targets() if targets is None else tuple(targets)
 
     transformers_attention: str | None = None
     transformers_attention_source: str | None = None
@@ -166,19 +164,6 @@ def _catalog_targets() -> tuple[ExportPolicyTarget, ...]:
     from ..session.ep_device import EP_DEVICE_SPECS
 
     return tuple(ExportPolicyTarget(ep=spec.ep, device=spec.device) for spec in EP_DEVICE_SPECS)
-
-
-def _coerce_target(target: object) -> ExportPolicyTarget:
-    if isinstance(target, ExportPolicyTarget):
-        return target
-    ep = getattr(target, "ep", None)
-    device = getattr(target, "device", None)
-    if not isinstance(ep, str) or not isinstance(device, str):
-        raise TypeError(
-            "export policy target must expose string 'ep' and 'device' attributes, "
-            f"got {type(target).__name__}"
-        )
-    return ExportPolicyTarget(ep=ep, device=device)
 
 
 def _rule_from_dict(data: object, *, index: int) -> ExportCompatibilityRule:

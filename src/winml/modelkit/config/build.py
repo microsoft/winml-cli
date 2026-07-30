@@ -1181,6 +1181,7 @@ def generate_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    export_policy_target: ExportPolicyTargetRequest | None = None,
     onnx_path: str | Path | None = None,
 ) -> WinMLBuildConfig: ...
 
@@ -1200,6 +1201,7 @@ def generate_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    export_policy_target: ExportPolicyTargetRequest | None = None,
     onnx_path: str | Path | None = None,
 ) -> list[WinMLBuildConfig]: ...
 
@@ -1218,6 +1220,7 @@ def generate_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    export_policy_target: ExportPolicyTargetRequest | None = None,
     onnx_path: str | Path | None = None,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Generate WinMLBuildConfig by orchestrating existing modules.
@@ -1242,6 +1245,8 @@ def generate_build_config(
             "int16", or "w{x}a{y}" e.g. "w8a16").
         trust_remote_code: Allow running custom code from model repository.
         ep: Explicit execution provider override.
+        export_policy_target: Optional ``(device, ep)`` request used only for
+            export compatibility resolution on HuggingFace exports.
         onnx_path: Path to a pre-exported ONNX file (Scenario D).
 
     Returns:
@@ -1274,6 +1279,7 @@ def generate_build_config(
         precision=precision,
         trust_remote_code=trust_remote_code,
         ep=ep,
+        export_policy_target=export_policy_target,
         policy_overrides_config=True,
     )
 
