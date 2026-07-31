@@ -150,6 +150,7 @@ class WinMLAutoModel:
         skip_build: bool = False,
         no_compile: bool = False,
         provider_options: dict[str, str] | None = None,
+        compile_provider_options: dict[str, str] | None = None,
         session_options: Callable[[], Any] | None = None,
         hf_config: PretrainedConfig | None = None,
         **kwargs: Any,
@@ -202,6 +203,7 @@ class WinMLAutoModel:
                 skip_build=skip_build,
                 no_compile=no_compile,
                 provider_options=provider_options,
+                compile_provider_options=compile_provider_options,
                 session_options=session_options,
                 **kwargs,
             )
@@ -226,6 +228,13 @@ class WinMLAutoModel:
             override=config,
             no_compile=no_compile,
         )
+        if compile_provider_options:
+            if config.compile is None:
+                raise ValueError("compile_provider_options requires compilation to be enabled.")
+            config.compile.ep_config.provider_options = {
+                **config.compile.ep_config.provider_options,
+                **compile_provider_options,
+            }
 
         # Resolve task from explicit arg or generated config
         resolved_task = task or (config.loader.task if config.loader else None)

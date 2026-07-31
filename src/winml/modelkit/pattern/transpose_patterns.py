@@ -338,7 +338,11 @@ class _ReshapeTransposeReshapeInputGeneratorBase(PatternInputGenerator):
     def get_input_and_infinite_attribute_combinations(
         self,
     ) -> list[dict[str, Any]]:
-        """Generate input and attribute combinations for testing."""
+        """Generate representative input/attribute combinations for testing.
+
+        The combinations intentionally cover both 3-D and 4-D output shapes,
+        which are commonly seen in real RTR subgraphs.
+        """
         return [
             {
                 "data": InputShapeConstraint((1, 256, 256, 96)),
@@ -349,8 +353,130 @@ class _ReshapeTransposeReshapeInputGeneratorBase(PatternInputGenerator):
             {
                 "data": InputShapeConstraint((1, 256, 256, 96)),
                 "transpose_shape": (1, 32, 8, 32, 8, 96),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (1024, 64, 96),
+            },
+            {
+                "data": InputShapeConstraint((1, 256, 256, 96)),
+                "transpose_shape": (1, 32, 8, 32, 8, 96),
                 "perm": (5, 4, 3, 2, 1, 0),
                 "output_shape": (1024, 8, 8, 96),
+            },
+            {
+                "data": InputShapeConstraint((1, 256, 256, 96)),
+                "transpose_shape": (1, 32, 8, 32, 8, 96),
+                "perm": (5, 4, 3, 2, 1, 0),
+                "output_shape": (1, 65536, 96),
+            },
+            {
+                "data": InputShapeConstraint((1, 224, 168, 128)),
+                "transpose_shape": (1, 32, 7, 24, 7, 128),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (768, 49, 128),
+            },
+            {
+                "data": InputShapeConstraint((1, 224, 168, 128)),
+                "transpose_shape": (1, 32, 24, 7, 7, 128),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (-1, 224, 168, 128),
+            },
+            {
+                "data": InputShapeConstraint((1, 192, 49, 256)),
+                "transpose_shape": (1, 16, 7, 12, 7, 256),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (192, 49, 256),
+            },
+            {
+                # 256-channel 4-D output shape seen in decoder-style RTR blocks.
+                "data": InputShapeConstraint((1, 192, 49, 256)),
+                "transpose_shape": (1, 16, 7, 12, 7, 256),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (192, 7, 7, 256),
+            },
+            {
+                # Larger hidden-size coverage (transpose_last_dim=512), 4-D output.
+                "data": InputShapeConstraint((1, 128, 128, 512)),
+                "transpose_shape": (1, 16, 8, 16, 8, 512),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (256, 8, 8, 512),
+            },
+            {
+                # Larger hidden-size coverage (transpose_last_dim=512), 3-D output.
+                "data": InputShapeConstraint((1, 128, 128, 512)),
+                "transpose_shape": (1, 16, 8, 16, 8, 512),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (256, 64, 512),
+            },
+            {
+                # Very large hidden-size coverage (transpose_last_dim=1024), 4-D output.
+                "data": InputShapeConstraint((1, 64, 64, 1024)),
+                "transpose_shape": (1, 8, 8, 8, 8, 1024),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (64, 8, 8, 1024),
+            },
+            {
+                # Very large hidden-size coverage (transpose_last_dim=1024), 3-D output.
+                "data": InputShapeConstraint((1, 64, 64, 1024)),
+                "transpose_shape": (1, 8, 8, 8, 8, 1024),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (64, 64, 1024),
+            },
+            {
+                # Swin-like hidden size coverage (transpose_last_dim=768), 3-D output.
+                "data": InputShapeConstraint((1, 64, 64, 768)),
+                "transpose_shape": (1, 16, 4, 16, 4, 768),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (256, 16, 768),
+            },
+            {
+                # Swin-like hidden size coverage (transpose_last_dim=768), 4-D output.
+                "data": InputShapeConstraint((1, 64, 64, 768)),
+                "transpose_shape": (1, 16, 4, 16, 4, 768),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (256, 4, 4, 768),
+            },
+            {
+                # Medium hidden size coverage (transpose_last_dim=384), 3-D output.
+                "data": InputShapeConstraint((1, 64, 64, 384)),
+                "transpose_shape": (1, 16, 4, 16, 4, 384),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (256, 16, 384),
+            },
+            {
+                # Medium hidden size coverage (transpose_last_dim=384), 4-D output.
+                "data": InputShapeConstraint((1, 64, 64, 384)),
+                "transpose_shape": (1, 16, 4, 16, 4, 384),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (256, 4, 4, 384),
+            },
+            {
+                # Compact hidden size coverage (transpose_last_dim=192), 3-D output.
+                "data": InputShapeConstraint((1, 64, 64, 192)),
+                "transpose_shape": (1, 16, 4, 16, 4, 192),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (256, 16, 192),
+            },
+            {
+                # Compact hidden size coverage (transpose_last_dim=192), 4-D output.
+                "data": InputShapeConstraint((1, 64, 64, 192)),
+                "transpose_shape": (1, 16, 4, 16, 4, 192),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (256, 4, 4, 192),
+            },
+            {
+                # Extra-large hidden size coverage (transpose_last_dim=1536), 3-D output.
+                "data": InputShapeConstraint((1, 32, 32, 1536)),
+                "transpose_shape": (1, 8, 4, 8, 4, 1536),
+                "perm": (0, 1, 3, 2, 4, 5),
+                "output_shape": (64, 16, 1536),
+            },
+            {
+                # PixelShuffle-style RTR variant observed in real models.
+                # This case provides merged_transpose_dim=5 coverage.
+                "data": InputShapeConstraint((1, 1, 3, 3, 4, 4)),
+                "transpose_shape": (1, 1, 3, 3, 4, 4),
+                "perm": (0, 1, 4, 2, 5, 3),
+                "output_shape": (1, 1, 12, 12),
             },
         ]
 
@@ -361,13 +487,21 @@ class _ReshapeTransposeReshapeInputGeneratorBase(PatternInputGenerator):
         perm = item["attr_perm"]
         item["transpose_dim"] = len(transpose_shape)
         item["output_dim"] = len(item["attr_output_shape"])
+        # The trailing channel dimension is a key attention-style layout signal
+        # and remains finite under the enumerated test cases.
+        item["transpose_last_dim"] = int(transpose_shape[-1])
         merged_shape, _ = _compute_merged_transpose(transpose_shape, perm)
         item["merged_transpose_dim"] = len(merged_shape)
         return item
 
     def get_infinite_property_names(self) -> list[str]:
         """Return names of properties with infinite possible values."""
-        return ["attr_transpose_shape", "attr_output_shape", "attr_perm", "data_shape"]
+        return [
+            "attr_transpose_shape",
+            "attr_output_shape",
+            "attr_perm",
+            "data_shape",
+        ]
 
 
 @register_pattern_input_generator

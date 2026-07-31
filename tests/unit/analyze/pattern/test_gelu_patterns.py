@@ -18,9 +18,10 @@ from winml.modelkit.pattern import (
     Gelu3Pattern,
     Gelu4Pattern,
     PatternMatcher,
+    SingleGeluPattern,
 )
 
-from .conftest import TEST_DOMAIN_VERSIONS
+from .conftest import TEST_DOMAIN_VERSIONS, get_domain_versions
 
 
 _ALL_GELU_CLASSES = [Gelu1Pattern, Gelu2Pattern, Gelu3Pattern, Gelu4Pattern]
@@ -33,6 +34,22 @@ def _create_gelu_model(pattern, dtype=np.float32):
     return pattern.get_onnx_model(
         inputs, {}, is_constant_map, output_dtypes, TEST_DOMAIN_VERSIONS
     )
+
+
+def test_single_gelu_output_shape_preserves_input_rank() -> None:
+    """Symbolic inference should preserve contrib-op output rank."""
+    input_value = np.random.randn(2, 4).astype(np.float32)
+    model = SingleGeluPattern().get_onnx_model(
+        {"X": input_value},
+        {},
+        {"X": False},
+        ["tensor(float)"],
+        get_domain_versions("SingleGeluPattern"),
+    )
+
+    output_dims = model.graph.output[0].type.tensor_type.shape.dim
+    assert [dimension.dim_value for dimension in output_dims] == list(input_value.shape)
+    onnx.checker.check_model(model, full_check=True)
 
 
 class TestGeluCrossMatching:

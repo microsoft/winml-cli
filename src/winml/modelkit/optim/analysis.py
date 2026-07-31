@@ -32,7 +32,7 @@ from onnx import AttributeProto, GraphProto, ModelProto, NodeProto, TensorProto
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from .registry import CapabilityDef
 
@@ -283,6 +283,8 @@ def _run_pipe(pipe: Any, model: ModelProto, config: Any) -> ModelProto:
 def _iter_findings(
     model: ModelProto,
     capabilities: dict[str, CapabilityDef],
+    on_probe_start: Callable[[str], None] | None = None,
+    on_probe_complete: Callable[[str], None] | None = None,
 ) -> Iterator[tuple[CapabilityFinding, ModelProto]]:
     """Yield ``(finding, produced_model)`` for every applicable optimization.
 
@@ -303,6 +305,18 @@ def _iter_findings(
     from .pipes import PIPES
     from .registry import BoolCapability, auto_enable_dependencies
 
+    remaining_probes = Counter(
+        name
+        for pipe_class in PIPES
+        for name, cap in pipe_class.capabilities.items()
+        if isinstance(cap, BoolCapability) and not cap.default
+    )
+
+    def complete_probe(cap_name: str) -> None:
+        remaining_probes[cap_name] -= 1
+        if remaining_probes[cap_name] == 0 and on_probe_complete is not None:
+            on_probe_complete(cap_name)
+
     # Baseline kwargs = every capability at its default value.
     default_kwargs = {cap.python_name: cap.default for cap in capabilities.values()}
     kebab_defaults = {name: cap.default for name, cap in capabilities.items()}
@@ -315,6 +329,11 @@ def _iter_findings(
 
     for pipe_class in PIPES:
         pipe = pipe_class()
+        probe_caps = [
+            (name, cap)
+            for name, cap in pipe.capabilities.items()
+            if isinstance(cap, BoolCapability) and not cap.default
+        ]
 
         base_config = pipe.build_config(**default_kwargs)
         try:
@@ -328,76 +347,76 @@ def _iter_findings(
                 getattr(pipe, "name", pipe_class.__name__),
                 exc,
             )
+            for cap_name, _ in probe_caps:
+                complete_probe(cap_name)
             continue
         base_nodes: dict[tuple[Any, ...], tuple[bytes, NodeRef]] = {}
         _collect_nodes(base_out.graph, (), base_nodes)
         base_inits = _collect_initializers(base_out)
 
-        probe_caps = [
-            (name, cap)
-            for name, cap in pipe.capabilities.items()
-            if isinstance(cap, BoolCapability) and not cap.default
-        ]
-
         for cap_name, cap in probe_caps:
-            # Enable only this capability (plus its dependencies) on top of the
-            # all-defaults configuration.
-            kebab = dict(kebab_defaults)
-            kebab[cap_name] = True
-            kebab = auto_enable_dependencies(kebab, capabilities)
-            probe_kwargs = {
-                capabilities[name].python_name: value
-                for name, value in kebab.items()
-                if name in capabilities
-            }
-
-            probe_config = pipe.build_config(**probe_kwargs)
-            should_process = getattr(pipe, "should_process", None)
-            if callable(should_process) and not should_process(probe_config):
-                # Pipe would not run for this capability — nothing to apply.
-                continue
-
-            # NB: this deliberately calls pipe.process directly rather than
-            # reusing _run_pipe. The probe must distinguish "pipe opts out"
-            # (handled above by continuing without emitting a finding) from
-            # "pipe ran but changed nothing", and it must isolate a failing
-            # capability in try/except so one bad probe cannot abort the scan —
-            # neither of which _run_pipe's return-unchanged contract expresses.
+            if on_probe_start is not None:
+                on_probe_start(cap_name)
             try:
-                probe_out = pipe.process(_clone(current), probe_config)
-            except Exception as exc:
-                logger.warning(
-                    "Could not evaluate capability '%s' on pipe '%s': %s",
-                    cap_name,
-                    pipe.name,
-                    exc,
+                # Enable only this capability (plus its dependencies) on top of
+                # the all-defaults configuration.
+                kebab = dict(kebab_defaults)
+                kebab[cap_name] = True
+                kebab = auto_enable_dependencies(kebab, capabilities)
+                probe_kwargs = {
+                    capabilities[name].python_name: value
+                    for name, value in kebab.items()
+                    if name in capabilities
+                }
+
+                probe_config = pipe.build_config(**probe_kwargs)
+                should_process = getattr(pipe, "should_process", None)
+                if callable(should_process) and not should_process(probe_config):
+                    # Pipe would not run for this capability — nothing to apply.
+                    continue
+
+                # NB: this deliberately calls pipe.process directly rather than
+                # reusing _run_pipe. The probe must distinguish "pipe opts out"
+                # (handled above by continuing without emitting a finding) from
+                # "pipe ran but changed nothing", and it must isolate a failing
+                # capability in try/except so one bad probe cannot abort the scan.
+                try:
+                    probe_out = pipe.process(_clone(current), probe_config)
+                except Exception as exc:
+                    logger.warning(
+                        "Could not evaluate capability '%s' on pipe '%s': %s",
+                        cap_name,
+                        pipe.name,
+                        exc,
+                    )
+                    continue
+
+                probe_nodes: dict[tuple[Any, ...], tuple[bytes, NodeRef]] = {}
+                _collect_nodes(probe_out.graph, (), probe_nodes)
+                removed, added, modified = _diff_nodes(base_nodes, probe_nodes)
+
+                probe_inits = _collect_initializers(probe_out)
+                rem_init, add_init, mod_init = _diff_initializers(base_inits, probe_inits)
+
+                finding = CapabilityFinding(
+                    name=cap.name,
+                    python_name=cap.python_name,
+                    enable_flag=f"--enable-{cap.name}",
+                    category=cap.category.value,
+                    description=cap.description,
+                    pipe_name=pipe.name,
+                    removed_nodes=removed,
+                    added_nodes=added,
+                    modified_nodes=modified,
+                    removed_initializers=rem_init,
+                    added_initializers=add_init,
+                    modified_initializers=mod_init,
                 )
-                continue
 
-            probe_nodes: dict[tuple[Any, ...], tuple[bytes, NodeRef]] = {}
-            _collect_nodes(probe_out.graph, (), probe_nodes)
-            removed, added, modified = _diff_nodes(base_nodes, probe_nodes)
-
-            probe_inits = _collect_initializers(probe_out)
-            rem_init, add_init, mod_init = _diff_initializers(base_inits, probe_inits)
-
-            finding = CapabilityFinding(
-                name=cap.name,
-                python_name=cap.python_name,
-                enable_flag=f"--enable-{cap.name}",
-                category=cap.category.value,
-                description=cap.description,
-                pipe_name=pipe.name,
-                removed_nodes=removed,
-                added_nodes=added,
-                modified_nodes=modified,
-                removed_initializers=rem_init,
-                added_initializers=add_init,
-                modified_initializers=mod_init,
-            )
-
-            if finding.applicable:
-                yield finding, probe_out
+                if finding.applicable:
+                    yield finding, probe_out
+            finally:
+                complete_probe(cap_name)
 
         # Advance the pipeline exactly as the real optimizer would.
         current = base_out
@@ -406,6 +425,9 @@ def _iter_findings(
 def analyze_model(
     model: ModelProto,
     capabilities: dict[str, CapabilityDef],
+    *,
+    on_probe_start: Callable[[str], None] | None = None,
+    on_probe_complete: Callable[[str], None] | None = None,
 ) -> list[CapabilityFinding]:
     """Probe every applicable optimization capability against ``model``.
 
@@ -418,12 +440,24 @@ def analyze_model(
         model: The input ONNX model (never modified).
         capabilities: The full capability registry (kebab-case keyed), e.g.
             from ``optim.pipes.get_all_capabilities()``.
+        on_probe_start: Optional callback invoked with the capability name
+            before each probe begins.
+        on_probe_complete: Optional callback invoked with the capability name
+            after all of its probes finish or are skipped.
 
     Returns:
         Applicable findings in pipeline order, each naming the affected nodes
         and constants.
     """
-    return [finding for finding, _ in _iter_findings(model, capabilities)]
+    return [
+        finding
+        for finding, _ in _iter_findings(
+            model,
+            capabilities,
+            on_probe_start=on_probe_start,
+            on_probe_complete=on_probe_complete,
+        )
+    ]
 
 
 def iter_optimization_outputs(

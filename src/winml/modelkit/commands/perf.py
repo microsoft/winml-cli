@@ -328,6 +328,7 @@ class BenchmarkConfig:
     ep: EPNameOrAlias | None = None
     ep_source: str | None = None  # parsed from '--ep <name>@<source>' syntax
     ep_options: dict[str, str] | None = None
+    compile_ep_options: dict[str, str] | None = None
     shape_config: dict | None = None
     op_tracing: str | None = None
     export_overrides: dict[str, Any] | None = None
@@ -1055,6 +1056,7 @@ class PerfBenchmark:
                 self._model = WinMLAutoModel.from_onnx(
                     onnx_path=model_path,
                     skip_build=self.config.skip_build,
+                    compile_provider_options=self.config.compile_ep_options,
                     **common_kwargs,
                 )
         else:
@@ -3023,9 +3025,49 @@ def perf(
     # Resolve output path
     if output is None:
         output = generate_output_path(hf_model, submodel=submodel)
+    model_path = Path(hf_model)
 
     # Refuse to clobber an existing report unless the user opted in.
     cli_utils.guard_output(output, overwrite)
+
+    compile_ep_options = None
+    from ..session import short_ep_name
+
+    if ep_name is not None:
+        qnn_tracing_target = short_ep_name(ep_name) == "qnn"
+    else:
+        from ..session.monitor.qnn_monitor import QNNMonitor
+
+        qnn_tracing_target = device.lower() in ("auto", "npu") and QNNMonitor.is_available()
+    if op_tracing == "detail" and is_onnx and qnn_tracing_target:
+        from ..onnx import is_compiled_onnx
+
+        if not is_compiled_onnx(model_path):
+            no_compile_source = ctx.get_parameter_source("no_compile")
+            skip_build_source = ctx.get_parameter_source("skip_build")
+            if no_compile and no_compile_source is not click.core.ParameterSource.DEFAULT:
+                raise click.UsageError(
+                    "--op-tracing detail requires a compiled EPContext model; "
+                    "--no-compile prevents automatic compilation."
+                )
+            if skip_build and skip_build_source is not click.core.ParameterSource.DEFAULT:
+                raise click.UsageError(
+                    "--op-tracing detail requires a compiled EPContext model; "
+                    "--skip-build prevents automatic compilation."
+                )
+
+            no_compile = False
+            skip_build = False
+            compile_ep_options = {
+                **(ep_provider_options or {}),
+                "profiling_level": "optrace",
+                "profiling_file_path": str(
+                    output.with_name(f"{output.stem}_compile_optrace.csv").resolve()
+                ),
+            }
+            console.print(
+                "[dim]Raw ONNX detected; compiling an EPContext model for detail op-tracing.[/dim]"
+            )
 
     # Create config. The raw device/EP request is passed through unchanged;
     # PerfBenchmark resolves the concrete device + EP internally (failing fast
@@ -3057,14 +3099,12 @@ def perf(
         ep=ep_name,
         ep_source=ep_source_part,
         ep_options=ep_provider_options,
+        compile_ep_options=compile_ep_options,
         shape_config=shape_config,
         op_tracing=op_tracing,
         export_overrides=export_overrides,
         input_data=input_data,
     )
-
-    model_path = Path(hf_model)
-    is_onnx = model_path.suffix.lower() == ".onnx"
 
     # Both ONNX and HF inputs run through the same PerfBenchmark instance
     # (see #596); the op_tracing block reads the perf context off the

@@ -710,7 +710,7 @@ def _maybe_build_genai_bundle(
 # =============================================================================
 
 
-@click.command("build")
+@click.command("build", short_help="Build a WinML-optimized ONNX model from HuggingFace or ONNX.")
 @click.option(
     "-c",
     "--config",

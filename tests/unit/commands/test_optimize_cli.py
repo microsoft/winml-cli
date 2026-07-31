@@ -270,6 +270,45 @@ class TestCheckOptim:
         assert result.exit_code == 0, result.output
         assert "No registered optimizations" in result.output
 
+    def test_check_optim_shows_probe_name_and_completed_progress(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        from winml.modelkit.optim import BoolCapability, get_all_capabilities
+
+        model_file = tmp_path / "model.onnx"
+        model_file.touch()
+        probe_names = [
+            name
+            for name, cap in get_all_capabilities().items()
+            if isinstance(cap, BoolCapability) and not cap.default
+        ]
+
+        def analyze_with_progress(
+            model: MagicMock,
+            capabilities: dict[str, object],
+            *,
+            on_probe_start: object,
+            on_probe_complete: object,
+        ) -> list[object]:
+            del model
+            assert callable(on_probe_start)
+            assert callable(on_probe_complete)
+            for name, cap in capabilities.items():
+                if isinstance(cap, BoolCapability) and not cap.default:
+                    on_probe_start(name)
+                    on_probe_complete(name)
+            return []
+
+        with (
+            patch(_LOAD_ONNX, return_value=_make_mock_model()),
+            patch(_ANALYZE_MODEL, side_effect=analyze_with_progress),
+        ):
+            result = runner.invoke(optimize, ["-m", str(model_file), "--check-optim"])
+
+        assert result.exit_code == 0, result.output
+        assert f"Checking {probe_names[-1]}" in result.output
+        assert f"{len(probe_names)}/{len(probe_names)}" in result.output
+
 
 class TestConfigFile:
     """Config file loading and precedence."""
