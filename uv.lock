@@ -3273,6 +3273,14 @@ dependencies = [
 audio = [
     { name = "soundfile" },
 ]
+openvino = [
+    { name = "openvino" },
+]
+qnn = [
+    { name = "onnxruntime-qnn" },
+]
+
+[package.dev-dependencies]
 dev = [
     { name = "ipykernel" },
     { name = "ipywidgets" },
@@ -3283,30 +3291,16 @@ dev = [
     { name = "mkdocs-material" },
     { name = "mypy" },
     { name = "nbconvert" },
+    { name = "pandas-stubs" },
+    { name = "pre-commit" },
     { name = "pymdown-extensions" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-timeout" },
     { name = "ruff" },
-    { name = "seaborn" },
-    { name = "timm" },
-    { name = "types-colorama" },
-]
-openvino = [
-    { name = "openvino" },
-]
-qnn = [
-    { name = "onnxruntime-qnn" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "jupyter" },
-    { name = "pandas-stubs" },
-    { name = "pre-commit" },
-    { name = "pytest-cov" },
-    { name = "pytest-timeout" },
     { name = "scipy-stubs" },
+    { name = "seaborn" },
+    { name = "types-colorama" },
     { name = "types-jsonschema" },
     { name = "types-protobuf" },
     { name = "types-psutil" },
@@ -3330,18 +3324,9 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.135.3" },
     { name = "hf-xet", specifier = ">=1.1.10" },
     { name = "httpx", specifier = ">=0.24.0" },
-    { name = "ipykernel", marker = "extra == 'dev'", specifier = ">=6.30.1" },
-    { name = "ipywidgets", marker = "extra == 'dev'", specifier = ">=8.1.7" },
     { name = "jsonschema", specifier = ">=4.23" },
-    { name = "jupyter", marker = "extra == 'dev'", specifier = ">=1.1.1" },
-    { name = "markdown-it-py", marker = "extra == 'dev'", specifier = ">=3" },
-    { name = "matplotlib", marker = "extra == 'dev'", specifier = ">=3.10" },
     { name = "mcp", specifier = ">=0.1.0" },
-    { name = "mkdocs-jupyter", marker = "extra == 'dev'", specifier = ">=0.25" },
-    { name = "mkdocs-material", marker = "extra == 'dev'", specifier = ">=9.5" },
     { name = "ml-dtypes", specifier = ">=0.5.3" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.18" },
-    { name = "nbconvert", marker = "extra == 'dev'", specifier = ">=7.16" },
     { name = "numpy", specifier = ">=2.2,<2.3" },
     { name = "onnx", specifier = "==1.18" },
     { name = "onnx-ir", specifier = ">=0.1" },
@@ -3358,24 +3343,17 @@ requires-dist = [
     { name = "psutil", specifier = ">=7" },
     { name = "pyarrow", specifier = "==23.0.1" },
     { name = "pydantic", specifier = ">=2" },
-    { name = "pymdown-extensions", marker = "extra == 'dev'", specifier = ">=10.7" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7" },
-    { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.3" },
     { name = "python-multipart", specifier = ">=0.0.22" },
     { name = "rapidfuzz", specifier = ">=3.9" },
     { name = "requests", specifier = ">=2.32.5" },
     { name = "rich", specifier = ">=14" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15" },
     { name = "scikit-learn", specifier = ">=1.7" },
     { name = "scipy", specifier = ">=1.15,<1.16" },
-    { name = "seaborn", marker = "extra == 'dev'", specifier = ">=0.13" },
     { name = "sentencepiece", specifier = ">=0.2.1" },
     { name = "seqeval", specifier = ">=1.2.2" },
     { name = "snakemd", specifier = ">=2" },
     { name = "soundfile", marker = "extra == 'audio'", specifier = ">=0.13" },
     { name = "timm", specifier = ">=1.0.22" },
-    { name = "timm", marker = "extra == 'dev'", specifier = ">=1.0.20" },
     { name = "tokenizers", specifier = ">=0.22" },
     { name = "torch", marker = "platform_machine != 'x86_64' or sys_platform != 'linux'", specifier = ">=2.9" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = ">=2.9", index = "https://download.pytorch.org/whl/cpu" },
@@ -3385,20 +3363,32 @@ requires-dist = [
     { name = "torchvision", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = ">=0.24", index = "https://download.pytorch.org/whl/cpu" },
     { name = "tqdm", specifier = ">=4.67" },
     { name = "transformers", specifier = ">=4.57" },
-    { name = "types-colorama", marker = "extra == 'dev'", specifier = ">=0.4.15.20250801" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.42.0" },
     { name = "windowsml", marker = "sys_platform == 'win32'", specifier = "==2.0.300" },
 ]
-provides-extras = ["dev", "audio", "openvino", "qnn"]
+provides-extras = ["audio", "openvino", "qnn"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "ipykernel", specifier = ">=6.30.1" },
+    { name = "ipywidgets", specifier = ">=8.1.7" },
     { name = "jupyter", specifier = ">=1.1.1" },
+    { name = "markdown-it-py", specifier = ">=3" },
+    { name = "matplotlib", specifier = ">=3.10" },
+    { name = "mkdocs-jupyter", specifier = ">=0.25" },
+    { name = "mkdocs-material", specifier = ">=9.5" },
+    { name = "mypy", specifier = ">=1.18" },
+    { name = "nbconvert", specifier = ">=7.16" },
     { name = "pandas-stubs", specifier = ">=3.0.0.260204" },
     { name = "pre-commit", specifier = ">=4.5.1" },
+    { name = "pymdown-extensions", specifier = ">=10.7" },
+    { name = "pytest", specifier = ">=8.4" },
     { name = "pytest-cov", specifier = ">=7" },
     { name = "pytest-timeout", specifier = ">=2.4.0" },
+    { name = "ruff", specifier = ">=0.15" },
     { name = "scipy-stubs", specifier = ">=1.17.1.5" },
+    { name = "seaborn", specifier = ">=0.13" },
+    { name = "types-colorama", specifier = ">=0.4.15.20250801" },
     { name = "types-jsonschema", specifier = ">=4.26.0.20260518" },
     { name = "types-protobuf", specifier = ">=7.34.1.20260518" },
     { name = "types-psutil", specifier = ">=7.2.2.20260518" },
