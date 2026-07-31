@@ -53,12 +53,26 @@ from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Final
 
 from packaging.version import InvalidVersion, Version
 
 
 logger = logging.getLogger(__name__)
+
+
+# Canonical EPSource origin tags accepted by ``--ep <name>@<source>`` and
+# ``EPDeviceTarget(source=...)``.
+VALID_SOURCE_TAGS: Final[frozenset[str]] = frozenset(
+    {
+        "bundled",
+        "pypi",
+        "nuget",
+        "msix",
+        "winml-catalog",
+        "directory",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -714,22 +728,16 @@ class DirectorySource(EPSource):
         return self.dll_patterns.keys()
 
 
-# ---------------------------------------------------------------------------
-# windowsml EpCatalog singleton.
-# ---------------------------------------------------------------------------
 # Lazy, process-wide initialization of the ``windowsml.EpCatalog``.
-# We register an ``atexit`` cleanup so the catalog is closed on interpreter
-# shutdown. ``__del__`` is intentionally NOT used — Python does not
-# guarantee it is invoked on shutdown.
 _winml_catalog_warned_keys: set[str] = set()
 
 
-def _release_winml_catalog(catalog: Any) -> None:
-    """Close the process-wide Windows ML catalog during interpreter shutdown."""
-    try:
-        catalog.close()
-    except Exception as e:  # pragma: no cover - shutdown best-effort
-        logger.debug("Windows ML catalog cleanup raised: %s", e)
+def _disarm_winml_catalog(catalog: Any) -> None:
+    """Prevent ``EpCatalog.__del__`` from releasing native state during shutdown."""
+    if not hasattr(catalog, "_handle"):
+        logger.debug("Windows ML catalog cleanup skipped: catalog has no _handle")
+        return
+    catalog._handle = None
 
 
 @functools.cache
@@ -763,7 +771,7 @@ def _get_catalog() -> Any | None:
         logger.warning("WinMLCatalogSource: EpCatalog() failed: %s", e)
         return None
 
-    atexit.register(_release_winml_catalog, catalog)
+    atexit.register(_disarm_winml_catalog, catalog)
     return catalog
 
 

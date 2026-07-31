@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -42,6 +43,7 @@ if TYPE_CHECKING:
 
     from transformers import PretrainedConfig
 
+    from ..build import BuildResult
     from ..session import WinMLEPDevice
     from .winml.base import WinMLPreTrainedModel
     from .winml.composite_model import WinMLCompositeModel
@@ -69,6 +71,15 @@ def _resolved_ep_short_name(ep_device: WinMLEPDevice) -> str:
     if isinstance(ep_short_name, str):
         return ep_short_name
     return short_ep_name(ep_device.device.ep_name)
+
+
+@dataclass(frozen=True)
+class _PretrainedArtifact:
+    result: "BuildResult"
+    build_config: WinMLBuildConfig
+    hf_config: "PretrainedConfig"
+    task: str
+    model_type: str
 
 
 # =============================================================================
@@ -365,6 +376,8 @@ class WinMLAutoModel:
         model_input = resolve_model_input(str(model_id_or_path))
         model_id = model_input.local_path or model_input.raw
         logger.info("Loading WinML model from: %s", model_id)
+        request_device = (device or "auto").lower()
+        request_ep = ep
 
         # Resolve a concrete target before every dispatch path, including
         # composites. Explicit incompatible requests intentionally propagate.
@@ -443,7 +456,8 @@ class WinMLAutoModel:
                 return composite_cls.from_pretrained(
                     model_id,
                     task,
-                    device=ep_device.device.device_type.lower(),
+                    device=request_device,
+                    ep=request_ep,
                     ep_device=ep_device,
                     use_cache=use_cache,
                     force_rebuild=force_rebuild,
@@ -462,33 +476,104 @@ class WinMLAutoModel:
                 )
 
         # =====================================================================
-        # [1] CONFIG PHASE - Generate complete config with I/O specs (Lightweight, ~2s)
+        # [1]-[3] BUILD PHASE - Create or reuse artifact files.
         # =====================================================================
+        artifact = cls._build_pretrained_artifact(
+            model_id,
+            task=task,
+            config=config,
+            ep_device=ep_device,
+            device=request_device,
+            ep=ep,
+            precision=precision,
+            cache_dir=cache_dir,
+            use_cache=use_cache,
+            force_rebuild=force_rebuild,
+            trust_remote_code=trust_remote_code,
+            shape_config=shape_config,
+            model_type=model_type,
+            allow_unsupported_nodes=allow_unsupported_nodes,
+            no_compile=no_compile,
+            skip_optimize=skip_optimize,
+            hack_max_optim_iterations=hack_max_optim_iterations,
+            **kwargs,
+        )
+        onnx_path = artifact.result.final_onnx_path
+
+        # =====================================================================
+        # [4] RUNTIME PHASE - Return inference wrapper
+        # =====================================================================
+        winml_class = get_winml_class(artifact.model_type, artifact.task)
+        logger.info("Creating inference wrapper: %s", winml_class.__name__)
+
+        model = winml_class(
+            onnx_path=onnx_path,
+            config=artifact.hf_config,
+            ep_device=ep_device,
+            provider_options=provider_options,
+            session_options=session_options,
+        )
+        model._build_config = artifact.build_config
+        return model
+
+    @classmethod
+    def _build_pretrained_artifact(
+        cls,
+        model_id_or_path: str | Path,
+        ep_device: WinMLEPDevice | None = None,
+        *,
+        device: str | None = None,
+        ep: str | None = None,
+        task: str | None = None,
+        config: WinMLBuildConfig | dict[str, Any] | None = None,
+        precision: str = "auto",
+        cache_dir: str | Path | None = None,
+        use_cache: bool = True,
+        force_rebuild: bool = False,
+        trust_remote_code: bool = False,
+        shape_config: dict | None = None,
+        model_type: str | None = None,
+        allow_unsupported_nodes: bool = False,
+        no_compile: bool = False,
+        skip_optimize: bool = False,
+        hack_max_optim_iterations: int = 3,
+        **_kwargs: Any,
+    ) -> _PretrainedArtifact:
+        from ..utils.model_input import resolve_model_input
+
+        model_input = resolve_model_input(str(model_id_or_path))
+        model_id = model_input.local_path or model_input.raw
+        request_device = (device or "auto").lower()
+        request_ep = ep
+
+        if ep_device is None:
+            from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
+
+            target = resolve_device(EPDeviceTarget(ep=request_ep or "auto", device=request_device))
+            ep_device = WinMLEPRegistry.instance().auto_device(target)
+        runtime_device = ep_device.device.device_type.lower()
+        runtime_ep = _resolved_ep_short_name(ep_device)
+
         from ..config import generate_hf_build_config
 
-        # Config fields merge on top of defaults, while the already resolved
-        # runtime target remains authoritative for quant/compile policy.
         build_config = generate_hf_build_config(
             model_id,
             task=task,
             override=config,
             shape_config=shape_config,
-            device=ep_device.device.device_type.lower(),
+            device=runtime_device,
             precision=precision,
-            ep=_resolved_ep_short_name(ep_device),
+            ep=runtime_ep,
+            export_policy_target=(request_device, request_ep),
             model_type=model_type,
             trust_remote_code=trust_remote_code,
             policy_overrides_config=True,
             no_compile=no_compile,
         )
 
-        resolved_task = build_config.loader.task
+        resolved_task = cast("str", build_config.loader.task)
         logger.debug("Generated config with task: %s", resolved_task)
 
-        # =====================================================================
-        # [2] CONFIG PHASE - Load only the HF config for wrapper compatibility.
-        # The build API performs its own cache check before it loads weights.
-        # =====================================================================
         effective_trust = trust_remote_code or (
             build_config.loader.trust_remote_code if build_config.loader else False
         )
@@ -501,19 +586,12 @@ class WinMLAutoModel:
             model_id,
             trust_remote_code=effective_trust,
         )
-        resolved_model_type = model_type or getattr(hf_config, "model_type", "unknown")
+        resolved_model_type = model_type or getattr(hf_config, "model_type", None) or "unknown"
         logger.debug("Model type: %s, task: %s", resolved_model_type, resolved_task)
 
-        config = build_config
-        task = resolved_task
-
-        # =====================================================================
-        # [3] CACHE + BUILD PHASE -- delegate to build_hf_model()
-        # =====================================================================
         if use_cache:
             cache_dir_path = get_cache_dir(override=cache_dir)
         else:
-            # No cache -- use temp directory, always rebuild
             import tempfile
 
             cache_dir_path = Path(tempfile.mkdtemp(prefix="winml_"))
@@ -521,8 +599,8 @@ class WinMLAutoModel:
             logger.info("Cache disabled -- using temp directory: %s", cache_dir_path)
 
         cache_key = get_cache_key(
-            get_task_abbrev(cast("str", task)),
-            config.generate_cache_key(),
+            get_task_abbrev(resolved_task),
+            build_config.generate_cache_key(),
             _get_cache_build_controls(
                 skip_optimize=skip_optimize,
                 hack_max_optim_iterations=hack_max_optim_iterations,
@@ -532,14 +610,13 @@ class WinMLAutoModel:
 
         from ..build import build_hf_model
 
-        # An explicit EP takes precedence over the compile-derived provider.
         resolved_ep = ep
-        if resolved_ep is None and config.compile is not None:
-            resolved_ep = config.compile.ep_config.provider
+        if resolved_ep is None and build_config.compile is not None:
+            resolved_ep = build_config.compile.ep_config.provider
         if resolved_ep is None:
             resolved_ep = _resolved_ep_short_name(ep_device)
         result = build_hf_model(
-            config=config,
+            config=build_config,
             output_dir=output_dir,
             model_id=model_id,
             rebuild=force_rebuild,
@@ -553,23 +630,13 @@ class WinMLAutoModel:
             skip_optimize=skip_optimize,
             hack_max_optim_iterations=hack_max_optim_iterations,
         )
-        onnx_path = result.final_onnx_path
-
-        # =====================================================================
-        # [4] RUNTIME PHASE - Return inference wrapper
-        # =====================================================================
-        winml_class = get_winml_class(resolved_model_type, task)
-        logger.info("Creating inference wrapper: %s", winml_class.__name__)
-
-        model = winml_class(
-            onnx_path=onnx_path,
-            config=hf_config,  # HF PretrainedConfig for pipeline compatibility
-            ep_device=ep_device,
-            provider_options=provider_options,
-            session_options=session_options,
+        return _PretrainedArtifact(
+            result=result,
+            build_config=build_config,
+            hf_config=hf_config,
+            task=resolved_task,
+            model_type=resolved_model_type,
         )
-        model._build_config = config  # resolved build config (task, quant, compile)
-        return model
 
     @classmethod
     def supported_tasks(cls) -> list[str]:

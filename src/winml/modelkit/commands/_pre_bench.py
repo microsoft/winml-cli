@@ -22,7 +22,7 @@ from rich.text import Text
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from rich.console import Console
+    from ..utils.console import SafeConsole
 
 
 # Every label column is padded to LABEL_WIDTH so the values on the right
@@ -32,7 +32,7 @@ _LABEL_WIDTH = 10
 
 
 def print_pre_bench_block(
-    console: Console,
+    console: SafeConsole,
     *,
     model_id: str | None,
     task: str | None,
@@ -89,17 +89,13 @@ def print_pre_bench_block(
     model_lines: list[Text] = []
     if model_id:
         model_lines.append(
-            _labeled_line(
-                "Model:", f"[bold cyan]{model_id}[/bold cyan]  [dim](HF)[/dim]"
-            )
+            _labeled_line("Model:", f"[bold cyan]{model_id}[/bold cyan]  [dim](HF)[/dim]")
         )
         if cached_onnx_path:
             model_lines.append(_labeled_line("ONNX:", f"[dim]{cached_onnx_path}[/dim]"))
     elif onnx_file:
         model_lines.append(
-            _labeled_line(
-                "Model:", f"[bold cyan]{onnx_file}[/bold cyan]  [dim](local)[/dim]"
-            )
+            _labeled_line("Model:", f"[bold cyan]{onnx_file}[/bold cyan]  [dim](local)[/dim]")
         )
 
     if task:
@@ -147,9 +143,7 @@ def _io_lines(
     name_width = max((len(name) for name, _, _ in specs), default=0)
     out: list[Text] = []
     for i, (name, dtype, shape) in enumerate(specs):
-        prefix = (
-            f"{label:<{_LABEL_WIDTH}}" if i == 0 else " " * _LABEL_WIDTH
-        )
+        prefix = f"{label:<{_LABEL_WIDTH}}" if i == 0 else " " * _LABEL_WIDTH
         shape_str = "[" + ", ".join(str(d) for d in shape) + "]"
         dtype_suffix = f"   [dim]{dtype}[/dim]" if dtype else ""
         out.append(

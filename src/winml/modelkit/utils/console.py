@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
     from .constants import EPName
 
 logger = logging.getLogger(__name__)
+_WINDOWS_CONSOLE_OSERROR_CODES = frozenset({1, 6})
 
 HEAVY_SEP = "\u2550" * 60  # ═
 LIGHT_SEP = "\u2500" * 60  # ─
@@ -49,6 +51,31 @@ ICON_ERROR = "\u274c"  # ❌
 def get_console() -> Console:
     """Return a Console that prints to stderr."""
     return Console(stderr=True)
+
+
+class SafeConsole(Console):
+    """Rich Console variant that does not fail commands on Windows console write errors."""
+
+    def print(self, *objects: Any, **kwargs: Any) -> None:
+        """Print objects, ignoring Windows console handle/mode write errors."""
+        try:
+            super().print(*objects, **kwargs)
+        except OSError as exc:
+            if _is_expected_windows_console_oserror(exc):
+                logger.debug("Ignoring Windows console OSError from Console.print", exc_info=True)
+                return
+            raise
+
+
+def _is_expected_windows_console_oserror(exc: OSError) -> bool:
+    if sys.platform != "win32":
+        return False
+    code = getattr(exc, "winerror", None)
+    if isinstance(code, int):
+        return code in _WINDOWS_CONSOLE_OSERROR_CODES
+    if isinstance(exc.errno, int):
+        return exc.errno in _WINDOWS_CONSOLE_OSERROR_CODES
+    return False
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -271,7 +298,7 @@ def get_onnx_total_size(onnx_path: Path) -> int:
 # ══════════════════════════════════════════════════════════════════════════
 
 
-class _SafeLive(Live):
+class SafeLive(Live):
     """A :class:`rich.live.Live` that survives Windows console hiccups.
 
     Some native dependencies (e.g. OpenVINO / ONNX Runtime EPs) can put
@@ -284,7 +311,7 @@ class _SafeLive(Live):
     This subclass catches :class:`OSError` in :meth:`refresh` and, after
     the first failure, disables further refreshes for the lifetime of
     this Live instance.  ``start``/``stop``/``update`` are also wrapped
-    so callers can use ``_SafeLive`` exactly like :class:`Live`.  The
+    so callers can use ``SafeLive`` exactly like :class:`Live`.  The
     visible effect is that the final frame may not animate further, but
     no traceback escapes and the surrounding pipeline continues normally.
     """
@@ -294,12 +321,18 @@ class _SafeLive(Live):
         """Decorator: invoke ``method`` and swallow console ``OSError``."""
 
         @functools.wraps(method)
-        def wrapper(self: _SafeLive, *args: Any, **kwargs: Any) -> Any:
+        def wrapper(self: SafeLive, *args: Any, **kwargs: Any) -> Any:
             try:
                 return method(self, *args, **kwargs)
-            except OSError:
-                logger.debug("Ignoring OSError from Live.%s", method.__name__, exc_info=True)
-                return None
+            except OSError as exc:
+                if _is_expected_windows_console_oserror(exc):
+                    logger.debug(
+                        "Ignoring Windows console OSError from Live.%s",
+                        method.__name__,
+                        exc_info=True,
+                    )
+                    return None
+                raise
 
         return wrapper  # type: ignore[return-value]
 
@@ -308,27 +341,33 @@ class _SafeLive(Live):
         self._refresh_disabled: bool = False
 
     def refresh(self) -> None:
+        """Refresh the live display unless Windows console writes are failing."""
         if self._refresh_disabled:
             return
         try:
             super().refresh()
-        except OSError:
+        except OSError as exc:
+            if not _is_expected_windows_console_oserror(exc):
+                raise
             # Console handle is unusable (typically VT/handle state damaged
             # by a native library).  Disable further refreshes so the
             # daemon thread does not spam tracebacks.
             self._refresh_disabled = True
-            logger.debug("Disabling Live refresh after OSError", exc_info=True)
+            logger.debug("Disabling Live refresh after Windows console OSError", exc_info=True)
 
     @_swallow_oserror
     def start(self, refresh: bool = False) -> None:
+        """Start the live display, swallowing expected Windows console errors."""
         super().start(refresh=refresh)
 
     @_swallow_oserror
     def stop(self) -> None:
+        """Stop the live display, swallowing expected Windows console errors."""
         super().stop()
 
     @_swallow_oserror
     def update(self, renderable: RenderableType, *, refresh: bool = False) -> None:
+        """Update the renderable, swallowing expected Windows console errors."""
         super().update(renderable, refresh=refresh)
 
 
@@ -353,13 +392,13 @@ class StageLive:
         self._name = name
         self._console = console
         self._lines: list[RenderableType] = []
-        self._live: _SafeLive | None = None
+        self._live: SafeLive | None = None
         self._status_idx: int = 0
 
     def __enter__(self) -> StageLive:
         self._lines = [self._make_running_line()]
         self._status_idx = 0
-        self._live = _SafeLive(
+        self._live = SafeLive(
             self._render(),
             console=self._console,
             refresh_per_second=15,

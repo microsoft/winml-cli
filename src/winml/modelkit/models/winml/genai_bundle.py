@@ -24,7 +24,7 @@ import collections
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import onnx
 
@@ -34,9 +34,6 @@ from ...utils.constants import normalize_ep_name
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-
-    from .base import WinMLPreTrainedModel
-    from .composite_model import WinMLCompositeModel
 
 
 # =========================================================================
@@ -219,6 +216,21 @@ def _node_summary(path: str | Path, *, top: int = 6) -> str:
     return f"{total} nodes, {len(counts)} op types: {top_ops}"
 
 
+def _transformer_sub_model_task(transformer: GenaiTransformerSpec, sub_model: str) -> str:
+    from .composite_model import COMPOSITE_MODEL_REGISTRY
+
+    composite_cls = COMPOSITE_MODEL_REGISTRY.get((transformer.model_type, transformer.task))
+    if composite_cls is None:
+        raise ValueError(
+            f"No composite model registered for ({transformer.model_type!r}, {transformer.task!r})"
+        )
+    component_task = composite_cls._SUB_MODEL_CONFIG.get(sub_model)
+    if component_task is None:
+        valid = list(composite_cls._SUB_MODEL_CONFIG)
+        raise ValueError(f"Unknown transformer sub-model {sub_model!r}; valid sub-models: {valid}")
+    return component_task
+
+
 def build_genai_bundle(
     model_id: str,
     output_dir: str | Path,
@@ -299,11 +311,11 @@ def build_genai_bundle(
 
     from ..auto import WinMLAutoModel
 
-    # --- Transformer (context + iterator) via the composite builder ---
+    # --- Transformer (context + iterator) via the composite build spec ---
     _emit(f"building transformer stages (device={device}, precision={transformer_precision})")
-    built = WinMLAutoModel.from_pretrained(
+    context_onnx = WinMLAutoModel._build_pretrained_artifact(
         model_id,
-        task=transformer.task,
+        task=_transformer_sub_model_task(transformer, transformer.context_sub_model),
         model_type=transformer.model_type,
         device=device,
         precision=transformer_precision,
@@ -312,20 +324,21 @@ def build_genai_bundle(
         use_cache=True,
         force_rebuild=force_rebuild,
         cache_dir=cache_dir,
-        sub_model_kwargs={
-            transformer.context_sub_model: {
-                "shape_config": {"max_cache_len": max_cache_len, "seq_len": prefill_seq_len}
-            },
-            transformer.iterator_sub_model: {
-                "shape_config": {"max_cache_len": max_cache_len, "seq_len": 1}
-            },
-        },
-    )
-    # The composite transformer build returns a WinMLCompositeModel, whose
-    # sub_models attribute is not declared on the WinMLPreTrainedModel base.
-    sub_models = cast("WinMLCompositeModel", built).sub_models
-    context_onnx = Path(sub_models[transformer.context_sub_model].onnx_path)
-    iterator_onnx = Path(sub_models[transformer.iterator_sub_model].onnx_path)
+        shape_config={"max_cache_len": max_cache_len, "seq_len": prefill_seq_len},
+    ).result.final_onnx_path
+    iterator_onnx = WinMLAutoModel._build_pretrained_artifact(
+        model_id,
+        task=_transformer_sub_model_task(transformer, transformer.iterator_sub_model),
+        model_type=transformer.model_type,
+        device=device,
+        precision=transformer_precision,
+        ep=transformer_ep,
+        no_compile=True,
+        use_cache=True,
+        force_rebuild=force_rebuild,
+        cache_dir=cache_dir,
+        shape_config={"max_cache_len": max_cache_len, "seq_len": 1},
+    ).result.final_onnx_path
     for label, model_path in (("ctx", context_onnx), ("iter", iterator_onnx)):
         _emit(f"  [{label}] {model_path}")
         _emit(f"        {_node_summary(model_path)}")
@@ -340,7 +353,7 @@ def build_genai_bundle(
             _emit(f"using provided {spec.role}: {companion_srcs[spec.role]}")
             continue
         _emit(f"building {spec.role} (model_type={spec.model_type}, precision={spec.precision})")
-        companion = WinMLAutoModel.from_pretrained(
+        companion_path = WinMLAutoModel._build_pretrained_artifact(
             model_id,
             task=spec.task,
             model_type=spec.model_type,
@@ -351,10 +364,7 @@ def build_genai_bundle(
             use_cache=True,
             force_rebuild=force_rebuild,
             cache_dir=cache_dir,
-        )
-        # A companion build produces a single-model WinMLPreTrainedModel (not a
-        # composite), so onnx_path is present; narrow the from_pretrained union.
-        companion_path = Path(cast("WinMLPreTrainedModel", companion).onnx_path)
+        ).result.final_onnx_path
         _emit(f"  [{spec.role}] {companion_path}")
         _emit(f"        {_node_summary(companion_path)}")
         companion_srcs[spec.role] = companion_path

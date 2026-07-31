@@ -55,6 +55,7 @@ stages based on the target device and precision.
 | `do_constant_folding` | `bool` | `true` | Fold constants during export. |
 | `verbose` | `bool` | `false` | Verbose export logging. |
 | `dynamo` | `bool` | `false` | Use PyTorch's TorchDynamo ONNX exporter; the default `false` selects the legacy TorchScript exporter. |
+| `compatibility` | `dict \| null` | omitted | Resolved export compatibility knobs. Currently supports `transformers_attention: "eager"` to request eager Transformers attention during ONNX export. |
 | `enable_hierarchy_tags` | `bool` | `true` | Add module hierarchy tags to ONNX nodes. |
 | `clean_onnx` | `bool` | `false` | Strip hierarchy tags after export. |
 | `hierarchy_tag_format` | `"full" \| "module_only"` | `"full"` | Tag detail level. |

@@ -29,7 +29,9 @@ Sample line: ``[14:32:11 INFO    winml.modelkit.export] Loaded config.json``
 import logging
 import os
 import sys
+import warnings
 from contextlib import contextmanager
+from importlib import import_module
 from typing import TYPE_CHECKING
 
 from .._env import env_flag_enabled
@@ -42,6 +44,7 @@ if TYPE_CHECKING:
 _HANDLER_MARKER = "_winml_cli_handler"
 _LOG_FORMAT = "[%(asctime)s %(levelname)-7s %(name)s] %(message)s"
 _DATE_FORMAT = "%H:%M:%S"
+logger = logging.getLogger(__name__)
 
 # Third-party loggers whose INFO/WARNING chatter is noise for CLI users and can
 # interleave with rich progress output. Examples: optimum's "No model type passed
@@ -63,6 +66,11 @@ _HUGGINGFACE_WARNING_LOGGERS = (
     "transformers",
 )
 _HUGGINGFACE_VERBOSITY_ENVS = ("TRANSFORMERS_VERBOSITY", "HF_HUB_VERBOSITY")
+_HUGGINGFACE_WARNING_MODULE_RE = r"(huggingface_hub|transformers)(\.|$).*"
+_PROGRESS_ENV_OVERRIDES = {
+    "HF_DATASETS_DISABLE_PROGRESS_BARS": "1",
+    "HF_HUB_DISABLE_PROGRESS_BARS": "1",
+}
 
 
 def configure_logging(
@@ -126,16 +134,19 @@ def suppress_huggingface_warning_logs(
     *,
     verbose: bool = False,
 ) -> "Iterator[None]":
-    """Temporarily hide Hugging Face warning chatter for an inspect operation."""
+    """Temporarily hide Hugging Face warning chatter for model loading."""
     verbosity = _normalize_verbosity(verbosity, verbose)
     log_level = _cli_log_level(verbosity, quiet)
     show_all_warnings = env_flag_enabled("WINMLCLI_SHOW_ALL_WARNINGS")
     huggingface_level = log_level if verbosity > 0 or show_all_warnings else logging.ERROR
+    hide_python_warnings = verbosity == 0 and not show_all_warnings
 
     saved_logger_levels = {
         name: logging.getLogger(name).level for name in _HUGGINGFACE_WARNING_LOGGERS
     }
-    saved_env = {name: os.environ.get(name) for name in _HUGGINGFACE_VERBOSITY_ENVS}
+    saved_env: dict[str, str | None] = {
+        name: os.environ.get(name) for name in _HUGGINGFACE_VERBOSITY_ENVS
+    }
     saved_library_verbosity = _get_imported_huggingface_verbosity()
 
     try:
@@ -146,16 +157,62 @@ def suppress_huggingface_warning_logs(
         for env_name in _HUGGINGFACE_VERBOSITY_ENVS:
             os.environ[env_name] = library_verbosity
         _sync_imported_huggingface_verbosity(huggingface_level)
-        yield
+        if hide_python_warnings:
+            with warnings.catch_warnings():
+                for category in (FutureWarning, DeprecationWarning, UserWarning):
+                    warnings.filterwarnings(
+                        "ignore",
+                        category=category,
+                        module=_HUGGINGFACE_WARNING_MODULE_RE,
+                    )
+                yield
+        else:
+            yield
     finally:
-        for env_name, value in saved_env.items():
-            if value is None:
+        for env_name, saved_value in saved_env.items():
+            if saved_value is None:
                 os.environ.pop(env_name, None)
             else:
-                os.environ[env_name] = value
+                os.environ[env_name] = saved_value
         _restore_imported_huggingface_verbosity(saved_library_verbosity)
         for name, level in saved_logger_levels.items():
             logging.getLogger(name).setLevel(level)
+
+
+@contextmanager
+def suppress_third_party_progress(
+    verbosity: int = 0,
+    quiet: bool = False,
+    *,
+    verbose: bool = False,
+) -> "Iterator[None]":
+    """Temporarily hide third-party tqdm/datasets progress in normal output."""
+    verbosity = _normalize_verbosity(verbosity, verbose)
+    show_all_warnings = env_flag_enabled("WINMLCLI_SHOW_ALL_WARNINGS")
+    if verbosity > 0 or show_all_warnings:
+        yield
+        return
+
+    saved_env: dict[str, str | None] = {
+        name: os.environ.get(name) for name in _PROGRESS_ENV_OVERRIDES
+    }
+    saved_hub_progress: bool | None = None
+    saved_datasets_progress: bool | None = None
+
+    try:
+        for name, env_value in _PROGRESS_ENV_OVERRIDES.items():
+            os.environ[name] = env_value
+        saved_hub_progress = _disable_imported_huggingface_hub_progress()
+        saved_datasets_progress = _disable_imported_datasets_progress()
+        yield
+    finally:
+        _restore_imported_datasets_progress(saved_datasets_progress)
+        _restore_imported_huggingface_hub_progress(saved_hub_progress)
+        for name, saved_value in saved_env.items():
+            if saved_value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = saved_value
 
 
 def _normalize_verbosity(verbosity: int, verbose: bool) -> int:
@@ -180,6 +237,82 @@ def _library_verbosity_name(level: int) -> str:
     if level <= logging.ERROR:
         return "error"
     return "critical"
+
+
+def _disable_imported_datasets_progress() -> bool | None:
+    datasets = sys.modules.get("datasets")
+    if datasets is None:
+        return None
+
+    is_enabled = getattr(datasets, "is_progress_bar_enabled", None)
+    try:
+        saved_enabled = is_enabled() if callable(is_enabled) else None
+    except Exception:
+        logger.debug("Could not read datasets progress-bar state", exc_info=True)
+        saved_enabled = None
+    disable = getattr(datasets, "disable_progress_bars", None)
+    if callable(disable):
+        try:
+            disable()
+        except Exception:
+            logger.debug("Could not disable datasets progress bars", exc_info=True)
+    return saved_enabled
+
+
+def _restore_imported_datasets_progress(saved_enabled: bool | None) -> None:
+    if saved_enabled is None:
+        return
+    datasets = sys.modules.get("datasets")
+    if datasets is None:
+        return
+
+    method_name = "enable_progress_bars" if saved_enabled else "disable_progress_bars"
+    restore = getattr(datasets, method_name, None)
+    if callable(restore):
+        try:
+            restore()
+        except Exception:
+            logger.debug("Could not restore datasets progress-bar state", exc_info=True)
+
+
+def _disable_imported_huggingface_hub_progress() -> bool | None:
+    try:
+        hub_utils = import_module("huggingface_hub.utils")
+    except ImportError:
+        return None
+    are_progress_bars_disabled = getattr(hub_utils, "are_progress_bars_disabled", None)
+    disable_progress_bars = getattr(hub_utils, "disable_progress_bars", None)
+    if not callable(are_progress_bars_disabled) or not callable(disable_progress_bars):
+        return None
+
+    try:
+        saved_disabled = bool(are_progress_bars_disabled())
+    except Exception:
+        logger.debug("Could not read Hugging Face Hub progress-bar state", exc_info=True)
+        saved_disabled = None
+    try:
+        disable_progress_bars()
+    except Exception:
+        logger.debug("Could not disable Hugging Face Hub progress bars", exc_info=True)
+    return saved_disabled
+
+
+def _restore_imported_huggingface_hub_progress(saved_disabled: bool | None) -> None:
+    if saved_disabled is None:
+        return
+    try:
+        hub_utils = import_module("huggingface_hub.utils")
+    except ImportError:
+        return
+
+    method_name = "disable_progress_bars" if saved_disabled else "enable_progress_bars"
+    restore = getattr(hub_utils, method_name, None)
+    if not callable(restore):
+        return
+    try:
+        restore()
+    except Exception:
+        logger.debug("Could not restore Hugging Face Hub progress-bar state", exc_info=True)
 
 
 def _sync_imported_huggingface_verbosity(verbosity: int) -> None:
