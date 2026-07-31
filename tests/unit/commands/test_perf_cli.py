@@ -512,6 +512,44 @@ class TestPerfUnifiedPipeline:
         assert all(import_observed)
         assert load_observed == [True]
 
+    def test_load_model_does_not_redirect_native_stderr_for_vitisai(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """VitisAI session creation keeps the process native stderr handle."""
+        suppression_enabled: list[bool] = []
+
+        @contextmanager
+        def record_native_suppression(*_args: object, **kwargs: object):
+            suppression_enabled.append(bool(kwargs.get("enabled")))
+            yield
+
+        class FakeWinMLAutoModel:
+            @staticmethod
+            def from_pretrained(*args: object, **kwargs: object) -> MagicMock:
+                return MagicMock()
+
+        def resolve_ep_device(self: PerfBenchmark) -> None:
+            self._ep_device = MagicMock()
+            self._ep_device.device.ep_name = "VitisAIExecutionProvider"
+            self._resolved_device = "npu"
+            self._resolved_ep = "VitisAIExecutionProvider"
+
+        fake_models_pkg = ModuleType("winml.modelkit.models")
+        fake_models_pkg.WinMLAutoModel = FakeWinMLAutoModel
+        monkeypatch.setitem(sys.modules, "winml.modelkit.models", fake_models_pkg)
+        monkeypatch.setattr(
+            "winml.modelkit.commands.perf.suppress_native_warnings",
+            record_native_suppression,
+        )
+        monkeypatch.setattr(PerfBenchmark, "_resolve_device_ep", resolve_ep_device)
+
+        benchmark = PerfBenchmark(
+            BenchmarkConfig(model_id="microsoft/resnet-50", task="image-classification")
+        )
+        benchmark._load_model()
+
+        assert suppression_enabled == [True, False]
+
     def test_resolve_device_ep_filters_native_warnings_and_preserves_errors(
         self,
         monkeypatch: pytest.MonkeyPatch,

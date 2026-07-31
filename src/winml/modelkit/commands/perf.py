@@ -1051,8 +1051,16 @@ class PerfBenchmark:
             ),
         }
 
+        # VitisAI's compiler can hang during InferenceSession creation when
+        # native stderr points to a pipe, even when that pipe is drained
+        # concurrently. Keep its native handle untouched; other EPs retain the
+        # default warning filtering.
+        filter_native_warnings = (
+            self._ep_device.device.ep_name != "VitisAIExecutionProvider"
+        )
+
         if is_onnx:
-            with suppress_native_warnings(enabled=True):
+            with suppress_native_warnings(enabled=filter_native_warnings):
                 self._model = WinMLAutoModel.from_onnx(
                     onnx_path=model_path,
                     skip_build=self.config.skip_build,
@@ -1060,7 +1068,7 @@ class PerfBenchmark:
                     **common_kwargs,
                 )
         else:
-            with suppress_native_warnings(enabled=True):
+            with suppress_native_warnings(enabled=filter_native_warnings):
                 self._model = WinMLAutoModel.from_pretrained(
                     model_id,
                     **common_kwargs,
