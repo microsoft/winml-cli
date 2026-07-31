@@ -596,7 +596,8 @@ def optimize(
         optimizer_kwargs["verbose"] = True
 
     if ep_device is not None:
-        assert target is not None
+        if target is None:
+            raise RuntimeError("Resolved optimization EP device has no target metadata.")
         optimizer_kwargs["ep_device"] = ep_device
         console.print(
             f"[bold blue]Target:[/bold blue] {target.ep} on {target.device.upper()}"
@@ -626,11 +627,12 @@ def optimize(
         elif optimized_nodes > original_nodes:
             change_label = "increase"
         else:
-            change_label = "change"
-        node_info = (
-            f"Nodes: {original_nodes} -> {optimized_nodes} "
-            f"({node_change:.1f}% {change_label})"
-        )
+            change_label = None
+        node_info = f"Nodes: {original_nodes} -> {optimized_nodes}"
+        if change_label is None:
+            node_info += " (no change)"
+        else:
+            node_info += f" ({node_change:.1f}% {change_label})"
         console.print(f"[dim]{node_info}[/dim]")
 
     except Exception as e:

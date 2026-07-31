@@ -220,6 +220,22 @@ class TestOptimizeInvocation:
         assert result.exit_code == 0, result.output
         assert "20.0% increase" in result.output
 
+    def test_unchanged_node_count_reported(self, runner: CliRunner, tmp_path: Path) -> None:
+        model_file = tmp_path / "model.onnx"
+        model_file.touch()
+        model = _make_mock_model(num_nodes=10)
+
+        with (
+            patch(_LOAD_ONNX, return_value=model),
+            patch(_SAVE_ONNX),
+            patch(_OPTIMIZER) as mock_opt_cls,
+        ):
+            mock_opt_cls.return_value.optimize.return_value = model
+            result = runner.invoke(optimize, ["-m", str(model_file)])
+
+        assert result.exit_code == 0, result.output
+        assert "Nodes: 10 -> 10 (no change)" in result.output
+
     def test_device_target_forwarded_to_optimizer(
         self, runner: CliRunner, tmp_path: Path
     ) -> None:

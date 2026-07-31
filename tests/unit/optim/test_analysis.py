@@ -407,7 +407,7 @@ class TestAnalyzeModel:
         np.testing.assert_array_equal(before_value, after_value)
 
     def test_target_context_forwarded_and_ep_constraints_filtered(
-        self, monkeypatch
+        self, monkeypatch, caplog
     ) -> None:
         dml_cap = BoolCapability(
             name="dml-only",
@@ -449,6 +449,7 @@ class TestAnalyzeModel:
 
         ep_device = MagicMock()
         ep_device.device.ep_name = "DmlExecutionProvider"
+        caplog.set_level("DEBUG", logger="winml.modelkit.optim.analysis")
         monkeypatch.setattr("winml.modelkit.optim.pipes.PIPES", [TargetAwarePipe])
         monkeypatch.setattr("winml.modelkit.onnx.infer_shapes", lambda model: model)
 
@@ -461,6 +462,7 @@ class TestAnalyzeModel:
         assert [finding.name for finding in findings] == ["dml-only"]
         assert captured_ep_devices
         assert all(value is ep_device for value in captured_ep_devices)
+        assert "Skipping capability 'cuda-only'" in caplog.text
 
 
 # =============================================================================

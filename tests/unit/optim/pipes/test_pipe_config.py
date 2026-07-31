@@ -21,19 +21,17 @@ Design Principle:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from winml.modelkit.optim.pipes import (
     GRAPH_CAPABILITIES,
+    OptimizationError,
     ORTGraphPipe,
     ORTGraphPipeConfig,
     PipeConfig,
 )
-
-
-if TYPE_CHECKING:
-    import pytest
 
 
 # =============================================================================
@@ -164,11 +162,33 @@ class TestORTGraphPipeConfigInit:
             ),
             patch("winml.modelkit.session.lookup_device_spec", return_value=None),
         ):
+            inference_session.return_value.get_providers.return_value = [
+                ep_device.device.ep_name
+            ]
             result = ORTGraphPipe().process(model, config)
 
         assert result is optimized_model
         session_options.add_provider_for_devices.assert_called_once_with([handle], {})
         assert "providers" not in inference_session.call_args.kwargs
+
+    def test_process_rejects_provider_fallback(self) -> None:
+        model = MagicMock()
+        ep_device = MagicMock()
+        ep_device.device.ep_name = "DmlExecutionProvider"
+        session_options = MagicMock()
+        config = ORTGraphPipeConfig(ep_device=ep_device)
+
+        with (
+            patch("onnxruntime.SessionOptions", return_value=session_options),
+            patch("onnxruntime.InferenceSession") as inference_session,
+            patch("winml.modelkit.optim.pipes.graph.save_onnx"),
+            patch("winml.modelkit.session.lookup_device_spec", return_value=None),
+            pytest.raises(OptimizationError, match="was not activated"),
+        ):
+            inference_session.return_value.get_providers.return_value = [
+                "CPUExecutionProvider"
+            ]
+            ORTGraphPipe().process(model, config)
 
     def test_always_disabled_optimizers(self) -> None:
         """AttentionFusion and EmbedLayerNormFusion are ALWAYS disabled.

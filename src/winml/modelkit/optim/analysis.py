@@ -346,8 +346,14 @@ def _iter_findings(
             if ep_device is not None and cap.ep_constraint is not None:
                 from ..utils.constants import normalize_ep_name
 
-                target_ep = ep_device.device.ep_name
+                target_ep = normalize_ep_name(ep_device.device.ep_name)
                 if not any(normalize_ep_name(name) == target_ep for name in cap.ep_constraint):
+                    logger.debug(
+                        "Skipping capability '%s': target EP %s is not in %s",
+                        cap.name,
+                        target_ep,
+                        cap.ep_constraint,
+                    )
                     continue
 
             # Enable only this capability (plus its dependencies) on top of the

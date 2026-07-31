@@ -597,11 +597,11 @@ class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
             # Create session to trigger optimization
             try:
                 if config.ep_device is None:
-                    _ = ort.InferenceSession(
+                    session = ort.InferenceSession(
                         str(input_file), sess_opts, providers=["CPUExecutionProvider"]
                     )
                 else:
-                    _ = ort.InferenceSession(str(input_file), sess_opts)
+                    session = ort.InferenceSession(str(input_file), sess_opts)
             except Exception as e:
                 raise OptimizationError(
                     f"ONNX Runtime optimization failed: {e}",
@@ -612,6 +612,22 @@ class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
                     },
                     cause=e,
                 ) from e
+
+            if config.ep_device is not None:
+                from ...utils.constants import normalize_ep_name
+
+                expected_provider = normalize_ep_name(config.ep_device.device.ep_name)
+                active_providers = session.get_providers()
+                logger.debug("ORT optimization session providers: %s", active_providers)
+                if not any(
+                    normalize_ep_name(provider) == expected_provider
+                    for provider in active_providers
+                ):
+                    raise OptimizationError(
+                        f"Requested provider {expected_provider} was not activated; "
+                        f"active providers: {active_providers}",
+                        pipe_name=self.name,
+                    )
 
             # Load and return optimized model
             try:
