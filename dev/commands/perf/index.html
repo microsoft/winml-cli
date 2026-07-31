@@ -2745,7 +2745,7 @@
 <td></td>
 <td><code>KEY=VALUE</code> (multiple)</td>
 <td>—</td>
-<td>Runtime EP provider option forwarded to the inference session (e.g., <code>--ep-options htp_performance_mode=burst</code>). Repeatable. Applies to both HuggingFace model IDs and ONNX file inputs. Unlike build-time options set via <code>--config</code>, these tune the runtime session, not the compiled graph.</td>
+<td>Runtime EP provider option forwarded to the inference session (e.g., <code>--ep-options htp_performance_mode=burst</code>). Repeatable. Applies to both HuggingFace model IDs and ONNX file inputs. When detail op-tracing automatically compiles a raw ONNX model, these options are also applied to that compilation.</td>
 </tr>
 <tr>
 <td><code>--output</code></td>
@@ -2832,11 +2832,18 @@
 <td>Show a live NPU/CPU utilization chart while the benchmark runs and include hardware metrics in the JSON report.</td>
 </tr>
 <tr>
+<td><code>--op-tracing</code></td>
+<td></td>
+<td><code>basic\|detail</code></td>
+<td>—</td>
+<td>Enable operator-level profiling. QNN detail tracing requires an EPContext model; a raw ONNX input is detected and compiled automatically with the required profiling options.</td>
+</tr>
+<tr>
 <td><code>--compile</code> / <code>--no-compile</code></td>
 <td></td>
 <td>flag</td>
 <td><code>false</code></td>
-<td>Compile the model to EPContext binaries during build. For <code>--runtime winml-genai</code> on the NPU, <code>--compile</code> pre-compiles each QNN stage (in an isolated subprocess) before generation.</td>
+<td>Compile the model to EPContext binaries during build. QNN detail op-tracing enables this automatically for a raw ONNX input unless <code>--no-compile</code> or <code>--skip-build</code> was explicitly specified. For <code>--runtime winml-genai</code> on the NPU, <code>--compile</code> pre-compiles each QNN stage (in an isolated subprocess) before generation.</td>
 </tr>
 <tr>
 <td><code>--compile-timeout</code></td>
