@@ -4,14 +4,13 @@
 # --------------------------------------------------------------------------
 """WinMLSession - ONNX Runtime session manager with WinML EP integration."""
 
-from ..ep_path import DirectorySource, EPEntry
+from ..ep_path import VALID_SOURCE_TAGS, DirectorySource, EPEntry
 from .ep_device import (
     DEVICE_TO_DEVICE_TYPE,
     DEVICE_TYPE_TO_DEVICE,
     EP_DEVICE_SPECS,
     VALID_DEVICES,
     VALID_EPS,
-    VALID_SOURCE_TAGS,
     DeviceNotFound,
     EPDeviceSpec,
     EPDeviceTarget,

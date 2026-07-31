@@ -150,6 +150,7 @@ class WinMLAutoModel:
         skip_build: bool = False,
         no_compile: bool = False,
         provider_options: dict[str, str] | None = None,
+        compile_provider_options: dict[str, str] | None = None,
         session_options: Callable[[], Any] | None = None,
         hf_config: PretrainedConfig | None = None,
         **kwargs: Any,
@@ -202,6 +203,7 @@ class WinMLAutoModel:
                 skip_build=skip_build,
                 no_compile=no_compile,
                 provider_options=provider_options,
+                compile_provider_options=compile_provider_options,
                 session_options=session_options,
                 **kwargs,
             )
@@ -226,6 +228,13 @@ class WinMLAutoModel:
             override=config,
             no_compile=no_compile,
         )
+        if compile_provider_options:
+            if config.compile is None:
+                raise ValueError("compile_provider_options requires compilation to be enabled.")
+            config.compile.ep_config.provider_options = {
+                **config.compile.ep_config.provider_options,
+                **compile_provider_options,
+            }
 
         # Resolve task from explicit arg or generated config
         resolved_task = task or (config.loader.task if config.loader else None)
@@ -370,6 +379,8 @@ class WinMLAutoModel:
         model_input = resolve_model_input(str(model_id_or_path))
         model_id = model_input.local_path or model_input.raw
         logger.info("Loading WinML model from: %s", model_id)
+        request_device = (device or "auto").lower()
+        request_ep = ep
 
         # Resolve a concrete target before every dispatch path, including
         # composites. Explicit incompatible requests intentionally propagate.
@@ -448,7 +459,8 @@ class WinMLAutoModel:
                 return composite_cls.from_pretrained(
                     model_id,
                     task,
-                    device=ep_device.device.device_type.lower(),
+                    device=request_device,
+                    ep=request_ep,
                     ep_device=ep_device,
                     use_cache=use_cache,
                     force_rebuild=force_rebuild,
@@ -474,6 +486,7 @@ class WinMLAutoModel:
             task=task,
             config=config,
             ep_device=ep_device,
+            device=request_device,
             ep=ep,
             precision=precision,
             cache_dir=cache_dir,
@@ -533,14 +546,16 @@ class WinMLAutoModel:
 
         model_input = resolve_model_input(str(model_id_or_path))
         model_id = model_input.local_path or model_input.raw
+        request_device = (device or "auto").lower()
+        request_ep = ep
 
         if ep_device is None:
             from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
 
-            target = resolve_device(
-                EPDeviceTarget(ep=ep or "auto", device=(device or "auto").lower())
-            )
+            target = resolve_device(EPDeviceTarget(ep=request_ep or "auto", device=request_device))
             ep_device = WinMLEPRegistry.instance().auto_device(target)
+        runtime_device = ep_device.device.device_type.lower()
+        runtime_ep = _resolved_ep_short_name(ep_device)
 
         from ..config import generate_hf_build_config
 
@@ -549,9 +564,10 @@ class WinMLAutoModel:
             task=task,
             override=config,
             shape_config=shape_config,
-            device=ep_device.device.device_type.lower(),
+            device=runtime_device,
             precision=precision,
-            ep=_resolved_ep_short_name(ep_device),
+            ep=runtime_ep,
+            export_policy_target=(request_device, request_ep),
             model_type=model_type,
             trust_remote_code=trust_remote_code,
             policy_overrides_config=True,

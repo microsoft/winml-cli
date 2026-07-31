@@ -27,22 +27,28 @@ from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 
 import click
 import numpy as np
-from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
 from ..utils import cli as cli_utils
+from ..utils.console import SafeConsole
 from ..utils.constants import ACCELERATOR_DEVICE_TYPES, EPName, EPNameOrAlias
-from ..utils.logging import configure_logging
+from ..utils.logging import (
+    configure_logging,
+    suppress_huggingface_warning_logs,
+    suppress_third_party_progress,
+)
 from ..utils.model_input import ModelInputKind, classify_model_input
+from ..utils.native_stderr import suppress_native_warnings
 from ._ep_arg import EpAtSourceParamType
-from ._live_chart import LiveMonitorDisplay
 from ._pre_bench import print_pre_bench_block
 
 
 if TYPE_CHECKING:
     import contextlib
     from collections.abc import Iterator
+
+    from rich.console import Console
 
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
@@ -67,6 +73,30 @@ _HW_POLL_INTERVAL_MS = 200
 #   "winml-genai" -> onnxruntime-genai decoder-pipeline generation
 RuntimeName = Literal["winml", "winml-genai"]
 RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
+
+
+class _NativeWarningFilteredPerfContext:
+    """Filter native warnings from session.perf enter/exit without wrapping the loop."""
+
+    def __init__(self, perf_context: Any) -> None:
+        self._perf_context = perf_context
+
+    def __enter__(self) -> Any:
+        with suppress_native_warnings(enabled=True):
+            return self._perf_context.__enter__()
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: Any,
+    ) -> Any:
+        with suppress_native_warnings(enabled=True):
+            return self._perf_context.__exit__(exc_type, exc, traceback)
+
+
+def _native_warning_filtered_perf(session: Any, **kwargs: Any) -> _NativeWarningFilteredPerfContext:
+    return _NativeWarningFilteredPerfContext(session.perf(**kwargs))
 
 
 # =============================================================================
@@ -150,8 +180,9 @@ def _resolve_ep_monitor(
     op-tracing is requested but no supporting monitor is available on this
     system.
     """
-    from ..session import short_ep_name
-    from ..session.monitor.ep_monitor import NullEPMonitor
+    with suppress_native_warnings(enabled=True):
+        from ..session import short_ep_name
+        from ..session.monitor.ep_monitor import NullEPMonitor
 
     # Normalize the EP to its short catalog alias so a canonical ORT name
     # ("QNNExecutionProvider"), a short alias ("qnn"), or any-case variant all
@@ -164,11 +195,20 @@ def _resolve_ep_monitor(
     if op_tracing:
         from ..session.monitor.qnn_monitor import QNNMonitor
 
-        if not ep_norm and device_norm in ("npu", "auto", "") and QNNMonitor.is_available():
+        qnn_available: bool | None = None
+
+        def is_qnn_available() -> bool:
+            nonlocal qnn_available
+            if qnn_available is None:
+                with suppress_native_warnings(enabled=True):
+                    qnn_available = QNNMonitor.is_available()
+            return qnn_available
+
+        if not ep_norm and device_norm in ("npu", "auto", "") and is_qnn_available():
             ep_norm = "qnn"
 
         if ep_norm == "qnn":
-            if not QNNMonitor.is_available():
+            if not is_qnn_available():
                 raise RuntimeError(
                     "Op-tracing --ep qnn requested but QNN is not available on "
                     "this system. Install onnxruntime-qnn or onnxruntime-windowsml "
@@ -248,7 +288,7 @@ def _open_ep_monitor_or_exit(
             device=device,
         )
     except RuntimeError as e:
-        Console(stderr=True).print(f"[red]Error:[/red] {e}")
+        SafeConsole(stderr=True).print(f"[red]Error:[/red] {e}")
         raise SystemExit(1) from None
 
 
@@ -288,6 +328,7 @@ class BenchmarkConfig:
     ep: EPNameOrAlias | None = None
     ep_source: str | None = None  # parsed from '--ep <name>@<source>' syntax
     ep_options: dict[str, str] | None = None
+    compile_ep_options: dict[str, str] | None = None
     shape_config: dict | None = None
     op_tracing: str | None = None
     export_overrides: dict[str, Any] | None = None
@@ -669,18 +710,20 @@ class PerfBenchmark:
         if self._resolved_device is not None:
             return
 
-        from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
+        with suppress_native_warnings(enabled=True):
+            from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
 
-        # resolve_device() availability-checks even when --ep is explicit, so a
-        # named-but-absent EP is caught here too.
-        target = resolve_device(
-            EPDeviceTarget(
-                ep=self.config.ep or "auto",
-                device=self.config.device or "auto",
-                source=self.config.ep_source,
+        with suppress_native_warnings(enabled=True):
+            # resolve_device() availability-checks even when --ep is explicit, so a
+            # named-but-absent EP is caught here too.
+            target = resolve_device(
+                EPDeviceTarget(
+                    ep=self.config.ep or "auto",
+                    device=self.config.device or "auto",
+                    source=self.config.ep_source,
+                )
             )
-        )
-        self._ep_device = WinMLEPRegistry.instance().auto_device(target)
+            self._ep_device = WinMLEPRegistry.instance().auto_device(target)
         self._resolved_device = target.device
         self._resolved_ep = cast("EPNameOrAlias", target.ep)
 
@@ -710,7 +753,8 @@ class PerfBenchmark:
 
         session = getattr(model, "_session", None)
         if session is not None:
-            session.reset()
+            with suppress_native_warnings(enabled=True):
+                session.reset()
 
     @property
     def _is_composite(self) -> bool:
@@ -793,7 +837,7 @@ class PerfBenchmark:
         results: dict[str, BenchmarkResult] = {}
         for name, sub in self._sub_models.items():
             logger.info("Benchmarking sub-model '%s'", name)
-            Console(stderr=True).print(f"\n[bold]Sub-model:[/bold] {name}")
+            SafeConsole(stderr=True).print(f"\n[bold]Sub-model:[/bold] {name}")
             child = PerfBenchmark(replace(self.config, op_tracing=None))
             child._model = sub
             # A composite is resolved once (via the parent's _load_model); each
@@ -843,7 +887,8 @@ class PerfBenchmark:
         self._generate_inputs()
 
         # Compile session early so model.device is resolved for display
-        self._single._session.compile()
+        with suppress_native_warnings(enabled=True):
+            self._single._session.compile()
 
         if self.config.memory:
             gc.collect()
@@ -866,7 +911,7 @@ class PerfBenchmark:
         }
         assert self._ep_device is not None
         pre_bench_kwargs = _pre_bench_kwargs_from_ep_device(self._ep_device, **pre_bench_common)
-        print_pre_bench_block(Console(stderr=True), **pre_bench_kwargs)
+        print_pre_bench_block(SafeConsole(stderr=True), **pre_bench_kwargs)
 
         # [3] Run benchmark
         if self.config.duration is not None:
@@ -919,8 +964,9 @@ class PerfBenchmark:
         optimize → [quantize] → [compile], and ONNX runs the same pipeline
         minus export.
         """
-        from ..config import WinMLBuildConfig
-        from ..models import WinMLAutoModel
+        with suppress_native_warnings(enabled=True):
+            from ..config import WinMLBuildConfig
+            from ..models import WinMLAutoModel
 
         # Resolve the concrete device + EP first so a bad combo fails fast,
         # before from_pretrained/from_onnx kick off the build pipeline.
@@ -987,6 +1033,8 @@ class PerfBenchmark:
             "task": resolved_task,
             "config": override,
             "ep_device": self._ep_device,
+            "device": self.config.device,
+            "ep": self.config.ep,
             "precision": self.config.precision,
             "provider_options": self.config.ep_options,
             "use_cache": use_cache,
@@ -1004,16 +1052,19 @@ class PerfBenchmark:
         }
 
         if is_onnx:
-            self._model = WinMLAutoModel.from_onnx(
-                onnx_path=model_path,
-                skip_build=self.config.skip_build,
-                **common_kwargs,
-            )
+            with suppress_native_warnings(enabled=True):
+                self._model = WinMLAutoModel.from_onnx(
+                    onnx_path=model_path,
+                    skip_build=self.config.skip_build,
+                    compile_provider_options=self.config.compile_ep_options,
+                    **common_kwargs,
+                )
         else:
-            self._model = WinMLAutoModel.from_pretrained(
-                model_id,
-                **common_kwargs,
-            )
+            with suppress_native_warnings(enabled=True):
+                self._model = WinMLAutoModel.from_pretrained(
+                    model_id,
+                    **common_kwargs,
+                )
 
     def _generate_inputs(self) -> None:
         """Generate random inputs, or load real inputs from a .npz file."""
@@ -1096,7 +1147,7 @@ class PerfBenchmark:
         total_iterations = self.config.warmup + self.config.iterations
 
         session = self._single._session
-        with session.perf(warmup=self.config.warmup) as ctx:
+        with _native_warning_filtered_perf(session, warmup=self.config.warmup) as ctx:
             _run_simple_loop(
                 session,
                 self._inputs,
@@ -1107,7 +1158,7 @@ class PerfBenchmark:
 
         # Expose ctx for post-benchmark reporting (parity with monitored path).
         self._perf_ctx = ctx
-        return ctx.stats
+        return cast("PerfStats", ctx.stats)
 
     def _run_benchmark_monitored(self) -> PerfStats:
         """Execute benchmark with live hardware monitoring and/or op-tracing.
@@ -1144,7 +1195,7 @@ class PerfBenchmark:
         # remains active independently when op-tracing needs profiling data.
         hw_available = self.config.monitor and HWMonitor.is_available()
         if self.config.monitor and not hw_available:
-            Console(stderr=True).print(
+            SafeConsole(stderr=True).print(
                 "[yellow]Warning:[/yellow] HWMonitor unavailable on this system. "
                 "Running without hardware monitoring."
             )
@@ -1165,7 +1216,9 @@ class PerfBenchmark:
                 ep_name=ep_name,
             )
             with (
-                session.perf(warmup=self.config.warmup, monitor=ep_monitor) as ctx,
+                _native_warning_filtered_perf(
+                    session, warmup=self.config.warmup, monitor=ep_monitor
+                ) as ctx,
                 hw_monitor as hw,
             ):
                 _run_monitored_loop(
@@ -1190,7 +1243,9 @@ class PerfBenchmark:
         else:
             # No --monitor (or HWMonitor unavailable): run with the EP monitor
             # only so op-tracing and proof-of-execution still work.
-            with session.perf(warmup=self.config.warmup, monitor=ep_monitor) as ctx:
+            with _native_warning_filtered_perf(
+                session, warmup=self.config.warmup, monitor=ep_monitor
+            ) as ctx:
                 _run_simple_loop(
                     session,
                     self._inputs,
@@ -1204,7 +1259,7 @@ class PerfBenchmark:
 
         # Store the op-trace context for post-benchmark reporting
         self._perf_ctx = ctx
-        return ctx.stats
+        return cast("PerfStats", ctx.stats)
 
     def _collect_results(self, stats: PerfStats) -> BenchmarkResult:
         """Collect benchmark results from PerfStats."""
@@ -1346,8 +1401,10 @@ def _perf_modules(
     from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
     from .build import _instantiate_parent_model
 
+    request_device = (device or "auto").lower()
+    request_ep = ep
     resolved_target = resolve_device(
-        EPDeviceTarget(ep=ep or "auto", device=device or "auto", source=ep_source)
+        EPDeviceTarget(ep=request_ep or "auto", device=request_device, source=ep_source)
     )
     resolved_ep_device = WinMLEPRegistry.instance().auto_device(resolved_target)
     resolved_device = resolved_target.device
@@ -1363,6 +1420,7 @@ def _perf_modules(
             device=resolved_device,
             precision=precision,
             ep=ep,
+            export_policy_target=(request_device, request_ep),
         )
     except SubmoduleClassNotFoundError as e:
         # User-error: --module pattern didn't match. List what's available so
@@ -1494,7 +1552,8 @@ def _perf_modules(
                 inputs = generate_random_inputs(io_cfg, batch_size=batch_size)
 
                 # Compile session early so session.device is resolved for display
-                session.compile()
+                with suppress_native_warnings(enabled=True):
+                    session.compile()
 
                 total_iters = warmup + iterations
                 hw_ctx = None
@@ -1514,7 +1573,7 @@ def _perf_modules(
                     # Drive the same live chart single-model mode uses so
                     # --monitor renders a per-module HW utilization chart
                     # instead of silently dumping metrics to JSON (issue #654).
-                    with session.perf(warmup=warmup) as ctx, hw_ctx as hw:
+                    with _native_warning_filtered_perf(session, warmup=warmup) as ctx, hw_ctx as hw:
                         _run_monitored_loop(
                             session,
                             inputs,
@@ -1532,7 +1591,7 @@ def _perf_modules(
                         hw_metrics = hw.to_dict()
                     mod_stats = ctx.stats
                 else:
-                    with session.perf(warmup=warmup) as ctx:
+                    with _native_warning_filtered_perf(session, warmup=warmup) as ctx:
                         _run_simple_loop(
                             session,
                             inputs,
@@ -1636,7 +1695,7 @@ def _device_string(req_device: str, act_device: str, ep_name: EPName | None) -> 
     return device_str
 
 
-def display_console_report(result: BenchmarkResult, console: Console) -> None:
+def display_console_report(result: BenchmarkResult, console: SafeConsole) -> None:
     """Display benchmark results in formatted console output.
 
     Device/EP/DLL/hardware and I/O tensor identity are rendered before
@@ -1966,6 +2025,8 @@ def _run_monitored_loop(
     duration_sec: float | None = None,
 ) -> None:
     """Run the benchmark iteration loop with live hardware monitoring."""
+    from ._live_chart import LiveMonitorDisplay
+
     # In duration mode the display and the loop share one benchmark-phase clock
     # so the progress bar tracks the same budget the loop stops on.
     clock = _BenchmarkClock() if duration_sec is not None else None
@@ -2658,6 +2719,11 @@ def perf(
     if not model:
         raise click.UsageError("A model is required via -m/--model.")
 
+    # Merge top-level -v/-q with subcommand-level flags before any model
+    # resolution that can touch Hugging Face Hub and emit warning records.
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
+    configure_logging(verbosity=verbose, quiet=quiet)
+
     # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
     # is downloaded once and treated as a local .onnx path thereafter.
     # Must run BEFORE the ``Path(hf_model).suffix == ".onnx"`` check below
@@ -2665,11 +2731,14 @@ def perf(
     # ``normalize_model_arg`` returns ``str | None`` per its signature;
     # the ``or model`` keeps the narrowed ``str`` type for downstream use.
     try:
-        hf_model: str = cli_utils.normalize_model_arg(model) or model
+        with (
+            suppress_huggingface_warning_logs(verbosity=verbose, quiet=quiet),
+            suppress_third_party_progress(verbosity=verbose, quiet=quiet),
+        ):
+            hf_model: str = cli_utils.normalize_model_arg(model) or model
     except Exception as e:
         raise click.ClickException(f"Failed to resolve Hub-hosted ONNX path {model!r}: {e}") from e
     model = hf_model
-
     # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
     # op-tracing section the flag is meaningless, so reject it explicitly
     # rather than silently ignoring a user's intent.
@@ -2713,16 +2782,12 @@ def perf(
             elif "execution_provider" in cc:
                 ep = (cc["execution_provider"], None)
 
-    # Merge top-level -v/-q with subcommand-level flags so either position works.
-    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
-    configure_logging(verbosity=verbose, quiet=quiet)
-
     # Runtime EP provider options (e.g. QNN htp_performance_mode) forwarded to
     # the inference session for both HF model IDs and ONNX file inputs.
     ep_provider_options = cli_utils.parse_ep_options(ep_options)
 
     json_mode = output_format == "json"
-    console = Console(stderr=True) if json_mode else Console()
+    console = SafeConsole(stderr=True) if json_mode else SafeConsole()
 
     # =========================================================================
     # GENAI RUNTIME: benchmark an onnxruntime-genai bundle folder
@@ -2960,9 +3025,49 @@ def perf(
     # Resolve output path
     if output is None:
         output = generate_output_path(hf_model, submodel=submodel)
+    model_path = Path(hf_model)
 
     # Refuse to clobber an existing report unless the user opted in.
     cli_utils.guard_output(output, overwrite)
+
+    compile_ep_options = None
+    from ..session import short_ep_name
+
+    if ep_name is not None:
+        qnn_tracing_target = short_ep_name(ep_name) == "qnn"
+    else:
+        from ..session.monitor.qnn_monitor import QNNMonitor
+
+        qnn_tracing_target = device.lower() in ("auto", "npu") and QNNMonitor.is_available()
+    if op_tracing == "detail" and is_onnx and qnn_tracing_target:
+        from ..onnx import is_compiled_onnx
+
+        if not is_compiled_onnx(model_path):
+            no_compile_source = ctx.get_parameter_source("no_compile")
+            skip_build_source = ctx.get_parameter_source("skip_build")
+            if no_compile and no_compile_source is not click.core.ParameterSource.DEFAULT:
+                raise click.UsageError(
+                    "--op-tracing detail requires a compiled EPContext model; "
+                    "--no-compile prevents automatic compilation."
+                )
+            if skip_build and skip_build_source is not click.core.ParameterSource.DEFAULT:
+                raise click.UsageError(
+                    "--op-tracing detail requires a compiled EPContext model; "
+                    "--skip-build prevents automatic compilation."
+                )
+
+            no_compile = False
+            skip_build = False
+            compile_ep_options = {
+                **(ep_provider_options or {}),
+                "profiling_level": "optrace",
+                "profiling_file_path": str(
+                    output.with_name(f"{output.stem}_compile_optrace.csv").resolve()
+                ),
+            }
+            console.print(
+                "[dim]Raw ONNX detected; compiling an EPContext model for detail op-tracing.[/dim]"
+            )
 
     # Create config. The raw device/EP request is passed through unchanged;
     # PerfBenchmark resolves the concrete device + EP internally (failing fast
@@ -2994,14 +3099,12 @@ def perf(
         ep=ep_name,
         ep_source=ep_source_part,
         ep_options=ep_provider_options,
+        compile_ep_options=compile_ep_options,
         shape_config=shape_config,
         op_tracing=op_tracing,
         export_overrides=export_overrides,
         input_data=input_data,
     )
-
-    model_path = Path(hf_model)
-    is_onnx = model_path.suffix.lower() == ".onnx"
 
     # Both ONNX and HF inputs run through the same PerfBenchmark instance
     # (see #596); the op_tracing block reads the perf context off the
@@ -3038,7 +3141,11 @@ def perf(
             console.print(f"[dim]Loading model:[/dim] {hf_model}")
 
         benchmark = PerfBenchmark(config)
-        result = benchmark.run()
+        with (
+            suppress_huggingface_warning_logs(verbosity=verbose, quiet=quiet),
+            suppress_third_party_progress(verbosity=verbose, quiet=quiet),
+        ):
+            result = benchmark.run()
 
         # Composite models (e.g. CLIP/SigLIP dual-encoders) have no single ORT
         # session; each sub-model is benchmarked individually and reported as
@@ -3218,7 +3325,7 @@ def _print_model_info(
     actual_shapes: dict[str, tuple] | None = None,
 ) -> None:
     """Print model I/O metadata before the benchmark starts."""
-    console = Console(stderr=True)
+    console = SafeConsole(stderr=True)
     console.print()
     device_line = _device_string(req_device, act_device, ep_name)
     console.print(f"[dim]Device:[/dim]      {device_line}")

@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 import click
 from rich.console import Console
 from rich.markup import escape
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn
 
 from ..onnx import load_onnx, save_onnx
 from ..utils import cli as cli_utils
@@ -256,8 +257,20 @@ def _run_check_optim(model: Path, all_caps: dict[str, Any], verbose: bool) -> No
         f"[bold]Probing {probe_count} optimization capabilities...[/bold] "
         "[dim](this can take a while on large models)[/dim]"
     )
-    with console.status("[bold]Analyzing...[/bold]", spinner="dots"):
-        findings = analyze_model(onnx_model, all_caps)
+    with Progress(
+        TextColumn("[bold]Checking[/bold] [cyan]{task.description}[/cyan]"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        task_id = progress.add_task("preparing capabilities", total=probe_count)
+        findings = analyze_model(
+            onnx_model,
+            all_caps,
+            on_probe_start=lambda name: progress.update(task_id, description=name),
+            on_probe_complete=lambda _: progress.advance(task_id),
+        )
 
     _render_check_optim(console, findings, verbose)
 

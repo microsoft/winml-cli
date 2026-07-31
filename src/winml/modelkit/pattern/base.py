@@ -176,7 +176,13 @@ import onnx
 from onnx import ModelProto, numpy_helper
 from onnx.defs import OpSchema
 
-from ..onnx import ONNXDomain, SupportedONNXType, check_onnx_model, infer_onnx_shapes
+from ..onnx import (
+    ONNXDomain,
+    SupportedONNXType,
+    check_onnx_model,
+    infer_onnx_shapes,
+    infer_shapes,
+)
 from ..onnx.external_data import try_load_external_initializer_array
 from .match import InputInfo, PatternMatchResult, SkeletonMatchResult
 from .op_input_gen import InputShapeConstraint
@@ -951,12 +957,7 @@ class Pattern(ABC):
         # Set IR version to 11 for compatibility with older onnxruntime versions
         model.ir_version = 11
 
-        try:
-            model = infer_onnx_shapes(model)
-        except Exception:
-            pass
-
-        return model
+        return infer_shapes(model)
 
     def _infer_type_mapping(self, skeleton_match_result: "SkeletonMatchResult") -> dict[str, str]:
         """Infer type parameter mapping from actual tensor types in the model.

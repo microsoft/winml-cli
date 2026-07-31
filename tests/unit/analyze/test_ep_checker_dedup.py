@@ -14,6 +14,14 @@ from __future__ import annotations
 
 from winml.modelkit.analyze.pattern import check_patterns
 from winml.modelkit.analyze.runtime_checker import check_ops
+from winml.modelkit.analyze.runtime_checker.ep_checker import _RulesPrefilterProtocol
+
+
+def test_rules_prefilter_protocol_has_no_default_method_implementation() -> None:
+    """The rules-prefilter contract should be a pure Protocol member."""
+    method_name = "build_skip_check_result_for_rules_all_nodes_compile_run_pass"
+    method = _RulesPrefilterProtocol.__dict__[method_name]
+    assert getattr(method, "__isabstractmethod__", False)
 
 
 def test_openvino_checker_is_shared() -> None:

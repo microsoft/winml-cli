@@ -901,7 +901,6 @@ def build(
         "EPNameOrAlias | None",
         _reject_ep_source(ep, "winml build"),
     )
-
     # Validate mutual exclusion
     if output_dir and use_cache:
         raise click.UsageError("--output-dir and --use-cache are mutually exclusive.")
@@ -933,20 +932,6 @@ def build(
         dynamic_axes=dynamic_axes,
     )
 
-    # Resolve an omitted EP and the requested device as one target. Forwarding
-    # both concrete axes keeps analyzer/build output aligned with the target
-    # selected by the catalog-backed resolver.
-    if ep_value is None:
-        from ..session import EPDeviceTarget, resolve_device
-
-        try:
-            resolved_target = resolve_device(EPDeviceTarget(ep="auto", device=device))
-        except ValueError as e:
-            raise click.UsageError(str(e)) from e
-        device = resolved_target.device
-        ep_value = cast("EPNameOrAlias", resolved_target.ep)
-        logger.info("Auto-resolved device=%s, EP=%s", device, ep_value)
-
     try:
         # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
         # is downloaded once and treated as a local .onnx file thereafter.
@@ -957,6 +942,21 @@ def build(
                 model_input = classify_model_input(model)
                 if model_input.kind is ModelInputKind.INVALID:
                     raise click.UsageError(model_input.error or f"Invalid model input: {model}")
+
+        request_device = device
+        request_ep_value = ep_value
+        runtime_device = request_device
+        runtime_ep_value = request_ep_value
+        if runtime_ep_value is None:
+            from ..session import EPDeviceTarget, resolve_device
+
+            try:
+                resolved_target = resolve_device(EPDeviceTarget(ep="auto", device=runtime_device))
+            except ValueError as e:
+                raise click.UsageError(str(e)) from e
+            runtime_device = resolved_target.device
+            runtime_ep_value = cast("EPNameOrAlias", resolved_target.ep)
+            logger.info("Auto-resolved device=%s, EP=%s", runtime_device, runtime_ep_value)
 
         # Load or auto-generate config
         if config_file is not None:
@@ -989,6 +989,9 @@ def build(
                     ]
                 else:
                     config_or_configs = merge_export_overrides(config_or_configs, export_overrides)
+            from ..config.build import apply_export_compatibility_policy
+
+            apply_export_compatibility_policy(config_or_configs, device=device, ep=ep_value)
         else:
             if not model:
                 raise click.UsageError("-m/--model is required when -c is not provided.")
@@ -1013,17 +1016,18 @@ def build(
                     )
                 config_or_configs = generate_build_config(
                     onnx_path=model,
-                    device=device,
+                    device=runtime_device,
                     precision=precision,
-                    ep=ep_value,
+                    ep=runtime_ep_value,
                 )
             else:
                 config_or_configs = generate_build_config(
                     model,
                     trust_remote_code=trust_remote_code,
-                    device=device,
+                    device=runtime_device,
                     precision=precision,
-                    ep=ep_value,
+                    ep=runtime_ep_value,
+                    export_policy_target=(request_device, request_ep_value),
                     shape_config=shape_overrides,
                     override={"export": export_overrides} if export_overrides else None,
                 )
@@ -1053,7 +1057,7 @@ def build(
                 from ..config import resolve_quant_compile_config
 
                 resolved_quant, _ = resolve_quant_compile_config(
-                    device=device, precision=precision, ep=ep_value
+                    device=runtime_device, precision=precision, ep=runtime_ep_value
                 )
                 if not quant or resolved_quant is None or is_pre_quantized_onnx_input:
                     cfg.quant = None
@@ -1081,7 +1085,7 @@ def build(
                     cfg.precision = precision.lower()  # type: ignore[attr-defined]
                 if cfg.compile is not None and cfg.compile.ep_config is not None:
                     provider = cfg.compile.ep_config.provider
-                    patched = WinMLCompileConfig.for_provider(provider, device=device)
+                    patched = WinMLCompileConfig.for_provider(provider, device=runtime_device)
                     if patched is not None:
                         cfg.compile = patched
 
@@ -1150,8 +1154,8 @@ def build(
             preloaded_hf_config=preloaded_hf_config,
             output_dir=output_dir,
             use_cache=use_cache,
-            device=device,
-            ep=ep_value,
+            device=runtime_device,
+            ep=runtime_ep_value,
             precision=precision,
             rebuild=rebuild,
             submodel=submodel,
@@ -1198,8 +1202,8 @@ def build(
                 configs=configs,
                 output_dir=resolved_dir,
                 rebuild=rebuild,
-                ep=ep_value,
-                device=device,
+                ep=runtime_ep_value,
+                device=runtime_device,
                 allow_unsupported_nodes=allow_unsupported_nodes,
             )
 
@@ -1344,9 +1348,10 @@ def build(
                             model,
                             task=component_task,
                             trust_remote_code=trust_remote_code,
-                            device=device,
+                            device=runtime_device,
                             precision=precision,
-                            ep=ep_value,
+                            ep=runtime_ep_value,
+                            export_policy_target=(request_device, request_ep_value),
                             shape_config=shape_overrides,
                             override={"export": export_overrides} if export_overrides else None,
                         )
@@ -1407,8 +1412,8 @@ def build(
                             resolved_dir=resolved_dir,
                             rebuild=rebuild,
                             cache_key=name,
-                            ep=ep_value,
-                            device=device,
+                            ep=runtime_ep_value,
+                            device=runtime_device,
                             extra_kwargs=dict(extra_kwargs),
                             preloaded_hf_config=preloaded_hf_config,
                         )
@@ -1425,8 +1430,8 @@ def build(
                     resolved_dir=resolved_dir,
                     rebuild=rebuild,
                     cache_key=cache_key,
-                    ep=ep_value,
-                    device=device,
+                    ep=runtime_ep_value,
+                    device=runtime_device,
                     extra_kwargs=extra_kwargs,
                     preloaded_hf_config=preloaded_hf_config,
                 )
