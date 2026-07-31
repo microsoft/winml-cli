@@ -4,9 +4,8 @@
 # --------------------------------------------------------------------------
 """Optimization pipes for ONNX models.
 
-Note: Shape inference (symbolic and standard) are now mandatory stages
-in the Optimizer class, not configurable pipes. Only ORTGraphPipe and
-ORTFusionPipe remain as capability-driven optimization pipes.
+Shape inference is a mandatory Optimizer stage. Capability-driven pipes run
+before, during, and after ORT graph optimization according to their needs.
 """
 
 from typing import Any
@@ -20,13 +19,19 @@ from .base import BasePipe, OptimizationError, PipeConfig, caps_dict
 from .fusion import ORTFusionPipe, ORTFusionPipeConfig
 from .graph import GRAPH_CAPABILITIES, ORTGraphPipe, ORTGraphPipeConfig
 from .rewrite import RewritePipe, RewritePipeConfig
-from .surgery import SURGERY_CAPABILITIES, SurgeryPipe, SurgeryPipeConfig
+from .surgery import (
+    PRE_SURGERY_CAPABILITIES,
+    SURGERY_CAPABILITIES,
+    PreSurgeryPipe,
+    SurgeryPipe,
+    SurgeryPipeConfig,
+)
 
 
 # Optimization pipes to run in sequence
+# - PreSurgeryPipe: Proof-dependent graph rewrites that must inspect the exported graph.
 # - ORTGraphPipe: ORT graph-level optimizations (C++ optimizer), including constant folding.
-#   Runs first so downstream pipes see a constant-folded graph (e.g. Reshape shape inputs
-#   become literal constants, enabling skeleton-based pattern matching).
+#   Runs before downstream pattern pipes so they see a constant-folded graph.
 # - AlgebraicRewritePipe: Exact topology-based algebraic rewrites (after ORT folding).
 # - RewritePipe: Pattern-based subgraph rewriting (runs after ORT constant folding so that
 #   shape constants are visible, but before ORTFusionPipe so normalised patterns are
@@ -34,6 +39,7 @@ from .surgery import SURGERY_CAPABILITIES, SurgeryPipe, SurgeryPipeConfig
 # - ORTFusionPipe: ORT transformer fusions (Python optimizer)
 # - SurgeryPipe: Post-optimization model surgery (runs last to clamp constants after folding)
 PIPES: list[type[BasePipe]] = [
+    PreSurgeryPipe,
     ORTGraphPipe,
     AlgebraicRewritePipe,
     RewritePipe,
@@ -58,6 +64,7 @@ __all__ = [
     "ALGEBRAIC_CAPABILITIES",
     "GRAPH_CAPABILITIES",
     "PIPES",
+    "PRE_SURGERY_CAPABILITIES",
     "SURGERY_CAPABILITIES",
     "AlgebraicRewritePipe",
     "AlgebraicRewritePipeConfig",
@@ -68,6 +75,7 @@ __all__ = [
     "ORTGraphPipeConfig",
     "OptimizationError",
     "PipeConfig",
+    "PreSurgeryPipe",
     "RewritePipe",
     "RewritePipeConfig",
     "SurgeryPipe",
