@@ -752,7 +752,7 @@ class TestWinMLEvaluator:
             model_id="test/model",
             task="text-classification",
             dataset=DatasetConfig(
-                path="glue",
+                path="nyu-mll/glue",
                 name="mrpc",
                 columns_mapping={"input_column": "sentence1", "second_input_column": "sentence2"},
             ),
@@ -803,7 +803,7 @@ class TestSequenceClassificationEvaluator:
         config = WinMLEvaluationConfig(
             model_id="test/model",
             task="text-classification",
-            dataset=DatasetConfig(path="glue", name="mrpc"),
+            dataset=DatasetConfig(path="nyu-mll/glue", name="mrpc"),
         )
 
         WinMLTextClassificationEvaluator(config, model).compute()
@@ -847,7 +847,7 @@ class TestSequenceClassificationEvaluator:
         config = WinMLEvaluationConfig(
             model_id="test/model",
             task="text-classification",
-            dataset=DatasetConfig(path="glue"),
+            dataset=DatasetConfig(path="nyu-mll/glue"),
         )
 
         WinMLTextClassificationEvaluator(config, model).compute()

@@ -18,7 +18,7 @@
     "group": "Top200",
     "priority": "P1",
     "dataset_config": {
-      "path": "tweet_eval",
+      "path": "cardiffnlp/tweet_eval",
       "name": "sentiment",
       "metric": "accuracy",
       "columns_mapping": {
