@@ -200,6 +200,8 @@ def _parse_click_help(path: Path) -> str:
         return ""
 
     for node in ast.iter_child_nodes(tree):
+        # Only sync ``def`` is considered: Click commands are always sync, so
+        # an ``ast.AsyncFunctionDef`` is intentionally skipped.
         if not isinstance(node, ast.FunctionDef):
             continue
         decorator = _command_decorator(node)

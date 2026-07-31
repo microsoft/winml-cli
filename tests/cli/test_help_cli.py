@@ -286,6 +286,31 @@ class TestParseClickHelp:
         )
         assert _parse_click_help(module) == ""
 
+    def test_command_without_docstring_or_short_help_returns_empty(self, tmp_path: Path) -> None:
+        """A Click command with neither a docstring nor ``short_help=`` yields
+        an empty string (and does not fall through to a later helper).
+        """
+        module = tmp_path / "fake_cmd.py"
+        module.write_text(
+            textwrap.dedent(
+                '''
+                import contextlib
+                import click
+
+                @click.command()
+                def fake():
+                    pass
+
+                @contextlib.contextmanager
+                def _helper():
+                    """Helper docstring that must not be used as fallback."""
+                    yield
+                '''
+            ),
+            encoding="utf-8",
+        )
+        assert _parse_click_help(module) == ""
+
 
 # ===========================================================================
 # Options section
