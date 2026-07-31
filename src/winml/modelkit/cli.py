@@ -196,6 +196,9 @@ def _parse_click_help(path: Path) -> str:
         if docstring:
             # Return first line only (Click's short help)
             return docstring.split("\n")[0].strip()
+        # A module holds exactly one Click command by convention, so once we
+        # find it we stop — even without help text — rather than falling
+        # through to an unrelated decorated helper's docstring.
         return ""
     return ""
 
