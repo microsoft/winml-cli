@@ -231,7 +231,10 @@ class WinMLAutoModel:
         if compile_provider_options:
             if config.compile is None:
                 raise ValueError("compile_provider_options requires compilation to be enabled.")
-            config.compile.ep_config.provider_options.update(compile_provider_options)
+            config.compile.ep_config.provider_options = {
+                **config.compile.ep_config.provider_options,
+                **compile_provider_options,
+            }
 
         # Resolve task from explicit arg or generated config
         resolved_task = task or (config.loader.task if config.loader else None)
