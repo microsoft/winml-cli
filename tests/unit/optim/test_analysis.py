@@ -18,9 +18,11 @@ import numpy as np
 from onnx import GraphProto, ModelProto, TensorProto, helper, numpy_helper
 
 from winml.modelkit.optim import (
+    BoolCapability,
     CapabilityFinding,
     NodeRef,
     analyze_model,
+    get_all_capabilities,
     iter_optimization_outputs,
 )
 from winml.modelkit.optim.analysis import (
@@ -30,8 +32,7 @@ from winml.modelkit.optim.analysis import (
     _diff_initializers,
     _diff_nodes,
 )
-from winml.modelkit.optim.pipes import get_all_capabilities
-from winml.modelkit.optim.registry import BoolCapability, CapabilityCategory
+from winml.modelkit.optim.registry import CapabilityCategory
 
 
 # =============================================================================
@@ -376,9 +377,23 @@ class TestAnalyzeModel:
         assert "BIG" in clamp.modified_initializers
 
     def test_clamp_not_reported_for_benign_constant(self) -> None:
-        findings = analyze_model(_benign_model(), get_all_capabilities())
+        capabilities = get_all_capabilities()
+        started: list[str] = []
+        completed: list[str] = []
+        findings = analyze_model(
+            _benign_model(),
+            capabilities,
+            on_probe_start=started.append,
+            on_probe_complete=completed.append,
+        )
         names = {f.name for f in findings}
         assert "clamp-constant-values" not in names
+        assert set(started) == set(completed)
+        assert sorted(completed) == sorted(
+            name
+            for name, capability in capabilities.items()
+            if isinstance(capability, BoolCapability) and not capability.default
+        )
 
     def test_matmul_add_fusion_detected(self) -> None:
         findings = analyze_model(_matmul_add_model(), get_all_capabilities())
@@ -425,6 +440,8 @@ class TestAnalyzeModel:
         )
         cap_registry = {cap.name: cap for cap in (dml_cap, cuda_cap)}
         captured_ep_devices = []
+        started: list[str] = []
+        completed: list[str] = []
 
         class TargetAwarePipe:
             name = "target-aware"
@@ -457,12 +474,16 @@ class TestAnalyzeModel:
             _benign_model(),
             cap_registry,
             ep_device=ep_device,
+            on_probe_start=started.append,
+            on_probe_complete=completed.append,
         )
 
         assert [finding.name for finding in findings] == ["dml-only"]
         assert captured_ep_devices
         assert all(value is ep_device for value in captured_ep_devices)
         assert "Skipping capability 'cuda-only'" in caplog.text
+        assert started == ["dml-only", "cuda-only"]
+        assert completed == ["dml-only", "cuda-only"]
 
 
 # =============================================================================

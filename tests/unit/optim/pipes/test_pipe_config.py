@@ -144,13 +144,16 @@ class TestORTGraphPipeConfigInit:
 
         assert config.ep_device is ep_device
 
-    def test_process_binds_resolved_ep_device(self) -> None:
+    def test_process_binds_resolved_ep_device(self, caplog: pytest.LogCaptureFixture) -> None:
         model = MagicMock()
         optimized_model = MagicMock()
         ep_device = MagicMock()
+        ep_device.device.ep_name = "DmlExecutionProvider"
+        ep_device.device.device_type = "GPU"
         handle = ep_device.device.ort_handle
         session_options = MagicMock()
         config = ORTGraphPipeConfig(ep_device=ep_device)
+        caplog.set_level("DEBUG", logger="winml.modelkit.optim.pipes.graph")
 
         with (
             patch("onnxruntime.SessionOptions", return_value=session_options),
@@ -170,6 +173,7 @@ class TestORTGraphPipeConfigInit:
         assert result is optimized_model
         session_options.add_provider_for_devices.assert_called_once_with([handle], {})
         assert "providers" not in inference_session.call_args.kwargs
+        assert "using empty provider options" in caplog.text
 
     def test_process_rejects_provider_fallback(self) -> None:
         model = MagicMock()

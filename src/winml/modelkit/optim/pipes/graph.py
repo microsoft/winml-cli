@@ -584,6 +584,13 @@ class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
                     config.ep_device.device.ep_name,
                     config.ep_device.device.device_type.lower(),
                 )
+                if spec is None:
+                    logger.debug(
+                        "No device specification found for %s on %s; "
+                        "using empty provider options",
+                        config.ep_device.device.ep_name,
+                        config.ep_device.device.device_type,
+                    )
                 provider_options = dict(spec.default_provider_options) if spec else {}
                 sess_opts.add_provider_for_devices(
                     [config.ep_device.device.ort_handle],

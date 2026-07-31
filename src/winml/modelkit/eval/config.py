@@ -20,7 +20,7 @@ class DatasetConfig:
     """Dataset configuration, aligned with HF load_dataset() API.
 
     Attributes:
-        path: HF dataset path (e.g., "imagenet-1k", "glue").
+        path: HF dataset path (e.g., "imagenet-1k", "nyu-mll/glue").
         name: Config name for multi-config datasets (e.g., "mrpc").
         split: Dataset split.
         samples: Number of samples to evaluate.

@@ -40,8 +40,24 @@ class TestInputGeneratorRegistry:
 
     def test_all_operators_registered(self) -> None:
         """Test that all operators are registered."""
-        # Verify count
-        assert len(get_registered_operators()) == 120
+        registered_ops = get_registered_operators()
+
+        # Keep a lower bound so additive registrations do not break this test.
+        assert len(registered_ops) >= 120
+        assert len(registered_ops) == len(set(registered_ops))
+
+        required_ops = {
+            "Abs",
+            "Add",
+            "Attention",
+            "MatMul",
+            "Reshape",
+            "Slice",
+            "Transpose",
+            "com.microsoft::Gelu",
+        }
+        missing_ops = required_ops - set(registered_ops)
+        assert not missing_ops, f"Missing expected registered ops: {sorted(missing_ops)}"
 
     def test_get_runtime_checker_op(self) -> None:
         """Test retrieving operator generators by name."""
