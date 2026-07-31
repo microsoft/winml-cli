@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
     "dataset_path",
     type=str,
     default=None,
-    help="HF dataset path (e.g. 'imagenet-1k', 'glue'). "
+    help="HF dataset path (e.g. 'imagenet-1k', 'nyu-mll/glue'). "
     "If omitted, uses a default dataset for the task.",
 )
 @click.option(
