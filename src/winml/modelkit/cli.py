@@ -138,17 +138,33 @@ def _print_banner(version: str, *, _console: Console | None = None) -> None:
 _DISABLED_COMMANDS: frozenset[str] = frozenset({"run", "serve"})
 
 
+_CLICK_COMMAND_ATTRS: frozenset[str] = frozenset({"command", "group"})
+
+
 def _command_decorator(node: ast.FunctionDef) -> ast.expr | None:
     """Return the ``@click.command`` / ``@click.group`` decorator on *node*.
 
-    Matches both ``@click.command`` and bare ``@command`` forms, whether or
-    not they are called (``@click.command`` vs ``@click.command("name")``).
-    Returns ``None`` when the function carries no Click command decorator.
+    Matches Click's attribute form (``@click.command`` / ``@click.group``,
+    whether called or not — ``@click.command`` vs ``@click.command("name")``)
+    and the bare ``@command`` / ``@group`` form produced by
+    ``from click import command, group``.
+
+    A decorator such as ``@typer.command`` is intentionally *not* matched:
+    the attribute form is accepted only when its owner is the ``click`` name,
+    so unrelated frameworks that happen to expose ``command``/``group`` cannot
+    produce a false positive. Returns ``None`` when the function carries no
+    Click command decorator.
     """
     for decorator in node.decorator_list:
         target = decorator.func if isinstance(decorator, ast.Call) else decorator
-        name = getattr(target, "attr", None) or getattr(target, "id", None)
-        if name in {"command", "group"}:
+        if isinstance(target, ast.Attribute):
+            if (
+                target.attr in _CLICK_COMMAND_ATTRS
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "click"
+            ):
+                return decorator
+        elif isinstance(target, ast.Name) and target.id in _CLICK_COMMAND_ATTRS:
             return decorator
     return None
 

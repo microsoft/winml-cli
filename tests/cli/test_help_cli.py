@@ -267,6 +267,25 @@ class TestParseClickHelp:
         )
         assert _parse_click_help(module) == "Concise summary."
 
+    def test_ignores_non_click_command_decorator(self, tmp_path: Path) -> None:
+        """A ``command``/``group`` attribute owned by a non-Click module (e.g.
+        ``@typer.command``) must not be treated as a Click command.
+        """
+        module = tmp_path / "fake_cmd.py"
+        module.write_text(
+            textwrap.dedent(
+                '''
+                import typer
+
+                @typer.command()
+                def not_click():
+                    """Typer docstring that must not leak as short help."""
+                '''
+            ),
+            encoding="utf-8",
+        )
+        assert _parse_click_help(module) == ""
+
 
 # ===========================================================================
 # Options section
