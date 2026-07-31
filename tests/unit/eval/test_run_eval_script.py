@@ -1737,7 +1737,7 @@ class TestClearDiskCaches:
         # Keep the temp-file sweep away from the real TEMP directory.
         monkeypatch.setattr(run_eval, "_TEMP_DIR", tmp_path / "empty_temp")
 
-        run_eval._clear_disk_caches()
+        assert run_eval._clear_disk_caches() is True
 
         assert not hf.exists()
         assert not winml.exists()
@@ -1753,6 +1753,24 @@ class TestClearDiskCaches:
         monkeypatch.setattr(run_eval, "_VAIP_CACHE", None)
         monkeypatch.setattr(run_eval, "_TEMP_DIR", tmp_path / "empty_temp")
 
-        run_eval._clear_disk_caches()
+        assert run_eval._clear_disk_caches() is True
 
         assert not winml.exists()
+
+    def test_reports_persistent_cache_lock(self, run_eval, tmp_path, monkeypatch, capsys):
+        vaip = tmp_path / "vaip" / ".cache"
+        vaip.mkdir(parents=True)
+
+        monkeypatch.setattr(run_eval, "_HF_CACHE", tmp_path / "missing_hf")
+        monkeypatch.setattr(run_eval, "_WINML_CACHE", tmp_path / "missing_winml")
+        monkeypatch.setattr(run_eval, "_VAIP_CACHE", vaip)
+        monkeypatch.setattr(run_eval, "_TEMP_DIR", tmp_path / "empty_temp")
+
+        def persistent_lock(_path):
+            raise PermissionError("cache file is locked")
+
+        monkeypatch.setattr(run_eval.shutil, "rmtree", persistent_lock)
+
+        assert run_eval._clear_disk_caches() is False
+        assert vaip.exists()
+        assert "could not remove" in capsys.readouterr().out

@@ -290,16 +290,31 @@ def _is_no_space_error(proc: dict) -> bool:
     return any(pat in combined for pat in _NO_SPACE_PATTERNS)
 
 
-def _clear_disk_caches() -> None:
-    """Delete HuggingFace, WinML, VitisAI EP caches and leaked temp files."""
+def _remove_cache_dir(cache_dir: Path) -> bool:
+    """Remove one cache directory and report whether it is gone."""
+    safe_print(f"  [cleanup] Removing cache: {cache_dir}")
+    try:
+        shutil.rmtree(cache_dir)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        safe_print(f"  [cleanup] Warning: could not remove {cache_dir}: {exc}")
+        return False
+
+    removed = not cache_dir.exists()
+    if removed:
+        safe_print(f"  [cleanup] Removed: {cache_dir}")
+    else:
+        safe_print(f"  [cleanup] Warning: cache still exists after removal: {cache_dir}")
+    return removed
+
+
+def _clear_disk_caches() -> bool:
+    """Delete caches and leaked temp files, returning whether all caches were removed."""
+    caches_removed = True
     for cache_dir in (_HF_CACHE, _WINML_CACHE, _VAIP_CACHE):
         if cache_dir is not None and cache_dir.exists():
-            safe_print(f"  [cleanup] Removing cache: {cache_dir}")
-            try:
-                shutil.rmtree(cache_dir)
-                safe_print(f"  [cleanup] Removed: {cache_dir}")
-            except OSError as exc:
-                safe_print(f"  [cleanup] Warning: could not remove {cache_dir}: {exc}")
+            caches_removed = _remove_cache_dir(cache_dir) and caches_removed
 
     # Clean leaked temp directories/files (winmlcli_*, winmlcli_compat_*, tmp*.onnx*)
     if _TEMP_DIR.is_dir():
@@ -328,6 +343,7 @@ def _clear_disk_caches() -> None:
                     pass  # Best-effort cleanup; ignore if file is locked or already removed
         if cleaned:
             safe_print(f"  [cleanup] Removed {cleaned} leaked temp entries from {_TEMP_DIR}")
+    return caches_removed
 
 
 # Stray scratch files that onnxruntime/QNN/EP libraries write into the *process
@@ -3000,6 +3016,7 @@ def main() -> None:
     skipped = 0
     run_start = time.perf_counter()
     interrupted = False
+    cache_cleanup_failed = False
     timeout_skip_set = _load_timeout_skip_set()
     if timeout_skip_set:
         safe_print(f"Timeout skip list: {len(timeout_skip_set)} models will be auto-skipped")
@@ -3221,7 +3238,7 @@ def main() -> None:
 
         if args.clean_cache:
             _clean_stray_cwd_artifacts(Path.cwd())
-            _clear_disk_caches()
+            cache_cleanup_failed = not _clear_disk_caches() or cache_cleanup_failed
 
     run_duration = time.perf_counter() - run_start
 
@@ -3259,11 +3276,17 @@ def main() -> None:
             safe_print(f"  ({skipped} cached from previous run)")
         if interrupted:
             safe_print(f"  (interrupted — {total_jobs - len(results)} jobs not evaluated)")
+        if cache_cleanup_failed:
+            safe_print("  (cache cleanup failed — see cleanup warnings above)")
 
     all_perf_pass = all((r.get("perf") or {}).get("passed", False) for r in perf_results)
     all_acc_pass = all(accuracy_status(r.get("accuracy")) == "PASS" for r in acc_results)
 
-    sys.exit(0 if not interrupted and all_perf_pass and all_acc_pass else 1)
+    sys.exit(
+        0
+        if not interrupted and not cache_cleanup_failed and all_perf_pass and all_acc_pass
+        else 1
+    )
 
 
 if __name__ == "__main__":
