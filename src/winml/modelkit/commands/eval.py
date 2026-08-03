@@ -209,6 +209,7 @@ logger = logging.getLogger(__name__)
         "--model-id / --task are not required in this mode."
     ),
 )
+@cli_utils.cache_options()
 @cli_utils.skip_build_option()
 @cli_utils.format_option()
 @cli_utils.build_config_option()
@@ -253,6 +254,8 @@ def eval(
     input_data: str | None,
     reference: str | None,
     config_file: Path | None,
+    use_cache: bool,
+    rebuild: bool,
     skip_build: bool,
 ) -> None:
     r"""Evaluate a model for a task.
@@ -334,19 +337,32 @@ def eval(
             "comes from the leading axis of the provided tensors."
         )
 
-    # The build-pipeline flags only take effect when eval rebuilds the model.
-    # With a pre-built ONNX path and skip_build (the default), they are no-ops
-    # forwarded to from_onnx, so warn the user that they were ignored — mirrors
-    # the --precision warning above. Shared with perf via utils/cli.py.
+    build_skip_reason = _model_build_skip_reason(cfg)
+
+    # Build-pipeline flags only take effect when eval builds model artifacts.
+    # Warn when evaluator-owned or pre-built paths bypass the build entirely.
     build_flags_warning = cli_utils.ignored_build_flags_warning(
-        skip_build_onnx=cfg.model_path is not None and cfg.skip_build,
+        build_runs=build_skip_reason is None,
         quant=cfg.quant,
         optimize=cfg.optimize,
         analyze=cfg.analyze,
         max_optim_iterations=cfg.max_optim_iterations,
+        reason=build_skip_reason,
+        rebuild_hint=("--no-skip-build" if build_skip_reason == "pre-built ONNX inputs" else None),
     )
     if build_flags_warning:
         logger.warning(build_flags_warning)
+
+    cache_flags_warning = cli_utils.ignored_cache_flags_warning(
+        build_runs=build_skip_reason is None,
+        use_cache=cfg.use_cache,
+        rebuild=cfg.rebuild,
+        use_cache_was_set=cli_utils.is_cli_provided(ctx, "use_cache"),
+        rebuild_was_set=cli_utils.is_cli_provided(ctx, "rebuild"),
+        reason=build_skip_reason,
+    )
+    if cache_flags_warning:
+        logger.warning(cache_flags_warning)
 
     logger.debug("Effective eval config: %s", cfg.to_dict())
 
@@ -433,6 +449,23 @@ def _build_eval_config(
         cfg = merge_config(cfg, overrides)
 
     return cfg
+
+
+def _model_build_skip_reason(cfg: WinMLEvaluationConfig) -> str | None:
+    """Describe why eval will not build model artifacts, if applicable."""
+    if cfg.reference_path is not None:
+        return "two-ONNX comparisons"
+    if cfg.model_path is None:
+        return None
+    if isinstance(cfg.model_path, str):
+        model_path = Path(cfg.model_path).expanduser()
+        if model_path.is_dir() and (model_path / "genai_config.json").is_file():
+            return "pre-built GenAI bundles"
+    if isinstance(cfg.model_path, dict) and cfg.task == "mask-generation":
+        return "evaluator-managed composite inputs"
+    if cfg.skip_build:
+        return "pre-built ONNX inputs"
+    return None
 
 
 def _resolve_model(

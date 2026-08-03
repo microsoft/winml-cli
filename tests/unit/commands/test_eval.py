@@ -446,6 +446,15 @@ class TestEvalHelp:
         assert result.exit_code == 0, result.output
         assert "--reference" in result.output
 
+    def test_help_mentions_cache_controls(self, runner: CliRunner):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(eval_cmd, ["--help"])
+
+        assert result.exit_code == 0, result.output
+        assert "--use-cache / --no-use-cache" in result.output
+        assert "--rebuild / --no-rebuild" in result.output
+
 
 class TestResolveReference:
     def test_none_is_noop(self):
@@ -613,6 +622,75 @@ class TestEvalConfigPrecedence:
 
         # config > dataclass defaults (task default is None)
         assert cfg.task == "image-classification"
+
+    @pytest.mark.parametrize(
+        ("cache_args", "use_cache", "rebuild"),
+        [
+            ([], True, False),
+            (["--no-use-cache"], False, False),
+            (["--rebuild"], True, True),
+        ],
+    )
+    def test_cache_controls_propagate_to_config(
+        self,
+        runner: CliRunner,
+        cache_args: list[str],
+        use_cache: bool,
+        rebuild: bool,
+    ):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        captured_cfg = {}
+
+        def _fake_evaluate(cfg):
+            captured_cfg["cfg"] = cfg
+            return object()
+
+        with (
+            patch("winml.modelkit.eval.evaluate", side_effect=_fake_evaluate),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
+            patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
+        ):
+            result = runner.invoke(
+                eval_cmd,
+                ["-m", "microsoft/resnet-50", *cache_args],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        cfg = captured_cfg["cfg"]
+        assert cfg.use_cache is use_cache
+        assert cfg.rebuild is rebuild
+
+    def test_config_file_cache_controls_override_defaults(self, runner: CliRunner, tmp_path):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        config_path = tmp_path / "eval_config.json"
+        config_path.write_text(
+            json.dumps({"eval": {"use_cache": False, "rebuild": True}}),
+            encoding="utf-8",
+        )
+        captured_cfg = {}
+
+        def _fake_evaluate(cfg):
+            captured_cfg["cfg"] = cfg
+            return object()
+
+        with (
+            patch("winml.modelkit.eval.evaluate", side_effect=_fake_evaluate),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
+            patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
+        ):
+            result = runner.invoke(
+                eval_cmd,
+                ["--config", str(config_path), "-m", "microsoft/resnet-50"],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        cfg = captured_cfg["cfg"]
+        assert cfg.use_cache is False
+        assert cfg.rebuild is True
 
     def test_cli_default_device_propagates_when_not_explicitly_passed(
         self,
@@ -1149,6 +1227,147 @@ class TestPrebuiltOnnxIgnoredBuildFlags:
         msgs = [r.getMessage() for r in caplog.records]
         assert not any("ignored for pre-built ONNX inputs (no build runs" in m for m in msgs), (
             f"unexpected ignored-build-flags warning in {msgs!r}"
+        )
+
+
+class TestIgnoredCacheFlags:
+    @staticmethod
+    def _run(runner: CliRunner, args: list[str]):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        with (
+            patch("winml.modelkit.eval.evaluate", return_value=object()),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
+            patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
+        ):
+            return runner.invoke(eval_cmd, args, obj={"debug": False})
+
+    @pytest.mark.parametrize("cache_flag", ["--use-cache", "--no-use-cache", "--rebuild"])
+    def test_prebuilt_onnx_warns_for_explicit_cache_control(
+        self,
+        cache_flag: str,
+        runner: CliRunner,
+        onnx_file,
+        caplog,
+    ):
+        import logging as _logging
+
+        with caplog.at_level(_logging.WARNING, logger="winml.modelkit.commands.eval"):
+            result = self._run(
+                runner,
+                ["-m", str(onnx_file), "--model-id", "some/model", cache_flag],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert any(
+            f"{cache_flag} ignored for pre-built ONNX inputs" in record.getMessage()
+            for record in caplog.records
+        )
+
+    def test_defaults_do_not_warn(self, runner: CliRunner, onnx_file, caplog):
+        import logging as _logging
+
+        with caplog.at_level(_logging.WARNING, logger="winml.modelkit.commands.eval"):
+            result = self._run(
+                runner,
+                ["-m", str(onnx_file), "--model-id", "some/model"],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert not any(
+            "--use-cache ignored" in record.getMessage()
+            or "--no-use-cache ignored" in record.getMessage()
+            or "--rebuild ignored" in record.getMessage()
+            for record in caplog.records
+        )
+
+    def test_two_onnx_comparison_warns_even_with_build_enabled(
+        self,
+        runner: CliRunner,
+        onnx_file,
+        caplog,
+    ):
+        import logging as _logging
+
+        with caplog.at_level(_logging.WARNING, logger="winml.modelkit.commands.eval"):
+            result = self._run(
+                runner,
+                [
+                    "-m",
+                    str(onnx_file),
+                    "--mode",
+                    "compare",
+                    "--reference",
+                    str(onnx_file),
+                    "--no-skip-build",
+                    "--rebuild",
+                    "--no-optimize",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert any(
+            "--rebuild ignored for two-ONNX comparisons" in record.getMessage()
+            for record in caplog.records
+        )
+        assert any(
+            "--no-optimize ignored for two-ONNX comparisons" in record.getMessage()
+            for record in caplog.records
+        )
+
+    def test_genai_bundle_warns_even_with_build_enabled(self, runner: CliRunner, tmp_path, caplog):
+        import logging as _logging
+
+        bundle = tmp_path / "genai-model"
+        bundle.mkdir()
+        (bundle / "genai_config.json").write_text("{}", encoding="utf-8")
+
+        with caplog.at_level(_logging.WARNING, logger="winml.modelkit.commands.eval"):
+            result = self._run(
+                runner,
+                [
+                    "-m",
+                    str(bundle),
+                    "--task",
+                    "text-generation",
+                    "--no-skip-build",
+                    "--no-use-cache",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert any(
+            "--no-use-cache ignored for pre-built GenAI bundles" in record.getMessage()
+            for record in caplog.records
+        )
+
+    def test_evaluator_managed_composite_warns_even_with_build_enabled(
+        self,
+        runner: CliRunner,
+        onnx_file,
+        caplog,
+    ):
+        import logging as _logging
+
+        with caplog.at_level(_logging.WARNING, logger="winml.modelkit.commands.eval"):
+            result = self._run(
+                runner,
+                [
+                    "-m",
+                    f"encoder={onnx_file}",
+                    "--model-id",
+                    "some/model",
+                    "--task",
+                    "mask-generation",
+                    "--no-skip-build",
+                    "--rebuild",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert any(
+            "--rebuild ignored for evaluator-managed composite inputs" in record.getMessage()
+            for record in caplog.records
         )
 
 

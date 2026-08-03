@@ -1039,33 +1039,31 @@ def build_pipeline_extra_kwargs(
 
 def ignored_build_flags_warning(
     *,
-    skip_build_onnx: bool,
+    build_runs: bool,
     quant: bool = True,
     optimize: bool = True,
     analyze: bool = True,
     max_optim_iterations: int | None = None,
+    reason: str | None = None,
+    rebuild_hint: str | None = None,
 ) -> str | None:
-    """Build a warning for build-pipeline flags that are no-ops on a pre-built ONNX.
+    """Build a warning for build-pipeline flags when no model build runs.
 
-    Commands that accept a pre-built ``.onnx`` input (``eval``, ``perf``) forward
-    ``--no-quant``/``--no-optimize``/``--no-analyze``/``--max-optim-iterations`` to
-    ``from_onnx``, but with ``skip_build`` (the default) no build runs, so those
-    toggles silently take no effect. This returns a message naming the flags the
-    user actually set (or ``None`` when nothing was set or a build will run), so
-    callers can surface it through their own logger/console — mirroring the
-    ``--precision``-ignored warning.
+    Returns a message naming the controls the user changed, or ``None`` when
+    nothing was changed or a build will run.
 
     Args:
-        skip_build_onnx: True when the input is a pre-built ONNX *and* the build
-            is skipped (the precondition under which the flags are no-ops).
+        build_runs: Whether the selected command path builds model artifacts.
         quant/optimize/analyze: Enabled-semantics toggles (False = user passed
             the ``--no-*`` form).
         max_optim_iterations: Explicit value, or ``None`` when left at default.
+        reason: Description of the path that bypasses the build.
+        rebuild_hint: Optional flag that enables a build for this path.
 
     Returns:
         Warning message, or ``None`` if no ignored flags apply.
     """
-    if not skip_build_onnx:
+    if build_runs:
         return None
     ignored = [
         flag
@@ -1079,10 +1077,36 @@ def ignored_build_flags_warning(
     ]
     if not ignored:
         return None
-    return (
-        f"{', '.join(ignored)} ignored for pre-built ONNX inputs "
-        "(no build runs; pass --no-skip-build to rebuild)."
-    )
+    hint = f"; pass {rebuild_hint} to rebuild" if rebuild_hint else ""
+    return f"{', '.join(ignored)} ignored for {reason or 'this input'} (no build runs{hint})."
+
+
+def ignored_cache_flags_warning(
+    *,
+    build_runs: bool,
+    use_cache: bool = True,
+    rebuild: bool = False,
+    use_cache_was_set: bool = False,
+    rebuild_was_set: bool = False,
+    reason: str | None = None,
+) -> str | None:
+    """Build a warning for explicit cache controls when no model build runs."""
+    if build_runs:
+        return None
+    ignored = [
+        flag
+        for flag, was_set in (
+            (
+                "--use-cache" if use_cache else "--no-use-cache",
+                use_cache_was_set or not use_cache,
+            ),
+            ("--rebuild" if rebuild else "--no-rebuild", rebuild_was_set or rebuild),
+        )
+        if was_set
+    ]
+    if not ignored:
+        return None
+    return f"{', '.join(ignored)} ignored for {reason or 'this input'} (no build runs)."
 
 
 def allow_unsupported_nodes_option(optional_message: str | None = None) -> Callable[[F], F]:

@@ -264,7 +264,6 @@ def _load_model(
     if config.mode == "compare" and config.reference_path is not None:
         return None
 
-
     quant_override: Any = None
     if not config.quant:
         from ..config import WinMLBuildConfig
@@ -276,6 +275,10 @@ def _load_model(
         optimize=config.optimize,
         analyze=config.analyze,
         max_optim_iterations=config.max_optim_iterations,
+    )
+    cache_kwargs = cli_utils.cache_extra_kwargs(
+        use_cache=config.use_cache,
+        rebuild=config.rebuild,
     )
 
     if config.model_id is None:
@@ -312,6 +315,7 @@ def _load_model(
                 skip_build=config.skip_build,
                 config=quant_override,
                 hf_config=hf_config,
+                **cache_kwargs,
                 **pipeline_kwargs,
             )
             model.config = hf_config
@@ -341,6 +345,7 @@ def _load_model(
             allow_unsupported_nodes=config.allow_unsupported_nodes,
             config=build_override,
             shape_config=config.shape_config,
+            **cache_kwargs,
             **pipeline_kwargs,
         )
     except RuntimeException as error:
@@ -386,8 +391,7 @@ def _load_genai_causal_lm(config: WinMLEvaluationConfig) -> WinMLGenaiCausalLM:
     bundle_path = config.model_path
     if not bundle_path or isinstance(bundle_path, dict):
         raise ValueError(
-            "text-generation evaluation requires a genai bundle *directory* via "
-            "-m <bundle_dir>."
+            "text-generation evaluation requires a genai bundle *directory* via -m <bundle_dir>."
         )
 
     bundle_dir = Path(bundle_path).expanduser()
