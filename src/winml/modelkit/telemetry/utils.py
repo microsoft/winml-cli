@@ -171,7 +171,9 @@ def _model_ref_local_marker(value: str) -> str:
     return f"<local:{ext}>" if ext else "<local:dir>"
 
 
-def _scrub_model_ref(value: str | tuple[str, ...] | None) -> str | None:
+def _scrub_model_ref(
+    value: str | os.PathLike[str] | tuple[str | os.PathLike[str], ...] | None,
+) -> str | None:
     """Classify a ``-m/--model`` reference for telemetry.
 
     Clean HuggingFace Hub ids — one or two Hub-charset segments with at most
@@ -185,6 +187,7 @@ def _scrub_model_ref(value: str | tuple[str, ...] | None) -> str | None:
         value = value[0] if value else None
     if not value:
         return None
+    value = os.fspath(value)
     normalized = value.replace("\\", "/")
     if re.match(r"^[A-Za-z]:[\\/]", value) or normalized.startswith("/"):
         return _model_ref_local_marker(value)
