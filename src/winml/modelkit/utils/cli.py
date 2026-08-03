@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict, TypeVar
 
 import click
 from rich.console import Console
@@ -31,6 +31,11 @@ F = TypeVar("F", bound="Callable[..., Any]")
 
 # Allowed values for ``--format`` / ``-f``.
 OutputFormat: TypeAlias = Literal["text", "json", "table", "compact"]
+
+
+class _CacheExtraKwargs(TypedDict):
+    use_cache: bool
+    force_rebuild: bool
 
 
 class ModelLoadError(click.ClickException):
@@ -807,7 +812,7 @@ def cache_options(
     return decorator
 
 
-def cache_extra_kwargs(*, use_cache: bool, rebuild: bool) -> dict[str, bool]:
+def cache_extra_kwargs(*, use_cache: bool, rebuild: bool) -> _CacheExtraKwargs:
     """Translate shared cache controls into ``WinMLAutoModel`` keyword arguments.
 
     Disabling the persistent cache selects a temporary build directory in the
