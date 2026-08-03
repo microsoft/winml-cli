@@ -10,7 +10,7 @@ Three context managers are provided:
 
 * ``suppress_native_stderr``  - discard to devnull  (startup noise)
 * ``capture_native_stderr``   - capture via pipe and re-log  (compilation output)
-* ``suppress_native_warnings`` - hide warning lines, replay everything else
+* ``suppress_native_warnings`` - spool to disk, hide warnings, replay other lines
 
 The first two are no-ops on non-Windows. ``suppress_native_warnings`` works via
 fd 2 on all platforms and also keeps the Win32 stderr handle in sync on Windows.
@@ -22,8 +22,9 @@ import logging
 import os
 import re
 import sys
+import tempfile
 import threading
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -198,19 +199,25 @@ def suppress_native_warnings(
     ``[E:...]``. This process-wide fd redirect is opt-in; CLI entry points pass
     ``enabled=True`` only around native-heavy work. ``-v`` / ``-vv`` or
     ``WINMLCLI_SHOW_ALL_WARNINGS=1`` leaves stderr untouched.
+
+    Output is spooled to a temporary file and replayed only after fd 2 is
+    restored. A pipe is deliberately not used here: some native execution-
+    provider compilers change behavior or hang when stderr is a pipe, even when
+    that pipe is drained concurrently. A file also bounds Python memory usage
+    without imposing a finite producer buffer.
     """
     if not enabled or _show_native_warnings_requested():
         yield
         return
 
-    read_fd: int | None = None
-    write_fd: int | None = None
     old_fd: int | None = None
+    capture_stack = ExitStack()
     try:
-        read_fd, write_fd = os.pipe()
+        capture = capture_stack.enter_context(
+            tempfile.TemporaryFile(mode="w+b")  # noqa: SIM115 - owned by ExitStack
+        )
     except OSError:
-        _close_fd(read_fd)
-        _close_fd(write_fd)
+        capture_stack.close()
         logger.debug(
             "Native warning suppression setup failed; leaving stderr unchanged",
             exc_info=True,
@@ -223,8 +230,7 @@ def suppress_native_warnings(
         try:
             old_fd = os.dup(2)
         except OSError:
-            _close_fd(read_fd)
-            _close_fd(write_fd)
+            capture_stack.close()
             logger.debug(
                 "Native warning suppression setup failed; leaving stderr unchanged",
                 exc_info=True,
@@ -232,17 +238,10 @@ def suppress_native_warnings(
             redirect_failed = True
         if not redirect_failed:
             assert old_fd is not None
-            reader = threading.Thread(
-                target=_drain_filtered_native_stderr,
-                args=(read_fd, old_fd, preserve_unclassified),
-                name="suppress-native-warnings",
-                daemon=True,
-            )
             try:
-                os.dup2(write_fd, 2)
+                os.dup2(capture.fileno(), 2)
             except OSError:
-                _close_fd(read_fd)
-                _close_fd(write_fd)
+                capture_stack.close()
                 _close_fd(old_fd)
                 logger.debug(
                     "Native warning suppression redirect failed; leaving stderr unchanged",
@@ -250,22 +249,26 @@ def suppress_native_warnings(
                 )
                 redirect_failed = True
             if not redirect_failed:
-                _close_fd(write_fd)
                 _set_win32_std_handle_to_current_fd(2)
-                reader.start()
                 try:
                     yield
                 finally:
                     _restore_redirected_fd(2, old_fd)
                     _set_win32_std_handle_to_current_fd(2)
                     _refresh_click_windows_console_stream(2)
-                    reader.join(timeout=_NATIVE_READER_JOIN_TIMEOUT_SECONDS)
-                    if reader.is_alive():
+                    try:
+                        capture.flush()
+                        capture.seek(0)
+                        for line in capture:
+                            if _should_preserve_native_line(line, preserve_unclassified):
+                                _write_all(old_fd, line)
+                    except OSError:
                         logger.debug(
-                            "Native warning suppression reader did not finish after stderr restore"
+                            "Could not replay filtered native stderr",
+                            exc_info=True,
                         )
-                    else:
-                        _close_fd(old_fd)
+                    capture_stack.close()
+                    _close_fd(old_fd)
     if redirect_failed:
         yield
 
@@ -305,32 +308,6 @@ def _restore_redirected_fd(fd: int, old_fd: int | None) -> None:
             fd,
             exc_info=True,
         )
-
-
-def _drain_filtered_native_stderr(
-    read_fd: int,
-    target_fd: int,
-    preserve_unclassified: bool,
-) -> None:
-    pending = b""
-    try:
-        while chunk := os.read(read_fd, 4096):
-            pending += chunk
-            while b"\n" in pending:
-                line, pending = pending.split(b"\n", 1)
-                _write_non_warning_line(target_fd, line + b"\n", preserve_unclassified)
-        if pending:
-            _write_non_warning_line(target_fd, pending, preserve_unclassified)
-    except OSError:
-        # fd redirection is best-effort cleanup; restore path handles usability.
-        pass
-    finally:
-        os.close(read_fd)
-
-
-def _write_non_warning_line(fd: int, line: bytes, preserve_unclassified: bool) -> None:
-    if _should_preserve_native_line(line, preserve_unclassified):
-        _write_all(fd, line)
 
 
 def _should_preserve_native_line(line: bytes, preserve_unclassified: bool) -> bool:
