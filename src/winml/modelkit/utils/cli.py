@@ -767,6 +767,58 @@ def skip_build_option(
     )
 
 
+def cache_options(
+    *,
+    use_cache_default: bool = True,
+    use_cache_help: str = "Use the persistent model build cache",
+    rebuild_help: str = "Force rebuild even if cached artifacts exist",
+) -> Callable[[F], F]:
+    """Add the shared cache-control toggles to a Click command.
+
+    The decorated function receives ``use_cache`` and ``rebuild`` parameters.
+    Commands that auto-build models should translate them with
+    :func:`cache_extra_kwargs`. ``build`` uses the same option contract with a
+    command-specific ``use_cache_default=False`` because cache selection is also
+    its artifact-destination choice.
+
+    Args:
+        use_cache_default: Whether persistent caching is enabled by default.
+        use_cache_help: Command-specific help for the cache toggle.
+        rebuild_help: Command-specific help for the rebuild toggle.
+
+    Returns:
+        Decorator function.
+    """
+
+    def decorator(func: F) -> F:
+        func = click.option(
+            "--rebuild/--no-rebuild",
+            default=False,
+            show_default=True,
+            help=rebuild_help,
+        )(func)
+        return click.option(
+            "--use-cache/--no-use-cache",
+            default=use_cache_default,
+            show_default=True,
+            help=use_cache_help,
+        )(func)
+
+    return decorator
+
+
+def cache_extra_kwargs(*, use_cache: bool, rebuild: bool) -> dict[str, bool]:
+    """Translate shared cache controls into ``WinMLAutoModel`` keyword arguments.
+
+    Disabling the persistent cache selects a temporary build directory in the
+    model-loading API, so it must always produce a fresh build.
+    """
+    return {
+        "use_cache": use_cache,
+        "force_rebuild": rebuild or not use_cache,
+    }
+
+
 def trust_remote_code_option(optional_message: str | None = None) -> Callable[[F], F]:
     """Add shared --trust-remote-code option to a Click command.
 
