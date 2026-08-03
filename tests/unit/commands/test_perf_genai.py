@@ -1019,10 +1019,16 @@ class TestCliDispatch:
         assert result.exit_code == 0, result.output
         assert build_calls["build"]["force_rebuild"] is True
 
-    def test_ignore_cache_builds_in_tempdir(
-        self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
+    @pytest.mark.parametrize("cache_flag", ["--no-use-cache", "--ignore-cache"])
+    def test_no_cache_builds_in_tempdir(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        capture_run: dict,
+        monkeypatch,
+        cache_flag: str,
     ) -> None:
-        # --ignore-cache mirrors the winml runtime: build fresh in a throwaway
+        # --no-use-cache builds fresh in a throwaway
         # temp dir and never touch the managed cache. Both the assembled bundle
         # and its component build cache land outside WINML_CACHE_DIR, and the
         # managed bundle dir is never written.
@@ -1041,7 +1047,7 @@ class TestCliDispatch:
         )
 
         result = runner.invoke(
-            perf, ["-m", "Qwen/Qwen3-0.6B", "--runtime", "winml-genai", "--ignore-cache"]
+            perf, ["-m", "Qwen/Qwen3-0.6B", "--runtime", "winml-genai", cache_flag]
         )
 
         assert result.exit_code == 0, result.output
@@ -1091,15 +1097,27 @@ class TestCliDispatch:
         assert "--task" not in result.output
         assert "--memory" in result.output  # still ignored -> still warned
 
-    def test_prebuilt_bundle_still_warns_build_flags(
-        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    @pytest.mark.parametrize(
+        ("cache_flag", "warning_flag"),
+        [
+            ("--rebuild", "--rebuild"),
+            ("--no-use-cache", "--use-cache/--no-use-cache"),
+            ("--ignore-cache", "--ignore-cache/--no-ignore-cache"),
+        ],
+    )
+    def test_prebuilt_bundle_still_warns_cache_flags(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        capture_run: dict,
+        cache_flag: str,
+        warning_flag: str,
     ) -> None:
-        # A prebuilt bundle dir ignores the build-driving flags, so --rebuild is
-        # reported as ignored (no auto-build happened).
+        # A prebuilt bundle dir ignores cache controls because no auto-build runs.
         bundle = _make_bundle(tmp_path)
-        result = runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai", "--rebuild"])
+        result = runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai", cache_flag])
         assert result.exit_code == 0, result.output
-        assert "--rebuild" in result.output
+        assert warning_flag in result.output
 
     def test_cache_hit_warns_dropped_build_input_flags(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
@@ -1107,7 +1125,7 @@ class TestCliDispatch:
         # On a cache hit the model-id-keyed bundle is reused as-is, so the
         # artifact-shaping flags (--precision/--task) were NOT applied to it and
         # must be reported as ignored -- unlike a fresh build, which honors them.
-        # (--rebuild/--ignore-cache always force a build, so they never reach here.)
+        # (--rebuild/--no-use-cache always force a build, so they never reach here.)
         import winml.modelkit.models.winml as winml_models
         from winml.modelkit.cache import get_model_dir
 
