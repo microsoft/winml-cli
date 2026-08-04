@@ -1093,22 +1093,22 @@ def ignored_cache_flags_warning(
     rebuild: bool = False,
     use_cache_was_set: bool = False,
     rebuild_was_set: bool = False,
+    use_cache_source: str | None = None,
+    rebuild_source: str | None = None,
     reason: str | None = None,
 ) -> str | None:
     """Build a warning for explicit cache controls when no model build runs."""
     if build_runs:
         return None
-    ignored = [
-        flag
-        for flag, was_set in (
-            (
-                "--use-cache" if use_cache else "--no-use-cache",
-                use_cache_was_set or not use_cache,
-            ),
-            ("--rebuild" if rebuild else "--no-rebuild", rebuild_was_set or rebuild),
-        )
-        if was_set
-    ]
+    ignored: list[str] = []
+    if use_cache_was_set:
+        ignored.append("--use-cache" if use_cache else "--no-use-cache")
+    elif use_cache_source is not None:
+        ignored.append(f"use_cache={str(use_cache).lower()} from {use_cache_source}")
+    if rebuild_was_set:
+        ignored.append("--rebuild" if rebuild else "--no-rebuild")
+    elif rebuild_source is not None:
+        ignored.append(f"rebuild={str(rebuild).lower()} from {rebuild_source}")
     if not ignored:
         return None
     return f"{', '.join(ignored)} ignored for {reason or 'this input'} (no build runs)."

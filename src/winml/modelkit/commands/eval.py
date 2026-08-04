@@ -299,7 +299,7 @@ def eval(
     from ..eval import evaluate
 
     # ── 1. Build config: defaults ← config file ← CLI ──
-    cfg = _build_eval_config(ctx, config_file, column, label_mapping_path)
+    cfg, config_fields = _build_eval_config(ctx, config_file, column, label_mapping_path)
 
     if cfg.input_data is not None and cfg.mode != "compare":
         raise click.UsageError("--input-data is only valid with --mode compare.")
@@ -337,39 +337,12 @@ def eval(
             "comes from the leading axis of the provided tensors."
         )
 
-    build_skip_reason = _model_build_skip_reason(cfg)
-
-    # Build-pipeline flags only take effect when eval builds model artifacts.
-    # Warn when evaluator-owned or pre-built paths bypass the build entirely.
-    build_flags_warning = cli_utils.ignored_build_flags_warning(
-        build_runs=build_skip_reason is None,
-        quant=cfg.quant,
-        optimize=cfg.optimize,
-        analyze=cfg.analyze,
-        max_optim_iterations=cfg.max_optim_iterations,
-        reason=build_skip_reason,
-        rebuild_hint=("--no-skip-build" if build_skip_reason == "pre-built ONNX inputs" else None),
-    )
-    if build_flags_warning:
-        logger.warning(build_flags_warning)
-
-    cache_flags_warning = cli_utils.ignored_cache_flags_warning(
-        build_runs=build_skip_reason is None,
-        use_cache=cfg.use_cache,
-        rebuild=cfg.rebuild,
-        use_cache_was_set=cli_utils.is_cli_provided(ctx, "use_cache"),
-        rebuild_was_set=cli_utils.is_cli_provided(ctx, "rebuild"),
-        reason=build_skip_reason,
-    )
-    if cache_flags_warning:
-        logger.warning(cache_flags_warning)
-
-    logger.debug("Effective eval config: %s", cfg.to_dict())
-
     json_mode = output_format == "json"
 
     # ── 3. Evaluate ──
     try:
+        _warn_ignored_model_build_controls(ctx, cfg, config_fields)
+        logger.debug("Effective eval config: %s", cfg.to_dict())
         result = evaluate(cfg)
         _write_and_display(result, cfg.output_path, json_mode=json_mode)
     except Exception as e:
@@ -383,12 +356,15 @@ def _build_eval_config(
     config_file: Path | None,
     column: tuple[str, ...],
     label_mapping_path: Path | None,
-) -> WinMLEvaluationConfig:
+) -> tuple[WinMLEvaluationConfig, set[str]]:
     """Build a WinMLEvaluationConfig with precedence: defaults ← config file ← CLI.
 
     Reads raw JSON for config-file values so only explicitly-present keys
     are applied (avoids overriding with dataclass defaults).
     Uses ``collect_cli_overrides`` for automatic CLI-to-field mapping.
+
+    Returns the resolved config and the field names explicitly present in the
+    config file.
     """
     from ..eval import DatasetConfig, WinMLEvaluationConfig
     from ..utils.config_utils import merge_config
@@ -402,6 +378,7 @@ def _build_eval_config(
     eval_kwargs = cli_utils.collect_cli_overrides(ctx, WinMLEvaluationConfig)
     dataset_kwargs = cli_utils.collect_cli_overrides(ctx, DatasetConfig)
     cfg = WinMLEvaluationConfig(dataset=DatasetConfig(**dataset_kwargs), **eval_kwargs)
+    config_fields: set[str] = set()
 
     # ── Config file layer (only explicitly-present keys) ──
     if config_file is not None:
@@ -420,6 +397,7 @@ def _build_eval_config(
         # Eval section overrides loader/compile fallbacks
         eval_data = raw.get("eval")
         if eval_data:
+            config_fields.update(eval_data)
             cfg = merge_config(cfg, eval_data)
 
     # ── CLI layer (highest priority, auto-mapped via metadata) ──
@@ -448,24 +426,70 @@ def _build_eval_config(
     if overrides:
         cfg = merge_config(cfg, overrides)
 
-    return cfg
+    return cfg, config_fields
 
 
 def _model_build_skip_reason(cfg: WinMLEvaluationConfig) -> str | None:
     """Describe why eval will not build model artifacts, if applicable."""
-    if cfg.reference_path is not None:
+    from ..eval.evaluate import _ModelLoaderKind, _select_model_loader
+
+    loader = _select_model_loader(cfg)
+    if loader is _ModelLoaderKind.DIRECT_ONNX_COMPARE:
         return "two-ONNX comparisons"
-    if cfg.model_path is None:
-        return None
-    if isinstance(cfg.model_path, str):
-        model_path = Path(cfg.model_path).expanduser()
-        if model_path.is_dir() and (model_path / "genai_config.json").is_file():
-            return "pre-built GenAI bundles"
-    if isinstance(cfg.model_path, dict) and cfg.task == "mask-generation":
+    if loader is _ModelLoaderKind.EVALUATOR_MANAGED:
         return "evaluator-managed composite inputs"
-    if cfg.skip_build:
+    if loader is _ModelLoaderKind.ONNX and cfg.skip_build:
         return "pre-built ONNX inputs"
     return None
+
+
+def _warn_ignored_model_build_controls(
+    ctx: click.Context,
+    cfg: WinMLEvaluationConfig,
+    config_fields: set[str],
+) -> None:
+    """Warn when explicit model-build controls cannot affect the selected loader."""
+    _resolve_model_loader_task(cfg)
+    build_skip_reason = _model_build_skip_reason(cfg)
+
+    build_flags_warning = cli_utils.ignored_build_flags_warning(
+        build_runs=build_skip_reason is None,
+        quant=cfg.quant,
+        optimize=cfg.optimize,
+        analyze=cfg.analyze,
+        max_optim_iterations=cfg.max_optim_iterations,
+        reason=build_skip_reason,
+        rebuild_hint=("--no-skip-build" if build_skip_reason == "pre-built ONNX inputs" else None),
+    )
+    if build_flags_warning:
+        logger.warning(build_flags_warning)
+
+    cache_flags_warning = cli_utils.ignored_cache_flags_warning(
+        build_runs=build_skip_reason is None,
+        use_cache=cfg.use_cache,
+        rebuild=cfg.rebuild,
+        use_cache_was_set=cli_utils.is_cli_provided(ctx, "use_cache"),
+        rebuild_was_set=cli_utils.is_cli_provided(ctx, "rebuild"),
+        use_cache_source=("--config" if "use_cache" in config_fields else None),
+        rebuild_source=("--config" if "rebuild" in config_fields else None),
+        reason=build_skip_reason,
+    )
+    if cache_flags_warning:
+        logger.warning(cache_flags_warning)
+
+
+def _resolve_model_loader_task(cfg: WinMLEvaluationConfig) -> None:
+    """Resolve an omitted task when it can change the selected model loader."""
+    if cfg.task is not None or cfg.reference_path is not None:
+        return
+    if not isinstance(cfg.model_path, dict) and not (
+        isinstance(cfg.model_path, str) and Path(cfg.model_path).is_dir()
+    ):
+        return
+
+    from ..eval.evaluate import _infer_task
+
+    cfg.task = _infer_task(cfg)
 
 
 def _resolve_model(

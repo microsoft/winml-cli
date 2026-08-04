@@ -216,10 +216,8 @@ class WinMLEvaluationConfig:
         if self.mode != "onnx":
             result["mode"] = self.mode
         result["skip_build"] = self.skip_build
-        if not self.use_cache:
-            result["use_cache"] = self.use_cache
-        if self.rebuild:
-            result["rebuild"] = self.rebuild
+        result["use_cache"] = self.use_cache
+        result["rebuild"] = self.rebuild
         return result
 
     @classmethod
