@@ -368,4 +368,4 @@ def _shutdown_telemetry() -> None:
 
 
 if __name__ == "__main__":
-    main() # type: ignore
+    main()

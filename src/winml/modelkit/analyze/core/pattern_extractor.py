@@ -16,7 +16,7 @@ import logging
 import re
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, TypedDict, cast
+from typing import TYPE_CHECKING, Any, ClassVar, TypedDict
 
 import numpy as np
 
@@ -773,6 +773,18 @@ class PatternExtractor:
         dict[str, Any] | None,
     ]:
         """Query one candidate parquet table using one match's constraints."""
+        result: tuple[
+            str,
+            bool | None,
+            bool | None,
+            int,
+            int,
+            int,
+            list[Any] | None,
+            int,
+            list[str],
+            dict[str, Any] | None,
+        ]
         from .runtime_checker_query import get_query_conditions_for_pattern, query_table_exact_match
 
         load_status, table_df = self._load_pattern_rule_table(parquet_path, table_cache)
@@ -1186,7 +1198,7 @@ class PatternExtractor:
         cache_key = (model_signature, ep_name, device_name, bool(for_debug))
         cached_merge_prep = self._MERGE_PREP_CACHE.get(cache_key)
         if cached_merge_prep is not None:
-            cloned = cast("list[PatternMergePrepEntry]", copy.deepcopy(cached_merge_prep))
+            cloned = copy.deepcopy(cached_merge_prep)
 
             def _emit_cached_pattern_query_result(pattern_id: str, support_status: str) -> None:
                 if on_pattern_query_result is None:
@@ -1534,10 +1546,7 @@ class PatternExtractor:
                         except Exception:
                             logger.debug("on_pattern_query_result callback failed", exc_info=True)
 
-        self._MERGE_PREP_CACHE[cache_key] = cast(
-            "list[PatternMergePrepEntry]",
-            copy.deepcopy(entries),
-        )
+        self._MERGE_PREP_CACHE[cache_key] = copy.deepcopy(entries)
         return entries
 
     def summary(
