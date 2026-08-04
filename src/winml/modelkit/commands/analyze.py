@@ -385,7 +385,11 @@ def _build_pattern_query_table(
     }
 
     for pattern_id in display_order:
-        total = all_patterns.get(pattern_id, 0) if all_patterns else sum(data.get(pattern_id, {}).values())
+        total = (
+            all_patterns.get(pattern_id, 0)
+            if all_patterns
+            else sum(data.get(pattern_id, {}).values())
+        )
         counts = data.get(pattern_id)
 
         if not counts:

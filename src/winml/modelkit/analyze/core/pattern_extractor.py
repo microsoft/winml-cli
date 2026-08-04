@@ -16,7 +16,7 @@ import logging
 import re
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypedDict, cast
+from typing import TYPE_CHECKING, Any, ClassVar, TypedDict, cast
 
 import numpy as np
 
@@ -36,7 +36,6 @@ if TYPE_CHECKING:
     from ...pattern.base import Pattern
     from ...pattern.match import PatternMatchResult
     from ...utils.constants import EPNameOrAlias
-
     from ..models.ihv_type import IHVType
     from ..models.output import ModelStats
 
@@ -58,7 +57,7 @@ class PatternSummary(TypedDict):
     subgraph_patterns: list[PatternMatchResult]
     subgraph_patterns_by_source: dict[str, dict[str, list[PatternMatchResult]]]
     source_stats: list[PatternSourceStat]
-    merge_prep: list["PatternMergePrepEntry"]
+    merge_prep: list[PatternMergePrepEntry]
     model_signature: str
 
 
@@ -122,13 +121,18 @@ class PatternExtractor:
     # - rules cache: source key -> loaded skeleton Pattern instances
     # - match cache: (model signature, source key) -> grouped PatternMatchResult
     # - merge prep cache: (model signature, ep, device, debug flag) -> merge prep entries
-    _RULES_PATTERN_CACHE: dict[str, list[Pattern]] = {}
-    _MATCH_CACHE: dict[tuple[str, str], dict[str, list[PatternMatchResult]]] = {}
-    _DEDUPED_MATCH_CACHE: dict[
-        tuple[str, str],
-        tuple[dict[str, dict[str, list[PatternMatchResult]]], list[PatternMatchResult]],
+    _RULES_PATTERN_CACHE: ClassVar[dict[str, list[Pattern]]] = {}
+    _MATCH_CACHE: ClassVar[dict[tuple[str, str], dict[str, list[PatternMatchResult]]]] = {}
+    _DEDUPED_MATCH_CACHE: ClassVar[
+        dict[
+            tuple[str, str],
+            tuple[
+                dict[str, dict[str, list[PatternMatchResult]]],
+                list[PatternMatchResult],
+            ],
+        ]
     ] = {}
-    _MERGE_PREP_CACHE: dict[tuple[str, str, str, bool], list[PatternMergePrepEntry]] = {}
+    _MERGE_PREP_CACHE: ClassVar[dict[tuple[str, str, str, bool], list[PatternMergePrepEntry]]] = {}
     _VALID_EP_DEVICE_PAIRS_CACHE: set[tuple[str, str]] | None = None
 
     def __init__(self, model: ONNXModel) -> None:
@@ -170,7 +174,7 @@ class PatternExtractor:
 
         # Fallback for in-memory models or missing paths.
         model_bytes = self._model.get_model().SerializeToString()
-        digest = hashlib.sha1(model_bytes).hexdigest()
+        digest = hashlib.sha1(model_bytes, usedforsecurity=False).hexdigest()
         return f"in_memory:{digest}"
 
     @staticmethod
@@ -194,8 +198,8 @@ class PatternExtractor:
         if ep is None:
             return sources
 
-        from ..utils import infer_ihv_from_ep_name
         from ..models.ihv_type import IHVType
+        from ..utils import infer_ihv_from_ep_name
 
         ihv_type = infer_ihv_from_ep_name(ep)
         if ihv_type is IHVType.UNKNOWN:
@@ -409,8 +413,8 @@ class PatternExtractor:
         if ep is None:
             return list(sources)
 
-        from ..utils import infer_ihv_from_ep_name
         from ..models.ihv_type import IHVType
+        from ..utils import infer_ihv_from_ep_name
 
         ihv_type = infer_ihv_from_ep_name(ep)
         if ihv_type is IHVType.UNKNOWN:
@@ -572,23 +576,23 @@ class PatternExtractor:
                 continue
 
             # Prefer exact-domain rows; then closest opset not above target.
-            same_domain_le = [c for c in candidates if c[1] == preferred_domain and c[2] <= target_opset]
+            same_domain_le = [
+                c for c in candidates if c[1] == preferred_domain and c[2] <= target_opset
+            ]
             if same_domain_le:
-                picked = max(same_domain_le, key=lambda c: c[2])
-                return picked
+                return max(same_domain_le, key=lambda c: c[2])
 
             any_domain_le = [c for c in candidates if c[2] <= target_opset]
             if any_domain_le:
-                picked = max(any_domain_le, key=lambda c: c[2])
-                return picked
+                return max(any_domain_le, key=lambda c: c[2])
 
-            same_domain_gt = [c for c in candidates if c[1] == preferred_domain and c[2] > target_opset]
+            same_domain_gt = [
+                c for c in candidates if c[1] == preferred_domain and c[2] > target_opset
+            ]
             if same_domain_gt:
-                picked = min(same_domain_gt, key=lambda c: c[2])
-                return picked
+                return min(same_domain_gt, key=lambda c: c[2])
 
-            picked = min(candidates, key=lambda c: c[2])
-            return picked
+            return min(candidates, key=lambda c: c[2])
 
         return None, None, None
 
@@ -599,7 +603,7 @@ class PatternExtractor:
         if not isinstance(raw_value, (list, tuple)) and hasattr(raw_value, "tolist"):
             try:
                 raw_value = raw_value.tolist()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 return None
 
         if not isinstance(raw_value, (list, tuple)) or len(raw_value) < 2:
@@ -630,7 +634,7 @@ class PatternExtractor:
         if hasattr(normalized, "tolist"):
             try:
                 normalized = normalized.tolist()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 normalized = case_indices
 
         if isinstance(normalized, list):
@@ -651,12 +655,12 @@ class PatternExtractor:
 
         try:
             import pandas as pd
-        except Exception:  # noqa: BLE001
+        except Exception:
             return "pandas_unavailable", None
 
         try:
             table_df = pd.read_parquet(parquet_path)
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.debug("Failed to read pattern parquet: %s", parquet_path, exc_info=True)
             return "read_error", None
 
@@ -685,7 +689,7 @@ class PatternExtractor:
 
         try:
             schema = candidate_pattern_obj.get_schema()
-        except Exception:  # noqa: BLE001
+        except Exception:
             return False, None
 
         inputs: dict[str, np.ndarray] = {}
@@ -723,7 +727,7 @@ class PatternExtractor:
             )
         except PatternMismatchedError as mismatch_error:
             return True, str(mismatch_error)
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.debug(
                 "Candidate mismatch probe failed for %s; continue parquet lookup",
                 candidate_pattern_obj.__class__.__name__,
@@ -777,7 +781,7 @@ class PatternExtractor:
         if table_df is None:
             return "read_error", None, None, 0, 0, 0, None, 0, [], None
 
-        row_count = int(len(table_df))
+        row_count = len(table_df)
         if row_count == 0:
             return "empty_table", None, None, 0, 0, 0, None, 0, [], None
 
@@ -807,7 +811,7 @@ class PatternExtractor:
                 )
             else:
                 conditions, infinite_properties = cached_conditions
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.debug(
                 "Failed to build query conditions for pattern '%s'",
                 candidate_pattern_name,
@@ -853,10 +857,10 @@ class PatternExtractor:
                 current_df = table_df
                 first_zero_column: str | None = None
                 for col, value in query_conditions.items():
-                    rows_before = int(len(current_df))
+                    rows_before = len(current_df)
                     if col in current_df.columns:
                         current_df = current_df[current_df[col] == value]
-                    rows_after = int(len(current_df))
+                    rows_after = len(current_df)
 
                     debug_steps.append(
                         {
@@ -1183,15 +1187,21 @@ class PatternExtractor:
         cached_merge_prep = self._MERGE_PREP_CACHE.get(cache_key)
         if cached_merge_prep is not None:
             cloned = cast("list[PatternMergePrepEntry]", copy.deepcopy(cached_merge_prep))
+
+            def _emit_cached_pattern_query_result(pattern_id: str, support_status: str) -> None:
+                if on_pattern_query_result is None:
+                    return
+                try:
+                    on_pattern_query_result(pattern_id, support_status)
+                except Exception:
+                    logger.debug("on_pattern_query_result callback failed", exc_info=True)
+
             if on_pattern_query_result is not None:
                 for entry in cloned:
-                    try:
-                        on_pattern_query_result(
-                            str(entry.get("pattern_id", "")),
-                                str(entry.get("support_status", "unknown")),
-                        )
-                    except Exception:
-                        logger.debug("on_pattern_query_result callback failed", exc_info=True)
+                    _emit_cached_pattern_query_result(
+                        str(entry.get("pattern_id", "")),
+                        str(entry.get("support_status", "unknown")),
+                    )
             return cloned
 
         model_opsets = ONNXDomain.get_model_domain_opset_versions(self._model.get_model())
@@ -1293,7 +1303,7 @@ class PatternExtractor:
                                 module=alt.module,
                                 enabled=True,
                             ).load_pattern()
-                        except Exception:  # noqa: BLE001
+                        except Exception:
                             logger.debug(
                                 "Failed to load alternative pattern %s from %s",
                                 alt.pattern_class,
@@ -1327,16 +1337,20 @@ class PatternExtractor:
                         )
                     )
 
-                base_candidate_runtime_specs = [spec for spec in candidate_runtime_specs if not spec[2]]
+                base_candidate_runtime_specs = [
+                    spec for spec in candidate_runtime_specs if not spec[2]
+                ]
                 alternative_runtime_specs = [spec for spec in candidate_runtime_specs if spec[2]]
 
                 def _alternative_runtime_sort_key(
                     runtime_spec: tuple[str, str, bool, Any | None, str, int],
+                    _priority_by_key: dict[tuple[str, str], int] = alternative_priority_by_key,
+                    _priority_by_id: dict[str, int] = alternative_priority_by_id,
                 ) -> tuple[int, str, str]:
                     candidate_class, candidate_id, *_ = runtime_spec
-                    priority = alternative_priority_by_key.get(
+                    priority = _priority_by_key.get(
                         (candidate_id, candidate_class),
-                        alternative_priority_by_id.get(candidate_id, 1_000_000),
+                        _priority_by_id.get(candidate_id, 1_000_000),
                     )
                     return (priority, candidate_id, candidate_class)
 
@@ -1480,10 +1494,16 @@ class PatternExtractor:
 
                         # Alternatives are processed by priority, so the first
                         # supported alternative is already the optimal pick.
-                        if is_alt and self._candidate_supported_status(candidate_result) == "supported":
+                        if (
+                            is_alt
+                            and self._candidate_supported_status(candidate_result) == "supported"
+                        ):
                             break
 
-                    filtered_alternatives, filtered_candidates = self._select_and_filter_alternatives(
+                    (
+                        filtered_alternatives,
+                        filtered_candidates,
+                    ) = self._select_and_filter_alternatives(
                         alternatives_meta=alternatives_meta,
                         candidate_results=candidate_results,
                     )
@@ -1533,7 +1553,8 @@ class PatternExtractor:
         Returns:
             PatternSummary with keys:
                 - summary: ModelStats (from model_summary())
-                - subgraph_patterns: List[PatternMatchResult] (skeleton extraction + EP-priority dedup)
+                - subgraph_patterns: List[PatternMatchResult]
+                  (skeleton extraction + EP-priority dedup)
         """
         logger.info("Generating pattern analysis summary")
         total_start = time.perf_counter()

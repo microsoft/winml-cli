@@ -14,7 +14,6 @@ import onnx
 import pytest
 from onnx import TensorProto, helper
 
-from tests.unit.test_helpers import stable_test_node_keys as _stable_test_node_keys
 from winml.modelkit.analyze import ModelStats, ONNXModel, PatternExtractor
 from winml.modelkit.pattern import SubgraphPattern
 
@@ -332,7 +331,11 @@ class TestPatternExtractorAlternativeSelection:
         extractor = PatternExtractor(simple_onnx_model)
 
         alternatives_meta = [
-            {"pattern_to_id": "SUBGRAPH/AltUnsupported", "pattern_class": "AltUnsupported", "priority": 1},
+            {
+                "pattern_to_id": "SUBGRAPH/AltUnsupported",
+                "pattern_class": "AltUnsupported",
+                "priority": 1,
+            },
             {"pattern_to_id": "SUBGRAPH/AltUnknown", "pattern_class": "AltUnknown", "priority": 1},
         ]
         candidate_results = [
@@ -517,7 +520,20 @@ class TestPatternExtractorAlternativeSelection:
         ]
         mock_config_cls.return_value = mock_config
 
-        def query_side_effect(**kwargs: object) -> tuple[str, bool | None, bool | None, int, int, int, list[object] | None, int, list[str], dict[str, object] | None]:
+        def query_side_effect(
+            **kwargs: object,
+        ) -> tuple[
+            str,
+            bool | None,
+            bool | None,
+            int,
+            int,
+            int,
+            list[object] | None,
+            int,
+            list[str],
+            dict[str, object] | None,
+        ]:
             candidate_name = str(kwargs["candidate_pattern_name"])
             if candidate_name == "AltHighPriority":
                 return ("ok", True, True, 1, 1, 1, None, 0, [], None)

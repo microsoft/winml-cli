@@ -213,9 +213,7 @@ def _build_match_status_by_match_id(
             continue
 
         raw_status = str(entry.get("support_status", "")).strip().lower()
-        if raw_status == "unknown":
-            raw_status = "unknown"
-        elif raw_status == "unknow":
+        if raw_status == "unknown" or raw_status == "unknow":
             raw_status = "unknown"
 
         if raw_status in _PATTERN_STATUS_QUALITY:
@@ -295,7 +293,11 @@ def _build_pattern_matching_summary(
 
         node_breakdown: list[dict[str, Any]] = []
         for op_type, total_count in sorted(op_counts.items(), key=lambda item: (-item[1], item[0])):
-            per_instance_count = total_count // instances if instances > 0 and total_count % instances == 0 else None
+            per_instance_count = (
+                total_count // instances
+                if instances > 0 and total_count % instances == 0
+                else None
+            )
             node_breakdown.append(
                 {
                     "op_type": op_type,
@@ -330,7 +332,11 @@ def _build_operator_counts_excluding_pattern_nodes(
 ) -> dict[str, int]:
     """Subtract pattern-matched nodes from operator totals for OP CHECK display."""
     if not matched_node_keys:
-        return {str(op_type): int(count) for op_type, count in operator_counts.items() if int(count) > 0}
+        return {
+            str(op_type): int(count)
+            for op_type, count in operator_counts.items()
+            if int(count) > 0
+        }
 
     matched_counts_by_op: dict[str, int] = {}
     for node_key in matched_node_keys:
@@ -1130,19 +1136,26 @@ class ONNXStaticAnalyzer:
         for current_ep in eps_to_analyze:
             logger.info("Checking runtime support for %s...", current_ep)
 
-            def _on_pattern_query_start_for_ep(pattern_counts: Mapping[str, int]) -> None:
+            def _on_pattern_query_start_for_ep(
+                pattern_counts: Mapping[str, int],
+                _ep: EPName = current_ep,
+            ) -> None:
                 if on_pattern_query_start is None:
                     return
                 try:
-                    on_pattern_query_start(current_ep, dict(pattern_counts))
+                    on_pattern_query_start(_ep, dict(pattern_counts))
                 except Exception:
                     logger.debug("on_pattern_query_start callback failed", exc_info=True)
 
-            def _on_pattern_query_result_for_ep(pattern_id: str, support_status: str) -> None:
+            def _on_pattern_query_result_for_ep(
+                pattern_id: str,
+                support_status: str,
+                _ep: EPName = current_ep,
+            ) -> None:
                 if on_pattern_query_result is None:
                     return
                 try:
-                    on_pattern_query_result(current_ep, pattern_id, support_status)
+                    on_pattern_query_result(_ep, pattern_id, support_status)
                 except Exception:
                     logger.debug("on_pattern_query_result callback failed", exc_info=True)
 
