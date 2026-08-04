@@ -427,7 +427,8 @@ class GenaiPerfBenchmark:
         device = (self._config.device or "").lower()
         if device in ("cpu", "gpu", "npu"):
             return device
-        return self._session_device() or "auto"
+        effective = getattr(self._session, "effective_device", None)
+        return effective if effective in ("cpu", "gpu", "npu") else "cpu"
 
     def _time_one_generation(
         self,

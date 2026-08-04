@@ -964,6 +964,55 @@ class TestEffectiveEp:
         assert session.effective_ep == "qnn"
 
 
+class TestEffectiveDevice:
+    def test_dml_bundle_routes_monitoring_to_gpu(self) -> None:
+        cfg = {
+            "model": {
+                "decoder": {
+                    "pipeline": [
+                        {
+                            "decoder": {
+                                "session_options": {"provider_options": [{"dml": {}}]}
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+
+        assert GenaiSession._device_from_config(cfg) == "gpu"
+
+    def test_ambiguous_multidevice_provider_omits_adapter(self) -> None:
+        cfg = {
+            "model": {
+                "decoder": {
+                    "pipeline": [
+                        {
+                            "decoder": {
+                                "session_options": {"provider_options": [{"qnn": {}}]}
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+
+        assert GenaiSession._device_from_config(cfg) is None
+
+    def test_device_type_resolves_multidevice_provider(self) -> None:
+        cfg = {
+            "model": {
+                "decoder": {
+                    "session_options": {
+                        "provider_options": [{"openvino": {"device_type": "GPU"}}]
+                    }
+                }
+            }
+        }
+
+        assert GenaiSession._device_from_config(cfg) == "gpu"
+
+
 # ---------------------------------------------------------------------------
 # Tests: generate / generate_streaming
 # ---------------------------------------------------------------------------

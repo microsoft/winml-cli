@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """Tests for ``scripts/e2e_eval/run_llm_eval.py``."""
 
 from __future__ import annotations
@@ -76,7 +81,7 @@ class TestPerfResultMapping:
         args = runner._perf_args(
             bundle_dir=tmp_path / "bundle",
             report_path=tmp_path / "report.json",
-            prompt="hello",
+            prompt_path=tmp_path / "prompt.txt",
             max_new_tokens=128,
             iterations=3,
             warmup=1,
@@ -112,7 +117,7 @@ class TestPerfResultMapping:
         assert point["total_elapsed_s"] == 17.0
         assert point["inter_token_latency_ms"]["avg"] == pytest.approx(124.8333)
         assert point["gpu_util_avg_pct"] == 42.5
-        assert point["vram"] == {"util_avg_pct": 3.125, "used_avg_mb": 512.0}
+        assert point["vram"] == {"util_avg_pct": None, "used_avg_mb": 512.0}
         assert point["process_cpu_util_avg_pct"] == 350.0
         assert point["process_mem"] == {"util_avg_pct": 12.5, "used_avg_mb": 2048.0}
 
@@ -180,6 +185,9 @@ class TestResultContract:
         bundle.mkdir()
         (bundle / "genai_config.json").write_text("{}", encoding="utf-8")
         output_dir = tmp_path / "results"
+        output_dir.mkdir()
+        stale_failure = output_dir / runner.FAILURE_FILENAME
+        stale_failure.write_text("{}", encoding="utf-8")
 
         monkeypatch.setattr(runner, "_make_prompt", lambda *_args: "prompt")
         monkeypatch.setattr(
@@ -195,6 +203,9 @@ class TestResultContract:
         )
 
         def fake_run(args: list[str], *, timeout: int):
+            prompt_path = Path(args[args.index("--prompt-file") + 1])
+            assert prompt_path.read_text(encoding="utf-8") == "prompt"
+            assert "prompt" not in args
             report_path = Path(args[args.index("-o") + 1])
             report_path.write_text(json.dumps(_perf_report()), encoding="utf-8")
             return runner.ProcessResult(args, 0, 1.0, "", "", False)
@@ -224,3 +235,48 @@ class TestResultContract:
         assert result["model"] == "Qwen/Qwen3-1.7B"
         assert len(result["context_sweep"]) == 1
         assert "winml.modelkit.cli perf" in result["run"]["command"]
+        assert not stale_failure.exists()
+
+    def test_failed_rerun_removes_stale_result(
+        self, runner, tmp_path: Path, monkeypatch
+    ) -> None:
+        bundle = tmp_path / "qwen3-bundle"
+        bundle.mkdir()
+        (bundle / "genai_config.json").write_text("{}", encoding="utf-8")
+        output_dir = tmp_path / "results"
+        output_dir.mkdir()
+        stale_result = output_dir / runner.RESULT_FILENAME
+        stale_result.write_text('{"run": {"passed": true}}', encoding="utf-8")
+
+        monkeypatch.setattr(runner, "_make_prompt", lambda *_args: "prompt")
+        monkeypatch.setattr(
+            runner,
+            "_collect_environment",
+            lambda _gpu_memory_gb: {
+                "os": "windows",
+                "hardware": {},
+                "total_ram_mb": 16384.0,
+                "total_vram_mb": 0.0,
+                "gpu_memory_gb": None,
+            },
+        )
+        monkeypatch.setattr(
+            runner,
+            "_run_process",
+            lambda args, *, timeout: runner.ProcessResult(args, 1, 1.0, "", "failed", False),
+        )
+
+        exit_code = runner.main(
+            [
+                "-m",
+                str(bundle),
+                "--output-dir",
+                str(output_dir),
+                "--context-lengths",
+                "256",
+            ]
+        )
+
+        assert exit_code == 1
+        assert not stale_result.exists()
+        assert (output_dir / runner.FAILURE_FILENAME).exists()

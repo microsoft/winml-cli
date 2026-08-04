@@ -111,7 +111,7 @@
           "additionalProperties": false,
           "required": ["util_avg_pct", "used_avg_mb"],
           "properties": {
-            "util_avg_pct": { "type": "number", "minimum": 0 },
+            "util_avg_pct": { "type": ["number", "null"], "minimum": 0 },
             "used_avg_mb": { "type": "number", "minimum": 0 }
           }
         },

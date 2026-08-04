@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """Run a schema-normalized ONNX Runtime GenAI context sweep.
 
 The runner consumes an existing GenAI bundle and invokes ``winml perf
@@ -161,7 +166,7 @@ def _perf_args(
     *,
     bundle_dir: Path,
     report_path: Path,
-    prompt: str,
+    prompt_path: Path,
     max_new_tokens: int,
     iterations: int,
     warmup: int,
@@ -178,8 +183,8 @@ def _perf_args(
         "winml-genai",
         "--device",
         device,
-        "--prompt",
-        prompt,
+        "--prompt-file",
+        str(prompt_path),
         "--no-apply-template",
         "--max-new-tokens",
         str(max_new_tokens),
@@ -308,9 +313,9 @@ def _context_point(
         local_memory_mb = float(memory_metrics.get("local_mean_mb") or 0.0)
         shared_memory_mb = float(memory_metrics.get("shared_mean_mb") or 0.0)
         device_memory_mb = local_memory_mb if local_memory_mb > 0 else shared_memory_mb
-        capacity_mb = total_vram_mb if local_memory_mb > 0 and total_vram_mb > 0 else total_ram_mb
+        capacity_mb = total_vram_mb if local_memory_mb > 0 and total_vram_mb > 0 else None
         device_memory_util_pct = (
-            device_memory_mb / capacity_mb * 100 if capacity_mb > 0 else 0.0
+            device_memory_mb / capacity_mb * 100 if capacity_mb is not None else None
         )
 
     prefill_ms = float((report.get("prefill_ms") or {}).get("mean") or 0.0)
@@ -333,7 +338,9 @@ def _context_point(
         "inter_token_latency_ms": _distribution(raw.get("tpot_ms") or []),
         "gpu_util_avg_pct": round(accelerator_util_pct, 4),
         "vram": {
-            "util_avg_pct": round(device_memory_util_pct, 4),
+            "util_avg_pct": (
+                round(device_memory_util_pct, 4) if device_memory_util_pct is not None else None
+            ),
             "used_avg_mb": round(device_memory_mb, 4),
         },
         "process_cpu_util_avg_pct": round(process_cpu_pct, 4),
@@ -348,7 +355,6 @@ def _collect_environment(gpu_memory_gb: float | None = None) -> dict[str, Any]:
     total_ram_mb = psutil.virtual_memory().total / (1024 * 1024)
     gpu_name: str | None = None
     npu_name: str | None = None
-    detected_vram_mb = 0.0
     if platform.system() == "Windows":
         with contextlib.suppress(Exception):
             from winml.modelkit.sysinfo.hardware import GPU, NPU
@@ -357,10 +363,9 @@ def _collect_environment(gpu_memory_gb: float | None = None) -> dict[str, Any]:
             npus = NPU.get_all()
             if gpus:
                 gpu_name = gpus[0].name
-                detected_vram_mb = float(gpus[0].vram_mib)
             if npus:
                 npu_name = npus[0].name
-    total_vram_mb = gpu_memory_gb * 1024 if gpu_memory_gb is not None else detected_vram_mb
+    total_vram_mb = gpu_memory_gb * 1024 if gpu_memory_gb is not None else 0.0
     hardware: dict[str, Any] = {
         "cpu_name": platform.processor() or platform.uname().processor,
         "total_vram_mb": round(total_vram_mb, 1),
@@ -500,13 +505,15 @@ def main(argv: list[str] | None = None) -> int:
     for context_length in args.context_lengths:
         print(f"Benchmarking {args.device.upper()} context={context_length} tokens")
         prompt = _make_prompt(bundle_dir, context_length, args.prompt_filler)
+        prompt_path = output_dir / f"prompt_ctx{context_length}.txt"
+        prompt_path.write_text(prompt, encoding="utf-8")
         report_path = output_dir / f"perf_ctx{context_length}.json"
         report_path.unlink(missing_ok=True)
         process = _run_process(
             _perf_args(
                 bundle_dir=bundle_dir,
                 report_path=report_path,
-                prompt=prompt,
+                prompt_path=prompt_path,
                 max_new_tokens=args.max_new_tokens,
                 iterations=args.iterations,
                 warmup=args.warmup,
@@ -549,6 +556,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not points:
         failure_path = output_dir / FAILURE_FILENAME
+        (output_dir / RESULT_FILENAME).unlink(missing_ok=True)
         _write_json(
             failure_path,
             {
@@ -585,6 +593,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     result_path = output_dir / RESULT_FILENAME
     _validate_result(result)
+    (output_dir / FAILURE_FILENAME).unlink(missing_ok=True)
     _write_json(result_path, result)
     status = "PASS" if result["run"]["passed"] else "FAIL"
     print(f"[{status}] {result_path}")

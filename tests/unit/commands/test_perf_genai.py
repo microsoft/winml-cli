@@ -77,6 +77,7 @@ class _FakeSession:
         context_length: int = 256,
         chat_template: bool = True,
         effective_ep: str | None = None,
+        effective_device: str | None = None,
     ) -> None:
         self._timings = list(timings)
         self._i = 0
@@ -89,6 +90,7 @@ class _FakeSession:
         # None to mean "config").  Reported by the benchmark instead of the
         # requested ep so a no-op override is not falsely claimed.
         self.effective_ep = effective_ep
+        self.effective_device = effective_device
 
     def encode(self, text: str) -> list[int]:
         self.encoded_text = text
@@ -534,6 +536,16 @@ class TestSessionDevice:
         GenaiPerfBenchmark(cfg)._build_session()
         assert captured == {"ep": "openvino", "device": "npu"}
 
+    def test_monitor_uses_bundle_effective_device_for_config(self) -> None:
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="config")
+        session = _FakeSession([], effective_device="gpu")
+        assert GenaiPerfBenchmark(cfg, session=session)._monitor_device() == "gpu"
+
+    def test_monitor_uses_cpu_only_when_bundle_device_is_ambiguous(self) -> None:
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="config")
+        session = _FakeSession([], effective_device=None)
+        assert GenaiPerfBenchmark(cfg, session=session)._monitor_device() == "cpu"
+
 
 # ---------------------------------------------------------------------------
 # Reporting helpers
@@ -858,6 +870,53 @@ class TestCliDispatch:
         cfg = capture_run["config"]
         assert cfg.prompt == "hello there"
         assert cfg.max_new_tokens == 64
+
+    def test_prompt_file_is_read_as_utf8(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        bundle = _make_bundle(tmp_path)
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_text("hello from a long prompt", encoding="utf-8")
+
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(bundle),
+                "--runtime",
+                "winml-genai",
+                "--prompt-file",
+                str(prompt_file),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].prompt == "hello from a long prompt"
+
+    def test_prompt_and_prompt_file_are_mutually_exclusive(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        bundle = _make_bundle(tmp_path)
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_text("file prompt", encoding="utf-8")
+
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(bundle),
+                "--runtime",
+                "winml-genai",
+                "--prompt",
+                "argv prompt",
+                "--prompt-file",
+                str(prompt_file),
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "mutually exclusive" in result.output
+        assert "config" not in capture_run
 
     def test_default_prompt_used_when_omitted(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict

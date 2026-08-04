@@ -419,6 +419,7 @@ class GenaiSession:
         self._compile_timeout = compile_timeout
         # Resolved at load() time.
         self._context_length: int | None = None
+        self._effective_device: str | None = None
 
         # og.* handles — None until load() is called.
         self._model: Any = None
@@ -494,6 +495,7 @@ class GenaiSession:
         # when a requested override is a no-op so ``--ep qnn`` on a flat/all-CPU
         # bundle is visibly reported as "config" rather than silently ignored.
         self._override_effective = self._override_took_effect(effective_cfg)
+        self._effective_device = self._resolve_effective_device(effective_cfg)
         if self._ep_override is not None and not self._override_effective:
             logger.warning(
                 "EP override %r was requested but did not take effect (flat/empty "
@@ -557,6 +559,7 @@ class GenaiSession:
         self._model = None
         self._tokenizer = None
         self._context_length = None
+        self._effective_device = None
         logger.info("GenaiSession unloaded: bundle=%s", self._bundle_dir)
 
     def __enter__(self) -> GenaiSession:
@@ -840,6 +843,17 @@ class GenaiSession:
     def context_length(self) -> int | None:
         """Static KV cache length, populated after :meth:`load`."""
         return self._context_length
+
+    @property
+    def effective_device(self) -> str | None:
+        """Uniquely resolved hardware device, or ``None`` when routing is ambiguous.
+
+        An explicit effective override uses its concrete device. Otherwise the
+        value is inferred from the bundle's effective per-stage EP routing.
+        Returning ``None`` prevents monitoring from selecting an unrelated
+        accelerator when a config spans or does not identify one device.
+        """
+        return self._effective_device
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -1833,6 +1847,78 @@ class GenaiSession:
                         for ep in _plugin_eps(stage_cfg.get("session_options")):
                             discovered.setdefault(ep, None)
         return tuple(discovered)
+
+    def _resolve_effective_device(self, cfg: dict[str, Any]) -> str | None:
+        """Resolve the single device targeted by the effective bundle config."""
+        if self._ep_override is not None and self._override_effective:
+            if self._ep_override == "CPUExecutionProvider":
+                return "cpu"
+            if self._device in ("npu", "gpu", "cpu"):
+                return self._device
+            supported = EP_SUPPORTED_DEVICES[self._ep_override]
+            return supported[0] if len(supported) == 1 else None
+        return self._device_from_config(cfg)
+
+    @staticmethod
+    def _device_from_config(cfg: dict[str, Any]) -> str | None:
+        """Infer one hardware device from all decoder provider options.
+
+        Providers tied to exactly one device (for example DML to GPU) resolve
+        directly. A ``device_type`` option narrows multi-device providers. Any
+        ambiguous/unknown provider or a config spanning devices returns
+        ``None``; a config with no hardware provider resolves to CPU.
+        """
+
+        def _provider_lists() -> Iterator[list]:
+            decoder = cfg.get("model", {}).get("decoder", {})
+            if not isinstance(decoder, dict):
+                return
+            session_options = decoder.get("session_options")
+            if isinstance(session_options, dict):
+                options = session_options.get("provider_options")
+                if isinstance(options, list):
+                    yield options
+            pipeline = decoder.get("pipeline", [])
+            if not isinstance(pipeline, list):
+                return
+            for stage_entry in pipeline:
+                if not isinstance(stage_entry, dict):
+                    continue
+                for stage_cfg in stage_entry.values():
+                    if not isinstance(stage_cfg, dict):
+                        continue
+                    session_options = stage_cfg.get("session_options")
+                    if isinstance(session_options, dict):
+                        options = session_options.get("provider_options")
+                        if isinstance(options, list):
+                            yield options
+
+        devices: set[str] = set()
+        for provider_options in _provider_lists():
+            for entry in provider_options:
+                if not isinstance(entry, dict):
+                    continue
+                for name, options in entry.items():
+                    canonical = normalize_ep_name(str(name))
+                    if canonical == "CPUExecutionProvider":
+                        continue
+                    if canonical not in EP_SUPPORTED_DEVICES:
+                        return None
+                    supported = EP_SUPPORTED_DEVICES[cast("EPName", canonical)]
+                    requested = (
+                        str(options.get("device_type", "")).lower()
+                        if isinstance(options, dict)
+                        else ""
+                    )
+                    if requested in supported:
+                        devices.add(requested)
+                    elif len(supported) == 1:
+                        devices.add(supported[0])
+                    else:
+                        return None
+        if not devices:
+            return "cpu"
+        return next(iter(devices)) if len(devices) == 1 else None
 
     @staticmethod
     def _bundle_uses_hardware_ep(cfg: dict[str, Any]) -> str | None:
