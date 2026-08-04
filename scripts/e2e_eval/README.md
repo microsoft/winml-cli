@@ -126,6 +126,34 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 | `--retry-failed [TYPE ...]` | — | Re-run failed jobs (implies `--continue`) |
 | `--build-only` | off | Build with `--no-compile`, writing each stage's ONNX (no EP needed). Loops the EP matrix when `--ep`/`--device` omitted |
 
+### `run_llm_eval.py` — Run GenAI Context Sweep
+
+Runs an existing ONNX Runtime GenAI bundle through `winml perf --runtime
+winml-genai` at one or more prompt lengths. The runner enables the EPContext
+pre-compilation required by accelerator-backed GenAI stages and generation-window
+hardware monitoring, preserves each raw perf report as `perf_ctx<tokens>.json`, and
+writes a schema-validated `llm_eval_result.json` containing TTFT, decode and prefill
+throughput, total generation time, accelerator utilization, device memory, and
+process CPU/RAM metrics. Use `--compile-timeout` to adjust the per-stage compilation
+limit for larger bundles; compiled stages are cached under the bundle's `_compiled/`
+directory and reused by later runs.
+
+```bash
+uv run python scripts/e2e_eval/run_llm_eval.py \
+  -m out/qwen3-bundle \
+  --model-id Qwen/Qwen3-1.7B \
+  --output-dir eval_results/qwen3-npu \
+  --device npu \
+  --ep qnn \
+  --quantization w8a16 \
+  --context-lengths 256 512 1024
+```
+
+The input directory must contain `genai_config.json` and the bundle tokenizer.
+The result is validated against `schemas/llm_eval_result.schema.json` before it
+is written. If no context point completes, the runner writes
+`llm_eval_failure.json` instead of an invalid empty sweep.
+
 
 #### `--build-only` — Generate per-stage models (no EP required)
 
@@ -344,7 +372,10 @@ per precision variant; fallback (no recipe) runs omit the `__<precision>` suffix
 scripts/e2e_eval/
 ├── build_registry.py          # Step 1: Generate models_all.json
 ├── run_eval.py                # Step 2: Recipe-driven perf + accuracy runner
+├── run_llm_eval.py            # GenAI context-sweep runner
 ├── run_pytorch_baseline.py    # Offline PyTorch baseline (feeds baseline_cache.json)
+├── schemas/
+│   └── llm_eval_result.schema.json
 ├── testsets/
 │   ├── models_all.json        # Full model registry (generated)
 │   ├── models_with_acc.json   # Models with accuracy dataset configs

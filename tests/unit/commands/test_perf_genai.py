@@ -411,6 +411,7 @@ class TestResultToDict:
         assert info["generated_tokens"] == 4
         assert info["compile"] is True
         assert info["compile_timeout"] == 120
+        assert info["monitor"] is False
         assert info["apply_template"] is True
         assert info["prompt"] == "Benchmark this exact prompt"
         assert set(d["ttft_ms"]) == {"mean", "min", "max", "p50", "p90", "p95", "p99"}
@@ -450,6 +451,47 @@ class TestResultToDict:
         info = GenaiPerfBenchmark(cfg, session=session).run().to_dict()["benchmark_info"]
         assert info["ep"] == "config"
         assert info["device"] == "npu"
+
+    def test_to_dict_includes_generation_monitor_metrics(self, monkeypatch) -> None:
+        metrics = {
+            "device_kind": "npu",
+            "npu": {"mean_pct": 42.0, "sample_count": 4},
+            "cpu": {"process_mean_pct": 250.0, "sample_count": 4},
+            "ram": {"mean_mb": 2048.0},
+        }
+
+        class FakeMonitor:
+            @classmethod
+            def is_available(cls) -> bool:
+                return True
+
+            def __init__(self, **_kwargs: object) -> None:
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                pass
+
+            def to_dict(self) -> dict:
+                return metrics
+
+        monkeypatch.setattr(perf_genai, "HWMonitor", FakeMonitor)
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("bundle"),
+            ep="qnn",
+            device="npu",
+            iterations=1,
+            warmup=0,
+            monitor=True,
+        )
+        session = _FakeSession([_timing(0.4, 0.6, [0.4])], effective_ep="qnn")
+
+        data = GenaiPerfBenchmark(cfg, session=session).run().to_dict()
+
+        assert data["benchmark_info"]["monitor"] is True
+        assert data["hw_monitor"] == metrics
 
 
 # ---------------------------------------------------------------------------

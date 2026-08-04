@@ -2123,7 +2123,6 @@ _GENAI_IGNORED_FLAGS: dict[str, str] = {
     "allow_unsupported_nodes": "--allow-unsupported-nodes",
     "batch_size": "--batch-size",
     "duration": "--duration",
-    "monitor": "--monitor",
     "memory": "--memory",
     "op_tracing": "--op-tracing",
 }
@@ -2373,6 +2372,7 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
             warmup=warmup,
             compile=not p["no_compile"],
             compile_timeout=p["compile_timeout"],
+            monitor=bool(p.get("monitor")),
             output_path=output,
         )
         run_genai_perf(config, console=console, json_mode=json_mode)

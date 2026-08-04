@@ -1,0 +1,226 @@
+"""Tests for ``scripts/e2e_eval/run_llm_eval.py``."""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+import jsonschema
+import pytest
+
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+SCHEMA_PATH = REPO_ROOT / "scripts" / "e2e_eval" / "schemas" / "llm_eval_result.schema.json"
+
+
+def _load_runner():
+    path = REPO_ROOT / "scripts" / "e2e_eval" / "run_llm_eval.py"
+    spec = importlib.util.spec_from_file_location("_e2e_run_llm_eval", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["_e2e_run_llm_eval"] = module
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture(scope="module")
+def runner():
+    return _load_runner()
+
+
+def _perf_report(
+    prompt_tokens: int = 256,
+    *,
+    device: str = "npu",
+    ep: str = "qnn",
+) -> dict:
+    return {
+        "benchmark_info": {
+            "runtime": "winml-genai",
+            "ep": ep,
+            "device": device,
+            "compile": True,
+            "monitor": True,
+            "iterations": 3,
+            "warmup": 1,
+            "max_new_tokens": 128,
+            "apply_template": False,
+            "prompt_tokens": prompt_tokens,
+            "generated_tokens": 128,
+        },
+        "ttft_ms": {"mean": 1000.0},
+        "prefill_ms": {"mean": 900.0},
+        "decode": {"tokens_per_sec": 8.0, "tpot_ms": 125.0},
+        "total_generation_ms": {"mean": 17000.0},
+        "raw": {
+            "ttft_ms": [980.0, 1000.0, 1020.0],
+            "prefill_ms": [880.0, 900.0, 920.0],
+            "decode_tokens_per_sec": [7.9, 8.0, 8.1],
+            "tpot_ms": [126.0, 125.0, 123.5],
+            "total_ms": [17100.0, 17000.0, 16900.0],
+        },
+        "hw_monitor": {
+            "device_kind": device,
+            "adapter": {"mean_pct": 42.5, "sample_count": 40},
+            "cpu": {"process_mean_pct": 350.0, "sample_count": 40},
+            "ram": {"mean_mb": 2048.0},
+            "device_memory": {"local_mean_mb": 0.0, "shared_mean_mb": 512.0},
+        },
+    }
+
+
+class TestPerfResultMapping:
+    def test_perf_args_match_genai_command(self, runner, tmp_path: Path) -> None:
+        args = runner._perf_args(
+            bundle_dir=tmp_path / "bundle",
+            report_path=tmp_path / "report.json",
+            prompt="hello",
+            max_new_tokens=128,
+            iterations=3,
+            warmup=1,
+            compile_timeout=1800,
+            device="npu",
+            ep="qnn",
+        )
+
+        assert args[args.index("--runtime") + 1] == "winml-genai"
+        assert args[args.index("--device") + 1] == "npu"
+        assert args[args.index("--ep") + 1] == "qnn"
+        assert args[args.index("--compile-timeout") + 1] == "1800"
+        assert "--compile" in args
+        assert "--monitor" in args
+
+    def test_context_point_maps_schema_metrics(self, runner) -> None:
+        point = runner._context_point(
+            256,
+            _perf_report(),
+            expected_device="npu",
+            expected_ep="qnn",
+            expected_max_new_tokens=128,
+            expected_iterations=3,
+            expected_warmup=1,
+            total_ram_mb=16384.0,
+            total_vram_mb=4096.0,
+        )
+
+        assert point["context_length_tokens"] == 256
+        assert point["tokens_per_second"] == 8.0
+        assert point["prefill_tokens_per_second"] == pytest.approx(256 / 0.9)
+        assert point["ttft_s"] == 1.0
+        assert point["total_elapsed_s"] == 17.0
+        assert point["inter_token_latency_ms"]["avg"] == pytest.approx(124.8333)
+        assert point["gpu_util_avg_pct"] == 42.5
+        assert point["vram"] == {"util_avg_pct": 3.125, "used_avg_mb": 512.0}
+        assert point["process_cpu_util_avg_pct"] == 350.0
+        assert point["process_mem"] == {"util_avg_pct": 12.5, "used_avg_mb": 2048.0}
+
+    def test_context_length_mismatch_fails(self, runner) -> None:
+        with pytest.raises(ValueError, match="perf measured 255"):
+            runner._context_point(
+                256,
+                _perf_report(255),
+                expected_device="npu",
+                expected_ep="qnn",
+                expected_max_new_tokens=128,
+                expected_iterations=3,
+                expected_warmup=1,
+                total_ram_mb=16384.0,
+                total_vram_mb=4096.0,
+            )
+
+
+class TestResultContract:
+    def test_result_validates_against_schema(self, runner) -> None:
+        point = runner._context_point(
+            256,
+            _perf_report(),
+            expected_device="npu",
+            expected_ep="qnn",
+            expected_max_new_tokens=128,
+            expected_iterations=3,
+            expected_warmup=1,
+            total_ram_mb=16000.0,
+            total_vram_mb=4000.0,
+        )
+        result = runner.build_result(
+            model="Qwen/Qwen3-1.7B",
+            model_type="llm",
+            task="text-generation",
+            quantization="w8a16",
+            device="npu",
+            ep="qnn",
+            group=None,
+            priority="P0",
+            machine_label=None,
+            started_at="2026-08-04T00:00:00+00:00",
+            elapsed_s=60.0,
+            points=[point],
+            errors=[],
+            environment={
+                "os": "windows",
+                "hardware": {"cpu_name": "Test CPU", "cpu_logical_cores": 8},
+                "total_ram_mb": 16000.0,
+                "total_vram_mb": 4000.0,
+                "gpu_memory_gb": 4.0,
+            },
+            command="winml perf -m bundle --runtime winml-genai --device npu",
+            timed_out=False,
+        )
+        schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+
+        jsonschema.validate(result, schema)
+        assert result["run"]["passed"] is True
+
+    def test_main_writes_schema_valid_result(
+        self, runner, tmp_path: Path, monkeypatch
+    ) -> None:
+        bundle = tmp_path / "qwen3-bundle"
+        bundle.mkdir()
+        (bundle / "genai_config.json").write_text("{}", encoding="utf-8")
+        output_dir = tmp_path / "results"
+
+        monkeypatch.setattr(runner, "_make_prompt", lambda *_args: "prompt")
+        monkeypatch.setattr(
+            runner,
+            "_collect_environment",
+            lambda _gpu_memory_gb: {
+                "os": "windows",
+                "hardware": {"cpu_name": "Test CPU", "cpu_logical_cores": 8},
+                "total_ram_mb": 16384.0,
+                "total_vram_mb": 4096.0,
+                "gpu_memory_gb": 4.0,
+            },
+        )
+
+        def fake_run(args: list[str], *, timeout: int):
+            report_path = Path(args[args.index("-o") + 1])
+            report_path.write_text(json.dumps(_perf_report()), encoding="utf-8")
+            return runner.ProcessResult(args, 0, 1.0, "", "", False)
+
+        monkeypatch.setattr(runner, "_run_process", fake_run)
+
+        exit_code = runner.main(
+            [
+                "-m",
+                str(bundle),
+                "--model-id",
+                "Qwen/Qwen3-1.7B",
+                "--output-dir",
+                str(output_dir),
+                "--device",
+                "npu",
+                "--ep",
+                "qnn",
+                "--context-lengths",
+                "256",
+            ]
+        )
+
+        result = json.loads((output_dir / runner.RESULT_FILENAME).read_text(encoding="utf-8"))
+        runner._validate_result(result)
+        assert exit_code == 0
+        assert result["model"] == "Qwen/Qwen3-1.7B"
+        assert len(result["context_sweep"]) == 1
+        assert "winml.modelkit.cli perf" in result["run"]["command"]
