@@ -455,7 +455,7 @@ _PATTERN_STATUS_ICONS = {
     "supported": "🟢",
     "partial": "🟡",
     "unsupported": "🔴",
-    "unknow": "🔵",
+    "unknown": "🔵",
 }
 
 
@@ -472,7 +472,12 @@ def _pattern_status_view_for_summary(
         summary_view[ep_name] = {
             str(item.get("pattern_id", "")): {
                 "count": int(item.get("instances", 0)),
-                "status": str(item.get("status", "unknow")),
+                # Keep backward compatibility for legacy payload values.
+                "status": (
+                    "unknown"
+                    if str(item.get("status", "unknown")).strip().lower() == "unknow"
+                    else str(item.get("status", "unknown")).strip().lower()
+                ),
             }
             for item in pattern_items
             if str(item.get("pattern_id", ""))

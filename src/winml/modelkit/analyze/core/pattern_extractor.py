@@ -935,14 +935,14 @@ class PatternExtractor:
     def _canonical_supported_status(value: str | None) -> str:
         """Normalize support labels to canonical lowercase values."""
         if value is None:
-            return "unknow"
+            return "unknown"
 
         normalized = str(value).strip().lower()
-        if normalized == "unknown":
-            return "unknow"
-        if normalized in {"supported", "partial", "unsupported", "unknow"}:
+        if normalized == "unknow":
+            return "unknown"
+        if normalized in {"supported", "partial", "unsupported", "unknown"}:
             return normalized
-        return "unknow"
+        return "unknown"
 
     @classmethod
     def _supported_status_rank(cls, value: str | None) -> int:
@@ -952,7 +952,7 @@ class PatternExtractor:
             "supported": 3,
             "partial": 2,
             "unsupported": 1,
-            "unknow": 0,
+            "unknown": 0,
         }
         return rank_map.get(status, 0)
 
@@ -963,10 +963,10 @@ class PatternExtractor:
     ) -> str:
         """Derive support status from one candidate compile/run snapshot."""
         if candidate is None:
-            return "unknow"
+            return "unknown"
 
         if candidate.get("status") != "ok":
-            return "unknow"
+            return "unknown"
 
         compile_ok = bool(candidate.get("compile"))
         run_ok = bool(candidate.get("run"))
@@ -1011,7 +1011,7 @@ class PatternExtractor:
         if candidate_results:
             return cls._candidate_supported_status(candidate_results[0])
 
-        return "unknow"
+        return "unknown"
 
     @staticmethod
     def _priority_sort_key(priority: Any) -> int:
@@ -1076,7 +1076,7 @@ class PatternExtractor:
         """Keep only one best alternative and drop unsupported-selected branches.
 
         Selection keys:
-            1) supported_status rank: supported > partial > unsupported > unknow
+            1) supported_status rank: supported > partial > unsupported > unknown
             2) priority: smaller integer first
 
         After selecting the top alternative, if its status is ``unsupported``,
@@ -1188,7 +1188,7 @@ class PatternExtractor:
                     try:
                         on_pattern_query_result(
                             str(entry.get("pattern_id", "")),
-                            str(entry.get("support_status", "unknow")),
+                                str(entry.get("support_status", "unknown")),
                         )
                     except Exception:
                         logger.debug("on_pattern_query_result callback failed", exc_info=True)

@@ -75,7 +75,7 @@ class RuntimeChecker:
                 for matching against first_axis test data. If True, preserves exact
                 dynamic axis indices.
             pattern_matched_node_status_by_key: Optional stable node-key ->
-                pattern status map (supported/partial/unsupported/unknow)
+                pattern status map (supported/partial/unsupported/unknown)
                 used when matched nodes bypass parquet lookup.
 
         Raises:

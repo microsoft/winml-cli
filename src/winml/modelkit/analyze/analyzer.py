@@ -78,7 +78,7 @@ _RUNTIME_DEBUG_SUMMARY_LEVELS: tuple[SupportLevel, ...] = (
 )
 
 _PATTERN_STATUS_QUALITY: dict[str, int] = {
-    "unknow": 0,
+    "unknown": 0,
     "unsupported": 1,
     "partial": 2,
     "supported": 3,
@@ -106,10 +106,10 @@ def _iter_runtime_test_results(pattern_runtime: PatternRuntime) -> list[RuntimeT
 def _candidate_to_supported_status(candidate: dict[str, Any] | None) -> str:
     """Map compile/run candidate output to exported support status."""
     if not candidate:
-        return "unknow"
+        return "unknown"
 
     if candidate.get("status") != "ok":
-        return "unknow"
+        return "unknown"
 
     compile_ok = candidate.get("compile")
     run_ok = candidate.get("run")
@@ -185,7 +185,7 @@ def _build_subgraph_runtime_results(
             PatternRuntime(
                 pattern_id=pattern_id,
                 result=_runtime_test_result_from_supported_status(
-                    str(entry.get("support_status", "unknow"))
+                    str(entry.get("support_status", "unknown"))
                 ),
                 alternatives=alternatives,
                 pattern_match=pattern_match_by_id.get(str(entry.get("match_id", ""))),
@@ -198,7 +198,7 @@ def _build_subgraph_runtime_results(
 def _pick_worst_status(statuses: list[str]) -> str:
     """Pick worst status for one pattern group across all its instances."""
     if not statuses:
-        return "unknow"
+        return "unknown"
     return min(statuses, key=lambda status: _PATTERN_STATUS_QUALITY.get(status, 0))
 
 
@@ -214,7 +214,9 @@ def _build_match_status_by_match_id(
 
         raw_status = str(entry.get("support_status", "")).strip().lower()
         if raw_status == "unknown":
-            raw_status = "unknow"
+            raw_status = "unknown"
+        elif raw_status == "unknow":
+            raw_status = "unknown"
 
         if raw_status in _PATTERN_STATUS_QUALITY:
             status = raw_status
@@ -246,7 +248,7 @@ def _build_pattern_status_by_node_key(
     status_by_node_key: dict[str, str] = {}
 
     for pattern_match in subgraph_patterns:
-        status = status_by_match_id.get(pattern_match.match_id, "unknow")
+        status = status_by_match_id.get(pattern_match.match_id, "unknown")
         for node_key in pattern_match.matched_node_keys:
             status_by_node_key[node_key] = status
 
@@ -265,7 +267,7 @@ def _build_pattern_matching_summary(
 
     for pattern_match in subgraph_patterns:
         pattern_id = pattern_match.pattern.pattern_id
-        status = status_by_match_id.get(pattern_match.match_id, "unknow")
+        status = status_by_match_id.get(pattern_match.match_id, "unknown")
         covered_node_keys.update(pattern_match.matched_node_keys)
 
         bucket = grouped.setdefault(

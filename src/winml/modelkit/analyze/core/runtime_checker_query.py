@@ -1001,7 +1001,7 @@ class RuntimeCheckerQuery:
                 dynamic axis indices.
             node_key_by_node_id: Optional sidecar map from id(node) to stable node key.
             pattern_matched_node_status_by_key: Optional stable node-key to
-                pattern status mapping (supported/partial/unsupported/unknow)
+                pattern status mapping (supported/partial/unsupported/unknown)
                 used to classify matched nodes when parquet lookup is skipped.
         """
         self.model_path = str(Path(model_path).resolve(strict=False)) if model_path else None
@@ -1111,7 +1111,9 @@ class RuntimeCheckerQuery:
     @staticmethod
     def _runtime_result_from_pattern_status(pattern_status: str) -> RuntimeTestResult:
         """Map pattern status string to RuntimeTestResult for matched nodes."""
-        normalized = (pattern_status or "unknow").strip().lower()
+        normalized = (pattern_status or "unknown").strip().lower()
+        if normalized == "unknow":
+            normalized = "unknown"
         if normalized == "supported":
             return RuntimeTestResult(
                 compile=True,
