@@ -28,7 +28,7 @@ class TestPreparePipeline:
         evaluator.model = MagicMock()
         sentinel = MagicMock()
 
-        with patch("transformers.pipelines.pipeline", return_value=sentinel) as mock_pipeline:
+        with patch("transformers.pipeline", return_value=sentinel) as mock_pipeline:
             assert evaluator.prepare_pipeline() is sentinel
 
         assert "framework" not in mock_pipeline.call_args.kwargs
@@ -125,11 +125,11 @@ class TestEvaluationConfig:
         assert restored.use_cache is False
         assert restored.rebuild is True
 
-    def test_default_cache_controls_are_omitted(self):
+    def test_default_cache_controls_are_serialized(self):
         serialized = WinMLEvaluationConfig(model_id="test/model").to_dict()
 
-        assert "use_cache" not in serialized
-        assert "rebuild" not in serialized
+        assert serialized["use_cache"] is True
+        assert serialized["rebuild"] is False
 
     def test_reference_path_default_is_none(self):
         """reference_path defaults to None and is omitted from to_dict."""

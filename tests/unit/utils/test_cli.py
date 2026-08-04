@@ -470,17 +470,20 @@ class TestIgnoredCacheFlagsWarning:
         assert "--rebuild" in msg
         assert "pre-built ONNX inputs" in msg
 
-    def test_nondefault_config_values_count_as_explicit(self) -> None:
+    def test_config_values_name_their_source(self) -> None:
         msg = ignored_cache_flags_warning(
             build_runs=False,
             use_cache=False,
             rebuild=True,
+            use_cache_source="--config",
+            rebuild_source="--config",
             reason="pre-built ONNX inputs",
         )
 
         assert msg is not None
-        assert "--no-use-cache" in msg
-        assert "--rebuild" in msg
+        assert "use_cache=false from --config" in msg
+        assert "rebuild=true from --config" in msg
+        assert "--no-use-cache" not in msg
 
 
 class TestOverwriteOption:
