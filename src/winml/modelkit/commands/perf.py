@@ -15,6 +15,7 @@ Usage:
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import math
@@ -302,6 +303,7 @@ class BenchmarkConfig:
     """Configuration for benchmark execution."""
 
     model_id: str
+    backend: Literal["winml", "pytorch"] = "winml"
     task: str | None = None
     submodel: str | None = None
     device: str = "auto"
@@ -402,13 +404,14 @@ class BenchmarkResult:
         result: dict[str, Any] = {
             "benchmark_info": {
                 "model_id": self.config.model_id,
+                "backend": self.config.backend,
                 "running_model_path": self.running_model_path,
                 "task": self.actual_task,
                 "device": self.actual_device,
                 "ep": self.actual_ep,
                 "ep_source": self.config.ep_source,
                 "ep_options": self.config.ep_options,
-                "precision": self.config.precision,
+                "precision": (None if self.config.backend == "pytorch" else self.config.precision),
                 # In duration mode the run isn't bounded by a fixed count, so
                 # report the actual number of timed (post-warmup) samples rather
                 # than the unused ``--iterations`` default.
@@ -629,7 +632,7 @@ def load_input_data(
 
 
 def effective_batch_size(
-    inputs: dict[str, np.ndarray],
+    inputs: dict[str, Any],
     input_names: list[str],
     requested: int,
 ) -> int:
@@ -1312,6 +1315,858 @@ class PerfBenchmark:
             # Hardware monitor metrics (only present when --monitor is used)
             hw_monitor=getattr(self, "_hw_metrics", None),
             # Memory profile (only present when --memory is used)
+            memory_profile=self._memory,
+        )
+
+
+class _PyTorchForwardRunner:
+    """Session-like adapter that records synchronized PyTorch forward latency."""
+
+    def __init__(
+        self,
+        model: Any,
+        stats: PerfStats,
+        synchronize: Any | None,
+    ) -> None:
+        self._model = model
+        self._stats = stats
+        self._synchronize = synchronize
+        self.output_metadata: list[tuple[str, list[int], str]] = []
+
+    def run(self, inputs: dict[str, Any]) -> None:
+        """Run one forward pass and capture output metadata outside the timed region."""
+        if self._synchronize is not None:
+            self._synchronize()
+
+        def forward() -> Any:
+            output = self._model(**inputs)
+            if self._synchronize is not None:
+                self._synchronize()
+            return output
+
+        output = self._stats.record(forward)
+        if not self.output_metadata:
+            from ..inspect.module_io_capture import _extract_tensors
+
+            self.output_metadata = [
+                (name, list(tensor.shape), str(tensor.dtype).replace("torch.", ""))
+                for name, tensor in _extract_tensors(output)
+            ]
+
+
+class PyTorchPerfBenchmark:
+    """Benchmark an original Hugging Face PyTorch model without ONNX export."""
+
+    def __init__(self, config: BenchmarkConfig) -> None:
+        self.config = config
+        self._model: Any | None = None
+        self._inputs: dict[str, Any] | None = None
+        self._io_config: dict[str, Any] | None = None
+        self._torch_device: Any | None = None
+        self._actual_device = ""
+        self._actual_task = ""
+        self._model_precision: str | None = None
+        self._effective_batch = config.batch_size
+        self._memory: dict[str, float] | None = None
+        self._hw_metrics: dict[str, Any] | None = None
+        self._input_specs: list[Any] = []
+        self._output_names: list[str] = []
+        self._native_dummy_inputs: dict[str, Any] = {}
+        self._main_input_name: str | None = None
+
+    def close(self) -> None:
+        """Release model and input references, including cached CUDA allocations."""
+        self._inputs = None
+        self._model = None
+        if self._torch_device is None or self._torch_device.type != "cuda":
+            return
+
+        import gc
+
+        import torch
+
+        gc.collect()
+        torch.cuda.empty_cache()
+
+    def run(self) -> BenchmarkResult:
+        """Load and benchmark the task-resolved pretrained PyTorch module."""
+        import gc
+
+        import torch
+
+        self._resolve_device(torch)
+        gc.collect()
+        baseline = self._memory_snapshot(torch) if self.config.memory else None
+
+        self._load_model(torch)
+        gc.collect()
+        after_model_load = self._memory_snapshot(torch) if self.config.memory else None
+        if self._torch_device.type == "cuda":
+            torch.cuda.reset_peak_memory_stats(self._torch_device)
+
+        self._prepare_inputs(torch)
+        assert self._inputs is not None
+        assert self._io_config is not None
+
+        _print_model_info(
+            self._io_config,
+            backend="pytorch",
+            task=self._actual_task,
+            req_device=self.config.device,
+            act_device=self._actual_device,
+            actual_shapes={name: tuple(value.shape) for name, value in self._inputs.items()},
+        )
+
+        stats, output_metadata = self._run_benchmark(torch)
+        if self.config.memory:
+            gc.collect()
+            after_inference = self._memory_snapshot(torch, use_cuda_peak=True)
+            assert baseline is not None
+            assert after_model_load is not None
+            self._memory = self._build_memory_profile(
+                baseline,
+                after_model_load,
+                after_inference,
+            )
+
+        return self._collect_results(stats, output_metadata)
+
+    def _resolve_device(self, torch: Any) -> None:
+        requested = self.config.device.lower()
+        if requested == "auto":
+            requested = "gpu" if torch.cuda.is_available() else "cpu"
+        if requested == "gpu":
+            if not torch.cuda.is_available():
+                raise click.UsageError(
+                    "--device gpu with --no-export requires a CUDA-enabled PyTorch "
+                    "installation and an available CUDA device."
+                )
+            self._torch_device = torch.device("cuda")
+            self._actual_device = "gpu"
+            return
+        if requested == "cpu":
+            self._torch_device = torch.device("cpu")
+            self._actual_device = "cpu"
+            return
+        raise click.UsageError(
+            f"--device {self.config.device} is not supported with --no-export; "
+            "use auto, cpu, or gpu."
+        )
+
+    def _load_model(self, torch: Any) -> None:
+        from ..config import generate_hf_build_config
+        from ..loader import composite_pipeline_tasks, load_hf_model
+
+        model, hf_config, resolved_task = load_hf_model(
+            self.config.model_id,
+            task=self.config.task,
+            use_checkpoint_class=True,
+            torch_dtype="auto",
+        )
+        assert self._torch_device is not None
+        self._model = model.to(self._torch_device).eval()
+        self._actual_task = resolved_task
+        self._model_precision = self._resolve_model_precision(torch)
+        main_input_name = getattr(model, "main_input_name", None)
+        self._main_input_name = main_input_name if isinstance(main_input_name, str) else None
+        self._native_dummy_inputs = self._get_native_dummy_inputs(torch)
+
+        input_override = {
+            "export": {
+                "batch_size": self.config.batch_size,
+            }
+        }
+        model_type = getattr(hf_config, "model_type", "")
+        supplemental_tasks = (
+            composite_pipeline_tasks(model_type.lower().replace("_", "-")) if model_type else []
+        )
+        tasks = list(dict.fromkeys([resolved_task, *supplemental_tasks]))
+        resolution_errors: list[Exception] = []
+        for task in tasks:
+            try:
+                build_config = generate_hf_build_config(
+                    model_id=self.config.model_id,
+                    task=task,
+                    override=input_override,
+                    shape_config=self.config.shape_config,
+                    device="cpu",
+                    precision="auto",
+                    no_compile=True,
+                )
+            except (AttributeError, KeyError, ValueError) as exc:
+                resolution_errors.append(exc)
+                logger.warning(
+                    "Could not resolve export-derived input specs for task '%s': %s",
+                    task,
+                    exc,
+                )
+                continue
+
+            configs = build_config if isinstance(build_config, list) else [build_config]
+            for config in configs:
+                export_config = config.export
+                if export_config is None:
+                    continue
+                for spec in export_config.input_tensors or []:
+                    self._append_input_spec(spec)
+                if not self._output_names:
+                    self._output_names = export_config.get_output_names()
+
+        self._merge_nested_config_inputs(hf_config)
+        self._prioritize_checkpoint_main_input(torch, hf_config)
+        if not self._input_specs and not self._native_dummy_inputs:
+            if resolution_errors:
+                raise ValueError(
+                    "Could not resolve inputs for the Hugging Face model."
+                ) from resolution_errors[0]
+            raise ValueError(
+                "Could not resolve input tensor specifications for the Hugging Face model."
+            )
+        if supplemental_tasks:
+            logger.warning(
+                "Merged compatible input specs from composite tasks for the full "
+                "PyTorch checkpoint: %s.",
+                ", ".join(supplemental_tasks),
+            )
+
+    def _append_input_spec(self, spec: Any) -> None:
+        if spec.name and all(existing.name != spec.name for existing in self._input_specs):
+            self._input_specs.append(spec)
+
+    def _prioritize_checkpoint_main_input(self, torch: Any, hf_config: Any) -> None:
+        from ..export import InputTensorSpec
+
+        name = self._main_input_name
+        if not name:
+            return
+        existing = next((spec for spec in self._input_specs if spec.name == name), None)
+        shape = self._infer_checkpoint_main_shape(torch, hf_config)
+        if shape is not None:
+            spec = InputTensorSpec(
+                name=name,
+                shape=shape,
+                dtype=existing.dtype if existing is not None else "float32",
+                value_range=existing.value_range if existing is not None else None,
+            )
+        elif existing is not None:
+            spec = existing
+        else:
+            return
+        self._input_specs = [
+            spec,
+            *(candidate for candidate in self._input_specs if candidate.name != name),
+        ]
+
+    def _infer_checkpoint_main_shape(self, torch: Any, hf_config: Any) -> tuple[int, ...] | None:
+        shape_config = self.config.shape_config or {}
+        image_size = getattr(hf_config, "image_size", None)
+        channels = getattr(hf_config, "num_channels", None)
+        if image_size is not None and channels is not None:
+            if isinstance(image_size, int):
+                height = width = image_size
+            elif isinstance(image_size, (list, tuple)) and len(image_size) == 2:
+                height, width = image_size
+            else:
+                return None
+            height = shape_config.get("height", height)
+            width = shape_config.get("width", width)
+            channels = shape_config.get("num_channels", channels)
+            dimensions = [self.config.batch_size]
+            frames = getattr(hf_config, "num_frames", None)
+            if frames is not None:
+                dimensions.append(frames)
+            dimensions.extend([channels, height, width])
+            return self._validated_shape(dimensions)
+
+        feature_size = getattr(hf_config, "num_mel_bins", None)
+        max_positions = getattr(hf_config, "max_source_positions", None)
+        if feature_size is not None and max_positions is not None:
+            feature_size = shape_config.get("feature_size", feature_size)
+            frames = shape_config.get("nb_max_frames")
+            if frames is None:
+                frames = max_positions * self._conv1d_downsample_factor(torch, feature_size)
+            return self._validated_shape([self.config.batch_size, feature_size, frames])
+        return None
+
+    @staticmethod
+    def _validated_shape(dimensions: list[Any]) -> tuple[int, ...]:
+        if any(isinstance(dim, bool) or not isinstance(dim, int) or dim <= 0 for dim in dimensions):
+            raise ValueError("Resolved checkpoint input dimensions must be positive integers.")
+        return tuple(dimensions)
+
+    def _conv1d_downsample_factor(self, torch: Any, input_channels: int) -> int:
+        assert self._model is not None
+        channels = input_channels
+        factor = 1
+        for module in self._model.modules():
+            if not isinstance(module, torch.nn.Conv1d) or module.in_channels != channels:
+                continue
+            factor *= module.stride[0]
+            channels = module.out_channels
+        return factor
+
+    def _merge_nested_config_inputs(self, hf_config: Any) -> None:
+        from transformers import PretrainedConfig
+
+        from ..export import InputTensorSpec, resolve_io_specs
+
+        pending = list(vars(hf_config).values())
+        seen: set[int] = {id(hf_config)}
+        while pending:
+            value = pending.pop()
+            if isinstance(value, PretrainedConfig):
+                if id(value) in seen:
+                    continue
+                seen.add(id(value))
+                pending.extend(vars(value).values())
+                model_type = getattr(value, "model_type", None)
+                if not model_type:
+                    continue
+                try:
+                    io_specs = resolve_io_specs(
+                        model_type,
+                        "feature-extraction",
+                        value,
+                        model_id=self.config.model_id,
+                        batch_size=self.config.batch_size,
+                        **(self.config.shape_config or {}),
+                    )
+                except (AttributeError, KeyError, ValueError) as exc:
+                    logger.debug(
+                        "Could not resolve nested input specs for model type '%s': %s",
+                        model_type,
+                        exc,
+                    )
+                    continue
+                names = io_specs["input_names"]
+                shapes = io_specs["input_shapes"]
+                dtypes = io_specs["input_dtypes"]
+                value_ranges = io_specs.get("value_ranges", {})
+                for index, name in enumerate(names):
+                    self._append_input_spec(
+                        InputTensorSpec(
+                            name=name,
+                            shape=tuple(shapes[index]),
+                            dtype=dtypes[index],
+                            value_range=value_ranges.get(name),
+                        )
+                    )
+                continue
+            if isinstance(value, dict):
+                pending.extend(value.values())
+            elif isinstance(value, (list, tuple)):
+                pending.extend(value)
+
+    def _resolve_model_precision(self, torch: Any) -> str | None:
+        assert self._model is not None
+        for parameter in self._model.parameters():
+            if torch.is_floating_point(parameter):
+                return str(parameter.dtype).replace("torch.", "")
+        return None
+
+    def _get_native_dummy_inputs(self, torch: Any) -> dict[str, Any]:
+        assert self._model is not None
+        parameters = inspect.signature(self._model.forward).parameters
+        dummy_inputs = getattr(self._model, "dummy_inputs", None)
+        if not isinstance(dummy_inputs, dict):
+            return {}
+        return {
+            name: self._prepare_native_dummy_input(value)
+            for name, value in dummy_inputs.items()
+            if name in parameters and isinstance(value, torch.Tensor)
+        }
+
+    def _prepare_inputs(self, torch: Any) -> None:
+        specs = []
+        for spec in self._input_specs:
+            if not spec.name or spec.shape is None:
+                continue
+            if self.config.input_data is None and spec.shape:
+                spec = replace(
+                    spec,
+                    shape=(self.config.batch_size, *spec.shape[1:]),
+                )
+            specs.append(spec)
+
+        generated = {spec.name: spec.to_tensor() for spec in specs if spec.name}
+        assert self._model is not None
+        parameters = inspect.signature(self._model.forward).parameters
+        keyword_parameters = {
+            name
+            for name, parameter in parameters.items()
+            if parameter.kind
+            in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+        }
+        generated = {name: value for name, value in generated.items() if name in keyword_parameters}
+
+        for name, value in self._native_dummy_inputs.items():
+            if name in keyword_parameters and name not in generated:
+                generated[name] = value
+
+        ordered_names = list(
+            dict.fromkeys(
+                [
+                    self._main_input_name,
+                    *self._native_dummy_inputs,
+                    *generated,
+                ]
+            )
+        )
+        generated = {
+            name: generated[name]
+            for name in ordered_names
+            if name is not None and name in generated
+        }
+
+        missing = [
+            name
+            for name, parameter in parameters.items()
+            if name not in generated
+            and parameter.default is inspect.Parameter.empty
+            and parameter.kind
+            in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+        ]
+        if missing:
+            raise ValueError(
+                f"Could not generate required PyTorch forward inputs: {', '.join(missing)}."
+            )
+        if not generated:
+            raise ValueError("No PyTorch forward inputs matched the resolved model.")
+
+        io_config = {
+            "input_names": list(generated),
+            "input_shapes": [list(value.shape) for value in generated.values()],
+            "input_types": [
+                self._numpy_compatible_dtype(str(value.dtype).replace("torch.", ""))
+                for value in generated.values()
+            ],
+            "output_names": self._output_names,
+            "output_shapes": [[] for _ in self._output_names],
+            "precision": self._model_precision,
+        }
+
+        if self.config.input_data is not None:
+            numpy_inputs = load_input_data(self.config.input_data, io_config)
+            generated = {name: torch.from_numpy(value) for name, value in numpy_inputs.items()}
+
+        assert self._torch_device is not None
+        model_dtype = None
+        if self._model_precision is not None:
+            model_dtype = getattr(torch, self._model_precision, None)
+        self._inputs = {}
+        for name, value in generated.items():
+            if model_dtype is not None and torch.is_floating_point(value):
+                value = value.to(device=self._torch_device, dtype=model_dtype)
+            else:
+                value = value.to(device=self._torch_device)
+            self._inputs[name] = value
+        if self.config.input_data is None:
+            self._inputs = self._select_checkpoint_forward_inputs(torch, self._inputs)
+
+        io_config["input_shapes"] = [list(value.shape) for value in self._inputs.values()]
+        io_config["input_names"] = list(self._inputs)
+        io_config["input_types"] = [
+            str(value.dtype).replace("torch.", "") for value in self._inputs.values()
+        ]
+        self._io_config = io_config
+        self._effective_batch = effective_batch_size(
+            self._inputs,
+            io_config["input_names"],
+            self.config.batch_size,
+        )
+
+    def _select_checkpoint_forward_inputs(
+        self,
+        torch: Any,
+        inputs: dict[str, Any],
+    ) -> dict[str, Any]:
+        assert self._model is not None
+        main_name = self._main_input_name
+        if main_name is None:
+            return inputs
+        if main_name not in inputs:
+            raise ValueError(
+                f"Could not resolve the checkpoint's main PyTorch input '{main_name}'."
+            )
+
+        forward_errors = (
+            AssertionError,
+            AttributeError,
+            IndexError,
+            KeyError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        )
+        last_error: Exception | None = None
+        with torch.inference_mode():
+            try:
+                output = self._model(**inputs)
+            except torch.cuda.OutOfMemoryError:
+                raise
+            except forward_errors as exc:
+                last_error = exc
+            else:
+                if self._output_depends_on_main_input(torch, inputs, output):
+                    return inputs
+
+            selected: dict[str, Any] = {}
+            found_valid = False
+            for name, value in inputs.items():
+                selected[name] = value
+                try:
+                    output = self._model(**selected)
+                except torch.cuda.OutOfMemoryError:
+                    raise
+                except forward_errors as exc:
+                    last_error = exc
+                    if found_valid:
+                        selected.pop(name)
+                    continue
+                if self._output_depends_on_main_input(torch, selected, output):
+                    found_valid = True
+                else:
+                    selected.pop(name)
+            if found_valid:
+                return selected
+        raise ValueError(
+            "Could not assemble compatible inputs for the checkpoint's full PyTorch forward."
+        ) from last_error
+
+    def _output_depends_on_main_input(
+        self,
+        torch: Any,
+        inputs: dict[str, Any],
+        output: Any,
+    ) -> bool:
+        assert self._model is not None
+        assert self._main_input_name is not None
+        without_main = {
+            name: value for name, value in inputs.items() if name != self._main_input_name
+        }
+        try:
+            comparison = self._model(**without_main)
+        except torch.cuda.OutOfMemoryError:
+            raise
+        except (
+            AssertionError,
+            AttributeError,
+            IndexError,
+            KeyError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ):
+            return True
+
+        from ..inspect.module_io_capture import _extract_tensors
+
+        tensors = list(_extract_tensors(output))
+        comparison_tensors = list(_extract_tensors(comparison))
+        metadata = [(name, tensor.shape, tensor.dtype) for name, tensor in tensors]
+        comparison_metadata = [
+            (name, tensor.shape, tensor.dtype) for name, tensor in comparison_tensors
+        ]
+        if metadata != comparison_metadata or not tensors:
+            return True
+        return any(
+            not torch.equal(tensor, comparison_tensor)
+            for (_, tensor), (_, comparison_tensor) in zip(
+                tensors,
+                comparison_tensors,
+                strict=True,
+            )
+        )
+
+    def _prepare_native_dummy_input(self, value: Any) -> Any:
+        """Apply supported semantic shape overrides to a model-provided tensor."""
+        if value.ndim == 0:
+            return value
+        targets = {0: self.config.batch_size}
+        shape_config = self.config.shape_config or {}
+        if value.ndim == 2:
+            key = (
+                "sequence_length" if "sequence_length" in shape_config else "audio_sequence_length"
+            )
+            if key in shape_config:
+                targets[1] = self._shape_override_size(shape_config, key)
+        elif value.ndim == 3:
+            if "feature_size" in shape_config:
+                targets[1] = self._shape_override_size(shape_config, "feature_size")
+            if "nb_max_frames" in shape_config:
+                targets[2] = self._shape_override_size(shape_config, "nb_max_frames")
+        elif value.ndim >= 4:
+            if "num_channels" in shape_config:
+                targets[1] = self._shape_override_size(shape_config, "num_channels")
+            if "height" in shape_config:
+                targets[value.ndim - 2] = self._shape_override_size(shape_config, "height")
+            if "width" in shape_config:
+                targets[value.ndim - 1] = self._shape_override_size(shape_config, "width")
+
+        for axis, size in targets.items():
+            value = self._resize_tensor_dimension(value, axis, size)
+        return value
+
+    @staticmethod
+    def _shape_override_size(shape_config: dict[str, Any], key: str) -> int:
+        value = shape_config[key]
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(f"Shape override '{key}' must be a positive integer.")
+        return value
+
+    @staticmethod
+    def _resize_tensor_dimension(value: Any, axis: int, size: int) -> Any:
+        current = value.shape[axis]
+        if current == size:
+            return value
+        if current == 0:
+            raise ValueError("Cannot resize a dummy input with an empty dimension.")
+        repeats = [1] * value.ndim
+        repeats[axis] = (size + current - 1) // current
+        return value.repeat(*repeats).narrow(axis, 0, size).clone()
+
+    @staticmethod
+    def _numpy_compatible_dtype(dtype: str) -> str:
+        return "float32" if dtype == "bfloat16" else dtype
+
+    def _run_benchmark(self, torch: Any) -> tuple[PerfStats, list[tuple[str, list[int], str]]]:
+        from ..session.stats import PerfStats
+
+        assert self._model is not None
+        assert self._inputs is not None
+        stats = PerfStats(warmup=self.config.warmup)
+        synchronize = torch.cuda.synchronize if self._torch_device.type == "cuda" else None
+        runner = _PyTorchForwardRunner(self._model, stats, synchronize)
+        total_iterations = self.config.warmup + self.config.iterations
+
+        with torch.inference_mode():
+            if self.config.monitor:
+                self._run_monitored(runner, stats, total_iterations)
+            else:
+                _run_simple_loop(
+                    runner,
+                    self._inputs,
+                    total_iterations,
+                    warmup=self.config.warmup,
+                    duration_sec=self.config.duration,
+                )
+        return stats, runner.output_metadata
+
+    def _run_monitored(
+        self,
+        runner: _PyTorchForwardRunner,
+        stats: PerfStats,
+        total_iterations: int,
+    ) -> None:
+        from ..session.monitor.hw_monitor import HWMonitor
+
+        assert self._inputs is not None
+        if not HWMonitor.is_available():
+            SafeConsole(stderr=True).print(
+                "[yellow]Warning:[/yellow] HWMonitor unavailable on this system. "
+                "Running without hardware monitoring."
+            )
+            _run_simple_loop(
+                runner,
+                self._inputs,
+                total_iterations,
+                warmup=self.config.warmup,
+                duration_sec=self.config.duration,
+            )
+            return
+
+        adapter_luid = self._cuda_adapter_luid()
+        monitor_device = self._monitor_device(adapter_luid)
+        hw_monitor = HWMonitor(
+            poll_interval_ms=_HW_POLL_INTERVAL_MS,
+            device=monitor_device,
+            adapter_luid=adapter_luid,
+            include_gpu_aggregate=not (self._actual_device == "gpu" and adapter_luid is None),
+        )
+        with hw_monitor as hw:
+            _run_monitored_loop(
+                runner,
+                self._inputs,
+                stats,
+                hw,
+                total_iterations=total_iterations,
+                warmup=self.config.warmup,
+                model_id=self.config.model_id,
+                device=self._actual_device,
+                duration_sec=self.config.duration,
+            )
+        self._hw_metrics = hw_monitor.to_dict()
+
+    def _monitor_device(self, adapter_luid: str | None) -> str:
+        if self._actual_device != "gpu":
+            return self._actual_device
+        if adapter_luid is not None:
+            return "gpu"
+        SafeConsole(stderr=True).print(
+            "[yellow]Warning:[/yellow] Could not identify the CUDA adapter for exact "
+            "GPU monitoring. Collecting CPU/RAM metrics only."
+        )
+        return "cpu"
+
+    def _cuda_adapter_luid(self) -> str | None:
+        if self._actual_device != "gpu" or sys.platform != "win32":
+            return None
+        import torch
+
+        cached = getattr(self, "_resolved_cuda_adapter_luid", "")
+        if cached is False:
+            return None
+        if isinstance(cached, str) and cached:
+            return cached
+
+        import ctypes
+
+        torch_dir = Path(torch.__file__).resolve().parent
+        candidates = [
+            *sorted((torch_dir / "lib").glob("cudart64*.dll")),
+            *sorted((torch_dir.parent / "nvidia" / "cuda_runtime" / "bin").glob("cudart64*.dll")),
+        ]
+        library = None
+        for path in candidates:
+            try:
+                library = ctypes.WinDLL(str(path))
+                break
+            except OSError:
+                continue
+        if library is None:
+            cuda_version = getattr(torch.version, "cuda", None)
+            if cuda_version:
+                major = cuda_version.split(".", maxsplit=1)[0]
+                names = [f"cudart64_{major}.dll", f"cudart64_{major}0.dll"]
+                for name in names:
+                    try:
+                        library = ctypes.WinDLL(name)
+                        break
+                    except OSError:
+                        continue
+        if library is None or not hasattr(library, "cudaDeviceGetLuid"):
+            self._resolved_cuda_adapter_luid = False
+            return None
+
+        get_luid = library.cudaDeviceGetLuid
+        get_luid.argtypes = [
+            ctypes.POINTER(ctypes.c_char),
+            ctypes.POINTER(ctypes.c_uint),
+            ctypes.c_int,
+        ]
+        get_luid.restype = ctypes.c_int
+        raw_luid = (ctypes.c_char * 8)()
+        node_mask = ctypes.c_uint()
+        assert self._torch_device is not None
+        device_index = self._torch_device.index
+        if device_index is None:
+            device_index = torch.cuda.current_device()
+        status = get_luid(raw_luid, ctypes.byref(node_mask), device_index)
+        if status != 0:
+            self._resolved_cuda_adapter_luid = False
+            return None
+        luid = self._format_cuda_luid(bytes(raw_luid))
+        self._resolved_cuda_adapter_luid = luid
+        return luid
+
+    @staticmethod
+    def _format_cuda_luid(raw_luid: bytes) -> str:
+        if len(raw_luid) != 8:
+            raise ValueError("A CUDA adapter LUID must contain exactly 8 bytes.")
+        low = int.from_bytes(raw_luid[:4], byteorder="little", signed=False)
+        high = int.from_bytes(raw_luid[4:], byteorder="little", signed=False)
+        return f"0x{high:08X}_0x{low:08X}"
+
+    def _memory_snapshot(
+        self,
+        torch: Any,
+        *,
+        use_cuda_peak: bool = False,
+    ) -> tuple[float, float, float]:
+        from ..session.monitor.memory_tracker import get_rss_mb
+
+        local_mb = 0.0
+        if self._torch_device.type == "cuda":
+            cuda_bytes = (
+                torch.cuda.max_memory_allocated(self._torch_device)
+                if use_cuda_peak
+                else torch.cuda.memory_allocated(self._torch_device)
+            )
+            local_mb = cuda_bytes / (1024 * 1024)
+        return get_rss_mb(), local_mb, 0.0
+
+    @staticmethod
+    def _build_memory_profile(
+        baseline: tuple[float, float, float],
+        after_model_load: tuple[float, float, float],
+        after_inference: tuple[float, float, float],
+    ) -> dict[str, float]:
+        rss_baseline, local_baseline, shared_baseline = baseline
+        rss_model, local_model, shared_model = after_model_load
+        rss_infer, local_infer, shared_infer = after_inference
+        return {
+            "rss_baseline_mb": round(rss_baseline, 2),
+            "rss_after_model_load_mb": round(rss_model, 2),
+            "rss_after_compile_mb": round(rss_model, 2),
+            "rss_after_inference_mb": round(rss_infer, 2),
+            "rss_model_load_delta_mb": round(rss_model - rss_baseline, 2),
+            "rss_inference_delta_mb": round(rss_infer - rss_model, 2),
+            "rss_total_delta_mb": round(rss_infer - rss_baseline, 2),
+            "vram_local_after_model_load_mb": round(local_model, 2),
+            "vram_local_after_inference_mb": round(local_infer, 2),
+            "vram_shared_after_inference_mb": round(shared_infer, 2),
+            "vram_local_model_load_delta_mb": round(local_model - local_baseline, 2),
+            "vram_local_inference_delta_mb": round(local_infer - local_model, 2),
+            "vram_local_total_delta_mb": round(local_infer - local_baseline, 2),
+            "vram_shared_model_load_delta_mb": round(shared_model - shared_baseline, 2),
+            "vram_shared_inference_delta_mb": round(shared_infer - shared_model, 2),
+            "vram_shared_total_delta_mb": round(shared_infer - shared_baseline, 2),
+        }
+
+    def _collect_results(
+        self,
+        stats: PerfStats,
+        output_metadata: list[tuple[str, list[int], str]],
+    ) -> BenchmarkResult:
+        assert self._io_config is not None
+        mean_latency_sec = stats.mean_ms / 1000.0
+        samples_per_sec = self._effective_batch / mean_latency_sec if mean_latency_sec > 0 else 0
+        batches_per_sec = 1.0 / mean_latency_sec if mean_latency_sec > 0 else 0
+        samples = stats.samples_ms
+        warmup_samples = stats.all_samples_ms[: self.config.warmup]
+
+        output_names = [name for name, _, _ in output_metadata]
+        output_shapes = [shape for _, shape, _ in output_metadata]
+        if not output_names:
+            output_names = self._io_config["output_names"]
+            output_shapes = self._io_config["output_shapes"]
+
+        return BenchmarkResult(
+            config=self.config,
+            input_names=self._io_config["input_names"],
+            input_shapes=self._io_config["input_shapes"],
+            input_types=self._io_config["input_types"],
+            output_names=output_names,
+            output_shapes=output_shapes,
+            model_precision=self._model_precision,
+            mean_ms=stats.mean_ms,
+            min_ms=stats.min_ms,
+            max_ms=stats.max_ms,
+            p50_ms=stats.p50_ms,
+            p90_ms=stats.p90_ms,
+            p95_ms=stats.p95_ms,
+            p99_ms=stats.p99_ms,
+            std_ms=float(np.std(samples)) if samples else 0.0,
+            warmup_mean_ms=float(np.mean(warmup_samples)) if warmup_samples else 0.0,
+            raw_samples_ms=samples,
+            samples_per_sec=samples_per_sec,
+            batches_per_sec=batches_per_sec,
+            effective_batch_size=self._effective_batch,
+            actual_device=self._actual_device,
+            actual_task=self._actual_task,
+            actual_ep=None,
+            running_model_path="",
+            hw_monitor=self._hw_metrics,
             memory_profile=self._memory,
         )
 
@@ -2096,6 +2951,95 @@ def _run_simple_loop(
             next_log += log_step
 
 
+_NO_EXPORT_INCOMPATIBLE_OPTIONS: dict[str, str] = {
+    "prompt": "--prompt",
+    "apply_template": "--apply-template/--no-apply-template",
+    "max_new_tokens": "--max-new-tokens",
+    "compile_timeout": "--compile-timeout",
+    "precision": "--precision",
+    "ep": "--ep",
+    "ep_options": "--ep-options",
+    "input_specs": "--input-specs",
+    "export_config": "--export-config",
+    "dynamic_axes": "--dynamic-axes",
+    "quant": "--quant/--no-quant",
+    "optimize": "--optimize/--no-optimize",
+    "analyze": "--analyze/--no-analyze",
+    "max_optim_iterations": "--max-optim-iterations",
+    "rebuild": "--rebuild/--no-rebuild",
+    "ignore_cache": "--ignore-cache/--no-ignore-cache",
+    "skip_build": "--skip-build/--no-skip-build",
+    "no_compile": "--compile/--no-compile",
+    "allow_unsupported_nodes": "--allow-unsupported-nodes",
+    "module_class": "--module",
+    "submodel": "--submodel",
+    "op_tracing": "--op-tracing",
+    "top_k": "--top-k",
+    "compare_devices": "--compare-devices",
+    "config_file": "--config",
+}
+
+
+def _validate_no_export_options(
+    ctx: click.Context,
+    *,
+    runtime: RuntimeName,
+    device: str,
+) -> None:
+    """Reject options whose semantics depend on ONNX export or an ORT session."""
+    if runtime != "winml":
+        raise click.UsageError("--no-export is only supported with --runtime winml.")
+    if device.lower() not in ("auto", "cpu", "gpu"):
+        raise click.UsageError(
+            f"--device {device} is not supported with --no-export; use auto, cpu, or gpu."
+        )
+
+    incompatible = [
+        flag
+        for param_name, flag in _NO_EXPORT_INCOMPATIBLE_OPTIONS.items()
+        if cli_utils.is_cli_provided(ctx, param_name)
+    ]
+    if incompatible:
+        raise click.UsageError(
+            f"--no-export cannot be combined with incompatible options: {', '.join(incompatible)}."
+        )
+
+
+def _run_pytorch_perf_command(
+    config: BenchmarkConfig,
+    *,
+    console: SafeConsole,
+    json_mode: bool,
+    verbose: int,
+    quiet: bool,
+) -> None:
+    """Run the native PyTorch path with the standard report/error contract."""
+    benchmark = PyTorchPerfBenchmark(config)
+    try:
+        console.print(f"[dim]Loading PyTorch model:[/dim] {config.model_id}")
+        with (
+            suppress_huggingface_warning_logs(verbosity=verbose, quiet=quiet),
+            suppress_third_party_progress(verbosity=verbose, quiet=quiet),
+        ):
+            result = benchmark.run()
+
+        if json_mode:
+            click.echo(json.dumps(result.to_dict(), indent=2))
+        else:
+            display_console_report(result, console)
+        assert config.output_path is not None
+        write_json_report(result, config.output_path)
+        console.print(f"[green]Results saved to:[/green] {config.output_path}")
+    except click.ClickException:
+        raise
+    except Exception as e:
+        if verbose:
+            logger.exception("PyTorch benchmark failed")
+        raise click.ClickException(f"Benchmark failed: {e}") from e
+    finally:
+        benchmark.close()
+
+
 # =============================================================================
 # CLI Command
 # =============================================================================
@@ -2560,6 +3504,14 @@ def _validate_duration(
         '(e.g., {"input_ids": {"0": "batch", "1": "sequence"}}).'
     )
 )
+@click.option(
+    "--export/--no-export",
+    "export_model",
+    default=True,
+    show_default=True,
+    help="Export Hugging Face models to ONNX before benchmarking. Use --no-export "
+    "to benchmark the original PyTorch model forward pass.",
+)
 @cli_utils.quant_option(optional_message="Applied during model build.")
 @cli_utils.optimize_option(optional_message="Applied during model build.")
 @cli_utils.analyze_option(optional_message="Applied during model build.")
@@ -2660,6 +3612,7 @@ def perf(
     input_specs: Path | None,
     export_config: Path | None,
     dynamic_axes: Path | None,
+    export_model: bool,
     quant: bool,
     optimize: bool,
     analyze: bool,
@@ -2685,10 +3638,11 @@ def perf(
     Measures latency and throughput using random input data generated
     from the model's I/O configuration.
 
-    Accepts both HuggingFace model IDs and local .onnx files. Both flow
+    Accepts both HuggingFace model IDs and local .onnx files. By default both flow
     through the same PerfBenchmark pipeline (optimize → [quantize] → [compile]
     minus export for ONNX inputs), so latency numbers are directly comparable
-    between the two inputs.
+    between the two inputs. Use --no-export with a Hugging Face model to benchmark
+    its original PyTorch forward pass instead.
 
     \b
     Examples:
@@ -2703,6 +3657,9 @@ def perf(
 
         # Text model with explicit task
         winml perf -m bert-base-uncased --task text-classification
+
+        # Original Hugging Face PyTorch model on CUDA
+        winml perf -m microsoft/resnet-50 --no-export --device gpu
 
         # Pass runtime EP provider options (repeatable)
         winml perf -m model.onnx --device npu --ep-options htp_performance_mode=burst
@@ -2723,6 +3680,13 @@ def perf(
     # resolution that can touch Hugging Face Hub and emit warning records.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
+
+    if not export_model:
+        _validate_no_export_options(
+            ctx,
+            runtime=runtime,
+            device=device,
+        )
 
     # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
     # is downloaded once and treated as a local .onnx path thereafter.
@@ -2832,6 +3796,11 @@ def perf(
     is_onnx = model_input.kind is ModelInputKind.ONNX_FILE
     if is_onnx and model_input.local_path and not Path(model_input.local_path).exists():
         raise click.UsageError(f"ONNX file not found: {hf_model}")
+    if not export_model and is_onnx:
+        raise click.UsageError(
+            "--no-export requires a Hugging Face model ID or model directory, "
+            "not a pre-exported ONNX model."
+        )
 
     # --ep is parsed by EpAtSourceParamType at click parse time into an
     # ``(ep, source)`` tuple; the config-file merge above normalizes to the
@@ -3029,6 +3998,31 @@ def perf(
 
     # Refuse to clobber an existing report unless the user opted in.
     cli_utils.guard_output(output, overwrite)
+
+    if not export_model:
+        config = BenchmarkConfig(
+            model_id=hf_model,
+            backend="pytorch",
+            task=task,
+            device=device.lower(),
+            iterations=iterations,
+            warmup=warmup,
+            duration=duration,
+            batch_size=batch_size,
+            output_path=output,
+            monitor=monitor,
+            memory=memory,
+            shape_config=shape_config,
+            input_data=input_data,
+        )
+        _run_pytorch_perf_command(
+            config,
+            console=console,
+            json_mode=json_mode,
+            verbose=verbose,
+            quiet=quiet,
+        )
+        return
 
     compile_ep_options = None
     from ..session import short_ep_name
@@ -3318,6 +4312,7 @@ def _format_input_shape(shape: list, actual: tuple | None) -> str:
 def _print_model_info(
     io_config: dict,
     *,
+    backend: str | None = None,
     task: str | None = None,
     req_device: str = "auto",
     act_device: str = "auto",
@@ -3327,6 +4322,8 @@ def _print_model_info(
     """Print model I/O metadata before the benchmark starts."""
     console = SafeConsole(stderr=True)
     console.print()
+    if backend:
+        console.print(f"[dim]Backend:[/dim]     {backend}")
     device_line = _device_string(req_device, act_device, ep_name)
     console.print(f"[dim]Device:[/dim]      {device_line}")
     if task:

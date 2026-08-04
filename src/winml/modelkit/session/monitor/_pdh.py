@@ -460,6 +460,8 @@ class PdhPoller:
         poll_interval_ms: int = 200,
         device: str = "auto",
         ep_name: EPName | None = None,
+        adapter_luid: str | None = None,
+        include_gpu_aggregate: bool = True,
     ) -> None:
         device_norm = (device or "auto").lower()
         if device_norm not in _DEVICE_KINDS:
@@ -469,6 +471,8 @@ class PdhPoller:
         # Full ORT EP name (e.g. "QNNExecutionProvider") to disambiguate when
         # multiple EPs cover the same device type during LUID resolution.
         self._ep_name = ep_name
+        self._requested_adapter_luid = adapter_luid
+        self._include_gpu_aggregate = include_gpu_aggregate
         self._device_kind: str | None = None  # resolved at start(): "npu" | "gpu" | None
         self._query: PdhQuery | None = None
         self._adapter_luid: str | None = None
@@ -501,9 +505,16 @@ class PdhPoller:
         or PDH fingerprinting (fallback).
         """
         try:
-            self._adapter_luid, self._device_kind = self._resolve_adapter(
-                self._requested_device, self._ep_name
-            )
+            if (
+                self._requested_adapter_luid is not None
+                and self._requested_device in ACCELERATOR_DEVICE_TYPES
+            ):
+                self._adapter_luid = self._requested_adapter_luid
+                self._device_kind = self._requested_device
+            else:
+                self._adapter_luid, self._device_kind = self._resolve_adapter(
+                    self._requested_device, self._ep_name
+                )
 
             # Try to build the per-adapter query. If the resolved LUID is
             # missing from PDH enumeration or the engine type isn't present
@@ -556,11 +567,15 @@ class PdhPoller:
 
             # GPU adapters (multi-engine; max-aggregated). Independent of the
             # NPU — both can be present and monitored simultaneously.
-            self._gpu_luids = discover_gpu_luids()
-            if self._gpu_luids:
-                self._gpu_counter_names = add_gpu_engine_counters(self._query, self._gpu_luids)
-            else:
-                logger.info("No GPU found via PDH; monitoring CPU/RAM/NPU only")
+            if self._include_gpu_aggregate:
+                self._gpu_luids = discover_gpu_luids()
+                if self._gpu_luids:
+                    self._gpu_counter_names = add_gpu_engine_counters(
+                        self._query,
+                        self._gpu_luids,
+                    )
+                else:
+                    logger.info("No GPU found via PDH; monitoring CPU/RAM/NPU only")
 
             self._query.prime()
 
@@ -582,6 +597,11 @@ class PdhPoller:
 
         except (ImportError, RuntimeError) as exc:
             logger.warning("PDH monitoring unavailable: %s", exc)
+            if self._query is not None:
+                self._query.close()
+                self._query = None
+            self._adapter_luid = None
+            self._device_kind = None
 
     def stop(self) -> None:
         """Stop polling thread, capture final running_time, close query."""

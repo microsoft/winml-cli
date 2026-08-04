@@ -43,6 +43,33 @@ Key parameters:
 | `--precision` | Precision mode: `auto`, `fp32`, `fp16`, `int8`, `int16`, or `w{x}a{y}` | `auto` |
 | `--quantize/--no-quantize` | Include quantization during model build | `--quantize` |
 | `--skip-build/--no-skip-build` | Skip the build pipeline for ONNX inputs | `--skip-build` |
+| `--export/--no-export` | Export a Hugging Face model to ONNX or benchmark its original PyTorch forward pass | `--export` |
+
+### Native PyTorch baseline
+
+Use `--no-export` to measure a Hugging Face checkpoint before ONNX conversion:
+
+```
+winml perf -m microsoft/resnet-50 --no-export --device gpu
+```
+
+This path loads the task-resolved pretrained module, preserves its parameter
+dtype, and times only `model(**inputs)` under `torch.inference_mode()`.
+Tokenization, image preprocessing, and output postprocessing are excluded, so
+the result remains comparable to the normal session-level ONNX timing boundary.
+CUDA is synchronized before and after every timed forward pass.
+On Windows, hardware monitoring binds PDH counters to the CUDA device's adapter
+LUID. If that identity cannot be resolved, `perf` warns and records CPU/RAM only
+rather than attributing another GPU's activity to the benchmark.
+
+For `--no-export`, `--device gpu` means `torch.device("cuda")`;
+`--device cpu` uses PyTorch CPU; and `--device auto` chooses CUDA when available,
+otherwise CPU. NPU and execution-provider options do not apply. The initial
+native path supports complete Hugging Face models only, not ONNX files, GenAI
+bundles, `--module`, or `--submodel`. ONNX build, export, precision, cache,
+compile, and op-tracing flags are rejected instead of being silently ignored.
+Batch size, shape overrides, `.npz` inputs, duration, monitoring, memory, and
+report options continue to work.
 
 ### Output format
 
@@ -52,6 +79,7 @@ Add `-f json` to emit structured JSON to stdout, suitable for CI pipelines or au
 {
   "benchmark_info": {
     "model_id": "bert-tiny.onnx",
+    "backend": "winml",
     "task": "auto-detected",
     "device": "cpu",
     "ep": "CPUExecutionProvider",
