@@ -2,11 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for pattern deduplication logic in PatternExtractor.
-
-Tests the priority-based deduplication:
-Priority: HTP metadata > hierarchy_tag > PatternMatcher
-"""
+"""Tests for source-priority pattern deduplication in PatternExtractor."""
 
 import pytest
 from onnx import TensorProto, helper
@@ -17,20 +13,14 @@ from winml.modelkit.pattern import PatternMatchResult, SkeletonMatchResult, Subg
 
 
 @pytest.fixture
-def simple_model_with_tags() -> ONNXModel:
-    """Create a simple ONNX model with hierarchy tags."""
+def simple_model() -> ONNXModel:
+    """Create a simple ONNX model."""
     input1 = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 10])
     output = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 10])
 
-    # Create nodes with hierarchy_tag attribute
     div_node = helper.make_node("Div", ["input", "const1"], ["div_out"], name="div1")
-    div_node.attribute.append(helper.make_attribute("hierarchy_tag", "layer1/Gelu1"))
-
     erf_node = helper.make_node("Erf", ["div_out"], ["erf_out"], name="erf1")
-    erf_node.attribute.append(helper.make_attribute("hierarchy_tag", "layer1/Gelu1"))
-
     mul_node = helper.make_node("Mul", ["erf_out", "input"], ["output"], name="mul1")
-    mul_node.attribute.append(helper.make_attribute("hierarchy_tag", "layer1/Gelu1"))
 
     graph_def = helper.make_graph(
         [div_node, erf_node, mul_node],
@@ -61,13 +51,9 @@ def gelu_pattern() -> SubgraphPattern:
 class TestPatternDeduplication:
     """Test pattern deduplication logic."""
 
-    def test_deduplication_removes_duplicates(self, simple_model_with_tags: ONNXModel, monkeypatch):
-        """Test that duplicate matches are removed based on node sets."""
-        extractor = PatternExtractor(simple_model_with_tags)
-
-        # Create two matches with same nodes
-        div_node = helper.make_node("Div", ["input"], ["div_out"], name="div1")
-        erf_node = helper.make_node("Erf", ["div_out"], ["output"], name="erf1")
+    def test_deduplication_removes_duplicates(self, simple_model: ONNXModel, monkeypatch):
+        """Test that EP-priority dedup removes duplicate node-key matches in summary path."""
+        extractor = PatternExtractor(simple_model)
 
         pattern = SubgraphPattern(
             pattern_id="SUBGRAPH/Test",
@@ -76,73 +62,62 @@ class TestPatternDeduplication:
             edge_topology=[("div", "erf")],
         )
 
-        skeleton1 = SkeletonMatchResult(
-            pattern=pattern,
-            matched_nodes=[div_node, erf_node],
-            matched_node_keys=_stable_test_node_keys([div_node, erf_node]),
-            matcher=None,
-        )
+        def make_match(source: str) -> PatternMatchResult:
+            div_node = helper.make_node("Div", ["input"], ["div_out"], name=f"div1_{source}")
+            erf_node = helper.make_node("Erf", ["div_out"], ["output"], name=f"erf1_{source}")
+            skeleton = SkeletonMatchResult(
+                pattern=pattern,
+                matched_nodes=[div_node, erf_node],
+                matched_node_keys=["stable_dup_node_a", "stable_dup_node_b"],
+                matcher=None,
+            )
+            return PatternMatchResult(
+                skeleton_match_result=skeleton,
+                schema_input_to_value={},
+                schema_output_to_value={},
+                type_param_to_type={},
+                attributes={"source": source},
+            )
 
-        match1 = PatternMatchResult(
-            skeleton_match_result=skeleton1,
-            schema_input_to_value={},
-            schema_output_to_value={},
-            type_param_to_type={},
-            attributes={"source": "htp_metadata"},
-        )
+        default_match = make_match("default")
+        ep_match = make_match("qnn")
 
-        skeleton2 = SkeletonMatchResult(
-            pattern=pattern,
-            matched_nodes=[div_node, erf_node],
-            matched_node_keys=_stable_test_node_keys([div_node, erf_node]),
-            matcher=None,
-        )
-
-        match2 = PatternMatchResult(
-            skeleton_match_result=skeleton2,
-            schema_input_to_value={},
-            schema_output_to_value={},
-            type_param_to_type={},
-            attributes={"source": "pattern_matcher"},
-        )
-
-        # Mock the methods to return our test matches
-        def mock_tag_match(pattern_def):
-            return [match1]
-
-        def mock_matcher_match():
-            return [match2]
+        def mock_extract(self, *, source, model_signature):
+            if source == "qnn":
+                grouped = {"TestPattern": [ep_match]}
+            else:
+                grouped = {"TestPattern": [default_match]}
+            stat = {
+                "source": source,
+                "cache_hit": False,
+                "pattern_class_count": len(grouped),
+                "match_count": 1,
+                "elapsed_ms": 0,
+            }
+            return grouped, stat
 
         monkeypatch.setattr(
-            extractor,
-            "_match_subgraph_pattern_from_model_tags",
-            mock_tag_match,
+            PatternExtractor,
+            "_extract_skeleton_matches_for_source",
+            mock_extract,
         )
         monkeypatch.setattr(
-            extractor,
-            "extract_subgraph_patterns_with_pattern_matcher",
-            mock_matcher_match,
+            PatternExtractor,
+            "_build_merge_prep_metadata",
+            lambda *args, **kwargs: [],
+        )
+        monkeypatch.setattr(
+            PatternExtractor,
+            "_resolve_sources_for_ep",
+            lambda *args, **kwargs: ["default", "qnn"],
         )
 
-        # Mock UnifiedPatternConfig to return test pattern
-        from unittest.mock import MagicMock, patch
+        result = extractor.summary(ep="QNNExecutionProvider", device="NPU")
+        patterns = result["subgraph_patterns"]
+        assert len(patterns) == 1
+        assert patterns[0] is ep_match
 
-        mock_config = MagicMock()
-        mock_config.get_htp_patterns.return_value = [pattern]
-
-        with patch(
-            "winml.modelkit.analyze.core.pattern_extractor.UnifiedPatternConfig",
-            return_value=mock_config,
-        ):
-            # Extract patterns with deduplication
-            patterns = extractor.extract_subgraph_patterns()
-
-            # Should only have 1 match (duplicate removed)
-            assert len(patterns) == 1
-            # Should keep the first one (from HTP/tag, not PatternMatcher)
-            assert patterns[0].attributes.get("source") == "htp_metadata"
-
-    def test_different_node_sets_not_deduplicated(self, simple_model_with_tags):
+    def test_different_node_sets_not_deduplicated(self, simple_model):
         """Test that matches with different node sets are kept."""
         # Create two matches with different nodes
         div1_node = helper.make_node("Div", ["input1"], ["div_out1"], name="div1")

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
-from onnx.defs import SchemaError, onnx_opset_version
+from onnx.defs import SchemaError
 
 from ...onnx import ONNXDomain
 from ...pattern.base import get_pattern_input_generator
@@ -21,7 +21,6 @@ from ...pattern.op_input_gen import (
 )
 from ..utils.model_utils import (
     encode_rule_condition_value_for_parquet,
-    get_op_since_version,
     make_hashable,
 )
 from ..utils.rule_loader import get_runtime_rules_search_dirs
@@ -29,64 +28,6 @@ from ..utils.rule_loader import get_runtime_rules_search_dirs
 
 if TYPE_CHECKING:
     from ...utils.constants import EPName
-
-
-# Snapshot metadata keys used in generated rule artifacts.
-SNAPSHOT_TYPE_KEY = "__snapshot_type__"
-SNAPSHOT_TYPE_DELTA = "delta_v1"
-SNAPSHOT_BASE_OPSET_KEY = "__base_opset__"
-SNAPSHOT_CURRENT_OPSET_KEY = "__current_opset__"
-SNAPSHOT_CHANGED_KEY = "__changed__"
-SNAPSHOT_DELETED_KEY = "__deleted__"
-
-
-def _sorted_dict_by_key(payload: dict[str, Any]) -> dict[str, Any]:
-    """Return a shallow key-sorted dict for stable JSON output."""
-    return dict(sorted(payload.items()))
-
-
-def _build_snapshot_payload(
-    current_payload: dict[str, Any],
-    current_opset: int,
-    previous_payload: dict[str, Any] | None,
-    previous_opset: int | None,
-) -> dict[str, Any]:
-    """Build either a full snapshot (first version) or a delta snapshot.
-
-    Full snapshots keep backward compatibility with existing plain-dict format.
-    Delta snapshots store only changed/deleted operators relative to the previous opset.
-    """
-    if previous_payload is None or previous_opset is None:
-        return _sorted_dict_by_key(current_payload)
-
-    changed = {
-        op_name: value
-        for op_name, value in current_payload.items()
-        if op_name not in previous_payload or previous_payload[op_name] != value
-    }
-    deleted = sorted(op_name for op_name in previous_payload if op_name not in current_payload)
-
-    return {
-        SNAPSHOT_TYPE_KEY: SNAPSHOT_TYPE_DELTA,
-        SNAPSHOT_BASE_OPSET_KEY: previous_opset,
-        SNAPSHOT_CURRENT_OPSET_KEY: current_opset,
-        SNAPSHOT_CHANGED_KEY: _sorted_dict_by_key(changed),
-        SNAPSHOT_DELETED_KEY: deleted,
-    }
-
-
-def _is_delta_snapshot_payload(payload: Any) -> bool:
-    return isinstance(payload, dict) and payload.get(SNAPSHOT_TYPE_KEY) == SNAPSHOT_TYPE_DELTA
-
-
-def _can_append_merge(existing_payload: Any, new_payload: Any) -> bool:
-    """Whether append-mode shallow dict merge is safe for these payloads."""
-    return (
-        isinstance(existing_payload, dict)
-        and isinstance(new_payload, dict)
-        and not _is_delta_snapshot_payload(existing_payload)
-        and not _is_delta_snapshot_payload(new_payload)
-    )
 
 
 def _get_input_constraint_types(
@@ -442,101 +383,6 @@ def extract_single_negative_rules(
     return all_negative_rules, all_failed
 
 
-def build_op_query_negative_rules_and_table(
-    check_results: list[dict[str, Any]],
-    input_generator: OpInputGenerator,
-    use_qdq: bool,
-    op_version: int,
-    device: str,
-    ep_name: EPName,
-    op_domain: str,
-    # schema: OpSchema,
-) -> tuple[dict[str, Any], pd.DataFrame]:
-    """Build negative rules from check results for a specific operator.
-
-    Args:
-        check_results: List of check result items from runtime checker
-        input_generator: OpInputGenerator object for the operator
-
-    Returns:
-        Tuple of (negative_rules_dict, dataframe):
-        - negative_rules_dict: Dictionary containing operator name and negative rules
-        - dataframe: DataFrame with all test results and properties
-    """
-    op_name = input_generator.op_name
-    if not check_results:
-        return {"op_name": op_name, "negative_rules": {}}, pd.DataFrame()
-
-    # Convert items to rows
-
-    # Pre-compute constraint types from non-None constraints for consistent property naming
-    input_constraint_types = _get_input_constraint_types(check_results)
-    # Pre-compute all attribute names for consistent property naming
-    all_attr_names = _get_all_attr_names(check_results)
-
-    def get_row(item: dict[str, Any]) -> dict[str, Any]:
-        """Convert item to row with derived properties if available."""
-        row = item_to_row(
-            item,
-            input_constraint_types,
-            all_attr_names,
-            input_generator.replace_float_with_dummy_in_query,
-            use_qdq=use_qdq,
-        )
-        try:
-            row = input_generator.derive_properties(row)
-        except NotImplementedError:
-            pass
-        return row
-
-    rows = [get_row(item) for item in check_results]
-
-    # Create DataFrame and replace NaN with None
-    df = pd.DataFrame(rows, dtype=object)
-    df = df.replace({np.nan: None})
-
-    # Auto-detect infinite properties (those ending with _shape or _value)
-    # These represent unbounded input spaces that should not be used for negative rules
-    infinite_properties = input_generator.get_infinite_property_names()
-    internal_reason_cols = [
-        "compile_reason",
-        "run_reason",
-        "has_not_run_placeholder_reason",
-        "case_index",
-    ]
-    consistency_ignored = [*infinite_properties, *internal_reason_cols]
-    assert check_df_consistent(
-        df,
-        op_name,
-        "compile_run_success",
-        consistency_ignored,
-        op_version=op_version,
-        device=device,
-        ep_name=ep_name,
-        op_domain=op_domain,
-        is_qdq=use_qdq,
-    )
-
-    # Internal reason columns are only for consistency filtering and must not be
-    # exported to tables/rules, otherwise downstream matcher treats them as
-    # required condition keys.
-    export_df = df.drop(columns=internal_reason_cols, errors="ignore")
-
-    negative_rules, all_failed = extract_single_negative_rules(
-        export_df, "compile_run_success", infinite_properties
-    )
-    names = ["compile", "run"]
-
-    negative_rules_dict = {
-        "op_name": op_name,
-        "negative_rules": dict(zip(names, negative_rules, strict=False)),
-        "all_failed": dict(zip(names, all_failed, strict=False)),
-        "total_row_count": len(export_df),
-    }
-
-    return negative_rules_dict, export_df
-
-
 def _parse_filename(filename: str) -> tuple[str, str, str, str, int, bool]:
     """Parse operator name, EP name, domain, opset, and QDQ flag from filename.
 
@@ -577,39 +423,6 @@ def _parse_filename(filename: str) -> tuple[str, str, str, str, int, bool]:
         op_domain = ""
 
     return op_domain, op_name, ep_name, device, opset_version, is_qdq
-
-
-def get_opset_version_range(op_name: str, start_opset_version: int, op_domain: str) -> list[int]:
-    """Get the range of opset versions that use the same op schema version.
-
-    Given an op_name and a starting opset version, determines all consecutive opset
-    versions that use the same since_version of the operator. This is useful when
-    updating rules: e.g., if Slice has versions 1, 10, 11, 13, and start_opset_version=11,
-    the since_version is 11 and the next version is 13, so we return [11, 12].
-
-    Args:
-        op_name: Name of the ONNX operator (e.g., "Slice")
-        start_opset_version: The starting opset version
-        op_domain: The domain of the operator (empty string for ai.onnx)
-
-    Returns:
-        List of consecutive opset versions sharing the same op schema version
-    """
-    max_opset = onnx_opset_version()
-    base_since = get_op_since_version(op_name, start_opset_version, op_domain)
-
-    versions = []
-    for v in range(start_opset_version, max_opset + 1):
-        try:
-            since = get_op_since_version(op_name, v, op_domain)
-        except SchemaError:
-            break
-        if since == base_since:
-            versions.append(v)
-        else:
-            break
-
-    return versions
 
 
 def _parse_requested_domains(domains_arg: str) -> list[str]:

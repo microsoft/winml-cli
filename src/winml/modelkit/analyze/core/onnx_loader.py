@@ -198,8 +198,6 @@ class ONNXLoader:
         if not model_proto.graph.node:
             raise ValueError("Model graph has no nodes")
 
-        # Skip strict ONNX validation to allow custom attributes like hierarchy_tag
-        # The model structure is still validated by checking for non-empty graph
         logger.debug("Skipping strict ONNX validation to allow custom attributes")
 
     def extract_metadata(self, detected_pattern_count: dict[str, int] | None = None) -> ModelStats:

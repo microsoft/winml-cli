@@ -36,6 +36,10 @@ class RuntimeDebugSummaryEntry(BaseModel):
         default=None,
         description="Source table filename.",
     )
+    match_status: str | None = Field(
+        default=None,
+        description="Match source classification: pattern_match or op_match.",
+    )
 
 
 class EPSupport(BaseModel):

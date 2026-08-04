@@ -606,7 +606,6 @@ def get_query_conditions_for_node(
         # Build a synthetic model path so helper logic can resolve sidecar files
         # relative to the provided base directory.
         resolved_model_path = resolved_base / "__model__.onnx"
-
     # Build set of optional input names from schema
     optional_input_names = {
         inp.name
@@ -987,6 +986,7 @@ class RuntimeCheckerQuery:
         model_path: str | Path | None = None,
         dynamic_axis_strict_mode: bool = False,
         node_key_by_node_id: dict[int, str] | None = None,
+        pattern_matched_node_status_by_key: dict[str, str] | None = None,
     ) -> None:
         """Initialize runtime checker query.
 
@@ -1000,6 +1000,9 @@ class RuntimeCheckerQuery:
                 for matching against first_axis test data. If True, preserves exact
                 dynamic axis indices.
             node_key_by_node_id: Optional sidecar map from id(node) to stable node key.
+            pattern_matched_node_status_by_key: Optional stable node-key to
+                pattern status mapping (supported/partial/unsupported/unknow)
+                used to classify matched nodes when parquet lookup is skipped.
         """
         self.model_path = str(Path(model_path).resolve(strict=False)) if model_path else None
         self.model_base_dir = str(Path(self.model_path).parent) if self.model_path else None
@@ -1041,6 +1044,11 @@ class RuntimeCheckerQuery:
             self._node_key_by_node_id = dict(node_key_by_node_id)
         else:
             self._node_key_by_node_id = build_node_key_by_node_id(self._graph_nodes)
+
+        self._pattern_matched_node_status_by_key: dict[str, str] = {
+            str(node_key): str(status)
+            for node_key, status in (pattern_matched_node_status_by_key or {}).items()
+        }
 
         self.ep_name = ep_name
         self.device_type = device_type
@@ -1088,6 +1096,49 @@ class RuntimeCheckerQuery:
         ] = {}
         # since_version cache keyed by (op, domain, model_opset)
         self._since_version_cache: dict[tuple[str, str, int], int] = {}
+
+    @staticmethod
+    def _build_op_pattern_id(node: onnx.NodeProto) -> str:
+        """Build OP/<domain>/<op_type> identifier for one ONNX node."""
+        try:
+            op_domain = ONNXDomain.from_str(node.domain)
+            domain_value = op_domain.value
+        except ValueError:
+            domain_value = node.domain or ONNXDomain.AI_ONNX.value
+
+        return f"OP/{domain_value}/{node.op_type}"
+
+    @staticmethod
+    def _runtime_result_from_pattern_status(pattern_status: str) -> RuntimeTestResult:
+        """Map pattern status string to RuntimeTestResult for matched nodes."""
+        normalized = (pattern_status or "unknow").strip().lower()
+        if normalized == "supported":
+            return RuntimeTestResult(
+                compile=True,
+                run=True,
+                no_data=False,
+                reason="pattern_matched",
+            )
+        if normalized == "partial":
+            return RuntimeTestResult(
+                compile=False,
+                run=True,
+                no_data=False,
+                reason="pattern_matched",
+            )
+        if normalized == "unsupported":
+            return RuntimeTestResult(
+                compile=False,
+                run=False,
+                no_data=False,
+                reason="pattern_matched",
+            )
+        return RuntimeTestResult(
+            compile=False,
+            run=False,
+            no_data=True,
+            reason="pattern_matched",
+        )
 
     def _collect_qdq_types(self) -> None:
         """Collect QDQ types from the model.
@@ -1535,78 +1586,6 @@ class RuntimeCheckerQuery:
 
         return input_feed
 
-    def _generate_node_inputs(self, node: onnx.NodeProto) -> dict[str, np.ndarray]:
-        """Generate dummy input data for a single-node model.
-
-        Creates numpy arrays with appropriate shapes and dtypes based on the
-        node's input value info. Initializer/constant inputs are excluded since
-        they are embedded in the model.
-
-        Args:
-            node: The ONNX node to generate inputs for.
-
-        Returns:
-            Dict mapping input names to numpy arrays.
-
-        Raises:
-            ValueError: If dtype or shape information is missing for an input.
-        """
-        input_feed: dict[str, np.ndarray] = {}
-        default_dim_size = 2  # Replace dynamic/unknown dims with this size
-
-        for inp_name in node.input:
-            if not inp_name:
-                continue
-            # Skip regular initializers/constants - they are embedded in the model.
-            # External-data initializers are modeled as runtime inputs.
-            if inp_name in self.initializers:
-                init = self.initializers[inp_name]
-                if init.data_location != onnx.TensorProto.EXTERNAL:
-                    continue
-
-                try:
-                    np_dtype = onnx.helper.tensor_dtype_to_np_dtype(init.data_type)
-                except Exception:
-                    np_dtype = np.dtype(np.float32)
-
-                shape = tuple(int(d) for d in init.dims)
-                input_feed[inp_name] = np.zeros(shape, dtype=np_dtype)
-                continue
-
-            if inp_name in self.constants:
-                continue
-
-            vi = self.valueinfo.get(inp_name)
-            if vi is None:
-                raise ValueError(
-                    f"Input '{inp_name}' for node '{node.name}' ({node.op_type}) "
-                    f"not found in valueinfo"
-                )
-
-            vi_shape, dtype_str = shape_and_dtype_from_valueinfo(vi)
-            if dtype_str is None:
-                raise ValueError(
-                    f"Input '{inp_name}' for node '{node.name}' ({node.op_type}) "
-                    f"has no dtype information"
-                )
-
-            # Convert dtype string to numpy dtype
-            np_dtype = SupportedONNXType.from_annotation(dtype_str).np_type
-
-            concrete_shape: tuple[int, ...]
-            if vi_shape is None:
-                # No shape info at all - use a simple 1D array
-                concrete_shape = (default_dim_size,)
-            else:
-                # Replace dynamic dimensions (strings or None) with default size
-                concrete_shape = tuple(
-                    d if isinstance(d, int) and d > 0 else default_dim_size for d in vi_shape
-                )
-
-            input_feed[inp_name] = np.zeros(concrete_shape, dtype=np_dtype)
-
-        return input_feed
-
     def _try_local_ep_check(
         self,
         node: onnx.NodeProto,
@@ -1750,6 +1729,7 @@ class RuntimeCheckerQuery:
                 "opset_version": opset_version,
                 "table_path": None,
                 "table_file": None,
+                "match_status": "op_match",
             }
 
         result = RuntimeTestResult(
@@ -1882,15 +1862,6 @@ class RuntimeCheckerQuery:
             logger.info("Saved unsupported node to %s", model_path)
         except Exception as e:
             logger.warning("Failed to save node for %s: %s", node.op_type, e)
-
-    def run_for_model_per_op(self) -> dict[str, Any]:
-        """Run runtime check for all nodes in model.
-
-        Returns:
-            Dict with results for each operator
-        """
-        # run run_for_nodes for all nodes
-        return {}
 
     def _maybe_save_failed_node_result(
         self,
@@ -2093,6 +2064,7 @@ class RuntimeCheckerQuery:
                     "table_path": parquet_path_norm,
                     "table_file": parquet_file,
                     "op_since_version": op_since_version,
+                    "match_status": "op_match",
                 }
 
             return _finish(
@@ -2194,6 +2166,7 @@ class RuntimeCheckerQuery:
                     "op_since_version": op_since_version,
                     "lookup_columns": op_columns,
                     "query_signature": query_signature,
+                    "match_status": "op_match",
                 }
                 debug_details["steps"] = debug_steps
 
@@ -2268,6 +2241,7 @@ class RuntimeCheckerQuery:
                 "lookup_columns": op_columns,
                 "query_signature": query_signature,
                 "case_indices": matched_case_indices,
+                "match_status": "op_match",
             }
 
         result = RuntimeTestResult(
@@ -2345,10 +2319,6 @@ class RuntimeCheckerQuery:
             ),
         )
 
-        pattern_match_start = time.perf_counter()
-        pattern_match = node_to_pattern_match(node, node_key)
-        pattern_match_ms = _elapsed_ms(pattern_match_start)
-
         def _finish(result: PatternRuntime, outcome: str) -> PatternRuntime:
             _log_timing(
                 "run_for_node",
@@ -2372,6 +2342,37 @@ class RuntimeCheckerQuery:
                 reason=result.result.reason or "",
             )
             return result
+
+        if node_key in self._pattern_matched_node_status_by_key:
+            pattern_status = self._pattern_matched_node_status_by_key[node_key]
+            pattern_matched_debug_details: RuntimeDebugDetails | None = None
+            if for_debug:
+                pattern_matched_debug_details = {
+                    "type": "pattern_matched",
+                    "node_stable_key": node_key,
+                    "op_type": node.op_type,
+                    "status": pattern_status,
+                    "table_path": None,
+                    "table_file": None,
+                    "match_status": "pattern_match",
+                }
+
+            result = self._runtime_result_from_pattern_status(pattern_status)
+            result.debug_details = pattern_matched_debug_details
+
+            return _finish(
+                PatternRuntime(
+                    pattern_id=self._build_op_pattern_id(node),
+                    result=result,
+                    alternatives=self.alternatives,
+                    pattern_match=None,
+                ),
+                outcome="pattern_matched",
+            )
+
+        pattern_match_start = time.perf_counter()
+        pattern_match = node_to_pattern_match(node, node_key)
+        pattern_match_ms = _elapsed_ms(pattern_match_start)
 
         # Ignore QuantizeLinear and DequantizeLinear ops for now,
         # Q and DQ ops will be tested in quantized ops
@@ -2435,6 +2436,7 @@ class RuntimeCheckerQuery:
                     "op_type": node.op_type,
                     "node_stable_key": node_key,
                     "domain": node.domain,
+                    "match_status": "op_match",
                 }
             return _finish(
                 PatternRuntime(
@@ -2521,6 +2523,7 @@ class RuntimeCheckerQuery:
                     "error_message": str(e),
                     "table_path": None,
                     "table_file": None,
+                    "match_status": "op_match",
                 }
 
             return _finish(
@@ -2560,156 +2563,3 @@ class RuntimeCheckerQuery:
         )
         parquet_rules_ms = _elapsed_ms(parquet_rules_start)
         return _finish(final_result, outcome="parquet_rules")
-
-    def run_for_subgraph(
-        self,
-        pattern_match: PatternMatchResult,
-        run_unknown_op: bool = False,
-    ) -> PatternRuntime:
-        """Run runtime check for subgraph pattern via per-node checks."""
-        pattern_name = pattern_match.pattern.__class__.__name__
-        logger.debug(
-            "Pattern-level aggregated rules are removed; checking individual operators for '%s'",
-            pattern_name,
-        )
-        return self._run_for_subgraph_per_node(
-            pattern_match,
-            pattern_name,
-            run_unknown_op,
-        )
-
-    def _run_for_subgraph_per_node(
-        self,
-        pattern_match: PatternMatchResult,
-        pattern_name: str,
-        run_unknown_op: bool,
-    ) -> PatternRuntime:
-        """Fallback: check each operator in the pattern individually.
-
-        Args:
-            pattern_match: PatternMatchResult containing pattern information.
-            pattern_name: Pattern variant name.
-            run_unknown_op: If True, attempt local EP check for unknown ops.
-
-        Returns:
-            PatternRuntime with aggregated results from individual node checks.
-        """
-        pattern_id = pattern_match.pattern.pattern_id
-
-        if (
-            not hasattr(pattern_match, "skeleton_match_result")
-            or pattern_match.skeleton_match_result is None
-        ):
-            logger.warning(
-                f"Pattern '{pattern_id}' has no "
-                f"skeleton_match_result, cannot check "
-                f"individual nodes"
-            )
-            return PatternRuntime(
-                pattern_id=pattern_id,
-                result=RuntimeTestResult(
-                    compile=False,
-                    run=False,
-                    no_data=True,
-                    reason=(
-                        f"Pattern '{pattern_name}' not "
-                        f"found in database and has no "
-                        f"matched nodes to check"
-                    ),
-                    debug_details=None,
-                ),
-                alternatives=self.alternatives,
-                pattern_match=pattern_match,
-            )
-
-        matched_nodes = pattern_match.skeleton_match_result.matched_nodes
-
-        if not matched_nodes:
-            logger.warning("Pattern '%s' has no matched nodes", pattern_id)
-            return PatternRuntime(
-                pattern_id=pattern_id,
-                result=RuntimeTestResult(
-                    compile=False,
-                    run=False,
-                    no_data=True,
-                    reason=f"Pattern '{pattern_name}' has no nodes to check",
-                    debug_details=None,
-                ),
-                alternatives=self.alternatives,
-                pattern_match=pattern_match,
-            )
-
-        # Check runtime support for each node in the pattern
-        node_results: list[PatternRuntime] = []
-        for node in matched_nodes:
-            node_result = self.run_for_node(node, run_unknown_op=run_unknown_op)
-            node_results.append(node_result)
-
-        # Aggregate results: pattern is supported only if ALL nodes are supported
-        all_compile = all(r.result.compile for r in node_results)
-        all_run = all(r.result.run for r in node_results)
-        any_no_data = any(r.result.no_data for r in node_results)
-
-        # Collect failure reasons
-        failed_nodes = [
-            f"{r.pattern_id}: {r.result.reason}"
-            for r in node_results
-            if not r.result.compile or not r.result.run
-        ]
-
-        no_data_nodes = [r.pattern_id for r in node_results if r.result.no_data]
-
-        if all_compile and all_run and not any_no_data:
-            return PatternRuntime(
-                pattern_id=pattern_id,
-                result=RuntimeTestResult(
-                    compile=True,
-                    run=True,
-                    no_data=False,
-                    reason=(
-                        f"Pattern '{pattern_name}' fully "
-                        f"supported: all "
-                        f"{len(node_results)} operators "
-                        f"supported"
-                    ),
-                    debug_details=None,
-                ),
-                alternatives=self.alternatives,
-                pattern_match=pattern_match,
-            )
-
-        if any_no_data:
-            return PatternRuntime(
-                pattern_id=pattern_id,
-                result=RuntimeTestResult(
-                    compile=False,
-                    run=False,
-                    no_data=True,
-                    reason=(
-                        f"Pattern '{pattern_name}' status "
-                        f"unknown: no data for operators "
-                        f"{', '.join(no_data_nodes[:3])}"
-                        f"{'...' if len(no_data_nodes) > 3 else ''}"
-                    ),
-                    debug_details=None,
-                ),
-                alternatives=self.alternatives,
-                pattern_match=pattern_match,
-            )
-
-        failure_summary = "; ".join(failed_nodes[:3])
-        if len(failed_nodes) > 3:
-            failure_summary += f" (and {len(failed_nodes) - 3} more)"
-
-        return PatternRuntime(
-            pattern_id=pattern_id,
-            result=RuntimeTestResult(
-                compile=all_compile,
-                run=all_run,
-                no_data=False,
-                reason=f"Pattern '{pattern_name}' has unsupported operators: {failure_summary}",
-                debug_details=None,
-            ),
-            alternatives=self.alternatives,
-            pattern_match=pattern_match,
-        )
