@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from .mean_average_precision import MAPMetric
     from .mean_iou import IGNORE_INDEX, MeanIoUMetric
     from .pseudo_perplexity import PseudoPerplexityMetric
+    from .recall_at_k import RecallAtKMetric
     from .spearman_correlation import SpearmanCorrelationMetric
     from .top_k_accuracy import TopKAccuracyMetric
 
@@ -39,6 +40,7 @@ _LAZY_ATTRS: dict[str, str] = {
     "MAPMetric": ".mean_average_precision:MAPMetric",
     "MeanIoUMetric": ".mean_iou:MeanIoUMetric",
     "PseudoPerplexityMetric": ".pseudo_perplexity:PseudoPerplexityMetric",
+    "RecallAtKMetric": ".recall_at_k:RecallAtKMetric",
     "SpearmanCorrelationMetric": ".spearman_correlation:SpearmanCorrelationMetric",
     "TopKAccuracyMetric": ".top_k_accuracy:TopKAccuracyMetric",
 }
@@ -71,6 +73,7 @@ __all__ = [
     "MAPMetric",
     "MeanIoUMetric",
     "PseudoPerplexityMetric",
+    "RecallAtKMetric",
     "SpearmanCorrelationMetric",
     "TopKAccuracyMetric",
 ]
