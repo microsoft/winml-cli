@@ -399,7 +399,11 @@ def _load_model(
 
             from ..loader import load_hf_config
 
-            hf_config = load_hf_config(AutoConfig, config.model_id)
+            hf_config = load_hf_config(
+                AutoConfig,
+                config.model_id,
+                trust_remote_code=config.trust_remote_code,
+            )
             model = WinMLAutoModel.from_onnx(
                 # ``model_path`` is narrowed to ``str | dict[str, str]`` here;
                 # cast bridges dict value-type invariance (str vs str | Path).
