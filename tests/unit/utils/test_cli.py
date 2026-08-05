@@ -485,6 +485,17 @@ class TestIgnoredCacheFlagsWarning:
         assert "rebuild=true from --config" in msg
         assert "--no-use-cache" not in msg
 
+    def test_uses_custom_explanation(self) -> None:
+        msg = ignored_cache_flags_warning(
+            build_runs=False,
+            rebuild=True,
+            rebuild_was_set=True,
+            reason="GenAI bundles",
+            explanation="does not control the runtime cache",
+        )
+
+        assert msg == "--rebuild ignored for GenAI bundles (does not control the runtime cache)."
+
 
 class TestOverwriteOption:
     """Tests for the shared overwrite_option() decorator."""

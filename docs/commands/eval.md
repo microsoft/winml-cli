@@ -151,7 +151,9 @@ For a pre-built ONNX input, cache controls apply only when
 `--no-skip-build` is set. Cache controls are ignored when no model build runs,
 including two-ONNX comparisons; the CLI warns when an explicit cache control
 has no effect. GenAI's runtime `_compiled/` artifacts are a separate cache and
-are not currently governed by these model build cache controls.
+are not currently governed by these model build cache controls. Explicit build
+or cache controls on a GenAI bundle produce a warning that distinguishes the
+model-build pipeline from the runtime compilation cache.
 
 ## Common pitfalls
 
