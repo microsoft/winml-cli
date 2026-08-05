@@ -1904,7 +1904,7 @@ class GenaiSession:
                         continue
                     if canonical not in EP_SUPPORTED_DEVICES:
                         return None
-                    supported = EP_SUPPORTED_DEVICES[cast("EPName", canonical)]
+                    supported = EP_SUPPORTED_DEVICES[canonical]
                     requested = (
                         str(options.get("device_type", "")).lower()
                         if isinstance(options, dict)
