@@ -29,6 +29,7 @@ from typing import Any
 
 from ._autoconfig import load_hf_config
 from .config import WinMLLoaderConfig, resolve_loader_config
+from .native import NativeDevice, NativeHFModel, load_native_hf_model, resolve_native_device
 from .onnx_hub import resolve_hf_onnx_path
 from .resolution import (
     TaskResolution,
@@ -78,11 +79,7 @@ __all__ = [
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "load_hf_model": (".hf", "load_hf_model"),
-    "load_native_hf_model": (".native", "load_native_hf_model"),
-    "NativeDevice": (".native", "NativeDevice"),
-    "NativeHFModel": (".native", "NativeHFModel"),
     "resolve_hf_model_class": (".hf", "resolve_hf_model_class"),
-    "resolve_native_device": (".native", "resolve_native_device"),
 }
 
 

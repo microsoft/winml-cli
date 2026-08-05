@@ -45,7 +45,7 @@ def test_load_native_hf_model_preserves_checkpoint_class_and_dtype() -> None:
     hf_config = MagicMock()
 
     with patch(
-        "winml.modelkit.loader.load_hf_model",
+        "winml.modelkit.loader.hf.load_hf_model",
         return_value=(model, hf_config, "image-classification"),
     ) as load:
         result = load_native_hf_model(

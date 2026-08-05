@@ -482,6 +482,8 @@ def _model_build_bypass(cfg: WinMLEvaluationConfig) -> _ModelBuildBypass | None:
     from ..eval.evaluate import _ModelLoaderKind, _select_model_loader
 
     loader = _select_model_loader(cfg)
+    if loader is _ModelLoaderKind.NATIVE:
+        return _ModelBuildBypass("native PyTorch evaluation")
     if loader is _ModelLoaderKind.GENAI:
         return _ModelBuildBypass(
             reason="GenAI bundles",

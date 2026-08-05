@@ -7,7 +7,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+
+if TYPE_CHECKING:
+    from torch import nn
 
 
 @dataclass(frozen=True)
@@ -22,7 +26,7 @@ class NativeDevice:
 class NativeHFModel:
     """Loaded native Hugging Face model and resolved runtime metadata."""
 
-    model: Any
+    model: "nn.Module"
     config: Any
     task: str
     device: NativeDevice
@@ -55,7 +59,7 @@ def load_native_hf_model(
     trust_remote_code: bool = False,
 ) -> NativeHFModel:
     """Load a checkpoint-declared Hugging Face class without ONNX export."""
-    from . import load_hf_model
+    from .hf import load_hf_model
 
     resolved_device = resolve_native_device(device)
     model, hf_config, resolved_task = load_hf_model(

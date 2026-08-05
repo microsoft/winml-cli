@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 class _ModelLoaderKind(Enum):
+    NATIVE = auto()
     GENAI = auto()
     DIRECT_ONNX_COMPARE = auto()
     EVALUATOR_MANAGED = auto()
@@ -42,6 +43,8 @@ class _ModelLoaderKind(Enum):
 
 def _select_model_loader(config: WinMLEvaluationConfig) -> _ModelLoaderKind:
     """Select the model-loading path shared by loading and CLI diagnostics."""
+    if not config.export_model:
+        return _ModelLoaderKind.NATIVE
     if config.task == "text-generation":
         return _ModelLoaderKind.GENAI
     if config.mode == "compare" and config.reference_path is not None:
@@ -335,7 +338,8 @@ def _load_model(
     from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
     from ..utils import cli as cli_utils
 
-    if not config.export_model:
+    loader = _select_model_loader(config)
+    if loader is _ModelLoaderKind.NATIVE:
         if config.model_id is None:
             raise ValueError("model_id is required for native Hugging Face evaluation.")
         from ..loader import load_native_hf_model
@@ -349,7 +353,6 @@ def _load_model(
         config.device = loaded.device.name
         return loaded.model
 
-    loader = _select_model_loader(config)
     if loader is _ModelLoaderKind.GENAI:
         return _load_genai_causal_lm(config)
 
@@ -615,11 +618,7 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
     cls = get_evaluator_class(config)
     try:
         console.print("[bold]Loading dataset and evaluating...[/bold]")
-        # ``model`` is ``None`` for composite evaluators that load ORT
-        # sessions directly from ``config.model_path`` (currently only
-        # mask-generation).  Type-checker can't follow the per-task
-        # invariant, so suppress here at the unified call site.
-        task_evaluator = cls(config, model)  # type: ignore[arg-type]
+        task_evaluator = cls(config, model)
         metrics = task_evaluator.compute()
     except DatasetValidationError as error:
         raise ValueError(

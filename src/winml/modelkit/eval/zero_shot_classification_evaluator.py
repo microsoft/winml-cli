@@ -84,13 +84,16 @@ class WinMLZeroShotClassificationEvaluator(WinMLEvaluator):
         pipeline_kwargs: dict[str, Any] = {}
         if self.config.trust_remote_code:
             pipeline_kwargs["trust_remote_code"] = True
-        pipe = pipeline(  # type: ignore[call-overload]
-            "zero-shot-classification",
-            model=self.model,
-            tokenizer=self.config.model_id,
-            device=self.config.pipeline_device,
-            pipeline_class=_FixedShapeZeroShotPipeline,
-            **pipeline_kwargs,
+        pipe = cast(
+            "_FixedShapeZeroShotPipeline",
+            pipeline(
+                "zero-shot-classification",
+                model=self.model,
+                tokenizer=self.config.model_id,
+                device=self.config.pipeline_device,
+                pipeline_class=_FixedShapeZeroShotPipeline,
+                **pipeline_kwargs,
+            ),
         )
         pipe._winml_evaluator = self
 

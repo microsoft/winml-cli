@@ -282,6 +282,17 @@ class TestNoExportCli:
 
 
 class TestNativeEvaluation:
+    def test_native_backend_uses_native_loader_kind(self) -> None:
+        from winml.modelkit.eval.evaluate import _ModelLoaderKind, _select_model_loader
+
+        config = WinMLEvaluationConfig(
+            model_id="fake/model",
+            task="image-classification",
+            export_model=False,
+        )
+
+        assert _select_model_loader(config) is _ModelLoaderKind.NATIVE
+
     def test_public_evaluate_rejects_onnx_state(self) -> None:
         from winml.modelkit.eval import evaluate
 
@@ -376,6 +387,7 @@ class TestNativeEvaluation:
             evaluator.model,
             "fake/model",
             device="cuda",
+            trust_remote_code=False,
         )
 
     def test_config_roundtrip_identifies_pytorch_backend(self) -> None:

@@ -148,16 +148,14 @@ class WinMLEvaluator:
         from ..inference.pipeline import create_pipeline
 
         assert self.config.task is not None, "config.task is required to build pipeline"
-        pipeline_kwargs = {"device": self.config.pipeline_device}
-        if self.config.trust_remote_code:
-            pipeline_kwargs["trust_remote_code"] = True
         return cast(
             "Pipeline",
             create_pipeline(
                 self.config.task,
                 self.model,
                 self.config.model_id,
-                **pipeline_kwargs,
+                device=self.config.pipeline_device,
+                trust_remote_code=self.config.trust_remote_code,
             ),
         )
 
