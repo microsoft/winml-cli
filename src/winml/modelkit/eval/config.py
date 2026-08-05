@@ -20,7 +20,7 @@ class DatasetConfig:
     """Dataset configuration, aligned with HF load_dataset() API.
 
     Attributes:
-        path: HF dataset path (e.g., "imagenet-1k", "glue").
+        path: HF dataset path (e.g., "imagenet-1k", "nyu-mll/glue").
         name: Config name for multi-config datasets (e.g., "mrpc").
         split: Dataset split.
         samples: Number of samples to evaluate.
@@ -107,6 +107,16 @@ class WinMLEvaluationConfig:
         model_path: Path to .onnx model file, or a ``{role: path}`` dict for
             composite models (e.g. ``{"image-encoder": "...", "text-encoder": "..."}``).
             None = build from model_id.
+        input_data: Path to a ``.npz`` archive of real input tensors for
+            ``--mode compare``. When set, the candidate and reference are compared
+            on these tensors (validated against the candidate's inputs) instead of
+            randomly generated ones. The leading axis of each array is the sample
+            axis, so one archive can hold ``N`` samples; all inputs must share the
+            same leading length.
+        reference_path: Path to a second ``.onnx`` file used as the reference in
+            ``--mode compare``. When set, both ``model_path`` and ``reference_path``
+            run as raw ORT sessions and their output tensors are compared directly,
+            so no ``model_id`` / ``task`` / HF reference is needed.
         task: HF pipeline task. Auto-detected from model_id if omitted.
         device: Target device for inference.
         ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides
@@ -126,7 +136,8 @@ class WinMLEvaluationConfig:
               labeled dataset.
             - ``"compare"``: compare ONNX vs HF reference output tensors
               on identical random inputs and report tensor-similarity
-              metrics per output tensor.
+              metrics per output tensor. When ``reference_path`` is set,
+              the reference is a second ONNX file instead of the HF model.
 
     Usage:
         config = WinMLEvaluationConfig(
@@ -137,6 +148,8 @@ class WinMLEvaluationConfig:
 
     model_id: str | None = None
     model_path: str | dict[str, str] | None = None
+    input_data: str | None = None
+    reference_path: str | None = field(default=None, metadata={"cli_name": "reference"})
     task: str | None = None
     device: str = "auto"
     precision: str = "auto"
@@ -159,6 +172,8 @@ class WinMLEvaluationConfig:
     output_path: Path | None = field(default=None, metadata={"cli_name": "output"})
     mode: EvalMode = "onnx"
     skip_build: bool = True
+    use_cache: bool = True
+    rebuild: bool = False
     _auto_device_selected: bool = field(default=False, repr=False, compare=False, kw_only=True)
 
     def to_dict(self) -> dict:
@@ -168,6 +183,10 @@ class WinMLEvaluationConfig:
             result["model_id"] = self.model_id
         if self.model_path is not None:
             result["model_path"] = self.model_path
+        if self.input_data is not None:
+            result["input_data"] = self.input_data
+        if self.reference_path is not None:
+            result["reference_path"] = self.reference_path
         if self.task is not None:
             result["task"] = self.task
         result["device"] = self.device
@@ -197,6 +216,8 @@ class WinMLEvaluationConfig:
         if self.mode != "onnx":
             result["mode"] = self.mode
         result["skip_build"] = self.skip_build
+        result["use_cache"] = self.use_cache
+        result["rebuild"] = self.rebuild
         return result
 
     @classmethod
@@ -219,6 +240,8 @@ class WinMLEvaluationConfig:
         return cls(
             model_id=data.get("model_id"),
             model_path=data.get("model_path"),
+            input_data=data.get("input_data"),
+            reference_path=data.get("reference_path"),
             task=data.get("task"),
             device=data.get("device", "auto"),
             precision=data.get("precision", "auto"),
@@ -234,4 +257,6 @@ class WinMLEvaluationConfig:
             output_path=(Path(data["output_path"]) if data.get("output_path") else None),
             mode=data.get("mode", "onnx"),
             skip_build=data.get("skip_build", True),
+            use_cache=data.get("use_cache", True),
+            rebuild=data.get("rebuild", False),
         )

@@ -6,7 +6,7 @@ This folder hosts the source for the [winml-cli](https://github.com/microsoft/wi
 
 | Task | Command |
 |---|---|
-| Install dev deps | `uv sync --extra dev` |
+| Install dev deps | `uv sync --locked` |
 | Live preview | `uv run mkdocs serve` |
 | Build for CI | `uv run mkdocs build --strict` |
 | Publish (one-shot from laptop) | `uv run mkdocs gh-deploy --force` |
@@ -48,7 +48,7 @@ Python 3.10+ and [uv](https://github.com/astral-sh/uv).
 
 ```bash
 # from the repo root
-uv sync --extra dev
+uv sync --locked
 uv run mkdocs serve
 ```
 

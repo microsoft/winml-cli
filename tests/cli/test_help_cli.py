@@ -34,11 +34,23 @@ These tests run under the default CI filter (no special marker required).
 
 from __future__ import annotations
 
+import textwrap
+from typing import TYPE_CHECKING
+
 import pytest
 from click.testing import CliRunner, Result
 
 from winml.modelkit import __version__
-from winml.modelkit.cli import _COMMANDS_DIR, _DISABLED_COMMANDS, main
+from winml.modelkit.cli import (
+    _COMMANDS_DIR,
+    _DISABLED_COMMANDS,
+    _parse_click_help,
+    main,
+)
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +202,114 @@ class TestCommandList:
                 f"Command '{cmd}' row not found in Commands section — "
                 "docstring missing or AST extraction failed"
             )
+
+
+# ===========================================================================
+# Short-help extraction (_parse_click_help)
+# ===========================================================================
+
+
+class TestParseClickHelp:
+    """``_parse_click_help`` must read the Click command function's short help,
+    not the docstring of some other decorated helper in the same module.
+    """
+
+    def test_sys_reports_command_docstring(self) -> None:
+        """``sys`` short help is the ``sysinfo`` command docstring first line."""
+        parsed = _parse_click_help(_COMMANDS_DIR / "sys.py")
+        assert parsed == "Display system information for WinML CLI export."
+
+    def test_sys_does_not_leak_internal_helper_docstring(self) -> None:
+        """Regression: the internal ``@contextlib.contextmanager`` helper in
+        ``sys.py`` must never surface as the command's short help.
+        """
+        parsed = _parse_click_help(_COMMANDS_DIR / "sys.py").lower()
+        assert "dll_path" not in parsed
+        assert "subprocess" not in parsed
+
+    def test_ignores_non_click_decorated_helpers(self, tmp_path: Path) -> None:
+        """A decorated helper preceding the Click command must be skipped."""
+        module = tmp_path / "fake_cmd.py"
+        module.write_text(
+            textwrap.dedent(
+                '''
+                import contextlib
+                import click
+
+                @contextlib.contextmanager
+                def _helper():
+                    """Internal helper docstring that must not be used."""
+                    yield
+
+                @click.command()
+                def fake():
+                    """Real command short help."""
+                '''
+            ),
+            encoding="utf-8",
+        )
+        assert _parse_click_help(module) == "Real command short help."
+
+    def test_prefers_explicit_short_help(self, tmp_path: Path) -> None:
+        """An explicit ``short_help=`` decorator argument wins over the docstring."""
+        module = tmp_path / "fake_cmd.py"
+        module.write_text(
+            textwrap.dedent(
+                '''
+                import click
+
+                @click.command("fake", short_help="Concise summary.")
+                def fake():
+                    """A much longer docstring line that should be ignored."""
+                '''
+            ),
+            encoding="utf-8",
+        )
+        assert _parse_click_help(module) == "Concise summary."
+
+    def test_ignores_non_click_command_decorator(self, tmp_path: Path) -> None:
+        """A ``command``/``group`` attribute owned by a non-Click module (e.g.
+        ``@typer.command``) must not be treated as a Click command.
+        """
+        module = tmp_path / "fake_cmd.py"
+        module.write_text(
+            textwrap.dedent(
+                '''
+                import typer
+
+                @typer.command()
+                def not_click():
+                    """Typer docstring that must not leak as short help."""
+                '''
+            ),
+            encoding="utf-8",
+        )
+        assert _parse_click_help(module) == ""
+
+    def test_command_without_docstring_or_short_help_returns_empty(self, tmp_path: Path) -> None:
+        """A Click command with neither a docstring nor ``short_help=`` yields
+        an empty string (and does not fall through to a later helper).
+        """
+        module = tmp_path / "fake_cmd.py"
+        module.write_text(
+            textwrap.dedent(
+                '''
+                import contextlib
+                import click
+
+                @click.command()
+                def fake():
+                    pass
+
+                @contextlib.contextmanager
+                def _helper():
+                    """Helper docstring that must not be used as fallback."""
+                    yield
+                '''
+            ),
+            encoding="utf-8",
+        )
+        assert _parse_click_help(module) == ""
 
 
 # ===========================================================================

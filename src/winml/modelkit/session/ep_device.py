@@ -38,6 +38,7 @@ from typing import Any, Final, NamedTuple, cast
 
 import onnxruntime as ort
 
+from ..ep_path import VALID_SOURCE_TAGS
 from ..utils.constants import (
     DEVICE_PRIORITY,
     EP_ALIASES,
@@ -243,23 +244,13 @@ def ep_short_or_none(ep_full: str) -> str | None:
 # These three closed sets are the canonical authority used by
 # EPDeviceTarget.__post_init__ for construction-time validation.
 # - VALID_DEVICES: the 3 device categories ORT enumerates.
-# - VALID_SOURCE_TAGS: the canonical EPSource origin tags. See
-#   docs/design/session/3_design_classes.md §4.
+# - VALID_SOURCE_TAGS: the canonical EPSource origin tags, imported from
+#   ep_path.py so lightweight CLI parsers can validate source-qualified EPs
+#   without importing this ORT-bound module.
 # - known_ep_short_names(): derived from EP_ALIASES (no hardcoded list,
 #   per CLAUDE.md cardinal rule #1).
 
 VALID_DEVICES: Final[frozenset[str]] = frozenset(DEVICE_PRIORITY)
-
-VALID_SOURCE_TAGS: Final[frozenset[str]] = frozenset(
-    {
-        "bundled",
-        "pypi",
-        "nuget",
-        "msix",
-        "winml-catalog",
-        "directory",
-    }
-)
 
 
 def known_ep_short_names() -> frozenset[str]:

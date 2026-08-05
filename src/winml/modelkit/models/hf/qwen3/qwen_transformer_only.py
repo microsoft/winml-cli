@@ -333,6 +333,7 @@ QWEN_TRANSFORMER_ONLY_CONFIG = WinMLBuildConfig(
     # Pure graph (no post-export RMSNorm fusion / matmul-add fusion): the default
     # WinMLOptimizationConfig() leaves every fusion flag off.
     optim=WinMLOptimizationConfig(),
+    skip_optimize=True,
 )
 
 

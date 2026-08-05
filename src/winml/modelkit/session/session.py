@@ -19,6 +19,15 @@ import onnxruntime as ort
 
 from ..core.onnx_utils import get_io_config
 from ..onnx import is_compiled_onnx
+from ..utils.native_stderr import (
+    get_win32_fd_handle,
+    get_win32_std_handle,
+    native_fd_redirect_lock,
+    refresh_click_windows_console_stream,
+    restore_redirected_fd,
+    set_win32_std_handle,
+    set_win32_std_handle_to_current_fd,
+)
 from .ep_device import (
     WinMLEPMonitorMismatch,
     expand_ep_name,
@@ -49,18 +58,56 @@ def _suppress_native_output(log_path: str | Path | None = None) -> Iterator[None
     logging can't intercept. Only stdout — stderr is left alone so Rich
     displays and Python logging still work.
     """
-    if log_path is not None:
-        fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
-    else:
-        fd = os.open(os.devnull, os.O_WRONLY)
-    old_stdout = os.dup(1)
-    os.dup2(fd, 1)
-    os.close(fd)
-    try:
-        yield
-    finally:
-        os.dup2(old_stdout, 1)
-        os.close(old_stdout)
+    with native_fd_redirect_lock():
+        fd: int | None = None
+        old_stdout: int | None = None
+        old_win32_stdout = get_win32_std_handle(1)
+        old_fd_stdout = get_win32_fd_handle(1)
+        try:
+            if log_path is not None:
+                fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+            else:
+                fd = os.open(os.devnull, os.O_WRONLY)
+            old_stdout = os.dup(1)
+            os.dup2(fd, 1)
+        except OSError:
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    logger.debug("Could not close native stdout suppression fd", exc_info=True)
+            if old_stdout is not None:
+                try:
+                    os.close(old_stdout)
+                except OSError:
+                    logger.debug("Could not close saved native stdout fd", exc_info=True)
+            logger.debug(
+                "Native stdout suppression setup failed; leaving stdout unchanged",
+                exc_info=True,
+            )
+            yield
+            return
+
+        assert old_stdout is not None
+        try:
+            os.close(fd)
+        except OSError:
+            logger.debug("Could not close native stdout suppression fd", exc_info=True)
+        set_win32_std_handle_to_current_fd(1)
+        try:
+            yield
+        finally:
+            restore_redirected_fd(1, old_stdout)
+            if old_win32_stdout is not None and old_win32_stdout != old_fd_stdout:
+                set_win32_std_handle(1, old_win32_stdout)
+                refresh_click_windows_console_stream(1, old_win32_stdout)
+            else:
+                set_win32_std_handle_to_current_fd(1)
+                refresh_click_windows_console_stream(1)
+            try:
+                os.close(old_stdout)
+            except OSError:
+                logger.debug("Could not close saved native stdout fd", exc_info=True)
 
 
 class SessionState(Enum):
@@ -205,6 +252,13 @@ def _build_session_options(
         if provider_options is not None
         else _build_provider_options(ep_device, ep_config, ep_monitor)
     )
+    logger.info(
+        "Building session options for ep=%s device=%s with provider_option_keys=%s",
+        ep_device.ep.arg0,
+        ep_device.device.device_type,
+        sorted(options),
+    )
+    logger.debug("Session provider options: %s", options)
     so.add_provider_for_devices([handle], options)
     return so
 
@@ -353,7 +407,8 @@ class WinMLSession:
                 session_option_entries=self._active_session_option_entries,
                 provider_options=self._provider_options,
             )
-            self._session = ort.InferenceSession(self._onnx_path, sess_options=so)
+            with _suppress_native_output():
+                self._session = ort.InferenceSession(self._onnx_path, sess_options=so)
             self._running_model_path = self._onnx_path
             _dev = self._ep_device.device
             logger.info(
@@ -387,17 +442,18 @@ class WinMLSession:
 
         if not self._persist_jit:
             try:
-                session = ort.InferenceSession(
-                    str(self._onnx_path),
-                    sess_options=_build_session_options(
-                        self._ep_device,
-                        self._ep_config,
-                        None,
-                        self._session_options_factory,
-                        session_option_entries=self._active_session_option_entries,
-                        provider_options=self._provider_options,
-                    ),
-                )
+                with _suppress_native_output():
+                    session = ort.InferenceSession(
+                        str(self._onnx_path),
+                        sess_options=_build_session_options(
+                            self._ep_device,
+                            self._ep_config,
+                            None,
+                            self._session_options_factory,
+                            session_option_entries=self._active_session_option_entries,
+                            provider_options=self._provider_options,
+                        ),
+                    )
             except Exception as e:
                 self._state = SessionState.ERROR
                 self._last_error = e
@@ -750,7 +806,7 @@ class WinMLSession:
         -----------------------
         * If *monitor* contributes provider/session options that differ from
           the active session, the compiled session is torn down first
-          (auto-reset with a WARNING) so the new options take effect.
+          (auto-reset with an INFO diagnostic) so the new options take effect.
         * After the ``with`` block exits, any rebuilt session is restored from
           the saved baseline provider/session-option snapshots.
 
@@ -834,9 +890,7 @@ class WinMLSession:
             or self._session is None
         )
         if had_baseline_session and _session_rebuilt:
-            logger.warning(
-                "auto-resetting compiled session to apply monitor session/provider options"
-            )
+            logger.info("auto-resetting compiled session to apply monitor session/provider options")
             self.reset()
 
         stats = PerfStats(warmup=warmup)
@@ -859,17 +913,18 @@ class WinMLSession:
                 return None
 
             try:
-                self._session = ort.InferenceSession(
-                    active_model_path,
-                    sess_options=_build_session_options(
-                        self._ep_device,
-                        self._ep_config,
-                        None,
-                        self._session_options_factory,
-                        session_option_entries=saved_sess_entries,
-                        provider_options=saved_prov,
-                    ),
-                )
+                with _suppress_native_output():
+                    self._session = ort.InferenceSession(
+                        active_model_path,
+                        sess_options=_build_session_options(
+                            self._ep_device,
+                            self._ep_config,
+                            None,
+                            self._session_options_factory,
+                            session_option_entries=saved_sess_entries,
+                            provider_options=saved_prov,
+                        ),
+                    )
             except Exception as error:
                 self._session = None
                 self._state = SessionState.ERROR
@@ -893,7 +948,8 @@ class WinMLSession:
                     session_option_entries=desired_sess_entries,
                     provider_options=new_prov,
                 )
-                self._session = ort.InferenceSession(active_model_path, sess_options=so)
+                with _suppress_native_output():
+                    self._session = ort.InferenceSession(active_model_path, sess_options=so)
                 self._provider_options = new_prov
                 self._active_session_option_entries = desired_sess_entries
                 self._running_model_path = active_model_path
@@ -1247,10 +1303,11 @@ class WinMLSession:
                 self._session_options_factory,
             )
             sess_options.log_severity_level = 4  # Suppress ORT logs during probe
-            ort.InferenceSession(
-                test_model.SerializeToString(),
-                sess_options=sess_options,
-            )
+            with _suppress_native_output():
+                ort.InferenceSession(
+                    test_model.SerializeToString(),
+                    sess_options=sess_options,
+                )
             return True
         except Exception:
             return False

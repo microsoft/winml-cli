@@ -39,7 +39,9 @@ $ winml eval [options]
 | `--label-mapping` | | `PATH` | — | Path to a JSON file mapping dataset label names to the integer class IDs the model emits: `{"label_name": id}`. |
 | `--output` | `-o` | `PATH` | — | Output JSON file path for the evaluation results. |
 | `--schema` | | flag | `false` | Print the expected dataset schema for the given `--task` and exit. Does not run evaluation. |
-| `--mode` | | `onnx\|compare` | `onnx` | Evaluation mode. `onnx` evaluates the ONNX candidate on a dataset. `compare` runs the ONNX candidate and the HuggingFace reference on identical random inputs and reports per-tensor similarity metrics — no dataset required. |
+| `--mode` | | `onnx\|compare` | `onnx` | Evaluation mode. `onnx` evaluates the ONNX candidate on a dataset. `compare` runs the ONNX candidate and a reference on identical random inputs and reports per-tensor similarity metrics — no dataset required. The reference is the HuggingFace model from `--model-id` by default, or a second ONNX file when `--reference` is given. |
+| `--input-data` | | `PATH` | — | Path to a `.npz` file of real input tensors to compare with instead of randomly generated ones (used with `--mode compare`). Keys must match the candidate model's input names. The **leading axis of each array is the sample axis**, so an archive shaped `(N, ...)` yields `N` samples (mean/std/min/max are computed across them); all inputs must share the same `N`. Each run is shaped to the candidate's batch size — a dynamic batch runs one row per sample, a static batch `B` chunks the axis into `N // B` batches (trailing rows are dropped with a warning). Note this differs from `winml perf --input-data`, which runs the **whole archive as a single batch**. |
+| `--reference` | | `TEXT` | — | Reference `.onnx` file to compare the candidate against (used with `--mode compare`). Compares two ONNX models on identical random inputs; `--model-id` and `--task` are not required in this mode. Both models run on the same `--device` / `--ep`. |
 
 ## How it works
 
@@ -73,6 +75,18 @@ Evaluate a BERT model on the MRPC paraphrase task with column remapping:
 
 ```bash
 $ winml eval -m Intel/bert-base-uncased-mrpc --dataset nyu-mll/glue --dataset-name mrpc --column input_column=sentence1 --column second_input_column=sentence2 --samples 500
+```
+
+Compare an ONNX candidate against its HuggingFace reference on real input tensors instead of random ones by passing a `.npz` archive whose keys match the candidate's input names. The leading axis of each array is the sample axis, so an archive shaped `(N, ...)` runs `N` samples:
+
+```bash
+$ winml eval --mode compare -m model.onnx --model-id microsoft/resnet-50 --input-data inputs.npz
+```
+
+Compare two ONNX files directly (e.g. an fp32 baseline vs a quantized build), reporting per-output tensor-similarity metrics on identical random inputs — no `--model-id` or dataset needed:
+
+```bash
+$ winml eval --mode compare -m quantized.onnx --reference baseline.onnx
 ```
 
 Check what dataset columns are expected before running, then remap them to match your dataset:
@@ -126,6 +140,20 @@ Evaluate a composite model from pre-exported ONNX files. Some tasks (e.g., `imag
 ```bash
 $ winml eval -m encoder=encoder.onnx -m decoder=decoder.onnx --model-id microsoft/trocr-base-printed
 ```
+
+## Model build cache
+
+Evaluation reuses persistent model build artifacts by default. Pass
+`--no-use-cache` for a fresh build in a temporary directory, or `--rebuild` for
+a fresh build that replaces the persistent cache entry.
+
+For a pre-built ONNX input, cache controls apply only when
+`--no-skip-build` is set. Cache controls are ignored when no model build runs,
+including two-ONNX comparisons; the CLI warns when an explicit cache control
+has no effect. GenAI's runtime `_compiled/` artifacts are a separate cache and
+are not currently governed by these model build cache controls. Explicit build
+or cache controls on a GenAI bundle produce a warning that distinguishes the
+model-build pipeline from the runtime compilation cache.
 
 ## Common pitfalls
 

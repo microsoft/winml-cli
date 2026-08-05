@@ -36,6 +36,10 @@ TEST_DOMAIN_VERSIONS: dict[ONNXDomain, int] = {ONNXDomain.AI_ONNX: 17}
 PATTERNS_REQUIRING_NEWER_OPSET: dict[str, dict[ONNXDomain, int]] = {
     "TransposeAttentionPattern": {ONNXDomain.AI_ONNX: 23},
     "TransposedSingleRMSNormalizationPattern": {ONNXDomain.AI_ONNX: 23},
+    "SingleGeluPattern": {
+        ONNXDomain.AI_ONNX: 17,
+        ONNXDomain.COM_MICROSOFT: 1,
+    },
 }
 
 # Patterns to skip for validation/self-matching (runtime limitations)
@@ -148,6 +152,12 @@ def add_first_op_output_to_graph_output(
             output_type = vi.type
             break
 
+    if output_type is None:
+        for output in model.graph.output:
+            if output.name == first_output_name:
+                output_type = output.type
+                break
+
     assert output_type is not None, "Expected to find type info for first op output"
 
     new_output = helper.make_tensor_value_info(
@@ -155,8 +165,8 @@ def add_first_op_output_to_graph_output(
         output_type.tensor_type.elem_type,
         None,
     )
-
     new_outputs = [*list(model.graph.output), new_output]
+
     new_graph = helper.make_graph(
         nodes=list(model.graph.node),
         name=model.graph.name,
