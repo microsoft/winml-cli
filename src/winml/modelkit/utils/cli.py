@@ -1051,6 +1051,7 @@ def ignored_build_flags_warning(
     max_optim_iterations: int | None = None,
     reason: str | None = None,
     rebuild_hint: str | None = None,
+    explanation: str | None = None,
 ) -> str | None:
     """Build a warning for build-pipeline flags when no model build runs.
 
@@ -1064,6 +1065,7 @@ def ignored_build_flags_warning(
         max_optim_iterations: Explicit value, or ``None`` when left at default.
         reason: Description of the path that bypasses the build.
         rebuild_hint: Optional flag that enables a build for this path.
+        explanation: Optional explanation of why the controls have no effect.
 
     Returns:
         Warning message, or ``None`` if no ignored flags apply.
@@ -1083,7 +1085,8 @@ def ignored_build_flags_warning(
     if not ignored:
         return None
     hint = f"; pass {rebuild_hint} to rebuild" if rebuild_hint else ""
-    return f"{', '.join(ignored)} ignored for {reason or 'this input'} (no build runs{hint})."
+    detail = explanation or "no build runs"
+    return f"{', '.join(ignored)} ignored for {reason or 'this input'} ({detail}{hint})."
 
 
 def ignored_cache_flags_warning(
@@ -1096,6 +1099,7 @@ def ignored_cache_flags_warning(
     use_cache_source: str | None = None,
     rebuild_source: str | None = None,
     reason: str | None = None,
+    explanation: str | None = None,
 ) -> str | None:
     """Build a warning for explicit cache controls when no model build runs."""
     if build_runs:
@@ -1111,7 +1115,8 @@ def ignored_cache_flags_warning(
         ignored.append(f"rebuild={str(rebuild).lower()} from {rebuild_source}")
     if not ignored:
         return None
-    return f"{', '.join(ignored)} ignored for {reason or 'this input'} (no build runs)."
+    detail = explanation or "no build runs"
+    return f"{', '.join(ignored)} ignored for {reason or 'this input'} ({detail})."
 
 
 def allow_unsupported_nodes_option(optional_message: str | None = None) -> Callable[[F], F]:

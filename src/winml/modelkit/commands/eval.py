@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -429,17 +430,32 @@ def _build_eval_config(
     return cfg, config_fields
 
 
-def _model_build_skip_reason(cfg: WinMLEvaluationConfig) -> str | None:
-    """Describe why eval will not build model artifacts, if applicable."""
+@dataclass(frozen=True)
+class _ModelBuildBypass:
+    reason: str
+    build_explanation: str = "no build runs"
+    cache_explanation: str = "no build runs"
+
+
+def _model_build_bypass(cfg: WinMLEvaluationConfig) -> _ModelBuildBypass | None:
+    """Describe a selected loader that bypasses the model-build pipeline."""
     from ..eval.evaluate import _ModelLoaderKind, _select_model_loader
 
     loader = _select_model_loader(cfg)
+    if loader is _ModelLoaderKind.GENAI:
+        return _ModelBuildBypass(
+            reason="GenAI bundles",
+            build_explanation="no model build pipeline runs",
+            cache_explanation=(
+                "model build cache controls do not govern the GenAI runtime _compiled/ cache"
+            ),
+        )
     if loader is _ModelLoaderKind.DIRECT_ONNX_COMPARE:
-        return "two-ONNX comparisons"
+        return _ModelBuildBypass("two-ONNX comparisons")
     if loader is _ModelLoaderKind.EVALUATOR_MANAGED:
-        return "evaluator-managed composite inputs"
+        return _ModelBuildBypass("evaluator-managed composite inputs")
     if loader is _ModelLoaderKind.ONNX and cfg.skip_build:
-        return "pre-built ONNX inputs"
+        return _ModelBuildBypass("pre-built ONNX inputs")
     return None
 
 
@@ -450,29 +466,33 @@ def _warn_ignored_model_build_controls(
 ) -> None:
     """Warn when explicit model-build controls cannot affect the selected loader."""
     _resolve_model_loader_task(cfg)
-    build_skip_reason = _model_build_skip_reason(cfg)
+    bypass = _model_build_bypass(cfg)
+    build_runs = bypass is None
+    reason = bypass.reason if bypass is not None else None
 
     build_flags_warning = cli_utils.ignored_build_flags_warning(
-        build_runs=build_skip_reason is None,
+        build_runs=build_runs,
         quant=cfg.quant,
         optimize=cfg.optimize,
         analyze=cfg.analyze,
         max_optim_iterations=cfg.max_optim_iterations,
-        reason=build_skip_reason,
-        rebuild_hint=("--no-skip-build" if build_skip_reason == "pre-built ONNX inputs" else None),
+        reason=reason,
+        rebuild_hint=("--no-skip-build" if reason == "pre-built ONNX inputs" else None),
+        explanation=bypass.build_explanation if bypass is not None else None,
     )
     if build_flags_warning:
         logger.warning(build_flags_warning)
 
     cache_flags_warning = cli_utils.ignored_cache_flags_warning(
-        build_runs=build_skip_reason is None,
+        build_runs=build_runs,
         use_cache=cfg.use_cache,
         rebuild=cfg.rebuild,
         use_cache_was_set=cli_utils.is_cli_provided(ctx, "use_cache"),
         rebuild_was_set=cli_utils.is_cli_provided(ctx, "rebuild"),
         use_cache_source=("--config" if "use_cache" in config_fields else None),
         rebuild_source=("--config" if "rebuild" in config_fields else None),
-        reason=build_skip_reason,
+        reason=reason,
+        explanation=bypass.cache_explanation if bypass is not None else None,
     )
     if cache_flags_warning:
         logger.warning(cache_flags_warning)

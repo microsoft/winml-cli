@@ -1395,7 +1395,12 @@ class TestIgnoredCacheFlags:
             for record in caplog.records
         )
 
-    def test_genai_bundle_does_not_claim_no_build_runs(self, runner: CliRunner, tmp_path, caplog):
+    def test_genai_bundle_warns_with_runtime_cache_wording(
+        self,
+        runner: CliRunner,
+        tmp_path,
+        caplog,
+    ):
         import logging as _logging
 
         bundle = tmp_path / "genai-model"
@@ -1412,13 +1417,26 @@ class TestIgnoredCacheFlags:
                     "text-generation",
                     "--no-skip-build",
                     "--no-use-cache",
+                    "--rebuild",
+                    "--no-quant",
+                    "--no-optimize",
                 ],
             )
 
         assert result.exit_code == 0, result.output
-        assert not any("--no-use-cache ignored" in record.getMessage() for record in caplog.records)
+        messages = [record.getMessage() for record in caplog.records]
+        assert any(
+            "--no-use-cache, --rebuild ignored for GenAI bundles" in message
+            and "do not govern the GenAI runtime _compiled/ cache" in message
+            for message in messages
+        )
+        assert any(
+            "--no-quant, --no-optimize ignored for GenAI bundles" in message
+            and "no model build pipeline runs" in message
+            for message in messages
+        )
 
-    def test_inferred_genai_task_does_not_claim_no_build_runs(
+    def test_inferred_genai_task_warns_with_runtime_cache_wording(
         self,
         runner: CliRunner,
         tmp_path,
@@ -1448,7 +1466,11 @@ class TestIgnoredCacheFlags:
             )
 
         assert result.exit_code == 0, result.output
-        assert not any("--no-use-cache ignored" in record.getMessage() for record in caplog.records)
+        assert any(
+            "--no-use-cache ignored for GenAI bundles" in record.getMessage()
+            and "do not govern the GenAI runtime _compiled/ cache" in record.getMessage()
+            for record in caplog.records
+        )
 
     def test_evaluator_managed_composite_warns_even_with_build_enabled(
         self,
