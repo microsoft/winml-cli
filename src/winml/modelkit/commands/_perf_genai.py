@@ -424,9 +424,6 @@ class GenaiPerfBenchmark:
 
     def _monitor_device(self) -> str:
         """Return the concrete device whose adapter counters should be sampled."""
-        device = (self._config.device or "").lower()
-        if device in ("cpu", "gpu", "npu"):
-            return device
         effective = getattr(self._session, "effective_device", None)
         return effective if effective in ("cpu", "gpu", "npu") else "cpu"
 

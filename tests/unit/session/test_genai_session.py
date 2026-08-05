@@ -1012,6 +1012,63 @@ class TestEffectiveDevice:
 
         assert GenaiSession._device_from_config(cfg) == "gpu"
 
+    def test_provider_hint_resolves_qnn_htp_to_npu(self) -> None:
+        cfg = {
+            "model": {
+                "decoder": {
+                    "pipeline": [
+                        {
+                            "decoder": {
+                                "session_options": {
+                                    "provider_options": [
+                                        {"qnn": {"backend_path": r"C:\QNN\QnnHtp.dll"}}
+                                    ]
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+
+        assert GenaiSession._device_from_config(cfg) == "npu"
+
+    def test_effective_config_precedes_explicit_fallback(self, bundle_dir: Path) -> None:
+        session = GenaiSession(bundle_dir, ep="openvino", device="npu")
+        session._override_effective = True
+        cfg = {
+            "model": {
+                "decoder": {
+                    "session_options": {
+                        "provider_options": [{"openvino": {"device_type": "GPU"}}]
+                    }
+                }
+            }
+        }
+
+        assert session._resolve_effective_device(cfg) == "gpu"
+
+    def test_config_routing_wins_over_contradictory_requested_device(
+        self, bundle_dir: Path
+    ) -> None:
+        session = GenaiSession(bundle_dir, ep="dml", device="npu")
+        session._override_effective = True
+        cfg = {
+            "model": {
+                "decoder": {
+                    "pipeline": [
+                        {
+                            "decoder": {
+                                "session_options": {"provider_options": [{"dml": {}}]}
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+
+        assert session._resolve_effective_device(cfg) == "gpu"
+
 
 # ---------------------------------------------------------------------------
 # Tests: generate / generate_streaming

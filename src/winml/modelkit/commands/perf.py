@@ -2368,7 +2368,7 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
                 raise click.UsageError("--prompt and --prompt-file are mutually exclusive.")
             try:
                 prompt = prompt_file.read_text(encoding="utf-8")
-            except OSError as exc:
+            except (OSError, UnicodeError) as exc:
                 raise click.ClickException(
                     f"Could not read prompt file '{prompt_file}': {exc}"
                 ) from exc

@@ -546,6 +546,11 @@ class TestSessionDevice:
         session = _FakeSession([], effective_device=None)
         assert GenaiPerfBenchmark(cfg, session=session)._monitor_device() == "cpu"
 
+    def test_monitor_uses_session_device_when_override_is_noop(self) -> None:
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="npu", ep="qnn")
+        session = _FakeSession([], effective_ep=None, effective_device="cpu")
+        assert GenaiPerfBenchmark(cfg, session=session)._monitor_device() == "cpu"
+
 
 # ---------------------------------------------------------------------------
 # Reporting helpers
@@ -916,6 +921,30 @@ class TestCliDispatch:
 
         assert result.exit_code != 0
         assert "mutually exclusive" in result.output
+        assert "config" not in capture_run
+
+    def test_invalid_utf8_prompt_file_is_a_click_error(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        bundle = _make_bundle(tmp_path)
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_bytes(b"\xff\xfe")
+
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(bundle),
+                "--runtime",
+                "winml-genai",
+                "--prompt-file",
+                str(prompt_file),
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "Could not read prompt file" in result.output
+        assert "Traceback" not in result.output
         assert "config" not in capture_run
 
     def test_default_prompt_used_when_omitted(

@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import time
 from pathlib import Path
 
 import jsonschema
@@ -40,6 +41,7 @@ def _perf_report(
     *,
     device: str = "npu",
     ep: str = "qnn",
+    generated_tokens: int = 128,
 ) -> dict:
     return {
         "benchmark_info": {
@@ -53,7 +55,7 @@ def _perf_report(
             "max_new_tokens": 128,
             "apply_template": False,
             "prompt_tokens": prompt_tokens,
-            "generated_tokens": 128,
+            "generated_tokens": generated_tokens,
         },
         "ttft_ms": {"mean": 1000.0},
         "prefill_ms": {"mean": 900.0},
@@ -134,6 +136,64 @@ class TestPerfResultMapping:
                 total_ram_mb=16384.0,
                 total_vram_mb=4096.0,
             )
+
+    def test_canonical_ep_aliases_match(self, runner) -> None:
+        point = runner._context_point(
+            256,
+            _perf_report(ep="nvtensorrtrtx"),
+            expected_device="npu",
+            expected_ep="nv_tensorrt_rtx@catalog",
+            expected_max_new_tokens=128,
+            expected_iterations=3,
+            expected_warmup=1,
+            total_ram_mb=16384.0,
+            total_vram_mb=4096.0,
+        )
+
+        assert point["generated_tokens"] == 128
+
+    def test_early_eos_generated_count_is_accepted(self, runner) -> None:
+        point = runner._context_point(
+            256,
+            _perf_report(generated_tokens=17),
+            expected_device="npu",
+            expected_ep="qnn",
+            expected_max_new_tokens=128,
+            expected_iterations=3,
+            expected_warmup=1,
+            total_ram_mb=16384.0,
+            total_vram_mb=4096.0,
+        )
+
+        assert point["generated_tokens"] == 17
+
+    @pytest.mark.parametrize("generated_tokens", [0, 129])
+    def test_invalid_generated_count_fails(self, runner, generated_tokens: int) -> None:
+        with pytest.raises(ValueError, match=r"Expected 1\.\.128"):
+            runner._context_point(
+                256,
+                _perf_report(generated_tokens=generated_tokens),
+                expected_device="npu",
+                expected_ep="qnn",
+                expected_max_new_tokens=128,
+                expected_iterations=3,
+                expected_warmup=1,
+                total_ram_mb=16384.0,
+                total_vram_mb=4096.0,
+            )
+
+    def test_zero_token_prompt_filler_fails_fast(self, runner, monkeypatch, tmp_path) -> None:
+        class EmptyTokenizer:
+            def encode(self, _text, *, add_special_tokens=False):
+                return []
+
+        monkeypatch.setattr(
+            "transformers.AutoTokenizer.from_pretrained",
+            lambda *_args, **_kwargs: EmptyTokenizer(),
+        )
+
+        with pytest.raises(ValueError, match="tokenize to at least one token"):
+            runner._make_prompt(tmp_path, 256, "")
 
 
 class TestResultContract:
@@ -280,3 +340,19 @@ class TestResultContract:
         assert exit_code == 1
         assert not stale_result.exists()
         assert (output_dir / runner.FAILURE_FILENAME).exists()
+
+
+class TestProcessLifecycle:
+    def test_timeout_kills_descendant_holding_output_pipe(self, runner) -> None:
+        child_code = "import threading; threading.Event().wait(60)"
+        parent_code = (
+            "import subprocess, sys; "
+            f"subprocess.Popen([sys.executable, '-c', {child_code!r}])"
+        )
+        started = time.perf_counter()
+
+        result = runner._run_process([sys.executable, "-c", parent_code], timeout=1)
+
+        assert result.timed_out is True
+        assert result.exit_code == -1
+        assert time.perf_counter() - started < 10

@@ -92,6 +92,106 @@ def _kill_process_tree(pid: int) -> None:
         psutil.wait_procs(processes, timeout=5)
 
 
+class _ProcessTreeGuard:
+    """Own a subprocess tree through a Windows Job Object or POSIX process group."""
+
+    def __init__(self, process: subprocess.Popen) -> None:
+        self._process = process
+        self._job: int | None = None
+        if platform.system() == "Windows":
+            self._job = self._create_windows_job(process)
+
+    @staticmethod
+    def _create_windows_job(process: subprocess.Popen) -> int:
+        import ctypes
+        import ctypes.wintypes as wintypes
+
+        class _IoCounters(ctypes.Structure):
+            _fields_ = [(name, ctypes.c_uint64) for name in (
+                "ReadOperationCount",
+                "WriteOperationCount",
+                "OtherOperationCount",
+                "ReadTransferCount",
+                "WriteTransferCount",
+                "OtherTransferCount",
+            )]
+
+        class _BasicLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ("PerProcessUserTimeLimit", ctypes.c_int64),
+                ("PerJobUserTimeLimit", ctypes.c_int64),
+                ("LimitFlags", wintypes.DWORD),
+                ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t),
+                ("ActiveProcessLimit", wintypes.DWORD),
+                ("Affinity", ctypes.c_size_t),
+                ("PriorityClass", wintypes.DWORD),
+                ("SchedulingClass", wintypes.DWORD),
+            ]
+
+        class _ExtendedLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ("BasicLimitInformation", _BasicLimitInformation),
+                ("IoInfo", _IoCounters),
+                ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t),
+            ]
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        job = kernel32.CreateJobObjectW(None, None)
+        if not job:
+            raise ctypes.WinError(ctypes.get_last_error())
+
+        info = _ExtendedLimitInformation()
+        info.BasicLimitInformation.LimitFlags = 0x00002000  # KILL_ON_JOB_CLOSE
+        if not kernel32.SetInformationJobObject(
+            job, 9, ctypes.byref(info), ctypes.sizeof(info)
+        ):
+            error = ctypes.get_last_error()
+            kernel32.CloseHandle(job)
+            raise ctypes.WinError(error)
+        process_handle = wintypes.HANDLE(process._handle)
+        if not kernel32.AssignProcessToJobObject(job, process_handle):
+            error = ctypes.get_last_error()
+            kernel32.CloseHandle(job)
+            raise ctypes.WinError(error)
+        return int(job)
+
+    def terminate(self) -> None:
+        if self._job is not None:
+            import ctypes
+            import ctypes.wintypes as wintypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.TerminateJobObject(wintypes.HANDLE(self._job), 1)
+            return
+        if platform.system() != "Windows":
+            import signal
+
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(self._process.pid, signal.SIGKILL)
+            return
+        _kill_process_tree(self._process.pid)
+
+    def close(self) -> None:
+        if self._job is None:
+            return
+        import ctypes
+        import ctypes.wintypes as wintypes
+
+        ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle(wintypes.HANDLE(self._job))
+        self._job = None
+
+
+def _timeout_output(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
+
+
 def _run_process(args: list[str], *, timeout: int) -> ProcessResult:
     env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
     kwargs: dict[str, Any] = {
@@ -109,24 +209,35 @@ def _run_process(args: list[str], *, timeout: int) -> ProcessResult:
 
     started = time.perf_counter()
     process = subprocess.Popen(args, **kwargs)  # noqa: S603
+    tree = _ProcessTreeGuard(process)
     timed_out = False
     try:
         stdout, stderr = process.communicate(timeout=timeout)
         exit_code = process.returncode
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as initial_timeout:
         timed_out = True
-        _kill_process_tree(process.pid)
+        tree.terminate()
         try:
             stdout, stderr = process.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            stdout, stderr = process.communicate()
+        except subprocess.TimeoutExpired as drain_timeout:
+            stdout = _timeout_output(drain_timeout.output or initial_timeout.output)
+            stderr = _timeout_output(drain_timeout.stderr or initial_timeout.stderr)
+            for pipe in (process.stdout, process.stderr):
+                if pipe is not None:
+                    with contextlib.suppress(OSError):
+                        pipe.close()
+            with contextlib.suppress(OSError):
+                process.kill()
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                process.wait(timeout=5)
         exit_code = -1
     except BaseException:
-        _kill_process_tree(process.pid)
+        tree.terminate()
         with contextlib.suppress(subprocess.TimeoutExpired):
             process.wait(timeout=5)
         raise
+    finally:
+        tree.close()
 
     return ProcessResult(
         args=args,
@@ -150,10 +261,16 @@ def _make_prompt(bundle_dir: Path, target_tokens: int, filler: str) -> str:
     from transformers import AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(str(bundle_dir), local_files_only=True)
+    if not tokenizer.encode(filler, add_special_tokens=False):
+        raise ValueError("--prompt-filler must tokenize to at least one token")
     repeats = max(16, target_tokens // 4)
     token_ids: list[int] = []
+    previous_count = -1
     while len(token_ids) < target_tokens:
         token_ids = tokenizer.encode(filler * repeats, add_special_tokens=False)
+        if len(token_ids) <= previous_count:
+            raise ValueError("--prompt-filler token count stopped growing")
+        previous_count = len(token_ids)
         repeats *= 2
     return tokenizer.decode(
         token_ids[:target_tokens],
@@ -259,10 +376,13 @@ def _context_point(
         if info.get(key) != expected:
             raise ValueError(f"Expected benchmark_info.{key}={expected!r}, got {info.get(key)!r}")
 
-    reported_ep = str(info.get("ep") or "").lower()
+    reported_ep = str(info.get("ep") or "")
     if expected_ep:
-        normalized_ep = expected_ep.lower().removesuffix("executionprovider")
-        if reported_ep not in {expected_ep.lower(), normalized_ep}:
+        from winml.modelkit.utils.constants import normalize_ep_name
+
+        expected_canonical = normalize_ep_name(expected_ep.split("@", 1)[0])
+        reported_canonical = normalize_ep_name(reported_ep)
+        if reported_canonical != expected_canonical:
             raise ValueError(f"Expected execution provider {expected_ep!r}, got {info.get('ep')!r}")
 
     prompt_tokens = int(info.get("prompt_tokens") or 0)
@@ -271,9 +391,9 @@ def _context_point(
             f"Target context was {target_tokens} tokens, but perf measured {prompt_tokens}"
         )
     generated_tokens = int(info.get("generated_tokens") or 0)
-    if generated_tokens != expected_max_new_tokens:
+    if not 0 < generated_tokens <= expected_max_new_tokens:
         raise ValueError(
-            f"Expected {expected_max_new_tokens} generated tokens, got {generated_tokens}"
+            f"Expected 1..{expected_max_new_tokens} generated tokens, got {generated_tokens}"
         )
 
     raw = report.get("raw") or {}

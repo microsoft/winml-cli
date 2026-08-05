@@ -61,7 +61,7 @@ from ..utils.constants import (
     EP_SUPPORTED_DEVICES,
     normalize_ep_name,
 )
-from .ep_device import VALID_EPS, short_ep_name
+from .ep_device import EP_DEVICE_SPECS, VALID_EPS, short_ep_name
 from .ep_registry import WinMLEPRegistry
 
 
@@ -1850,14 +1850,17 @@ class GenaiSession:
 
     def _resolve_effective_device(self, cfg: dict[str, Any]) -> str | None:
         """Resolve the single device targeted by the effective bundle config."""
+        configured_device = self._device_from_config(cfg)
+        if configured_device is not None:
+            return configured_device
         if self._ep_override is not None and self._override_effective:
             if self._ep_override == "CPUExecutionProvider":
                 return "cpu"
-            if self._device in ("npu", "gpu", "cpu"):
-                return self._device
             supported = EP_SUPPORTED_DEVICES[self._ep_override]
+            if self._device in supported:
+                return self._device
             return supported[0] if len(supported) == 1 else None
-        return self._device_from_config(cfg)
+        return None
 
     @staticmethod
     def _device_from_config(cfg: dict[str, Any]) -> str | None:
@@ -1912,6 +1915,14 @@ class GenaiSession:
                     )
                     if requested in supported:
                         devices.add(requested)
+                    elif isinstance(options, dict):
+                        hinted = GenaiSession._device_from_provider_hints(canonical, options)
+                        if hinted is not None:
+                            devices.add(hinted)
+                        elif len(supported) == 1:
+                            devices.add(supported[0])
+                        else:
+                            return None
                     elif len(supported) == 1:
                         devices.add(supported[0])
                     else:
@@ -1919,6 +1930,20 @@ class GenaiSession:
         if not devices:
             return "cpu"
         return next(iter(devices)) if len(devices) == 1 else None
+
+    @staticmethod
+    def _device_from_provider_hints(ep: EPName, options: dict[str, Any]) -> str | None:
+        """Match provider options against EP/device routing hints in the catalog."""
+        matches: set[str] = set()
+        for spec in EP_DEVICE_SPECS:
+            if spec.ep != ep or not spec.provider_option_hints:
+                continue
+            if all(
+                Path(str(options.get(key, ""))).name.casefold() == expected.casefold()
+                for key, expected in spec.provider_option_hints.items()
+            ):
+                matches.add(spec.device)
+        return next(iter(matches)) if len(matches) == 1 else None
 
     @staticmethod
     def _bundle_uses_hardware_ep(cfg: dict[str, Any]) -> str | None:
