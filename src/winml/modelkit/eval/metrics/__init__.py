@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .binary_segmentation import BinarySegmentationMetric
     from .classification import ClassificationMetric
+    from .clip_score import CLIPScoreMetric
     from .depth import DepthMetric
     from .keypoint import KeypointAPMetric
     from .knn_accuracy import KNNAccuracyMetric
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
 # that do not actually use the metric in question.
 _LAZY_ATTRS: dict[str, str] = {
     "BinarySegmentationMetric": ".binary_segmentation:BinarySegmentationMetric",
+    "CLIPScoreMetric": ".clip_score:CLIPScoreMetric",
     "ClassificationMetric": ".classification:ClassificationMetric",
     "DepthMetric": ".depth:DepthMetric",
     "KeypointAPMetric": ".keypoint:KeypointAPMetric",
@@ -61,6 +63,7 @@ def __dir__() -> list[str]:
 __all__ = [
     "IGNORE_INDEX",
     "BinarySegmentationMetric",
+    "CLIPScoreMetric",
     "ClassificationMetric",
     "DepthMetric",
     "KNNAccuracyMetric",
