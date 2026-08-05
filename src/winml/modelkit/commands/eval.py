@@ -116,6 +116,14 @@ logger = logging.getLogger(__name__)
     ),
 )
 @click.option(
+    "--export/--no-export",
+    "export_model",
+    default=True,
+    show_default=True,
+    help="Export Hugging Face models to ONNX before evaluation. Use --no-export "
+    "to evaluate the original PyTorch checkpoint.",
+)
+@click.option(
     "--samples",
     type=int,
     default=100,
@@ -166,7 +174,9 @@ logger = logging.getLogger(__name__)
     default=None,
     help="Path to a Python script that builds the evaluation dataset.",
 )
-@cli_utils.trust_remote_code_option(optional_message="Required when --dataset-script is used.")
+@cli_utils.trust_remote_code_option(
+    optional_message="Used for native Hugging Face loading and required with --dataset-script."
+)
 @cli_utils.allow_unsupported_nodes_option()
 @click.option(
     "--schema",
@@ -235,6 +245,7 @@ def eval(
     input_specs: Path | None,
     export_config: Path | None,
     dynamic_axes: Path | None,
+    export_model: bool,
     ep: EPNameOrAlias | None,
     samples: int,
     split: str,
@@ -302,6 +313,9 @@ def eval(
     # ── 1. Build config: defaults ← config file ← CLI ──
     cfg, config_fields = _build_eval_config(ctx, config_file, column, label_mapping_path)
 
+    if not cfg.export_model:
+        _validate_no_export_options(ctx, cfg)
+
     if cfg.input_data is not None and cfg.mode != "compare":
         raise click.UsageError("--input-data is only valid with --mode compare.")
 
@@ -310,6 +324,18 @@ def eval(
 
     # ── 2. Resolve in place ──
     _resolve_model(cfg, model, model_id, allow_missing_model_id=cfg.reference_path is not None)
+    if not cfg.export_model and cfg.model_path is not None:
+        raise click.UsageError(
+            "--no-export requires a Hugging Face model ID or local Hugging Face checkpoint; "
+            "ONNX files, composite role=path models, and GenAI bundles are not supported."
+        )
+    if not cfg.export_model and cfg.task is not None:
+        from ..eval.evaluate import _validate_native_config
+
+        try:
+            _validate_native_config(cfg)
+        except ValueError as error:
+            raise click.UsageError(str(error)) from error
     _resolve_reference(cfg)
     _apply_export_overrides(cfg, shape_config_path, input_specs, export_config, dynamic_axes)
     _resolve_device(cfg)
@@ -512,6 +538,46 @@ def _resolve_model_loader_task(cfg: WinMLEvaluationConfig) -> None:
     cfg.task = _infer_task(cfg)
 
 
+_NO_EXPORT_INCOMPATIBLE_OPTIONS: dict[str, str] = {
+    "mode": "--mode",
+    "input_data": "--input-data",
+    "reference": "--reference",
+    "ep": "--ep",
+    "precision": "--precision",
+    "quant": "--quant/--no-quant",
+    "optimize": "--optimize/--no-optimize",
+    "analyze": "--analyze/--no-analyze",
+    "max_optim_iterations": "--max-optim-iterations",
+    "shape_config_path": "--shape-config",
+    "input_specs": "--input-specs",
+    "export_config": "--export-config",
+    "dynamic_axes": "--dynamic-axes",
+    "allow_unsupported_nodes": "--allow-unsupported-nodes",
+    "skip_build": "--skip-build/--no-skip-build",
+    "config_file": "--config",
+}
+
+
+def _validate_no_export_options(
+    ctx: click.Context,
+    cfg: WinMLEvaluationConfig,
+) -> None:
+    """Reject options whose semantics require ONNX export or ONNX Runtime."""
+    if cfg.device.lower() not in ("auto", "cpu", "gpu"):
+        raise click.UsageError(
+            f"--device {cfg.device} is not supported with --no-export; use auto, cpu, or gpu."
+        )
+    incompatible = [
+        flag
+        for param_name, flag in _NO_EXPORT_INCOMPATIBLE_OPTIONS.items()
+        if cli_utils.is_cli_provided(ctx, param_name)
+    ]
+    if incompatible:
+        raise click.UsageError(
+            f"--no-export cannot be combined with incompatible options: {', '.join(incompatible)}."
+        )
+
+
 def _resolve_model(
     cfg: WinMLEvaluationConfig,
     model: tuple[str, ...],
@@ -620,6 +686,17 @@ def _apply_export_overrides(
 
 def _resolve_device(cfg: WinMLEvaluationConfig) -> None:
     """Resolve ``'auto'`` → concrete device string on *cfg* in place."""
+    if not cfg.export_model:
+        from ..loader import resolve_native_device
+
+        try:
+            resolved = resolve_native_device(cfg.device)
+        except ValueError as error:
+            raise click.UsageError(str(error)) from error
+        cfg._auto_device_selected = cfg.device.lower() == "auto"
+        cfg.device = resolved.name
+        return
+
     if cfg.device and cfg.device.lower() != "auto":
         return
 
@@ -888,6 +965,7 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
     # Info section
     console.print()
     console.print(f"[dim]Task:[/dim]       {cfg.task}")
+    console.print(f"[dim]Backend:[/dim]    {cfg.backend}")
     console.print(f"[dim]Device:[/dim]     {cfg.device}")
     if cfg.input_data:
         console.print(f"[dim]Input data:[/dim] {cfg.input_data}")

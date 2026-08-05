@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 class WinMLKeypointDetectionEvaluator(WinMLEvaluator):
     """Evaluator for keypoint detection using COCO OKS-based AP."""
 
+    supports_native = False
+
     def __init__(
         self,
         config: WinMLEvaluationConfig,

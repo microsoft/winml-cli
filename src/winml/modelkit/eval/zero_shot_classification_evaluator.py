@@ -81,12 +81,16 @@ class WinMLZeroShotClassificationEvaluator(WinMLEvaluator):
 
         # WinMLPreTrainedModel isn't in transformers' Pipeline model union;
         # the pipeline_class override is also outside the Literal overloads.
+        pipeline_kwargs: dict[str, Any] = {}
+        if self.config.trust_remote_code:
+            pipeline_kwargs["trust_remote_code"] = True
         pipe = pipeline(  # type: ignore[call-overload]
             "zero-shot-classification",
             model=self.model,
             tokenizer=self.config.model_id,
-            device="cpu",
+            device=self.config.pipeline_device,
             pipeline_class=_FixedShapeZeroShotPipeline,
+            **pipeline_kwargs,
         )
         pipe._winml_evaluator = self
 

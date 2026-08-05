@@ -217,6 +217,28 @@ class TestResolveTask:
         ):
             assert _resolve_task(config) == "image-classification"
 
+    def test_infer_threads_trust_remote_code(self):
+        from winml.modelkit.eval.evaluate import _resolve_task
+
+        fake_resolution = MagicMock(task="image-classification")
+        config = WinMLEvaluationConfig(
+            model_id="custom/model",
+            trust_remote_code=True,
+        )
+        with (
+            patch(
+                "winml.modelkit.loader.load_hf_config",
+                return_value=MagicMock(),
+            ) as load_config,
+            patch(
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=fake_resolution,
+            ),
+        ):
+            assert _resolve_task(config) == "image-classification"
+
+        assert load_config.call_args.kwargs["trust_remote_code"] is True
+
     def test_explicit_feature_extraction_preserved_verbatim(self):
         """Explicit --task is surfaced verbatim (explicit means explicit).
 

@@ -17,8 +17,6 @@ if TYPE_CHECKING:
     from datasets import Dataset
     from transformers.pipelines.base import Pipeline
 
-    from ..models.winml.base import WinMLPreTrainedModel
-    from ..models.winml.composite_model import WinMLCompositeModel
     from .config import DatasetConfig, WinMLEvaluationConfig
 
 logger = logging.getLogger(__name__)
@@ -44,10 +42,12 @@ def _ensure_evaluate_transformers_compat() -> None:
 class WinMLEvaluator:
     """Base evaluator. Loads dataset, creates pipeline, runs HF evaluator."""
 
+    supports_native = True
+
     def __init__(
         self,
         config: WinMLEvaluationConfig,
-        model: WinMLPreTrainedModel | WinMLCompositeModel,
+        model: Any,
     ) -> None:
         self.model = model
         self.config = config
@@ -148,9 +148,17 @@ class WinMLEvaluator:
         from ..inference.pipeline import create_pipeline
 
         assert self.config.task is not None, "config.task is required to build pipeline"
+        pipeline_kwargs = {"device": self.config.pipeline_device}
+        if self.config.trust_remote_code:
+            pipeline_kwargs["trust_remote_code"] = True
         return cast(
             "Pipeline",
-            create_pipeline(self.config.task, self.model, self.config.model_id),
+            create_pipeline(
+                self.config.task,
+                self.model,
+                self.config.model_id,
+                **pipeline_kwargs,
+            ),
         )
 
     def _fixed_seq_length(self) -> int | None:

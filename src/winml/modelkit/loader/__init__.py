@@ -53,6 +53,8 @@ __all__ = [
     "HF_TASK_DEFAULTS",
     "KNOWN_TASKS",
     "TASK_SYNONYM_EXTENSIONS",
+    "NativeDevice",
+    "NativeHFModel",
     "TaskResolution",
     "TaskSource",
     "WinMLLoaderConfig",
@@ -61,11 +63,13 @@ __all__ = [
     "get_task_abbrev",
     "load_hf_config",
     "load_hf_model",
+    "load_native_hf_model",
     "normalize_task",
     "resolve_composite",
     "resolve_hf_model_class",
     "resolve_hf_onnx_path",
     "resolve_loader_config",
+    "resolve_native_device",
     "resolve_optimum_library",
     "resolve_task",
     "to_optimum_task",
@@ -74,7 +78,11 @@ __all__ = [
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "load_hf_model": (".hf", "load_hf_model"),
+    "load_native_hf_model": (".native", "load_native_hf_model"),
+    "NativeDevice": (".native", "NativeDevice"),
+    "NativeHFModel": (".native", "NativeHFModel"),
     "resolve_hf_model_class": (".hf", "resolve_hf_model_class"),
+    "resolve_native_device": (".native", "resolve_native_device"),
 }
 
 
