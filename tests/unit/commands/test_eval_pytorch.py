@@ -92,6 +92,66 @@ class TestNoExportCli:
         assert captured["config"].backend == "onnx"
         assert captured["config"].export_model is True
 
+    def test_native_backend_loads_from_config_file(self, tmp_path) -> None:
+        config_path = tmp_path / "eval.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "eval": {
+                        "backend": "pytorch",
+                        "model_id": "fake/model",
+                        "task": "image-classification",
+                        "device": "cpu",
+                        "dataset": {"path": "fake/dataset"},
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        captured: dict[str, WinMLEvaluationConfig] = {}
+
+        def fake_evaluate(config: WinMLEvaluationConfig) -> SimpleNamespace:
+            captured["config"] = config
+            return SimpleNamespace(config=config, metrics={}, to_dict=lambda: config.to_dict())
+
+        with (
+            patch("winml.modelkit.eval.evaluate", side_effect=fake_evaluate),
+            patch("winml.modelkit.commands.eval._write_and_display"),
+        ):
+            result = CliRunner().invoke(
+                eval,
+                ["-m", "fake/model", "--config", str(config_path)],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert captured["config"].backend == "pytorch"
+
+    def test_native_config_file_rejects_onnx_only_fields(self, tmp_path) -> None:
+        config_path = tmp_path / "eval.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "eval": {
+                        "backend": "pytorch",
+                        "model_id": "fake/model",
+                        "task": "image-classification",
+                        "ep": "cpu",
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = CliRunner().invoke(
+            eval,
+            ["-m", "fake/model", "--config", str(config_path)],
+            obj={},
+        )
+
+        assert result.exit_code == 2
+        assert "ep" in result.output
+
     @pytest.mark.parametrize(
         ("args", "expected_flag"),
         [

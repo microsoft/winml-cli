@@ -329,7 +329,7 @@ def eval(
             "--no-export requires a Hugging Face model ID or local Hugging Face checkpoint; "
             "ONNX files, composite role=path models, and GenAI bundles are not supported."
         )
-    if not cfg.export_model and cfg.task is not None:
+    if not cfg.export_model:
         from ..eval.evaluate import _validate_native_config
 
         try:
@@ -424,7 +424,21 @@ def _build_eval_config(
         # Eval section overrides loader/compile fallbacks
         eval_data = raw.get("eval")
         if eval_data:
+            eval_data = dict(eval_data)
             config_fields.update(eval_data)
+            backend = eval_data.pop("backend", None)
+            if backend is not None:
+                if backend not in ("onnx", "pytorch"):
+                    raise click.UsageError(
+                        f"Invalid eval backend {backend!r}; expected 'onnx' or 'pytorch'."
+                    )
+                export_model = backend == "onnx"
+                if "export_model" in eval_data and bool(eval_data["export_model"]) != export_model:
+                    raise click.UsageError(
+                        "Eval config fields 'backend' and 'export_model' specify "
+                        "different backends."
+                    )
+                eval_data["export_model"] = export_model
             cfg = merge_config(cfg, eval_data)
 
     # ── CLI layer (highest priority, auto-mapped via metadata) ──
@@ -556,7 +570,6 @@ _NO_EXPORT_INCOMPATIBLE_OPTIONS: dict[str, str] = {
     "skip_build": "--skip-build/--no-skip-build",
     "use_cache": "--use-cache/--no-use-cache",
     "rebuild": "--rebuild/--no-rebuild",
-    "config_file": "--config",
 }
 
 
