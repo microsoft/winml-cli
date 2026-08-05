@@ -420,6 +420,7 @@ class GenaiSession:
         # Resolved at load() time.
         self._context_length: int | None = None
         self._effective_device: str | None = None
+        self._effective_hardware_ep: EPName | None = None
 
         # og.* handles — None until load() is called.
         self._model: Any = None
@@ -496,6 +497,7 @@ class GenaiSession:
         # bundle is visibly reported as "config" rather than silently ignored.
         self._override_effective = self._override_took_effect(effective_cfg)
         self._effective_device = self._resolve_effective_device(effective_cfg)
+        self._effective_hardware_ep = self._hardware_ep_from_config(effective_cfg)
         if self._ep_override is not None and not self._override_effective:
             logger.warning(
                 "EP override %r was requested but did not take effect (flat/empty "
@@ -560,6 +562,7 @@ class GenaiSession:
         self._tokenizer = None
         self._context_length = None
         self._effective_device = None
+        self._effective_hardware_ep = None
         logger.info("GenaiSession unloaded: bundle=%s", self._bundle_dir)
 
     def __enter__(self) -> GenaiSession:
@@ -854,6 +857,11 @@ class GenaiSession:
         accelerator when a config spans or does not identify one device.
         """
         return self._effective_device
+
+    @property
+    def effective_hardware_ep(self) -> EPName | None:
+        """Unique hardware EP in the effective config, or ``None`` if unresolved."""
+        return self._effective_hardware_ep
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -1859,6 +1867,43 @@ class GenaiSession:
             supported = EP_SUPPORTED_DEVICES[self._ep_override]
             return supported[0] if len(supported) == 1 else None
         return None
+
+    @staticmethod
+    def _hardware_ep_from_config(cfg: dict[str, Any]) -> EPName | None:
+        """Return the unique non-CPU EP routed by the effective config."""
+        decoder = cfg.get("model", {}).get("decoder", {})
+        if not isinstance(decoder, dict):
+            return None
+
+        session_options: list[object] = [decoder.get("session_options")]
+        pipeline = decoder.get("pipeline", [])
+        if isinstance(pipeline, list):
+            for stage_entry in pipeline:
+                if isinstance(stage_entry, dict):
+                    session_options.extend(
+                        stage.get("session_options")
+                        for stage in stage_entry.values()
+                        if isinstance(stage, dict)
+                    )
+
+        providers: set[EPName] = set()
+        for options in session_options:
+            if not isinstance(options, dict):
+                continue
+            provider_options = options.get("provider_options", [])
+            if not isinstance(provider_options, list):
+                continue
+            for entry in provider_options:
+                if not isinstance(entry, dict):
+                    continue
+                for name in entry:
+                    canonical = normalize_ep_name(str(name))
+                    if canonical == "CPUExecutionProvider":
+                        continue
+                    if canonical not in EP_NAMES:
+                        return None
+                    providers.add(canonical)
+        return next(iter(providers)) if len(providers) == 1 else None
 
     @staticmethod
     def _device_from_config(cfg: dict[str, Any]) -> str | None:

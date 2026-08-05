@@ -78,6 +78,7 @@ class _FakeSession:
         chat_template: bool = True,
         effective_ep: str | None = None,
         effective_device: str | None = None,
+        effective_hardware_ep: str | None = None,
     ) -> None:
         self._timings = list(timings)
         self._i = 0
@@ -91,6 +92,7 @@ class _FakeSession:
         # requested ep so a no-op override is not falsely claimed.
         self.effective_ep = effective_ep
         self.effective_device = effective_device
+        self.effective_hardware_ep = effective_hardware_ep
 
     def encode(self, text: str) -> list[int]:
         self.encoded_text = text
@@ -554,6 +556,54 @@ class TestSessionDevice:
         cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="npu", ep="qnn")
         session = _FakeSession([], effective_ep=None, effective_device="cpu")
         assert GenaiPerfBenchmark(cfg, session=session)._monitor_device() == "cpu"
+
+    def test_monitor_ep_comes_from_effective_config_not_request(self) -> None:
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="gpu", ep="dml")
+        session = _FakeSession(
+            [],
+            effective_ep=None,
+            effective_device="gpu",
+            effective_hardware_ep="OpenVINOExecutionProvider",
+        )
+
+        assert (
+            GenaiPerfBenchmark(cfg, session=session)._monitor_ep()
+            == "OpenVINOExecutionProvider"
+        )
+
+    def test_accelerator_monitor_requires_unique_effective_ep(self, monkeypatch) -> None:
+        captured: dict = {}
+
+        class FakeMonitor:
+            @classmethod
+            def is_available(cls) -> bool:
+                return True
+
+            def __init__(self, **kwargs: object) -> None:
+                captured.update(kwargs)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                pass
+
+            def to_dict(self) -> dict:
+                return {}
+
+        monkeypatch.setattr(perf_genai, "HWMonitor", FakeMonitor)
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("bundle"), device="gpu", ep="dml", iterations=1, warmup=0, monitor=True
+        )
+        session = _FakeSession(
+            [_timing(0.4, 0.6, [0.4])],
+            effective_device="gpu",
+            effective_hardware_ep=None,
+        )
+
+        GenaiPerfBenchmark(cfg, session=session).run()
+
+        assert captured == {"poll_interval_ms": 200, "device": "cpu", "ep_name": None}
 
 
 # ---------------------------------------------------------------------------

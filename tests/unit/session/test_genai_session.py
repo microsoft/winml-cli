@@ -1091,6 +1091,48 @@ class TestEffectiveDevice:
         assert session._resolve_effective_device(cfg) is None
 
 
+class TestEffectiveHardwareEp:
+    def test_unique_configured_ep_is_reported(self) -> None:
+        cfg = {
+            "model": {
+                "decoder": {
+                    "session_options": {
+                        "provider_options": [{"openvino": {"device_type": "GPU"}}]
+                    }
+                }
+            }
+        }
+
+        assert GenaiSession._hardware_ep_from_config(cfg) == "OpenVINOExecutionProvider"
+
+    def test_mixed_hardware_eps_are_unresolved(self) -> None:
+        cfg = {
+            "model": {
+                "decoder": {
+                    "pipeline": [
+                        {
+                            "first": {"session_options": {"provider_options": [{"dml": {}}]}},
+                            "second": {"session_options": {"provider_options": [{"qnn": {}}]}},
+                        }
+                    ]
+                }
+            }
+        }
+
+        assert GenaiSession._hardware_ep_from_config(cfg) is None
+
+    def test_unknown_provider_is_unresolved(self) -> None:
+        cfg = {
+            "model": {
+                "decoder": {
+                    "session_options": {"provider_options": [{"future_ep": {}}]}
+                }
+            }
+        }
+
+        assert GenaiSession._hardware_ep_from_config(cfg) is None
+
+
 # ---------------------------------------------------------------------------
 # Tests: generate / generate_streaming
 # ---------------------------------------------------------------------------

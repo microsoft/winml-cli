@@ -405,10 +405,10 @@ class GenaiPerfBenchmark:
         hw_metrics: dict[str, Any] | None = None
         if self._config.monitor and HWMonitor.is_available():
             monitor_device = self._monitor_device()
-            ep_name = normalize_ep_name(self._config.ep) if self._config.ep is not None else None
+            ep_name = self._monitor_ep()
             with HWMonitor(
                 poll_interval_ms=_HW_POLL_INTERVAL_MS,
-                device=monitor_device or "cpu",
+                device=monitor_device if monitor_device and ep_name else "cpu",
                 ep_name=ep_name,
             ) as hw:
                 samples = [
@@ -428,6 +428,10 @@ class GenaiPerfBenchmark:
         """Return the proven device to monitor, or ``None`` when unresolved."""
         effective = getattr(self._session, "effective_device", None)
         return effective if effective in ("cpu", "gpu", "npu") else None
+
+    def _monitor_ep(self) -> EPName | None:
+        """Return the unique EP proven by loaded effective routing."""
+        return getattr(self._session, "effective_hardware_ep", None)
 
     def _time_one_generation(
         self,
