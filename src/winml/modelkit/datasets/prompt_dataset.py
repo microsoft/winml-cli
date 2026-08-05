@@ -58,7 +58,7 @@ from .base import BaseTaskDataset
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -358,7 +358,7 @@ class PromptDataset(BaseTaskDataset):
     # Convenience
     # ---------------------------------------------------------------------
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[dict[str, Any]]:
         """Iterate over the coerced record dicts."""
         return iter(self._dataset)
 
