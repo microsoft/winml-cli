@@ -172,6 +172,8 @@ class WinMLEvaluationConfig:
     output_path: Path | None = field(default=None, metadata={"cli_name": "output"})
     mode: EvalMode = "onnx"
     skip_build: bool = True
+    use_cache: bool = True
+    rebuild: bool = False
     _auto_device_selected: bool = field(default=False, repr=False, compare=False, kw_only=True)
 
     def to_dict(self) -> dict:
@@ -214,6 +216,8 @@ class WinMLEvaluationConfig:
         if self.mode != "onnx":
             result["mode"] = self.mode
         result["skip_build"] = self.skip_build
+        result["use_cache"] = self.use_cache
+        result["rebuild"] = self.rebuild
         return result
 
     @classmethod
@@ -253,4 +257,6 @@ class WinMLEvaluationConfig:
             output_path=(Path(data["output_path"]) if data.get("output_path") else None),
             mode=data.get("mode", "onnx"),
             skip_build=data.get("skip_build", True),
+            use_cache=data.get("use_cache", True),
+            rebuild=data.get("rebuild", False),
         )

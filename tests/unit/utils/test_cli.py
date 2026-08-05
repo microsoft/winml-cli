@@ -21,6 +21,7 @@ from winml.modelkit.utils.cli import (
     cache_options,
     guard_output,
     ignored_build_flags_warning,
+    ignored_cache_flags_warning,
     load_export_overrides,
     load_input_tensor_specs,
     max_optim_iterations_option,
@@ -388,7 +389,7 @@ class TestIgnoredBuildFlagsWarning:
         """No warning when a build will run, even with flags set."""
         assert (
             ignored_build_flags_warning(
-                skip_build_onnx=False,
+                build_runs=True,
                 quant=False,
                 optimize=False,
                 analyze=False,
@@ -399,15 +400,17 @@ class TestIgnoredBuildFlagsWarning:
 
     def test_returns_none_when_no_flags_set(self) -> None:
         """No warning when all flags are at their defaults."""
-        assert ignored_build_flags_warning(skip_build_onnx=True) is None
+        assert ignored_build_flags_warning(build_runs=False) is None
 
     def test_names_each_set_flag(self) -> None:
         msg = ignored_build_flags_warning(
-            skip_build_onnx=True,
+            build_runs=False,
             quant=False,
             optimize=False,
             analyze=False,
             max_optim_iterations=5,
+            reason="pre-built ONNX inputs",
+            rebuild_hint="--no-skip-build",
         )
         assert msg is not None
         for flag in ("--no-quant", "--no-optimize", "--no-analyze", "--max-optim-iterations"):
@@ -417,7 +420,7 @@ class TestIgnoredBuildFlagsWarning:
 
     def test_only_includes_set_flags(self) -> None:
         """Unset flags are not named."""
-        msg = ignored_build_flags_warning(skip_build_onnx=True, quant=False)
+        msg = ignored_build_flags_warning(build_runs=False, quant=False)
         assert msg is not None
         assert "--no-quant" in msg
         assert "--no-optimize" not in msg
@@ -426,9 +429,72 @@ class TestIgnoredBuildFlagsWarning:
 
     def test_max_optim_zero_counts_as_set(self) -> None:
         """An explicit 0 is a user-set value (only None is the default)."""
-        msg = ignored_build_flags_warning(skip_build_onnx=True, max_optim_iterations=0)
+        msg = ignored_build_flags_warning(build_runs=False, max_optim_iterations=0)
         assert msg is not None
         assert "--max-optim-iterations" in msg
+
+
+class TestIgnoredCacheFlagsWarning:
+    def test_returns_none_when_build_runs(self) -> None:
+        assert (
+            ignored_cache_flags_warning(
+                build_runs=True,
+                use_cache=False,
+                use_cache_was_set=True,
+                reason="pre-built ONNX inputs",
+            )
+            is None
+        )
+
+    def test_returns_none_when_cache_controls_are_defaults(self) -> None:
+        assert (
+            ignored_cache_flags_warning(
+                build_runs=False,
+                reason="pre-built ONNX inputs",
+            )
+            is None
+        )
+
+    def test_names_explicit_cache_controls(self) -> None:
+        msg = ignored_cache_flags_warning(
+            build_runs=False,
+            use_cache=False,
+            rebuild=True,
+            use_cache_was_set=True,
+            rebuild_was_set=True,
+            reason="pre-built ONNX inputs",
+        )
+
+        assert msg is not None
+        assert "--no-use-cache" in msg
+        assert "--rebuild" in msg
+        assert "pre-built ONNX inputs" in msg
+
+    def test_config_values_name_their_source(self) -> None:
+        msg = ignored_cache_flags_warning(
+            build_runs=False,
+            use_cache=False,
+            rebuild=True,
+            use_cache_source="--config",
+            rebuild_source="--config",
+            reason="pre-built ONNX inputs",
+        )
+
+        assert msg is not None
+        assert "use_cache=false from --config" in msg
+        assert "rebuild=true from --config" in msg
+        assert "--no-use-cache" not in msg
+
+    def test_uses_custom_explanation(self) -> None:
+        msg = ignored_cache_flags_warning(
+            build_runs=False,
+            rebuild=True,
+            rebuild_was_set=True,
+            reason="GenAI bundles",
+            explanation="does not control the runtime cache",
+        )
+
+        assert msg == "--rebuild ignored for GenAI bundles (does not control the runtime cache)."
 
 
 class TestOverwriteOption:
