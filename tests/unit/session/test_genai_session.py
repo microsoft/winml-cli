@@ -1069,6 +1069,27 @@ class TestEffectiveDevice:
 
         assert session._resolve_effective_device(cfg) == "gpu"
 
+    def test_unresolved_multidevice_ep_does_not_trust_requested_device(
+        self, bundle_dir: Path
+    ) -> None:
+        session = GenaiSession(bundle_dir, ep="qnn", device="npu")
+        session._override_effective = True
+        cfg = {
+            "model": {
+                "decoder": {
+                    "pipeline": [
+                        {
+                            "decoder": {
+                                "session_options": {"provider_options": [{"qnn": {}}]}
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+
+        assert session._resolve_effective_device(cfg) is None
+
 
 # ---------------------------------------------------------------------------
 # Tests: generate / generate_streaming

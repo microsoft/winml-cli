@@ -209,7 +209,18 @@ def _run_process(args: list[str], *, timeout: int) -> ProcessResult:
 
     started = time.perf_counter()
     process = subprocess.Popen(args, **kwargs)  # noqa: S603
-    tree = _ProcessTreeGuard(process)
+    try:
+        tree = _ProcessTreeGuard(process)
+    except Exception:
+        _kill_process_tree(process.pid)
+        try:
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            for pipe in (process.stdout, process.stderr):
+                if pipe is not None:
+                    with contextlib.suppress(OSError):
+                        pipe.close()
+        raise
     timed_out = False
     try:
         stdout, stderr = process.communicate(timeout=timeout)
@@ -415,12 +426,16 @@ def _context_point(
     if process_memory_mb <= 0:
         raise ValueError("hw_monitor collected no process memory samples")
 
+    device_kind = str(hw_monitor.get("device_kind") or "").lower()
     if expected_device == "cpu":
+        if device_kind not in ("", "cpu"):
+            raise ValueError(
+                f"Expected CPU-only monitoring, got device_kind={device_kind!r}"
+            )
         accelerator_util_pct = 0.0
         device_memory_mb = 0.0
         device_memory_util_pct = 0.0
     else:
-        device_kind = str(hw_monitor.get("device_kind") or "").lower()
         if device_kind != expected_device:
             raise ValueError(
                 f"Expected hw_monitor device_kind={expected_device!r}, got {device_kind!r}"

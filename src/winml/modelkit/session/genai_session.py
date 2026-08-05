@@ -1857,8 +1857,6 @@ class GenaiSession:
             if self._ep_override == "CPUExecutionProvider":
                 return "cpu"
             supported = EP_SUPPORTED_DEVICES[self._ep_override]
-            if self._device in supported:
-                return self._device
             return supported[0] if len(supported) == 1 else None
         return None
 

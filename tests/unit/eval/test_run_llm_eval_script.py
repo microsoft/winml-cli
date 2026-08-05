@@ -182,6 +182,23 @@ class TestPerfResultMapping:
                 total_vram_mb=4096.0,
             )
 
+    def test_cpu_result_rejects_gpu_monitor(self, runner) -> None:
+        report = _perf_report(device="cpu", ep="dml")
+        report["hw_monitor"]["device_kind"] = "gpu"
+
+        with pytest.raises(ValueError, match="Expected CPU-only monitoring"):
+            runner._context_point(
+                256,
+                report,
+                expected_device="cpu",
+                expected_ep="dml",
+                expected_max_new_tokens=128,
+                expected_iterations=3,
+                expected_warmup=1,
+                total_ram_mb=16384.0,
+                total_vram_mb=4096.0,
+            )
+
     def test_zero_token_prompt_filler_fails_fast(self, runner, monkeypatch, tmp_path) -> None:
         class EmptyTokenizer:
             def encode(self, _text, *, add_special_tokens=False):
@@ -343,6 +360,21 @@ class TestResultContract:
 
 
 class TestProcessLifecycle:
+    def test_guard_setup_failure_cleans_spawned_process(self, runner, monkeypatch) -> None:
+        cleaned: list[int] = []
+
+        class BrokenGuard:
+            def __init__(self, _process) -> None:
+                raise OSError("job assignment failed")
+
+        monkeypatch.setattr(runner, "_ProcessTreeGuard", BrokenGuard)
+        monkeypatch.setattr(runner, "_kill_process_tree", cleaned.append)
+
+        with pytest.raises(OSError, match="job assignment failed"):
+            runner._run_process([sys.executable, "-c", "pass"], timeout=10)
+
+        assert len(cleaned) == 1
+
     def test_timeout_kills_descendant_holding_output_pipe(self, runner) -> None:
         child_code = "import threading; threading.Event().wait(60)"
         parent_code = (
