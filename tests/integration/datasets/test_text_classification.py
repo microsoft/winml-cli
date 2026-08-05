@@ -44,7 +44,7 @@ class TestTextDatasetBasic:
         assert TextDataset.DEFAULT_SEQ_LEN == 128
 
     def test_default_dataset_glue_mrpc(self):
-        """Test default dataset is glue/mrpc when none specified."""
+        """Test default dataset is nyu-mll/glue with the mrpc subset."""
         from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
@@ -52,7 +52,7 @@ class TestTextDatasetBasic:
             max_samples=5,
         )
 
-        assert dataset.dataset_name == "glue"
+        assert dataset.dataset_name == "nyu-mll/glue"
         assert dataset.data_split == "train"
 
     def test_explicit_dataset_name(self):
@@ -61,13 +61,13 @@ class TestTextDatasetBasic:
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
-            dataset_name="glue",
+            dataset_name="nyu-mll/glue",
             data_split="validation",
             max_samples=5,
             subset="sst2",
         )
 
-        assert dataset.dataset_name == "glue"
+        assert dataset.dataset_name == "nyu-mll/glue"
         assert dataset.data_split == "validation"
 
     def test_max_samples_limits_dataset_size(self):
@@ -274,7 +274,7 @@ class TestColumnDetection:
         # GLUE/SST2 is a single sentence task
         dataset = TextDataset(
             model_name="bert-base-uncased",
-            dataset_name="glue",
+            dataset_name="nyu-mll/glue",
             data_split="train",
             max_samples=5,
             subset="sst2",

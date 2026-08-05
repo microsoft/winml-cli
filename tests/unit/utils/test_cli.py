@@ -17,6 +17,8 @@ from click.testing import CliRunner
 from winml.modelkit.utils.cli import (
     analyze_option,
     build_pipeline_extra_kwargs,
+    cache_extra_kwargs,
+    cache_options,
     guard_output,
     ignored_build_flags_warning,
     load_export_overrides,
@@ -315,6 +317,68 @@ class TestBuildPipelineExtraKwargs:
     def test_combined_optimize_and_analyze(self) -> None:
         result = build_pipeline_extra_kwargs(optimize=False, analyze=False)
         assert result == {"skip_optimize": True, "hack_max_optim_iterations": 0}
+
+
+class TestCacheOptions:
+    """Tests for the shared cache_options() decorator."""
+
+    @staticmethod
+    def _make_cmd(*, use_cache_default: bool) -> click.Command:
+        @click.command()
+        @cache_options(
+            use_cache_default=use_cache_default,
+            use_cache_help="Cache help",
+            rebuild_help="Rebuild help",
+        )
+        def cmd(use_cache: bool, rebuild: bool) -> None:
+            click.echo(f"{use_cache=},{rebuild=}")
+
+        return cmd
+
+    @pytest.mark.parametrize("use_cache_default", [False, True])
+    def test_configurable_cache_default(self, use_cache_default: bool) -> None:
+        result = CliRunner().invoke(self._make_cmd(use_cache_default=use_cache_default))
+        assert result.exit_code == 0
+        assert result.output.strip() == f"use_cache={use_cache_default},rebuild=False"
+
+    @pytest.mark.parametrize(
+        ("flag", "expected"),
+        [
+            ("--use-cache", "use_cache=True,rebuild=False"),
+            ("--no-use-cache", "use_cache=False,rebuild=False"),
+            ("--rebuild", "use_cache=True,rebuild=True"),
+            ("--no-rebuild", "use_cache=True,rebuild=False"),
+        ],
+    )
+    def test_flag_pairs(self, flag: str, expected: str) -> None:
+        result = CliRunner().invoke(self._make_cmd(use_cache_default=True), [flag])
+        assert result.exit_code == 0
+        assert result.output.strip() == expected
+
+    def test_help_uses_command_specific_text(self) -> None:
+        result = CliRunner().invoke(self._make_cmd(use_cache_default=True), ["--help"])
+        assert result.exit_code == 0
+        assert "Cache help" in result.output
+        assert "Rebuild help" in result.output
+
+
+class TestCacheExtraKwargs:
+    """Tests for the shared cache_extra_kwargs() translator."""
+
+    @pytest.mark.parametrize(
+        ("use_cache", "rebuild", "force_rebuild"),
+        [
+            (True, False, False),
+            (True, True, True),
+            (False, False, True),
+            (False, True, True),
+        ],
+    )
+    def test_mapping(self, use_cache: bool, rebuild: bool, force_rebuild: bool) -> None:
+        assert cache_extra_kwargs(use_cache=use_cache, rebuild=rebuild) == {
+            "use_cache": use_cache,
+            "force_rebuild": force_rebuild,
+        }
 
 
 class TestIgnoredBuildFlagsWarning:

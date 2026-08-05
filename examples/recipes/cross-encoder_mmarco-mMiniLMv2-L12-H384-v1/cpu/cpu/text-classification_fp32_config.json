@@ -19,7 +19,7 @@
         ],
         "value_range": [
           0,
-          50265
+          250002
         ]
       },
       {
@@ -45,20 +45,10 @@
     "clamp_constant_values": true
   },
   "quant": null,
+  "compile": null,
   "loader": {
     "task": "text-classification",
     "model_class": "AutoModelForSequenceClassification",
-    "model_type": "roberta"
-  },
-  "eval": {
-    "task": "text-classification",
-    "dataset": {
-      "path": "cardiffnlp/tweet_eval",
-      "name": "sentiment",
-      "samples": 100,
-      "columns_mapping": {
-        "input_column": "text"
-      }
-    }
+    "model_type": "xlm-roberta"
   }
 }

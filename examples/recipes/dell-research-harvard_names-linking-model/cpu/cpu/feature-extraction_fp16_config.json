@@ -19,7 +19,7 @@
         ],
         "value_range": [
           0,
-          50265
+          30527
         ]
       },
       {
@@ -37,27 +37,27 @@
     ],
     "output_tensors": [
       {
-        "name": "logits"
+        "name": "last_hidden_state"
       }
     ]
   },
-  "optim": {
-    "clamp_constant_values": true
-  },
+  "optim": {},
   "quant": null,
   "loader": {
-    "task": "text-classification",
-    "model_class": "AutoModelForSequenceClassification",
-    "model_type": "roberta"
+    "task": "feature-extraction",
+    "model_class": "AutoModel",
+    "model_type": "mpnet"
   },
   "eval": {
-    "task": "text-classification",
+    "task": "feature-extraction",
     "dataset": {
-      "path": "cardiffnlp/tweet_eval",
-      "name": "sentiment",
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
       "samples": 100,
       "columns_mapping": {
-        "input_column": "text"
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
       }
     }
   }

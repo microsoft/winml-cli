@@ -710,7 +710,7 @@ def _maybe_build_genai_bundle(
 # =============================================================================
 
 
-@click.command("build")
+@click.command("build", short_help="Build a WinML-optimized ONNX model from HuggingFace or ONNX.")
 @click.option(
     "-c",
     "--config",
@@ -732,17 +732,10 @@ def _maybe_build_genai_bundle(
     default=None,
     help="Output directory for all build artifacts",
 )
-@click.option(
-    "--use-cache/--no-use-cache",
-    default=False,
-    show_default=True,
-    help="Use WinML CLI global cache (~/.cache/winml/). Mutually exclusive with -o.",
-)
-@click.option(
-    "--rebuild/--no-rebuild",
-    default=False,
-    show_default=True,
-    help="Overwrite existing artifacts and rebuild",
+@cli_utils.cache_options(
+    use_cache_default=False,
+    use_cache_help="Use WinML CLI global cache (~/.cache/winml/). Mutually exclusive with -o.",
+    rebuild_help="Overwrite existing artifacts and rebuild",
 )
 @cli_utils.quant_option()
 @cli_utils.compile_option(
