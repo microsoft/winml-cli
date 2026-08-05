@@ -102,6 +102,7 @@ class TestNoExportCli:
                         "model_id": "fake/model",
                         "task": "image-classification",
                         "device": "cpu",
+                        "trust_remote_code": True,
                         "dataset": {"path": "fake/dataset"},
                     }
                 }
@@ -117,15 +118,13 @@ class TestNoExportCli:
         with (
             patch("winml.modelkit.eval.evaluate", side_effect=fake_evaluate),
             patch("winml.modelkit.commands.eval._write_and_display"),
+            patch("winml.modelkit.commands.eval._run_dataset_script") as run_dataset_script,
         ):
-            result = CliRunner().invoke(
-                eval,
-                ["-m", "fake/model", "--config", str(config_path)],
-                obj={},
-            )
+            result = CliRunner().invoke(eval, ["--config", str(config_path)], obj={})
 
         assert result.exit_code == 0, result.output
         assert captured["config"].backend == "pytorch"
+        run_dataset_script.assert_called_once_with(captured["config"], True)
 
     def test_native_config_file_rejects_onnx_only_fields(self, tmp_path) -> None:
         config_path = tmp_path / "eval.json"

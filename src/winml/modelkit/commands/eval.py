@@ -341,7 +341,7 @@ def eval(
     _resolve_device(cfg)
     _resolve_genai_ep(ctx, cfg)
     _resolve_label_mapping(cfg)
-    _run_dataset_script(cfg, trust_remote_code)
+    _run_dataset_script(cfg, cfg.trust_remote_code)
 
     # Refuse to clobber an existing report unless the user opted in — fail fast
     # before the (expensive) evaluation runs.
@@ -601,6 +601,8 @@ def _resolve_model(
     allow_missing_model_id: bool = False,
 ) -> None:
     """Resolve ``-m`` / ``--model-id`` into ``cfg.model_path`` / ``cfg.model_id``."""
+    if not model and model_id is None and (cfg.model_path is not None or cfg.model_id is not None):
+        return
     model_path, resolved_id = _resolve_model_path(
         model=model, model_id=model_id, allow_missing_model_id=allow_missing_model_id
     )
