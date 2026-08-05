@@ -554,6 +554,8 @@ _NO_EXPORT_INCOMPATIBLE_OPTIONS: dict[str, str] = {
     "dynamic_axes": "--dynamic-axes",
     "allow_unsupported_nodes": "--allow-unsupported-nodes",
     "skip_build": "--skip-build/--no-skip-build",
+    "use_cache": "--use-cache/--no-use-cache",
+    "rebuild": "--rebuild/--no-rebuild",
     "config_file": "--config",
 }
 

@@ -152,6 +152,10 @@ def _validate_native_config(config: WinMLEvaluationConfig) -> None:
         incompatible.append("allow_unsupported_nodes")
     if not config.skip_build:
         incompatible.append("skip_build")
+    if not config.use_cache:
+        incompatible.append("use_cache")
+    if config.rebuild:
+        incompatible.append("rebuild")
     if incompatible:
         raise ValueError(
             "Native PyTorch evaluation cannot use ONNX-only configuration: "

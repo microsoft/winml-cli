@@ -103,6 +103,8 @@ class TestNoExportCli:
             (["--max-optim-iterations", "2"], "--max-optim-iterations"),
             (["--allow-unsupported-nodes"], "--allow-unsupported-nodes"),
             (["--no-skip-build"], "--skip-build/--no-skip-build"),
+            (["--no-use-cache"], "--use-cache/--no-use-cache"),
+            (["--rebuild"], "--rebuild/--no-rebuild"),
             (["--mode", "compare"], "--mode"),
         ],
     )
@@ -218,6 +220,30 @@ class TestNativeEvaluation:
         )
 
         with pytest.raises(ValueError, match="model_path"):
+            evaluate(config)
+
+    @pytest.mark.parametrize(
+        ("config_override", "expected_field"),
+        [
+            ({"use_cache": False}, "use_cache"),
+            ({"rebuild": True}, "rebuild"),
+        ],
+    )
+    def test_public_evaluate_rejects_cache_state(
+        self,
+        config_override: dict[str, bool],
+        expected_field: str,
+    ) -> None:
+        from winml.modelkit.eval import evaluate
+
+        config = WinMLEvaluationConfig(
+            model_id="fake/model",
+            task="image-classification",
+            export_model=False,
+            **config_override,
+        )
+
+        with pytest.raises(ValueError, match=expected_field):
             evaluate(config)
 
     def test_load_model_uses_shared_native_loader(self) -> None:
