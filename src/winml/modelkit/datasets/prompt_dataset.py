@@ -51,13 +51,14 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from random import Random
 from typing import TYPE_CHECKING, Any
 
 from .base import BaseTaskDataset
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -360,3 +361,106 @@ class PromptDataset(BaseTaskDataset):
     def __iter__(self):
         """Iterate over the coerced record dicts."""
         return iter(self._dataset)
+
+    # ---------------------------------------------------------------------
+    # Derived-dataset operations (filter / sample)
+    #
+    # Design notes for future contributors
+    # ------------------------------------
+    # * These operations follow a common shape: transform the record list,
+    #   then build a new dataset instance from the derived records.  The
+    #   :meth:`_derive` hook is the single extension point -- override it in
+    #   a subclass to change the resulting type, inject extra metadata, or
+    #   customise how kwargs cascade.  ``filter`` and ``sample`` delegate to
+    #   ``_derive`` so any new derived-dataset operation you add stays
+    #   consistent with those two.
+    # * All operations return a *new* dataset (never mutate ``self``) --
+    #   this keeps ``PromptDataset`` safely reusable across evaluations and
+    #   supports chaining (``ds.filter(...).sample(...)``).
+    # * Adding a new derived operation (e.g. ``deduplicate``, ``group_by``)
+    #   is a matter of one method that transforms ``self._dataset`` into a
+    #   new record list and calls ``self._derive(new_records)``.
+    # ---------------------------------------------------------------------
+
+    def filter(
+        self,
+        predicate: Callable[[dict[str, Any]], bool],
+        **kwargs: Any,
+    ) -> PromptDataset:
+        """Return a new dataset keeping only records where ``predicate`` is true.
+
+        Args:
+            predicate: Callable receiving a record ``dict`` (a shallow copy;
+                see note) and returning ``True`` to keep the record.
+            **kwargs: Forwarded to the derived dataset's constructor.  By
+                default the derived dataset inherits ``model_name``,
+                ``dataset_name`` and ``data_split`` from ``self``; pass
+                them explicitly here to override.
+
+        Raises:
+            ValueError: If the predicate rejects every record
+                (:class:`PromptDataset` requires at least one).
+
+        Note:
+            The predicate receives a shallow copy of each record (matching
+            ``__getitem__`` semantics), so mutating top-level fields is
+            safe.  Mutating nested containers such as ``metadata`` still
+            affects the source -- predicates should be read-only.
+        """
+        kept = [record for record in self._dataset if predicate(dict(record))]
+        return self._derive(kept, **kwargs)
+
+    def sample(
+        self,
+        n: int,
+        *,
+        seed: int | None = None,
+        **kwargs: Any,
+    ) -> PromptDataset:
+        """Return a new dataset containing ``n`` randomly-drawn records.
+
+        Args:
+            n: Number of records to draw.  Must satisfy
+                ``1 <= n <= len(self)`` -- oversampling is rejected because
+                ``PromptDataset`` records are unique instances; use
+                ``max_samples`` at construction time to enforce a size
+                cap.
+            seed: Optional integer for a reproducible draw.  ``None`` uses
+                a fresh, non-deterministic RNG (matches
+                :func:`random.Random` semantics).
+            **kwargs: Forwarded to the derived dataset's constructor.
+
+        Raises:
+            ValueError: If ``n`` is outside ``[1, len(self)]``.
+        """
+        if n < 1:
+            raise ValueError(f"n must be >= 1, got {n}")
+        if n > len(self):
+            raise ValueError(
+                f"Cannot sample {n} records from a dataset of size {len(self)}; "
+                "use max_samples at construction to cap size.",
+            )
+        rng = Random(seed)
+        sampled = rng.sample(list(self._dataset), n)
+        return self._derive(sampled, **kwargs)
+
+    def _derive(
+        self,
+        records: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> PromptDataset:
+        """Construct a derived dataset from ``records`` inheriting metadata.
+
+        Subclasses may override this to return their own type, inject
+        additional metadata, or customise the cascade of default kwargs.
+        The default preserves ``model_name`` / ``dataset_name`` /
+        ``data_split`` from ``self`` unless the caller has passed an
+        explicit override in ``kwargs``.
+
+        Uses ``type(self)`` (not ``PromptDataset``) as the constructor so
+        subclasses receive an instance of themselves.
+        """
+        kwargs.setdefault("model_name", self._model_name)
+        kwargs.setdefault("dataset_name", self._dataset_name)
+        kwargs.setdefault("data_split", self._data_split)
+        return type(self)(records, **kwargs)

@@ -296,3 +296,155 @@ class TestBaseContract:
         # PromptDataset is task-agnostic \u2014 no fixed label column.
         ds = PromptDataset.from_list([{"prompt": "hi"}])
         assert ds.label_col == ""
+
+
+# =============================================================================
+# Derived-dataset operations: filter / sample / _derive extension hook
+# =============================================================================
+
+
+class TestFilter:
+    def test_keeps_matching_records(self) -> None:
+        ds = PromptDataset.from_list(
+            [
+                {"prompt": "short"},
+                {"prompt": "a much longer prompt here"},
+                {"prompt": "med"},
+            ]
+        )
+        filtered = ds.filter(lambda r: len(r["prompt"]) < 10)
+        assert len(filtered) == 2
+        assert [r["prompt"] for r in filtered] == ["short", "med"]
+
+    def test_returns_new_instance_source_untouched(self) -> None:
+        ds = PromptDataset.from_list([{"prompt": "keep"}, {"prompt": "drop"}])
+        filtered = ds.filter(lambda r: r["prompt"] == "keep")
+        assert filtered is not ds
+        assert len(ds) == 2  # source untouched
+        assert len(filtered) == 1
+
+    def test_filter_returns_prompt_dataset(self) -> None:
+        ds = PromptDataset.from_list([{"prompt": "keep"}, {"prompt": "drop"}])
+        filtered = ds.filter(lambda r: r["prompt"] == "keep")
+        assert isinstance(filtered, PromptDataset)
+
+    def test_metadata_inherited_by_default(self) -> None:
+        ds = PromptDataset.from_list(
+            [{"prompt": "a"}, {"prompt": "b"}],
+            dataset_name="my_corpus",
+            data_split="test",
+        )
+        filtered = ds.filter(lambda r: True)
+        assert filtered.dataset_name == "my_corpus"
+        assert filtered.data_split == "test"
+
+    def test_metadata_override_via_kwargs(self) -> None:
+        ds = PromptDataset.from_list([{"prompt": "a"}], dataset_name="orig")
+        filtered = ds.filter(lambda r: True, dataset_name="filtered_view")
+        assert filtered.dataset_name == "filtered_view"
+
+    def test_predicate_receives_dict_copy_semantics(self) -> None:
+        # The predicate sees the record; mutating what it sees must not
+        # affect the source dataset.
+        ds = PromptDataset.from_list([{"prompt": "hi", "metadata": {"k": 1}}])
+
+        def mutating(record: dict) -> bool:
+            record["prompt"] = "MUTATED"
+            return True
+
+        _ = ds.filter(mutating)
+        assert ds[0]["prompt"] == "hi"
+
+    def test_rejects_all_raises(self) -> None:
+        ds = PromptDataset.from_list([{"prompt": "a"}, {"prompt": "b"}])
+        # PromptDataset requires >= 1 record; filtering everything out
+        # surfaces the base validation error.
+        with pytest.raises(ValueError, match="at least one"):
+            ds.filter(lambda r: False)
+
+    def test_chainable_with_sample(self) -> None:
+        ds = PromptDataset.from_list([{"prompt": f"p{i}"} for i in range(10)])
+        result = ds.filter(lambda r: int(r["prompt"][1:]) % 2 == 0).sample(2, seed=1)
+        assert len(result) == 2
+        for record in result:
+            assert int(record["prompt"][1:]) % 2 == 0
+
+
+class TestSample:
+    def test_size_matches_n(self) -> None:
+        ds = PromptDataset.from_list([{"prompt": f"p{i}"} for i in range(10)])
+        sampled = ds.sample(3, seed=0)
+        assert len(sampled) == 3
+
+    def test_seed_reproducible(self) -> None:
+        ds = PromptDataset.from_list([{"prompt": f"p{i}"} for i in range(20)])
+        a = list(ds.sample(5, seed=42))
+        b = list(ds.sample(5, seed=42))
+        assert a == b
+
+    def test_different_seeds_differ(self) -> None:
+        ds = PromptDataset.from_list([{"prompt": f"p{i}"} for i in range(50)])
+        a = list(ds.sample(10, seed=1))
+        b = list(ds.sample(10, seed=2))
+        # Astronomically unlikely to match with 50-choose-10.
+        assert a != b
+
+    def test_full_size_returns_permutation(self) -> None:
+        ds = PromptDataset.from_list([{"prompt": f"p{i}"} for i in range(5)])
+        sampled = ds.sample(5, seed=0)
+        assert len(sampled) == 5
+        assert {r["prompt"] for r in sampled} == {"p0", "p1", "p2", "p3", "p4"}
+
+    def test_returns_new_instance_source_untouched(self) -> None:
+        ds = PromptDataset.from_list([{"prompt": f"p{i}"} for i in range(4)])
+        _ = ds.sample(2, seed=0)
+        assert len(ds) == 4
+
+    def test_oversample_rejected(self) -> None:
+        ds = PromptDataset.from_list([{"prompt": "a"}, {"prompt": "b"}])
+        with pytest.raises(ValueError, match="Cannot sample 5"):
+            ds.sample(5, seed=0)
+
+    def test_zero_or_negative_n_rejected(self) -> None:
+        ds = PromptDataset.from_list([{"prompt": "a"}])
+        with pytest.raises(ValueError, match=">= 1"):
+            ds.sample(0)
+        with pytest.raises(ValueError, match=">= 1"):
+            ds.sample(-1)
+
+    def test_metadata_inherited_by_default(self) -> None:
+        ds = PromptDataset.from_list(
+            [{"prompt": f"p{i}"} for i in range(5)],
+            dataset_name="orig",
+            data_split="val",
+        )
+        sampled = ds.sample(2, seed=0)
+        assert sampled.dataset_name == "orig"
+        assert sampled.data_split == "val"
+
+
+class TestDeriveExtensionHook:
+    """``_derive`` is the extension point for subclasses adding new derived-
+    dataset operations (dedup, group_by, etc.)."""
+
+    def test_subclass_receives_own_type(self) -> None:
+        # Contract: derived datasets are instances of ``type(self)``.
+        class MyPromptDataset(PromptDataset):
+            pass
+
+        ds = MyPromptDataset.from_list([{"prompt": "a"}, {"prompt": "b"}])
+        filtered = ds.filter(lambda r: True)
+        sampled = ds.sample(1, seed=0)
+        assert isinstance(filtered, MyPromptDataset)
+        assert isinstance(sampled, MyPromptDataset)
+
+    def test_subclass_can_override_derive_for_extra_metadata(self) -> None:
+        class TaggedPromptDataset(PromptDataset):
+            def _derive(self, records, **kwargs):
+                # Contract: subclasses can inject extra fields safely.
+                kwargs.setdefault("dataset_name", f"tagged:{self._dataset_name}")
+                return super()._derive(records, **kwargs)
+
+        ds = TaggedPromptDataset.from_list([{"prompt": "a"}, {"prompt": "b"}], dataset_name="base")
+        filtered = ds.filter(lambda r: True)
+        assert filtered.dataset_name == "tagged:base"
