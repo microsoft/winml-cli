@@ -45,7 +45,10 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
 
         mapping = config.dataset.columns_mapping
         self._input_col = mapping.get("input_column", get_default("fill-mask", "input_column"))
-        self._tokenizer = AutoTokenizer.from_pretrained(config.model_id)
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            config.model_id,
+            trust_remote_code=config.trust_remote_code,
+        )
         super().__init__(config, model)
 
     def prepare_pipeline(self) -> Pipeline:

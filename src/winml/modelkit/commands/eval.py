@@ -314,7 +314,7 @@ def eval(
     cfg, config_fields = _build_eval_config(ctx, config_file, column, label_mapping_path)
 
     if not cfg.export_model:
-        _validate_no_export_options(ctx, cfg)
+        _validate_no_export_options(ctx, cfg, config_fields)
 
     if cfg.input_data is not None and cfg.mode != "compare":
         raise click.UsageError("--input-data is only valid with --mode compare.")
@@ -572,10 +572,29 @@ _NO_EXPORT_INCOMPATIBLE_OPTIONS: dict[str, str] = {
     "rebuild": "--rebuild/--no-rebuild",
 }
 
+_NO_EXPORT_INCOMPATIBLE_CONFIG_FIELDS = {
+    "mode",
+    "input_data",
+    "reference_path",
+    "ep",
+    "precision",
+    "quant",
+    "optimize",
+    "analyze",
+    "max_optim_iterations",
+    "shape_config",
+    "export_overrides",
+    "allow_unsupported_nodes",
+    "skip_build",
+    "use_cache",
+    "rebuild",
+}
+
 
 def _validate_no_export_options(
     ctx: click.Context,
     cfg: WinMLEvaluationConfig,
+    config_fields: set[str],
 ) -> None:
     """Reject options whose semantics require ONNX export or ONNX Runtime."""
     if cfg.device.lower() not in ("auto", "cpu", "gpu"):
@@ -587,6 +606,9 @@ def _validate_no_export_options(
         for param_name, flag in _NO_EXPORT_INCOMPATIBLE_OPTIONS.items()
         if cli_utils.is_cli_provided(ctx, param_name)
     ]
+    incompatible.extend(
+        f"eval.{field}" for field in sorted(config_fields & _NO_EXPORT_INCOMPATIBLE_CONFIG_FIELDS)
+    )
     if incompatible:
         raise click.UsageError(
             f"--no-export cannot be combined with incompatible options: {', '.join(incompatible)}."

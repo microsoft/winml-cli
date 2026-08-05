@@ -126,7 +126,21 @@ class TestNoExportCli:
         assert captured["config"].backend == "pytorch"
         run_dataset_script.assert_called_once_with(captured["config"], True)
 
-    def test_native_config_file_rejects_onnx_only_fields(self, tmp_path) -> None:
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("ep", "cpu"),
+            ("use_cache", True),
+            ("skip_build", True),
+            ("quant", True),
+        ],
+    )
+    def test_native_config_file_rejects_onnx_only_fields(
+        self,
+        tmp_path,
+        field: str,
+        value: object,
+    ) -> None:
         config_path = tmp_path / "eval.json"
         config_path.write_text(
             json.dumps(
@@ -135,7 +149,7 @@ class TestNoExportCli:
                         "backend": "pytorch",
                         "model_id": "fake/model",
                         "task": "image-classification",
-                        "ep": "cpu",
+                        field: value,
                     }
                 }
             ),
@@ -149,7 +163,7 @@ class TestNoExportCli:
         )
 
         assert result.exit_code == 2
-        assert "ep" in result.output
+        assert f"eval.{field}" in result.output
 
     @pytest.mark.parametrize(
         ("args", "expected_flag"),
@@ -375,5 +389,8 @@ class TestNativeEvaluation:
         restored = WinMLEvaluationConfig.from_dict(serialized)
 
         assert serialized["backend"] == "pytorch"
+        assert "skip_build" not in serialized
+        assert "use_cache" not in serialized
+        assert "rebuild" not in serialized
         assert restored.backend == "pytorch"
         assert restored.export_model is False

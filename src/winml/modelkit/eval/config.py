@@ -230,9 +230,10 @@ class WinMLEvaluationConfig:
             result["output_path"] = str(self.output_path)
         if self.mode != "onnx":
             result["mode"] = self.mode
-        result["skip_build"] = self.skip_build
-        result["use_cache"] = self.use_cache
-        result["rebuild"] = self.rebuild
+        if self.export_model:
+            result["skip_build"] = self.skip_build
+            result["use_cache"] = self.use_cache
+            result["rebuild"] = self.rebuild
         if self.trust_remote_code:
             result["trust_remote_code"] = True
         return result
