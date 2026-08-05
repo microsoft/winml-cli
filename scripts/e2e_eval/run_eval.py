@@ -66,7 +66,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from utils.dataset_config import get_dataset_config, register_from_registry
-from utils.recipes import RecipeVariant, discover_recipe_variants
+from utils.recipes import RecipeVariant, copy_recipe_target, discover_recipe_variants
 from utils.registry import (
     ModelEntry,
     filter_registry,
@@ -476,30 +476,38 @@ def _kill_process_tree(pid: int) -> None:
     """
     try:
         import psutil
+    except ImportError:
+        psutil = None
 
-        parent = psutil.Process(pid)
+    if psutil is not None:
+        try:
+            parent = psutil.Process(pid)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return
         children = parent.children(recursive=True)
         for child in children:
-            with contextlib.suppress(psutil.NoSuchProcess):
+            with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied):
                 child.kill()
-        with contextlib.suppress(psutil.NoSuchProcess):
+        with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied):
             parent.kill()
         # Wait briefly for processes to terminate
-        psutil.wait_procs([*children, parent], timeout=5)
-    except (ImportError, psutil.NoSuchProcess):
-        # Fallback: taskkill on Windows, killpg on Unix
-        if platform.system() == "Windows":
-            subprocess.run(  # noqa: S603
-                ["taskkill", "/F", "/T", "/PID", str(pid)],  # noqa: S607
-                capture_output=True,
-            )
-        else:
-            import signal
+        with contextlib.suppress(psutil.Error):
+            psutil.wait_procs([*children, parent], timeout=5)
+        return
 
-            try:
-                os.killpg(os.getpgid(pid), signal.SIGKILL)
-            except ProcessLookupError:
-                pass  # Process already exited; nothing to kill
+    # Fallback: taskkill on Windows, killpg on Unix
+    if platform.system() == "Windows":
+        subprocess.run(  # noqa: S603
+            ["taskkill", "/F", "/T", "/PID", str(pid)],  # noqa: S607
+            capture_output=True,
+        )
+    else:
+        import signal
+
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass  # Process already exited; nothing to kill
 
 
 def _run_subprocess(args: list[str], timeout: int) -> dict:
@@ -2496,7 +2504,9 @@ def _build_jobs(
     jobs: list[EvalJob] = []
     for entry in entries:
         variants = (
-            discover_recipe_variants(recipes_dir, entry.hf_id, entry.task)
+            discover_recipe_variants(
+                recipes_dir, entry.hf_id, entry.task, ep=ep, device=device
+            )
             if recipes_dir is not None
             else []
         )
@@ -2610,6 +2620,16 @@ def parse_args() -> argparse.Namespace:
         "--no-recipes",
         action="store_true",
         help="Ignore examples/recipes and build every model via winml config.",
+    )
+    parser.add_argument(
+        "--copy-recipes-from",
+        nargs=2,
+        metavar=("EP", "DEVICE"),
+        help=(
+            "Before evaluation, copy missing recipe configs from each model's "
+            "<EP>/<DEVICE> directory into the target --ep/--device directory. "
+            "Existing target configs are never overwritten."
+        ),
     )
     parser.add_argument(
         "--eval-type",
@@ -2961,6 +2981,31 @@ def main() -> None:
     # w8a16); off-NPU builds only the non-quantized recipe variants, else a
     # single winml-config fallback (variant=None).
     recipes_dir = None if args.no_recipes else args.recipes_dir
+    if args.copy_recipes_from:
+        if recipes_dir is None:
+            parser_error = "--copy-recipes-from cannot be used with --no-recipes"
+            raise ValueError(parser_error)
+        if not args.ep or args.device == "auto":
+            parser_error = "--copy-recipes-from requires explicit --ep and --device"
+            raise ValueError(parser_error)
+        source_ep, source_device = args.copy_recipes_from
+        copied_count = 0
+        for entry in entries:
+            copied = copy_recipe_target(
+                recipes_dir,
+                entry.hf_id,
+                source_ep,
+                source_device,
+                args.ep,
+                args.device,
+            )
+            copied_count += len(copied)
+            for path in copied:
+                safe_print(f"  [recipe] Copied: {path}")
+        safe_print(
+            f"Recipe copy: {copied_count} configs from {source_ep}/{source_device} "
+            f"to {args.ep}/{args.device}"
+        )
     jobs = _build_jobs(entries, recipes_dir, args.device, ep=args.ep)
     total_jobs = len(jobs)
 

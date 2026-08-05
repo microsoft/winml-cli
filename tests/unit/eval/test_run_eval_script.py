@@ -98,6 +98,25 @@ class TestShouldSkipWinmlQuant:
         assert run_eval._should_skip_winml_quant(ep) is False
 
 
+class TestKillProcessTree:
+    def test_access_denied_child_does_not_escape(self, run_eval):
+        import psutil
+
+        child = MagicMock()
+        child.kill.side_effect = psutil.AccessDenied(pid=456)
+        parent = MagicMock()
+        parent.children.return_value = [child]
+
+        with (
+            patch.object(psutil, "Process", return_value=parent),
+            patch.object(psutil, "wait_procs") as wait_procs,
+        ):
+            run_eval._kill_process_tree(123)
+
+        parent.kill.assert_called_once_with()
+        wait_procs.assert_called_once_with([child, parent], timeout=5)
+
+
 class TestDeducedEpForPinnedDevice:
     """``--device npu`` with ``--ep`` omitted must still see the effective EP.
 
