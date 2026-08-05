@@ -462,8 +462,11 @@ class AnalysisResult:
 
     def __repr__(self) -> str:
         """String representation of analysis result."""
-        pattern_count = sum(self.output.metadata.detected_pattern_count.values())
-        return f"AnalysisResult(patterns={pattern_count})"
+        pattern_counts_by_ep = {
+            ep: sum(pattern_counts.values())
+            for ep, pattern_counts in self.output.metadata.detected_pattern_count.items()
+        }
+        return f"AnalysisResult(patterns_by_ep={pattern_counts_by_ep})"
 
     def is_fully_supported(self, ep: str | None = None) -> bool:
         """Check if model is fully supported on the target EP and device.
@@ -1118,6 +1121,7 @@ class ONNXStaticAnalyzer:
 
         pattern_extractor = PatternExtractor(onnx_model)
         metadata = pattern_extractor.model_summary()
+        detected_pattern_count: dict[str, dict[str, int]] = {}
         extraction_ms = int((time.perf_counter() - extraction_start) * 1000)
 
         # Keep subgraph runtime aggregation disabled for now. Pattern extraction
@@ -1166,11 +1170,12 @@ class ONNXStaticAnalyzer:
                 on_pattern_query_start=_on_pattern_query_start_for_ep,
                 on_pattern_query_result=_on_pattern_query_result_for_ep,
             )
-            # In single-EP mode, keep metadata pattern counts aligned with the
-            # selected EP summary while still avoiding duplicate upfront extraction.
             # Also tolerate minimal test doubles that don't stub model_summary().
-            if ep_normalized is not None or not isinstance(metadata, ModelStats):
+            if not isinstance(metadata, ModelStats):
                 metadata = ep_pattern_summary["summary"]
+            detected_pattern_count.update(
+                ep_pattern_summary["summary"].detected_pattern_count
+            )
 
             ep_subgraph_patterns = ep_pattern_summary["subgraph_patterns"]
             ep_merge_prep = ep_pattern_summary.get("merge_prep", [])
@@ -1258,6 +1263,7 @@ class ONNXStaticAnalyzer:
 
         # Step 4: Aggregate results
         logger.info("Aggregating results...")
+        metadata.detected_pattern_count = detected_pattern_count
         aggregate_start = time.perf_counter()
         output = self.output_aggregator.aggregate(
             metadata=metadata,

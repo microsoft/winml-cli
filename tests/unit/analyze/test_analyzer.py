@@ -153,7 +153,7 @@ class TestAnalysisResult:
     def test_repr(self, mock_output: AnalysisOutput) -> None:
         """Test string representation."""
         result = AnalysisResult(output=mock_output)
-        assert repr(result) == "AnalysisResult(patterns=0)"
+        assert repr(result) == "AnalysisResult(patterns_by_ep={})"
 
     def test_is_fully_supported_true(self, mock_output: AnalysisOutput) -> None:
         """Test is_fully_supported returns True when all ops are supported."""
@@ -1200,17 +1200,26 @@ class TestONNXStaticAnalyzer:
         mock_onnx_loader_cls.return_value = mock_loader
 
         mock_extractor = MagicMock()
-        mock_extractor.summary.return_value = {
-            "summary": ModelStats(
-                model_path="test.onnx",
-                opset_version=13,
-                total_operators=10,
-                operator_counts={"Conv": 10},
-                unique_operator_types=1,
-                detected_pattern_count={},
-            ),
-            "subgraph_patterns": [],
+        pattern_counts_by_ep = {
+            "QNNExecutionProvider": {"SUBGRAPH/GELU": 2},
+            "OpenVINOExecutionProvider": {"SUBGRAPH/GELU": 1},
+            "VitisAIExecutionProvider": {"SUBGRAPH/LayerNorm": 3},
         }
+
+        def summary_for_ep(*, ep: str, **_kwargs: object) -> dict[str, object]:
+            return {
+                "summary": ModelStats(
+                    model_path="test.onnx",
+                    opset_version=13,
+                    total_operators=10,
+                    operator_counts={"Conv": 10},
+                    unique_operator_types=1,
+                    detected_pattern_count={ep: pattern_counts_by_ep[ep]},
+                ),
+                "subgraph_patterns": [],
+            }
+
+        mock_extractor.summary.side_effect = summary_for_ep
         mock_pattern_extractor_cls.return_value = mock_extractor
 
         mock_checker = MagicMock()
@@ -1243,6 +1252,16 @@ class TestONNXStaticAnalyzer:
         assert "QNNExecutionProvider" in ep_types
         assert "OpenVINOExecutionProvider" in ep_types
         assert "VitisAIExecutionProvider" in ep_types
+
+        assert result.output.metadata.detected_pattern_count == pattern_counts_by_ep
+        assert (
+            sum(
+                result.output.metadata.detected_pattern_count[
+                    "QNNExecutionProvider"
+                ].values()
+            )
+            == 2
+        )
 
         # Verify RuntimeChecker was called 3 times (once per NPU-capable EP)
         assert mock_runtime_checker_cls.call_count == 3

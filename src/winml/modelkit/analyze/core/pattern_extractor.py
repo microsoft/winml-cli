@@ -1600,8 +1600,9 @@ class PatternExtractor:
             pattern_count_dict[pattern_id] = pattern_count_dict.get(pattern_id, 0) + 1
         count_dict_ms = int((time.perf_counter() - count_dict_start) * 1000)
 
-        # Generate model summary with pattern count dict
-        metadata = self.model_summary(detected_pattern_count=pattern_count_dict)
+        # Pattern matching is EP-specific, so preserve the owning EP in metadata.
+        detected_pattern_count = {ep: pattern_count_dict} if ep is not None else {}
+        metadata = self.model_summary(detected_pattern_count=detected_pattern_count)
 
         if on_pattern_query_start is not None:
             try:
@@ -1638,12 +1639,12 @@ class PatternExtractor:
 
     def model_summary(
         self,
-        detected_pattern_count: dict[str, int] | None = None,
+        detected_pattern_count: dict[str, dict[str, int]] | None = None,
     ) -> ModelStats:
         """Get model metadata and statistics.
 
         Args:
-            detected_pattern_count: Pattern ID to count mapping (default: empty dict)
+            detected_pattern_count: EP to pattern ID count mapping (default: empty dict)
 
         Returns:
             ModelStats object containing model information

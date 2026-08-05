@@ -142,10 +142,12 @@ class TestPatternExtractorSummary:
         mock_config_cls.return_value = mock_config
 
         extractor = PatternExtractor(simple_onnx_model)
-        result = extractor.summary()
+        result = extractor.summary(ep="QNNExecutionProvider")
 
-        # Since no patterns are matched, count should be empty dict
-        assert result["summary"].detected_pattern_count == {}
+        # Since no patterns are matched, the selected EP has an empty count mapping.
+        assert result["summary"].detected_pattern_count == {
+            "QNNExecutionProvider": {}
+        }
 
 
 class TestPatternExtractorModelSummary:
@@ -163,7 +165,9 @@ class TestPatternExtractorModelSummary:
     def test_model_summary_with_pattern_count(self, simple_onnx_model: ONNXModel) -> None:
         """Test model_summary includes detected_pattern_count."""
         extractor = PatternExtractor(simple_onnx_model)
-        pattern_count_dict = {"SUBGRAPH/GELU_Erf": 5}
+        pattern_count_dict = {
+            "QNNExecutionProvider": {"SUBGRAPH/GELU_Erf": 5}
+        }
         metadata = extractor.model_summary(detected_pattern_count=pattern_count_dict)
 
         assert metadata.detected_pattern_count == pattern_count_dict

@@ -200,11 +200,14 @@ class ONNXLoader:
 
         logger.debug("Skipping strict ONNX validation to allow custom attributes")
 
-    def extract_metadata(self, detected_pattern_count: dict[str, int] | None = None) -> ModelStats:
+    def extract_metadata(
+        self,
+        detected_pattern_count: dict[str, dict[str, int]] | None = None,
+    ) -> ModelStats:
         """Extract model metadata for analysis.
 
         Args:
-            detected_pattern_count: Pattern ID to count mapping (default: empty dict)
+            detected_pattern_count: EP to pattern ID count mapping (default: empty dict)
 
         Returns:
             ModelStats object with model statistics
