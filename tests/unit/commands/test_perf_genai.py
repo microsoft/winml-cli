@@ -388,7 +388,10 @@ class TestResultToDict:
             compile_timeout=120,
         )
         session = _FakeSession(
-            [_timing(0.4, 0.6, [0.4, 0.4, 0.4])], prompt_ids=[1, 2, 3], effective_ep="qnn"
+            [_timing(0.4, 0.6, [0.4, 0.4, 0.4])],
+            prompt_ids=[1, 2, 3],
+            effective_ep="qnn",
+            effective_device="npu",
         )
         bench = GenaiPerfBenchmark(cfg, session=session)
         return bench.run()
@@ -408,6 +411,7 @@ class TestResultToDict:
         assert info["runtime"] == "winml-genai"
         assert info["ep"] == "qnn"
         assert info["device"] == "npu"
+        assert info["effective_device"] == "npu"
         assert info["max_new_tokens"] == 4
         assert info["prompt_tokens"] == 3
         assert info["generated_tokens"] == 4
@@ -544,7 +548,7 @@ class TestSessionDevice:
     def test_monitor_uses_cpu_only_when_bundle_device_is_ambiguous(self) -> None:
         cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="config")
         session = _FakeSession([], effective_device=None)
-        assert GenaiPerfBenchmark(cfg, session=session)._monitor_device() == "cpu"
+        assert GenaiPerfBenchmark(cfg, session=session)._monitor_device() is None
 
     def test_monitor_uses_session_device_when_override_is_noop(self) -> None:
         cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="npu", ep="qnn")

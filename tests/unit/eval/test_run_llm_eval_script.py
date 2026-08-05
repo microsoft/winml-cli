@@ -48,6 +48,7 @@ def _perf_report(
             "runtime": "winml-genai",
             "ep": ep,
             "device": device,
+            "effective_device": device,
             "compile": True,
             "monitor": True,
             "iterations": 3,
@@ -362,18 +363,44 @@ class TestResultContract:
 class TestProcessLifecycle:
     def test_guard_setup_failure_cleans_spawned_process(self, runner, monkeypatch) -> None:
         cleaned: list[int] = []
+        original_cleanup = runner._kill_process_tree
 
         class BrokenGuard:
             def __init__(self, _process) -> None:
                 raise OSError("job assignment failed")
 
         monkeypatch.setattr(runner, "_ProcessTreeGuard", BrokenGuard)
-        monkeypatch.setattr(runner, "_kill_process_tree", cleaned.append)
+        monkeypatch.setattr(
+            runner,
+            "_kill_process_tree",
+            lambda pid: (cleaned.append(pid), original_cleanup(pid)),
+        )
 
         with pytest.raises(OSError, match="job assignment failed"):
             runner._run_process([sys.executable, "-c", "pass"], timeout=10)
 
         assert len(cleaned) == 1
+
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+    def test_nonfinite_gpu_memory_is_rejected(self, runner, tmp_path, value: float) -> None:
+        bundle = tmp_path / "bundle"
+        bundle.mkdir()
+        (bundle / "genai_config.json").write_text("{}", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="must be positive"):
+            runner.main(
+                [
+                    "-m",
+                    str(bundle),
+                    "--output-dir",
+                    str(tmp_path / "results"),
+                    f"--gpu-memory-gb={value}",
+                ]
+            )
+
+    def test_json_writer_rejects_nonfinite_values(self, runner, tmp_path) -> None:
+        with pytest.raises(ValueError, match="Out of range float values"):
+            runner._write_json(tmp_path / "result.json", {"value": float("nan")})
 
     def test_timeout_kills_descendant_holding_output_pipe(self, runner) -> None:
         child_code = "import threading; threading.Event().wait(60)"

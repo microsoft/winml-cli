@@ -207,6 +207,7 @@ class GenaiBenchmarkResult:
     # override that matched no stage).  Reported instead of the *requested* ep so
     # the report never claims an EP that never applied.
     effective_ep: str | None = None
+    effective_device: str | None = None
 
     # Time to first token (prefill + first decode), milliseconds
     ttft_mean_ms: float = 0.0
@@ -245,6 +246,7 @@ class GenaiBenchmarkResult:
                 "bundle_dir": str(self.config.bundle_dir),
                 "ep": self.effective_ep or "config",
                 "device": self.config.device,
+                "effective_device": self.effective_device,
                 "compile": self.config.compile,
                 "compile_timeout": self.config.compile_timeout,
                 "monitor": self.config.monitor,
@@ -406,7 +408,7 @@ class GenaiPerfBenchmark:
             ep_name = normalize_ep_name(self._config.ep) if self._config.ep is not None else None
             with HWMonitor(
                 poll_interval_ms=_HW_POLL_INTERVAL_MS,
-                device=monitor_device,
+                device=monitor_device or "cpu",
                 ep_name=ep_name,
             ) as hw:
                 samples = [
@@ -422,10 +424,10 @@ class GenaiPerfBenchmark:
         result.hw_monitor = hw_metrics
         return result
 
-    def _monitor_device(self) -> str:
-        """Return the concrete device whose adapter counters should be sampled."""
+    def _monitor_device(self) -> str | None:
+        """Return the proven device to monitor, or ``None`` when unresolved."""
         effective = getattr(self._session, "effective_device", None)
-        return effective if effective in ("cpu", "gpu", "npu") else "cpu"
+        return effective if effective in ("cpu", "gpu", "npu") else None
 
     def _time_one_generation(
         self,
@@ -473,6 +475,7 @@ class GenaiPerfBenchmark:
         return GenaiBenchmarkResult(
             config=self._config,
             effective_ep=getattr(self._session, "effective_ep", None),
+            effective_device=getattr(self._session, "effective_device", None),
             prompt_tokens=len(self._prompt_token_ids),
             generated_tokens=timed[0].n_tokens if timed else 0,
             context_length=self._session.context_length if self._session else None,

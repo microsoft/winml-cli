@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import math
 import os
 import platform
 import statistics
@@ -50,7 +51,7 @@ def _tail(text: str | None, limit: int = 4000) -> str:
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(data, indent=2, allow_nan=False), encoding="utf-8")
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -158,6 +159,10 @@ class _ProcessTreeGuard:
             error = ctypes.get_last_error()
             kernel32.CloseHandle(job)
             raise ctypes.WinError(error)
+        status = ctypes.WinDLL("ntdll").NtResumeProcess(process_handle)
+        if status != 0:
+            kernel32.CloseHandle(job)
+            raise OSError(f"NtResumeProcess failed with NTSTATUS 0x{status & 0xFFFFFFFF:08X}")
         return int(job)
 
     def terminate(self) -> None:
@@ -203,7 +208,7 @@ def _run_process(args: list[str], *, timeout: int) -> ProcessResult:
         "env": env,
     }
     if platform.system() == "Windows":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW | 0x00000004  # CREATE_SUSPENDED
     else:
         kwargs["start_new_session"] = True
 
@@ -376,6 +381,7 @@ def _context_point(
     expected_info = {
         "runtime": "winml-genai",
         "device": expected_device,
+        "effective_device": expected_device,
         "compile": True,
         "iterations": expected_iterations,
         "warmup": expected_warmup,
@@ -619,7 +625,9 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError("--timeout must be positive")
     if args.compile_timeout <= 0:
         raise ValueError("--compile-timeout must be positive")
-    if args.gpu_memory_gb is not None and args.gpu_memory_gb <= 0:
+    if args.gpu_memory_gb is not None and (
+        not math.isfinite(args.gpu_memory_gb) or args.gpu_memory_gb <= 0
+    ):
         raise ValueError("--gpu-memory-gb must be positive")
 
     bundle_dir = args.model.resolve()
