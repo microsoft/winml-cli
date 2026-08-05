@@ -111,6 +111,26 @@ class TestEvaluationConfig:
         restored = WinMLEvaluationConfig.from_dict(config.to_dict())
         assert restored.input_data == "inputs.npz"
 
+    def test_config_roundtrip_preserves_cache_controls(self):
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            use_cache=False,
+            rebuild=True,
+        )
+        serialized = config.to_dict()
+        restored = WinMLEvaluationConfig.from_dict(serialized)
+
+        assert serialized["use_cache"] is False
+        assert serialized["rebuild"] is True
+        assert restored.use_cache is False
+        assert restored.rebuild is True
+
+    def test_default_cache_controls_are_serialized(self):
+        serialized = WinMLEvaluationConfig(model_id="test/model").to_dict()
+
+        assert serialized["use_cache"] is True
+        assert serialized["rebuild"] is False
+
     def test_reference_path_default_is_none(self):
         """reference_path defaults to None and is omitted from to_dict."""
         config = WinMLEvaluationConfig(model_id="test/model")
@@ -1505,6 +1525,8 @@ class TestLoadModel:
         # No --shape-config / export overrides -> both default to None.
         assert call_args.kwargs["shape_config"] is None
         assert call_args.kwargs["config"] is None
+        assert call_args.kwargs["use_cache"] is True
+        assert call_args.kwargs["force_rebuild"] is False
         assert result is mock_model
 
     def test_auto_target_retries_cpu_after_ort_runtime_failure(self, caplog):
@@ -1589,6 +1611,7 @@ class TestLoadModel:
             quant=False,
             optimize=False,
             max_optim_iterations=5,
+            use_cache=False,
         )
 
         with patch.dict(
@@ -1604,6 +1627,8 @@ class TestLoadModel:
         # --no-optimize -> skip_optimize; --max-optim-iterations 5 forwarded.
         assert kwargs["skip_optimize"] is True
         assert kwargs["hack_max_optim_iterations"] == 5
+        assert kwargs["use_cache"] is False
+        assert kwargs["force_rebuild"] is True
 
     def test_load_model_from_onnx(self):
         """When model_path is set, calls from_onnx and attaches config."""
@@ -1639,4 +1664,6 @@ class TestLoadModel:
             result = eval_mod._load_model(config)
 
         mock_auto.from_onnx.assert_called_once()
+        assert mock_auto.from_onnx.call_args.kwargs["use_cache"] is True
+        assert mock_auto.from_onnx.call_args.kwargs["force_rebuild"] is False
         assert result.config is mock_hf_config
