@@ -1952,6 +1952,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#model-build-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model build cache
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#common-pitfalls" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2617,6 +2628,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#model-build-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model build cache
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#common-pitfalls" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2930,6 +2952,17 @@
 <p>Evaluate a composite model from pre-exported ONNX files. Some tasks (e.g., <code>image-to-text</code>, encoder-decoder, dual-encoder) split the model across multiple ONNX files, one per role. Pass <code>-m</code> once per role as <code>&lt;role&gt;=&lt;path&gt;.onnx</code> and supply <code>--model-id</code> so the preprocessor and tokenizer can be resolved. Run <code>winml eval --schema --task image-to-text</code> to see the expected roles for a task:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span><span class="nv">encoder</span><span class="o">=</span>encoder.onnx<span class="w"> </span>-m<span class="w"> </span><span class="nv">decoder</span><span class="o">=</span>decoder.onnx<span class="w"> </span>--model-id<span class="w"> </span>microsoft/trocr-base-printed
 </span></code></pre></div>
+<h2 id="model-build-cache">Model build cache<a class="headerlink" href="#model-build-cache" title="Permanent link">&para;</a></h2>
+<p>Evaluation reuses persistent model build artifacts by default. Pass
+<code>--no-use-cache</code> for a fresh build in a temporary directory, or <code>--rebuild</code> for
+a fresh build that replaces the persistent cache entry.</p>
+<p>For a pre-built ONNX input, cache controls apply only when
+<code>--no-skip-build</code> is set. Cache controls are ignored when no model build runs,
+including two-ONNX comparisons; the CLI warns when an explicit cache control
+has no effect. GenAI's runtime <code>_compiled/</code> artifacts are a separate cache and
+are not currently governed by these model build cache controls. Explicit build
+or cache controls on a GenAI bundle produce a warning that distinguishes the
+model-build pipeline from the runtime compilation cache.</p>
 <h2 id="common-pitfalls">Common pitfalls<a class="headerlink" href="#common-pitfalls" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>ONNX file without <code>--model-id</code> fails.</strong> When <code>-m</code> is a <code>.onnx</code> path, <code>--model-id</code> is mandatory. Without it the command cannot resolve the preprocessor or label vocabulary and will exit with a usage error.</li>
