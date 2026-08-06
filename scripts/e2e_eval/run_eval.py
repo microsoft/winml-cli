@@ -144,6 +144,14 @@ def _effective_ep(ep: str | None, device: str | None) -> str | None:
     return _deduce_ep_for_device(device or "auto")
 
 
+def _resolve_eval_target(ep: str | None, device: str | None) -> tuple[str, str]:
+    """Resolve possibly automatic CLI axes through the runtime target policy."""
+    from winml.modelkit.session import EPDeviceTarget, resolve_device
+
+    target = resolve_device(EPDeviceTarget(ep=ep or "auto", device=device or "auto"))
+    return target.ep, target.device
+
+
 def _should_skip_winml_quant(ep: str | None, device: str | None = None) -> bool:
     """True if the eval harness should run this EP on the unquantized model.
 
@@ -2475,6 +2483,10 @@ def _build_jobs(
 ) -> list[EvalJob]:
     """Expand entries into jobs. Recipes apply on every device; quant is NPU-only.
 
+    Automatic EP/device axes are resolved through the runtime target policy
+    before recipe lookup so target-specific directories always use concrete
+    ``<ep>/<device>`` names.
+
     Recipes carry the accuracy eval/dataset config, so they are consulted
     regardless of device -- but quantized recipe variants (``w8a16``/``w8a8``)
     only make sense on an NPU running a quantizing EP. For each entry:
@@ -2493,19 +2505,24 @@ def _build_jobs(
     * non-NPU (or a skip-quant EP) with no applicable recipe variant → a single
       ``winml config`` fallback job (``variant=None``).
     """
-    npu = device == "npu"
+    resolved_ep, resolved_device = _resolve_eval_target(ep, device)
+    npu = resolved_device == "npu"
     # Skip-quant EPs (VitisAI) are evaluated on the unquantized model: the
     # fallback path forces --no-quant, so the NPU multi-precision expansion
     # would produce duplicate artifacts under distinct precision slugs, and an
     # authored quantized recipe would hand the EP a QDQ graph its compiler is
     # not expected to consume.  Both are suppressed.
-    skip_quant = _should_skip_winml_quant(ep, device)
+    skip_quant = _should_skip_winml_quant(resolved_ep, resolved_device)
     expand_npu_quant = npu and not skip_quant
     jobs: list[EvalJob] = []
     for entry in entries:
         variants = (
             discover_recipe_variants(
-                recipes_dir, entry.hf_id, entry.task, ep=ep, device=device
+                recipes_dir,
+                entry.hf_id,
+                entry.task,
+                ep=resolved_ep,
+                device=resolved_device,
             )
             if recipes_dir is not None
             else []
