@@ -222,7 +222,7 @@ def _build_analysis_table(
         title += f" — [bold cyan]{ep_device_pair_display_name}[/bold cyan]"
 
     if op_check_skipped:
-        title += "  Skipped"
+        title += "  Skipped - no rule data"
         table = Table(
             title=title,
             show_header=False,
@@ -353,9 +353,6 @@ def _build_pattern_query_table(
     if ep_device_pair_display_name:
         title += f" — [bold cyan]{ep_device_pair_display_name}[/bold cyan]"
     if pattern_check_skipped:
-        # Keep the skip title on one line for long EP/device labels.
-        # Extra margin absorbs emoji/full-width rendering variance in terminals.
-        min_width = max(104, len(ep_device_pair_display_name or "") + 68)
         title += "  Skipped - no rule data"
         table = Table(
             title=title,
@@ -364,7 +361,7 @@ def _build_pattern_query_table(
             box=None,
             padding=(0, 1),
             expand=False,
-            width=min_width,
+            width=80,
         )
         table.add_column("Pattern", width=60, no_wrap=True)
 
