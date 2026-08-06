@@ -294,6 +294,18 @@ class WinMLStaticCache(WinMLCache):
 
         return k_out, v_out
 
+    def get_seq_length(self, layer_idx: int = 0) -> int | torch.Tensor:
+        """Return filled length, or the traced query position during export."""
+        if layer_idx >= len(self.layers):
+            return 0
+        trace_position = getattr(self, "_trace_position", None)
+        if trace_position is not None:
+            flattened = trace_position.reshape(-1)
+            if flattened.numel() == 0:
+                return 0
+            return flattened[0]
+        return self.step
+
     def build_decoder_mask(self, max_len: int, num_new_tokens: int = 1) -> torch.Tensor:
         """Left-aligned: first ``step + num_new_tokens`` positions are 1."""
         import torch

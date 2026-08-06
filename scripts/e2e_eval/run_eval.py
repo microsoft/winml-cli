@@ -103,6 +103,12 @@ _DEFAULT_PRECISION_NPU = "w8a16"
 # An explicit per-model precision (``ModelEntry.precision``) overrides this. This
 # expansion is NPU-only; off-NPU devices never build quantized variants.
 _NPU_FALLBACK_PRECISIONS: tuple[str, ...] = ("w8a8", "w8a16")
+_FLOAT_PRECISIONS = frozenset({"auto", "fp16", "fp32"})
+_NAMED_QUANTIZED_PRECISIONS = frozenset({"int4", "int8", "int16"})
+_MIXED_PRECISION_RE = re.compile(r"^w(\d+)a(\d+)$")
+_VALID_WEIGHT_BITS = frozenset({4, 8, 16})
+_VALID_ACTIVATION_BITS = frozenset({8, 16, 32})
+_QDQ_WEIGHT_BITS = frozenset({8, 16})
 
 # EPs whose eval track keeps the model unquantized (the "fp" variant)
 # rather than running winml's QDQ pass on top.  The EP list itself is the
@@ -958,7 +964,8 @@ def _extract_onnx_path(build_proc: dict, hf_id: str, task: str | None) -> str | 
     # Patterns used by winml build to report the artifact path
     markers = ("Final artifact:", "Existing artifact found:", "Artifact:")
     onnx_path = None
-    for line in (build_proc["stderr"] + build_proc["stdout"]).splitlines():
+    text = _strip_ansi(build_proc["stderr"] + build_proc["stdout"])
+    for line in text.splitlines():
         for marker in markers:
             if marker in line:
                 candidate = line.split(marker)[-1].strip()
@@ -968,10 +975,42 @@ def _extract_onnx_path(build_proc: dict, hf_id: str, task: str | None) -> str | 
         if onnx_path:
             break
 
+    if not onnx_path:
+        onnx_path = _extract_wrapped_onnx_path(text, markers)
+
     if not onnx_path or not Path(onnx_path).exists():
         onnx_path = _find_cached_model(hf_id, build_proc, task)
 
     return onnx_path
+
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI SGR/control escapes from captured Rich output."""
+    return _ANSI_ESCAPE_RE.sub("", text)
+
+
+def _extract_wrapped_onnx_path(text: str, markers: tuple[str, ...]) -> str | None:
+    """Extract an artifact path that Rich wrapped onto following lines."""
+    stop_markers = ("Build config:", "Export ", "Optimize ", "Quantize ", "Compile ")
+    for marker in markers:
+        start = text.find(marker)
+        if start == -1:
+            continue
+        fragments: list[str] = []
+        for raw_line in text[start + len(marker) :].splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if any(stop in line for stop in stop_markers):
+                break
+            fragments.append(line)
+            for candidate in (line, "".join(fragments), " ".join(fragments)):
+                if candidate and Path(candidate).exists():
+                    return candidate
+    return None
 
 
 def _extract_task_from_config(config_path: Path) -> str | None:
@@ -2454,12 +2493,22 @@ def _is_quantized_precision(precision: str) -> bool:
     """True if a recipe precision implies quantization.
 
     Off-NPU devices skip quantized recipe variants (see :func:`_build_jobs`).
-    Delegates to winml's precision policy so the classification never drifts
-    from the CLI (``fp16`` -> False, ``w8a16``/``w8a8`` -> True).
+    Keep this local so the eval harness can classify recipe variants without
+    importing the full winml config package and its ONNX Runtime dependencies.
     """
-    from winml.modelkit.config.precision import is_quantized_precision
-
-    return is_quantized_precision(precision)
+    p = precision.lower()
+    if p in _FLOAT_PRECISIONS:
+        return False
+    if p in _NAMED_QUANTIZED_PRECISIONS:
+        return True
+    match = _MIXED_PRECISION_RE.match(p)
+    if not match:
+        return False
+    weight_bits, activation_bits = int(match.group(1)), int(match.group(2))
+    if weight_bits not in _VALID_WEIGHT_BITS or activation_bits not in _VALID_ACTIVATION_BITS:
+        return False
+    # w8a32/w16a32 are invalid float-activation mixes; w4a32 is weight-only.
+    return not (activation_bits == 32 and weight_bits in _QDQ_WEIGHT_BITS)
 
 
 def _build_jobs(
@@ -2512,8 +2561,7 @@ def _build_jobs(
             # explicit per-model precision (e.g. fp16) skips this and is honored
             # by the single-fallback branch below via _resolve_precision.
             jobs.extend(
-                EvalJob(entry, None, fallback_precision=prec)
-                for prec in _NPU_FALLBACK_PRECISIONS
+                EvalJob(entry, None, fallback_precision=prec) for prec in _NPU_FALLBACK_PRECISIONS
             )
         else:
             jobs.append(EvalJob(entry, None))

@@ -53,6 +53,22 @@ pytestmark = pytest.mark.e2e
 @pytest.fixture(autouse=True)
 def _mock_resolve_device():
     """Mock hardware detection to avoid failures in test environments."""
+    from winml.modelkit.session import EPDeviceTarget
+    from winml.modelkit.utils.constants import normalize_ep_name
+
+    cpu_target = EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
+
+    def resolve_without_hardware_detection(target: EPDeviceTarget) -> EPDeviceTarget:
+        ep = target.ep or "auto"
+        device = (target.device or "auto").lower()
+        if ep == "auto":
+            return EPDeviceTarget(ep=cpu_target.ep, device=cpu_target.device, source=target.source)
+        return EPDeviceTarget(
+            ep=normalize_ep_name(ep),
+            device=cpu_target.device if device == "auto" else device,
+            source=target.source,
+        )
+
     with (
         patch(
             "winml.modelkit.session.auto_detect_device",
@@ -62,8 +78,22 @@ def _mock_resolve_device():
             "winml.modelkit.sysinfo.hardware.get_available_devices",
             return_value=["cpu"],
         ),
+        patch(
+            "winml.modelkit.session.resolve_device",
+            side_effect=resolve_without_hardware_detection,
+        ),
     ):
         yield
+
+
+def test_mock_resolve_device_preserves_explicit_target():
+    """The e2e hardware mock must not rewrite explicit EP/device requests."""
+    from winml.modelkit.session import EPDeviceTarget, resolve_device
+
+    target = resolve_device(EPDeviceTarget(ep="qnn", device="npu"))
+
+    assert target.ep == "QNNExecutionProvider"
+    assert target.device == "npu"
 
 
 # ---------------------------------------------------------------------------
