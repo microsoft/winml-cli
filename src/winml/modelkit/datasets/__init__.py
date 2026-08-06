@@ -26,6 +26,7 @@ from .object_detection import DEFAULT_OBJECT_DETECTION_SIZE, ObjectDetectionData
 from .processor_utils import get_image_processor_config
 from .random_dataset import RandomDataset
 from .text import TextDataset
+from .zero_shot_classification import ZeroShotClassificationDataset
 
 
 if TYPE_CHECKING:
@@ -47,7 +48,7 @@ TASK_DATASET_MAPPING = {
     "sentence-similarity": TextDataset,
     "next-sentence-prediction": TextDataset,
     "fill-mask": TextDataset,
-    "zero-shot-classification": TextDataset,
+    "zero-shot-classification": ZeroShotClassificationDataset,
     "image-segmentation": ImageSegmentationDataset,
     "mask-generation": MaskGenerationDataset,
     "depth-estimation": DepthEstimationDataset,
@@ -337,6 +338,7 @@ __all__ = [  # noqa: RUF022
     "ObjectDetectionDataset",
     "RandomDataset",
     "TextDataset",
+    "ZeroShotClassificationDataset",
     # Utilities
     "format_data",
     "get_image_processor_config",
