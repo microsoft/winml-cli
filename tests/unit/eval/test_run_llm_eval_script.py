@@ -359,6 +359,29 @@ class TestResultContract:
         assert not stale_result.exists()
         assert (output_dir / runner.FAILURE_FILENAME).exists()
 
+    def test_run_start_removes_stale_artifacts_before_bundle_validation(
+        self, runner, tmp_path: Path
+    ) -> None:
+        output_dir = tmp_path / "results"
+        output_dir.mkdir()
+        stale_result = output_dir / runner.RESULT_FILENAME
+        stale_failure = output_dir / runner.FAILURE_FILENAME
+        stale_result.write_text("{}", encoding="utf-8")
+        stale_failure.write_text("{}", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="genai_config"):
+            runner.main(
+                [
+                    "-m",
+                    str(tmp_path / "missing-bundle"),
+                    "--output-dir",
+                    str(output_dir),
+                ]
+            )
+
+        assert not stale_result.exists()
+        assert not stale_failure.exists()
+
 
 class TestProcessLifecycle:
     def test_guard_setup_failure_cleans_spawned_process(self, runner, monkeypatch) -> None:

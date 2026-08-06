@@ -630,10 +630,12 @@ def main(argv: list[str] | None = None) -> int:
     ):
         raise ValueError("--gpu-memory-gb must be positive")
 
-    bundle_dir = args.model.resolve()
-    validate_bundle(bundle_dir)
     output_dir = args.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / RESULT_FILENAME).unlink(missing_ok=True)
+    (output_dir / FAILURE_FILENAME).unlink(missing_ok=True)
+    bundle_dir = args.model.resolve()
+    validate_bundle(bundle_dir)
     started_at = _utc_now()
     started = time.perf_counter()
     environment = _collect_environment(args.gpu_memory_gb)

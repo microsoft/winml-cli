@@ -839,6 +839,50 @@ class TestResolveAdapterLuid:
 
         assert luid == "0x00000000_0x000000DE"
 
+    def test_multiple_matching_adapters_are_unresolved_without_pdh_fallback(self):
+        from winml.modelkit.sysinfo import pdh_adapters
+
+        def fake_device(luid: str):
+            return type(
+                "FakeEpDevice",
+                (),
+                {
+                    "ep_name": "DmlExecutionProvider",
+                    "device": type(
+                        "FakeHwDev",
+                        (),
+                        {"type": "GPU_TYPE", "metadata": {"LUID": luid}},
+                    )(),
+                },
+            )()
+
+        fake_ort = type(
+            "FakeOrt",
+            (),
+            {
+                "get_ep_devices": lambda: [fake_device("111"), fake_device("222")],
+                "OrtHardwareDeviceType": type(
+                    "Types", (), {"NPU": "NPU_TYPE", "GPU": "GPU_TYPE"}
+                ),
+            },
+        )
+        fake_pdh = {
+            "0x00000000_0x0000006F": object(),
+            "0x00000000_0x000000DE": object(),
+        }
+
+        with (
+            patch.dict("sys.modules", {"onnxruntime": fake_ort}),
+            patch.object(pdh_adapters, "enumerate_adapters", return_value=fake_pdh),
+            patch.object(pdh_adapters, "discover_gpu_luid") as fallback,
+        ):
+            luid = pdh_adapters.resolve_adapter_luid(
+                "gpu", ep_name="DmlExecutionProvider"
+            )
+
+        assert luid is None
+        fallback.assert_not_called()
+
     def test_falls_back_to_pdh_when_ort_has_no_luid_metadata(self):
         """Some EPs may register without LUID metadata; PDH is the fallback."""
         from winml.modelkit.sysinfo import pdh_adapters
