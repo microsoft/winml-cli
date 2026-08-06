@@ -1,0 +1,59 @@
+{
+  "issue_number": 921,
+  "github_url": "https://github.com/microsoft/winml-cli/issues/921",
+  "title": "analyze: detect Gemm→Reshape→Transpose hybrid-unfold pattern; warn before applying highdimRTR",
+  "status": "OPEN",
+  "labels": ["static-analyzer", "graph-optimizer", "P2", "triaged"],
+  "filed_date": "2026-06-18",
+  "category": "analyze",
+  "source_findings": ["npu-010", "gpu-008"],
+  "affected_eps": ["qnn_npu", "qnn_gpu"],
+  "affected_arch": ["mobilevit", "cnn_vit_hybrid"],
+  "summary": "analyze_insight.py does not detect Gemm→Reshape→Transpose unfold blocks (CNN-ViT hybrid fingerprint). When highdimRTR_lowdimRTR is applied to models with this pattern, it inserts ~36 spurious Reshape nodes after Gemm layers, increasing memory traffic and causing regression.",
+  "root_cause": "MobileViT's CNN encoder implements a sliding-window unfold via Gemm→Reshape→Transpose. highdimRTR_lowdimRTR misidentifies these as optimizable RTR chains. The optimizer tries to lower dimensionality but fails — in the process inserting layout-conversion Reshape nodes before/after each Gemm-unfold block to meet expected tensor formats. Net effect: +36 extra nodes, more DMA traffic on NPU/GPU.",
+  "measured_impact": [
+    {
+      "model": "apple/mobilevit-small",
+      "ep": "qnn_npu",
+      "hypothesis": "h9",
+      "baseline_ms": 26.6,
+      "result_ms": 31.8,
+      "gain_pct": -19.5,
+      "verdict": "DISCARD",
+      "protocol": "3x500 iters, Phase C confirmed",
+      "date": "2026-06-17"
+    },
+    {
+      "model": "apple/mobilevit-small",
+      "ep": "qnn_gpu",
+      "hypothesis": "h9",
+      "baseline_ms": null,
+      "result_ms": null,
+      "gain_pct": -6.9,
+      "verdict": "DISCARD",
+      "protocol": "3x300 iters, Phase C confirmed",
+      "date": "2026-06-18"
+    },
+    {
+      "model": "facebook/dinov2-small",
+      "ep": "qnn_npu",
+      "hypothesis": "h9",
+      "baseline_ms": null,
+      "result_ms": null,
+      "gain_pct": 38.1,
+      "verdict": "KEEP_CONFIRMED",
+      "note": "Pure-ViT — no Gemm-unfold blocks. highdimRTR works correctly here.",
+      "protocol": "3x500 iters",
+      "date": "2026-06-17"
+    }
+  ],
+  "fix_needed": {
+    "file": "analyze_insight.py",
+    "function": "detect_fusion_candidates",
+    "description": "Add a pass that counts Gemm→Reshape→Transpose chains. If count > 0, emit FusionCandidate with tag 'highdimRTR_risky' and add hypothesis h9 to skip_set.",
+    "code_sketch": "for node in graph.node:\n  if node.op_type == 'Reshape':\n    pred = producer.get(node.input[0])\n    if pred and pred.op_type in ('Gemm', 'MatMul'):\n      consumer = _single_consumer(node)\n      if consumer and consumer.op_type == 'Transpose':\n        gemm_unfold_count += 1"
+  },
+  "discriminator": "Gemm→Reshape→Transpose count > 0 → add highdimRTR to skip_set; count == 0 → highdimRTR is a candidate (may give +38% on pure-ViT)",
+  "related_issues": [180],
+  "notes": "Issue #180 is a companion question about whether unmergeable RTR patterns should be surfaced by the pattern matcher. This issue is about pre-detection of the *source* pattern before rewrite is attempted."
+}

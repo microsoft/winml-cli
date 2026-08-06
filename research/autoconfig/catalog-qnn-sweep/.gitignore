@@ -1,0 +1,3 @@
+# Ignore per-hypothesis build artifacts from validation_sweep.py
+# (ONNX model files, calibration data, perf session JSONs)
+val_h*/
