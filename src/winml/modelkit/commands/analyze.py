@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import click
+from rich.cells import cell_len
 from rich.console import Console
 from rich.live import Live
 from rich.logging import RichHandler
@@ -73,6 +74,19 @@ _COLORS = {
 _TRAILING_PAREN_RE = re.compile(r" \([^()]*\)$")
 _RUNTIME_DEBUG_LEVELS = ("unsupported", "partial", "supported")
 _SUPPORT_LEVEL_KEYS = ("supported", "partial", "unsupported", "unknown")
+_SKIP_NO_RULE_DATA_SUFFIX = "  Skipped - no rule data"
+_SKIP_TABLE_MIN_WIDTH = 80
+
+
+def _skip_table_width(section_name: str, ep_device_pair_display_name: str | None) -> int:
+    """Return a stable width for skip tables based on rendered title length."""
+    title = f"📊 {section_name}"
+    if ep_device_pair_display_name:
+        title += f" — {ep_device_pair_display_name}"
+    title += _SKIP_NO_RULE_DATA_SUFFIX
+
+    # Keep a small margin for table padding and terminal glyph width variance.
+    return max(_SKIP_TABLE_MIN_WIDTH, cell_len(title) + 2)
 
 
 def _display_name(pattern_id: str) -> str:
@@ -222,7 +236,8 @@ def _build_analysis_table(
         title += f" — [bold cyan]{ep_device_pair_display_name}[/bold cyan]"
 
     if op_check_skipped:
-        title += "  Skipped - no rule data"
+        title += _SKIP_NO_RULE_DATA_SUFFIX
+        skip_width = _skip_table_width("OP CHECK", ep_device_pair_display_name)
         table = Table(
             title=title,
             show_header=False,
@@ -230,7 +245,7 @@ def _build_analysis_table(
             box=None,
             padding=(0, 1),
             expand=False,
-            width=80,
+            width=skip_width,
         )
         # add_column is required even though no rows are added — without it the
         # empty table doesn't render the centered title.
@@ -353,7 +368,8 @@ def _build_pattern_query_table(
     if ep_device_pair_display_name:
         title += f" — [bold cyan]{ep_device_pair_display_name}[/bold cyan]"
     if pattern_check_skipped:
-        title += "  Skipped - no rule data"
+        title += _SKIP_NO_RULE_DATA_SUFFIX
+        skip_width = _skip_table_width("PATTERN CHECK", ep_device_pair_display_name)
         table = Table(
             title=title,
             show_header=True,
@@ -361,7 +377,7 @@ def _build_pattern_query_table(
             box=None,
             padding=(0, 1),
             expand=False,
-            width=80,
+            width=skip_width,
         )
         table.add_column("Pattern", width=60, no_wrap=True)
 
