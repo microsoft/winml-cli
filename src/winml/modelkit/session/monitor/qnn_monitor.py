@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import shutil
 import tempfile
 import time
 import uuid
@@ -701,6 +703,9 @@ class QNNMonitor(WinMLEPMonitor):
             if sdk_root is None:
                 logger.info("QNNMonitor: QNN SDK not located; skipping QHAS")
                 return None, None, None
+            schematic = self._publish_schematic(schematic)
+            if schematic is None:
+                return None, None, None
 
             qhas_output = self._qhas_output_path()
             viewer_output = run_qhas_viewer(qnn_log, schematic, qhas_output, sdk_root=sdk_root)
@@ -823,6 +828,33 @@ class QNNMonitor(WinMLEPMonitor):
             if schematic is not None:
                 return schematic
         return None
+
+    def _publish_schematic(self, schematic: Path) -> Path | None:
+        """Copy a run-bound schematic beside this monitor's profiling artifacts."""
+        destination = self._csv_path.with_name(f"{self._csv_path.stem}_schematic.bin")
+        staging = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            if schematic.resolve() != destination.resolve():
+                shutil.copy2(schematic, staging)
+                os.link(staging, destination)
+        except OSError as exc:
+            logger.warning(
+                "QNNMonitor: could not publish schematic %s to %s: %s",
+                schematic,
+                destination,
+                exc,
+            )
+            return None
+        finally:
+            try:
+                staging.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.debug(
+                    "QNNMonitor: could not remove schematic staging file %s: %s",
+                    staging,
+                    exc,
+                )
+        return destination
 
     def _schematic_partition_name(self) -> str | None:
         """Resolve the exact EPContext partition name for schematic lookup."""
