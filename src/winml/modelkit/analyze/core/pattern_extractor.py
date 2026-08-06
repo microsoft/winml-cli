@@ -50,6 +50,19 @@ class PatternSourceStat(TypedDict):
     elapsed_ms: int
 
 
+class PatternOptimizationHint(TypedDict):
+    """Fallback optimization hint extracted from matched pattern alternatives."""
+
+    source: str
+    pattern_id: str
+    pattern_to_id: str
+    instances: int
+    enabled: bool
+    details: str | None
+    reason: str | None
+    action_items: list[dict[str, Any]]
+
+
 class PatternSummary(TypedDict):
     """Type definition for pattern analysis summary."""
 
@@ -59,6 +72,8 @@ class PatternSummary(TypedDict):
     source_stats: list[PatternSourceStat]
     merge_prep: list[PatternMergePrepEntry]
     model_signature: str
+    parquet_lookup_supported: bool
+    pattern_optimization_hints: list[PatternOptimizationHint]
 
 
 class PatternRuleCompileRunResult(TypedDict):
@@ -1549,12 +1564,109 @@ class PatternExtractor:
         self._MERGE_PREP_CACHE[cache_key] = copy.deepcopy(entries)
         return entries
 
+    @staticmethod
+    def _normalize_optimization_action_items(
+        action_items: list[dict[str, Any]] | None,
+    ) -> list[dict[str, Any]]:
+        """Normalize optimization action items to snake_case option keys."""
+        normalized_items: list[dict[str, Any]] = []
+        for raw_item in action_items or []:
+            if not isinstance(raw_item, dict):
+                continue
+
+            raw_options = raw_item.get("optimization_options")
+            if not isinstance(raw_options, dict) or not raw_options:
+                continue
+
+            normalized_options: dict[str, bool] = {}
+            for option_key, option_value in raw_options.items():
+                if isinstance(option_value, bool):
+                    normalized_options[str(option_key).replace("-", "_")] = option_value
+
+            if not normalized_options:
+                continue
+
+            normalized_items.append(
+                {
+                    "type": str(raw_item.get("type", "GraphOptimization")),
+                    "optimization_options": normalized_options,
+                }
+            )
+
+        return normalized_items
+
+    def _build_pattern_optimization_hints(
+        self,
+        *,
+        subgraph_patterns: list[PatternMatchResult],
+        pattern_count_dict: dict[str, int],
+    ) -> list[PatternOptimizationHint]:
+        """Collect fallback optimization hints from matched pattern alternatives.
+
+        For each matched pattern ID, pick the first enabled alternative that
+        carries optimization_options and export those action_items.
+        """
+        hints: list[PatternOptimizationHint] = []
+        processed_pattern_ids: set[str] = set()
+        source_config_cache: dict[str, UnifiedPatternConfig] = {}
+
+        for pattern_match in subgraph_patterns:
+            pattern_id = str(pattern_match.pattern.pattern_id)
+            if not pattern_id or pattern_id in processed_pattern_ids:
+                continue
+
+            source = str(pattern_match.attributes.get("source", "default")).strip().lower()
+            if not source:
+                source = "default"
+
+            source_config = source_config_cache.get(source)
+            if source_config is None:
+                source_config = UnifiedPatternConfig(ihv_type=source)
+                source_config_cache[source] = source_config
+
+            alternatives = source_config.get_alternatives(pattern_match.pattern)
+            selected_alternative: PatternAlternative | None = None
+            selected_action_items: list[dict[str, Any]] = []
+
+            for alternative in alternatives:
+                if not alternative.enabled:
+                    continue
+
+                normalized_action_items = self._normalize_optimization_action_items(
+                    alternative.action_items,
+                )
+                if not normalized_action_items:
+                    continue
+
+                selected_alternative = alternative
+                selected_action_items = normalized_action_items
+                break
+
+            if selected_alternative is None or not selected_action_items:
+                continue
+
+            hints.append(
+                {
+                    "source": source,
+                    "pattern_id": pattern_id,
+                    "pattern_to_id": selected_alternative.pattern_to_id,
+                    "instances": int(pattern_count_dict.get(pattern_id, 0)),
+                    "enabled": bool(selected_alternative.enabled),
+                    "details": selected_alternative.details,
+                    "reason": selected_alternative.reason,
+                    "action_items": selected_action_items,
+                }
+            )
+            processed_pattern_ids.add(pattern_id)
+
+        return hints
+
     def summary(
         self,
         ep: EPNameOrAlias | None = None,
         device: str | None = None,
         for_debug: bool = False,
-        on_pattern_query_start: Callable[[Mapping[str, int]], None] | None = None,
+        on_pattern_query_start: Callable[[Mapping[str, int], bool], None] | None = None,
         on_pattern_query_result: Callable[[str, str], None] | None = None,
     ) -> PatternSummary:
         """Generate comprehensive pattern analysis summary.
@@ -1604,9 +1716,21 @@ class PatternExtractor:
         detected_pattern_count = {ep: pattern_count_dict} if ep is not None else {}
         metadata = self.model_summary(detected_pattern_count=detected_pattern_count)
 
+        parquet_lookup_supported = True
+        if ep is not None and device is not None:
+            parquet_lookup_supported = self._is_valid_parquet_lookup_target(
+                str(ep),
+                str(device).upper(),
+            )
+
+        pattern_optimization_hints = self._build_pattern_optimization_hints(
+            subgraph_patterns=subgraph_patterns,
+            pattern_count_dict=pattern_count_dict,
+        )
+
         if on_pattern_query_start is not None:
             try:
-                on_pattern_query_start(pattern_count_dict)
+                on_pattern_query_start(pattern_count_dict, parquet_lookup_supported)
             except Exception:
                 logger.debug("on_pattern_query_start callback failed", exc_info=True)
 
@@ -1635,6 +1759,8 @@ class PatternExtractor:
             "source_stats": source_stats,
             "merge_prep": merge_prep,
             "model_signature": model_signature,
+            "parquet_lookup_supported": parquet_lookup_supported,
+            "pattern_optimization_hints": pattern_optimization_hints,
         }
 
     def model_summary(

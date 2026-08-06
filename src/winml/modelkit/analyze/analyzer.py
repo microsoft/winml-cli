@@ -324,6 +324,105 @@ def _build_pattern_matching_summary(
     }
 
 
+def _build_information_from_pattern_optimization_hints(
+    hints: Sequence[Mapping[str, Any]],
+) -> list[Information]:
+    """Build fallback Information items from matched-pattern optimization hints.
+
+    Used when pattern rule lookup is disabled for a target EP/device.
+    """
+    from .models.information import Action, ActionItem, ActionLevel
+
+    info_items: list[Information] = []
+    seen_pairs: set[tuple[str, str]] = set()
+
+    for hint in hints:
+        pattern_id = str(hint.get("pattern_id", "")).strip()
+        pattern_to_id = str(hint.get("pattern_to_id", "")).strip()
+        if not pattern_id or not pattern_to_id:
+            continue
+
+        pair_key = (pattern_id, pattern_to_id)
+        if pair_key in seen_pairs:
+            continue
+
+        raw_action_items = hint.get("action_items", [])
+        action_items: list[ActionItem] = []
+        if isinstance(raw_action_items, list):
+            for raw_item in raw_action_items:
+                if not isinstance(raw_item, dict):
+                    continue
+
+                raw_options = raw_item.get("optimization_options")
+                if not isinstance(raw_options, dict) or not raw_options:
+                    continue
+
+                normalized_options: dict[str, bool] = {}
+                for option_key, option_value in raw_options.items():
+                    if isinstance(option_value, bool):
+                        normalized_options[str(option_key).replace("-", "_")] = option_value
+
+                if not normalized_options:
+                    continue
+
+                action_items.append(
+                    ActionItem(
+                        type=str(raw_item.get("type", "GraphOptimization")),
+                        optimization_options=normalized_options,
+                    )
+                )
+
+        if not action_items:
+            continue
+
+        enabled = bool(hint.get("enabled", True))
+        details = str(
+            hint.get("details")
+            or hint.get("reason")
+            or (
+                f"Pattern '{pattern_id}' matched, but rule lookup is unavailable for this "
+                f"target. Using optimization hint from '{pattern_to_id}'."
+            )
+        )
+
+        action = Action(
+            pattern_from_id=pattern_id,
+            pattern_to_id=pattern_to_id,
+            level=ActionLevel.OPTIONAL,
+            status=SupportLevel.UNKNOWN,
+            enabled=enabled,
+            details=details,
+            action_items=action_items,
+        )
+
+        instance_count = int(hint.get("instances", 0))
+        if instance_count > 1:
+            explanation = (
+                f"{instance_count} instances of pattern '{pattern_id}' matched. "
+                "Runtime rule lookup is skipped for this target; exposing fallback "
+                "optimization options from the first eligible alternative."
+            )
+        else:
+            explanation = (
+                f"Pattern '{pattern_id}' matched. Runtime rule lookup is skipped for "
+                "this target; exposing fallback optimization options from the first "
+                "eligible alternative."
+            )
+
+        info_items.append(
+            Information(
+                explanation=explanation,
+                actions=[action],
+                pattern_id=pattern_id,
+                status=SupportLevel.UNKNOWN,
+                enabled=enabled,
+            )
+        )
+        seen_pairs.add(pair_key)
+
+    return info_items
+
+
 def _build_operator_counts_excluding_pattern_nodes(
     *,
     operator_counts: Mapping[str, int],
@@ -1142,12 +1241,17 @@ class ONNXStaticAnalyzer:
 
             def _on_pattern_query_start_for_ep(
                 pattern_counts: Mapping[str, int],
+                pattern_lookup_supported: bool = True,
                 _ep: EPName = current_ep,
             ) -> None:
                 if on_pattern_query_start is None:
                     return
                 try:
-                    on_pattern_query_start(_ep, dict(pattern_counts))
+                    on_pattern_query_start(
+                        _ep,
+                        dict(pattern_counts),
+                        pattern_lookup_supported,
+                    )
                 except Exception:
                     logger.debug("on_pattern_query_start callback failed", exc_info=True)
 
@@ -1169,6 +1273,13 @@ class ONNXStaticAnalyzer:
                 for_debug=for_debug,
                 on_pattern_query_start=_on_pattern_query_start_for_ep,
                 on_pattern_query_result=_on_pattern_query_result_for_ep,
+            )
+            pattern_lookup_supported = bool(
+                ep_pattern_summary.get("parquet_lookup_supported", True)
+            )
+            pattern_optimization_hints = cast(
+                "list[Mapping[str, Any]]",
+                ep_pattern_summary.get("pattern_optimization_hints", []),
             )
             # Also tolerate minimal test doubles that don't stub model_summary().
             if not isinstance(metadata, ModelStats):
@@ -1209,9 +1320,30 @@ class ONNXStaticAnalyzer:
                         onnx_model=onnx_model,
                         matched_node_keys=set(pattern_status_by_node_key),
                     )
-                    on_ep_start(current_ep, op_counts_for_display)
+                    on_ep_start(
+                        current_ep,
+                        op_counts_for_display,
+                        not pattern_lookup_supported,
+                    )
                 except Exception:
                     logger.debug("on_ep_start callback failed", exc_info=True)
+
+            if not pattern_lookup_supported:
+                logger.info(
+                    "Skipping runtime rule checks for %s on %s: target is marked "
+                    "invalid in available providers config",
+                    current_ep,
+                    device_to_use,
+                )
+                check_op_results[current_ep] = []
+
+                fallback_info_start = time.perf_counter()
+                information_list[current_ep] = _build_information_from_pattern_optimization_hints(
+                    pattern_optimization_hints,
+                )
+                ep_info_timing[current_ep] = int((time.perf_counter() - fallback_info_start) * 1000)
+                ep_runtime_timing[current_ep] = 0
+                continue
 
             runtime_summary_start = time.perf_counter()
             runtime_checker = RuntimeChecker(

@@ -222,7 +222,7 @@ def _build_analysis_table(
         title += f" — [bold cyan]{ep_device_pair_display_name}[/bold cyan]"
 
     if op_check_skipped:
-        title += "  Skipped - no rule data"
+        title += "  Skipped"
         table = Table(
             title=title,
             show_header=False,
@@ -346,11 +346,37 @@ def _build_pattern_query_table(
     ep_device_pair_display_name: str | None = None,
     complete: bool = False,
     all_patterns: dict[str, int] | None = None,
+    pattern_check_skipped: bool = False,
 ) -> Table:
     """Build pattern query progress table with S/P/U/Unk counts."""
     title = "📊 PATTERN CHECK"
     if ep_device_pair_display_name:
         title += f" — [bold cyan]{ep_device_pair_display_name}[/bold cyan]"
+    if pattern_check_skipped:
+        # Keep the skip title on one line for long EP/device labels.
+        # Extra margin absorbs emoji/full-width rendering variance in terminals.
+        min_width = max(104, len(ep_device_pair_display_name or "") + 68)
+        title += "  Skipped - no rule data"
+        table = Table(
+            title=title,
+            show_header=True,
+            header_style="bold",
+            box=None,
+            padding=(0, 1),
+            expand=False,
+            width=min_width,
+        )
+        table.add_column("Pattern", width=60, no_wrap=True)
+
+        if all_patterns:
+            display_order = sorted(all_patterns, key=lambda x: all_patterns[x], reverse=True)
+            for pattern_id in display_order:
+                total = int(all_patterns.get(pattern_id, 0))
+                table.add_row(Text(f"   {pattern_id} ({total})", style="dim"))
+        else:
+            table.add_row(Text("   (none)", style="dim"))
+        return table
+
     if complete:
         title += "  [bold green]✅ Complete[/bold green]"
 
@@ -1458,6 +1484,7 @@ def analyze(
         analysis_results: list = []
         current_run_unknown_op = False
         current_op_check_skipped = False
+        current_pattern_check_skipped = False
 
         def _current_ep_device_pair_display_name() -> str:
             """Return current EP/device display label, or empty when unset."""
@@ -1505,17 +1532,18 @@ def analyze(
 
         def _finalize_pattern_live(mark_complete: bool = True) -> None:
             """Stop active pattern-query Live display, optionally marking complete."""
-            nonlocal pattern_live
+            nonlocal pattern_live, current_pattern_check_skipped
             if pattern_live is None:
                 return
             try:
-                if mark_complete:
+                if mark_complete and not current_pattern_check_skipped:
                     pattern_live.update(
                         _build_pattern_query_table(
                             pattern_instance_counts,
                             ep_device_pair_display_name=_current_ep_device_pair_display_name(),
                             complete=True,
                             all_patterns=all_pattern_counts,
+                            pattern_check_skipped=current_pattern_check_skipped,
                         )
                     )
             except Exception:
@@ -1549,11 +1577,15 @@ def analyze(
                 live.stop()
                 live = None
 
-        def on_pattern_query_start(ep_name: EPName, pattern_counts: dict[str, int]) -> None:
+        def on_pattern_query_start(
+            ep_name: EPName,
+            pattern_counts: dict[str, int],
+            pattern_lookup_supported: bool = True,
+        ) -> None:
             """Called when pattern query stage starts for one EP."""
             nonlocal current_ep_device_pair
             nonlocal pattern_instance_counts, all_pattern_counts, ep_counter, pattern_live
-            nonlocal ep_header_rendered
+            nonlocal ep_header_rendered, current_pattern_check_skipped
 
             # Safety: finalize any stale displays.
             _finalize_pattern_live()
@@ -1567,6 +1599,7 @@ def analyze(
                 if int(total) > 0
             }
             pattern_instance_counts = {}
+            current_pattern_check_skipped = not pattern_lookup_supported
 
             ep_counter += 1
             console.print("─" * 80)
@@ -1582,6 +1615,7 @@ def analyze(
                     pattern_instance_counts,
                     ep_device_pair_display_name=_current_ep_device_pair_display_name(),
                     all_patterns=all_pattern_counts,
+                    pattern_check_skipped=current_pattern_check_skipped,
                 ),
                 console=console,
                 refresh_per_second=30,
@@ -1610,17 +1644,22 @@ def analyze(
                         pattern_instance_counts,
                         ep_device_pair_display_name=_current_ep_device_pair_display_name(),
                         all_patterns=all_pattern_counts,
+                        pattern_check_skipped=current_pattern_check_skipped,
                     )
                 )
 
         def on_pattern_summary_ready(ep_name: EPName, ep_payload: dict[str, Any]) -> None:
             """Finalize pattern progress display before OP CHECK starts."""
             _ = ep_name
-            _finalize_pattern_live()
+            _finalize_pattern_live(mark_complete=not current_pattern_check_skipped)
             console.print()
             console.print(_build_pattern_coverage_op_line(ep_payload), soft_wrap=True)
 
-        def on_ep_start(ep_name: EPName, operator_counts: dict[str, int]) -> None:
+        def on_ep_start(
+            ep_name: EPName,
+            operator_counts: dict[str, int],
+            skip_runtime_checks: bool = False,
+        ) -> None:
             """Called when OP CHECK stage starts for a new EP."""
             nonlocal current_ep_device_pair
             nonlocal instance_counts, all_op_counts, live
@@ -1650,6 +1689,19 @@ def analyze(
                 if int(v) > 0
             }
             instance_counts = {}
+
+            if skip_runtime_checks:
+                current_op_check_skipped = True
+                _no_data_eps.add((ep_name, current_device))
+                console.print()
+                console.print(
+                    _build_analysis_table(
+                        instance_counts,
+                        ep_device_pair_display_name=_current_ep_device_pair_display_name(),
+                        op_check_skipped=True,
+                    )
+                )
+                return
 
             has_rule_data = has_rule_data_for_ep(ep_name, current_device)
             current_op_check_skipped = not has_rule_data and not current_run_unknown_op
@@ -1689,6 +1741,16 @@ def analyze(
                         total=max(1, unknown_op_total_nodes),
                     )
                     return
+
+                console.print()
+                console.print(
+                    _build_analysis_table(
+                        instance_counts,
+                        ep_device_pair_display_name=_current_ep_device_pair_display_name(),
+                        op_check_skipped=True,
+                    )
+                )
+                return
 
             console.print()
 
