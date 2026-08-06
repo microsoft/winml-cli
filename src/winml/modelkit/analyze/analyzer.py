@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, cast
 from ..optim.config import WinMLOptimizationConfig
 from ..utils.constants import normalize_ep_name
 from .models.information import Information
-from .models.output import ModelStats, RuntimeDebugSummaryEntry
+from .models.output import RuntimeDebugSummaryEntry
 from .models.runtime_checks import (
     AlternativeType,
     PatternAlternative,
@@ -1281,9 +1281,7 @@ class ONNXStaticAnalyzer:
                 "list[Mapping[str, Any]]",
                 ep_pattern_summary.get("pattern_optimization_hints", []),
             )
-            # Also tolerate minimal test doubles that don't stub model_summary().
-            if not isinstance(metadata, ModelStats):
-                metadata = ep_pattern_summary["summary"]
+            metadata = ep_pattern_summary["summary"]
             detected_pattern_count.update(
                 ep_pattern_summary["summary"].detected_pattern_count
             )

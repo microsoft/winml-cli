@@ -22,7 +22,7 @@ import numpy as np
 
 from ...onnx import ONNXDomain
 from ...pattern.base import InvalidPatternMatcherModelError, PatternMatcher, PatternMismatchedError
-from ...pattern.config import PatternConfig, UnifiedPatternConfig
+from ...pattern.config import PatternAlternative, PatternConfig, UnifiedPatternConfig
 from ..models.onnx_model import ModelTag, ONNXModel
 from ..models.output import extract_model_stats
 from ..utils.model_utils import encode_rule_condition_value_for_parquet, make_hashable
@@ -1571,9 +1571,6 @@ class PatternExtractor:
         """Normalize optimization action items to snake_case option keys."""
         normalized_items: list[dict[str, Any]] = []
         for raw_item in action_items or []:
-            if not isinstance(raw_item, dict):
-                continue
-
             raw_options = raw_item.get("optimization_options")
             if not isinstance(raw_options, dict) or not raw_options:
                 continue
@@ -1713,7 +1710,9 @@ class PatternExtractor:
         count_dict_ms = int((time.perf_counter() - count_dict_start) * 1000)
 
         # Pattern matching is EP-specific, so preserve the owning EP in metadata.
-        detected_pattern_count = {ep: pattern_count_dict} if ep is not None else {}
+        detected_pattern_count: dict[str, dict[str, int]] = {}
+        if ep is not None:
+            detected_pattern_count[str(ep)] = pattern_count_dict
         metadata = self.model_summary(detected_pattern_count=detected_pattern_count)
 
         parquet_lookup_supported = True
