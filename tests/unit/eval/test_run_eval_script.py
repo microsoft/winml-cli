@@ -68,9 +68,22 @@ def _deterministic_ep_deduction(run_eval):
     deduction patch it themselves.
     """
     run_eval._deduce_ep_for_device.cache_clear()
-    with patch(
-        "winml.modelkit.session.default_ep_for_device",
-        return_value="QNNExecutionProvider",
+    def resolve_target(ep, device):
+        from winml.modelkit.session import default_device_for_ep, expand_ep_name
+
+        resolved_device = device if device and device != "auto" else None
+        if resolved_device is None and ep and ep != "auto":
+            resolved_device = default_device_for_ep(expand_ep_name(ep))
+        resolved_device = resolved_device or "cpu"
+        resolved_ep = ep if ep and ep != "auto" else run_eval._effective_ep(None, resolved_device)
+        return resolved_ep or "CPUExecutionProvider", resolved_device
+
+    with (
+        patch(
+            "winml.modelkit.session.default_ep_for_device",
+            return_value="QNNExecutionProvider",
+        ),
+        patch.object(run_eval, "_resolve_eval_target", side_effect=resolve_target),
     ):
         yield
     run_eval._deduce_ep_for_device.cache_clear()
@@ -96,6 +109,25 @@ class TestShouldSkipWinmlQuant:
     )
     def test_other_eps_do_not_skip(self, run_eval, ep):
         assert run_eval._should_skip_winml_quant(ep) is False
+
+
+class TestKillProcessTree:
+    def test_access_denied_child_does_not_escape(self, run_eval):
+        import psutil
+
+        child = MagicMock()
+        child.kill.side_effect = psutil.AccessDenied(pid=456)
+        parent = MagicMock()
+        parent.children.return_value = [child]
+
+        with (
+            patch.object(psutil, "Process", return_value=parent),
+            patch.object(psutil, "wait_procs") as wait_procs,
+        ):
+            run_eval._kill_process_tree(123)
+
+        parent.kill.assert_called_once_with()
+        wait_procs.assert_called_once_with([child, parent], timeout=5)
 
 
 class TestDeducedEpForPinnedDevice:
@@ -167,6 +199,47 @@ class TestDeducedEpForPinnedDevice:
         run_eval._deduce_ep_for_device.cache_clear()
         assert run_eval._deduce_ep_for_device("auto") is None
         assert run_eval._should_skip_winml_quant(None, "auto") is False
+
+
+class TestBuildJobsTargetResolution:
+    @staticmethod
+    def _entry(run_eval):
+        return run_eval.ModelEntry(
+            hf_id="acme/model",
+            task="image-classification",
+            model_type="vit",
+            priority="P0",
+            group="Benchmark",
+        )
+
+    @pytest.mark.parametrize(
+        ("ep", "device", "resolved_ep", "resolved_device"),
+        [
+            (None, "cpu", "CPUExecutionProvider", "cpu"),
+            ("qnn", "auto", "QNNExecutionProvider", "npu"),
+        ],
+    )
+    def test_resolves_single_auto_axis_before_recipe_lookup(
+        self, run_eval, ep, device, resolved_ep, resolved_device
+    ):
+        with (
+            patch.object(
+                run_eval,
+                "_resolve_eval_target",
+                return_value=(resolved_ep, resolved_device),
+            ) as resolve,
+            patch.object(run_eval, "discover_recipe_variants", return_value=[]) as discover,
+        ):
+            run_eval._build_jobs([self._entry(run_eval)], Path("recipes"), device, ep=ep)
+
+        resolve.assert_called_once_with(ep, device)
+        discover.assert_called_once_with(
+            Path("recipes"),
+            "acme/model",
+            "image-classification",
+            ep=resolved_ep,
+            device=resolved_device,
+        )
 
 
 class TestResolvePrecision:
