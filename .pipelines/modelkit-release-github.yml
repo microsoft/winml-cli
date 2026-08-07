@@ -156,7 +156,8 @@ extends:
         - task: GitHubRelease@1
           displayName: 'Create GitHub Release'
           inputs:
-            gitHubConnection: 'ModelKit'
+            # GitHub App-backed connection; avoids expiring and SAML-bound PAT credentials.
+            gitHubConnection: 'microsoft'
             repositoryName: 'microsoft/winml-cli'
             action: create
             target: '$(Build.SourceVersion)'
