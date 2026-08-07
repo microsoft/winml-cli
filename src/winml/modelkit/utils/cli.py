@@ -420,6 +420,7 @@ def ep_option(
     default: str | None = None,
     include_auto: bool = False,
     include_all: bool = False,
+    include_cuda: bool = False,
 ) -> Callable[[F], F]:
     """Add --ep (execution provider) option to a Click command.
 
@@ -433,6 +434,8 @@ def ep_option(
             (default: False).
         include_all: Whether to include "all" as a valid choice
             (default: False).
+        include_cuda: Whether to include CUDA aliases and the full provider name
+            (default: False).
 
     Returns:
         Decorator function
@@ -445,7 +448,11 @@ def ep_option(
     if optional_message:
         help_text = f"{help_text}. {optional_message}"
 
-    ep_choices = [name for name in ALL_EP_NAMES if name not in ("cuda", "CUDAExecutionProvider")]
+    ep_choices = [
+        name
+        for name in ALL_EP_NAMES
+        if include_cuda or name not in ("cuda", "CUDAExecutionProvider")
+    ]
     choices = ["auto", *ep_choices] if include_auto else ep_choices
     choices = ["all", *choices] if include_all else choices
 
