@@ -75,6 +75,24 @@ RuntimeName = Literal["winml", "winml-genai"]
 RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
 
 
+def _detail_fallback_guidance(reason: str | None) -> str:
+    """Return actionable guidance for a structured detail-trace fallback."""
+    guidance = {
+        "qnn_log_missing": "the QNN optrace log was not produced",
+        "schematic_missing": (
+            "the compiled EPContext has no optrace schematic; rerun detail "
+            "profiling from the raw ONNX so WinML can compile it with optrace enabled"
+        ),
+        "sdk_missing": "the QNN SDK was not found; set QNN_SDK_ROOT to enable QHAS",
+        "viewer_failed": "the QHAS viewer did not produce an output",
+        "qhas_output_missing": "the requested QHAS output was not found",
+        "qhas_parse_failed": "the QHAS output could not be parsed",
+    }
+    if reason is None:
+        return "QHAS post-processing was unavailable"
+    return guidance.get(reason, "QHAS post-processing was unavailable")
+
+
 class _NativeWarningFilteredPerfContext:
     """Filter native warnings from session.perf enter/exit without wrapping the loop."""
 
@@ -3235,9 +3253,9 @@ def perf(
                         "EPContext model, but the benchmark ran the original ONNX model."
                     )
                     sys.exit(4)
+                detail = _detail_fallback_guidance(trace_result.fallback_reason)
                 console.print(
-                    "[yellow]Notice:[/yellow] Detail mode degraded to basic CSV "
-                    "(QHAS unavailable; set QNN_SDK_ROOT to enable)."
+                    f"[yellow]Notice:[/yellow] Detail mode degraded to basic CSV ({detail})."
                 )
 
             if json_mode:
