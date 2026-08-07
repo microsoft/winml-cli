@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from winml.modelkit.session.monitor.op_metrics import (
     OperatorMetrics,
     OpTraceResult,
@@ -144,6 +146,46 @@ def test_to_dict_status_only_accepts_known_values_per_typing() -> None:
     for status in ("ok", "no_data", "parse_failed", "basic_fallback", "not_run"):
         r = OpTraceResult(model=None, device="npu", tracing_level="basic", status=status)
         assert r.to_dict()["status"] == status
+
+
+def test_to_dict_serializes_fallback_reason() -> None:
+    """Degraded detail traces expose a stable machine-readable reason."""
+    r = OpTraceResult(
+        model=None,
+        device="npu",
+        tracing_level="detail",
+        status="basic_fallback",
+        fallback_reason="schematic_missing",
+    )
+
+    serialized = r.to_dict()
+
+    assert serialized["fallback_reason"] == "schematic_missing"
+    assert serialized["error"] is None
+
+
+def test_non_fallback_status_rejects_fallback_reason() -> None:
+    """A reason cannot be attached to a success or hard-failure status."""
+    with pytest.raises(ValueError, match="fallback_reason"):
+        OpTraceResult(
+            model=None,
+            device="npu",
+            tracing_level="detail",
+            status="ok",
+            fallback_reason="sdk_missing",
+        )
+
+
+def test_legacy_basic_fallback_without_reason_remains_valid() -> None:
+    """Older direct callers may omit the additive reason field."""
+    result = OpTraceResult(
+        model=None,
+        device="npu",
+        tracing_level="detail",
+        status="basic_fallback",
+    )
+
+    assert result.fallback_reason is None
 
 
 def test_trace_status_alias_importable() -> None:

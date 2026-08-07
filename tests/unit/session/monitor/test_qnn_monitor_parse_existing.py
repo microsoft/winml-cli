@@ -145,6 +145,35 @@ def test_parse_existing_artifacts_detail_qhas_override(tmp_path):
     )
 
 
+def test_parse_existing_artifacts_inaccessible_qhas_is_basic_fallback(tmp_path, monkeypatch):
+    """QHAS metadata I/O failures retain usable CSV data and a stable reason."""
+    csv_path = tmp_path / "profiling_output.csv"
+    csv_path.write_text(
+        (FIXTURE_DIR / "optrace_resnet50.csv").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    qhas_path = tmp_path / "inaccessible_qhas.json"
+    original_is_file = Path.is_file
+
+    def _inaccessible_qhas(self: Path) -> bool:
+        if self == qhas_path:
+            raise PermissionError("cannot inspect QHAS output")
+        return original_is_file(self)
+
+    monkeypatch.setattr(Path, "is_file", _inaccessible_qhas)
+
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    result = QNNMonitor.parse_existing_artifacts(
+        level="detail",
+        artifacts={"csv": csv_path, "qhas": qhas_path},
+    )
+
+    assert result.status == "basic_fallback"
+    assert result.fallback_reason == "qhas_output_missing"
+    assert result.operators
+
+
 def test_parse_existing_artifacts_returns_failed_result_on_corrupt_csv(tmp_path):
     """When artifacts cannot be parsed, parse_existing_artifacts returns
     OpTraceResult(status='parse_failed', error=...) rather than raising.

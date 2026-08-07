@@ -923,6 +923,7 @@ class TestCliOpTracingDispatch:
             device="npu",
             tracing_level="detail",
             status="basic_fallback",
+            fallback_reason="schematic_missing",
         )
         mock_ctx = MagicMock()
         mock_ctx.monitor.result = trace
@@ -949,7 +950,28 @@ class TestCliOpTracingDispatch:
             )
 
         assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}: {result.output}"
-        assert "degraded" in result.output.lower() or "notice" in result.output.lower()
+        assert "schematic" in result.output.lower()
+        assert "raw onnx" in result.output.lower()
+        assert "qnn_sdk_root" not in result.output.lower()
+
+    @pytest.mark.parametrize(
+        ("reason", "expected"),
+        [
+            ("qnn_log_missing", "optrace log"),
+            ("schematic_missing", "raw ONNX"),
+            ("sdk_missing", "QNN_SDK_ROOT"),
+            ("viewer_failed", "viewer"),
+            ("qhas_output_missing", "output was not found"),
+            ("qhas_parse_failed", "could not be parsed"),
+            (None, "post-processing was unavailable"),
+        ],
+    )
+    def test_detail_fallback_guidance_is_reason_specific(
+        self, reason: str | None, expected: str
+    ) -> None:
+        from winml.modelkit.commands.perf import _detail_fallback_guidance
+
+        assert expected in _detail_fallback_guidance(reason)
 
     def test_basic_fallback_status_rejects_raw_running_model(self, tmp_path: Path):
         """Detail tracing cannot degrade successfully when ORT ran the raw model."""

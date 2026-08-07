@@ -32,6 +32,16 @@ from typing import Any, Literal
 #: serialization are unaffected.
 TraceStatus = Literal["ok", "no_data", "parse_failed", "basic_fallback", "not_run"]
 
+#: Machine-readable reason why a requested detail trace degraded to basic data.
+TraceFallbackReason = Literal[
+    "qnn_log_missing",
+    "schematic_missing",
+    "sdk_missing",
+    "viewer_failed",
+    "qhas_output_missing",
+    "qhas_parse_failed",
+]
+
 
 @dataclass
 class OperatorMetrics:
@@ -145,8 +155,14 @@ class OpTraceResult:
     # Status of the trace. See :data:`TraceStatus` for the closed set of
     # legal values; static type checkers enforce the alias.
     status: TraceStatus = "ok"
+    # Populated when status == "basic_fallback".
+    fallback_reason: TraceFallbackReason | None = None
     # Populated when status == "parse_failed".
     error: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.fallback_reason is not None and self.status != "basic_fallback":
+            raise ValueError("fallback_reason requires status='basic_fallback'")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to structured dict.
@@ -170,6 +186,7 @@ class OpTraceResult:
             "artifacts": self.artifacts,
             # ---- Additive ----
             "status": self.status,
+            "fallback_reason": self.fallback_reason,
             "error": self.error,
         }
 
