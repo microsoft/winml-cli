@@ -14,7 +14,11 @@
       "BatchNormalization": 53
     },
     "unique_operator_types": 5,
-    "detected_pattern_count": 15
+    "detected_pattern_count": {
+      "QNNExecutionProvider": {
+        "SUBGRAPH/Example": 15
+      }
+    }
   },
   "results": [
     {

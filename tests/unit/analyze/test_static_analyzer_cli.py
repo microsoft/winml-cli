@@ -557,6 +557,7 @@ class TestAnalyzeCommandOptions:
                                     "case_indices": ["case_7"],
                                     "table_path": "rules/conv.parquet",
                                     "table_file": "conv.parquet",
+                                    "match_status": "op_match",
                                 }
                             },
                             "partial": {},
@@ -603,6 +604,7 @@ class TestAnalyzeCommandOptions:
             "case_indices": ["case_7"],
             "table_path": "rules/conv.parquet",
             "table_file": "conv.parquet",
+            "match_status": "op_match",
         }
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
@@ -1970,6 +1972,32 @@ class TestQDQNodeDisplayMapping:
 
 class TestAnalyzeSummaryRendering:
     """Summary rendering behavior for no-rule-data fallback cases."""
+
+    def test_summary_heading_includes_per_ep_analyze_elapsed(self) -> None:
+        """Heading should show elapsed analyze time annotation for EP/device."""
+        from winml.modelkit.commands.analyze import _render_analysis_summary
+
+        console = Console(record=True, force_terminal=False, width=120)
+
+        ep_support = Mock()
+        ep_support.ep_type = "DmlExecutionProvider"
+        ep_support.device_type = "GPU"
+        ep_support.classification = {}
+        ep_support.information = []
+
+        _render_analysis_summary(
+            console,
+            [ep_support],
+            ep_instance_counts={("DmlExecutionProvider", "GPU"): {"Conv": {"supported": 1}}},
+            ep_patterns={},
+            ep="DmlExecutionProvider",
+            device="GPU",
+            analyze_elapsed_ms=1234,
+        )
+
+        output = console.export_text()
+        assert "ANALYSIS SUMMARY" in output
+        assert "Analyze total: DmlExecutionProvider (GPU), 1.23s" in output
 
     def test_no_rule_data_with_instance_counts_renders_op_summary(self) -> None:
         """When unknown-op probing produced counts, summary should not show skip message."""

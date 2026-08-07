@@ -27,11 +27,13 @@ class RuntimeDebugDetails(TypedDict):
     table_path: NotRequired[str | None]
     table_file: NotRequired[str | None]
     case_indices: NotRequired[tuple[Any, ...] | list[Any] | None]
+    match_status: NotRequired[str]
 
     type: NotRequired[str]
     source: NotRequired[str]
     fallback_reason: NotRequired[str]
     op_type: NotRequired[str]
+    status: NotRequired[str]
     node_stable_key: NotRequired[str | None]
     domain: NotRequired[str]
     opset_version: NotRequired[int]
