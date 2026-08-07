@@ -272,9 +272,11 @@ def resolve_adapter_luid(
     if kind not in ACCELERATOR_DEVICE_TYPES:
         return None
 
-    luid = _resolve_via_ort(kind, ep_name)
+    luid, ambiguous = _resolve_via_ort(kind, ep_name)
     if luid is not None:
         return luid
+    if ambiguous:
+        return None
 
     # Fallback: PDH-only heuristic discovery.
     if kind == "npu":
@@ -282,7 +284,7 @@ def resolve_adapter_luid(
     return discover_gpu_luid()
 
 
-def _resolve_via_ort(kind: str, ep_name: EPName | None) -> str | None:
+def _resolve_via_ort(kind: str, ep_name: EPName | None) -> tuple[str | None, bool]:
     r"""Look up the adapter LUID through ORT's autoEP registry.
 
     Returns None silently on any failure so callers can fall back. ORT-resolved
@@ -294,21 +296,22 @@ def _resolve_via_ort(kind: str, ep_name: EPName | None) -> str | None:
     try:
         import onnxruntime as ort
     except ImportError:
-        return None
+        return None, False
 
     try:
         ep_devices = ort.get_ep_devices()
     except Exception:
         logger.debug("ort.get_ep_devices() failed", exc_info=True)
-        return None
+        return None, False
 
     target_type = getattr(ort.OrtHardwareDeviceType, "NPU" if kind == "npu" else "GPU", None)
     if target_type is None:
-        return None
+        return None, False
 
     # Lazy PDH enumeration: only probe once, only if ORT yields a candidate.
     # None = not yet probed; {} = enumeration failed (skip validation).
     pdh_known: dict[str, AdapterInfo] | None = None
+    candidates: set[str] = set()
 
     for ep_dev in ep_devices:
         try:
@@ -342,12 +345,21 @@ def _resolve_via_ort(kind: str, ep_name: EPName | None) -> str | None:
             )
             continue
         logger.debug(
-            "Resolved %s LUID via ORT (ep=%s, ep_name=%s): %s",
+            "Candidate %s LUID via ORT (ep=%s, ep_name=%s): %s",
             kind.upper(),
             ep_dev.ep_name,
             ep_name,
             formatted,
         )
-        return formatted
+        candidates.add(formatted)
 
-    return None
+    if len(candidates) == 1:
+        return next(iter(candidates)), False
+    if len(candidates) > 1:
+        logger.warning(
+            "Multiple %s adapters match effective EP %r; accelerator monitoring disabled",
+            kind.upper(),
+            ep_name,
+        )
+        return None, True
+    return None, False

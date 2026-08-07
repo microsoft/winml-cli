@@ -77,6 +77,8 @@ class _FakeSession:
         context_length: int = 256,
         chat_template: bool = True,
         effective_ep: str | None = None,
+        effective_device: str | None = None,
+        effective_hardware_ep: str | None = None,
     ) -> None:
         self._timings = list(timings)
         self._i = 0
@@ -89,6 +91,8 @@ class _FakeSession:
         # None to mean "config").  Reported by the benchmark instead of the
         # requested ep so a no-op override is not falsely claimed.
         self.effective_ep = effective_ep
+        self.effective_device = effective_device
+        self.effective_hardware_ep = effective_hardware_ep
 
     def encode(self, text: str) -> list[int]:
         self.encoded_text = text
@@ -386,7 +390,10 @@ class TestResultToDict:
             compile_timeout=120,
         )
         session = _FakeSession(
-            [_timing(0.4, 0.6, [0.4, 0.4, 0.4])], prompt_ids=[1, 2, 3], effective_ep="qnn"
+            [_timing(0.4, 0.6, [0.4, 0.4, 0.4])],
+            prompt_ids=[1, 2, 3],
+            effective_ep="qnn",
+            effective_device="npu",
         )
         bench = GenaiPerfBenchmark(cfg, session=session)
         return bench.run()
@@ -406,11 +413,13 @@ class TestResultToDict:
         assert info["runtime"] == "winml-genai"
         assert info["ep"] == "qnn"
         assert info["device"] == "npu"
+        assert info["effective_device"] == "npu"
         assert info["max_new_tokens"] == 4
         assert info["prompt_tokens"] == 3
         assert info["generated_tokens"] == 4
         assert info["compile"] is True
         assert info["compile_timeout"] == 120
+        assert info["monitor"] is False
         assert info["apply_template"] is True
         assert info["prompt"] == "Benchmark this exact prompt"
         assert set(d["ttft_ms"]) == {"mean", "min", "max", "p50", "p90", "p95", "p99"}
@@ -450,6 +459,47 @@ class TestResultToDict:
         info = GenaiPerfBenchmark(cfg, session=session).run().to_dict()["benchmark_info"]
         assert info["ep"] == "config"
         assert info["device"] == "npu"
+
+    def test_to_dict_includes_generation_monitor_metrics(self, monkeypatch) -> None:
+        metrics = {
+            "device_kind": "npu",
+            "npu": {"mean_pct": 42.0, "sample_count": 4},
+            "cpu": {"process_mean_pct": 250.0, "sample_count": 4},
+            "ram": {"mean_mb": 2048.0},
+        }
+
+        class FakeMonitor:
+            @classmethod
+            def is_available(cls) -> bool:
+                return True
+
+            def __init__(self, **_kwargs: object) -> None:
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                pass
+
+            def to_dict(self) -> dict:
+                return metrics
+
+        monkeypatch.setattr(perf_genai, "HWMonitor", FakeMonitor)
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("bundle"),
+            ep="qnn",
+            device="npu",
+            iterations=1,
+            warmup=0,
+            monitor=True,
+        )
+        session = _FakeSession([_timing(0.4, 0.6, [0.4])], effective_ep="qnn")
+
+        data = GenaiPerfBenchmark(cfg, session=session).run().to_dict()
+
+        assert data["benchmark_info"]["monitor"] is True
+        assert data["hw_monitor"] == metrics
 
 
 # ---------------------------------------------------------------------------
@@ -491,6 +541,69 @@ class TestSessionDevice:
         cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), ep="openvino", device="npu")
         GenaiPerfBenchmark(cfg)._build_session()
         assert captured == {"ep": "openvino", "device": "npu"}
+
+    def test_monitor_uses_bundle_effective_device_for_config(self) -> None:
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="config")
+        session = _FakeSession([], effective_device="gpu")
+        assert GenaiPerfBenchmark(cfg, session=session)._monitor_device() == "gpu"
+
+    def test_monitor_uses_cpu_only_when_bundle_device_is_ambiguous(self) -> None:
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="config")
+        session = _FakeSession([], effective_device=None)
+        assert GenaiPerfBenchmark(cfg, session=session)._monitor_device() is None
+
+    def test_monitor_uses_session_device_when_override_is_noop(self) -> None:
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="npu", ep="qnn")
+        session = _FakeSession([], effective_ep=None, effective_device="cpu")
+        assert GenaiPerfBenchmark(cfg, session=session)._monitor_device() == "cpu"
+
+    def test_monitor_ep_comes_from_effective_config_not_request(self) -> None:
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="gpu", ep="dml")
+        session = _FakeSession(
+            [],
+            effective_ep=None,
+            effective_device="gpu",
+            effective_hardware_ep="OpenVINOExecutionProvider",
+        )
+
+        assert (
+            GenaiPerfBenchmark(cfg, session=session)._monitor_ep()
+            == "OpenVINOExecutionProvider"
+        )
+
+    def test_accelerator_monitor_requires_unique_effective_ep(self, monkeypatch) -> None:
+        captured: dict = {}
+
+        class FakeMonitor:
+            @classmethod
+            def is_available(cls) -> bool:
+                return True
+
+            def __init__(self, **kwargs: object) -> None:
+                captured.update(kwargs)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                pass
+
+            def to_dict(self) -> dict:
+                return {}
+
+        monkeypatch.setattr(perf_genai, "HWMonitor", FakeMonitor)
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("bundle"), device="gpu", ep="dml", iterations=1, warmup=0, monitor=True
+        )
+        session = _FakeSession(
+            [_timing(0.4, 0.6, [0.4])],
+            effective_device="gpu",
+            effective_hardware_ep=None,
+        )
+
+        GenaiPerfBenchmark(cfg, session=session).run()
+
+        assert captured == {"poll_interval_ms": 200, "device": "cpu", "ep_name": None}
 
 
 # ---------------------------------------------------------------------------
@@ -816,6 +929,77 @@ class TestCliDispatch:
         cfg = capture_run["config"]
         assert cfg.prompt == "hello there"
         assert cfg.max_new_tokens == 64
+
+    def test_prompt_file_is_read_as_utf8(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        bundle = _make_bundle(tmp_path)
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_text("hello from a long prompt", encoding="utf-8")
+
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(bundle),
+                "--runtime",
+                "winml-genai",
+                "--prompt-file",
+                str(prompt_file),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].prompt == "hello from a long prompt"
+
+    def test_prompt_and_prompt_file_are_mutually_exclusive(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        bundle = _make_bundle(tmp_path)
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_text("file prompt", encoding="utf-8")
+
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(bundle),
+                "--runtime",
+                "winml-genai",
+                "--prompt",
+                "argv prompt",
+                "--prompt-file",
+                str(prompt_file),
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "mutually exclusive" in result.output
+        assert "config" not in capture_run
+
+    def test_invalid_utf8_prompt_file_is_a_click_error(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        bundle = _make_bundle(tmp_path)
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_bytes(b"\xff\xfe")
+
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(bundle),
+                "--runtime",
+                "winml-genai",
+                "--prompt-file",
+                str(prompt_file),
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "Could not read prompt file" in result.output
+        assert "Traceback" not in result.output
+        assert "config" not in capture_run
 
     def test_default_prompt_used_when_omitted(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
