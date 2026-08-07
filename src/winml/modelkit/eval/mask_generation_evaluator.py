@@ -131,6 +131,8 @@ class WinMLMaskGenerationEvaluator(WinMLEvaluator):
     ``WinMLAutoModel`` composite-registry path.
     """
 
+    supports_native = False
+
     # Required sub-model role names (must appear as keys in
     # ``config.model_path`` when it is a dict).
     _ENCODER_ROLE = "image-encoder"
@@ -192,7 +194,7 @@ class WinMLMaskGenerationEvaluator(WinMLEvaluator):
         # contract and CodeQL's ``py/missing-call-to-init`` rule.  The
         # base ``prepare_pipeline`` is overridden here to return ``None``,
         # so it is safe to call from ``WinMLEvaluator.__init__``.
-        super().__init__(config, model)  # type: ignore[arg-type]
+        super().__init__(config, model)
 
     # ------------------------------------------------------------------
     # WinMLEvaluator overrides

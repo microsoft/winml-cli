@@ -22,6 +22,8 @@ from .config import WinMLEvaluationConfig
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from torch import nn
+
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
     from ..models.winml.genai_causal_lm import WinMLGenaiCausalLM
@@ -31,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 class _ModelLoaderKind(Enum):
+    PYTORCH = auto()
     GENAI = auto()
     DIRECT_ONNX_COMPARE = auto()
     EVALUATOR_MANAGED = auto()
@@ -40,6 +43,8 @@ class _ModelLoaderKind(Enum):
 
 def _select_model_loader(config: WinMLEvaluationConfig) -> _ModelLoaderKind:
     """Select the model-loading path shared by loading and CLI diagnostics."""
+    if config.runtime == "pytorch":
+        return _ModelLoaderKind.PYTORCH
     if config.task == "text-generation":
         return _ModelLoaderKind.GENAI
     if config.mode == "compare" and config.reference_path is not None:
@@ -113,6 +118,59 @@ def get_evaluator_class(config: WinMLEvaluationConfig) -> type[WinMLEvaluator]:
     module_path, class_name = spec.rsplit(":", 1)
     module = importlib.import_module(module_path)
     return cast("type[WinMLEvaluator]", getattr(module, class_name))
+
+
+def _validate_pytorch_runtime_config(config: WinMLEvaluationConfig) -> None:
+    """Validate state that cannot apply to the PyTorch runtime."""
+    if config.runtime == "winml":
+        return
+
+    incompatible: list[str] = []
+    mode = config.mode if config.mode is not None else "onnx"
+    if mode != "onnx":
+        incompatible.append("mode")
+    if config.model_path is not None:
+        incompatible.append("model_path")
+    if config.input_data is not None:
+        incompatible.append("input_data")
+    if config.reference_path is not None:
+        incompatible.append("reference_path")
+    if config.ep is not None:
+        incompatible.append("ep")
+    if config.precision != "auto":
+        incompatible.append("precision")
+    if not config.quant:
+        incompatible.append("quant")
+    if not config.optimize:
+        incompatible.append("optimize")
+    if not config.analyze:
+        incompatible.append("analyze")
+    if config.max_optim_iterations is not None:
+        incompatible.append("max_optim_iterations")
+    if config.shape_config is not None:
+        incompatible.append("shape_config")
+    if config.export_overrides is not None:
+        incompatible.append("export_overrides")
+    if config.allow_unsupported_nodes:
+        incompatible.append("allow_unsupported_nodes")
+    if not config.skip_build:
+        incompatible.append("skip_build")
+    if not config.use_cache:
+        incompatible.append("use_cache")
+    if config.rebuild:
+        incompatible.append("rebuild")
+    if incompatible:
+        raise ValueError(
+            f"The PyTorch runtime cannot use WinML-only configuration: {', '.join(incompatible)}."
+        )
+
+    if config.task is not None:
+        evaluator_class = get_evaluator_class(config)
+        if not evaluator_class.supports_native:
+            raise ValueError(
+                f"Task '{config.task}' does not use the standard labeled Hugging Face "
+                "pipeline and is not supported with --runtime pytorch."
+            )
 
 
 _FE_DEFAULT = {
@@ -264,7 +322,7 @@ class EvalResult:
 
 def _load_model(
     config: WinMLEvaluationConfig,
-) -> WinMLPreTrainedModel | WinMLCompositeModel | WinMLGenaiCausalLM | None:
+) -> nn.Module | WinMLPreTrainedModel | WinMLCompositeModel | WinMLGenaiCausalLM | None:
     """Load model from ONNX path or HF model ID.
 
     For evaluators that handle their own ORT session construction from a
@@ -280,6 +338,20 @@ def _load_model(
     from ..utils import cli as cli_utils
 
     loader = _select_model_loader(config)
+    if loader is _ModelLoaderKind.PYTORCH:
+        if config.model_id is None:
+            raise ValueError("model_id is required for native Hugging Face evaluation.")
+        from ..loader import load_native_hf_model
+
+        loaded = load_native_hf_model(
+            config.model_id,
+            task=config.task,
+            device=config.device,
+            trust_remote_code=config.trust_remote_code,
+        )
+        config.device = loaded.device.name
+        return loaded.model
+
     if loader is _ModelLoaderKind.GENAI:
         return _load_genai_causal_lm(config)
 
@@ -329,7 +401,11 @@ def _load_model(
 
             from ..loader import load_hf_config
 
-            hf_config = load_hf_config(AutoConfig, config.model_id)
+            hf_config = load_hf_config(
+                AutoConfig,
+                config.model_id,
+                trust_remote_code=config.trust_remote_code,
+            )
             model = WinMLAutoModel.from_onnx(
                 # ``model_path`` is narrowed to ``str | dict[str, str]`` here;
                 # cast bridges dict value-type invariance (str vs str | Path).
@@ -468,7 +544,11 @@ def _infer_task(config: WinMLEvaluationConfig) -> str:
     from ..loader import load_hf_config
     from ..loader.resolution import resolve_task
 
-    hf_config = load_hf_config(AutoConfig, config.model_id)
+    hf_config = load_hf_config(
+        AutoConfig,
+        config.model_id,
+        trust_remote_code=config.trust_remote_code,
+    )
     return resolve_task(hf_config).task
 
 
@@ -481,6 +561,8 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
     """
     from ..utils.eval_utils import EVAL_MODES
 
+    if config.runtime not in ("winml", "pytorch"):
+        raise ValueError(f"Invalid runtime {config.runtime!r}; expected 'winml' or 'pytorch'.")
     mode = config.mode if config.mode is not None else "onnx"
     if mode not in EVAL_MODES:
         raise ValueError(f"Invalid mode {mode!r}; expected one of {EVAL_MODES} or None.")
@@ -493,6 +575,7 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
         task=config.task if onnx_compare else _resolve_task(config),
         dataset=deepcopy(config.dataset),
     )
+    _validate_pytorch_runtime_config(config)
     if config.mode != "compare" and config.dataset.path is None:
         default = _DEFAULT_DATASETS.get(config.task) if config.task is not None else None
         if default is None:
@@ -536,11 +619,7 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
     cls = get_evaluator_class(config)
     try:
         console.print("[bold]Loading dataset and evaluating...[/bold]")
-        # ``model`` is ``None`` for composite evaluators that load ORT
-        # sessions directly from ``config.model_path`` (currently only
-        # mask-generation).  Type-checker can't follow the per-task
-        # invariant, so suppress here at the unified call site.
-        task_evaluator = cls(config, model)  # type: ignore[arg-type]
+        task_evaluator = cls(config, model)
         metrics = task_evaluator.compute()
     except DatasetValidationError as error:
         raise ValueError(
@@ -581,10 +660,12 @@ def print_config(config: WinMLEvaluationConfig) -> None:
         output_console.print(f"[bold blue]Reference:[/bold blue] {config.reference_path}")
     if config.task is not None:
         output_console.print(f"[bold blue]Task:[/bold blue] {config.task}")
+    output_console.print(f"[bold blue]Runtime:[/bold blue] {config.runtime}")
     output_console.print(f"[bold blue]Device:[/bold blue] {config.device}")
     if config.ep is not None:
         output_console.print(f"[bold blue]EP:[/bold blue] {config.ep}")
-    output_console.print(f"[bold blue]Precision:[/bold blue] {config.precision}")
+    if config.runtime == "winml":
+        output_console.print(f"[bold blue]Precision:[/bold blue] {config.precision}")
     if config.mode != "compare":
         output_console.print(f"[bold blue]Dataset:[/bold blue] {ds.path}")
         if ds.name:

@@ -54,6 +54,7 @@ class WinMLTextGenerationEvaluator(WinMLEvaluator):
     * ``seqlen`` -- non-overlapping block length.
     """
 
+    supports_native = False
     _TASK = "text-generation"
 
     def prepare_pipeline(self) -> Pipeline | None:  # type: ignore[override]

@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 class WinMLKeypointDetectionEvaluator(WinMLEvaluator):
     """Evaluator for keypoint detection using COCO OKS-based AP."""
 
+    supports_native = False
+
     def __init__(
         self,
         config: WinMLEvaluationConfig,
@@ -88,7 +90,10 @@ class WinMLKeypointDetectionEvaluator(WinMLEvaluator):
         """
         from transformers import AutoImageProcessor
 
-        processor = AutoImageProcessor.from_pretrained(self.config.model_id)
+        processor = AutoImageProcessor.from_pretrained(
+            self.config.model_id,
+            trust_remote_code=self.config.trust_remote_code,
+        )
 
         io_config = getattr(self.model, "io_config", None) or {}
         input_shapes = io_config.get("input_shapes", [])

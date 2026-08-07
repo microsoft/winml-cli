@@ -1,6 +1,6 @@
 # winml eval
 
-> Evaluate ONNX model accuracy on a standard dataset.
+> Evaluate ONNX or native Hugging Face PyTorch model accuracy on a standard dataset.
 
 ## When to use this
 
@@ -26,6 +26,7 @@ $ winml eval [options]
 | `--input-specs` | | `PATH` | — | JSON input tensor specs to merge into the Hugging Face export config. Symbolic string dimensions infer dynamic axes. **Ignored for pre-built `.onnx` inputs**. |
 | `--export-config` | | `PATH` | — | JSON ONNX export config overrides (opset version, constant folding, etc.) to merge into the Hugging Face export config. **Ignored for pre-built `.onnx` inputs**. |
 | `--dynamic-axes` | | `PATH` | — | JSON dynamic axes mapping for Hugging Face ONNX export, for example `{"input_ids": {"0": "batch", "1": "sequence"}}`. **Ignored for pre-built `.onnx` inputs**. |
+| `--runtime` | | `winml\|pytorch` | `winml` | Evaluation runtime. `winml` exports Hugging Face checkpoints to ONNX; `pytorch` evaluates the original checkpoint and supports `auto`, `cpu`, or CUDA-backed `gpu` devices. |
 | `--dataset` | | `TEXT` | task default | HuggingFace dataset path (e.g., `imagenet-1k`, `nyu-mll/glue`). If omitted, a default dataset is selected based on the task. |
 | `--dataset-name` | | `TEXT` | — | Dataset configuration name for multi-config datasets. |
 | `--dataset-revision` | | `TEXT` | — | Git revision (branch, tag, or commit) of the dataset to load. Use `refs/convert/parquet` for HF datasets that are only served via the parquet mirror. |
@@ -45,7 +46,9 @@ $ winml eval [options]
 
 ## How it works
 
-`winml eval` loads the model and runs the evaluation pipeline via the internal `evaluate` function (supporting both HuggingFace IDs and local ONNX files), then pulls the requested number of samples from a HuggingFace dataset. Each sample is preprocessed using the tokenizer or image processor associated with the model ID, passed through the ONNX Runtime session, and the output is compared against the ground-truth label. Aggregated metrics (accuracy, F1, etc.) are printed to the console and optionally written to a JSON file. When `-m` is an ONNX file, `--model-id` must be provided so the command knows which preprocessor and label vocabulary to use.
+`winml eval` loads the model and runs the evaluation pipeline via the internal `evaluate` function, then pulls the requested number of samples from a HuggingFace dataset. By default, Hugging Face model IDs and local checkpoints use the `winml` runtime: they are exported to ONNX and evaluated through WinML. With `--runtime pytorch`, the checkpoint-declared PyTorch class and stored dtype are preserved and the same dataset preprocessing, Hugging Face pipeline, task evaluator, and metrics run directly against that model. PyTorch `auto` selects CUDA when available and otherwise CPU; `gpu` requires CUDA. The JSON report identifies the effective runtime as `winml` or `pytorch`.
+
+Pre-built ONNX files, composite `role=path` models, GenAI bundles, text-generation evaluation, compare mode, references, and tensor input archives remain on their existing WinML paths. `--runtime pytorch` rejects those forms, along with ONNX build, export, EP, precision, quantization, optimization, analysis, and cache-related options.
 
 ## Examples
 
@@ -53,6 +56,12 @@ Evaluate a HuggingFace model using the task-default dataset:
 
 ```bash
 $ winml eval -m microsoft/resnet-50
+```
+
+Evaluate the original Hugging Face PyTorch checkpoint on CPU without ONNX export:
+
+```bash
+$ winml eval -m microsoft/resnet-50 --runtime pytorch --device cpu
 ```
 
 ```text
@@ -163,6 +172,7 @@ model-build pipeline from the runtime compilation cache.
 - **`--shuffle` is on by default.** The random 100-sample slice changes between runs unless you pass `--no-shuffle`. Use `--no-shuffle` when comparing two model variants to ensure they see identical samples.
 - **`--streaming` skips the local cache.** Streaming mode avoids downloading the full split but prevents random shuffling on large datasets. For reproducible evaluation, download the split once and omit `--streaming`.
 - **Export overrides only apply when eval builds from a HuggingFace ID.** `--shape-config`, `--input-specs`, `--export-config`, and `--dynamic-axes` shape the ONNX export that `eval` generates when `-m` is a HuggingFace model ID. When `-m` is a pre-built `.onnx` file, there is no export step, so these flags are ignored and the command prints a warning.
+- **The PyTorch runtime accepts only Hugging Face checkpoints.** `--runtime pytorch` cannot be combined with ONNX files, composite models, GenAI bundles, compare/reference/input-data modes, EP selection, or ONNX build/export controls. Use `--device cpu`, `--device gpu` with CUDA, or `--device auto`.
 - **Column names vary across datasets.** If the evaluator raises a missing-column error, run `winml eval --schema --task <task>` to inspect the expected schema and use `--column` to remap dataset field names to the expected names.
 
 ## See also
