@@ -626,12 +626,12 @@ class _PerfBenchmarkSuite:
 
         assert output_file.exists()
         data = json.loads(output_file.read_text())
-        # TODO openvino gpu could not emit valid pdh counter
+        # TODO OpenVINO GPU and TensorRT RTX do not emit reliable PDH utilization counters.
         _assert_monitor_result(
             data,
             device="gpu",
             ep=EP_ALIASES[ep],
-            require_utilization=ep != "openvino",
+            require_utilization=ep not in ("nv_tensorrt_rtx", "openvino"),
         )
 
     @pytest.mark.parametrize("ep", NPU_EPS)
@@ -886,8 +886,12 @@ class TestPerfHuggingFace:
         assert output_file.exists()
         data = json.loads(output_file.read_text())
         assert data["benchmark_info"]["ep"] == EP_ALIASES[ep]
-        # TODO openvino gpu could not emit valid pdh counter
-        _assert_monitor_result(data, device="gpu", require_utilization=ep != "openvino")
+        # TODO OpenVINO GPU and TensorRT RTX do not emit reliable PDH utilization counters.
+        _assert_monitor_result(
+            data,
+            device="gpu",
+            require_utilization=ep not in ("nv_tensorrt_rtx", "openvino"),
+        )
 
     @pytest.mark.parametrize("ep", NPU_EPS)
     def test_benchmark_ep_npu(self, ep: str, tmp_path: Path, model_arg: str):
