@@ -14,12 +14,15 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .binary_segmentation import BinarySegmentationMetric
     from .classification import ClassificationMetric
+    from .clip_score import CLIPScoreMetric
     from .depth import DepthMetric
     from .keypoint import KeypointAPMetric
     from .knn_accuracy import KNNAccuracyMetric
     from .mean_average_precision import MAPMetric
     from .mean_iou import IGNORE_INDEX, MeanIoUMetric
+    from .mean_reciprocal_rank import MeanReciprocalRankMetric
     from .pseudo_perplexity import PseudoPerplexityMetric
+    from .recall_at_k import RecallAtKMetric
     from .spearman_correlation import SpearmanCorrelationMetric
     from .top_k_accuracy import TopKAccuracyMetric
 
@@ -29,6 +32,7 @@ if TYPE_CHECKING:
 # that do not actually use the metric in question.
 _LAZY_ATTRS: dict[str, str] = {
     "BinarySegmentationMetric": ".binary_segmentation:BinarySegmentationMetric",
+    "CLIPScoreMetric": ".clip_score:CLIPScoreMetric",
     "ClassificationMetric": ".classification:ClassificationMetric",
     "DepthMetric": ".depth:DepthMetric",
     "KeypointAPMetric": ".keypoint:KeypointAPMetric",
@@ -36,7 +40,9 @@ _LAZY_ATTRS: dict[str, str] = {
     "KNNAccuracyMetric": ".knn_accuracy:KNNAccuracyMetric",
     "MAPMetric": ".mean_average_precision:MAPMetric",
     "MeanIoUMetric": ".mean_iou:MeanIoUMetric",
+    "MeanReciprocalRankMetric": ".mean_reciprocal_rank:MeanReciprocalRankMetric",
     "PseudoPerplexityMetric": ".pseudo_perplexity:PseudoPerplexityMetric",
+    "RecallAtKMetric": ".recall_at_k:RecallAtKMetric",
     "SpearmanCorrelationMetric": ".spearman_correlation:SpearmanCorrelationMetric",
     "TopKAccuracyMetric": ".top_k_accuracy:TopKAccuracyMetric",
 }
@@ -61,13 +67,16 @@ def __dir__() -> list[str]:
 __all__ = [
     "IGNORE_INDEX",
     "BinarySegmentationMetric",
+    "CLIPScoreMetric",
     "ClassificationMetric",
     "DepthMetric",
     "KNNAccuracyMetric",
     "KeypointAPMetric",
     "MAPMetric",
     "MeanIoUMetric",
+    "MeanReciprocalRankMetric",
     "PseudoPerplexityMetric",
+    "RecallAtKMetric",
     "SpearmanCorrelationMetric",
     "TopKAccuracyMetric",
 ]
