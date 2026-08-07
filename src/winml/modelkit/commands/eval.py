@@ -22,7 +22,7 @@ from ..utils.logging import configure_logging
 
 
 if TYPE_CHECKING:
-    from ..eval import EvalResult, WinMLEvaluationConfig
+    from ..eval import EvalResult, EvalRuntime, WinMLEvaluationConfig
     from ..utils.constants import EPNameOrAlias
 
 
@@ -116,12 +116,12 @@ logger = logging.getLogger(__name__)
     ),
 )
 @click.option(
-    "--export/--no-export",
-    "export_model",
-    default=True,
+    "--runtime",
+    type=click.Choice(["winml", "pytorch"]),
+    default="winml",
     show_default=True,
-    help="Export Hugging Face models to ONNX before evaluation. Use --no-export "
-    "to evaluate the original PyTorch checkpoint.",
+    help="Evaluation runtime. 'winml' exports Hugging Face checkpoints to ONNX; "
+    "'pytorch' evaluates the original checkpoint.",
 )
 @click.option(
     "--samples",
@@ -245,7 +245,7 @@ def eval(
     input_specs: Path | None,
     export_config: Path | None,
     dynamic_axes: Path | None,
-    export_model: bool,
+    runtime: EvalRuntime,
     ep: EPNameOrAlias | None,
     samples: int,
     split: str,
@@ -313,8 +313,12 @@ def eval(
     # ── 1. Build config: defaults ← config file ← CLI ──
     cfg, config_fields = _build_eval_config(ctx, config_file, column, label_mapping_path)
 
-    if not cfg.export_model:
-        _validate_no_export_options(ctx, cfg, config_fields)
+    if cfg.runtime not in ("winml", "pytorch"):
+        raise click.UsageError(
+            f"Invalid eval runtime {cfg.runtime!r}; expected 'winml' or 'pytorch'."
+        )
+    if cfg.runtime == "pytorch":
+        _validate_pytorch_runtime_options(ctx, cfg, config_fields)
 
     if cfg.input_data is not None and cfg.mode != "compare":
         raise click.UsageError("--input-data is only valid with --mode compare.")
@@ -324,16 +328,17 @@ def eval(
 
     # ── 2. Resolve in place ──
     _resolve_model(cfg, model, model_id, allow_missing_model_id=cfg.reference_path is not None)
-    if not cfg.export_model and cfg.model_path is not None:
+    if cfg.runtime == "pytorch" and cfg.model_path is not None:
         raise click.UsageError(
-            "--no-export requires a Hugging Face model ID or local Hugging Face checkpoint; "
-            "ONNX files, composite role=path models, and GenAI bundles are not supported."
+            "--runtime pytorch requires a Hugging Face model ID or local Hugging Face "
+            "checkpoint; ONNX files, composite role=path models, and GenAI bundles "
+            "are not supported."
         )
-    if not cfg.export_model:
-        from ..eval.evaluate import _validate_native_config
+    if cfg.runtime == "pytorch":
+        from ..eval.evaluate import _validate_pytorch_runtime_config
 
         try:
-            _validate_native_config(cfg)
+            _validate_pytorch_runtime_config(cfg)
         except ValueError as error:
             raise click.UsageError(str(error)) from error
     _resolve_reference(cfg)
@@ -409,7 +414,12 @@ def _build_eval_config(
 
     # ── Config file layer (only explicitly-present keys) ──
     if config_file is not None:
-        _, raw = cli_utils.load_build_config(config_file)
+        from ..eval.config import _UnsupportedEvalRuntimeFieldError
+
+        try:
+            _, raw = cli_utils.load_build_config(config_file)
+        except _UnsupportedEvalRuntimeFieldError as error:
+            raise click.UsageError(str(error)) from error
 
         # Loader task as lowest-priority fallback
         loader_section = raw.get("loader") or {}
@@ -425,20 +435,14 @@ def _build_eval_config(
         eval_data = raw.get("eval")
         if eval_data:
             eval_data = dict(eval_data)
+            legacy_runtime_fields = {"backend", "export_model"}.intersection(eval_data)
+            if legacy_runtime_fields:
+                fields = ", ".join(sorted(legacy_runtime_fields))
+                raise click.UsageError(
+                    f"Unsupported eval runtime field(s): {fields}. Use 'runtime' "
+                    "with 'winml' or 'pytorch' instead."
+                )
             config_fields.update(eval_data)
-            backend = eval_data.pop("backend", None)
-            if backend is not None:
-                if backend not in ("onnx", "pytorch"):
-                    raise click.UsageError(
-                        f"Invalid eval backend {backend!r}; expected 'onnx' or 'pytorch'."
-                    )
-                export_model = backend == "onnx"
-                if "export_model" in eval_data and bool(eval_data["export_model"]) != export_model:
-                    raise click.UsageError(
-                        "Eval config fields 'backend' and 'export_model' specify "
-                        "different backends."
-                    )
-                eval_data["export_model"] = export_model
             cfg = merge_config(cfg, eval_data)
 
     # ── CLI layer (highest priority, auto-mapped via metadata) ──
@@ -482,8 +486,8 @@ def _model_build_bypass(cfg: WinMLEvaluationConfig) -> _ModelBuildBypass | None:
     from ..eval.evaluate import _ModelLoaderKind, _select_model_loader
 
     loader = _select_model_loader(cfg)
-    if loader is _ModelLoaderKind.NATIVE:
-        return _ModelBuildBypass("native PyTorch evaluation")
+    if loader is _ModelLoaderKind.PYTORCH:
+        return _ModelBuildBypass("PyTorch runtime evaluation")
     if loader is _ModelLoaderKind.GENAI:
         return _ModelBuildBypass(
             reason="GenAI bundles",
@@ -554,7 +558,7 @@ def _resolve_model_loader_task(cfg: WinMLEvaluationConfig) -> None:
     cfg.task = _infer_task(cfg)
 
 
-_NO_EXPORT_INCOMPATIBLE_OPTIONS: dict[str, str] = {
+_PYTORCH_RUNTIME_INCOMPATIBLE_OPTIONS: dict[str, str] = {
     "mode": "--mode",
     "input_data": "--input-data",
     "reference": "--reference",
@@ -574,7 +578,7 @@ _NO_EXPORT_INCOMPATIBLE_OPTIONS: dict[str, str] = {
     "rebuild": "--rebuild/--no-rebuild",
 }
 
-_NO_EXPORT_INCOMPATIBLE_CONFIG_FIELDS = {
+_PYTORCH_RUNTIME_INCOMPATIBLE_CONFIG_FIELDS = {
     "mode",
     "input_data",
     "reference_path",
@@ -593,7 +597,7 @@ _NO_EXPORT_INCOMPATIBLE_CONFIG_FIELDS = {
 }
 
 
-def _validate_no_export_options(
+def _validate_pytorch_runtime_options(
     ctx: click.Context,
     cfg: WinMLEvaluationConfig,
     config_fields: set[str],
@@ -601,19 +605,21 @@ def _validate_no_export_options(
     """Reject options whose semantics require ONNX export or ONNX Runtime."""
     if cfg.device.lower() not in ("auto", "cpu", "gpu"):
         raise click.UsageError(
-            f"--device {cfg.device} is not supported with --no-export; use auto, cpu, or gpu."
+            f"--device {cfg.device} is not supported with --runtime pytorch; use auto, cpu, or gpu."
         )
     incompatible = [
         flag
-        for param_name, flag in _NO_EXPORT_INCOMPATIBLE_OPTIONS.items()
+        for param_name, flag in _PYTORCH_RUNTIME_INCOMPATIBLE_OPTIONS.items()
         if cli_utils.is_cli_provided(ctx, param_name)
     ]
     incompatible.extend(
-        f"eval.{field}" for field in sorted(config_fields & _NO_EXPORT_INCOMPATIBLE_CONFIG_FIELDS)
+        f"eval.{field}"
+        for field in sorted(config_fields & _PYTORCH_RUNTIME_INCOMPATIBLE_CONFIG_FIELDS)
     )
     if incompatible:
         raise click.UsageError(
-            f"--no-export cannot be combined with incompatible options: {', '.join(incompatible)}."
+            "--runtime pytorch cannot be combined with incompatible options: "
+            f"{', '.join(incompatible)}."
         )
 
 
@@ -727,7 +733,7 @@ def _apply_export_overrides(
 
 def _resolve_device(cfg: WinMLEvaluationConfig) -> None:
     """Resolve ``'auto'`` → concrete device string on *cfg* in place."""
-    if not cfg.export_model:
+    if cfg.runtime == "pytorch":
         from ..loader import resolve_native_device
 
         try:
@@ -1006,7 +1012,7 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
     # Info section
     console.print()
     console.print(f"[dim]Task:[/dim]       {cfg.task}")
-    console.print(f"[dim]Backend:[/dim]    {cfg.backend}")
+    console.print(f"[dim]Runtime:[/dim]    {cfg.runtime}")
     console.print(f"[dim]Device:[/dim]     {cfg.device}")
     if cfg.input_data:
         console.print(f"[dim]Input data:[/dim] {cfg.input_data}")

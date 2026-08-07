@@ -1113,7 +1113,7 @@ class TestEvalNativeHuggingFace:
         ).save_to_disk(path)
         return path
 
-    def test_no_export_labeled_evaluation(
+    def test_pytorch_runtime_labeled_evaluation(
         self,
         runner: CliRunner,
         tmp_path: Path,
@@ -1131,7 +1131,8 @@ class TestEvalNativeHuggingFace:
                 "--samples",
                 "2",
                 "--no-shuffle",
-                "--no-export",
+                "--runtime",
+                "pytorch",
                 "--device",
                 "cpu",
                 "-o",
@@ -1140,11 +1141,11 @@ class TestEvalNativeHuggingFace:
         )
 
         data = _assert_metrics_present(out, ["accuracy"])
-        assert data["backend"] == "pytorch"
+        assert data["runtime"] == "pytorch"
         assert data["device"] == "cpu"
         assert data["dataset"]["samples"] == 2
 
-    def test_no_export_labeled_evaluation_cuda(
+    def test_pytorch_runtime_labeled_evaluation_cuda(
         self,
         runner: CliRunner,
         tmp_path: Path,
@@ -1167,7 +1168,8 @@ class TestEvalNativeHuggingFace:
                 "--samples",
                 "2",
                 "--no-shuffle",
-                "--no-export",
+                "--runtime",
+                "pytorch",
                 "--device",
                 "gpu",
                 "-o",
@@ -1176,7 +1178,7 @@ class TestEvalNativeHuggingFace:
         )
 
         data = _assert_metrics_present(out, ["accuracy"])
-        assert data["backend"] == "pytorch"
+        assert data["runtime"] == "pytorch"
         assert data["device"] == "gpu"
 
 

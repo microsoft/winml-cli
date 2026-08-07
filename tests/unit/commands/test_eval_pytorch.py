@@ -19,15 +19,14 @@ from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 from winml.modelkit.loader import NativeDevice, NativeHFModel
 
 
-class TestNoExportCli:
-    def test_help_shows_export_pair(self) -> None:
+class TestPyTorchRuntimeCli:
+    def test_help_shows_runtime_choices(self) -> None:
         result = CliRunner().invoke(eval, ["--help"])
 
         assert result.exit_code == 0
-        assert "--export" in result.output
-        assert "--no-export" in result.output
+        assert "--runtime [winml|pytorch]" in result.output
 
-    def test_no_export_dispatches_pytorch_backend(self, tmp_path) -> None:
+    def test_pytorch_runtime_dispatches_pytorch(self, tmp_path) -> None:
         captured: dict[str, WinMLEvaluationConfig] = {}
 
         def fake_evaluate(config: WinMLEvaluationConfig) -> SimpleNamespace:
@@ -47,7 +46,8 @@ class TestNoExportCli:
                     "image-classification",
                     "--dataset",
                     "fake/dataset",
-                    "--no-export",
+                    "--runtime",
+                    "pytorch",
                     "--device",
                     "cpu",
                     "-o",
@@ -58,7 +58,7 @@ class TestNoExportCli:
 
         assert result.exit_code == 0, result.output
         config = captured["config"]
-        assert config.backend == "pytorch"
+        assert config.runtime == "pytorch"
         assert config.device == "cpu"
         assert config.model_id == "fake/model"
         assert config.model_path is None
@@ -89,16 +89,15 @@ class TestNoExportCli:
             )
 
         assert result.exit_code == 0, result.output
-        assert captured["config"].backend == "onnx"
-        assert captured["config"].export_model is True
+        assert captured["config"].runtime == "winml"
 
-    def test_native_backend_loads_from_config_file(self, tmp_path) -> None:
+    def test_pytorch_runtime_loads_from_config_file(self, tmp_path) -> None:
         config_path = tmp_path / "eval.json"
         config_path.write_text(
             json.dumps(
                 {
                     "eval": {
-                        "backend": "pytorch",
+                        "runtime": "pytorch",
                         "model_id": "fake/model",
                         "task": "image-classification",
                         "device": "cpu",
@@ -123,8 +122,22 @@ class TestNoExportCli:
             result = CliRunner().invoke(eval, ["--config", str(config_path)], obj={})
 
         assert result.exit_code == 0, result.output
-        assert captured["config"].backend == "pytorch"
+        assert captured["config"].runtime == "pytorch"
         run_dataset_script.assert_called_once_with(captured["config"], True)
+
+    @pytest.mark.parametrize("legacy_field", ["backend", "export_model"])
+    def test_config_file_rejects_legacy_runtime_field(self, tmp_path, legacy_field) -> None:
+        config_path = tmp_path / "eval.json"
+        config_path.write_text(
+            json.dumps({"eval": {legacy_field: "pytorch"}}),
+            encoding="utf-8",
+        )
+
+        result = CliRunner().invoke(eval, ["--config", str(config_path)], obj={})
+
+        assert result.exit_code == 2
+        assert "Unsupported eval runtime field" in result.output
+        assert "Use 'runtime'" in result.output
 
     @pytest.mark.parametrize(
         ("field", "value"),
@@ -146,7 +159,7 @@ class TestNoExportCli:
             json.dumps(
                 {
                     "eval": {
-                        "backend": "pytorch",
+                        "runtime": "pytorch",
                         "model_id": "fake/model",
                         "task": "image-classification",
                         field: value,
@@ -188,7 +201,7 @@ class TestNoExportCli:
     ) -> None:
         result = CliRunner().invoke(
             eval,
-            ["-m", "fake/model", "--no-export", *args],
+            ["-m", "fake/model", "--runtime", "pytorch", *args],
             obj={},
         )
 
@@ -201,7 +214,14 @@ class TestNoExportCli:
 
         result = CliRunner().invoke(
             eval,
-            ["-m", "fake/model", "--no-export", "--shape-config", str(shape_config)],
+            [
+                "-m",
+                "fake/model",
+                "--runtime",
+                "pytorch",
+                "--shape-config",
+                str(shape_config),
+            ],
             obj={},
         )
 
@@ -219,7 +239,8 @@ class TestNoExportCli:
                 str(model_path),
                 "--model-id",
                 "fake/model",
-                "--no-export",
+                "--runtime",
+                "pytorch",
             ],
             obj={},
         )
@@ -232,7 +253,7 @@ class TestNoExportCli:
 
         result = CliRunner().invoke(
             eval,
-            ["-m", str(tmp_path), "--no-export"],
+            ["-m", str(tmp_path), "--runtime", "pytorch"],
             obj={},
         )
 
@@ -242,7 +263,7 @@ class TestNoExportCli:
     def test_rejects_npu_device(self) -> None:
         result = CliRunner().invoke(
             eval,
-            ["-m", "fake/model", "--no-export", "--device", "npu"],
+            ["-m", "fake/model", "--runtime", "pytorch", "--device", "npu"],
             obj={},
         )
 
@@ -261,7 +282,7 @@ class TestNoExportCli:
     def test_rejects_non_pipeline_evaluators(self, task: str) -> None:
         result = CliRunner().invoke(
             eval,
-            ["-m", "fake/model", "--no-export", "--task", task],
+            ["-m", "fake/model", "--runtime", "pytorch", "--task", task],
             obj={},
         )
 
@@ -273,7 +294,7 @@ class TestNoExportCli:
 
         result = CliRunner().invoke(
             eval,
-            ["-m", "fake/model", "--no-export", "--device", "gpu"],
+            ["-m", "fake/model", "--runtime", "pytorch", "--device", "gpu"],
             obj={},
         )
 
@@ -282,16 +303,30 @@ class TestNoExportCli:
 
 
 class TestNativeEvaluation:
-    def test_native_backend_uses_native_loader_kind(self) -> None:
+    def test_pytorch_runtime_uses_pytorch_loader_kind(self) -> None:
         from winml.modelkit.eval.evaluate import _ModelLoaderKind, _select_model_loader
 
         config = WinMLEvaluationConfig(
             model_id="fake/model",
             task="image-classification",
-            export_model=False,
+            runtime="pytorch",
         )
 
-        assert _select_model_loader(config) is _ModelLoaderKind.NATIVE
+        assert _select_model_loader(config) is _ModelLoaderKind.PYTORCH
+
+    def test_public_evaluate_rejects_invalid_runtime(self) -> None:
+        from typing import cast
+
+        from winml.modelkit.eval import EvalRuntime, evaluate
+
+        config = WinMLEvaluationConfig(
+            model_id="fake/model",
+            task="image-classification",
+            runtime=cast("EvalRuntime", "invalid"),
+        )
+
+        with pytest.raises(ValueError, match="Invalid runtime"):
+            evaluate(config)
 
     def test_public_evaluate_rejects_onnx_state(self) -> None:
         from winml.modelkit.eval import evaluate
@@ -300,7 +335,7 @@ class TestNativeEvaluation:
             model_id="fake/model",
             model_path="model.onnx",
             task="image-classification",
-            export_model=False,
+            runtime="pytorch",
         )
 
         with pytest.raises(ValueError, match="model_path"):
@@ -323,7 +358,7 @@ class TestNativeEvaluation:
         config = WinMLEvaluationConfig(
             model_id="fake/model",
             task="image-classification",
-            export_model=False,
+            runtime="pytorch",
             **config_override,
         )
 
@@ -344,7 +379,7 @@ class TestNativeEvaluation:
             model_id="fake/model",
             task="image-classification",
             device="gpu",
-            export_model=False,
+            runtime="pytorch",
             trust_remote_code=True,
         )
 
@@ -370,7 +405,7 @@ class TestNativeEvaluation:
             model_id="fake/model",
             task="image-classification",
             device="gpu",
-            export_model=False,
+            runtime="pytorch",
             dataset=DatasetConfig(path="fake/dataset"),
         )
         evaluator.model = MagicMock()
@@ -390,19 +425,23 @@ class TestNativeEvaluation:
             trust_remote_code=False,
         )
 
-    def test_config_roundtrip_identifies_pytorch_backend(self) -> None:
+    def test_config_roundtrip_identifies_pytorch_runtime(self) -> None:
         config = WinMLEvaluationConfig(
             model_id="fake/model",
             device="cpu",
-            export_model=False,
+            runtime="pytorch",
         )
 
         serialized = config.to_dict()
         restored = WinMLEvaluationConfig.from_dict(serialized)
 
-        assert serialized["backend"] == "pytorch"
+        assert serialized["runtime"] == "pytorch"
         assert "skip_build" not in serialized
         assert "use_cache" not in serialized
         assert "rebuild" not in serialized
-        assert restored.backend == "pytorch"
-        assert restored.export_model is False
+        assert restored.runtime == "pytorch"
+
+    @pytest.mark.parametrize("legacy_field", ["backend", "export_model"])
+    def test_config_deserialization_rejects_legacy_runtime_field(self, legacy_field) -> None:
+        with pytest.raises(ValueError, match="Use 'runtime'"):
+            WinMLEvaluationConfig.from_dict({legacy_field: "pytorch"})

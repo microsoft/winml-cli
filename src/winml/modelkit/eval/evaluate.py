@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 class _ModelLoaderKind(Enum):
-    NATIVE = auto()
+    PYTORCH = auto()
     GENAI = auto()
     DIRECT_ONNX_COMPARE = auto()
     EVALUATOR_MANAGED = auto()
@@ -43,8 +43,8 @@ class _ModelLoaderKind(Enum):
 
 def _select_model_loader(config: WinMLEvaluationConfig) -> _ModelLoaderKind:
     """Select the model-loading path shared by loading and CLI diagnostics."""
-    if not config.export_model:
-        return _ModelLoaderKind.NATIVE
+    if config.runtime == "pytorch":
+        return _ModelLoaderKind.PYTORCH
     if config.task == "text-generation":
         return _ModelLoaderKind.GENAI
     if config.mode == "compare" and config.reference_path is not None:
@@ -120,9 +120,9 @@ def get_evaluator_class(config: WinMLEvaluationConfig) -> type[WinMLEvaluator]:
     return cast("type[WinMLEvaluator]", getattr(module, class_name))
 
 
-def _validate_native_config(config: WinMLEvaluationConfig) -> None:
-    """Validate state that cannot apply to native PyTorch evaluation."""
-    if config.export_model:
+def _validate_pytorch_runtime_config(config: WinMLEvaluationConfig) -> None:
+    """Validate state that cannot apply to the PyTorch runtime."""
+    if config.runtime == "winml":
         return
 
     incompatible: list[str] = []
@@ -161,8 +161,7 @@ def _validate_native_config(config: WinMLEvaluationConfig) -> None:
         incompatible.append("rebuild")
     if incompatible:
         raise ValueError(
-            "Native PyTorch evaluation cannot use ONNX-only configuration: "
-            f"{', '.join(incompatible)}."
+            f"The PyTorch runtime cannot use WinML-only configuration: {', '.join(incompatible)}."
         )
 
     if config.task is not None:
@@ -170,7 +169,7 @@ def _validate_native_config(config: WinMLEvaluationConfig) -> None:
         if not evaluator_class.supports_native:
             raise ValueError(
                 f"Task '{config.task}' does not use the standard labeled Hugging Face "
-                "pipeline and is not supported with --no-export."
+                "pipeline and is not supported with --runtime pytorch."
             )
 
 
@@ -339,7 +338,7 @@ def _load_model(
     from ..utils import cli as cli_utils
 
     loader = _select_model_loader(config)
-    if loader is _ModelLoaderKind.NATIVE:
+    if loader is _ModelLoaderKind.PYTORCH:
         if config.model_id is None:
             raise ValueError("model_id is required for native Hugging Face evaluation.")
         from ..loader import load_native_hf_model
@@ -562,6 +561,8 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
     """
     from ..utils.eval_utils import EVAL_MODES
 
+    if config.runtime not in ("winml", "pytorch"):
+        raise ValueError(f"Invalid runtime {config.runtime!r}; expected 'winml' or 'pytorch'.")
     mode = config.mode if config.mode is not None else "onnx"
     if mode not in EVAL_MODES:
         raise ValueError(f"Invalid mode {mode!r}; expected one of {EVAL_MODES} or None.")
@@ -574,7 +575,7 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
         task=config.task if onnx_compare else _resolve_task(config),
         dataset=deepcopy(config.dataset),
     )
-    _validate_native_config(config)
+    _validate_pytorch_runtime_config(config)
     if config.mode != "compare" and config.dataset.path is None:
         default = _DEFAULT_DATASETS.get(config.task) if config.task is not None else None
         if default is None:
@@ -659,11 +660,11 @@ def print_config(config: WinMLEvaluationConfig) -> None:
         output_console.print(f"[bold blue]Reference:[/bold blue] {config.reference_path}")
     if config.task is not None:
         output_console.print(f"[bold blue]Task:[/bold blue] {config.task}")
-    output_console.print(f"[bold blue]Backend:[/bold blue] {config.backend}")
+    output_console.print(f"[bold blue]Runtime:[/bold blue] {config.runtime}")
     output_console.print(f"[bold blue]Device:[/bold blue] {config.device}")
     if config.ep is not None:
         output_console.print(f"[bold blue]EP:[/bold blue] {config.ep}")
-    if config.export_model:
+    if config.runtime == "winml":
         output_console.print(f"[bold blue]Precision:[/bold blue] {config.precision}")
     if config.mode != "compare":
         output_console.print(f"[bold blue]Dataset:[/bold blue] {ds.path}")

@@ -42,13 +42,15 @@ def resolve_native_device(device: str) -> NativeDevice:
     if requested == "gpu":
         if not torch.cuda.is_available():
             raise ValueError(
-                "--device gpu with --no-export requires a CUDA-enabled PyTorch "
+                "--device gpu with --runtime pytorch requires a CUDA-enabled PyTorch "
                 "installation and an available CUDA device."
             )
         return NativeDevice(name="gpu", torch_device=torch.device("cuda"))
     if requested == "cpu":
         return NativeDevice(name="cpu", torch_device=torch.device("cpu"))
-    raise ValueError(f"--device {device} is not supported with --no-export; use auto, cpu, or gpu.")
+    raise ValueError(
+        f"--device {device} is not supported with --runtime pytorch; use auto, cpu, or gpu."
+    )
 
 
 def load_native_hf_model(
