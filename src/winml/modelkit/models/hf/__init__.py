@@ -95,6 +95,8 @@ from .t5 import MODEL_CLASS_MAPPING as _T5_CLASS_MAPPING
 from .t5 import T5_CONFIG
 from .t5 import T5DecoderIOConfig as _T5DecoderIOConfig  # triggers registration
 from .t5 import T5EncoderIOConfig as _T5EncoderIOConfig  # triggers registration
+from .vilt import MODEL_CLASS_MAPPING as _VILT_CLASS_MAPPING
+from .vilt import ViltVqaOnnxConfig as _ViltVqaOnnxConfig  # triggers registration
 from .vision_encoder_decoder import MODEL_CLASS_MAPPING as _VED_CLASS_MAPPING
 from .vision_encoder_decoder import VISION_ENCODER_DECODER_CONFIG
 from .vision_encoder_decoder import (
@@ -134,6 +136,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
         _SIGLIP_CLASS_MAPPING,
         _T5_CLASS_MAPPING,
         _VED_CLASS_MAPPING,
+        _VILT_CLASS_MAPPING,
         _VITPOSE_CLASS_MAPPING,
     )
     for _key, _model_cls in _sub_mapping.items()
