@@ -23,6 +23,9 @@ See also: modelkit/models/hf/bert.py, modelkit/models/hf/clip.py, modelkit/model
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 from optimum.exporters.tasks import TasksManager
 
@@ -33,6 +36,7 @@ from winml.modelkit.export.io import (  # Testing internal implementation
     _populate_image_size_from_preprocessor,
 )
 from winml.modelkit.models.hf.roberta import _adjust_position_embeddings
+from winml.modelkit.onnx.io import InputTensorSpec
 
 
 # =============================================================================
@@ -138,8 +142,33 @@ class TestBertSequenceLengthOverride:
 class TestLayoutLMQuestionAnsweringOverride:
     """LayoutLM QA export must include bbox and safe token_type_ids."""
 
-    def test_layoutlm_qa_dummy_inputs_include_bbox_and_zero_token_types(self) -> None:
-        """Dummy inputs must keep bbox while forcing token_type_ids to zero."""
+    @pytest.mark.parametrize("precision", ["fp32", "fp16"])
+    def test_layoutlm_recipe_bbox_generates_valid_boxes(self, precision: str) -> None:
+        """Both explicit recipes must use the same meaningful bbox contract."""
+        recipe_path = (
+            Path(__file__).parents[3]
+            / "examples"
+            / "recipes"
+            / "impira_layoutlm-invoices"
+            / "cpu"
+            / "cpu"
+            / f"question-answering_{precision}_config.json"
+        )
+        recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
+        bbox_config = next(
+            tensor for tensor in recipe["export"]["input_tensors"] if tensor["name"] == "bbox"
+        )
+
+        assert bbox_config["value_range"] == [0, 1001]
+        bbox = InputTensorSpec.from_dict(bbox_config).to_tensor()
+        assert bbox.shape == (1, 512, 4)
+        assert bbox.min().item() >= 0
+        assert bbox.max().item() < 1001
+        assert (bbox[..., 0] < bbox[..., 2]).all().item()
+        assert (bbox[..., 1] < bbox[..., 3]).all().item()
+
+    def test_layoutlm_qa_dummy_inputs_include_valid_boxes_and_zero_token_types(self) -> None:
+        """Dummy inputs must use meaningful boxes while forcing token types to zero."""
         from transformers import LayoutLMConfig
 
         layoutlm_config = LayoutLMConfig(
@@ -160,6 +189,91 @@ class TestLayoutLMQuestionAnsweringOverride:
         assert inputs["bbox"].shape == (1, layoutlm_config.max_position_embeddings, 4)
         assert inputs["token_type_ids"].shape == (1, layoutlm_config.max_position_embeddings)
         assert inputs["token_type_ids"].max().item() == 0
+        bbox = inputs["bbox"]
+        assert bbox.min().item() >= 0
+        assert bbox.max().item() < 1001
+        assert (bbox[..., 0] < bbox[..., 2]).all().item()
+        assert (bbox[..., 1] < bbox[..., 3]).all().item()
+
+        specs = resolve_io_specs("layoutlm", "question-answering", layoutlm_config)
+        assert specs["value_ranges"]["bbox"] == (0, 1001)
+
+    def test_layoutlm_qa_uses_usable_length_for_padding_offset(self) -> None:
+        """RoBERTa-style position offsets must not generate out-of-range positions."""
+        from transformers import LayoutLMConfig
+
+        layoutlm_config = LayoutLMConfig(
+            vocab_size=100,
+            hidden_size=64,
+            num_hidden_layers=2,
+            num_attention_heads=2,
+            intermediate_size=128,
+            max_position_embeddings=34,
+            max_2d_position_embeddings=1024,
+            type_vocab_size=1,
+            pad_token_id=1,
+        )
+
+        inputs = generate_dummy_inputs("layoutlm", "question-answering", layoutlm_config)
+
+        assert inputs["input_ids"].shape == (1, 32)
+        assert inputs["bbox"].shape == (1, 32, 4)
+        assert inputs["attention_mask"].shape == (1, 32)
+        assert inputs["token_type_ids"].shape == (1, 32)
+
+        specs = resolve_io_specs("layoutlm", "question-answering", layoutlm_config)
+        assert specs["value_ranges"]["token_type_ids"] == (0, 1)
+
+    def test_layoutlm_qa_bbox_respects_smaller_2d_embedding_table(self) -> None:
+        """Coordinates and width/height indexes must fit the configured 2D table."""
+        from transformers import LayoutLMConfig
+
+        layoutlm_config = LayoutLMConfig(
+            vocab_size=100,
+            hidden_size=64,
+            num_hidden_layers=2,
+            num_attention_heads=2,
+            intermediate_size=128,
+            max_position_embeddings=32,
+            max_2d_position_embeddings=16,
+            type_vocab_size=1,
+        )
+
+        inputs = generate_dummy_inputs("layoutlm", "question-answering", layoutlm_config)
+        bbox = inputs["bbox"]
+        widths = bbox[..., 2] - bbox[..., 0]
+        heights = bbox[..., 3] - bbox[..., 1]
+
+        assert bbox.shape == (1, layoutlm_config.max_position_embeddings, 4)
+        assert bbox.min().item() >= 0
+        assert bbox.max().item() < layoutlm_config.max_2d_position_embeddings
+        assert ((widths > 0) & (widths < layoutlm_config.max_2d_position_embeddings)).all().item()
+        assert ((heights > 0) & (heights < layoutlm_config.max_2d_position_embeddings)).all().item()
+
+        specs = resolve_io_specs("layoutlm", "question-answering", layoutlm_config)
+        assert specs["value_ranges"]["bbox"] == (0, 16)
+
+    def test_layoutlm_qa_bbox_handles_minimum_valid_2d_table(self) -> None:
+        """The two-coordinate edge case must still produce positive-area boxes."""
+        from transformers import LayoutLMConfig
+
+        layoutlm_config = LayoutLMConfig(
+            vocab_size=100,
+            hidden_size=64,
+            num_hidden_layers=2,
+            num_attention_heads=2,
+            intermediate_size=128,
+            max_position_embeddings=8,
+            max_2d_position_embeddings=2,
+            type_vocab_size=1,
+        )
+
+        bbox = generate_dummy_inputs("layoutlm", "question-answering", layoutlm_config)["bbox"]
+
+        assert bbox.shape == (1, 8, 4)
+        assert set(bbox.unique().tolist()) == {0, 1}
+        assert (bbox[..., 0] < bbox[..., 2]).all().item()
+        assert (bbox[..., 1] < bbox[..., 3]).all().item()
 
     def test_layoutlm_qa_io_specs_include_span_outputs(self) -> None:
         """LayoutLM QA specs expose document bbox input and span logits outputs."""
