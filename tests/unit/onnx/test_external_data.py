@@ -19,6 +19,7 @@ from winml.modelkit.onnx import ONNXSaveError
 from winml.modelkit.onnx.external_data import (
     copy_onnx_model,
     get_external_data_files,
+    get_onnx_model_hash,
     has_external_data,
 )
 
@@ -89,6 +90,25 @@ class TestGetExternalDataFiles:
         )
 
         assert get_external_data_files(path) == ["ext.onnx.data"]
+
+
+def test_strict_model_hash_detects_content_change_with_preserved_metadata(tmp_path: Path) -> None:
+    """Strict cache identity hashes bytes, not only path/size/mtime metadata."""
+    path = tmp_path / "model.onnx"
+    model = _make_filled_model(1.0, (4, 4))
+    onnx.save(model, path)
+    original_stat = path.stat()
+    original_hash = get_onnx_model_hash(path, strict=True)
+
+    replacement = _make_filled_model(2.0, (4, 4))
+    onnx.save(replacement, path)
+    assert path.stat().st_size == original_stat.st_size
+    path.touch()
+    import os
+
+    os.utime(path, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+
+    assert get_onnx_model_hash(path, strict=True) != original_hash
 
 
 class TestHasExternalData:

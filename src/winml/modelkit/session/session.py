@@ -6,8 +6,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
+import tempfile
+import threading
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from enum import Enum
@@ -16,9 +21,10 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import onnxruntime as ort
+from filelock import FileLock
 
 from ..core.onnx_utils import get_io_config
-from ..onnx import is_compiled_onnx
+from ..onnx import get_onnx_model_hash, is_compiled_onnx
 from ..utils.native_stderr import (
     get_win32_fd_handle,
     get_win32_std_handle,
@@ -48,6 +54,16 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+_EPCONTEXT_THREAD_LOCKS_GUARD = threading.Lock()
+_EPCONTEXT_THREAD_LOCKS: dict[Path, threading.Lock] = {}
+
+
+def _epcontext_thread_lock(lock_path: Path) -> threading.Lock:
+    """Return the process-local lock paired with one EPContext lockfile."""
+    resolved = lock_path.resolve(strict=False)
+    with _EPCONTEXT_THREAD_LOCKS_GUARD:
+        return _EPCONTEXT_THREAD_LOCKS.setdefault(resolved, threading.Lock())
 
 
 @contextmanager
@@ -472,47 +488,17 @@ class WinMLSession:
             self._state = SessionState.COMPILED
             return
 
-        # Derive the output ctx path from the original model path.
-        ctx_path = self._onnx_path.parent / f"{self._onnx_path.stem}_{target_device}_ctx.onnx"
         model_path = self._onnx_path
 
         # Native QNN SDK compiler writes progress to stdout/stderr;
         # redirect to log file to keep the console clean.
         compile_log = self._onnx_path.parent / "compile.log"
 
-        # Check for existing fresh EPContext (skip re-compile if cache is fresh).
-        if ctx_path.exists() and ctx_path.stat().st_mtime >= self._onnx_path.stat().st_mtime:
-            model_path = ctx_path
-            logger.info("Using cached EPContext: %s", ctx_path)
-        elif is_compiled_onnx(self._onnx_path):
+        if is_compiled_onnx(self._onnx_path):
             # Input model is already an EPContext — use it directly.
             logger.info("Model already compiled (EPContext), skipping ModelCompiler")
         else:
-            # AOT compile to .ctx.onnx via ort.ModelCompiler.
-            try:
-                so = _build_session_options(
-                    self._ep_device,
-                    self._ep_config,
-                    None,  # no monitor at compile time
-                    self._session_options_factory,
-                    session_option_entries=self._active_session_option_entries,
-                    provider_options=self._provider_options,
-                )
-                model_compiler = ort.ModelCompiler(
-                    so,
-                    str(self._onnx_path),
-                    embed_compiled_data_into_model=self._embed_context,
-                )
-                with _suppress_native_output(compile_log):
-                    model_compiler.compile_to_file(str(ctx_path))
-
-                if ctx_path.exists():
-                    model_path = ctx_path
-                    logger.info("Compiled to EPContext: %s", ctx_path)
-
-            except Exception as e:
-                # Some EPs don't support compilation — fall back to original model.
-                logger.warning("ModelCompiler failed, using original: %s", e)
+            model_path = self._compile_epcontext_with_stable_source(compile_log)
 
         try:
             # Create the runtime InferenceSession against the (possibly compiled) model.
@@ -550,6 +536,321 @@ class WinMLSession:
         self._session = session
         self._running_model_path = model_path
         self._state = SessionState.COMPILED
+
+    def _compile_epcontext_with_stable_source(self, compile_log: Path) -> Path:
+        """Prepare an EPContext whose marker matches a stable source snapshot."""
+        for _attempt in range(3):
+            try:
+                expected_identity = self._epcontext_cache_identity()
+            except (OSError, ValueError) as exc:
+                logger.warning(
+                    "Could not establish EPContext source identity; cache reuse disabled: %s",
+                    exc,
+                )
+                cache_path = self._epcontext_cache_path(None)
+                lock_path = cache_path.with_name(f"{cache_path.name}.lock")
+                with _epcontext_thread_lock(lock_path), FileLock(lock_path):
+                    prepared = self._prepare_epcontext_model(
+                        cache_path,
+                        compile_log,
+                        None,
+                    )
+                return prepared or self._onnx_path
+
+            cache_path = self._epcontext_cache_path(expected_identity)
+            lock_path = cache_path.with_name(f"{cache_path.name}.lock")
+            with _epcontext_thread_lock(lock_path), FileLock(lock_path):
+                try:
+                    locked_identity = self._epcontext_cache_identity()
+                except (OSError, ValueError):
+                    continue
+                if locked_identity != expected_identity:
+                    continue
+                prepared = self._prepare_epcontext_model(
+                    cache_path,
+                    compile_log,
+                    locked_identity,
+                )
+                if prepared is None:
+                    continue
+                try:
+                    final_identity = self._epcontext_cache_identity()
+                except (OSError, ValueError):
+                    continue
+                if final_identity == locked_identity:
+                    return prepared
+
+        logger.warning("ONNX source changed during EPContext compilation; using original model")
+        return self._onnx_path
+
+    def _prepare_epcontext_model(
+        self,
+        cache_path: Path,
+        compile_log: Path,
+        cache_identity: dict[str, object] | None,
+    ) -> Path | None:
+        """Reuse or compile one EPContext while the caller holds its file lock."""
+        if cache_identity is not None:
+            cached_generation = self._epcontext_cached_generation(cache_path, cache_identity)
+            if cached_generation is not None:
+                logger.info("Using cached EPContext: %s", cached_generation)
+                return cached_generation
+
+        generation_path = cache_path.with_name(
+            f"{cache_path.stem}_{uuid.uuid4().hex[:16]}{cache_path.suffix}"
+        )
+        try:
+            so = _build_session_options(
+                self._ep_device,
+                self._ep_config,
+                None,
+                self._session_options_factory,
+                session_option_entries=self._active_session_option_entries,
+                provider_options=self._provider_options,
+            )
+            model_compiler = ort.ModelCompiler(
+                so,
+                str(self._onnx_path),
+                embed_compiled_data_into_model=self._embed_context,
+            )
+            with _suppress_native_output(compile_log):
+                model_compiler.compile_to_file(str(generation_path))
+        except Exception as exc:
+            logger.warning("ModelCompiler failed, using original: %s", exc)
+            return self._onnx_path
+
+        if not generation_path.exists():
+            return self._onnx_path
+        if cache_identity is not None:
+            try:
+                current_identity = self._epcontext_cache_identity()
+            except (OSError, ValueError):
+                self._discard_epcontext_generation(generation_path)
+                return None
+            if current_identity != cache_identity:
+                self._discard_epcontext_generation(generation_path)
+                return None
+            try:
+                self._write_epcontext_cache_marker(
+                    cache_path,
+                    generation_path,
+                    cache_identity,
+                )
+            except (OSError, TypeError, ValueError) as exc:
+                logger.warning(
+                    "Compiled EPContext but could not write cache marker %s: %s",
+                    self._epcontext_cache_marker_path(cache_path),
+                    exc,
+                )
+        logger.info("Compiled to EPContext: %s", generation_path)
+        return generation_path
+
+    @classmethod
+    def _discard_epcontext_generation(cls, generation_path: Path) -> None:
+        """Best-effort removal of an unpublished generation and its sidecars."""
+        try:
+            sidecars = cls._epcontext_external_sidecars(generation_path)
+        except (OSError, ValueError):
+            sidecars = ()
+        for path in (*sidecars, generation_path):
+            cls._unlink_generation_file(path)
+
+    @staticmethod
+    def _unlink_generation_file(path: Path) -> None:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            logger.debug("Could not remove stale EPContext generation file %s", path)
+
+    @staticmethod
+    def _epcontext_cache_marker_path(ctx_path: Path) -> Path:
+        """Return the sidecar that records a direct-session cache identity."""
+        return ctx_path.with_name(f"{ctx_path.name}.meta.json")
+
+    def _epcontext_cache_path(self, identity: dict[str, object] | None) -> Path:
+        """Return an immutable identity path, or a unique non-cacheable path."""
+        if identity is None:
+            identity_token = uuid.uuid4().hex[:16]
+        else:
+            encoded_identity = json.dumps(identity, sort_keys=True, separators=(",", ":"))
+            identity_token = hashlib.sha256(encoded_identity.encode("utf-8")).hexdigest()[:16]
+        return self._onnx_path.with_name(
+            f"{self._onnx_path.stem}_{self._device}_{identity_token}_ctx.onnx"
+        )
+
+    def _epcontext_cache_identity(self) -> dict[str, object]:
+        """Return all inputs that affect a direct-session EPContext artifact."""
+        if self._session_options_factory is not None:
+            raise ValueError(
+                "custom SessionOptions factory cannot be represented in cache identity"
+            )
+        hardware = self._ep_device.device.ort_handle.device
+
+        def _optional_text(value: object) -> str | None:
+            return value if isinstance(value, str) and value else None
+
+        dll_fingerprint = (
+            None if self._ep_device.is_builtin else self._file_fingerprint(self._ep_device.dll_path)
+        )
+
+        return {
+            "schema_version": 1,
+            "source_model_hash": get_onnx_model_hash(self._onnx_path, strict=True),
+            "ep": self._ep_device.device.ep_name,
+            "ep_source": self._ep_device.source_tag,
+            "ep_version": self._ep_device.version,
+            "ep_dll": dll_fingerprint,
+            "device": self._device,
+            "hardware": {
+                "vendor_id": hardware.vendor_id,
+                "device_id": hardware.device_id,
+                "name": _optional_text(self._ep_device.device.hardware_name),
+                "driver_version": _optional_text(self._ep_device.device.driver_version),
+                "compiler_version": _optional_text(self._ep_device.device.compiler_version),
+            },
+            "provider_options": dict(sorted(self._provider_options.items())),
+            "session_options": dict(sorted(self._active_session_option_entries.items())),
+            "embed_context": self._embed_context,
+            "ort_version": ort.__version__,
+        }
+
+    @staticmethod
+    def _file_fingerprint(path: Path) -> dict[str, object]:
+        """Return a strict metadata and content fingerprint for one file."""
+        resolved = path.resolve(strict=True)
+        stat = resolved.stat()
+        digest = hashlib.sha256()
+        with resolved.open("rb") as source_file:
+            for chunk in iter(lambda: source_file.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return {
+            "path": str(resolved),
+            "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+            "sha256": digest.hexdigest(),
+        }
+
+    @classmethod
+    def _epcontext_cached_generation(
+        cls,
+        cache_path: Path,
+        expected_identity: dict[str, object],
+    ) -> Path | None:
+        """Return the immutable generation selected by a valid identity marker."""
+        marker_path = cls._epcontext_cache_marker_path(cache_path)
+        try:
+            recorded = json.loads(marker_path.read_text(encoding="utf-8"))
+            if not isinstance(recorded, dict) or recorded.get("identity") != expected_identity:
+                return None
+            generation_name = recorded.get("generation")
+            if (
+                not isinstance(generation_name, str)
+                or Path(generation_name).name != generation_name
+            ):
+                return None
+            generation_path = cache_path.parent / generation_name
+            current_artifacts = cls._epcontext_artifact_fingerprint(generation_path)
+        except Exception:
+            return None
+        if recorded.get("artifacts") != current_artifacts:
+            return None
+        return generation_path
+
+    @staticmethod
+    def _epcontext_external_sidecars(ctx_path: Path) -> tuple[Path, ...]:
+        """Return validated external binaries referenced by an EPContext graph."""
+        from onnx import AttributeProto
+
+        from ..onnx import load_onnx
+
+        model = load_onnx(ctx_path, load_weights=False, validate=False)
+        source_root = ctx_path.parent.resolve()
+        sidecars: dict[Path, None] = {}
+        for node in model.graph.node:
+            if node.op_type != "EPContext":
+                continue
+            attrs = {attr.name: attr for attr in node.attribute}
+            embed_mode = attrs.get("embed_mode")
+            if embed_mode is None or (embed_mode.type == AttributeProto.INT and embed_mode.i != 0):
+                continue
+            if embed_mode.type != AttributeProto.INT:
+                raise ValueError("EPContext embed_mode must be an integer")
+            main_context = attrs.get("main_context")
+            cache_attr = attrs.get("ep_cache_context")
+            is_secondary = (
+                main_context is not None
+                and main_context.type == AttributeProto.INT
+                and main_context.i == 0
+            )
+            if cache_attr is None and is_secondary:
+                continue
+            if cache_attr is None or cache_attr.type != AttributeProto.STRING:
+                raise ValueError("External EPContext node must have a string ep_cache_context")
+            try:
+                cache_ref = cache_attr.s.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ValueError("EPContext cache reference must be valid UTF-8") from exc
+            relative_ref = Path(cache_ref)
+            if not cache_ref or relative_ref.is_absolute() or relative_ref.drive:
+                raise ValueError(f"unsafe EPContext cache reference: {cache_ref!r}")
+            try:
+                sidecar = (source_root / relative_ref).resolve()
+                sidecar.relative_to(source_root)
+            except (OSError, ValueError) as exc:
+                raise ValueError(f"unsafe EPContext cache reference: {cache_ref!r}") from exc
+            if not sidecar.is_file() or sidecar.stat().st_size == 0:
+                raise FileNotFoundError(f"EPContext sidecar is unavailable: {sidecar}")
+            sidecars.setdefault(sidecar, None)
+        return tuple(sidecars)
+
+    @classmethod
+    def _epcontext_artifact_fingerprint(cls, ctx_path: Path) -> list[dict[str, object]]:
+        """Return metadata fingerprints for the graph and external binaries."""
+        source_root = ctx_path.parent.resolve()
+        paths = (ctx_path.resolve(), *cls._epcontext_external_sidecars(ctx_path))
+        fingerprints = []
+        for path in paths:
+            fingerprint = cls._file_fingerprint(path)
+            fingerprints.append(
+                {
+                    "path": path.relative_to(source_root).as_posix(),
+                    "size": fingerprint["size"],
+                    "mtime_ns": fingerprint["mtime_ns"],
+                    "sha256": fingerprint["sha256"],
+                }
+            )
+        return fingerprints
+
+    @classmethod
+    def _write_epcontext_cache_marker(
+        cls,
+        cache_path: Path,
+        generation_path: Path,
+        identity: dict[str, object],
+    ) -> None:
+        """Atomically publish the identity for a successfully compiled context."""
+        marker_path = cls._epcontext_cache_marker_path(cache_path)
+        marker_path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary_name = tempfile.mkstemp(
+            prefix=f".{marker_path.name}.", suffix=".tmp", dir=marker_path.parent
+        )
+        temporary_path = Path(temporary_name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as marker_file:
+                json.dump(
+                    {
+                        "identity": identity,
+                        "generation": generation_path.name,
+                        "artifacts": cls._epcontext_artifact_fingerprint(generation_path),
+                    },
+                    marker_file,
+                    indent=2,
+                    sort_keys=True,
+                )
+            temporary_path.replace(marker_path)
+        except Exception:
+            temporary_path.unlink(missing_ok=True)
+            raise
 
     def run(
         self,
