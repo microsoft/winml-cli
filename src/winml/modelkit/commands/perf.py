@@ -3146,11 +3146,13 @@ def perf(
             # build is skipped (the default). Warn so the silent no-op is visible
             # — shared detection with eval via utils/cli.py.
             build_flags_warning = cli_utils.ignored_build_flags_warning(
-                skip_build_onnx=skip_build,
+                build_runs=not skip_build,
                 quant=quant,
                 optimize=optimize,
                 analyze=analyze,
                 max_optim_iterations=max_optim_iterations,
+                reason="pre-built ONNX inputs",
+                rebuild_hint="--no-skip-build",
             )
             if build_flags_warning:
                 console.print(f"[yellow]Warning:[/yellow] {build_flags_warning}")

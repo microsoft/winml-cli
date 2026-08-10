@@ -11,6 +11,7 @@ import importlib
 import logging
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
+from enum import Enum, auto
 from typing import TYPE_CHECKING, Any, cast
 
 from rich.console import Console
@@ -27,6 +28,28 @@ if TYPE_CHECKING:
     from .base_evaluator import WinMLEvaluator
 
 logger = logging.getLogger(__name__)
+
+
+class _ModelLoaderKind(Enum):
+    GENAI = auto()
+    DIRECT_ONNX_COMPARE = auto()
+    EVALUATOR_MANAGED = auto()
+    ONNX = auto()
+    PRETRAINED = auto()
+
+
+def _select_model_loader(config: WinMLEvaluationConfig) -> _ModelLoaderKind:
+    """Select the model-loading path shared by loading and CLI diagnostics."""
+    if config.task == "text-generation":
+        return _ModelLoaderKind.GENAI
+    if config.mode == "compare" and config.reference_path is not None:
+        return _ModelLoaderKind.DIRECT_ONNX_COMPARE
+    if isinstance(config.model_path, dict) and config.task == "mask-generation":
+        return _ModelLoaderKind.EVALUATOR_MANAGED
+    if config.model_path is not None:
+        return _ModelLoaderKind.ONNX
+    return _ModelLoaderKind.PRETRAINED
+
 
 # Map task -> "module_path:ClassName"; modules are imported lazily by
 # get_evaluator_class() to improve command latency.
@@ -256,14 +279,14 @@ def _load_model(
     from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
     from ..utils import cli as cli_utils
 
-    if config.task == "text-generation":
+    loader = _select_model_loader(config)
+    if loader is _ModelLoaderKind.GENAI:
         return _load_genai_causal_lm(config)
 
     # Two-ONNX compare: the evaluator builds both raw ORT sessions directly from
     # config.model_path / config.reference_path — no WinMLAutoModel / HF config.
-    if config.mode == "compare" and config.reference_path is not None:
+    if loader is _ModelLoaderKind.DIRECT_ONNX_COMPARE:
         return None
-
 
     quant_override: Any = None
     if not config.quant:
@@ -277,11 +300,15 @@ def _load_model(
         analyze=config.analyze,
         max_optim_iterations=config.max_optim_iterations,
     )
+    cache_kwargs = cli_utils.cache_extra_kwargs(
+        use_cache=config.use_cache,
+        rebuild=config.rebuild,
+    )
 
     if config.model_id is None:
         raise ValueError("model_id is required.")
 
-    if isinstance(config.model_path, dict) and config.task == "mask-generation":
+    if loader is _ModelLoaderKind.EVALUATOR_MANAGED:
         # Evaluator-driven session loading; skip WinMLAutoModel entirely.
         return None
 
@@ -295,7 +322,7 @@ def _load_model(
     from onnxruntime.capi.onnxruntime_pybind11_state import RuntimeException
 
     try:
-        if config.model_path is not None:
+        if loader is _ModelLoaderKind.ONNX:
             # Pre-built ONNX: precision is already baked into the model and is
             # ignored here (mirrors winml perf's ONNX path).
             from transformers import AutoConfig
@@ -312,6 +339,7 @@ def _load_model(
                 skip_build=config.skip_build,
                 config=quant_override,
                 hf_config=hf_config,
+                **cache_kwargs,
                 **pipeline_kwargs,
             )
             model.config = hf_config
@@ -341,6 +369,7 @@ def _load_model(
             allow_unsupported_nodes=config.allow_unsupported_nodes,
             config=build_override,
             shape_config=config.shape_config,
+            **cache_kwargs,
             **pipeline_kwargs,
         )
     except RuntimeException as error:
@@ -386,8 +415,7 @@ def _load_genai_causal_lm(config: WinMLEvaluationConfig) -> WinMLGenaiCausalLM:
     bundle_path = config.model_path
     if not bundle_path or isinstance(bundle_path, dict):
         raise ValueError(
-            "text-generation evaluation requires a genai bundle *directory* via "
-            "-m <bundle_dir>."
+            "text-generation evaluation requires a genai bundle *directory* via -m <bundle_dir>."
         )
 
     bundle_dir = Path(bundle_path).expanduser()
@@ -420,19 +448,7 @@ def _resolve_task(config: WinMLEvaluationConfig) -> str:
     console = Console()
     console.print("[bold]Resolving task...[/bold]")
 
-    if config.task is not None:
-        task = config.task
-    else:
-        if config.model_id is None:
-            raise ValueError("Cannot infer task without model_id. Provide --task.")
-
-        from transformers import AutoConfig
-
-        from ..loader import load_hf_config
-        from ..loader.resolution import resolve_task
-
-        hf_config = load_hf_config(AutoConfig, config.model_id)
-        task = resolve_task(hf_config).task
+    task = config.task if config.task is not None else _infer_task(config)
 
     console.print(f"[dim]Use[/dim] {task} [dim]to evaluate[/dim]")
 
@@ -440,6 +456,20 @@ def _resolve_task(config: WinMLEvaluationConfig) -> str:
         supported = ", ".join(sorted(_EVALUATOR_REGISTRY))
         raise ValueError(f"Task '{task}' is not supported. Supported tasks: {supported}.")
     return task
+
+
+def _infer_task(config: WinMLEvaluationConfig) -> str:
+    """Infer the evaluation task from the model's Hugging Face config."""
+    if config.model_id is None:
+        raise ValueError("Cannot infer task without model_id. Provide --task.")
+
+    from transformers import AutoConfig
+
+    from ..loader import load_hf_config
+    from ..loader.resolution import resolve_task
+
+    hf_config = load_hf_config(AutoConfig, config.model_id)
+    return resolve_task(hf_config).task
 
 
 def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
