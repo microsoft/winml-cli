@@ -839,7 +839,7 @@ class TestResolveAdapterLuid:
 
         assert luid == "0x00000000_0x000000DE"
 
-    def test_multiple_matching_adapters_are_unresolved_without_pdh_fallback(self):
+    def test_multiple_ort_adapters_are_unresolved_when_pdh_exposes_only_one(self):
         from winml.modelkit.sysinfo import pdh_adapters
 
         def fake_device(luid: str):
@@ -866,10 +866,7 @@ class TestResolveAdapterLuid:
                 ),
             },
         )
-        fake_pdh = {
-            "0x00000000_0x0000006F": object(),
-            "0x00000000_0x000000DE": object(),
-        }
+        fake_pdh = {"0x00000000_0x0000006F": object()}
 
         with (
             patch.dict("sys.modules", {"onnxruntime": fake_ort}),
@@ -945,10 +942,8 @@ class TestResolveAdapterLuid:
 
         assert luid == "0x00000000_0x00012C89"
 
-    def test_falls_back_when_ort_luid_not_in_pdh_enumeration(self):
-        """If ORT publishes a LUID PDH doesn't enumerate, the resolver skips
-        it and falls through to the PDH-only fallback. Without this guard,
-        ``build_adapter_query`` would later raise for the unknown LUID."""
+    def test_ort_luid_missing_from_pdh_is_not_monitorable(self):
+        """A unique ORT adapter must not fall back to unrelated PDH telemetry."""
         from winml.modelkit.sysinfo import pdh_adapters
 
         ghost_dev = type(
@@ -973,9 +968,7 @@ class TestResolveAdapterLuid:
             },
         )
 
-        # PDH knows *some* adapters but not the one ORT named. A non-empty
-        # dict triggers validation; the ORT LUID is rejected and we fall
-        # through to discover_npu_luid().
+        # PDH knows some adapters but not the one ORT named.
         fake_pdh = {"0x00000000_0xC0FFEE": object()}
 
         with (
@@ -989,9 +982,10 @@ class TestResolveAdapterLuid:
         ):
             luid = pdh_adapters.resolve_adapter_luid("npu")
 
-        # 22278 == 0x5706 (the failing-test LUID); rejected, fallback wins.
-        assert luid == "0x00000000_0xFA11BACC"
-        mock_pdh.assert_called_once()
+        # 22278 == 0x5706. The ORT adapter cannot be monitored, and choosing
+        # another adapter would silently attribute unrelated telemetry.
+        assert luid is None
+        mock_pdh.assert_not_called()
 
     def test_skips_malformed_ep_device(self):
         """Accessing .device or .metadata may raise on bad ep_devices; the

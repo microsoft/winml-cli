@@ -19,6 +19,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCHEMA_PATH = REPO_ROOT / "scripts" / "e2e_eval" / "schemas" / "llm_eval_result.schema.json"
+TEST_BUNDLE_DIR = REPO_ROOT / "test-bundle"
 
 
 def _load_runner():
@@ -42,10 +43,12 @@ def _perf_report(
     device: str = "npu",
     ep: str = "qnn",
     generated_tokens: int = 128,
+    bundle_dir: Path = TEST_BUNDLE_DIR,
 ) -> dict:
     return {
         "benchmark_info": {
             "runtime": "winml-genai",
+            "bundle_dir": str(bundle_dir),
             "ep": ep,
             "device": device,
             "effective_device": device,
@@ -104,6 +107,7 @@ class TestPerfResultMapping:
         point = runner._context_point(
             256,
             _perf_report(),
+            expected_bundle_dir=TEST_BUNDLE_DIR,
             expected_device="npu",
             expected_ep="qnn",
             expected_max_new_tokens=128,
@@ -129,6 +133,7 @@ class TestPerfResultMapping:
             runner._context_point(
                 256,
                 _perf_report(255),
+                expected_bundle_dir=TEST_BUNDLE_DIR,
                 expected_device="npu",
                 expected_ep="qnn",
                 expected_max_new_tokens=128,
@@ -142,6 +147,7 @@ class TestPerfResultMapping:
         point = runner._context_point(
             256,
             _perf_report(ep="nvtensorrtrtx"),
+            expected_bundle_dir=TEST_BUNDLE_DIR,
             expected_device="npu",
             expected_ep="nv_tensorrt_rtx@catalog",
             expected_max_new_tokens=128,
@@ -157,6 +163,7 @@ class TestPerfResultMapping:
         point = runner._context_point(
             256,
             _perf_report(generated_tokens=17),
+            expected_bundle_dir=TEST_BUNDLE_DIR,
             expected_device="npu",
             expected_ep="qnn",
             expected_max_new_tokens=128,
@@ -174,6 +181,7 @@ class TestPerfResultMapping:
             runner._context_point(
                 256,
                 _perf_report(generated_tokens=generated_tokens),
+                expected_bundle_dir=TEST_BUNDLE_DIR,
                 expected_device="npu",
                 expected_ep="qnn",
                 expected_max_new_tokens=128,
@@ -191,8 +199,26 @@ class TestPerfResultMapping:
             runner._context_point(
                 256,
                 report,
+                expected_bundle_dir=TEST_BUNDLE_DIR,
                 expected_device="cpu",
                 expected_ep="dml",
+                expected_max_new_tokens=128,
+                expected_iterations=3,
+                expected_warmup=1,
+                total_ram_mb=16384.0,
+                total_vram_mb=4096.0,
+            )
+
+    def test_bundle_mismatch_fails(self, runner) -> None:
+        report = _perf_report(bundle_dir=TEST_BUNDLE_DIR / "other")
+
+        with pytest.raises(ValueError, match=r"Expected benchmark_info\.bundle_dir"):
+            runner._context_point(
+                256,
+                report,
+                expected_bundle_dir=TEST_BUNDLE_DIR,
+                expected_device="npu",
+                expected_ep="qnn",
                 expected_max_new_tokens=128,
                 expected_iterations=3,
                 expected_warmup=1,
@@ -219,6 +245,7 @@ class TestResultContract:
         point = runner._context_point(
             256,
             _perf_report(),
+            expected_bundle_dir=TEST_BUNDLE_DIR,
             expected_device="npu",
             expected_ep="qnn",
             expected_max_new_tokens=128,
@@ -285,7 +312,11 @@ class TestResultContract:
             assert prompt_path.read_text(encoding="utf-8") == "prompt"
             assert "prompt" not in args
             report_path = Path(args[args.index("-o") + 1])
-            report_path.write_text(json.dumps(_perf_report()), encoding="utf-8")
+            model_arg = args.index("-m", args.index("perf") + 1)
+            bundle_dir = Path(args[model_arg + 1])
+            report_path.write_text(
+                json.dumps(_perf_report(bundle_dir=bundle_dir)), encoding="utf-8"
+            )
             return runner.ProcessResult(args, 0, 1.0, "", "", False)
 
         monkeypatch.setattr(runner, "_run_process", fake_run)
@@ -381,6 +412,29 @@ class TestResultContract:
 
         assert not stale_result.exists()
         assert not stale_failure.exists()
+
+    def test_concurrent_run_rejects_shared_output_directory(
+        self, runner, tmp_path: Path
+    ) -> None:
+        output_dir = tmp_path / "results"
+        output_dir.mkdir()
+        stale_result = output_dir / runner.RESULT_FILENAME
+        stale_result.write_text('{"run": {"passed": true}}', encoding="utf-8")
+
+        with (
+            runner._OutputDirectoryLock(output_dir),
+            pytest.raises(RuntimeError, match="already in use"),
+        ):
+            runner.main(
+                [
+                    "-m",
+                    str(tmp_path / "bundle"),
+                    "--output-dir",
+                    str(output_dir),
+                ]
+            )
+
+        assert stale_result.exists()
 
 
 class TestProcessLifecycle:

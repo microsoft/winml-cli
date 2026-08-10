@@ -40,6 +40,54 @@ WINML_CLI = [sys.executable, "-m", "winml.modelkit.cli"]
 SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "llm_eval_result.schema.json"
 
 
+class _OutputDirectoryLock:
+    """Prevent concurrent runners from sharing mutable result artifacts."""
+
+    def __init__(self, output_dir: Path) -> None:
+        self._output_dir = output_dir
+        self._path = output_dir / ".llm_eval.lock"
+        self._fd: int | None = None
+
+    def __enter__(self) -> _OutputDirectoryLock:
+        fd = os.open(self._path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            if os.fstat(fd).st_size == 0:
+                os.write(fd, b"\0")
+            os.lseek(fd, 0, os.SEEK_SET)
+            if platform.system() == "Windows":
+                import msvcrt
+
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            os.close(fd)
+            raise RuntimeError(
+                f"Output directory is already in use: {self._output_dir}"
+            ) from exc
+        self._fd = fd
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        if self._fd is None:
+            return
+        try:
+            if platform.system() == "Windows":
+                import msvcrt
+
+                os.lseek(self._fd, 0, os.SEEK_SET)
+                msvcrt.locking(self._fd, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self._fd, fcntl.LOCK_UN)
+        finally:
+            os.close(self._fd)
+            self._fd = None
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -369,6 +417,7 @@ def _context_point(
     target_tokens: int,
     report: dict[str, Any],
     *,
+    expected_bundle_dir: Path,
     expected_device: str,
     expected_ep: str | None,
     expected_max_new_tokens: int,
@@ -378,6 +427,14 @@ def _context_point(
     total_vram_mb: float,
 ) -> dict[str, Any]:
     info = report.get("benchmark_info") or {}
+    reported_bundle_dir = info.get("bundle_dir")
+    if not isinstance(reported_bundle_dir, str) or (
+        Path(reported_bundle_dir).resolve() != expected_bundle_dir.resolve()
+    ):
+        raise ValueError(
+            f"Expected benchmark_info.bundle_dir={str(expected_bundle_dir)!r}, "
+            f"got {reported_bundle_dir!r}"
+        )
     expected_info = {
         "runtime": "winml-genai",
         "device": expected_device,
@@ -632,6 +689,11 @@ def main(argv: list[str] | None = None) -> int:
 
     output_dir = args.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    with _OutputDirectoryLock(output_dir):
+        return _run(args, output_dir)
+
+
+def _run(args: argparse.Namespace, output_dir: Path) -> int:
     (output_dir / RESULT_FILENAME).unlink(missing_ok=True)
     (output_dir / FAILURE_FILENAME).unlink(missing_ok=True)
     bundle_dir = args.model.resolve()
@@ -679,6 +741,7 @@ def main(argv: list[str] | None = None) -> int:
             point = _context_point(
                 context_length,
                 report,
+                expected_bundle_dir=bundle_dir,
                 expected_device=args.device,
                 expected_ep=args.ep,
                 expected_max_new_tokens=args.max_new_tokens,
