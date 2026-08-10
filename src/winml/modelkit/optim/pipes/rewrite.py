@@ -99,6 +99,9 @@ class RewritePipe(BasePipe[RewritePipeConfig]):
     name: ClassVar[str] = "rewrite"
     capabilities: ClassVar[dict[str, Any]] = REWRITE_CAPABILITIES
 
+    def __init__(self) -> None:
+        self._analysis_matches: list[PatternMatchResult] | None = None
+
     @classmethod
     def build_config(cls, **kwargs: Any) -> RewritePipeConfig:
         """Build config from kwargs (populated by capability_options decorator).
@@ -144,26 +147,99 @@ class RewritePipe(BasePipe[RewritePipeConfig]):
             New ONNX model with rewritten subgraphs, or the original model
             object when no rules are configured or no matches are found.
         """
+        return self._process(model, config, skip_shape_inference=False)
+
+    def prepare_analysis_model(self, model: onnx.ModelProto) -> onnx.ModelProto:
+        """Infer shapes and match all source patterns once for analysis."""
+        from ...onnx import infer_onnx_shapes
+        from ...pattern.base import PatternMatcher
+        from .rewrite_rules import get_rewrite_rules_for_capability
+
+        prepared = model.__class__()
+        prepared.CopyFrom(model)
+        prepared = infer_onnx_shapes(prepared)
+
+        matcher = PatternMatcher(prepared, skip_shape_inference=True)
+        for cap_name in REWRITE_CAPABILITIES:
+            for rule in get_rewrite_rules_for_capability(cap_name):
+                matcher.register_pattern(rule.source)
+        self._analysis_matches = matcher.match()
+        return prepared
+
+    def process_analysis(
+        self,
+        model: onnx.ModelProto,
+        config: RewritePipeConfig,
+    ) -> onnx.ModelProto:
+        """Probe a rewrite using shape information and matches prepared once."""
+        if self._analysis_matches is None:
+            return self._process(model, config, skip_shape_inference=True)
+        source_names = {rule.source.__class__.__name__ for rule in config.rules}
+        matches = [
+            match
+            for match in self._analysis_matches
+            if match.skeleton_match_result.pattern.__class__.__name__ in source_names
+        ]
+        return self._rewrite_matches(model, config, matches)
+
+    @classmethod
+    def requires_analysis_clone(cls) -> bool:
+        """Pattern matching is read-only and rewriting creates its own copy."""
+        return False
+
+    def _process(
+        self,
+        model: onnx.ModelProto,
+        config: RewritePipeConfig,
+        *,
+        skip_shape_inference: bool,
+    ) -> onnx.ModelProto:
+        """Apply configured rewrites, optionally reusing inferred shapes."""
         if not config.rules:
             return model
 
         try:
-            from ...pattern.base import PatternMatcher, PatternRewriter
+            from ...pattern.base import PatternMatcher
 
-            # Register source patterns; map source class name → target class
-            matcher = PatternMatcher(model)
+            # Register source patterns for this normal optimization run.
+            matcher = PatternMatcher(model, skip_shape_inference=skip_shape_inference)
+            for rule in config.rules:
+                matcher.register_pattern(rule.source)
+
+            all_matches = matcher.match()
+            return self._rewrite_matches(model, config, all_matches)
+
+        except OptimizationError:
+            raise
+        except Exception as e:
+            raise OptimizationError(
+                f"Pattern matching/rewriting failed: {e}",
+                pipe_name="rewrite",
+                cause=e,
+            ) from e
+
+    def _rewrite_matches(
+        self,
+        model: onnx.ModelProto,
+        config: RewritePipeConfig,
+        all_matches: list[PatternMatchResult],
+    ) -> onnx.ModelProto:
+        """Apply configured rewrites to an existing set of pattern matches."""
+        if not config.rules:
+            return model
+        if not all_matches:
+            logger.debug("RewritePipe: no pattern matches found; model unchanged.")
+            return model
+
+        try:
+            from ...pattern.base import PatternRewriter
+
             source_to_target: dict[str, type] = {}
             target_registry: dict[str, type] = {}
             for rule in config.rules:
-                matcher.register_pattern(rule.source)
                 target_cls = type(rule.target)
                 source_to_target[rule.source.__class__.__name__] = target_cls
                 target_registry[target_cls.__name__] = target_cls
-
-            all_matches = matcher.match()
-            if not all_matches:
-                logger.debug("RewritePipe: no pattern matches found; model unchanged.")
-                return model
 
             # Map each match to its target class
             candidate_pairs: list[tuple[PatternMatchResult, type]] = []

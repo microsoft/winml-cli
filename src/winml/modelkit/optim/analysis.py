@@ -206,41 +206,65 @@ def _diff_nodes(
     return removed, added, modified
 
 
-def _initializer_key(init: TensorProto) -> bytes:
-    """Serialize an initializer for diffing, ignoring external-data location.
+def _initializers_equal(base: TensorProto, probe: TensorProto) -> bool:
+    """Compare initializer content while ignoring storage-location metadata.
 
     An external-data ``TensorProto`` keeps its file path/offset/length in
     ``external_data`` (with ``data_location = EXTERNAL``) instead of inline
     ``raw_data``. Those location fields change whenever a pipe re-saves the
     model — relocated offsets, a different sidecar path — even when the tensor
     itself is unchanged, which would otherwise surface as a spurious "modified"
-    initializer. Stripping them keeps the diff keyed on tensor identity/content
-    rather than on where the bytes happen to live.
+    initializer. Some ONNX processing also explicitly serializes
+    ``data_location = DEFAULT`` on inline tensors, which is semantically
+    identical to leaving the optional field unset. Stripping both location
+    fields keeps the diff keyed on tensor identity/content rather than storage
+    metadata.
+
+    The common equality fast path is important for large models: protobuf
+    comparison reads payloads in place, while serializing every initializer
+    would allocate and copy all model weights for every capability probe.
     """
-    if init.data_location == TensorProto.EXTERNAL or len(init.external_data):
-        normalized = TensorProto()
-        normalized.CopyFrom(init)
-        normalized.ClearField("external_data")
-        normalized.ClearField("data_location")
-        return normalized.SerializeToString()
-    return init.SerializeToString()
+    if base == probe:
+        return True
+
+    ignored_fields = {"data_location", "external_data"}
+    for descriptor in TensorProto.DESCRIPTOR.fields:
+        if descriptor.name in ignored_fields:
+            continue
+
+        base_value = getattr(base, descriptor.name)
+        probe_value = getattr(probe, descriptor.name)
+        if descriptor.is_repeated:
+            if list(base_value) != list(probe_value):
+                return False
+        elif descriptor.message_type is not None:
+            if base.HasField(descriptor.name) != probe.HasField(descriptor.name):
+                return False
+            if base.HasField(descriptor.name) and base_value != probe_value:
+                return False
+        elif base_value != probe_value:
+            return False
+
+    return True
 
 
-def _collect_initializers(model: ModelProto) -> dict[str, bytes]:
-    """Return ``{initializer_name: signature_bytes}`` for the top-level graph."""
-    return {init.name: _initializer_key(init) for init in model.graph.initializer}
+def _collect_initializers(model: ModelProto) -> dict[str, TensorProto]:
+    """Return initializer references keyed by name for the top-level graph."""
+    return {init.name: init for init in model.graph.initializer}
 
 
 def _diff_initializers(
-    base: dict[str, bytes],
-    probe: dict[str, bytes],
+    base: dict[str, TensorProto],
+    probe: dict[str, TensorProto],
 ) -> tuple[list[str], list[str], list[str]]:
     """Diff two initializer tables into (removed, added, modified) name lists."""
     base_names = set(base)
     probe_names = set(probe)
     removed = sorted(base_names - probe_names)
     added = sorted(probe_names - base_names)
-    modified = sorted(n for n in (base_names & probe_names) if base[n] != probe[n])
+    modified = sorted(
+        n for n in (base_names & probe_names) if not _initializers_equal(base[n], probe[n])
+    )
     return removed, added, modified
 
 
@@ -353,6 +377,7 @@ def _iter_findings(
         base_nodes: dict[tuple[Any, ...], tuple[bytes, NodeRef]] = {}
         _collect_nodes(base_out.graph, (), base_nodes)
         base_inits = _collect_initializers(base_out)
+        prepared_probe_model = pipe.prepare_analysis_model(current)
 
         for cap_name, cap in probe_caps:
             if on_probe_start is not None:
@@ -381,7 +406,12 @@ def _iter_findings(
                 # "pipe ran but changed nothing", and it must isolate a failing
                 # capability in try/except so one bad probe cannot abort the scan.
                 try:
-                    probe_out = pipe.process(_clone(current), probe_config)
+                    probe_input = (
+                        _clone(prepared_probe_model)
+                        if pipe.requires_analysis_clone()
+                        else prepared_probe_model
+                    )
+                    probe_out = pipe.process_analysis(probe_input, probe_config)
                 except Exception as exc:
                     logger.warning(
                         "Could not evaluate capability '%s' on pipe '%s': %s",
@@ -417,6 +447,8 @@ def _iter_findings(
                     yield finding, probe_out
             finally:
                 complete_probe(cap_name)
+
+        pipe.finish_analysis()
 
         # Advance the pipeline exactly as the real optimizer would.
         current = base_out

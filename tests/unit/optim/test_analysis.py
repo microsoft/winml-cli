@@ -221,6 +221,22 @@ class TestInitializerDiff:
         assert added == []
         assert modified == ["BIG"]
 
+    def test_explicit_default_data_location_is_not_a_modification(self) -> None:
+        base = _benign_model()
+        probe = _clone(base)
+        probe.graph.initializer[0].data_location = TensorProto.DEFAULT
+
+        assert (
+            base.graph.initializer[0].SerializeToString()
+            != probe.graph.initializer[0].SerializeToString()
+        )
+        removed, added, modified = _diff_initializers(
+            _collect_initializers(base), _collect_initializers(probe)
+        )
+        assert removed == []
+        assert added == []
+        assert modified == []
+
 
 class TestExternalDataInitializerDiff:
     """External-data location churn must not read as a modified initializer."""
