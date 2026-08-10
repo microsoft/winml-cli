@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from ...utils.constants import EPNameOrAlias
     from ..models.ihv_type import IHVType
     from ..models.output import ModelStats
-    from ..models.runtime_checks import RuntimeTestResult
+    from ..models.runtime_checks import RuntimeDebugDetails, RuntimeTestResult
 
 
 class PatternSourceStat(TypedDict):
@@ -97,7 +97,7 @@ class PatternRuleCompileRunResult(TypedDict):
     case_indices: list[Any] | None
     query_condition_count: int
     query_condition_keys: list[str]
-    debug_details: dict[str, Any] | None
+    debug_details: RuntimeDebugDetails | None
 
 
 class PatternMergePrepEntry(TypedDict):
@@ -775,7 +775,7 @@ class PatternExtractor:
                 list[Any] | None,
                 int,
                 list[str],
-                dict[str, Any] | None,
+                RuntimeDebugDetails | None,
             ],
         ],
     ) -> tuple[
@@ -788,7 +788,7 @@ class PatternExtractor:
         list[Any] | None,
         int,
         list[str],
-        dict[str, Any] | None,
+        RuntimeDebugDetails | None,
     ]:
         """Query one candidate parquet table using one match's constraints."""
         result: tuple[
@@ -801,7 +801,7 @@ class PatternExtractor:
             list[Any] | None,
             int,
             list[str],
-            dict[str, Any] | None,
+            RuntimeDebugDetails | None,
         ]
         from .runtime_checker_query import get_query_conditions_for_pattern, query_table_exact_match
 
@@ -903,7 +903,7 @@ class PatternExtractor:
                     if first_zero_column is None and rows_after == 0:
                         first_zero_column = col
 
-                debug_details = {
+                debug_details: RuntimeDebugDetails = {
                     "type": "properties_not_found",
                     "pattern_name": candidate_pattern_name,
                     "table_path": str(parquet_path.resolve(strict=False)),
@@ -1263,7 +1263,7 @@ class PatternExtractor:
                 list[Any] | None,
                 int,
                 list[str],
-                dict[str, Any] | None,
+                RuntimeDebugDetails | None,
             ],
         ] = {}
         parquet_resolution_cache: dict[

@@ -41,6 +41,10 @@ class RuntimeDebugDetails(TypedDict):
     total_rows: NotRequired[int]
     lookup_columns: NotRequired[list[str]]
     query_signature: NotRequired[tuple[Any, ...]]
+    pattern_name: NotRequired[str]
+    query_condition_count: NotRequired[int]
+    query_conditions: NotRequired[dict[str, str]]
+    first_zero_column: NotRequired[str | None]
     steps: NotRequired[list[dict[str, Any]]]
     error_message: NotRequired[str]
 
