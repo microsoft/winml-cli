@@ -154,14 +154,6 @@ class RuleLoader:
         self.rules_dir = Path(rules_dir)
         self.runtime_rules: dict[str, list[RuntimeCheckRule]] = {}
 
-    def get_runtime_rules_dir(self) -> Path:
-        """Get the path to runtime check rules directory.
-
-        Returns:
-            Path to runtime_check_rules directory
-        """
-        return self.rules_dir / "runtime_check_rules"
-
     def load_runtime_rules(
         self, ihv_type: IHVType | None = None
     ) -> dict[str, list[RuntimeCheckRule]]:

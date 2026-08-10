@@ -7,8 +7,10 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import Any
 
+from winml.modelkit.analyze.runtime_checker import runner as runner_module
 from winml.modelkit.analyze.runtime_checker.runner import ResilientRunner
 
 
@@ -67,6 +69,34 @@ class _FakeExecutor:
 
 
 class TestResilientRunner:
+    def test_run_suppresses_native_stderr_while_submitting_worker(self, monkeypatch):
+        success_payload = {
+            "result": {"success": True, "reason": None},
+            "stdout": None,
+            "stderr": None,
+        }
+        executor = _FakeExecutor([_FakeFuture(success_payload)])
+        events: list[str] = []
+
+        @contextmanager
+        def _fake_suppress_native_stderr():
+            events.append("enter")
+            yield
+            events.append("exit")
+
+        monkeypatch.setattr(ResilientRunner, "_new_executor", lambda self: executor)
+        monkeypatch.setattr(
+            runner_module,
+            "suppress_native_stderr",
+            _fake_suppress_native_stderr,
+        )
+
+        runner = ResilientRunner()
+        result = runner.run(lambda: None)
+
+        assert result == success_payload
+        assert events == ["enter", "exit"]
+
     def test_run_recreates_executor_lazily_after_terminal_failure(self, monkeypatch):
         failure_future = _FakeFuture(TimeoutError("timed out"))
         success_payload = {

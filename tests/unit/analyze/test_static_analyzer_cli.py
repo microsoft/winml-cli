@@ -23,6 +23,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from click.testing import CliRunner
 from rich.console import Console
+from rich.progress import Progress
 
 
 if TYPE_CHECKING:
@@ -390,6 +391,60 @@ class TestAnalyzeCommandExecution:
         mock_instance.analyze.assert_called_once()
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_pattern_progress_prints_only_final_table(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+    ) -> None:
+        """Output must not append one pattern table per result callback."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        def analyze_with_pattern_progress(**kwargs: object) -> Mock:
+            on_start = kwargs["on_pattern_query_start"]
+            on_result = kwargs["on_pattern_query_result"]
+            on_summary_ready = kwargs["on_pattern_summary_ready"]
+            assert callable(on_start)
+            assert callable(on_result)
+            assert callable(on_summary_ready)
+            on_start("DmlExecutionProvider", {"SUBGRAPH/Test": 2}, True)
+            on_result("DmlExecutionProvider", "SUBGRAPH/Test", "supported")
+            on_result("DmlExecutionProvider", "SUBGRAPH/Test", "unsupported")
+            on_summary_ready("DmlExecutionProvider", {"patterns": []})
+            return mock_analyzer_result
+
+        mock_instance = Mock()
+        mock_instance.analyze.side_effect = analyze_with_pattern_progress
+        mock_analyzer_class.return_value = mock_instance
+
+        with patch(
+            "winml.modelkit.commands.analyze.Progress",
+            wraps=Progress,
+        ) as mock_progress:
+            result = runner.invoke(
+                analyze,
+                [
+                    "--model",
+                    str(model_file),
+                    "--ep",
+                    "DmlExecutionProvider",
+                    "--device",
+                    "GPU",
+                    "--run-unknown-op",
+                ],
+            )
+
+        assert result.exit_code == 0
+        assert mock_progress.call_args.kwargs["redirect_stdout"] is False
+        assert mock_progress.call_args.kwargs["redirect_stderr"] is False
+        assert result.output.count("PATTERN CHECK") == 1
+        assert "Pattern progress" in result.output
+        assert "2/2" in result.output
+        assert "1/0/1/0" in result.output
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
     def test_partial_support_exits_one(
         self,
         mock_analyzer_class: MagicMock,
@@ -557,6 +612,7 @@ class TestAnalyzeCommandOptions:
                                     "case_indices": ["case_7"],
                                     "table_path": "rules/conv.parquet",
                                     "table_file": "conv.parquet",
+                                    "match_status": "op_match",
                                 }
                             },
                             "partial": {},
@@ -603,6 +659,7 @@ class TestAnalyzeCommandOptions:
             "case_indices": ["case_7"],
             "table_path": "rules/conv.parquet",
             "table_file": "conv.parquet",
+            "match_status": "op_match",
         }
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
@@ -1218,16 +1275,34 @@ class TestAnalyzeEPDeviceValidation:
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
+        def analyze_with_unknown_op_progress(**kwargs: object) -> Mock:
+            on_ep_start = kwargs["on_ep_start"]
+            assert callable(on_ep_start)
+            on_ep_start("DmlExecutionProvider", {"Add": 2}, False)
+            return mock_analyzer_result
+
         mock_instance = Mock()
-        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_instance.analyze.side_effect = analyze_with_unknown_op_progress
         mock_analyzer_class.return_value = mock_instance
 
-        result = runner.invoke(
-            analyze,
-            ["--model", str(model_file), "--ep", "dml", "--run-unknown-op"],
-        )
+        with (
+            patch(
+                "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
+                return_value=False,
+            ),
+            patch(
+                "winml.modelkit.commands.analyze.Progress",
+                wraps=Progress,
+            ) as mock_progress,
+        ):
+            result = runner.invoke(
+                analyze,
+                ["--model", str(model_file), "--ep", "dml", "--run-unknown-op"],
+            )
         assert result.exit_code == 0
         mock_instance.analyze.assert_called_once()
+        assert mock_progress.call_args.kwargs["redirect_stdout"] is False
+        assert mock_progress.call_args.kwargs["redirect_stderr"] is False
 
         call_kwargs = mock_instance.analyze.call_args.kwargs
         assert call_kwargs["ep"] == "DmlExecutionProvider"
@@ -1970,6 +2045,32 @@ class TestQDQNodeDisplayMapping:
 
 class TestAnalyzeSummaryRendering:
     """Summary rendering behavior for no-rule-data fallback cases."""
+
+    def test_summary_heading_includes_per_ep_analyze_elapsed(self) -> None:
+        """Heading should show elapsed analyze time annotation for EP/device."""
+        from winml.modelkit.commands.analyze import _render_analysis_summary
+
+        console = Console(record=True, force_terminal=False, width=120)
+
+        ep_support = Mock()
+        ep_support.ep_type = "DmlExecutionProvider"
+        ep_support.device_type = "GPU"
+        ep_support.classification = {}
+        ep_support.information = []
+
+        _render_analysis_summary(
+            console,
+            [ep_support],
+            ep_instance_counts={("DmlExecutionProvider", "GPU"): {"Conv": {"supported": 1}}},
+            ep_patterns={},
+            ep="DmlExecutionProvider",
+            device="GPU",
+            analyze_elapsed_ms=1234,
+        )
+
+        output = console.export_text()
+        assert "ANALYSIS SUMMARY" in output
+        assert "Analyze total: DmlExecutionProvider (GPU), 1.23s" in output
 
     def test_no_rule_data_with_instance_counts_renders_op_summary(self) -> None:
         """When unknown-op probing produced counts, summary should not show skip message."""

@@ -397,7 +397,9 @@ class TestAnalysisOutputValidation:
                     "Softmax": 10,
                 },
                 unique_operator_types=5,
-                detected_pattern_count={"SUBGRAPH/GELU_Erf": 1},
+                detected_pattern_count={
+                    "QNNExecutionProvider": {"SUBGRAPH/GELU_Erf": 1}
+                },
             ),
             results=[
                 EPSupport(
@@ -428,7 +430,14 @@ class TestAnalysisOutputValidation:
         assert output.metadata.total_operators == 100
         assert len(output.results) == 1
         assert len(output.results[0].information) == 1
-        assert sum(output.metadata.detected_pattern_count.values()) == 1
+        assert (
+            sum(
+                output.metadata.detected_pattern_count[
+                    "QNNExecutionProvider"
+                ].values()
+            )
+            == 1
+        )
 
         # Validate JSON serialization
         json_output = output.model_dump_json()
