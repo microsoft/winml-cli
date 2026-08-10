@@ -1027,6 +1027,100 @@ class TestONNXStaticAnalyzer:
             is subgraph_runtime_results
         )
 
+    @patch(
+        "winml.modelkit.analyze.analyzer._build_pattern_status_by_node_key",
+        return_value={"node-1": "supported"},
+    )
+    @patch("winml.modelkit.analyze.core.onnx_loader.ONNXLoader")
+    @patch("winml.modelkit.analyze.core.pattern_extractor.PatternExtractor")
+    @patch("winml.modelkit.analyze.core.runtime_checker.RuntimeChecker")
+    def test_run_unknown_op_without_pattern_parquet_checks_pattern_then_ops(
+        self,
+        mock_runtime_checker_cls: Mock,
+        mock_pattern_extractor_cls: Mock,
+        mock_onnx_loader_cls: Mock,
+        _mock_pattern_status: Mock,
+    ) -> None:
+        """Local probing checks matched patterns before remaining operators."""
+        mock_model = MagicMock()
+        mock_loader = MagicMock()
+        mock_loader.load.return_value = mock_model
+        mock_onnx_loader_cls.return_value = mock_loader
+
+        pattern_match = MagicMock()
+        mock_extractor = MagicMock()
+
+        def summary_with_local_pattern_check(**kwargs: object) -> dict[str, object]:
+            local_pattern_checker = kwargs["local_pattern_checker"]
+            assert callable(local_pattern_checker)
+            local_pattern_checker(pattern_match, "table_not_found", False)
+            return {
+                "summary": ModelStats(
+                    model_path="test.onnx",
+                    opset_version=13,
+                    total_operators=1,
+                    operator_counts={"Conv": 1},
+                    unique_operator_types=1,
+                    detected_pattern_count={
+                        "QNNExecutionProvider": {"SUBGRAPH/Test": 1}
+                    },
+                ),
+                "subgraph_patterns": [pattern_match],
+                "parquet_lookup_supported": False,
+                "pattern_optimization_hints": [],
+            }
+
+        mock_extractor.summary.side_effect = summary_with_local_pattern_check
+        mock_pattern_extractor_cls.return_value = mock_extractor
+
+        pattern_checker = MagicMock()
+        pattern_checker.check_pattern_locally.return_value = RuntimeTestResult(
+            compile=True,
+            run=True,
+        )
+        op_checker = MagicMock()
+        op_checker.summary.return_value = {"op_runtime_check_result": []}
+        mock_runtime_checker_cls.side_effect = [pattern_checker, op_checker]
+        on_ep_start = MagicMock()
+
+        result = ONNXStaticAnalyzer().analyze_from_proto(
+            model_proto=MagicMock(spec=onnx.ModelProto),
+            ep="QNNExecutionProvider",
+            device="NPU",
+            enable_information=False,
+            run_unknown_op=True,
+            on_ep_start=on_ep_start,
+        )
+
+        assert isinstance(result, AnalysisResult)
+        assert mock_runtime_checker_cls.call_count == 2
+        assert mock_runtime_checker_cls.call_args_list[0].kwargs == {
+            "ep": "QNNExecutionProvider",
+            "device": "NPU",
+            "model": mock_model,
+        }
+        assert mock_runtime_checker_cls.call_args_list[1].kwargs == {
+            "ep": "QNNExecutionProvider",
+            "device": "NPU",
+            "model": mock_model,
+            "pattern_matched_node_status_by_key": {"node-1": "supported"},
+        }
+        pattern_checker.check_pattern_locally.assert_called_once_with(
+            pattern_match,
+            fallback_reason="table_not_found",
+            for_debug=False,
+        )
+        pattern_checker.close_local_checks.assert_called_once_with()
+        on_ep_start.assert_called_once()
+        assert on_ep_start.call_args.args[2] is False
+        op_checker.summary.assert_called_once_with(
+            for_debug=False,
+            run_unknown_op=True,
+            save_node_types=None,
+            on_node_result=None,
+        )
+        op_checker.close_local_checks.assert_called_once_with()
+
     def test_analyze_from_proto_resolves_auto_device_for_pinned_ep(self) -> None:
         from winml.modelkit.session import EPDeviceTarget
 

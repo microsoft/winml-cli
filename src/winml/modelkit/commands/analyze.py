@@ -1487,7 +1487,9 @@ def analyze(
         pattern_instance_counts: dict[str, dict[str, int]] = {}
         ep_instance_counts: dict[tuple[str, str], dict[str, dict[str, int]]] = {}
         live: Live | None = None
-        pattern_live: Live | None = None
+        pattern_progress: Progress | None = None
+        pattern_progress_task_id: TaskID | None = None
+        pattern_progress_total = 0
         unknown_op_progress: Progress | None = None
         unknown_op_task_id: TaskID | None = None
         unknown_op_total_nodes = 0
@@ -1498,6 +1500,7 @@ def analyze(
         current_run_unknown_op = False
         current_op_check_skipped = False
         current_pattern_check_skipped = False
+        pattern_check_active = False
 
         def _current_ep_device_pair_display_name() -> str:
             """Return current EP/device display label, or empty when unset."""
@@ -1544,26 +1547,38 @@ def analyze(
                 unknown_op_total_nodes = 0
 
         def _finalize_pattern_live(mark_complete: bool = True) -> None:
-            """Stop active pattern-query Live display, optionally marking complete."""
-            nonlocal pattern_live, current_pattern_check_skipped
-            if pattern_live is None:
+            """Render the completed pattern-query table once."""
+            nonlocal current_pattern_check_skipped, pattern_check_active
+            nonlocal pattern_progress, pattern_progress_task_id, pattern_progress_total
+            if not pattern_check_active:
                 return
-            try:
-                if mark_complete and not current_pattern_check_skipped:
-                    pattern_live.update(
-                        _build_pattern_query_table(
-                            pattern_instance_counts,
-                            ep_device_pair_display_name=_current_ep_device_pair_display_name(),
-                            complete=True,
-                            all_patterns=all_pattern_counts,
-                            pattern_check_skipped=current_pattern_check_skipped,
+            if pattern_progress is not None:
+                try:
+                    if (
+                        mark_complete
+                        and pattern_progress_task_id is not None
+                        and pattern_progress_total > 0
+                    ):
+                        pattern_progress.update(
+                            pattern_progress_task_id,
+                            completed=pattern_progress_total,
                         )
-                    )
-            except Exception:
-                logger.debug("Failed to render final pattern table", exc_info=True)
-            finally:
-                pattern_live.stop()
-                pattern_live = None
+                except Exception:
+                    logger.debug("Failed to finalize pattern progress", exc_info=True)
+                finally:
+                    pattern_progress.stop()
+                    pattern_progress = None
+                    pattern_progress_task_id = None
+                    pattern_progress_total = 0
+            final_table = _build_pattern_query_table(
+                pattern_instance_counts,
+                ep_device_pair_display_name=_current_ep_device_pair_display_name(),
+                complete=mark_complete and not current_pattern_check_skipped,
+                all_patterns=all_pattern_counts,
+                pattern_check_skipped=current_pattern_check_skipped,
+            )
+            console.print(final_table)
+            pattern_check_active = False
 
         def _finalize_live(mark_complete: bool = True) -> None:
             """Stop the active Live display, optionally marking it complete."""
@@ -1597,8 +1612,9 @@ def analyze(
         ) -> None:
             """Called when pattern query stage starts for one EP."""
             nonlocal current_ep_device_pair
-            nonlocal pattern_instance_counts, all_pattern_counts, ep_counter, pattern_live
-            nonlocal ep_header_rendered, current_pattern_check_skipped
+            nonlocal pattern_instance_counts, all_pattern_counts, ep_counter
+            nonlocal ep_header_rendered, current_pattern_check_skipped, pattern_check_active
+            nonlocal pattern_progress, pattern_progress_task_id, pattern_progress_total
 
             # Safety: finalize any stale displays.
             _finalize_pattern_live()
@@ -1613,6 +1629,7 @@ def analyze(
             }
             pattern_instance_counts = {}
             current_pattern_check_skipped = not pattern_lookup_supported
+            pattern_check_active = True
 
             ep_counter += 1
             console.print("─" * 80)
@@ -1623,17 +1640,23 @@ def analyze(
             console.print("─" * 80)
             ep_header_rendered = True
 
-            pattern_live = Live(
-                _build_pattern_query_table(
-                    pattern_instance_counts,
-                    ep_device_pair_display_name=_current_ep_device_pair_display_name(),
-                    all_patterns=all_pattern_counts,
-                    pattern_check_skipped=current_pattern_check_skipped,
-                ),
-                console=console,
-                refresh_per_second=30,
-            )
-            pattern_live.start()
+            pattern_total = sum(all_pattern_counts.values())
+            if pattern_total > 0 and not current_pattern_check_skipped:
+                pattern_progress_total = pattern_total
+                pattern_progress = Progress(
+                    TextColumn("   [cyan]Pattern progress[/cyan]"),
+                    BarColumn(),
+                    MofNCompleteColumn(),
+                    TimeElapsedColumn(),
+                    console=console,
+                    redirect_stdout=False,
+                    redirect_stderr=False,
+                )
+                pattern_progress.start()
+                pattern_progress_task_id = pattern_progress.add_task(
+                    "pattern",
+                    total=pattern_progress_total,
+                )
 
         def on_pattern_query_result(ep_name: EPName, pattern_id: str, support_status: str) -> None:
             """Called when one pattern instance gets a query status."""
@@ -1651,15 +1674,8 @@ def analyze(
             counts = pattern_instance_counts.setdefault(str(pattern_id), {})
             counts[status] = counts.get(status, 0) + 1
 
-            if pattern_live is not None:
-                pattern_live.update(
-                    _build_pattern_query_table(
-                        pattern_instance_counts,
-                        ep_device_pair_display_name=_current_ep_device_pair_display_name(),
-                        all_patterns=all_pattern_counts,
-                        pattern_check_skipped=current_pattern_check_skipped,
-                    )
-                )
+            if pattern_progress is not None and pattern_progress_task_id is not None:
+                pattern_progress.advance(pattern_progress_task_id, 1)
 
         def on_pattern_summary_ready(ep_name: EPName, ep_payload: dict[str, Any]) -> None:
             """Finalize pattern progress display before OP CHECK starts."""
@@ -1747,6 +1763,8 @@ def analyze(
                         MofNCompleteColumn(),
                         TimeElapsedColumn(),
                         console=console,
+                        redirect_stdout=False,
+                        redirect_stderr=False,
                     )
                     unknown_op_progress.start()
                     unknown_op_task_id = unknown_op_progress.add_task(

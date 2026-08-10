@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from ...utils.constants import EPNameOrAlias
     from ..models.ihv_type import IHVType
     from ..models.output import ModelStats
+    from ..models.runtime_checks import RuntimeTestResult
 
 
 class PatternSourceStat(TypedDict):
@@ -147,7 +148,9 @@ class PatternExtractor:
             ],
         ]
     ] = {}
-    _MERGE_PREP_CACHE: ClassVar[dict[tuple[str, str, str, bool], list[PatternMergePrepEntry]]] = {}
+    _MERGE_PREP_CACHE: ClassVar[
+        dict[tuple[str, str, str, bool, bool], list[PatternMergePrepEntry]]
+    ] = {}
     _VALID_EP_DEVICE_PAIRS_CACHE: set[tuple[str, str]] | None = None
 
     def __init__(self, model: ONNXModel) -> None:
@@ -996,7 +999,7 @@ class PatternExtractor:
         if candidate is None:
             return "unknown"
 
-        if candidate.get("status") != "ok":
+        if candidate.get("status") not in {"ok", "local_ep_check"}:
             return "unknown"
 
         compile_ok = bool(candidate.get("compile"))
@@ -1195,6 +1198,9 @@ class PatternExtractor:
         device: str | None,
         for_debug: bool,
         on_pattern_query_result: Callable[[str, str], None] | None = None,
+        local_pattern_checker: (
+            Callable[[PatternMatchResult, str, bool], RuntimeTestResult | None] | None
+        ) = None,
     ) -> list[PatternMergePrepEntry]:
         """Build alternatives + parquet compile/run snapshots for merge/dedup preparation."""
         if ep is None or device is None:
@@ -1202,7 +1208,11 @@ class PatternExtractor:
 
         ep_name = str(ep)
         device_name = device.upper()
-        if not self._is_valid_parquet_lookup_target(ep_name, device_name):
+        parquet_lookup_supported = self._is_valid_parquet_lookup_target(
+            ep_name,
+            device_name,
+        )
+        if not parquet_lookup_supported and local_pattern_checker is None:
             logger.info(
                 "Skip pattern parquet lookup for invalid EP/device pair: %s_%s",
                 ep_name,
@@ -1210,7 +1220,13 @@ class PatternExtractor:
             )
             return []
 
-        cache_key = (model_signature, ep_name, device_name, bool(for_debug))
+        cache_key = (
+            model_signature,
+            ep_name,
+            device_name,
+            bool(for_debug),
+            local_pattern_checker is not None,
+        )
         cached_merge_prep = self._MERGE_PREP_CACHE.get(cache_key)
         if cached_merge_prep is not None:
             cloned = copy.deepcopy(cached_merge_prep)
@@ -1435,14 +1451,17 @@ class PatternExtractor:
 
                             resolved = parquet_resolution_cache.get(resolution_cache_key)
                             if resolved is None:
-                                resolved = self._resolve_pattern_rule_table(
-                                    pattern_class=candidate_class,
-                                    ep_name=ep_name,
-                                    device=device_name,
-                                    preferred_domain=preferred_domain,
-                                    target_opset=target_opset,
-                                    for_debug=for_debug,
-                                )
+                                if parquet_lookup_supported:
+                                    resolved = self._resolve_pattern_rule_table(
+                                        pattern_class=candidate_class,
+                                        ep_name=ep_name,
+                                        device=device_name,
+                                        preferred_domain=preferred_domain,
+                                        target_opset=target_opset,
+                                        for_debug=for_debug,
+                                    )
+                                else:
+                                    resolved = (None, preferred_domain, target_opset)
                                 parquet_resolution_cache[resolution_cache_key] = resolved
 
                             table_path, resolved_domain, resolved_opset = resolved
@@ -1516,6 +1535,29 @@ class PatternExtractor:
                                     "query_condition_keys": query_condition_keys,
                                     "debug_details": debug_details,
                                 }
+
+                        if (
+                            not is_alt
+                            and self._candidate_supported_status(candidate_result) == "unknown"
+                            and local_pattern_checker is not None
+                        ):
+                            fallback_reason = str(candidate_result["status"])
+                            local_result = local_pattern_checker(
+                                pattern_match,
+                                fallback_reason,
+                                for_debug,
+                            )
+                            if local_result is not None:
+                                candidate_result.update(
+                                    {
+                                        "status": "local_ep_check",
+                                        "compile": local_result.compile,
+                                        "run": local_result.run,
+                                        "compile_true_rows": int(local_result.compile),
+                                        "run_true_rows": int(local_result.run),
+                                        "debug_details": local_result.debug_details,
+                                    }
+                                )
 
                         candidate_results.append(candidate_result)
 
@@ -1665,6 +1707,9 @@ class PatternExtractor:
         for_debug: bool = False,
         on_pattern_query_start: Callable[[Mapping[str, int], bool], None] | None = None,
         on_pattern_query_result: Callable[[str, str], None] | None = None,
+        local_pattern_checker: (
+            Callable[[PatternMatchResult, str, bool], RuntimeTestResult | None] | None
+        ) = None,
     ) -> PatternSummary:
         """Generate comprehensive pattern analysis summary.
 
@@ -1729,7 +1774,10 @@ class PatternExtractor:
 
         if on_pattern_query_start is not None:
             try:
-                on_pattern_query_start(pattern_count_dict, parquet_lookup_supported)
+                pattern_check_supported = (
+                    parquet_lookup_supported or local_pattern_checker is not None
+                )
+                on_pattern_query_start(pattern_count_dict, pattern_check_supported)
             except Exception:
                 logger.debug("on_pattern_query_start callback failed", exc_info=True)
 
@@ -1750,6 +1798,7 @@ class PatternExtractor:
             device=device,
             for_debug=for_debug,
             on_pattern_query_result=on_pattern_query_result,
+            local_pattern_checker=local_pattern_checker,
         )
         return {
             "summary": metadata,

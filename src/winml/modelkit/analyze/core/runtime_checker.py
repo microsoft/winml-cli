@@ -23,9 +23,10 @@ from .runtime_checker_query import RuntimeCheckerQuery
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from ...pattern.match import PatternMatchResult
     from ...utils.constants import EPName
     from ..models.onnx_model import ONNXModel
-    from ..models.runtime_checks import PatternRuntime
+    from ..models.runtime_checks import PatternRuntime, RuntimeTestResult
 
 logger = logging.getLogger(__name__)
 _log_timing = make_timing_logger(logger)
@@ -302,3 +303,22 @@ class RuntimeChecker:
         )
 
         return summary_dict
+
+    def check_pattern_locally(
+        self,
+        pattern_match: PatternMatchResult,
+        *,
+        fallback_reason: str,
+        for_debug: bool = False,
+    ) -> RuntimeTestResult | None:
+        """Compile and run one complete matched pattern on the local EP."""
+        return self._get_query().try_local_pattern_check(
+            pattern_match,
+            fallback_reason=fallback_reason,
+            for_debug=for_debug,
+        )
+
+    def close_local_checks(self) -> None:
+        """Release resources used by local compile/run fallback checks."""
+        if self._query is not None:
+            self._query.close_local_checks()

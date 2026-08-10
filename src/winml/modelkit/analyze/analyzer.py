@@ -1166,6 +1166,22 @@ class ONNXStaticAnalyzer:
         from .core.pattern_extractor import PatternExtractor
         from .core.runtime_checker import RuntimeChecker
 
+        def _make_local_pattern_checker(
+            runtime_checker: RuntimeChecker,
+        ) -> Callable[[PatternMatchResult, str, bool], RuntimeTestResult | None]:
+            def _check_pattern_locally(
+                pattern_match: PatternMatchResult,
+                fallback_reason: str,
+                debug: bool,
+            ) -> RuntimeTestResult | None:
+                return runtime_checker.check_pattern_locally(
+                    pattern_match,
+                    fallback_reason=fallback_reason,
+                    for_debug=debug,
+                )
+
+            return _check_pattern_locally
+
         # Normalize EP name (convert aliases to full names)
         total_start = time.perf_counter()
         ep_normalized = normalize_ep_name(cast("EPNameOrAlias | None", ep))
@@ -1239,6 +1255,22 @@ class ONNXStaticAnalyzer:
         for current_ep in eps_to_analyze:
             logger.info("Checking runtime support for %s...", current_ep)
 
+            # TODO: add VitisAIExecutionProvider back once non-QDQ
+            # data is ready, and run_unknown_op is supported for QDQ ops
+            run_unknown_op_for_ep = run_unknown_op
+            if current_ep == "VitisAIExecutionProvider":
+                run_unknown_op_for_ep = False
+
+            pattern_runtime_checker = (
+                RuntimeChecker(
+                    ep=current_ep,
+                    device=device_to_use,
+                    model=onnx_model,
+                )
+                if run_unknown_op_for_ep
+                else None
+            )
+
             def _on_pattern_query_start_for_ep(
                 pattern_counts: Mapping[str, int],
                 pattern_lookup_supported: bool = True,
@@ -1267,13 +1299,22 @@ class ONNXStaticAnalyzer:
                 except Exception:
                     logger.debug("on_pattern_query_result callback failed", exc_info=True)
 
-            ep_pattern_summary = pattern_extractor.summary(
-                ep=current_ep,
-                device=device_to_use,
-                for_debug=for_debug,
-                on_pattern_query_start=_on_pattern_query_start_for_ep,
-                on_pattern_query_result=_on_pattern_query_result_for_ep,
-            )
+            try:
+                ep_pattern_summary = pattern_extractor.summary(
+                    ep=current_ep,
+                    device=device_to_use,
+                    for_debug=for_debug,
+                    on_pattern_query_start=_on_pattern_query_start_for_ep,
+                    on_pattern_query_result=_on_pattern_query_result_for_ep,
+                    local_pattern_checker=(
+                        _make_local_pattern_checker(pattern_runtime_checker)
+                        if pattern_runtime_checker is not None
+                        else None
+                    ),
+                )
+            finally:
+                if pattern_runtime_checker is not None:
+                    pattern_runtime_checker.close_local_checks()
             pattern_lookup_supported = bool(
                 ep_pattern_summary.get("parquet_lookup_supported", True)
             )
@@ -1321,12 +1362,12 @@ class ONNXStaticAnalyzer:
                     on_ep_start(
                         current_ep,
                         op_counts_for_display,
-                        not pattern_lookup_supported,
+                        not pattern_lookup_supported and not run_unknown_op_for_ep,
                     )
                 except Exception:
                     logger.debug("on_ep_start callback failed", exc_info=True)
 
-            if not pattern_lookup_supported:
+            if not pattern_lookup_supported and not run_unknown_op_for_ep:
                 logger.info(
                     "Skipping runtime rule checks for %s on %s: target is marked "
                     "invalid in available providers config",
@@ -1343,6 +1384,14 @@ class ONNXStaticAnalyzer:
                 ep_runtime_timing[current_ep] = 0
                 continue
 
+            if not pattern_lookup_supported:
+                logger.info(
+                    "Pattern rule lookup is unavailable for %s on %s; running "
+                    "operator checks with local unknown-op probing",
+                    current_ep,
+                    device_to_use,
+                )
+
             runtime_summary_start = time.perf_counter()
             runtime_checker = RuntimeChecker(
                 ep=current_ep,
@@ -1350,18 +1399,16 @@ class ONNXStaticAnalyzer:
                 model=onnx_model,
                 pattern_matched_node_status_by_key=pattern_status_by_node_key,
             )
-            # TODO: add VitisAIExecutionProvider back once non-QDQ
-            # data is ready, and run_unknown_op is supported for QDQ ops
-            run_unknown_op_for_ep = run_unknown_op
-            if current_ep == "VitisAIExecutionProvider":
-                run_unknown_op_for_ep = False
 
-            runtime_summary = runtime_checker.summary(
-                for_debug=for_debug,
-                run_unknown_op=run_unknown_op_for_ep,
-                save_node_types=save_node_types,
-                on_node_result=on_node_result,
-            )
+            try:
+                runtime_summary = runtime_checker.summary(
+                    for_debug=for_debug,
+                    run_unknown_op=run_unknown_op_for_ep,
+                    save_node_types=save_node_types,
+                    on_node_result=on_node_result,
+                )
+            finally:
+                runtime_checker.close_local_checks()
             runtime_summary_ms = int((time.perf_counter() - runtime_summary_start) * 1000)
             ep_runtime_timing[current_ep] = runtime_summary_ms
 

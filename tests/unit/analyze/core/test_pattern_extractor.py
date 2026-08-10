@@ -15,6 +15,7 @@ import pytest
 from onnx import TensorProto, helper
 
 from winml.modelkit.analyze import ModelStats, ONNXModel, PatternExtractor
+from winml.modelkit.analyze.models.runtime_checks import RuntimeTestResult
 from winml.modelkit.pattern import SubgraphPattern
 
 
@@ -148,6 +149,29 @@ class TestPatternExtractorSummary:
         assert result["summary"].detected_pattern_count == {
             "QNNExecutionProvider": {}
         }
+
+    def test_summary_reports_pattern_check_supported_with_local_fallback(
+        self,
+        simple_onnx_model: ONNXModel,
+    ) -> None:
+        """Local probing keeps pattern progress active without parquet rules."""
+        extractor = PatternExtractor(simple_onnx_model)
+        on_pattern_query_start = MagicMock()
+
+        with patch.object(
+            PatternExtractor,
+            "_is_valid_parquet_lookup_target",
+            return_value=False,
+        ):
+            result = extractor.summary(
+                ep="DmlExecutionProvider",
+                device="gpu",
+                on_pattern_query_start=on_pattern_query_start,
+                local_pattern_checker=MagicMock(),
+            )
+
+        assert result["parquet_lookup_supported"] is False
+        on_pattern_query_start.assert_called_once_with({}, True)
 
 
 class TestPatternExtractorModelSummary:
@@ -377,6 +401,77 @@ class TestPatternExtractorAlternativeSelection:
         assert selected_alternatives == []
         assert len(filtered_candidates) == 1
         assert filtered_candidates[0]["is_alternative"] is False
+
+    @patch("winml.modelkit.analyze.core.pattern_extractor.UnifiedPatternConfig")
+    def test_merge_prep_locally_checks_only_base_pattern_when_table_is_unavailable(
+        self,
+        mock_config_cls: MagicMock,
+        simple_onnx_model: ONNXModel,
+    ) -> None:
+        PatternExtractor._MERGE_PREP_CACHE.clear()
+        extractor = PatternExtractor(simple_onnx_model)
+
+        pattern_obj = MagicMock()
+        pattern_obj.pattern_id = "SUBGRAPH/Base"
+        pattern_match = MagicMock()
+        pattern_match.pattern = pattern_obj
+        pattern_match.match_id = "match_1"
+        pattern_match.matched_node_keys = ["node_a", "node_b"]
+
+        mock_config = MagicMock()
+        mock_config.get_alternatives.return_value = [
+            SimpleNamespace(
+                pattern_to_id="SUBGRAPH/Alt",
+                pattern_class="AltPattern",
+                priority=1,
+                enabled=True,
+                module=None,
+                action_items=None,
+                details=None,
+                reason=None,
+            )
+        ]
+        mock_config_cls.return_value = mock_config
+        local_checker = MagicMock(
+            return_value=RuntimeTestResult(compile=True, run=True)
+        )
+
+        with (
+            patch.object(
+                PatternExtractor,
+                "_is_valid_parquet_lookup_target",
+                return_value=False,
+            ),
+            patch.object(
+                PatternExtractor,
+                "_probe_candidate_pattern_mismatch",
+                return_value=(False, None),
+            ),
+            patch.object(
+                PatternExtractor,
+                "_domain_and_target_opset_for_pattern",
+                return_value=("ai.onnx", 13),
+            ),
+        ):
+            entries = extractor._build_merge_prep_metadata(
+                subgraph_patterns_by_source={
+                    "default": {"BasePattern": [pattern_match]}
+                },
+                model_signature="sig_local",
+                ep="QNNExecutionProvider",
+                device="NPU",
+                for_debug=True,
+                local_pattern_checker=local_checker,
+            )
+
+        local_checker.assert_called_once_with(pattern_match, "table_not_found", True)
+        assert entries[0]["support_status"] == "supported"
+        assert entries[0]["candidates"][0]["status"] == "local_ep_check"
+        assert entries[0]["candidates"][0]["compile"] is True
+        assert entries[0]["candidates"][0]["run"] is True
+        assert entries[0]["candidates"][1]["is_alternative"] is True
+        assert entries[0]["candidates"][1]["status"] == "table_not_found"
+        PatternExtractor._MERGE_PREP_CACHE.clear()
 
     @patch("winml.modelkit.analyze.core.pattern_extractor.UnifiedPatternConfig")
     def test_merge_prep_uses_cache_after_first_build(
