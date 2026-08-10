@@ -34,10 +34,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
+import numpy as np
 from optimum.exporters.tasks import TasksManager
 from optimum.utils.input_generators import (
     DEFAULT_DUMMY_SHAPES,
     DummyTextInputGenerator,
+    DummyVisionInputGenerator,
 )
 
 from ..loader import to_optimum_task
@@ -360,6 +362,97 @@ def _populate_sequence_length_from_config(
         )
 
 
+def _find_unique_config_value(hf_config: PretrainedConfig, key: str) -> Any | None:
+    """Return a metadata value when it is unambiguous across a nested config."""
+    values: list[Any] = []
+
+    def _visit(value: Any) -> None:
+        if isinstance(value, dict):
+            if key in value:
+                values.append(value[key])
+            for child in value.values():
+                _visit(child)
+        elif isinstance(value, (list, tuple)):
+            for child in value:
+                _visit(child)
+
+    _visit(hf_config.to_dict())
+    unique_values = {value for value in values if isinstance(value, (int, float, str))}
+    return unique_values.pop() if len(unique_values) == 1 else None
+
+
+def _is_vision_onnx_config(onnx_config: OnnxConfig) -> bool:
+    """Return whether vendor metadata declares a vision dummy-input generator."""
+    generator_classes = getattr(onnx_config, "DUMMY_INPUT_GENERATOR_CLASSES", ())
+    return any(
+        isinstance(generator_class, type)
+        and issubclass(generator_class, DummyVisionInputGenerator)
+        for generator_class in generator_classes
+    )
+
+
+def _declared_image_shape(
+    hf_config: PretrainedConfig,
+    shape_kwargs: dict[str, Any],
+) -> tuple[int, int, int, int] | None:
+    """Resolve a BCHW image shape from model and processor metadata."""
+    dimensions = {
+        "batch": shape_kwargs.get("batch_size"),
+        "channels": _find_unique_config_value(hf_config, "num_channels"),
+        "height": shape_kwargs.get("height"),
+        "width": shape_kwargs.get("width"),
+    }
+    if not all(isinstance(value, int) and value > 0 for value in dimensions.values()):
+        return None
+    return cast("tuple[int, int, int, int]", tuple(dimensions.values()))
+
+
+def _normalized_image_value_range(
+    preprocessor: dict[str, Any],
+    *,
+    num_channels: int,
+    float_dtype: str,
+) -> tuple[float, float] | None:
+    """Derive the processor-normalized range for an image tensor when fully specified."""
+    if preprocessor.get("do_rescale") is not True or preprocessor.get("do_normalize") is not True:
+        return None
+
+    rescale_factor = preprocessor.get("rescale_factor")
+    image_mean = preprocessor.get("image_mean")
+    image_std = preprocessor.get("image_std")
+    if (
+        not isinstance(rescale_factor, (int, float))
+        or not isinstance(image_mean, (list, tuple))
+        or not isinstance(image_std, (list, tuple))
+        or len(image_mean) != num_channels
+        or len(image_std) != num_channels
+        or not all(isinstance(value, (int, float)) for value in [*image_mean, *image_std])
+        or not all(value > 0 for value in image_std)
+    ):
+        return None
+
+    if float_dtype == "fp16":
+        means_fp16 = np.asarray(image_mean, dtype=np.float16)
+        stds_fp16 = np.asarray(image_std, dtype=np.float16)
+        scaled_max_fp16 = np.asarray(255, dtype=np.float16) * np.asarray(
+            rescale_factor, dtype=np.float16
+        )
+        lower_fp16 = np.min((np.asarray(0, dtype=np.float16) - means_fp16) / stds_fp16)
+        upper_fp16 = np.max((scaled_max_fp16 - means_fp16) / stds_fp16)
+        upper_exclusive_fp16 = np.nextafter(upper_fp16, np.asarray(np.inf, dtype=np.float16))
+        return float(lower_fp16), float(upper_exclusive_fp16)
+
+    means_fp32 = np.asarray(image_mean, dtype=np.float32)
+    stds_fp32 = np.asarray(image_std, dtype=np.float32)
+    scaled_max_fp32 = np.asarray(255, dtype=np.float32) * np.asarray(
+        rescale_factor, dtype=np.float32
+    )
+    lower_fp32 = np.min((np.asarray(0, dtype=np.float32) - means_fp32) / stds_fp32)
+    upper_fp32 = np.max((scaled_max_fp32 - means_fp32) / stds_fp32)
+    upper_exclusive_fp32 = np.nextafter(upper_fp32, np.asarray(np.inf, dtype=np.float32))
+    return float(lower_fp32), float(upper_exclusive_fp32)
+
+
 def generate_dummy_inputs(
     model_type: str,
     task: str,
@@ -478,11 +571,26 @@ def resolve_io_specs(
     shape_kwargs["batch_size"] = batch_size
     _populate_image_size_from_preprocessor(model_id, shape_kwargs, hf_config)
     _populate_sequence_length_from_config(hf_config, shape_kwargs)
+    preprocessor = _get_preprocessor_dict(model_id, hf_config)
 
     # Generate dummy inputs for concrete shapes and dtypes,
     # intercepting value ranges from Optimum's tensor gen methods
     with intercept_value_ranges() as value_ranges:
-        dummy_inputs = onnx_config.generate_dummy_inputs(framework="pt", **shape_kwargs)
+        try:
+            dummy_inputs = onnx_config.generate_dummy_inputs(framework="pt", **shape_kwargs)
+        except IndexError:
+            if not (
+                onnx_config.inputs
+                and onnx_config.outputs
+                and _is_vision_onnx_config(onnx_config)
+            ):
+                raise
+            logger.debug(
+                "Vendor vision dummy-input generation failed; recovering from "
+                "declared OnnxConfig metadata",
+                exc_info=True,
+            )
+            dummy_inputs = {}
 
     input_shapes = [tuple(t.shape) for t in dummy_inputs.values()]
     input_dtypes = [str(t.dtype).replace("torch.", "") for t in dummy_inputs.values()]
@@ -491,6 +599,23 @@ def resolve_io_specs(
     value_range_tuples = {
         name: (info["min"], info["max"]) for name, info in value_ranges.items()
     }
+
+    if len(onnx_config.inputs) == 1 and _is_vision_onnx_config(onnx_config):
+        input_name = next(iter(onnx_config.inputs))
+        image_shape = _declared_image_shape(hf_config, shape_kwargs)
+        if image_shape is not None:
+            resolved_dtype = "float16" if float_dtype == "fp16" else "float32"
+            if not dummy_inputs:
+                input_shapes = [image_shape]
+                input_dtypes = [resolved_dtype]
+            if input_shapes == [image_shape] and input_dtypes == [resolved_dtype]:
+                normalized_range = _normalized_image_value_range(
+                    preprocessor,
+                    num_channels=image_shape[1],
+                    float_dtype=float_dtype,
+                )
+                if normalized_range is not None:
+                    value_range_tuples[input_name] = normalized_range
 
     return {
         "inputs": onnx_config.inputs,

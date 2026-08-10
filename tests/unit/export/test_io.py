@@ -792,6 +792,172 @@ class TestPopulateImageSize:
         assert shape_kwargs == {"height": 128}
 
 
+class TestDeclaredImageInputRecovery:
+    @staticmethod
+    def _onnx_config() -> SimpleNamespace:
+        return SimpleNamespace(
+            inputs={
+                "image": {
+                    0: "batch_size",
+                }
+            },
+            outputs={"predictions": {0: "batch_size"}},
+            DUMMY_INPUT_GENERATOR_CLASSES=(
+                __import__(
+                    "optimum.utils.input_generators",
+                    fromlist=["DummyVisionInputGenerator"],
+                ).DummyVisionInputGenerator,
+            ),
+            generate_dummy_inputs=lambda **_: {},
+        )
+
+    @staticmethod
+    def _processor(**overrides: object) -> dict[str, object]:
+        processor: dict[str, object] = {
+            "size": {"height": 256, "width": 192},
+            "do_rescale": True,
+            "rescale_factor": 1 / 255,
+            "do_normalize": True,
+            "image_mean": [0.485, 0.456, 0.406],
+            "image_std": [0.229, 0.224, 0.225],
+        }
+        processor.update(overrides)
+        return processor
+
+    def test_recovers_declared_image_io_and_normalized_range(self) -> None:
+        hf_config = SimpleNamespace(to_dict=lambda: {"backbone_config": {"num_channels": 3}})
+
+        with (
+            patch(
+                "winml.modelkit.export.io._get_onnx_config",
+                return_value=self._onnx_config(),
+            ),
+            patch(
+                "winml.modelkit.export.io._get_preprocessor_dict",
+                return_value=self._processor(),
+            ),
+        ):
+            specs = resolve_io_specs(
+                "image-model",
+                "image-task",
+                hf_config,
+                model_id="org/model",
+            )
+
+        assert specs["input_names"] == ["image"]
+        assert specs["output_names"] == ["predictions"]
+        assert specs["input_shapes"] == [(1, 3, 256, 192)]
+        assert specs["input_dtypes"] == ["float32"]
+        assert specs["value_ranges"]["image"] == pytest.approx(
+            (-2.1179039478302, 2.640000343322754)
+        )
+
+    def test_vitpose_vendor_declarations_and_normalized_range(self) -> None:
+        from transformers import AutoConfig
+
+        hf_config = AutoConfig.from_pretrained(
+            "nielsr/vitpose-base-simple",
+            local_files_only=True,
+        )
+
+        specs = resolve_io_specs(
+            "vitpose",
+            "keypoint-detection",
+            hf_config,
+            model_id="nielsr/vitpose-base-simple",
+        )
+
+        assert specs["input_names"] == ["pixel_values"]
+        assert specs["output_names"] == ["heatmaps"]
+        assert specs["input_shapes"] == [(1, 3, 256, 192)]
+        assert specs["input_dtypes"] == ["float32"]
+        assert specs["value_ranges"]["pixel_values"] == pytest.approx(
+            (-2.1179039478302, 2.640000343322754)
+        )
+
+    def test_disabled_normalization_does_not_derive_range(self) -> None:
+        hf_config = SimpleNamespace(to_dict=lambda: {"num_channels": 3})
+
+        with (
+            patch(
+                "winml.modelkit.export.io._get_onnx_config",
+                return_value=self._onnx_config(),
+            ),
+            patch(
+                "winml.modelkit.export.io._get_preprocessor_dict",
+                return_value=self._processor(do_normalize=False),
+            ),
+        ):
+            specs = resolve_io_specs(
+                "sibling-image-model",
+                "image-task",
+                hf_config,
+                model_id="org/sibling",
+            )
+
+        assert specs["input_shapes"] == [(1, 3, 256, 192)]
+        assert specs["value_ranges"] == {}
+
+    @pytest.mark.parametrize(
+        "processor_override",
+        [
+            {"do_rescale": False},
+            {"rescale_factor": None},
+            {"image_mean": [0.5]},
+            {"image_std": [0.0, 0.0, 0.0]},
+        ],
+    )
+    def test_incompatible_processor_metadata_keeps_fallback(
+        self, processor_override: dict[str, object]
+    ) -> None:
+        hf_config = SimpleNamespace(to_dict=lambda: {"num_channels": 3})
+
+        with (
+            patch(
+                "winml.modelkit.export.io._get_onnx_config",
+                return_value=self._onnx_config(),
+            ),
+            patch(
+                "winml.modelkit.export.io._get_preprocessor_dict",
+                return_value=self._processor(**processor_override),
+            ),
+        ):
+            specs = resolve_io_specs(
+                "sibling-image-model",
+                "image-task",
+                hf_config,
+                model_id="org/sibling",
+            )
+
+        assert specs["input_shapes"] == [(1, 3, 256, 192)]
+        assert specs["value_ranges"] == {}
+
+    def test_non_vision_vendor_config_keeps_empty_dummy_fallback(self) -> None:
+        onnx_config = self._onnx_config()
+        onnx_config.DUMMY_INPUT_GENERATOR_CLASSES = ()
+        hf_config = SimpleNamespace(to_dict=lambda: {"num_channels": 3})
+
+        with (
+            patch("winml.modelkit.export.io._get_onnx_config", return_value=onnx_config),
+            patch(
+                "winml.modelkit.export.io._get_preprocessor_dict",
+                return_value=self._processor(),
+            ),
+        ):
+            specs = resolve_io_specs(
+                "non-vision-model",
+                "feature-extraction",
+                hf_config,
+                model_id="org/non-vision",
+            )
+
+        assert specs["input_names"] == ["image"]
+        assert specs["output_names"] == ["predictions"]
+        assert specs["input_shapes"] == []
+        assert specs["input_dtypes"] == []
+        assert specs["value_ranges"] == {}
+
+
 # =============================================================================
 # PastKeyValueInputGenerator — shared KV cache dummy input generation
 # =============================================================================
