@@ -27,6 +27,7 @@ from transformers import (
     ResNetForImageClassification,
     ViTConfig,
     ViTForImageClassification,
+    VitPoseConfig,
 )
 
 # Import models package to trigger ONNX config registration with TasksManager
@@ -853,19 +854,27 @@ class TestDeclaredImageInputRecovery:
         )
 
     def test_vitpose_vendor_declarations_and_normalized_range(self) -> None:
-        from transformers import AutoConfig
-
-        hf_config = AutoConfig.from_pretrained(
-            "nielsr/vitpose-base-simple",
-            local_files_only=True,
+        hf_config = VitPoseConfig(
+            backbone_config={
+                "model_type": "vitpose_backbone",
+                "image_size": [256, 192],
+                "num_channels": 3,
+            },
+            num_labels=17,
+            scale_factor=4,
+            use_simple_decoder=True,
         )
 
-        specs = resolve_io_specs(
-            "vitpose",
-            "keypoint-detection",
-            hf_config,
-            model_id="nielsr/vitpose-base-simple",
-        )
+        with patch(
+            "winml.modelkit.export.io._get_preprocessor_dict",
+            return_value=self._processor(),
+        ):
+            specs = resolve_io_specs(
+                "vitpose",
+                "keypoint-detection",
+                hf_config,
+                model_id="nielsr/vitpose-base-simple",
+            )
 
         assert specs["input_names"] == ["pixel_values"]
         assert specs["output_names"] == ["heatmaps"]
