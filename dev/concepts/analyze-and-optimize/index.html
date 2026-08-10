@@ -1196,17 +1196,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#htp-metadata-enhancement" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        HTP metadata enhancement
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#what-runs-internally" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2708,17 +2697,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#htp-metadata-enhancement" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        HTP metadata enhancement
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#what-runs-internally" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2916,9 +2894,6 @@
 </ul>
 <h3 id="save-node-debugging-unsupported-subgraphs">Save-node: debugging unsupported subgraphs<a class="headerlink" href="#save-node-debugging-unsupported-subgraphs" title="Permanent link">&para;</a></h3>
 <p>When a pattern is unsupported and the recommendation does not immediately tell you what is wrong, use <code>--save-node</code> to dump the offending subgraph to disk as a self-contained, runnable <code>.onnx</code> file. You can then open it in <a href="https://netron.app/">Netron</a>, re-analyze it in isolation, or attach it to a bug report as a minimal reproducer. See the <a href="../../commands/analyze/">analyze command reference</a> for usage examples.</p>
-<h3 id="htp-metadata-enhancement">HTP metadata enhancement<a class="headerlink" href="#htp-metadata-enhancement" title="Permanent link">&para;</a></h3>
-<p>When a model is exported with hierarchy-preserving tags (HTP), the export produces a sidecar <code>_htp_metadata.json</code> that maps each ONNX node back to its source module (e.g., <code>encoder.layer.0.attention.self.GELUActivation</code>). Passing this file via <code>--htp-metadata</code> lets the <code>PatternExtractor</code> use the module hierarchy to match subgraph patterns more accurately than operator-level heuristics alone.</p>
-<p>HTP metadata is consumed at the pattern extraction stage — before any EP-specific runtime checking — so the enriched patterns benefit all target EPs equally (QNN, OpenVINO, VitisAI, etc.). Without HTP metadata, the analyzer falls back to attribute-based tag matching and then the general-purpose <code>PatternMatcher</code>; with it, the analyzer can correctly identify fused patterns (GELU, LayerNorm, Attention) that are difficult to detect from the raw operator graph. See the <a href="../../commands/analyze/">analyze command reference</a> for usage examples.</p>
 <h3 id="what-runs-internally">What runs internally<a class="headerlink" href="#what-runs-internally" title="Permanent link">&para;</a></h3>
 <p>The analyzer is composed of five stages that run in order. You normally do not need to think about them, but they are worth knowing when reading recommendations or extending the analyzer:</p>
 <table>
@@ -2935,7 +2910,7 @@
 </tr>
 <tr>
 <td><code>PatternExtractor</code></td>
-<td>Walk the graph, match operator and subgraph patterns from the rule catalog. Optionally consume HTP metadata.</td>
+<td>Walk the graph and match operator and subgraph patterns from the rule catalog.</td>
 </tr>
 <tr>
 <td><code>RuntimeChecker</code></td>

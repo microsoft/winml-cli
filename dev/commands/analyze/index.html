@@ -2775,13 +2775,6 @@
 <td>Include detailed per-operator recommendations and remediation hints in the output. Pass <code>--no-information</code> for a compact pass/fail summary.</td>
 </tr>
 <tr>
-<td><code>--htp-metadata</code></td>
-<td></td>
-<td><code>PATH</code></td>
-<td><em>(none)</em></td>
-<td>Path to an HTP metadata JSON file (produced by <code>winml export</code>). Enriches subgraph pattern extraction by mapping nodes back to their source module hierarchy. Benefits all target EPs.</td>
-</tr>
-<tr>
 <td><code>--run-unknown-op</code> / <code>--no-run-unknown-op</code></td>
 <td></td>
 <td>flag</td>
@@ -2852,31 +2845,25 @@
 <p>Save the full JSON result for offline inspection while still printing the console summary:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>$<span class="w"> </span>winml<span class="w"> </span>analyze<span class="w"> </span>--model<span class="w"> </span>facebook/convnext-tiny-224.onnx<span class="w"> </span>--output<span class="w"> </span>results.json
 </span></code></pre></div>
-<p>Use HTP metadata for enhanced subgraph pattern extraction:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>$<span class="w"> </span>winml<span class="w"> </span>analyze<span class="w"> </span>--model<span class="w"> </span>bert-base-uncased.onnx<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">    </span>--ep<span class="w"> </span>qnn<span class="w"> </span>--device<span class="w"> </span>NPU<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span>--htp-metadata<span class="w"> </span>bert-base-uncased_htp_metadata.json
-</span></code></pre></div>
 <p>Run a lint-only pass (no recommendations) for a CI gate:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>$<span class="w"> </span>winml<span class="w"> </span>analyze<span class="w"> </span>--model<span class="w"> </span>model.onnx<span class="w"> </span>--ep<span class="w"> </span>qnn<span class="w"> </span>--device<span class="w"> </span>NPU<span class="w"> </span>--no-information
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;Exit code: </span><span class="nv">$?</span><span class="s2">&quot;</span><span class="w">  </span><span class="c1"># 0 = clean, 1 = issues, 2 = input error</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>$<span class="w"> </span>winml<span class="w"> </span>analyze<span class="w"> </span>--model<span class="w"> </span>model.onnx<span class="w"> </span>--ep<span class="w"> </span>qnn<span class="w"> </span>--device<span class="w"> </span>NPU<span class="w"> </span>--no-information
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;Exit code: </span><span class="nv">$?</span><span class="s2">&quot;</span><span class="w">  </span><span class="c1"># 0 = clean, 1 = issues, 2 = input error</span>
 </span></code></pre></div>
 <p>Dump unsupported subgraphs to disk for debugging:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>$<span class="w"> </span>winml<span class="w"> </span>analyze<span class="w"> </span>--model<span class="w"> </span>model.onnx<span class="w"> </span>--ep<span class="w"> </span>qnn<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span>--save-node<span class="w"> </span>partial<span class="w"> </span>--save-node<span class="w"> </span>unsupported<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span>--output<span class="w"> </span>result.json
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>$<span class="w"> </span>winml<span class="w"> </span>analyze<span class="w"> </span>--model<span class="w"> </span>model.onnx<span class="w"> </span>--ep<span class="w"> </span>qnn<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span>--save-node<span class="w"> </span>partial<span class="w"> </span>--save-node<span class="w"> </span>unsupported<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span>--output<span class="w"> </span>result.json
 </span></code></pre></div>
 <p>Enable local execution for operators not in the rule database:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>$<span class="w"> </span>winml<span class="w"> </span>analyze<span class="w"> </span>--model<span class="w"> </span>model.onnx<span class="w"> </span>--ep<span class="w"> </span>qnn<span class="w"> </span>--device<span class="w"> </span>NPU<span class="w"> </span>--run-unknown-op
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>$<span class="w"> </span>winml<span class="w"> </span>analyze<span class="w"> </span>--model<span class="w"> </span>model.onnx<span class="w"> </span>--ep<span class="w"> </span>qnn<span class="w"> </span>--device<span class="w"> </span>NPU<span class="w"> </span>--run-unknown-op
 </span></code></pre></div>
 <p>Check whether the operators each applicable optimization would introduce are supported on the target:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>$<span class="w"> </span>winml<span class="w"> </span>analyze<span class="w"> </span>--model<span class="w"> </span>model.onnx<span class="w"> </span>--ep<span class="w"> </span>qnn<span class="w"> </span>--device<span class="w"> </span>NPU<span class="w"> </span>--check-optim
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>$<span class="w"> </span>winml<span class="w"> </span>analyze<span class="w"> </span>--model<span class="w"> </span>model.onnx<span class="w"> </span>--ep<span class="w"> </span>qnn<span class="w"> </span>--device<span class="w"> </span>NPU<span class="w"> </span>--check-optim
 </span></code></pre></div>
 <h2 id="common-pitfalls">Common pitfalls<a class="headerlink" href="#common-pitfalls" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Omitting <code>--ep</code> uses <code>auto</code> (inferred from local availability)</strong> — to analyze every EP regardless of what is installed, pass <code>--ep all</code>. Specify <code>--ep &lt;name&gt;</code> when you know your target hardware.</li>
 <li><strong>Exit code 1 is not a hard failure</strong> — it means at least one operator is unsupported, not that the model cannot run at all. Many EPs fall back unsupported nodes to the CPU EP automatically; review the recommendations before deciding to restructure the model.</li>
-<li><strong><code>--htp-metadata</code> is EP-agnostic</strong> — HTP metadata enriches pattern extraction before any EP-specific checks, so it benefits all target EPs equally. You do not need separate metadata files per EP.</li>
 <li><strong><code>--run-unknown-op</code> is disabled by default</strong> — operators not covered by the rule database are classified as <code>UNKNOWN</code> (not unsupported) unless you explicitly pass <code>--run-unknown-op</code> to probe them locally. Enable it only when the target EP's libraries are available on the local machine.</li>
 <li><strong>The model path must point to an existing <code>.onnx</code> file</strong> — symbolic HuggingFace model IDs are not accepted; export the model first with <code>winml export</code>.</li>
 </ul>
