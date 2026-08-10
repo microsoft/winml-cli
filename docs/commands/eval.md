@@ -141,6 +141,20 @@ Evaluate a composite model from pre-exported ONNX files. Some tasks (e.g., `imag
 $ winml eval -m encoder=encoder.onnx -m decoder=decoder.onnx --model-id microsoft/trocr-base-printed
 ```
 
+## Model build cache
+
+Evaluation reuses persistent model build artifacts by default. Pass
+`--no-use-cache` for a fresh build in a temporary directory, or `--rebuild` for
+a fresh build that replaces the persistent cache entry.
+
+For a pre-built ONNX input, cache controls apply only when
+`--no-skip-build` is set. Cache controls are ignored when no model build runs,
+including two-ONNX comparisons; the CLI warns when an explicit cache control
+has no effect. GenAI's runtime `_compiled/` artifacts are a separate cache and
+are not currently governed by these model build cache controls. Explicit build
+or cache controls on a GenAI bundle produce a warning that distinguishes the
+model-build pipeline from the runtime compilation cache.
+
 ## Common pitfalls
 
 - **ONNX file without `--model-id` fails.** When `-m` is a `.onnx` path, `--model-id` is mandatory. Without it the command cannot resolve the preprocessor or label vocabulary and will exit with a usage error.

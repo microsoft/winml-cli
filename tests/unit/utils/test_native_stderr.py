@@ -243,6 +243,23 @@ class TestSuppressNativeWarnings:
         assert "useful error" in stderr
         assert "plain diagnostic" in stderr
 
+    def test_uses_file_backed_capture_instead_of_pipe(self, monkeypatch):
+        monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
+        logging.getLogger().setLevel(logging.WARNING)
+        pipe_called = False
+
+        def fail_pipe() -> tuple[int, int]:
+            nonlocal pipe_called
+            pipe_called = True
+            raise AssertionError("warning suppression must not create a pipe")
+
+        monkeypatch.setattr(native_stderr_module.os, "pipe", fail_pipe)
+
+        with native_stderr_module.suppress_native_warnings(enabled=True):
+            os.write(2, b"2026 [W:custom-native:, file.cc:1 WarningFunc] hidden\n")
+
+        assert pipe_called is False
+
     def test_filters_native_prefix_info_without_dropping_python_stderr(self, monkeypatch, capfd):
         monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
         logging.getLogger().setLevel(logging.WARNING)
@@ -299,14 +316,14 @@ class TestSuppressNativeWarnings:
 
         assert "env warning" in capfd.readouterr().err
 
-    def test_pipe_setup_failure_does_not_abort_wrapped_code(self, monkeypatch):
+    def test_capture_setup_failure_does_not_abort_wrapped_code(self, monkeypatch):
         monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
         logging.getLogger().setLevel(logging.WARNING)
 
-        def fail_pipe() -> tuple[int, int]:
+        def fail_capture(*args: object, **kwargs: object):
             raise OSError(1, "Incorrect function")
 
-        monkeypatch.setattr(native_stderr_module.os, "pipe", fail_pipe)
+        monkeypatch.setattr(native_stderr_module.tempfile, "TemporaryFile", fail_capture)
 
         ran = False
         with native_stderr_module.suppress_native_warnings(enabled=True):
@@ -314,25 +331,11 @@ class TestSuppressNativeWarnings:
 
         assert ran
 
-    def test_restore_failure_closes_redirected_fd_and_bounds_reader_join(self, monkeypatch):
+    def test_restore_failure_closes_redirected_fd(self, monkeypatch):
         monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
         logging.getLogger().setLevel(logging.WARNING)
         closed: list[int] = []
-        join_timeouts: list[float | None] = []
         dup2_calls = 0
-
-        class FakeThread:
-            def __init__(self, *args: object, **kwargs: object) -> None:
-                pass
-
-            def start(self) -> None:
-                pass
-
-            def join(self, timeout: float | None = None) -> None:
-                join_timeouts.append(timeout)
-
-            def is_alive(self) -> bool:
-                return False
 
         def fake_dup2(src: int, dst: int) -> None:
             nonlocal dup2_calls
@@ -340,11 +343,9 @@ class TestSuppressNativeWarnings:
             if dup2_calls == 2:
                 raise OSError(1, "restore failed")
 
-        monkeypatch.setattr(native_stderr_module.os, "pipe", lambda: (10, 11))
         monkeypatch.setattr(native_stderr_module.os, "dup", lambda fd: 12)
         monkeypatch.setattr(native_stderr_module.os, "dup2", fake_dup2)
         monkeypatch.setattr(native_stderr_module.os, "close", lambda fd: closed.append(fd))
-        monkeypatch.setattr(native_stderr_module.threading, "Thread", FakeThread)
         monkeypatch.setattr(
             native_stderr_module,
             "_set_win32_std_handle_to_current_fd",
@@ -360,48 +361,7 @@ class TestSuppressNativeWarnings:
             pass
 
         assert 2 in closed
-        assert join_timeouts == [native_stderr_module._NATIVE_READER_JOIN_TIMEOUT_SECONDS]
-
-    def test_reader_owned_old_fd_stays_open_when_reader_outlives_join(self, monkeypatch):
-        monkeypatch.delenv("WINMLCLI_SHOW_ALL_WARNINGS", raising=False)
-        logging.getLogger().setLevel(logging.WARNING)
-        closed: list[int] = []
-        join_timeouts: list[float | None] = []
-
-        class FakeThread:
-            def __init__(self, *args: object, **kwargs: object) -> None:
-                pass
-
-            def start(self) -> None:
-                pass
-
-            def join(self, timeout: float | None = None) -> None:
-                join_timeouts.append(timeout)
-
-            def is_alive(self) -> bool:
-                return True
-
-        monkeypatch.setattr(native_stderr_module.os, "pipe", lambda: (10, 11))
-        monkeypatch.setattr(native_stderr_module.os, "dup", lambda fd: 12)
-        monkeypatch.setattr(native_stderr_module.os, "dup2", lambda src, dst: None)
-        monkeypatch.setattr(native_stderr_module.os, "close", lambda fd: closed.append(fd))
-        monkeypatch.setattr(native_stderr_module.threading, "Thread", FakeThread)
-        monkeypatch.setattr(
-            native_stderr_module,
-            "_set_win32_std_handle_to_current_fd",
-            lambda fd: None,
-        )
-        monkeypatch.setattr(
-            native_stderr_module,
-            "_refresh_click_windows_console_stream",
-            lambda fd, handle=None: None,
-        )
-
-        with native_stderr_module.suppress_native_warnings(enabled=True):
-            pass
-
-        assert join_timeouts == [native_stderr_module._NATIVE_READER_JOIN_TIMEOUT_SECONDS]
-        assert 12 not in closed
+        assert 12 in closed
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Win32 only")
     def test_win32_std_handle_sync_failure_does_not_abort_wrapped_code(self, monkeypatch):
