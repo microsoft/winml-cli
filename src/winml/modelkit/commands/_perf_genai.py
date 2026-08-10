@@ -40,6 +40,7 @@ from ..session import (
     GenaiSession,
     GenaiSessionError,
     GenerationConfig,
+    HWMonitor,
     short_ep_name,
 )
 from ..utils.constants import (
@@ -62,6 +63,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 RUNTIME_TYPE = "winml-genai"
+_HW_POLL_INTERVAL_MS = 200
 
 # Built-in benchmark prompt.  Mirrored by the ``--prompt`` CLI default and the
 # ``GenaiPerfConfig.prompt`` field default (a test asserts the two stay in sync).
@@ -171,6 +173,7 @@ class GenaiPerfConfig:
     warmup: int = 2
     compile: bool = False
     compile_timeout: int = 300
+    monitor: bool = False
     context_length: int | None = None
     output_path: Path | None = None
 
@@ -204,6 +207,7 @@ class GenaiBenchmarkResult:
     # override that matched no stage).  Reported instead of the *requested* ep so
     # the report never claims an EP that never applied.
     effective_ep: str | None = None
+    effective_device: str | None = None
 
     # Time to first token (prefill + first decode), milliseconds
     ttft_mean_ms: float = 0.0
@@ -232,17 +236,20 @@ class GenaiBenchmarkResult:
     raw_decode_tokens_per_sec: list[float] = field(default_factory=list)
     raw_tpot_ms: list[float] = field(default_factory=list)
     raw_total_ms: list[float] = field(default_factory=list)
+    hw_monitor: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to a JSON-serializable dictionary."""
-        return {
+        result = {
             "benchmark_info": {
                 "runtime": RUNTIME_TYPE,
                 "bundle_dir": str(self.config.bundle_dir),
                 "ep": self.effective_ep or "config",
                 "device": self.config.device,
+                "effective_device": self.effective_device,
                 "compile": self.config.compile,
                 "compile_timeout": self.config.compile_timeout,
+                "monitor": self.config.monitor,
                 "iterations": self.config.iterations,
                 "warmup": self.config.warmup,
                 "max_new_tokens": self.config.max_new_tokens,
@@ -277,6 +284,9 @@ class GenaiBenchmarkResult:
                 "total_ms": [round(v, 3) for v in self.raw_total_ms],
             },
         }
+        if self.hw_monitor is not None:
+            result["hw_monitor"] = self.hw_monitor
+        return result
 
 
 # =============================================================================
@@ -392,8 +402,36 @@ class GenaiPerfBenchmark:
             self._config.iterations,
             self._config.max_new_tokens,
         )
-        samples = [self._time_one_generation(session, gen_config) for _ in range(total_runs)]
-        return self._aggregate(samples)
+        hw_metrics: dict[str, Any] | None = None
+        if self._config.monitor and HWMonitor.is_available():
+            monitor_device = self._monitor_device()
+            ep_name = self._monitor_ep()
+            with HWMonitor(
+                poll_interval_ms=_HW_POLL_INTERVAL_MS,
+                device=monitor_device if monitor_device and ep_name else "cpu",
+                ep_name=ep_name,
+            ) as hw:
+                samples = [
+                    self._time_one_generation(session, gen_config) for _ in range(total_runs)
+                ]
+            hw_metrics = hw.to_dict()
+        else:
+            if self._config.monitor:
+                logger.warning("HWMonitor is unavailable; generation resource metrics omitted")
+            samples = [self._time_one_generation(session, gen_config) for _ in range(total_runs)]
+
+        result = self._aggregate(samples)
+        result.hw_monitor = hw_metrics
+        return result
+
+    def _monitor_device(self) -> str | None:
+        """Return the proven device to monitor, or ``None`` when unresolved."""
+        effective = getattr(self._session, "effective_device", None)
+        return effective if effective in ("cpu", "gpu", "npu") else None
+
+    def _monitor_ep(self) -> EPName | None:
+        """Return the unique EP proven by loaded effective routing."""
+        return getattr(self._session, "effective_hardware_ep", None)
 
     def _time_one_generation(
         self,
@@ -441,6 +479,7 @@ class GenaiPerfBenchmark:
         return GenaiBenchmarkResult(
             config=self._config,
             effective_ep=getattr(self._session, "effective_ep", None),
+            effective_device=getattr(self._session, "effective_device", None),
             prompt_tokens=len(self._prompt_token_ids),
             generated_tokens=timed[0].n_tokens if timed else 0,
             context_length=self._session.context_length if self._session else None,

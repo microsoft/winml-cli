@@ -525,6 +525,8 @@ class TestHWMonitor:
         assert isinstance(hw.mean_utilization_pct, float)
         assert isinstance(hw.peak_utilization_pct, float)
         assert isinstance(hw.peak_memory_mb, float)
+        assert isinstance(hw.mean_memory_local_mb, float)
+        assert isinstance(hw.mean_memory_shared_mb, float)
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
     def test_to_dict_structure(self):
@@ -538,10 +540,12 @@ class TestHWMonitor:
         # CPU section
         assert "cpu" in d
         assert "mean_pct" in d["cpu"]
+        assert "process_mean_pct" in d["cpu"]
         assert "peak_pct" in d["cpu"]
         assert "sample_count" in d["cpu"]
         # RAM section
         assert "ram" in d
+        assert "mean_mb" in d["ram"]
         assert "used_mb" in d["ram"]
         assert "peak_mb" in d["ram"]
         # Aggregate GPU telemetry is independent of the selected inference
@@ -563,6 +567,8 @@ class TestHWMonitor:
             assert "npu" not in d
         # Device memory + running time
         assert "device_memory" in d
+        assert "local_mean_mb" in d["device_memory"]
+        assert "shared_mean_mb" in d["device_memory"]
         assert "local_peak_mb" in d["device_memory"]
         assert "shared_peak_mb" in d["device_memory"]
         assert "running_time_ns" in d
@@ -608,6 +614,7 @@ class TestHWMonitor:
             time.sleep(0.2)
 
         assert isinstance(hw.mean_cpu_pct, float)
+        assert isinstance(hw.mean_process_cpu_pct, float)
         assert isinstance(hw.peak_cpu_pct, float)
         assert hw.mean_cpu_pct >= 0.0
 
@@ -620,6 +627,7 @@ class TestHWMonitor:
 
         assert isinstance(hw.ram_used_mb, float)
         assert hw.ram_used_mb > 0.0  # System always uses some RAM
+        assert isinstance(hw.mean_ram_used_mb, float)
         assert isinstance(hw.peak_ram_used_mb, float)
         assert hw.peak_ram_used_mb >= hw.ram_used_mb  # Peak >= current
 
@@ -831,6 +839,47 @@ class TestResolveAdapterLuid:
 
         assert luid == "0x00000000_0x000000DE"
 
+    def test_multiple_ort_adapters_are_unresolved_when_pdh_exposes_only_one(self):
+        from winml.modelkit.sysinfo import pdh_adapters
+
+        def fake_device(luid: str):
+            return type(
+                "FakeEpDevice",
+                (),
+                {
+                    "ep_name": "DmlExecutionProvider",
+                    "device": type(
+                        "FakeHwDev",
+                        (),
+                        {"type": "GPU_TYPE", "metadata": {"LUID": luid}},
+                    )(),
+                },
+            )()
+
+        fake_ort = type(
+            "FakeOrt",
+            (),
+            {
+                "get_ep_devices": lambda: [fake_device("111"), fake_device("222")],
+                "OrtHardwareDeviceType": type(
+                    "Types", (), {"NPU": "NPU_TYPE", "GPU": "GPU_TYPE"}
+                ),
+            },
+        )
+        fake_pdh = {"0x00000000_0x0000006F": object()}
+
+        with (
+            patch.dict("sys.modules", {"onnxruntime": fake_ort}),
+            patch.object(pdh_adapters, "enumerate_adapters", return_value=fake_pdh),
+            patch.object(pdh_adapters, "discover_gpu_luid") as fallback,
+        ):
+            luid = pdh_adapters.resolve_adapter_luid(
+                "gpu", ep_name="DmlExecutionProvider"
+            )
+
+        assert luid is None
+        fallback.assert_not_called()
+
     def test_falls_back_to_pdh_when_ort_has_no_luid_metadata(self):
         """Some EPs may register without LUID metadata; PDH is the fallback."""
         from winml.modelkit.sysinfo import pdh_adapters
@@ -893,10 +942,8 @@ class TestResolveAdapterLuid:
 
         assert luid == "0x00000000_0x00012C89"
 
-    def test_falls_back_when_ort_luid_not_in_pdh_enumeration(self):
-        """If ORT publishes a LUID PDH doesn't enumerate, the resolver skips
-        it and falls through to the PDH-only fallback. Without this guard,
-        ``build_adapter_query`` would later raise for the unknown LUID."""
+    def test_ort_luid_missing_from_pdh_is_not_monitorable(self):
+        """A unique ORT adapter must not fall back to unrelated PDH telemetry."""
         from winml.modelkit.sysinfo import pdh_adapters
 
         ghost_dev = type(
@@ -921,9 +968,7 @@ class TestResolveAdapterLuid:
             },
         )
 
-        # PDH knows *some* adapters but not the one ORT named. A non-empty
-        # dict triggers validation; the ORT LUID is rejected and we fall
-        # through to discover_npu_luid().
+        # PDH knows some adapters but not the one ORT named.
         fake_pdh = {"0x00000000_0xC0FFEE": object()}
 
         with (
@@ -937,9 +982,10 @@ class TestResolveAdapterLuid:
         ):
             luid = pdh_adapters.resolve_adapter_luid("npu")
 
-        # 22278 == 0x5706 (the failing-test LUID); rejected, fallback wins.
-        assert luid == "0x00000000_0xFA11BACC"
-        mock_pdh.assert_called_once()
+        # 22278 == 0x5706. The ORT adapter cannot be monitored, and choosing
+        # another adapter would silently attribute unrelated telemetry.
+        assert luid is None
+        mock_pdh.assert_not_called()
 
     def test_skips_malformed_ep_device(self):
         """Accessing .device or .metadata may raise on bad ep_devices; the
@@ -1207,14 +1253,18 @@ class TestHWMonitorDeviceRouting:
                 "utilization_sample_count": 5,
                 "adapter_luid": "0x0_0xCAFE",
                 "mean_cpu_pct": 12.34,
+                "mean_process_cpu_pct": 98.72,
                 "peak_cpu_pct": 34.56,
                 "cpu_sample_count": 7,
+                "mean_ram_used_mb": 900.12,
                 "ram_used_mb": 1024.56,
                 "peak_ram_used_mb": 2048.78,
                 "mean_gpu_pct": 4.56,
                 "peak_gpu_pct": 7.89,
                 "gpu_sample_count": 11,
                 "gpu_luids": ["0x0_0xBEEF"],
+                "mean_memory_local_mb": 200.12,
+                "mean_memory_shared_mb": 100.34,
                 "peak_memory_local_mb": 256.78,
                 "peak_memory_shared_mb": 128.34,
                 "running_time_delta_ns": 123456789,
