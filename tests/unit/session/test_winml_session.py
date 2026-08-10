@@ -26,9 +26,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import onnx
 import pytest
-from onnx import TensorProto, helper, numpy_helper
+from onnx import TensorProto, helper, load, numpy_helper, save, save_model
 
 from winml.modelkit.compiler import EPConfig
 from winml.modelkit.session import (
@@ -83,7 +82,7 @@ def _write_fake_epcontext(session: WinMLSession, path: str) -> None:
         ],
     )
     model.ir_version = 9
-    onnx.save(model, ctx_path)
+    save(model, ctx_path)
 
 
 def _compile_with_fake_ort(session: WinMLSession) -> MagicMock:
@@ -550,7 +549,7 @@ class TestWinMLSessionCompilation:
         node = helper.make_node("MatMul", ["input", "weight"], ["output"])
         graph = helper.make_graph([node], "external_graph", [input_info], [output_info], [weight])
         model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
-        onnx.save_model(
+        save_model(
             model,
             source_path,
             save_as_external_data=True,
@@ -635,9 +634,9 @@ class TestWinMLSessionCompilation:
                 compile_calls += 1
                 _write_fake_epcontext(session, path)
                 if compile_calls == 1:
-                    model = onnx.load(simple_matmul_onnx)
+                    model = load(simple_matmul_onnx)
                     model.producer_name = "changed-during-compile"
-                    onnx.save(model, simple_matmul_onnx)
+                    save(model, simple_matmul_onnx)
 
         runtime_session = MagicMock()
         runtime_session.get_providers.return_value = ["QNNExecutionProvider"]
@@ -711,7 +710,7 @@ class TestWinMLSessionCompilation:
             onnx_path=simple_matmul_onnx,
             ep_device=qnn_npu_ep_device,
             ep_config=EPConfig(provider="qnn", enable_ep_context=True),
-            session_options=lambda: MagicMock(),
+            session_options=MagicMock,
         )
 
         model_compiler = _compile_with_fake_ort(second_session)

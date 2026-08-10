@@ -122,7 +122,6 @@ class CompileStage(BaseStage):
             ep_device=ep_device,
             ep_config=ep_config,
         )
-        running_model_path = model_path
         try:
             winml_session.compile()
             running_model_path = winml_session.running_model_path
