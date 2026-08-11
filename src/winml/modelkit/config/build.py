@@ -352,7 +352,7 @@ def _resolve_policy_target(device: str, ep: str | None) -> tuple[str, str | None
         ):
             continue
         try:
-            if not EP_CATALOG.is_compatible(spec.ep):
+            if not EP_CATALOG.is_compatible(spec.ep, spec.device):
                 continue
         except RuntimeError as e:
             detection_error = e

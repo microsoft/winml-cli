@@ -53,9 +53,11 @@ from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Final
+from typing import Any, Final, cast
 
 from packaging.version import InvalidVersion, Version
+
+from .utils.constants import DEVICE_PRIORITY, EP_SUPPORTED_DEVICES, DeviceType, EPName
 
 
 logger = logging.getLogger(__name__)
@@ -136,17 +138,28 @@ class EPCatalog:
         """Reverse lookup: DLL filename -> canonical EP name. ``None`` if unknown."""
         return self._by_dll.get(dll)
 
-    def is_compatible(self, ep: str) -> bool:
+    def is_compatible(self, ep: str, device_type: DeviceType | None = None) -> bool:
         """Return True iff ``ep`` has compatible hardware on this machine.
 
         Empty / missing vendor requirement -> always compatible.
         Otherwise compatible iff at least one required vendor substring
-        appears (case-insensitively) in any detected vendor string.
+        appears (case-insensitively) in a supported hardware class. When
+        ``device_type`` is provided, only that class is considered.
         """
         entry = self._by_name.get(ep)
-        if entry is None or not entry.vendor_requirements:
+        if entry is None:
             return True
-        detected = _get_detected_vendors()
+        supported_devices = EP_SUPPORTED_DEVICES.get(cast("EPName", ep), DEVICE_PRIORITY)
+        device_types: tuple[DeviceType, ...]
+        if device_type is not None:
+            if device_type not in supported_devices:
+                return False
+            device_types = (device_type,)
+        else:
+            device_types = supported_devices
+        if not entry.vendor_requirements:
+            return True
+        detected = _get_detected_vendors(device_types)
         return any(req.lower() in v.lower() for req in entry.vendor_requirements for v in detected)
 
     def all_eps(self) -> tuple[str, ...]:
@@ -192,37 +205,48 @@ EP_CATALOG = EPCatalog(
 
 
 @functools.cache
-def _get_detected_vendors() -> frozenset[str]:
-    """Return the union of vendor identification strings from sysinfo.
-
-    Aggregates ``manufacturer`` and ``name`` across detected GPUs and
-    NPUs. Both fields are included because Windows reports vendor
-    inconsistently — sometimes the manufacturer is the IHV
-    (``"Qualcomm Incorporated"``), sometimes a parent company
-    (``"Microsoft Corporation"`` for OEM-rebranded devices).
-
-    Cached process-wide; tests reset via ``_get_detected_vendors.cache_clear()``.
-    Raises ``RuntimeError`` if hardware detection fails — preventing
-    ``functools.cache`` from pinning an empty-set fallback that would
-    silently make every hardware-gated EP appear incompatible.
-    """
+def _get_detected_vendors_for_device(device_type: DeviceType) -> frozenset[str]:
+    """Detect and cache vendor strings for one hardware class."""
     try:
-        from .sysinfo.hardware import GPU, NPU
+        from .sysinfo.hardware import CPU, GPU, NPU
     except ImportError as e:
         raise RuntimeError(f"Hardware detection unavailable: {e}") from e
 
+    hardware_getters: dict[DeviceType, tuple[str, Callable[[], Iterable[Any]]]] = {
+        "cpu": ("CPU", CPU.get_all),
+        "gpu": ("GPU", GPU.get_all),
+        "npu": ("NPU", NPU.get_all),
+    }
+    class_name, get_all = hardware_getters[device_type]
     strings: set[str] = set()
-    for cls in (GPU, NPU):
-        try:
-            for hw in cls.get_all():
-                for attr in ("manufacturer", "name"):
-                    value = getattr(hw, attr, None)
-                    if value:
-                        strings.add(str(value))
-        except Exception as e:  # noqa: PERF203
-            raise RuntimeError(f"{cls.__name__}.get_all() failed: {e}") from e
-
+    try:
+        for hw in get_all():
+            for attr in ("manufacturer", "name"):
+                value = getattr(hw, attr, None)
+                if value:
+                    strings.add(str(value))
+    except Exception as e:
+        raise RuntimeError(f"{class_name}.get_all() failed: {e}") from e
     return frozenset(strings)
+
+
+def _get_detected_vendors(
+    device_types: tuple[DeviceType, ...] = DEVICE_PRIORITY,
+) -> frozenset[str]:
+    """Return cached vendor strings for the selected hardware classes.
+
+    Both ``manufacturer`` and ``name`` are included because Windows reports
+    vendor information inconsistently. Tests reset the shared inventory via
+    ``_get_detected_vendors.cache_clear()``.
+    """
+    return frozenset(
+        vendor
+        for device_type in device_types
+        for vendor in _get_detected_vendors_for_device(device_type)
+    )
+
+
+_get_detected_vendors.cache_clear = _get_detected_vendors_for_device.cache_clear  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------

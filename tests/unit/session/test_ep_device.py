@@ -332,7 +332,7 @@ def test_resolve_auto_ep_skips_failed_vendor_probe_for_cpu_fallback() -> None:
     )
     registry.auto_device.return_value = object()
 
-    def check_compatibility(ep_name: str) -> bool:
+    def check_compatibility(ep_name: str, _device_type: str | None = None) -> bool:
         if ep_name == "OpenVINOExecutionProvider":
             raise RuntimeError("WMI unavailable")
         return True
@@ -901,7 +901,7 @@ def _patch_ep_catalog_compat(compatible_map: dict[str, bool]) -> tuple:
     catalog's behavior for EPs without vendor_requirements).
     """
 
-    def fake_is_compatible(self, ep_name: str) -> bool:
+    def fake_is_compatible(self, ep_name: str, _device_type: str | None = None) -> bool:
         return compatible_map.get(ep_name, True)
 
     return (
