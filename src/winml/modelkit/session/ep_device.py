@@ -356,6 +356,7 @@ class EPDeviceSpec:
     ep: EPName
     device: str
     default_provider_options: Mapping[str, str] = field(default_factory=dict)
+    provider_option_hints: Mapping[str, str] = field(default_factory=dict)
 
 
 EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
@@ -379,6 +380,7 @@ EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
             "htp_performance_mode": "burst",
             "htp_graph_finalization_optimization_mode": "3",
         },
+        provider_option_hints={"backend_path": "QnnHtp.dll"},
     ),
     EPDeviceSpec(ep="OpenVINOExecutionProvider", device="npu"),
     EPDeviceSpec(ep="VitisAIExecutionProvider", device="npu"),
@@ -388,8 +390,16 @@ EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
     EPDeviceSpec(ep="NvTensorRTRTXExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="OpenVINOExecutionProvider", device="cpu"),
     # ---- QNN secondary (Snapdragon boxes without vendor-optimal alternatives) ----
-    EPDeviceSpec(ep="QNNExecutionProvider", device="gpu"),  # TODO: measure
-    EPDeviceSpec(ep="QNNExecutionProvider", device="cpu"),
+    EPDeviceSpec(
+        ep="QNNExecutionProvider",
+        device="gpu",
+        provider_option_hints={"backend_path": "QnnGpu.dll"},
+    ),  # TODO: measure
+    EPDeviceSpec(
+        ep="QNNExecutionProvider",
+        device="cpu",
+        provider_option_hints={"backend_path": "QnnCpu.dll"},
+    ),
     # ---- Built-in fallbacks (last per registry design intent) ----
     EPDeviceSpec(ep="DmlExecutionProvider", device="gpu"),  # cross-vendor GPU fallback
     EPDeviceSpec(ep="CPUExecutionProvider", device="cpu"),  # always-available CPU fallback

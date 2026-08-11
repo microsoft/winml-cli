@@ -50,6 +50,14 @@ def get_vendor_id_device_id_from_pnp_id(pnp_id: str) -> tuple[int, int]:
         device_id = int.from_bytes(id_segment[4:].encode("ascii"), byteorder="little")
         return vendor_id, device_id
 
+    # Some NVIDIA GPUs are exposed via ACPI IDs without VEN_/DEV_ tokens
+    # (e.g., "ACPI\\NVDA200A\\0"). Parse the NVDA tag directly.
+    acpi_nvda_match = re.search(r"^ACPI\\NVDA([0-9A-Fa-f]{4})(?:\\|$)", pnp_id)
+    if acpi_nvda_match is not None:
+        vendor_id = 0x10DE
+        device_id = int(acpi_nvda_match.group(1), 16)
+        return vendor_id, device_id
+
     vendor_id_str_groups = re.search(r"VEN_([0-9A-Za-z]+)", pnp_id)
     if vendor_id_str_groups is None:
         raise ValueError(f"Invalid PNPDeviceID format: {pnp_id}")

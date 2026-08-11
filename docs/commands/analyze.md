@@ -24,7 +24,6 @@ $ winml analyze [options]
 | `--config` | `-c` | `PATH` | *(none)* | Build configuration file (YAML/JSON). |
 | `--output` | | `PATH` | *(none)* | Save the full JSON result to a file in addition to printing the console summary. |
 | `--information` / `--no-information` | | flag | enabled | Include detailed per-operator recommendations and remediation hints in the output. Pass `--no-information` for a compact pass/fail summary. |
-| `--htp-metadata` | | `PATH` | *(none)* | Path to an HTP metadata JSON file (produced by `winml export`). Enriches subgraph pattern extraction by mapping nodes back to their source module hierarchy. Benefits all target EPs. |
 | `--run-unknown-op` / `--no-run-unknown-op` | | flag | disabled | For operators not in the rule database, build a minimal ONNX graph and run it on the target EP locally to determine support. Enable when local EP libraries are available. |
 | `--save-node` | | `partial\|unsupported` | *(none)* | Save partial or unsupported node subgraphs to disk for further investigation. Can be specified multiple times: `--save-node partial --save-node unsupported`. |
 | `--optim-config` | | `PATH` | *(none)* | Save the auto-discovered optimization config (merged across all analyzed EPs) to a JSON file. |
@@ -74,14 +73,6 @@ Save the full JSON result for offline inspection while still printing the consol
 $ winml analyze --model facebook/convnext-tiny-224.onnx --output results.json
 ```
 
-Use HTP metadata for enhanced subgraph pattern extraction:
-
-```bash
-$ winml analyze --model bert-base-uncased.onnx \
-    --ep qnn --device NPU \
-    --htp-metadata bert-base-uncased_htp_metadata.json
-```
-
 Run a lint-only pass (no recommendations) for a CI gate:
 
 ```bash
@@ -113,7 +104,6 @@ $ winml analyze --model model.onnx --ep qnn --device NPU --check-optim
 
 - **Omitting `--ep` uses `auto` (inferred from local availability)** — to analyze every EP regardless of what is installed, pass `--ep all`. Specify `--ep <name>` when you know your target hardware.
 - **Exit code 1 is not a hard failure** — it means at least one operator is unsupported, not that the model cannot run at all. Many EPs fall back unsupported nodes to the CPU EP automatically; review the recommendations before deciding to restructure the model.
-- **`--htp-metadata` is EP-agnostic** — HTP metadata enriches pattern extraction before any EP-specific checks, so it benefits all target EPs equally. You do not need separate metadata files per EP.
 - **`--run-unknown-op` is disabled by default** — operators not covered by the rule database are classified as `UNKNOWN` (not unsupported) unless you explicitly pass `--run-unknown-op` to probe them locally. Enable it only when the target EP's libraries are available on the local machine.
 - **The model path must point to an existing `.onnx` file** — symbolic HuggingFace model IDs are not accepted; export the model first with `winml export`.
 

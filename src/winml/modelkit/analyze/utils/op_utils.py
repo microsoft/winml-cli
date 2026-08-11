@@ -146,12 +146,6 @@ def _compute_case_index_with_namespace_key(case: dict, *, namespace_key: str) ->
     return f"{namespace_key}{_hash_case_signature(signature)}"
 
 
-def compute_case_index(case: dict, *, namespace: str) -> str:
-    """Compute unified 36-char case_index for a case under the given file namespace."""
-    namespace_key = encode_file_name_to_4char_key(namespace)
-    return _compute_case_index_with_namespace_key(case, namespace_key=namespace_key)
-
-
 class CheckResultWriter:
     """Writer for test results that supports continuation from existing files."""
 
@@ -229,10 +223,6 @@ class CheckResultWriter:
                     )
                     if not (compile_success and run_success):
                         self.failed_signatures.add(sig)
-
-    def has_existing_results(self) -> bool:
-        """Check if we have existing results to work with."""
-        return len(self.existing_signatures) > 0
 
     def should_skip_case(self, case: dict) -> bool:
         """Check if a case should be skipped based on its signature.
