@@ -2367,3 +2367,247 @@ class TestAnalyzeCheckOptim:
 
         assert result.exit_code == 0
         assert "OPTIMIZATION OUTPUT SUPPORT" not in result.output
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_quiet_json_includes_structured_optimization_support(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """--check-optim produces JSON even when Rich rendering is quiet."""
+        from winml.modelkit.analyze.models.support_level import SupportLevel
+        from winml.modelkit.analyze.optim_output import (
+            OptimizationOutputSupport,
+            ProducedOperatorSupport,
+        )
+
+        model_file = tmp_path / "model.onnx"
+        output_file = tmp_path / "analysis.json"
+        self._write_model(model_file)
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        monkeypatch.setattr(
+            "winml.modelkit.optim.iter_optimization_outputs",
+            lambda *_args, **_kwargs: [(object(), object())],
+        )
+        monkeypatch.setattr("winml.modelkit.optim.get_all_capabilities", dict)
+        monkeypatch.setattr(
+            "winml.modelkit.analyze.optim_output.check_optimization_output_support",
+            lambda *_args, **_kwargs: [
+                OptimizationOutputSupport(
+                    name="static-split-to-slice",
+                    enable_flag="--enable-static-split-to-slice",
+                    category="rewrite",
+                    description="Replace static Split with Slice.",
+                    pipe_name="algebraic",
+                    operators=[
+                        ProducedOperatorSupport(
+                            "Slice",
+                            "Slice 'slice_0'",
+                            "added",
+                            SupportLevel.SUPPORTED,
+                        )
+                    ],
+                )
+            ],
+        )
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "qnn",
+                "--device",
+                "NPU",
+                "--check-optim",
+                "--format",
+                "json",
+                "--output",
+                str(output_file),
+                "--quiet",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        stdout_data = json.loads(result.output)
+        file_data = json.loads(output_file.read_text(encoding="utf-8"))
+        assert file_data == stdout_data
+        support = stdout_data["optimization_output_support"]
+        assert support["ep_type"] == "QNNExecutionProvider"
+        assert support["device_type"] == "NPU"
+        assert support["probe_error"] is None
+        assert support["support_error"] is None
+        assert support["optimizations"][0]["enable_flag"] == ("--enable-static-split-to-slice")
+        assert support["optimizations"][0]["worst_support"] == "supported"
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_quiet_json_preserves_optimization_probe_error(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Optimization probe failures remain visible to JSON consumers."""
+        model_file = tmp_path / "model.onnx"
+        self._write_model(model_file)
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        def _fail_probe(*_args: object, **_kwargs: object) -> list:
+            raise RuntimeError("probe failed")
+
+        monkeypatch.setattr("winml.modelkit.optim.iter_optimization_outputs", _fail_probe)
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "qnn",
+                "--device",
+                "NPU",
+                "--check-optim",
+                "--format",
+                "json",
+                "--quiet",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        support = json.loads(result.output)["optimization_output_support"]
+        assert support["probe_error"] == "probe failed"
+        assert support["support_error"] is None
+        assert support["optimizations"] == []
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_quiet_json_preserves_target_support_error(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Target support failures are distinct from graph probe failures."""
+        model_file = tmp_path / "model.onnx"
+        self._write_model(model_file)
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        monkeypatch.setattr(
+            "winml.modelkit.optim.iter_optimization_outputs",
+            lambda *_args, **_kwargs: [(object(), object())],
+        )
+        monkeypatch.setattr("winml.modelkit.optim.get_all_capabilities", dict)
+
+        def _fail_support(*_args: object, **_kwargs: object) -> list:
+            raise RuntimeError("support check failed")
+
+        monkeypatch.setattr(
+            "winml.modelkit.analyze.optim_output.check_optimization_output_support",
+            _fail_support,
+        )
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "qnn",
+                "--device",
+                "NPU",
+                "--check-optim",
+                "--format",
+                "json",
+                "--quiet",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        support = json.loads(result.output)["optimization_output_support"]
+        assert support["probe_error"] is None
+        assert support["support_error"] == "support check failed"
+        assert support["optimizations"] == []
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_multi_device_json_aligns_optimization_support_with_each_target(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Each result in a fan-out carries support for its own EP/device."""
+        from winml.modelkit.analyze.optim_output import OptimizationOutputSupport
+
+        model_file = tmp_path / "model.onnx"
+        self._write_model(model_file)
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        monkeypatch.setattr(
+            "winml.modelkit.optim.iter_optimization_outputs",
+            lambda *_args, **_kwargs: [(object(), object())],
+        )
+        monkeypatch.setattr("winml.modelkit.optim.get_all_capabilities", dict)
+
+        def _support_for_target(*_args: object, **kwargs: object) -> list:
+            device = str(kwargs["device"])
+            return [
+                OptimizationOutputSupport(
+                    name=f"optimization-for-{device.lower()}",
+                    enable_flag=f"--enable-for-{device.lower()}",
+                    category="rewrite",
+                    description="Target-specific test result.",
+                    pipe_name="algebraic",
+                )
+            ]
+
+        monkeypatch.setattr(
+            "winml.modelkit.analyze.optim_output.check_optimization_output_support",
+            _support_for_target,
+        )
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "qnn",
+                "--device",
+                "all",
+                "--check-optim",
+                "--format",
+                "json",
+                "--quiet",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        payloads = json.loads(result.output)
+        assert len(payloads) == 2
+        for payload in payloads:
+            support = payload["optimization_output_support"]
+            device = support["device_type"]
+            assert support["ep_type"] == "QNNExecutionProvider"
+            assert support["optimizations"][0]["name"] == (f"optimization-for-{device.lower()}")
