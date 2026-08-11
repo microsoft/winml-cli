@@ -30,6 +30,8 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from winml.modelkit.utils.constants import normalize_ep_name
+
 
 # Precisions recognised in recipe filenames.  Order is the canonical display
 # order (fp16 first).  Discovery is data-driven: any precision listed here that
@@ -79,7 +81,7 @@ def split_config_stem(path: Path) -> tuple[str, str | None]:
 
 def recipe_target_dir(model_dir: Path, ep: str, device: str) -> Path:
     """Return the canonical ``<model>/<ep>/<device>`` recipe directory."""
-    ep_name = ep.strip().lower()
+    ep_name = (normalize_ep_name(ep) or ep).strip().lower()
     suffix = "executionprovider"
     if ep_name.endswith(suffix):
         ep_name = ep_name[: -len(suffix)]

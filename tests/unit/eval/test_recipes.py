@@ -215,6 +215,25 @@ class TestCopyRecipeTarget:
         assert (target_dir / "task_fp16_config.json").read_text() == "target-fp16"
         assert (target_dir / "task_fp32_config.json").read_text() == "source-fp32"
 
+    def test_copied_alias_target_is_discoverable_by_resolved_ep(self, recipes, tmp_path):
+        source_dir = tmp_path / "org_model" / "dml" / "gpu"
+        source_dir.mkdir(parents=True)
+        (source_dir / "task_fp16_config.json").write_text("{}")
+        (source_dir / "task_fp32_config.json").write_text("{}")
+
+        recipes.copy_recipe_target(
+            tmp_path, "org/model", "dml", "gpu", "nv_tensorrt_rtx", "gpu"
+        )
+        variants = recipes.discover_recipe_variants(
+            tmp_path,
+            "org/model",
+            "task",
+            ep="NvTensorRTRTXExecutionProvider",
+            device="gpu",
+        )
+
+        assert [variant.precision for variant in variants] == ["fp16", "fp32"]
+
 
 class TestDiscoverAgainstRealRecipes:
     """Smoke-test against the checked-in examples/recipes tree."""
