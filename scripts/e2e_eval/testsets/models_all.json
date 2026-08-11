@@ -455,11 +455,14 @@
     "hf_id": "Helsinki-NLP/opus-mt-en-ru",
     "task": "translation",
     "model_type": "marian",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 261986,
     "last_update_time": "2023-08-16T11:30:58+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 11
   },
   {
@@ -477,11 +480,14 @@
     "hf_id": "Helsinki-NLP/opus-mt-fr-en",
     "task": "translation",
     "model_type": "marian",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 748227,
     "last_update_time": "2025-11-15T22:57:50+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 7
   },
   {
@@ -787,11 +793,14 @@
     "hf_id": "MIT/ast-finetuned-audioset-10-10-0.4593",
     "task": "audio-classification",
     "model_type": "audio-spectrogram-transformer",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 554296,
     "last_update_time": "2023-09-06T14:49:15+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 2
   },
   {
@@ -1767,11 +1776,14 @@
     "hf_id": "audeering/wav2vec2-large-robust-24-ft-age-gender",
     "task": "audio-classification",
     "model_type": "wav2vec2",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 220215,
     "last_update_time": "2025-03-24T10:02:24+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 6
   },
   {
@@ -1858,11 +1870,14 @@
     "hf_id": "cross-encoder/ms-marco-MiniLM-L12-v2",
     "task": "text-classification",
     "model_type": "bert",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 2374711,
     "last_update_time": "2025-08-29T14:37:04+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 10
   },
   {
@@ -1902,13 +1917,16 @@
     "hf_id": "cross-encoder/ms-marco-MiniLM-L4-v2",
     "task": "text-classification",
     "model_type": "bert",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 7937366,
     "last_update_time": "2025-08-29T14:36:22+00:00",
     "optimum_supported": true,
     "op_tracing_targets": [
       "qnn_npu"
+    ],
+    "groups": [
+      "Cross EP"
     ],
     "order": 4
   },
@@ -1930,11 +1948,14 @@
     "hf_id": "cross-encoder/ms-marco-MiniLM-L6-v2",
     "task": "text-classification",
     "model_type": "bert",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 85091967,
     "last_update_time": "2025-08-29T14:36:10+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 1
   },
   {
@@ -1999,11 +2020,14 @@
     "hf_id": "daekeun-ml/koelectra-small-v3-nsmc",
     "task": "text-classification",
     "model_type": "electra",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 898303,
     "last_update_time": "2025-03-09T21:39:03+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 12
   },
   {
@@ -2066,11 +2090,14 @@
     "hf_id": "deepset/roberta-large-squad2",
     "task": "question-answering",
     "model_type": "roberta",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 7263,
     "last_update_time": "2024-09-26T08:05:59+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 12
   },
   {
@@ -2249,11 +2276,14 @@
     "hf_id": "dima806/music_genres_classification",
     "task": "audio-classification",
     "model_type": "wav2vec2",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 2056,
     "last_update_time": "2024-10-19T10:57:45+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 10
   },
   {
@@ -2363,13 +2393,16 @@
     "hf_id": "facebook/bart-large-mnli",
     "task": "text-classification",
     "model_type": "bart",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 3351419,
     "last_update_time": "2023-09-05T14:49:34+00:00",
     "optimum_supported": true,
     "tags": [
       "acc"
+    ],
+    "groups": [
+      "Cross EP"
     ],
     "order": 7
   },
@@ -2536,11 +2569,14 @@
     "hf_id": "facebook/mms-lid-256",
     "task": "audio-classification",
     "model_type": "wav2vec2",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 357554,
     "last_update_time": "2023-06-13T10:16:04+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 3
   },
   {
@@ -2789,11 +2825,14 @@
     "hf_id": "google-bert/bert-base-cased",
     "task": "fill-mask",
     "model_type": "bert",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 3256705,
     "last_update_time": "2024-02-19T11:02:26+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 9
   },
   {
@@ -3079,22 +3118,28 @@
     "hf_id": "google/owlv2-base-patch16-ensemble",
     "task": "zero-shot-object-detection",
     "model_type": "owlv2",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 1681997,
     "last_update_time": "2024-10-31T14:55:13+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 1
   },
   {
     "hf_id": "google/owlv2-base-patch16-finetuned",
     "task": "zero-shot-object-detection",
     "model_type": "owlv2",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 514,
     "last_update_time": "2024-10-31T14:56:18+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 9
   },
   {
@@ -3112,11 +3157,14 @@
     "hf_id": "google/owlv2-large-patch14-ensemble",
     "task": "zero-shot-object-detection",
     "model_type": "owlv2",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 198110,
     "last_update_time": "2024-10-31T14:56:27+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 3
   },
   {
@@ -3134,33 +3182,42 @@
     "hf_id": "google/owlvit-base-patch16",
     "task": "zero-shot-object-detection",
     "model_type": "owlvit",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 4503,
     "last_update_time": "2023-12-12T13:41:12+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 6
   },
   {
     "hf_id": "google/owlvit-base-patch32",
     "task": "zero-shot-object-detection",
     "model_type": "owlvit",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 324342,
     "last_update_time": "2023-12-12T13:47:41+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 2
   },
   {
     "hf_id": "google/owlvit-large-patch14",
     "task": "zero-shot-object-detection",
     "model_type": "owlvit",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 6185,
     "last_update_time": "2023-12-12T13:41:07+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 5
   },
   {
@@ -3413,11 +3470,14 @@
     "hf_id": "jakeBland/wav2vec-vm-finetune",
     "task": "audio-classification",
     "model_type": "wav2vec2",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 18732,
     "last_update_time": "2025-02-16T22:42:28+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 8
   },
   {
@@ -3471,11 +3531,14 @@
     "hf_id": "jonatasgrosman/wav2vec2-large-xlsr-53-polish",
     "task": "automatic-speech-recognition",
     "model_type": "wav2vec2",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 4137055,
     "last_update_time": "2022-12-14T01:57:56+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 4
   },
   {
@@ -3493,11 +3556,14 @@
     "hf_id": "jonatasgrosman/wav2vec2-large-xlsr-53-russian",
     "task": "automatic-speech-recognition",
     "model_type": "wav2vec2",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 2967598,
     "last_update_time": "2022-12-14T01:58:43+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 8
   },
   {
@@ -4182,11 +4248,14 @@
     "hf_id": "mixedbread-ai/mxbai-rerank-xsmall-v1",
     "task": "text-classification",
     "model_type": "deberta-v2",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 571583,
     "last_update_time": "2025-04-02T14:42:01+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 13
   },
   {
@@ -4439,11 +4508,14 @@
     "hf_id": "nvidia/segformer-b4-finetuned-ade-512-512",
     "task": "image-segmentation",
     "model_type": "segformer",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 23667,
     "last_update_time": "2022-08-06T10:25:42+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 10
   },
   {
@@ -4497,11 +4569,14 @@
     "hf_id": "onecxi/open-vakgyata",
     "task": "audio-classification",
     "model_type": "wav2vec2",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 279700,
     "last_update_time": "2025-07-23T11:39:56+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 5
   },
   {
@@ -4749,11 +4824,14 @@
     "hf_id": "prithivMLmods/Common-Voice-Gender-Detection",
     "task": "audio-classification",
     "model_type": "wav2vec2",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 156387,
     "last_update_time": "2025-11-12T02:21:55+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 7
   },
   {
@@ -5021,22 +5099,28 @@
     "hf_id": "stanfordmimi/synthpose-vitpose-base-hf",
     "task": "keypoint-detection",
     "model_type": "vitpose",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 99,
     "last_update_time": "2025-03-23T00:38:18+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 10
   },
   {
     "hf_id": "stanfordmimi/synthpose-vitpose-huge-hf",
     "task": "keypoint-detection",
     "model_type": "vitpose",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 2644,
     "last_update_time": "2025-03-23T00:36:55+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 7
   },
   {
@@ -5251,11 +5335,14 @@
     "hf_id": "valentinafevu/yolos-fashionpedia",
     "task": "object-detection",
     "model_type": "yolos",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 7390,
     "last_update_time": "2026-02-04T13:52:23+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 11
   },
   {
@@ -5331,11 +5418,14 @@
     "hf_id": "xbgoose/hubert-large-speech-emotion-recognition-russian-dusha-finetuned",
     "task": "audio-classification",
     "model_type": "hubert",
-    "group": "Cross EP",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 316468,
     "last_update_time": "2024-04-26T20:07:32+00:00",
     "optimum_supported": true,
+    "groups": [
+      "Cross EP"
+    ],
     "order": 4
   },
   {

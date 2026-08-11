@@ -129,6 +129,70 @@ class TestKillProcessTree:
         parent.kill.assert_called_once_with()
         wait_procs.assert_called_once_with([child, parent], timeout=5)
 
+    def test_children_race_falls_back_to_platform_kill(self, run_eval):
+        import psutil
+
+        parent = MagicMock()
+        parent.children.side_effect = psutil.NoSuchProcess(pid=123)
+
+        with (
+            patch.object(psutil, "Process", return_value=parent),
+            patch.object(run_eval.platform, "system", return_value="Windows"),
+            patch.object(run_eval.subprocess, "run") as subprocess_run,
+        ):
+            run_eval._kill_process_tree(123)
+
+        subprocess_run.assert_called_once_with(
+            ["taskkill", "/F", "/T", "/PID", "123"],
+            capture_output=True,
+        )
+
+
+def test_filter_registry_matches_additional_group_membership(run_eval):
+    entry = run_eval.ModelEntry(
+        hf_id="acme/model",
+        task="image-classification",
+        model_type="vit",
+        group="Top200",
+        priority="P2",
+        groups=["Cross EP"],
+    )
+
+    assert run_eval.filter_registry([entry], group="Top200") == [entry]
+    assert run_eval.filter_registry([entry], group="Cross EP") == [entry]
+
+
+def test_registry_preserves_top200_membership_for_cross_ep_models(run_eval):
+    registry_path = (
+        Path(__file__).resolve().parents[3]
+        / "scripts"
+        / "e2e_eval"
+        / "testsets"
+        / "models_all.json"
+    )
+    entries = run_eval.load_registry(registry_path)
+    cross_ep_entries = run_eval.filter_registry(entries, group="Cross EP")
+    top200_entries = {
+        (entry.hf_id, entry.task)
+        for entry in run_eval.filter_registry(entries, group="Top200")
+    }
+
+    assert len(cross_ep_entries) == 43
+    assert sum((entry.hf_id, entry.task) in top200_entries for entry in cross_ep_entries) == 30
+
+
+@pytest.mark.parametrize("ep,device", [("auto", "npu"), ("qnn", "auto")])
+def test_recipe_copy_rejects_automatic_destination(run_eval, ep, device):
+    with pytest.raises(
+        ValueError,
+        match="--copy-recipes-from requires explicit --ep and --device",
+    ):
+        run_eval._validate_recipe_copy_target(ep, device)
+
+
+def test_recipe_copy_accepts_concrete_destination(run_eval):
+    run_eval._validate_recipe_copy_target("qnn", "npu")
+
 
 class TestDeducedEpForPinnedDevice:
     """``--device npu`` with ``--ep`` omitted must still see the effective EP.

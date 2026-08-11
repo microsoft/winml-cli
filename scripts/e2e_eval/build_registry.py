@@ -174,6 +174,8 @@ def load_curated_entries(curated_path: Path) -> list[dict]:
         # Pass-through additive fields so they survive into the built registry.
         if "composite_onnx" in e:
             item["composite_onnx"] = e["composite_onnx"]
+        if "groups" in e:
+            item["groups"] = e["groups"]
         loaded.append(item)
     return loaded
 
@@ -421,6 +423,8 @@ def build_registry(
                 # downstream consumers always see the canonical role map.
                 if "composite_onnx" in c and "composite_onnx" not in existing:
                     existing["composite_onnx"] = c["composite_onnx"]
+                if "groups" in c:
+                    existing["groups"] = c["groups"]
                 continue
 
             # New curated entry — fetch metadata if not already loaded
@@ -442,6 +446,8 @@ def build_registry(
             }
             if "composite_onnx" in c:
                 entry["composite_onnx"] = c["composite_onnx"]
+            if "groups" in c:
+                entry["groups"] = c["groups"]
 
             seen.add(key)
             entry_lookup[key] = entry

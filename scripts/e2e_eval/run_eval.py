@@ -152,6 +152,12 @@ def _resolve_eval_target(ep: str | None, device: str | None) -> tuple[str, str]:
     return target.ep, target.device
 
 
+def _validate_recipe_copy_target(ep: str | None, device: str | None) -> None:
+    """Require a concrete destination so copied recipes are discoverable."""
+    if not ep or ep.lower() == "auto" or not device or device.lower() == "auto":
+        raise ValueError("--copy-recipes-from requires explicit --ep and --device")
+
+
 def _should_skip_winml_quant(ep: str | None, device: str | None = None) -> bool:
     """True if the eval harness should run this EP on the unquantized model.
 
@@ -492,16 +498,22 @@ def _kill_process_tree(pid: int) -> None:
             parent = psutil.Process(pid)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return
-        children = parent.children(recursive=True)
-        for child in children:
+        try:
+            children = parent.children(recursive=True)
+        except psutil.Error:
+            # The process tree may change between Process() and children().
+            # Fall through to the platform tree-kill as a best effort.
+            pass
+        else:
+            for child in children:
+                with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied):
+                    child.kill()
             with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied):
-                child.kill()
-        with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied):
-            parent.kill()
-        # Wait briefly for processes to terminate
-        with contextlib.suppress(psutil.Error):
-            psutil.wait_procs([*children, parent], timeout=5)
-        return
+                parent.kill()
+            # Wait briefly for processes to terminate
+            with contextlib.suppress(psutil.Error):
+                psutil.wait_procs([*children, parent], timeout=5)
+            return
 
     # Fallback: taskkill on Windows, killpg on Unix
     if platform.system() == "Windows":
@@ -3002,9 +3014,7 @@ def main() -> None:
         if recipes_dir is None:
             parser_error = "--copy-recipes-from cannot be used with --no-recipes"
             raise ValueError(parser_error)
-        if not args.ep or args.device == "auto":
-            parser_error = "--copy-recipes-from requires explicit --ep and --device"
-            raise ValueError(parser_error)
+        _validate_recipe_copy_target(args.ep, args.device)
         source_ep, source_device = args.copy_recipes_from
         copied_count = 0
         for entry in entries:
