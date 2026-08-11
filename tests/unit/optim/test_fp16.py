@@ -91,6 +91,55 @@ def _build_nested_initializer_output_model() -> ModelProto:
     return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
 
 
+def _build_nested_consumed_initializer_output_model() -> ModelProto:
+    """Build an If whose branch initializer outputs are also consumed locally."""
+    condition = helper.make_tensor_value_info("condition", TensorProto.BOOL, [])
+    output = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1])
+
+    def _branch(name: str, value: float) -> GraphProto:
+        initializer_name = f"{name}_value"
+        branch_output = helper.make_tensor_value_info(initializer_name, TensorProto.FLOAT, [1])
+        initializer = numpy_helper.from_array(np.array([value], dtype=np.float32), initializer_name)
+        identity = helper.make_node(
+            "Identity", [initializer_name], [f"{name}_used"], name=f"{name}_identity"
+        )
+        return helper.make_graph([identity], name, [], [branch_output], [initializer])
+
+    node = helper.make_node(
+        "If",
+        ["condition"],
+        ["output"],
+        name="if",
+        then_branch=_branch("then", 1.0),
+        else_branch=_branch("else", 2.0),
+    )
+    graph = helper.make_graph([node], "nested_consumed_initializer", [condition], [output])
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
+def _iter_attribute_graphs(model: ModelProto) -> list[GraphProto]:
+    """Return nested graphs stored on node attributes."""
+    graphs: list[GraphProto] = []
+    for node in model.graph.node:
+        for attribute in node.attribute:
+            if attribute.g.name:
+                graphs.append(attribute.g)
+            graphs.extend(attribute.graphs)
+    return graphs
+
+
+def _mark_initializers_as_external(graph: GraphProto, *, clear_data: bool) -> None:
+    """Mark all graph initializers as external, optionally without resident bytes."""
+    for initializer in graph.initializer:
+        if clear_data:
+            initializer.ClearField("raw_data")
+            del initializer.float_data[:]
+        initializer.data_location = TensorProto.EXTERNAL
+        location = initializer.external_data.add()
+        location.key = "location"
+        location.value = f"{initializer.name}.bin"
+
+
 def _build_lexically_captured_initializer_output_model() -> ModelProto:
     """Build an output initializer captured only by nested If branches."""
     condition = helper.make_tensor_value_info("condition", TensorProto.BOOL, [])
@@ -197,6 +246,40 @@ def _build_nested_shadowed_initializer_output_model() -> ModelProto:
     return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
 
 
+def _build_duplicate_non_output_initializer_name_model() -> ModelProto:
+    """Build duplicate initializer names across scopes without initializer-backed outputs."""
+    condition = helper.make_tensor_value_info("condition", TensorProto.BOOL, [])
+    top_output = helper.make_tensor_value_info("top_output", TensorProto.FLOAT, [1])
+    nested_output = helper.make_tensor_value_info("nested_output", TensorProto.FLOAT, [1])
+    outer = numpy_helper.from_array(np.array([9.0], dtype=np.float32), "same")
+    top_identity = helper.make_node("Identity", ["same"], ["top_output"], name="top_identity")
+
+    def _branch(name: str, value: float) -> GraphProto:
+        branch_output = helper.make_tensor_value_info(f"{name}_output", TensorProto.FLOAT, [1])
+        initializer = numpy_helper.from_array(np.array([value], dtype=np.float32), "same")
+        identity = helper.make_node(
+            "Identity", ["same"], [f"{name}_output"], name=f"{name}_identity"
+        )
+        return helper.make_graph([identity], name, [], [branch_output], [initializer])
+
+    node = helper.make_node(
+        "If",
+        ["condition"],
+        ["nested_output"],
+        name="if",
+        then_branch=_branch("then", 1.0),
+        else_branch=_branch("else", 2.0),
+    )
+    graph = helper.make_graph(
+        [top_identity, node],
+        "duplicate_non_output",
+        [condition],
+        [top_output, nested_output],
+        [outer],
+    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
 def _build_blocked_initializer_consumer_model() -> ModelProto:
     """Build an output initializer consumed only by an FP32-blocked node."""
     shared = helper.make_tensor_value_info("shared", TensorProto.FLOAT, [1])
@@ -275,6 +358,99 @@ class TestConvertToFP16:
         assert output.type.tensor_type.elem_type == TensorProto.FLOAT16
         assert initializer.data_type == TensorProto.FLOAT16
         shape_inference.infer_shapes(result, strict_mode=True)
+
+    def test_initializer_backed_output_with_fp16_consumer_converts_to_fp16(self) -> None:
+        """Pure-FP16 conversion allows an output initializer consumed by FP16-capable nodes."""
+        model = _build_shared_initializer_output_model()
+
+        result = convert_to_fp16(model, keep_io_types=False, op_block_list=[])
+
+        assert all(
+            output.type.tensor_type.elem_type == TensorProto.FLOAT16
+            for output in result.graph.output
+        )
+        assert result.graph.initializer[0].data_type == TensorProto.FLOAT16
+        checker.check_model(result)
+        shape_inference.infer_shapes(result, strict_mode=True)
+        session = ort.InferenceSession(
+            result.SerializeToString(), providers=["CPUExecutionProvider"]
+        )
+        shared, y = session.run(None, {"x": np.array([[3.0, 4.0]], dtype=np.float16)})
+        np.testing.assert_array_equal(shared, np.array([[1.0, 2.0]], dtype=np.float16))
+        np.testing.assert_array_equal(y, np.array([[4.0, 6.0]], dtype=np.float16))
+
+    def test_nested_initializer_output_with_fp16_consumer_converts_to_fp16(self) -> None:
+        """Nested initializer outputs are allowed when ORT converts them consistently."""
+        model = _build_nested_consumed_initializer_output_model()
+
+        result = convert_to_fp16(model, keep_io_types=False, op_block_list=[])
+
+        assert result.graph.output[0].type.tensor_type.elem_type == TensorProto.FLOAT16
+        checker.check_model(result)
+        shape_inference.infer_shapes(result, strict_mode=True)
+        session = ort.InferenceSession(
+            result.SerializeToString(), providers=["CPUExecutionProvider"]
+        )
+        np.testing.assert_array_equal(
+            session.run(None, {"condition": np.array(True)})[0],
+            np.array([1.0], dtype=np.float16),
+        )
+
+    def test_unloaded_nested_external_initializer_output_is_rejected_before_mutation(
+        self,
+    ) -> None:
+        """Unloaded nested external backing data is rejected before dtype metadata changes."""
+        model = _build_nested_consumed_initializer_output_model()
+        for graph in _iter_attribute_graphs(model):
+            _mark_initializers_as_external(graph, clear_data=True)
+        original = model.SerializeToString()
+
+        with np.testing.assert_raises_regex(
+            RuntimeError,
+            "load external weights before FP16 conversion",
+        ):
+            convert_to_fp16(model, keep_io_types=False, op_block_list=[])
+        assert model.SerializeToString() == original
+
+    def test_loaded_nested_external_initializer_output_is_internalized(self) -> None:
+        """Loaded nested external output data no longer points to stale sidecars."""
+        model = _build_nested_consumed_initializer_output_model()
+        for graph in _iter_attribute_graphs(model):
+            _mark_initializers_as_external(graph, clear_data=False)
+
+        result = convert_to_fp16(model, keep_io_types=False, op_block_list=[])
+
+        for graph in _iter_attribute_graphs(result):
+            for initializer in graph.initializer:
+                assert initializer.data_type == TensorProto.FLOAT16
+                assert initializer.data_location == TensorProto.DEFAULT
+                assert not initializer.external_data
+
+    def test_non_float_external_initializer_output_metadata_is_preserved(self) -> None:
+        """Non-FLOAT direct output initializers are outside the FP16 repair path."""
+        model = _build_initializer_backed_output_model()
+        int_output = helper.make_tensor_value_info("int_output", TensorProto.INT64, [1])
+        int_value = numpy_helper.from_array(np.array([7], dtype=np.int64), "int_output")
+        int_value.ClearField("raw_data")
+        int_value.data_location = TensorProto.EXTERNAL
+        location = int_value.external_data.add()
+        location.key = "location"
+        location.value = "int_output.bin"
+        model.graph.output.append(int_output)
+        model.graph.initializer.append(int_value)
+
+        result = convert_to_fp16(model, keep_io_types=False, op_block_list=[])
+
+        int_initializer = next(
+            initializer
+            for initializer in result.graph.initializer
+            if initializer.name == "int_output"
+        )
+        assert int_initializer.data_type == TensorProto.INT64
+        assert int_initializer.data_location == TensorProto.EXTERNAL
+        assert [(entry.key, entry.value) for entry in int_initializer.external_data] == [
+            ("location", "int_output.bin")
+        ]
 
     def test_multiple_initializer_backed_outputs_are_all_converted(self) -> None:
         """Every initializer-backed output is repaired independently."""
@@ -419,7 +595,7 @@ class TestConvertToFP16:
         model = _build_nested_initializer_output_model()
         original = model.SerializeToString()
 
-        with np.testing.assert_raises_regex(RuntimeError, "inside nested graphs"):
+        with np.testing.assert_raises_regex(RuntimeError, "mismatched types"):
             convert_to_fp16(model, keep_io_types=True, op_block_list=[])
         assert model.SerializeToString() == original
 
@@ -461,12 +637,21 @@ class TestConvertToFP16:
 
         assert model.SerializeToString() == original
 
-    def test_nested_initializer_output_can_shadow_an_outer_initializer(self) -> None:
-        """Nested shadowing is rejected rather than handed to ORT's global map."""
+    def test_nested_initializer_output_shadowing_is_rejected_before_mutation(self) -> None:
+        """Nested shadowing is rejected before ORT's global initializer map."""
         model = _build_nested_shadowed_initializer_output_model()
         original = model.SerializeToString()
 
-        with np.testing.assert_raises_regex(RuntimeError, "inside nested graphs"):
+        with np.testing.assert_raises_regex(RuntimeError, "duplicate FLOAT initializer names"):
+            convert_to_fp16(model, keep_io_types=False, op_block_list=[])
+        assert model.SerializeToString() == original
+
+    def test_duplicate_non_output_initializers_are_rejected_before_mutation(self) -> None:
+        """Duplicate FLOAT initializer names are rejected before ORT mutates the graph."""
+        model = _build_duplicate_non_output_initializer_name_model()
+        original = model.SerializeToString()
+
+        with np.testing.assert_raises_regex(RuntimeError, "duplicate FLOAT initializer names"):
             convert_to_fp16(model, keep_io_types=False, op_block_list=[])
         assert model.SerializeToString() == original
 
@@ -478,7 +663,7 @@ class TestConvertToFP16:
         )
 
         original = model.SerializeToString()
-        with np.testing.assert_raises_regex(RuntimeError, "inside nested graphs"):
+        with np.testing.assert_raises_regex(RuntimeError, "mismatched types"):
             convert_to_fp16(model, keep_io_types=False, op_block_list=[])
         assert model.SerializeToString() == original
 
@@ -487,8 +672,8 @@ class TestConvertToFP16:
         model = _build_blocked_initializer_consumer_model()
         original = model.SerializeToString()
 
-        with np.testing.assert_raises_regex(RuntimeError, "has internal consumers"):
-            convert_to_fp16(model, keep_io_types=True, op_block_list=["Identity"])
+        with np.testing.assert_raises_regex(RuntimeError, "mismatched types"):
+            convert_to_fp16(model, keep_io_types=False, op_block_list=["Identity"])
         assert model.SerializeToString() == original
 
     def test_initializer_output_repair_preserves_unrelated_casts(self) -> None:

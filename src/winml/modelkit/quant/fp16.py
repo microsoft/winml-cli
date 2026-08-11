@@ -11,6 +11,7 @@ the quantizer's ``mode="fp16"`` path.
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from dataclasses import dataclass
 from math import prod
 from typing import TYPE_CHECKING, cast
@@ -30,6 +31,7 @@ class _InitializerOutput:
 
     name: str
     output_index: int
+    has_consumers: bool
 
 
 def _tensor_data_is_loaded(initializer: TensorProto) -> bool:
@@ -62,6 +64,11 @@ def _all_node_names(model: ModelProto) -> set[str]:
     }
 
 
+def _all_graphs(model: ModelProto) -> list[GraphProto]:
+    """Return the top-level graph and all nested attribute graphs."""
+    return [model.graph, *_iter_nested_graphs(model)]
+
+
 def _iter_nested_graphs(model: ModelProto) -> list[GraphProto]:
     """Return nested attribute graphs without relying on tensor-name scope."""
     from onnx import AttributeProto
@@ -81,26 +88,97 @@ def _iter_nested_graphs(model: ModelProto) -> list[GraphProto]:
     return nested
 
 
-def _reject_nested_initializer_outputs(model: ModelProto) -> None:
-    """Reject nested initializer outputs whose lexical semantics are ambiguous."""
+def _direct_initializer_outputs_in_graph(
+    graph: GraphProto,
+    *,
+    data_types: set[int] | None = None,
+) -> list[TensorProto]:
+    """Return direct graph-output initializers, optionally filtered by data type."""
+    if not hasattr(graph, "output") or not hasattr(graph, "initializer"):
+        return []
+
+    produced = {name for node in graph.node for name in node.output if name}
+    output_names = {output.name for output in graph.output}
+    return [
+        initializer
+        for initializer in graph.initializer
+        if initializer.name in output_names
+        and initializer.name not in produced
+        and (data_types is None or initializer.data_type in data_types)
+    ]
+
+
+def _direct_initializer_outputs(
+    model: ModelProto,
+    *,
+    data_types: set[int] | None = None,
+) -> list[TensorProto]:
+    """Return direct initializer-backed outputs across all graph scopes."""
+    return [
+        initializer
+        for graph in _all_graphs(model)
+        for initializer in _direct_initializer_outputs_in_graph(graph, data_types=data_types)
+    ]
+
+
+def _has_nested_initializer_outputs(model: ModelProto) -> bool:
+    """Whether any nested graph output is supplied directly by a FLOAT initializer."""
     from onnx import TensorProto
 
-    for graph in _iter_nested_graphs(model):
-        produced = {name for node in graph.node for name in node.output if name}
-        output_names = {output.name for output in graph.output}
-        matches = [
-            initializer.name
-            for initializer in graph.initializer
-            if initializer.name in output_names
-            and initializer.name not in produced
-            and initializer.data_type == TensorProto.FLOAT
-        ]
-        if matches:
+    return any(
+        _direct_initializer_outputs_in_graph(graph, data_types={TensorProto.FLOAT})
+        for graph in _iter_nested_graphs(model)
+    )
+
+
+def _reject_duplicate_float_initializer_names(model: ModelProto) -> None:
+    """Reject FLOAT initializer names that ORT's global conversion map cannot scope."""
+    from onnx import TensorProto
+
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for graph in _all_graphs(model):
+        if not hasattr(graph, "initializer"):
+            continue
+        for initializer in graph.initializer:
+            if initializer.data_type != TensorProto.FLOAT:
+                continue
+            if initializer.name in seen:
+                duplicates.add(initializer.name)
+            else:
+                seen.add(initializer.name)
+    if duplicates:
+        names = ", ".join(sorted(duplicates))
+        msg = (
+            "FP16 conversion cannot safely process duplicate FLOAT initializer "
+            f"names across graph scopes: {names}."
+        )
+        raise RuntimeError(msg)
+
+
+def _reject_unloaded_external_initializer_outputs(model: ModelProto) -> None:
+    """Reject direct FLOAT output initializers whose external data is not resident."""
+    from onnx import TensorProto
+    from onnx.external_data_helper import uses_external_data
+
+    for initializer in _direct_initializer_outputs(model, data_types={TensorProto.FLOAT}):
+        if uses_external_data(initializer) and not _tensor_data_is_loaded(initializer):
             msg = (
-                "FP16 conversion cannot safely normalize initializer-backed outputs "
-                f"inside nested graphs: {', '.join(matches)}."
+                f"Initializer-backed output '{initializer.name}' uses unloaded external data; "
+                "load external weights before FP16 conversion."
             )
             raise RuntimeError(msg)
+
+
+def _internalize_external_initializer_outputs(model: ModelProto) -> None:
+    """Drop stale external metadata for resident direct output initializer data."""
+    from onnx import TensorProto
+    from onnx.external_data_helper import uses_external_data
+
+    for initializer in _direct_initializer_outputs(model, data_types={TensorProto.FLOAT}):
+        if uses_external_data(initializer):
+            del initializer.external_data[:]
+            initializer.data_location = TensorProto.DEFAULT
 
 
 def _all_node_inputs(model: ModelProto) -> set[str]:
@@ -118,10 +196,10 @@ def _capture_safe_initializer_outputs(
 ) -> list[_InitializerOutput]:
     """Capture safe direct initializer outputs or fail before ORT mutates the model.
 
-    This fix intentionally covers only top-level, non-overridable, no-consumer
-    dense FLOAT outputs. Shared, nested, or overridable initializer outputs need
-    lexical-scope and mixed-precision semantics that ORT's converter does not
-    model safely; fail explicitly instead of publishing an invalid graph.
+    This fix intentionally pre-validates only top-level, non-overridable dense
+    FLOAT outputs. Shared outputs are allowed for pure-FP16 conversion when ORT
+    converts their consumers consistently; keep-I/O conversion still rejects them
+    because ORT rewrites consumer inputs to the generated output-cast alias.
     """
     from onnx import TensorProto
     from onnx.external_data_helper import uses_external_data
@@ -129,7 +207,6 @@ def _capture_safe_initializer_outputs(
     if not hasattr(model.graph, "input") or not hasattr(model.graph, "output"):
         return []
 
-    _reject_nested_initializer_outputs(model)
     produced = {name for node in model.graph.node for name in node.output if name}
     consumed = _all_node_inputs(model)
     graph_inputs = {value.name for value in model.graph.input}
@@ -153,10 +230,11 @@ def _capture_safe_initializer_outputs(
                 "FP16 conversion cannot preserve overridable-initializer semantics."
             )
             raise RuntimeError(msg)
-        if output.name in consumed:
+        has_consumers = output.name in consumed
+        if keep_io_types and has_consumers:
             msg = (
                 f"Initializer-backed output '{output.name}' has internal consumers; "
-                "FP16 conversion cannot safely infer their mixed-precision semantics."
+                "FP16 conversion cannot safely preserve keep_io_types semantics."
             )
             raise RuntimeError(msg)
         if uses_external_data(initializer) and not _tensor_data_is_loaded(initializer):
@@ -181,8 +259,13 @@ def _capture_safe_initializer_outputs(
                 )
                 raise RuntimeError(msg)
 
-        captured.append(_InitializerOutput(output.name, output_index))
+        captured.append(_InitializerOutput(output.name, output_index, has_consumers))
     return captured
+
+
+def _initializer_data_type(model: ModelProto, name: str) -> int:
+    """Return the top-level initializer data type for a captured output."""
+    return next(value.data_type for value in model.graph.initializer if value.name == name)
 
 
 def _convert_output_initializer_to_fp16(model: ModelProto, name: str) -> None:
@@ -207,6 +290,45 @@ def _internalize_output_initializer(model: ModelProto, name: str) -> None:
     if uses_external_data(initializer):
         del initializer.external_data[:]
         initializer.data_location = TensorProto.DEFAULT
+
+
+def _format_data_type(data_type: int) -> str:
+    """Format ONNX tensor data type values for diagnostics."""
+    from onnx import TensorProto
+
+    try:
+        return TensorProto.DataType.Name(data_type)
+    except ValueError:
+        return str(data_type)
+
+
+def _validate_initializer_output_types(model: ModelProto) -> None:
+    """Reject direct initializer-backed outputs whose declared type diverged."""
+    mismatches: list[str] = []
+    for graph in _all_graphs(model):
+        if not hasattr(graph, "output") or not hasattr(graph, "initializer"):
+            continue
+        produced = {name for node in graph.node for name in node.output if name}
+        initializers = {initializer.name: initializer for initializer in graph.initializer}
+        for output in graph.output:
+            initializer = initializers.get(output.name)
+            if initializer is None or output.name in produced:
+                continue
+            if not output.type.HasField("tensor_type"):
+                continue
+            elem_type = output.type.tensor_type.elem_type
+            if elem_type != initializer.data_type:
+                graph_name = graph.name or "<unnamed>"
+                mismatches.append(
+                    f"{graph_name}.{output.name} declares {_format_data_type(elem_type)} "
+                    f"but initializer is {_format_data_type(initializer.data_type)}"
+                )
+    if mismatches:
+        msg = (
+            "FP16 conversion produced initializer-backed outputs with mismatched "
+            f"types: {'; '.join(mismatches)}."
+        )
+        raise RuntimeError(msg)
 
 
 def _remove_orphan_output_casts(
@@ -271,10 +393,10 @@ def convert_to_fp16(
     from onnx import TensorProto
     from onnxruntime.transformers.float16 import convert_float_to_float16
 
-    _reject_nested_initializer_outputs(model)
-
     fp32_types = {TensorProto.FLOAT, TensorProto.DOUBLE, TensorProto.BFLOAT16}
-    initializers = model.graph.initializer
+    initializers = [
+        initializer for graph in _all_graphs(model) for initializer in graph.initializer
+    ]
     if initializers:
         floating = [
             value for value in initializers if value.data_type in fp32_types | {TensorProto.FLOAT16}
@@ -283,8 +405,15 @@ def convert_to_fp16(
             logger.info("Model is already FP16 - skipping conversion.")
             return model
 
+    _reject_duplicate_float_initializer_names(model)
     captured = _capture_safe_initializer_outputs(model, keep_io_types=keep_io_types)
+    needs_safe_conversion = bool(captured) or _has_nested_initializer_outputs(model)
+    if needs_safe_conversion:
+        _reject_unloaded_external_initializer_outputs(model)
     original_nodes = len(model.graph.node)
+    conversion_model = deepcopy(model) if needs_safe_conversion else model
+    if needs_safe_conversion:
+        _internalize_external_initializer_outputs(conversion_model)
 
     logger.info("Converting model to FP16...")
     if keep_io_types:
@@ -294,7 +423,7 @@ def convert_to_fp16(
 
     try:
         converted: ModelProto = convert_float_to_float16(
-            model,
+            conversion_model,
             keep_io_types=keep_io_types,
             op_block_list=op_block_list,
         )
@@ -305,7 +434,7 @@ def convert_to_fp16(
             "large ONNX models that use external data."
         )
         converted = convert_float_to_float16(
-            model,
+            conversion_model,
             keep_io_types=keep_io_types,
             disable_shape_infer=True,
             op_block_list=op_block_list,
@@ -315,12 +444,22 @@ def convert_to_fp16(
         _remove_orphan_output_casts(converted, captured)
     else:
         for item in captured:
-            _convert_output_initializer_to_fp16(converted, item.name)
+            if (
+                item.has_consumers
+                and _initializer_data_type(converted, item.name) == TensorProto.FLOAT16
+            ):
+                _internalize_output_initializer(converted, item.name)
+            elif not item.has_consumers:
+                _convert_output_initializer_to_fp16(converted, item.name)
 
-    if keep_io_types:
-        from onnxruntime.transformers.onnx_model import OnnxModel
+    from onnxruntime.transformers.onnx_model import OnnxModel
 
-        OnnxModel.graph_topological_sort(converted.graph)
+    OnnxModel.graph_topological_sort(converted.graph)
+    _validate_initializer_output_types(converted)
+
+    if needs_safe_conversion:
+        model.CopyFrom(converted)
+        converted = model
 
     converted_nodes = len(converted.graph.node)
     if converted_nodes != original_nodes:
