@@ -53,7 +53,7 @@ MAPPING_KEY = ("wav2vec2-emotion-regression", TASK)
 @pytest.fixture(scope="module")
 def emotion_config():
     """Minimal Wav2Vec2Config exercising the emotion-regression head dimensions."""
-    return Wav2Vec2Config(hidden_size=16, num_labels=3)
+    return Wav2Vec2Config(hidden_size=16, num_attention_heads=4, num_labels=3)
 
 
 # =============================================================================
@@ -63,6 +63,13 @@ def emotion_config():
 
 class TestWav2Vec2EmotionModelClassMapping:
     """The emotion-regression variant routes to EmotionModel."""
+
+    def test_model_initialization_sets_transformers_bookkeeping(self, emotion_config):
+        """Initialization preserves the variant and runs Transformers final processing."""
+        model = EmotionModel(emotion_config)
+
+        assert model.config.model_type == EMOTION_REGRESSION_MODEL_TYPE
+        assert hasattr(model, "all_tied_weights_keys")
 
     def test_mapping_entry_registered(self):
         """The aggregated mapping exposes the emotion-regression entry."""
