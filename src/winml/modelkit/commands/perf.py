@@ -30,6 +30,7 @@ import numpy as np
 from rich.markup import escape
 from rich.table import Table
 
+from ..session.monitor.op_metrics import TraceFallbackReason
 from ..utils import cli as cli_utils
 from ..utils.console import SafeConsole
 from ..utils.constants import ACCELERATOR_DEVICE_TYPES, EPName, EPNameOrAlias
@@ -75,18 +76,20 @@ RuntimeName = Literal["winml", "winml-genai"]
 RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
 
 
-def _detail_fallback_guidance(reason: str | None) -> str:
+def _detail_fallback_guidance(reason: TraceFallbackReason | None) -> str:
     """Return actionable guidance for a structured detail-trace fallback."""
-    guidance = {
-        "qnn_log_missing": "the QNN optrace log was not produced",
-        "schematic_missing": (
+    guidance: dict[TraceFallbackReason, str] = {
+        TraceFallbackReason.QNN_LOG_MISSING: "the QNN optrace log was not produced",
+        TraceFallbackReason.SCHEMATIC_MISSING: (
             "the compiled EPContext has no optrace schematic; rerun detail "
             "profiling from the raw ONNX so WinML can compile it with optrace enabled"
         ),
-        "sdk_missing": "the QNN SDK was not found; set QNN_SDK_ROOT to enable QHAS",
-        "viewer_failed": "the QHAS viewer did not produce an output",
-        "qhas_output_missing": "the requested QHAS output was not found",
-        "qhas_parse_failed": "the QHAS output could not be parsed",
+        TraceFallbackReason.SDK_MISSING: (
+            "the QNN SDK was not found; set QNN_SDK_ROOT to enable QHAS"
+        ),
+        TraceFallbackReason.VIEWER_FAILED: "the QHAS viewer did not produce an output",
+        TraceFallbackReason.QHAS_OUTPUT_MISSING: "the requested QHAS output was not found",
+        TraceFallbackReason.QHAS_PARSE_FAILED: "the QHAS output could not be parsed",
     }
     if reason is None:
         return "QHAS post-processing was unavailable"

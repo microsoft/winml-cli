@@ -15,6 +15,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from onnx import AttributeProto, TensorProto, TypeProto, helper, load, save_model
 
+from winml.modelkit.session.monitor.op_metrics import TraceFallbackReason
+
 
 def _write_basic_profile(
     path: Path,
@@ -1163,7 +1165,7 @@ def test_try_qhas_ignores_other_runs_newer_qnn_log(tmp_path, monkeypatch):
     assert summary is None
     assert operators is None
     assert result_path is None
-    assert fallback_reason == "qnn_log_missing"
+    assert fallback_reason == TraceFallbackReason.QNN_LOG_MISSING
 
 
 def test_find_schematic_returns_none_when_csv_metadata_cannot_be_read(tmp_path, monkeypatch):
@@ -1314,7 +1316,7 @@ def test_detail_mode_falls_back_to_basic_when_qhas_unavailable(tmp_path):
 
     assert monitor.result is not None
     assert monitor.result.status == "basic_fallback"
-    assert monitor.result.fallback_reason == "qnn_log_missing"
+    assert monitor.result.fallback_reason == TraceFallbackReason.QNN_LOG_MISSING
     # CSV-only data must still be populated — basic_fallback is degraded
     # *success*, not failure: operators and summary are non-empty.
     assert monitor.result.operators, "expected CSV-derived operators in basic_fallback result"
@@ -1348,7 +1350,7 @@ def test_detail_mode_reports_schematic_missing(tmp_path):
 
     assert monitor.result is not None
     assert monitor.result.status == "basic_fallback"
-    assert monitor.result.fallback_reason == "schematic_missing"
+    assert monitor.result.fallback_reason == TraceFallbackReason.SCHEMATIC_MISSING
 
 
 def test_detail_mode_reports_sdk_missing(tmp_path, monkeypatch):
@@ -1376,7 +1378,7 @@ def test_detail_mode_reports_sdk_missing(tmp_path, monkeypatch):
 
     assert monitor.result is not None
     assert monitor.result.status == "basic_fallback"
-    assert monitor.result.fallback_reason == "sdk_missing"
+    assert monitor.result.fallback_reason == TraceFallbackReason.SDK_MISSING
 
 
 def test_detail_mode_contains_qnn_log_metadata_error(tmp_path, monkeypatch):
@@ -1405,7 +1407,7 @@ def test_detail_mode_contains_qnn_log_metadata_error(tmp_path, monkeypatch):
 
     assert monitor.result is not None
     assert monitor.result.status == "basic_fallback"
-    assert monitor.result.fallback_reason == "qnn_log_missing"
+    assert monitor.result.fallback_reason == TraceFallbackReason.QNN_LOG_MISSING
     assert monitor.result.operators
 
 
@@ -1438,11 +1440,14 @@ def test_detail_mode_contains_sdk_discovery_error(tmp_path, monkeypatch):
 
     assert monitor.result is not None
     assert monitor.result.status == "basic_fallback"
-    assert monitor.result.fallback_reason == "sdk_missing"
+    assert monitor.result.fallback_reason == TraceFallbackReason.SDK_MISSING
     assert monitor.result.operators
 
 
-@pytest.mark.parametrize("failure_reason", ["viewer_failed", "qhas_output_missing"])
+@pytest.mark.parametrize(
+    "failure_reason",
+    [TraceFallbackReason.VIEWER_FAILED, TraceFallbackReason.QHAS_OUTPUT_MISSING],
+)
 def test_detail_mode_reports_viewer_failure_reason(tmp_path, monkeypatch, failure_reason):
     """Detailed viewer failures retain their precise machine-readable reason."""
     from pathlib import Path
@@ -1514,7 +1519,7 @@ def test_detail_mode_reports_qhas_parse_failure(tmp_path, monkeypatch):
 
     assert monitor.result is not None
     assert monitor.result.status == "basic_fallback"
-    assert monitor.result.fallback_reason == "qhas_parse_failed"
+    assert monitor.result.fallback_reason == TraceFallbackReason.QHAS_PARSE_FAILED
 
 
 def test_detail_mode_uses_basic_fallback_when_schematic_stat_fails(tmp_path, monkeypatch):

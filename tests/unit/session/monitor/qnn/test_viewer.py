@@ -10,6 +10,7 @@ import subprocess
 
 import pytest
 
+from winml.modelkit.session.monitor.op_metrics import TraceFallbackReason
 from winml.modelkit.session.monitor.qnn import viewer
 from winml.modelkit.session.monitor.qnn.viewer import find_qnn_sdk
 
@@ -220,7 +221,7 @@ def test_run_qhas_viewer_result_reports_config_write_failure(monkeypatch, tmp_pa
     )
 
     assert result.path is None
-    assert result.failure_reason == "viewer_failed"
+    assert result.failure_reason == TraceFallbackReason.VIEWER_FAILED
 
 
 def test_run_qhas_viewer_result_reports_config_serialization_failure(monkeypatch, tmp_path):
@@ -249,7 +250,7 @@ def test_run_qhas_viewer_result_reports_config_serialization_failure(monkeypatch
     )
 
     assert result.path is None
-    assert result.failure_reason == "viewer_failed"
+    assert result.failure_reason == TraceFallbackReason.VIEWER_FAILED
 
 
 def test_run_qhas_viewer_result_distinguishes_missing_summary(monkeypatch, tmp_path):
@@ -281,4 +282,4 @@ def test_run_qhas_viewer_result_distinguishes_missing_summary(monkeypatch, tmp_p
     )
 
     assert result.path is None
-    assert result.failure_reason == "qhas_output_missing"
+    assert result.failure_reason == TraceFallbackReason.QHAS_OUTPUT_MISSING

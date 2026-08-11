@@ -23,7 +23,9 @@ import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
+
+from ..op_metrics import TraceFallbackReason
 
 
 logger = logging.getLogger(__name__)
@@ -56,7 +58,7 @@ class QHASViewerResult:
     """Detailed outcome of QHAS viewer preparation and execution."""
 
     path: Path | None
-    failure_reason: Literal["viewer_failed", "qhas_output_missing"] | None
+    failure_reason: TraceFallbackReason | None
 
     def __post_init__(self) -> None:
         if (self.path is None) == (self.failure_reason is None):
@@ -213,7 +215,7 @@ def run_qhas_viewer_result(
                 "qnn-profile-viewer not found; set QNN_SDK_ROOT to enable detail mode "
                 "(falling back to basic CSV)"
             )
-            return QHASViewerResult(path=None, failure_reason="viewer_failed")
+            return QHASViewerResult(path=None, failure_reason=TraceFallbackReason.VIEWER_FAILED)
         reader = _find_optrace_reader(viewer)
         if reader is None:
             logger.warning(
@@ -221,11 +223,11 @@ def run_qhas_viewer_result(
                 _OPTRACE_READER_NAME,
                 viewer,
             )
-            return QHASViewerResult(path=None, failure_reason="viewer_failed")
+            return QHASViewerResult(path=None, failure_reason=TraceFallbackReason.VIEWER_FAILED)
 
         if not schematic.is_file():
             logger.warning("Schematic file not found: %s", schematic)
-            return QHASViewerResult(path=None, failure_reason="viewer_failed")
+            return QHASViewerResult(path=None, failure_reason=TraceFallbackReason.VIEWER_FAILED)
 
         cfg = config if config is not None else _DEFAULT_CONFIG
         config_path = output.with_name(f"{output.stem}_optrace_config.json")
@@ -248,10 +250,10 @@ def run_qhas_viewer_result(
         subprocess.run(cmd, check=True, capture_output=True, text=True)  # noqa: S603
     except subprocess.CalledProcessError as exc:
         logger.error("QHAS viewer failed: %s", exc.stderr)
-        return QHASViewerResult(path=None, failure_reason="viewer_failed")
+        return QHASViewerResult(path=None, failure_reason=TraceFallbackReason.VIEWER_FAILED)
     except (OSError, TypeError, ValueError) as exc:
         logger.error("QHAS viewer preparation or execution failed: %s", exc)
-        return QHASViewerResult(path=None, failure_reason="viewer_failed")
+        return QHASViewerResult(path=None, failure_reason=TraceFallbackReason.VIEWER_FAILED)
 
     summary_output = output.with_name(f"{output.stem}{_QHAS_SUMMARY_SUFFIX}")
     try:
@@ -260,4 +262,4 @@ def run_qhas_viewer_result(
     except OSError as exc:
         logger.warning("Could not inspect QHAS analysis summary %s: %s", summary_output, exc)
     logger.warning("QHAS viewer did not produce analysis summary: %s", summary_output)
-    return QHASViewerResult(path=None, failure_reason="qhas_output_missing")
+    return QHASViewerResult(path=None, failure_reason=TraceFallbackReason.QHAS_OUTPUT_MISSING)

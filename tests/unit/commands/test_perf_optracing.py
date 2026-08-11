@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from winml.modelkit.commands.perf import _resolve_ep_monitor, perf
+from winml.modelkit.session.monitor.op_metrics import TraceFallbackReason
 
 
 def _invoke_perf(args: list[str]):
@@ -923,7 +924,7 @@ class TestCliOpTracingDispatch:
             device="npu",
             tracing_level="detail",
             status="basic_fallback",
-            fallback_reason="schematic_missing",
+            fallback_reason=TraceFallbackReason.SCHEMATIC_MISSING,
         )
         mock_ctx = MagicMock()
         mock_ctx.monitor.result = trace
@@ -957,17 +958,17 @@ class TestCliOpTracingDispatch:
     @pytest.mark.parametrize(
         ("reason", "expected"),
         [
-            ("qnn_log_missing", "optrace log"),
-            ("schematic_missing", "raw ONNX"),
-            ("sdk_missing", "QNN_SDK_ROOT"),
-            ("viewer_failed", "viewer"),
-            ("qhas_output_missing", "output was not found"),
-            ("qhas_parse_failed", "could not be parsed"),
+            (TraceFallbackReason.QNN_LOG_MISSING, "optrace log"),
+            (TraceFallbackReason.SCHEMATIC_MISSING, "raw ONNX"),
+            (TraceFallbackReason.SDK_MISSING, "QNN_SDK_ROOT"),
+            (TraceFallbackReason.VIEWER_FAILED, "viewer"),
+            (TraceFallbackReason.QHAS_OUTPUT_MISSING, "output was not found"),
+            (TraceFallbackReason.QHAS_PARSE_FAILED, "could not be parsed"),
             (None, "post-processing was unavailable"),
         ],
     )
     def test_detail_fallback_guidance_is_reason_specific(
-        self, reason: str | None, expected: str
+        self, reason: TraceFallbackReason | None, expected: str
     ) -> None:
         from winml.modelkit.commands.perf import _detail_fallback_guidance
 

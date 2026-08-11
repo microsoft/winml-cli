@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from winml.modelkit.session.monitor.op_metrics import TraceFallbackReason
+
 
 FIXTURE_DIR = Path(__file__).parent / "qnn" / "fixtures"
 
@@ -170,7 +172,7 @@ def test_parse_existing_artifacts_inaccessible_qhas_is_basic_fallback(tmp_path, 
     )
 
     assert result.status == "basic_fallback"
-    assert result.fallback_reason == "qhas_output_missing"
+    assert result.fallback_reason == TraceFallbackReason.QHAS_OUTPUT_MISSING
     assert result.operators
 
 

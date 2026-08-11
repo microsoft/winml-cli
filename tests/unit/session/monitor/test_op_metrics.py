@@ -7,12 +7,14 @@
 from __future__ import annotations
 
 import json
+from enum import StrEnum
 
 import pytest
 
 from winml.modelkit.session.monitor.op_metrics import (
     OperatorMetrics,
     OpTraceResult,
+    TraceFallbackReason,
 )
 
 
@@ -155,13 +157,20 @@ def test_to_dict_serializes_fallback_reason() -> None:
         device="npu",
         tracing_level="detail",
         status="basic_fallback",
-        fallback_reason="schematic_missing",
+        fallback_reason=TraceFallbackReason.SCHEMATIC_MISSING,
     )
 
     serialized = r.to_dict()
 
     assert serialized["fallback_reason"] == "schematic_missing"
+    assert type(serialized["fallback_reason"]) is str
     assert serialized["error"] is None
+
+
+def test_trace_fallback_reason_is_str_enum() -> None:
+    """Fallback reasons are centralized enum values that still behave as strings."""
+    assert issubclass(TraceFallbackReason, StrEnum)
+    assert TraceFallbackReason.SCHEMATIC_MISSING == "schematic_missing"
 
 
 def test_non_fallback_status_rejects_fallback_reason() -> None:
@@ -172,7 +181,7 @@ def test_non_fallback_status_rejects_fallback_reason() -> None:
             device="npu",
             tracing_level="detail",
             status="ok",
-            fallback_reason="sdk_missing",
+            fallback_reason=TraceFallbackReason.SDK_MISSING,
         )
 
 

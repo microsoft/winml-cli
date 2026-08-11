@@ -14,6 +14,7 @@ import json
 import statistics as _stats
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any, Literal
 
 
@@ -32,15 +33,16 @@ from typing import Any, Literal
 #: serialization are unaffected.
 TraceStatus = Literal["ok", "no_data", "parse_failed", "basic_fallback", "not_run"]
 
-#: Machine-readable reason why a requested detail trace degraded to basic data.
-TraceFallbackReason = Literal[
-    "qnn_log_missing",
-    "schematic_missing",
-    "sdk_missing",
-    "viewer_failed",
-    "qhas_output_missing",
-    "qhas_parse_failed",
-]
+
+class TraceFallbackReason(StrEnum):
+    """Machine-readable reason why a detail trace degraded to basic data."""
+
+    QNN_LOG_MISSING = "qnn_log_missing"
+    SCHEMATIC_MISSING = "schematic_missing"
+    SDK_MISSING = "sdk_missing"
+    VIEWER_FAILED = "viewer_failed"
+    QHAS_OUTPUT_MISSING = "qhas_output_missing"
+    QHAS_PARSE_FAILED = "qhas_parse_failed"
 
 
 @dataclass
@@ -170,6 +172,11 @@ class OpTraceResult:
         Preserves existing nested schema; adds top-level ``status`` and
         ``error`` keys additively.
         """
+        fallback_reason = (
+            self.fallback_reason.value
+            if isinstance(self.fallback_reason, TraceFallbackReason)
+            else self.fallback_reason
+        )
         return {
             "metadata": {
                 "model": self.model,
@@ -186,7 +193,7 @@ class OpTraceResult:
             "artifacts": self.artifacts,
             # ---- Additive ----
             "status": self.status,
-            "fallback_reason": self.fallback_reason,
+            "fallback_reason": fallback_reason,
             "error": self.error,
         }
 

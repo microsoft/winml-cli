@@ -696,10 +696,10 @@ class QNNMonitor(WinMLEPMonitor):
                 qhas_available = qhas_override.is_file()
             except OSError as exc:
                 logger.info("QNNMonitor: qhas_override %s is unavailable: %s", qhas_override, exc)
-                return None, None, None, "qhas_output_missing"
+                return None, None, None, TraceFallbackReason.QHAS_OUTPUT_MISSING
             if not qhas_available:
                 logger.info("QNNMonitor: qhas_override %s is not a file", qhas_override)
-                return None, None, None, "qhas_output_missing"
+                return None, None, None, TraceFallbackReason.QHAS_OUTPUT_MISSING
             result_path = qhas_override
         else:
             # Live path: locate inputs and shell out to the QHAS viewer.
@@ -707,25 +707,25 @@ class QNNMonitor(WinMLEPMonitor):
                 qnn_log = self._select_fresh_qnn_log()
             except OSError as exc:
                 logger.info("QNNMonitor: QNN log metadata unavailable: %s", exc)
-                return None, None, None, "qnn_log_missing"
+                return None, None, None, TraceFallbackReason.QNN_LOG_MISSING
             if qnn_log is None:
                 logger.info("QNNMonitor: no *_qnn.log found for QHAS")
-                return None, None, None, "qnn_log_missing"
+                return None, None, None, TraceFallbackReason.QNN_LOG_MISSING
 
             # Find the schematic by EPContext partition metadata (never chdir).
             schematic = self._find_schematic()
             if schematic is None:
                 logger.info("QNNMonitor: no *_schematic.bin found for QHAS")
-                return None, None, None, "schematic_missing"
+                return None, None, None, TraceFallbackReason.SCHEMATIC_MISSING
 
             try:
                 sdk_root = find_qnn_sdk()
             except OSError as exc:
                 logger.info("QNNMonitor: QNN SDK discovery failed: %s", exc)
-                return None, None, None, "sdk_missing"
+                return None, None, None, TraceFallbackReason.SDK_MISSING
             if sdk_root is None:
                 logger.info("QNNMonitor: QNN SDK not located; skipping QHAS")
-                return None, None, None, "sdk_missing"
+                return None, None, None, TraceFallbackReason.SDK_MISSING
 
             qhas_output = self._qhas_output_path()
             viewer_result = run_qhas_viewer_result(
@@ -749,7 +749,7 @@ class QNNMonitor(WinMLEPMonitor):
             parsed = parse_qhas(qhas_data)
         except Exception as exc:
             logger.warning("QNNMonitor: QHAS JSON parse failed: %s", exc)
-            return None, None, None, "qhas_parse_failed"
+            return None, None, None, TraceFallbackReason.QHAS_PARSE_FAILED
 
         # QHAS is inherently a single-snapshot summary (no per-sample
         # breakdown), so ``samples_us`` carries one entry equal to the
