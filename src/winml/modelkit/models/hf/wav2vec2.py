@@ -51,7 +51,7 @@ class EmotionModel(Wav2Vec2PreTrainedModel):
         self.config = config
         self.wav2vec2 = Wav2Vec2Model(config)
         self.classifier = RegressionHead(config)
-        self.config.model_type = EMOTION_REGRESSION_MODEL_TYPE
+        object.__setattr__(self.config, "model_type", EMOTION_REGRESSION_MODEL_TYPE)
         self.init_weights()
 
     def forward(self, input_values: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:  # noqa: D102
