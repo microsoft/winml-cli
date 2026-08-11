@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import Any, ClassVar, cast
 
 import numpy as np
@@ -29,6 +30,7 @@ class AlgebraicRewritePipeConfig(PipeConfig):
     """Configuration for exact algebraic rewrites."""
 
     static_split_to_slice: bool = False
+    sibling_slice_to_split: bool = False
     conv_channel_affine_folding: bool = False
     exp_positive_scale_folding: bool = False
 
@@ -157,6 +159,18 @@ class _ExpScaleInsertCandidate:
     log_scale: np.ndarray
 
 
+@dataclass
+class _StaticSliceCandidate:
+    """A one-axis static Slice that can participate in a sibling Split."""
+
+    node: onnx.NodeProto
+    input_name: str
+    output_name: str
+    axis: int
+    start: int
+    end: int
+
+
 class _NameAllocator:
     """Allocate names without relying on optional or duplicated node names."""
 
@@ -242,6 +256,12 @@ def _constant_array(index: _GraphIndex, name: str) -> np.ndarray | None:
         if attribute_value is not None:
             return np.asarray(attribute_value, dtype=dtype)
     return None
+
+
+def _initializer_array(index: _GraphIndex, name: str) -> np.ndarray | None:
+    if not name or name not in index.initializers:
+        return None
+    return _constant_array(index, name)
 
 
 def _constant_ints(index: _GraphIndex, name: str) -> list[int] | None:
@@ -442,6 +462,148 @@ def _split_boundaries(
     return axis, boundaries
 
 
+def _normalize_slice_bound(value: int, axis_size: int, *, is_end: bool) -> int:
+    if value < 0:
+        value += axis_size
+    if is_end and value > axis_size:
+        return axis_size
+    return max(0, min(value, axis_size))
+
+
+def _static_slice_candidate(
+    index: _GraphIndex,
+    node: onnx.NodeProto,
+) -> _StaticSliceCandidate | None:
+    if (
+        not _is_standard_onnx_node(node)
+        or node.op_type != "Slice"
+        or len(node.input) < 3
+        or not node.input[0]
+    ):
+        return None
+    output_name = _node_output(node)
+    input_shape = _static_shape(index, node.input[0])
+    if output_name is None or input_shape is None:
+        return None
+    starts = _constant_ints(index, node.input[1])
+    ends = _constant_ints(index, node.input[2])
+    if starts is None or ends is None or len(starts) != 1 or len(ends) != 1:
+        return None
+    if len(node.input) > 3 and node.input[3]:
+        axes = _constant_ints(index, node.input[3])
+        if axes is None:
+            return None
+    else:
+        axes = [0]
+    if len(node.input) > 4 and node.input[4]:
+        steps = _constant_ints(index, node.input[4])
+        if steps is None:
+            return None
+    else:
+        steps = [1]
+    if len(axes) != 1 or len(steps) != 1 or steps[0] != 1:
+        return None
+    axis = axes[0]
+    if axis < -len(input_shape) or axis >= len(input_shape):
+        return None
+    axis %= len(input_shape)
+    axis_size = input_shape[axis]
+    if axis_size <= 0:
+        return None
+    start = _normalize_slice_bound(starts[0], axis_size, is_end=False)
+    end = _normalize_slice_bound(ends[0], axis_size, is_end=True)
+    if end <= start:
+        return None
+    output_shape = _static_shape(index, output_name)
+    expected_shape = list(input_shape)
+    expected_shape[axis] = end - start
+    if output_shape is not None and output_shape != tuple(expected_shape):
+        return None
+    return _StaticSliceCandidate(
+        node=node,
+        input_name=node.input[0],
+        output_name=output_name,
+        axis=axis,
+        start=start,
+        end=end,
+    )
+
+
+def _sibling_slice_split_groups(
+    model: onnx.ModelProto,
+    index: _GraphIndex,
+) -> list[list[_StaticSliceCandidate]]:
+    grouped: dict[tuple[str, int], list[_StaticSliceCandidate]] = {}
+    for node in model.graph.node:
+        candidate = _static_slice_candidate(index, node)
+        if candidate is not None:
+            grouped.setdefault((candidate.input_name, candidate.axis), []).append(candidate)
+
+    groups: list[list[_StaticSliceCandidate]] = []
+    for (input_name, axis), candidates in grouped.items():
+        input_shape = _static_shape(index, input_name)
+        if input_shape is None or len(candidates) < 2:
+            continue
+        ordered = sorted(candidates, key=lambda candidate: candidate.start)
+        if len({candidate.output_name for candidate in ordered}) != len(ordered):
+            continue
+        if ordered[0].start != 0 or ordered[-1].end != input_shape[axis]:
+            continue
+        if any(left.end != right.start for left, right in pairwise(ordered)):
+            continue
+        groups.append(ordered)
+    return groups
+
+
+def _fold_sibling_slices_to_split(
+    model: onnx.ModelProto,
+    allocator: _NameAllocator,
+) -> None:
+    """Replace contiguous sibling Slice nodes with an equivalent Split."""
+    opset = next(
+        (int(opset.version) for opset in model.opset_import if opset.domain in ("", "ai.onnx")),
+        0,
+    )
+    if opset < 13:
+        return
+    index = _GraphIndex.build(model)
+    groups = _sibling_slice_split_groups(model, index)
+    if not groups:
+        return
+
+    node_order = {id(node): position for position, node in enumerate(model.graph.node)}
+    replacements: dict[int, onnx.NodeProto] = {}
+    removed: set[int] = set()
+    for group in groups:
+        split_values = np.asarray(
+            [candidate.end - candidate.start for candidate in group],
+            dtype=np.int64,
+        )
+        split_name = _new_initializer(model, allocator, split_values, "algebraic_slice_splits")
+        split = onnx.helper.make_node(
+            "Split",
+            [group[0].input_name, split_name],
+            [candidate.output_name for candidate in group],
+            name=allocator.new("algebraic_slice_split"),
+            axis=group[0].axis,
+        )
+        first = min(group, key=lambda candidate: node_order[id(candidate.node)])
+        replacements[id(first.node)] = split
+        removed.update(
+            id(candidate.node) for candidate in group if candidate.node is not first.node
+        )
+
+    rewritten: list[onnx.NodeProto] = []
+    for node in model.graph.node:
+        replacement = replacements.get(id(node))
+        if replacement is not None:
+            rewritten.append(replacement)
+        elif id(node) not in removed:
+            rewritten.append(node)
+    del model.graph.node[:]
+    model.graph.node.extend(rewritten)
+
+
 def _slice_channel_boundary(
     index: _GraphIndex,
     node: onnx.NodeProto,
@@ -508,6 +670,8 @@ def _channel_affine_values(
 ) -> np.ndarray | None:
     """Convert a scalar or a provably channel-only broadcast to ``[C]``."""
     if not np.issubdtype(values.dtype, np.floating):
+        return None
+    if not np.isfinite(values).all():
         return None
     if values.size == 1:
         return np.full(channels, values.reshape(-1)[0], dtype=values.dtype)
@@ -1109,17 +1273,9 @@ def _copy_conv_parameters(
 ) -> bool:
     if len(conv.input) < 2 or conv.input[1] in index.graph_inputs:
         return False
-    weight = next(
-        (
-            initializer
-            for initializer in model.graph.initializer
-            if initializer.name == conv.input[1]
-        ),
-        None,
-    )
-    if weight is None:
+    weights = _initializer_array(index, conv.input[1])
+    if weights is None:
         return False
-    weights = np.asarray(onnx.numpy_helper.to_array(weight))
     if weights.ndim < 1 or weights.shape[0] != len(scale):
         return False
     if not np.issubdtype(weights.dtype, np.floating):
@@ -1128,17 +1284,9 @@ def _copy_conv_parameters(
     if len(conv.input) > 2 and conv.input[2]:
         if conv.input[2] in index.graph_inputs:
             return False
-        bias = next(
-            (
-                initializer
-                for initializer in model.graph.initializer
-                if initializer.name == conv.input[2]
-            ),
-            None,
-        )
-        if bias is None:
+        bias_values = _initializer_array(index, conv.input[2])
+        if bias_values is None:
             return False
-        bias_values = np.asarray(onnx.numpy_helper.to_array(bias))
         if bias_values.ndim != 1 or len(bias_values) != len(scale):
             return False
         if not np.issubdtype(bias_values.dtype, np.floating):
@@ -1190,10 +1338,10 @@ def _fold_channel_affine(
         if conv_shape is None or len(conv_shape) < 2:
             continue
         channels = conv_shape[1]
-        weight_initializer = index.initializers.get(conv.input[1]) if len(conv.input) > 1 else None
-        if weight_initializer is None:
+        weight_values = _initializer_array(index, conv.input[1]) if len(conv.input) > 1 else None
+        if weight_values is None:
             continue
-        weight_dtype = onnx.numpy_helper.to_array(weight_initializer).dtype
+        weight_dtype = weight_values.dtype
         if channels <= 0:
             continue
         calculation_dtype = np.result_type(weight_dtype, np.float32)
@@ -1328,6 +1476,7 @@ class AlgebraicRewritePipe(BasePipe[AlgebraicRewritePipeConfig]):
         """Build the enabled algebraic rewrite configuration."""
         return AlgebraicRewritePipeConfig(
             static_split_to_slice=kwargs.get("static_split_to_slice", False),
+            sibling_slice_to_split=kwargs.get("gather_slice_to_split_fusion", False),
             conv_channel_affine_folding=kwargs.get("conv_channel_affine_folding", False),
             exp_positive_scale_folding=kwargs.get("exp_positive_scale_folding", False),
         )
@@ -1337,6 +1486,7 @@ class AlgebraicRewritePipe(BasePipe[AlgebraicRewritePipeConfig]):
         """Return whether any algebraic rewrite is enabled."""
         return (
             config.static_split_to_slice
+            or config.sibling_slice_to_split
             or config.conv_channel_affine_folding
             or config.exp_positive_scale_folding
         )
@@ -1361,6 +1511,8 @@ class AlgebraicRewritePipe(BasePipe[AlgebraicRewritePipeConfig]):
             _fold_channel_affine(result, allocator)
         if config.exp_positive_scale_folding:
             _fold_exp_positive_scales(result, allocator)
+        if config.sibling_slice_to_split:
+            _fold_sibling_slices_to_split(result, allocator)
         if config.static_split_to_slice:
             _rewrite_static_splits(result, allocator, introduced_nodes)
         _prune_generated_slices(result, introduced_nodes)

@@ -429,6 +429,143 @@ class TestStaticSplitToSlice:
         assert transformed.graph.node[0].output[0] == "left"
         assert len(transformed.graph.initializer) == 4
 
+    def test_sibling_static_slices_fold_to_split(self) -> None:
+        values = {"x": np.arange(12, dtype=np.float32).reshape(1, 6, 2)}
+        model = _model(
+            [
+                onnx.helper.make_node(
+                    "Slice",
+                    ["x", "left_starts", "left_ends", "axis", "steps"],
+                    ["left"],
+                    name="left_slice",
+                ),
+                onnx.helper.make_node(
+                    "Slice",
+                    ["x", "right_starts", "right_ends", "axis", "steps"],
+                    ["right"],
+                    name="right_slice",
+                ),
+                onnx.helper.make_node("Relu", ["left"], ["left_out"]),
+                onnx.helper.make_node("Relu", ["right"], ["right_out"]),
+            ],
+            [_info("x", [1, 6, 2])],
+            [_info("left_out", [1, 2, 2]), _info("right_out", [1, 4, 2])],
+            [
+                _tensor("left_starts", np.asarray([0], dtype=np.int64)),
+                _tensor("left_ends", np.asarray([2], dtype=np.int64)),
+                _tensor("right_starts", np.asarray([2], dtype=np.int64)),
+                _tensor("right_ends", np.asarray([6], dtype=np.int64)),
+                _tensor("axis", np.asarray([1], dtype=np.int64)),
+                _tensor("steps", np.asarray([1], dtype=np.int64)),
+            ],
+            value_info=[_info("left", [1, 2, 2]), _info("right", [1, 4, 2])],
+        )
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipe.build_config(gather_slice_to_split_fusion=True),
+        )
+
+        assert [node.op_type for node in transformed.graph.node] == ["Split", "Relu", "Relu"]
+        split = transformed.graph.node[0]
+        assert list(split.input[:1]) == ["x"]
+        assert list(split.output) == ["left", "right"]
+        split_sizes_name = split.input[1]
+        split_sizes = onnx.numpy_helper.to_array(
+            next(value for value in transformed.graph.initializer if value.name == split_sizes_name)
+        )
+        np.testing.assert_array_equal(split_sizes, np.asarray([2, 4], dtype=np.int64))
+        _assert_valid_with_inferred_shapes(transformed)
+        for original, rewritten in zip(_run(model, values), _run(transformed, values), strict=True):
+            np.testing.assert_array_equal(original, rewritten)
+
+    def test_sibling_static_slices_are_unchanged_before_split_input_opset(self) -> None:
+        model = _model(
+            [
+                onnx.helper.make_node(
+                    "Slice",
+                    ["x", "left_starts", "left_ends", "axis", "steps"],
+                    ["left"],
+                ),
+                onnx.helper.make_node(
+                    "Slice",
+                    ["x", "right_starts", "right_ends", "axis", "steps"],
+                    ["right"],
+                ),
+            ],
+            [_info("x", [1, 6, 2])],
+            [_info("left", [1, 2, 2]), _info("right", [1, 4, 2])],
+            [
+                _tensor("left_starts", np.asarray([0], dtype=np.int64)),
+                _tensor("left_ends", np.asarray([2], dtype=np.int64)),
+                _tensor("right_starts", np.asarray([2], dtype=np.int64)),
+                _tensor("right_ends", np.asarray([6], dtype=np.int64)),
+                _tensor("axis", np.asarray([1], dtype=np.int64)),
+                _tensor("steps", np.asarray([1], dtype=np.int64)),
+            ],
+        )
+        model.opset_import[0].version = 12
+        original = model.SerializeToString()
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipe.build_config(gather_slice_to_split_fusion=True),
+        )
+
+        assert transformed.SerializeToString() == original
+
+    @pytest.mark.parametrize(
+        ("left_starts", "left_ends", "right_starts", "right_ends", "axes", "steps"),
+        [
+            ([0], [2], [3], [6], [1], [1]),
+            ([0], [3], [2], [6], [1], [1]),
+            ([1], [2], [2], [6], [1], [1]),
+            ([0], [2], [2], [6], [1], [2]),
+            ([0, 0], [1, 2], [1, 0], [6, 2], [0, 1], [1, 1]),
+        ],
+    )
+    def test_ineligible_sibling_static_slices_are_unchanged(
+        self,
+        left_starts: list[int],
+        left_ends: list[int],
+        right_starts: list[int],
+        right_ends: list[int],
+        axes: list[int],
+        steps: list[int],
+    ) -> None:
+        model = _model(
+            [
+                onnx.helper.make_node(
+                    "Slice",
+                    ["x", "left_starts", "left_ends", "axes", "steps"],
+                    ["left"],
+                ),
+                onnx.helper.make_node(
+                    "Slice",
+                    ["x", "right_starts", "right_ends", "axes", "steps"],
+                    ["right"],
+                ),
+            ],
+            [_info("x", [1, 6, 2])],
+            [_info("left", [1, 2, 2]), _info("right", [1, 4, 2])],
+            [
+                _tensor("left_starts", np.asarray(left_starts, dtype=np.int64)),
+                _tensor("left_ends", np.asarray(left_ends, dtype=np.int64)),
+                _tensor("right_starts", np.asarray(right_starts, dtype=np.int64)),
+                _tensor("right_ends", np.asarray(right_ends, dtype=np.int64)),
+                _tensor("axes", np.asarray(axes, dtype=np.int64)),
+                _tensor("steps", np.asarray(steps, dtype=np.int64)),
+            ],
+        )
+        original = model.SerializeToString()
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipe.build_config(gather_slice_to_split_fusion=True),
+        )
+
+        assert transformed.SerializeToString() == original
+
     def test_nested_subgraph_captures_keep_generated_slices_live(self) -> None:
         x = onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [1, 4, 2])
         then_branch = onnx.helper.make_graph(
@@ -641,6 +778,67 @@ class TestConvChannelAffineFolding:
                 parameter.data_type,
                 list(parameter.dims),
             )
+        )
+        original = model.SerializeToString()
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(conv_channel_affine_folding=True),
+        )
+
+        assert transformed.SerializeToString() == original
+
+    @pytest.mark.parametrize("parameter_name", ["weight", "bias"])
+    def test_unloaded_external_conv_parameter_is_unchanged(
+        self,
+        parameter_name: str,
+    ) -> None:
+        model = _model(
+            [
+                onnx.helper.make_node("Conv", ["x", "weight", "bias"], ["conv_out"]),
+                onnx.helper.make_node("Mul", ["conv_out", "scale"], ["y"]),
+            ],
+            [_info("x", [1, 1, 2, 2])],
+            [_info("y", [1, 1, 2, 2])],
+            [
+                _tensor("weight", np.ones((1, 1, 1, 1), dtype=np.float32)),
+                _tensor("bias", np.ones(1, dtype=np.float32)),
+                _tensor("scale", np.asarray(1.5, dtype=np.float32)),
+            ],
+            value_info=[_info("conv_out", [1, 1, 2, 2])],
+        )
+        parameter = next(value for value in model.graph.initializer if value.name == parameter_name)
+        parameter.ClearField("raw_data")
+        parameter.data_location = onnx.TensorProto.EXTERNAL
+        location = parameter.external_data.add()
+        location.key = "location"
+        location.value = f"missing-{parameter_name}.bin"
+        original = model.SerializeToString()
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(conv_channel_affine_folding=True),
+        )
+
+        assert transformed.SerializeToString() == original
+
+    @pytest.mark.parametrize("affine_op", ["Mul", "Add"])
+    @pytest.mark.parametrize("affine_value", [np.nan, np.inf, -np.inf])
+    def test_nonfinite_affine_operand_is_unchanged(
+        self,
+        affine_op: str,
+        affine_value: float,
+    ) -> None:
+        model = _model(
+            [
+                onnx.helper.make_node("Conv", ["x", "weight"], ["conv_out"]),
+                onnx.helper.make_node("Constant", [], ["affine"], value_float=affine_value),
+                onnx.helper.make_node(affine_op, ["conv_out", "affine"], ["y"]),
+            ],
+            [_info("x", [1, 1, 2, 2])],
+            [_info("y", [1, 1, 2, 2])],
+            [_tensor("weight", np.ones((1, 1, 1, 1), dtype=np.float32))],
+            value_info=[_info("conv_out", [1, 1, 2, 2])],
         )
         original = model.SerializeToString()
 
@@ -1783,6 +1981,45 @@ class TestConvChannelAffineFolding:
 
 class TestExpPositiveScaleFolding:
     """Test conservative positive scale folding into an existing pre-Exp bias."""
+
+    def test_simple_numeric_example_matches_log_domain_identity(self) -> None:
+        x = np.asarray([[0.0, 2.0]], dtype=np.float32)
+        bias = np.asarray([[1.0, -1.0]], dtype=np.float32)
+        log_scale = np.asarray([[2.0, 0.5]], dtype=np.float32)
+        scale = np.exp(log_scale).astype(np.float32)
+        expected_folded_bias = np.asarray([[3.0, -0.5]], dtype=np.float32)
+        expected_output = np.exp(x + expected_folded_bias).astype(np.float32)
+        model = _model(
+            [
+                onnx.helper.make_node("Add", ["x", "bias"], ["biased"]),
+                onnx.helper.make_node("Exp", ["biased"], ["exponential"]),
+                onnx.helper.make_node("Mul", ["exponential", "scale"], ["y"]),
+            ],
+            [_info("x", [1, 2])],
+            [_info("y", [1, 2])],
+            [_tensor("bias", bias), _tensor("scale", scale)],
+            value_info=[_info("biased", [1, 2]), _info("exponential", [1, 2])],
+        )
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        assert [node.op_type for node in transformed.graph.node] == ["Add", "Exp"]
+        combined_name = transformed.graph.node[0].input[1]
+        combined = onnx.numpy_helper.to_array(
+            next(value for value in transformed.graph.initializer if value.name == combined_name)
+        )
+        np.testing.assert_allclose(combined, expected_folded_bias, rtol=0, atol=2e-7)
+        _assert_valid_with_inferred_shapes(transformed)
+        np.testing.assert_allclose(_run(model, {"x": x}), [expected_output], rtol=2e-6, atol=2e-6)
+        np.testing.assert_allclose(
+            _run(transformed, {"x": x}),
+            [expected_output],
+            rtol=2e-6,
+            atol=2e-6,
+        )
 
     @pytest.fixture
     def exp_scale_model(self) -> onnx.ModelProto:
