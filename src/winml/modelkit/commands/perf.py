@@ -2100,30 +2100,6 @@ def _run_simple_loop(
 # =============================================================================
 
 
-def _resolve_perf_cache_policy(
-    ctx: click.Context,
-    use_cache: bool,
-    legacy_ignore_cache: bool | None,
-) -> bool:
-    """Resolve canonical and deprecated perf cache toggles."""
-    legacy_was_set = cli_utils.is_cli_provided(ctx, "legacy_ignore_cache")
-    if not legacy_was_set:
-        return use_cache
-    if cli_utils.is_cli_provided(ctx, "use_cache"):
-        raise click.UsageError(
-            "--use-cache/--no-use-cache cannot be combined with the deprecated "
-            "--ignore-cache/--no-ignore-cache options."
-        )
-
-    legacy_flag = "--ignore-cache" if legacy_ignore_cache else "--no-ignore-cache"
-    replacement = "--no-use-cache" if legacy_ignore_cache else "--use-cache"
-    click.echo(
-        f"Warning: {legacy_flag} is deprecated; use {replacement} instead.",
-        err=True,
-    )
-    return not legacy_ignore_cache
-
-
 # perf() param names for WinML-only options that a prebuilt genai bundle
 # ignores. Mapped to the user-facing flag for the warning message.
 # NB: ``--ep`` is intentionally absent — it is honored for winml-genai as an EP
@@ -2142,7 +2118,6 @@ _GENAI_IGNORED_FLAGS: dict[str, str] = {
     "max_optim_iterations": "--max-optim-iterations",
     "rebuild": "--rebuild",
     "use_cache": "--use-cache/--no-use-cache",
-    "legacy_ignore_cache": "--ignore-cache/--no-ignore-cache",
     "skip_build": "--skip-build",
     "allow_unsupported_nodes": "--allow-unsupported-nodes",
     "batch_size": "--batch-size",
@@ -2156,14 +2131,12 @@ _GENAI_IGNORED_FLAGS: dict[str, str] = {
 # excluded from the ignored-flags warning when a bundle is auto-built. A prebuilt
 # bundle still ignores them all.
 #
-# * Cache-behavior flags select reuse or rebuilding and are honored by the
-#   auto-build path whether it reuses a bundle or builds one.
+# * ``--rebuild`` forces the auto-build path and is honored whenever it runs.
+#   Model build cache controls are deferred for GenAI (issue #1275).
 # * Artifact-shaping flags only take effect when a build actually runs; a cache
 #   hit reuses a bundle keyed by the model id alone and silently drops them, so
 #   they are still reported as ignored in that case.
-_GENAI_BUILD_CONTROL_FLAGS: frozenset[str] = frozenset(
-    {"rebuild", "use_cache", "legacy_ignore_cache"}
-)
+_GENAI_BUILD_CONTROL_FLAGS: frozenset[str] = frozenset({"rebuild"})
 _GENAI_BUILD_INPUT_FLAGS: frozenset[str] = frozenset({"task", "precision"})
 
 
@@ -2173,7 +2146,8 @@ def _warn_ignored_genai_flags(
     """Warn about WinML-only flags the user passed that genai ignores.
 
     When the bundle was auto-built from a model id (``autobuilt``), the
-    cache-behavior flags (rebuild/use-cache) are always honored by the build.
+    ``--rebuild`` is honored by the build. Model build cache controls are
+    deferred for GenAI (issue #1275).
     The artifact-shaping flags (task/precision) are honored only when a fresh
     build actually ran (``built_fresh``); on a cache hit the model-id-keyed bundle
     is reused as-is, so those flags are reported as ignored. A prebuilt bundle
@@ -2207,10 +2181,6 @@ def _autobuild_genai_bundle(
 
     * a plain run reuses a previously built bundle keyed by the model id;
     * ``--rebuild`` overwrites that cached bundle in place;
-    * ``--no-use-cache`` builds fresh in a throwaway temp dir -- both the
-      assembled bundle and its component build cache -- and leaves the managed
-      cache untouched. The temp dir is entered on *stack* so it outlives the
-      benchmark and is removed afterwards.
 
     genai bundles target the NPU HTP via QNN, so the build pins ``ep=qnn`` /
     ``device=npu`` regardless of the benchmark's ``--device`` (which still
@@ -2223,37 +2193,21 @@ def _autobuild_genai_bundle(
     a build actually ran and ``False`` when the managed-cache fast-path reused an
     existing bundle (in which case task/precision were not applied to it).
     """
-    import tempfile
-
     from ..cache import get_cache_dir, get_model_dir
     from ..loader import resolve_loader_config
     from ..models.winml import build_genai_bundle, resolve_genai_bundle
 
     p = ctx.params
 
-    if not p["use_cache"]:
-        # Mirror the winml runtime's use_cache=False path: build everything
-        # fresh in a throwaway temp dir and neither read from nor write to the
-        # managed cache. The assembled bundle and the component build cache both
-        # live under the temp root; the ExitStack removes it after benchmarking.
-        tmp_root = Path(
-            stack.enter_context(
-                tempfile.TemporaryDirectory(prefix="winml-genai-perf-", ignore_cleanup_errors=True)
-            )
-        )
-        bundle_dir = tmp_root / "genai-bundle"
-        build_cache_dir: Path = tmp_root / "cache"
-        force_rebuild = True
-    else:
-        cache_dir = get_cache_dir()
-        bundle_dir = get_model_dir(model, cache_dir=cache_dir) / "genai-bundle"
-        build_cache_dir = cache_dir
-        # --rebuild overwrites the cached bundle; a plain run reuses it. Checked
-        # before any model resolution so a cache hit never touches the network.
-        force_rebuild = bool(p.get("rebuild"))
-        if (bundle_dir / "genai_config.json").exists() and not force_rebuild:
-            console.print(f"[dim]Reusing cached genai bundle:[/dim] {bundle_dir}")
-            return bundle_dir, False
+    cache_dir = get_cache_dir()
+    bundle_dir = get_model_dir(model, cache_dir=cache_dir) / "genai-bundle"
+    build_cache_dir = cache_dir
+    # --rebuild overwrites the cached bundle; a plain run reuses it. Checked
+    # before any model resolution so a cache hit never touches the network.
+    force_rebuild = bool(p.get("rebuild"))
+    if (bundle_dir / "genai_config.json").exists() and not force_rebuild:
+        console.print(f"[dim]Reusing cached genai bundle:[/dim] {bundle_dir}")
+        return bundle_dir, False
 
     # Cache miss (or forced rebuild): resolve the model family so its
     # genai-bundle recipe can drive the build.
@@ -2326,9 +2280,7 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     if p.get("submodel"):
         raise click.UsageError("--submodel is not supported with --runtime winml-genai.")
 
-    # The ExitStack keeps a --no-use-cache auto-build's throwaway temp dir alive
-    # across the benchmark below, then removes it on exit. A bundle dir or a
-    # cached auto-build registers nothing, so it is a no-op.
+    # Keep any bundle-lifetime resources alive across the benchmark.
     with contextlib.ExitStack() as stack:
         # Resolve the bundle. A local directory is used as-is (it must be a real
         # genai bundle); an ``.onnx`` file is rejected; anything else is treated
@@ -2591,12 +2543,6 @@ def _validate_duration(
 @cli_utils.analyze_option(optional_message="Applied during model build.")
 @cli_utils.max_optim_iterations_option()
 @cli_utils.cache_options()
-@click.option(
-    "--ignore-cache/--no-ignore-cache",
-    "legacy_ignore_cache",
-    default=None,
-    hidden=True,
-)
 @cli_utils.skip_build_option()
 @cli_utils.compile_option(
     default=True,
@@ -2687,7 +2633,6 @@ def perf(
     max_optim_iterations: int | None,
     use_cache: bool,
     rebuild: bool,
-    legacy_ignore_cache: bool | None,
     skip_build: bool,
     no_compile: bool,
     allow_unsupported_nodes: bool,
@@ -2745,8 +2690,6 @@ def perf(
     # resolution that can touch Hugging Face Hub and emit warning records.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
-    use_cache = _resolve_perf_cache_policy(ctx, use_cache, legacy_ignore_cache)
-    ctx.params["use_cache"] = use_cache
 
     # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
     # is downloaded once and treated as a local .onnx path thereafter.
@@ -3149,8 +3092,11 @@ def perf(
             # Build-pipeline flags are forwarded to from_onnx but no-op when the
             # build is skipped (the default). Warn so the silent no-op is visible
             # — shared detection with eval via utils/cli.py.
+            from ..onnx import is_compiled_onnx
+
+            build_runs = not skip_build and not is_compiled_onnx(model_path)
             build_flags_warning = cli_utils.ignored_build_flags_warning(
-                build_runs=not skip_build,
+                build_runs=build_runs,
                 quant=quant,
                 optimize=optimize,
                 analyze=analyze,
@@ -3161,13 +3107,10 @@ def perf(
             if build_flags_warning:
                 console.print(f"[yellow]Warning:[/yellow] {build_flags_warning}")
             cache_flags_warning = cli_utils.ignored_cache_flags_warning(
-                build_runs=not skip_build,
+                build_runs=build_runs,
                 use_cache=use_cache,
                 rebuild=rebuild,
-                use_cache_was_set=(
-                    cli_utils.is_cli_provided(ctx, "use_cache")
-                    or cli_utils.is_cli_provided(ctx, "legacy_ignore_cache")
-                ),
+                use_cache_was_set=cli_utils.is_cli_provided(ctx, "use_cache"),
                 rebuild_was_set=cli_utils.is_cli_provided(ctx, "rebuild"),
                 reason="pre-built ONNX inputs",
             )

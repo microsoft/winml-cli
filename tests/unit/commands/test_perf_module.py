@@ -782,13 +782,8 @@ class TestPerfModuleCache:
         assert kwargs["rebuild"] is True
         assert (tmp_path / "cache") in kwargs["output_dir"].parents
 
-    @pytest.mark.parametrize("cache_flag", ["--no-use-cache", "--ignore-cache"])
-    def test_no_cache_uses_temp_dir_and_rebuilds(
-        self,
-        tmp_path: Path,
-        cache_flag: str,
-    ) -> None:
-        kwargs = self._run_build_kwargs(tmp_path, [cache_flag])
+    def test_no_cache_uses_temp_dir_and_rebuilds(self, tmp_path: Path) -> None:
+        kwargs = self._run_build_kwargs(tmp_path, ["--no-use-cache"])
         # Throwaway temp dir (outside the pinned cache root) + forced rebuild.
         assert kwargs["rebuild"] is True
         assert (tmp_path / "cache") not in kwargs["output_dir"].parents

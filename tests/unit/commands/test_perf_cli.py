@@ -75,7 +75,7 @@ class TestPerfCacheOptions:
 
         return result, captured.get("config")
 
-    def test_help_shows_canonical_flags_and_hides_legacy_aliases(
+    def test_help_shows_canonical_flags(
         self,
         runner: CliRunner,
     ) -> None:
@@ -86,6 +86,12 @@ class TestPerfCacheOptions:
         assert "--rebuild / --no-rebuild" in result.output
         assert "--ignore-cache" not in result.output
         assert "--no-ignore-cache" not in result.output
+
+    def test_removed_ignore_cache_flag_is_rejected(self, runner: CliRunner) -> None:
+        result = runner.invoke(perf, ["-m", "test/model", "--ignore-cache"], obj={})
+
+        assert result.exit_code != 0
+        assert "No such option '--ignore-cache'" in result.output
 
     @pytest.mark.parametrize(
         ("extra_args", "use_cache", "rebuild"),
@@ -109,46 +115,6 @@ class TestPerfCacheOptions:
         assert config is not None
         assert config.use_cache is use_cache
         assert config.rebuild is rebuild
-
-    @pytest.mark.parametrize(
-        ("legacy_flag", "replacement", "use_cache"),
-        [
-            ("--ignore-cache", "--no-use-cache", False),
-            ("--no-ignore-cache", "--use-cache", True),
-        ],
-    )
-    def test_legacy_alias_warns_and_preserves_meaning(
-        self,
-        runner: CliRunner,
-        tmp_path: Path,
-        legacy_flag: str,
-        replacement: str,
-        use_cache: bool,
-    ) -> None:
-        result, config = self._capture_config(runner, tmp_path, [legacy_flag])
-
-        assert result.exit_code == 0, result.output
-        assert config is not None
-        assert config.use_cache is use_cache
-        assert f"{legacy_flag} is deprecated" in result.output
-        assert replacement in result.output
-
-    @pytest.mark.parametrize(
-        "cache_args",
-        [
-            ["--use-cache", "--ignore-cache"],
-            ["--no-use-cache", "--no-ignore-cache"],
-        ],
-    )
-    def test_canonical_and_legacy_flags_conflict(
-        self,
-        runner: CliRunner,
-        cache_args: list[str],
-    ) -> None:
-        result = runner.invoke(perf, ["-m", "test/model", *cache_args], obj={})
-
-        assert result.exit_code != 0
-        assert "cannot be combined" in result.output
 
 
 @pytest.fixture(autouse=True)
@@ -1422,6 +1388,37 @@ class TestPerfUnifiedPipeline:
 
         assert result.exit_code == 0, result.output
         assert "ignored for pre-built ONNX inputs (no build runs" not in result.output
+
+    def test_compiled_onnx_warns_for_cache_control_with_build_enabled(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        onnx_file = tmp_path / "compiled.onnx"
+        onnx_file.write_bytes(b"fake compiled onnx")
+
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=True),
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as benchmark_type,
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            benchmark_type.return_value.run.return_value = MagicMock()
+            result = runner.invoke(
+                perf,
+                [
+                    "-m",
+                    str(onnx_file),
+                    "--no-skip-build",
+                    "--no-use-cache",
+                    "-o",
+                    str(tmp_path / "out.json"),
+                ],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "--no-use-cache ignored for pre-built ONNX inputs" in result.output
 
     def test_cli_onnx_not_found_error(self, runner: CliRunner, tmp_path: Path) -> None:
         """CLI with non-existent .onnx file should raise FileNotFoundError."""
