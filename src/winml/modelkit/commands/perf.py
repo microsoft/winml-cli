@@ -2122,7 +2122,6 @@ _GENAI_IGNORED_FLAGS: dict[str, str] = {
     "allow_unsupported_nodes": "--allow-unsupported-nodes",
     "batch_size": "--batch-size",
     "duration": "--duration",
-    "monitor": "--monitor",
     "memory": "--memory",
     "op_tracing": "--op-tracing",
 }
@@ -2340,17 +2339,30 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
         else:
             ep = resolve_genai_ep(device)
 
+        prompt = p["prompt"]
+        prompt_file: Path | None = p.get("prompt_file")
+        if prompt_file is not None:
+            if cli_utils.is_cli_provided(ctx, "prompt"):
+                raise click.UsageError("--prompt and --prompt-file are mutually exclusive.")
+            try:
+                prompt = prompt_file.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as exc:
+                raise click.ClickException(
+                    f"Could not read prompt file '{prompt_file}': {exc}"
+                ) from exc
+
         config = GenaiPerfConfig(
             bundle_dir=bundle_dir,
             ep=ep,
             device=device,
-            prompt=p["prompt"],
+            prompt=prompt,
             apply_template=p["apply_template"],
             max_new_tokens=p["max_new_tokens"],
             iterations=iterations,
             warmup=warmup,
             compile=not p["no_compile"],
             compile_timeout=p["compile_timeout"],
+            monitor=bool(p.get("monitor")),
             output_path=output,
         )
         run_genai_perf(config, console=console, json_mode=json_mode)
@@ -2417,6 +2429,13 @@ def _validate_duration(
     show_default=True,
     help="[winml-genai] Prompt text to generate from. By default it is wrapped in "
     "the bundle's chat template; pass --no-apply-template to benchmark it verbatim.",
+)
+@click.option(
+    "--prompt-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="[winml-genai] Read the prompt from a UTF-8 text file. Mutually exclusive "
+    "with an explicit --prompt; avoids command-line length limits for long contexts.",
 )
 @click.option(
     "--apply-template/--no-apply-template",
@@ -2607,6 +2626,7 @@ def perf(
     model: str | None,
     runtime: RuntimeName,
     prompt: str,
+    prompt_file: Path | None,
     apply_template: bool,
     max_new_tokens: int,
     compile_timeout: int,

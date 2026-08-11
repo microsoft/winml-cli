@@ -7,8 +7,7 @@ Unit tests for RuntimeChecker type hints and functionality.
 
 Tests verify:
 - Correct return types for summary() method
-- Correct type annotations for alternatives
-- Type safety with PatternRuntime and PatternAlternative
+- Type safety with PatternRuntime
 - Cache reuse for RuntimeCheckerQuery
 """
 
@@ -19,21 +18,10 @@ import numpy as np
 import onnx
 import pytest
 
-from tests.unit.test_helpers import stable_test_node_keys as _stable_test_node_keys
-from winml.modelkit.analyze import ONNXModel, RuntimeChecker, RuntimeTestResult
+from winml.modelkit.analyze import ONNXModel, RuntimeChecker
 from winml.modelkit.analyze.core import runtime_checker_query as runtime_checker_query_module
 from winml.modelkit.analyze.core.runtime_checker_query import RuntimeCheckerQuery
-from winml.modelkit.analyze.models.runtime_checks import (  # Testing internal implementation
-    AlternativeType,
-    PatternAlternative,
-    PatternRuntime,
-)
-from winml.modelkit.pattern import (
-    OperatorPattern,
-    PatternMatchResult,
-    PatternType,
-    SkeletonMatchResult,
-)
+from winml.modelkit.analyze.models.runtime_checks import PatternRuntime
 
 
 TensorProto = onnx.TensorProto
@@ -59,49 +47,15 @@ def simple_onnx_model() -> ONNXModel:
     return ONNXModel.from_onnx_model(model_def, "test.onnx")
 
 
-@pytest.fixture
-def sample_pattern_match() -> PatternMatchResult:
-    """Create a sample PatternMatchResult for testing."""
-    pattern = OperatorPattern(
-        pattern_id="OP/ai.onnx/Conv",
-        pattern_type=PatternType.OPERATOR,
-        namespace="ai.onnx",
-        op_type="Conv",
-        description="Conv operator",
-    )
-
-    # Create mock node proto matching the model's inputs
-    node_proto = helper.make_node("Conv", ["input1"], ["conv_output"], name="conv_node")
-
-    # Create SkeletonMatchResult
-    skeleton_result = SkeletonMatchResult(
-        pattern=pattern,
-        matched_nodes=[node_proto],
-        matched_node_keys=_stable_test_node_keys([node_proto]),
-        matcher=None,
-    )
-
-    return PatternMatchResult(
-        skeleton_match_result=skeleton_result,
-        schema_input_to_value={},
-        schema_output_to_value={},
-        type_param_to_type={},
-    )
-
-
 class TestRuntimeCheckerTypeHints:
     """Test RuntimeChecker return type correctness."""
 
-    def test_summary_returns_correct_type(
-        self, simple_onnx_model: ONNXModel, sample_pattern_match: PatternMatchResult
-    ):
+    def test_summary_returns_correct_type(self, simple_onnx_model: ONNXModel):
         """Test that summary() returns dict[str, list[PatternRuntime]]."""
-        # Initialize with both model and patterns to populate summary
         checker = RuntimeChecker(
             ep="QNNExecutionProvider",
             device="NPU",
             model=simple_onnx_model,
-            patterns=[sample_pattern_match],
         )
 
         result = checker.summary()
@@ -115,32 +69,25 @@ class TestRuntimeCheckerTypeHints:
             assert isinstance(value, list)
             assert all(isinstance(item, PatternRuntime) for item in value)
 
-        # Verify expected keys (both should be present since we have model + patterns)
-        assert "op_runtime_check_result" in result
-        assert "subgraph_runtime_check_result" in result
+        assert set(result) == {"op_runtime_check_result"}
 
     def test_summary_with_model_only(self, simple_onnx_model: ONNXModel):
         """Test summary() when initialized with model only."""
-        # When initialized with only model, summary() needs patterns parameter
         checker = RuntimeChecker(
             ep="QNNExecutionProvider",
             device="NPU",
             model=simple_onnx_model,
         )
 
-        # Pass empty patterns to avoid ValueError
-        result = checker.summary(patterns=[])
+        result = checker.summary()
 
-        # Should have both keys, but subgraph will be empty
         assert isinstance(result, dict)
-        assert "op_runtime_check_result" in result
-        assert "subgraph_runtime_check_result" in result
+        assert set(result) == {"op_runtime_check_result"}
 
         # Verify types
         op_results = result["op_runtime_check_result"]
         assert isinstance(op_results, list)
         assert all(isinstance(item, PatternRuntime) for item in op_results)
-        assert len(result["subgraph_runtime_check_result"]) == 0
 
     def test_op_support_returns_list_of_pattern_runtime(self, simple_onnx_model: ONNXModel):
         """Test that op_support() returns list[PatternRuntime]."""
@@ -159,80 +106,17 @@ class TestRuntimeCheckerTypeHints:
         # Should have one operator (Add node)
         assert len(result) > 0
 
-    def test_subgraph_support_returns_list_of_pattern_runtime(
-        self, sample_pattern_match: PatternMatchResult, simple_onnx_model: ONNXModel
-    ):
-        """Test that subgraph_support() returns list[PatternRuntime]."""
-        # Need model for _lookup_pattern_support
-        checker = RuntimeChecker(
-            ep="QNNExecutionProvider",
-            device="NPU",
-            model=simple_onnx_model,
-            patterns=[sample_pattern_match],
-        )
-
-        result = checker.subgraph_support()
-
-        # Verify return type
-        assert isinstance(result, list)
-        assert all(isinstance(item, PatternRuntime) for item in result)
-        assert len(result) == 1
-
-    def test_query_pattern_support_returns_pattern_runtime(
-        self, sample_pattern_match: PatternMatchResult, simple_onnx_model: ONNXModel
-    ):
-        """Test that query_pattern_support() returns PatternRuntime."""
-        checker = RuntimeChecker(
-            ep="QNNExecutionProvider",
-            device="NPU",
-            model=simple_onnx_model,
-        )
-
-        result = checker.query_pattern_support(sample_pattern_match)
-
-        # Verify return type
-        assert isinstance(result, PatternRuntime)
-        assert result.pattern_id == "OP/ai.onnx/Conv"
-        assert isinstance(result.result, RuntimeTestResult)
-        assert isinstance(result.alternatives, list)
-
-    def test_alternatives_is_list_of_pattern_alternative(
-        self, sample_pattern_match: PatternMatchResult, simple_onnx_model: ONNXModel
-    ):
-        """Test that PatternRuntime.alternatives is list[PatternAlternative]."""
-        checker = RuntimeChecker(
-            ep="QNNExecutionProvider",
-            device="NPU",
-            model=simple_onnx_model,
-        )
-
-        result = checker.query_pattern_support(sample_pattern_match)
-
-        # Verify alternatives type
-        assert isinstance(result.alternatives, list)
-
-        # Currently alternatives is empty (not implemented)
-        # But when implemented, should contain PatternAlternative objects
-        for alt in result.alternatives:
-            assert isinstance(alt, PatternAlternative)
-            assert hasattr(alt, "pattern_id")
-            assert hasattr(alt, "result")
-            assert hasattr(alt, "alternative_type")
-
 
 class TestRuntimeCheckerValidation:
     """Test RuntimeChecker initialization validation."""
 
-    def test_requires_either_model_or_patterns(self):
-        """Test that RuntimeChecker requires at least one of model or patterns."""
-        with pytest.raises(
-            ValueError, match="At least one of 'model' or 'patterns' must be provided"
-        ):
+    def test_requires_model(self):
+        """Test that RuntimeChecker requires a model."""
+        with pytest.raises(ValueError, match="'model' is required"):
             RuntimeChecker(
                 ep="QNNExecutionProvider",
                 device="NPU",
                 model=None,
-                patterns=None,
             )
 
     def test_requires_non_empty_device(self, simple_onnx_model: ONNXModel):
@@ -243,28 +127,6 @@ class TestRuntimeCheckerValidation:
                 device="",
                 model=simple_onnx_model,
             )
-
-    def test_op_support_requires_model(self, sample_pattern_match: PatternMatchResult):
-        """Test that op_support() requires model to be provided."""
-        checker = RuntimeChecker(
-            ep="QNNExecutionProvider",
-            device="NPU",
-            patterns=[sample_pattern_match],
-        )
-
-        with pytest.raises(ValueError, match="op_support\\(\\) requires ONNXModel"):
-            checker.op_support()
-
-    def test_subgraph_support_requires_patterns(self, simple_onnx_model: ONNXModel):
-        """Test that subgraph_support() requires patterns when not initialized with them."""
-        checker = RuntimeChecker(
-            ep="QNNExecutionProvider",
-            device="NPU",
-            model=simple_onnx_model,
-        )
-
-        with pytest.raises(ValueError, match="patterns parameter is required"):
-            checker.subgraph_support(patterns=None)
 
 
 class TestRuntimeCheckerIntegration:
@@ -284,7 +146,7 @@ class TestRuntimeCheckerIntegration:
         assert all(isinstance(r, PatternRuntime) for r in op_results)
 
         # Get summary with empty patterns
-        summary = checker.summary(patterns=[])
+        summary = checker.summary()
         assert isinstance(summary, dict)
         assert "op_runtime_check_result" in summary
         assert len(summary["op_runtime_check_result"]) == len(op_results)
@@ -378,102 +240,6 @@ class TestRuntimeCheckerIntegration:
             assert {vi.name for vi in single_node_model.graph.input} == {"weight", "input"}
             assert {init.name for init in single_node_model.graph.initializer} == set()
 
-    def test_full_workflow_with_patterns(
-        self, sample_pattern_match: PatternMatchResult, simple_onnx_model: ONNXModel
-    ):
-        """Test complete workflow: initialize with patterns, check subgraph support."""
-        # Need model for pattern lookup
-        checker = RuntimeChecker(
-            ep="QNNExecutionProvider",
-            device="NPU",
-            model=simple_onnx_model,
-            patterns=[sample_pattern_match],
-        )
-
-        # Get subgraph support
-        subgraph_results = checker.subgraph_support()
-        assert len(subgraph_results) == 1
-        assert all(isinstance(r, PatternRuntime) for r in subgraph_results)
-
-        # Get summary
-        summary = checker.summary()
-        assert isinstance(summary, dict)
-        assert "subgraph_runtime_check_result" in summary
-        assert len(summary["subgraph_runtime_check_result"]) == 1
-
-    def test_op_merged_from_subgraph_has_empty_alternatives(
-        self, simple_onnx_model: ONNXModel, monkeypatch: pytest.MonkeyPatch
-    ):
-        """Ops merged from a subgraph pattern must have alternatives=[], not the subgraph's.
-
-        When a node is covered by a matched subgraph pattern, summary() replaces the
-        op-level result with the subgraph-level result.  The subgraph may carry
-        alternatives (e.g. SingleGeluPattern → GeluPattern), but those belong to the
-        subgraph entry — not to the individual op row.  Leaking them onto the op
-        would misrepresent what alternatives are available for that specific node.
-        """
-        checker = RuntimeChecker(
-            ep="QNNExecutionProvider",
-            device="NPU",
-            model=simple_onnx_model,
-        )
-
-        shared_node = helper.make_node("Add", ["a", "b"], ["c"], name="shared_node")
-
-        def _make_pm(node):
-            pattern = OperatorPattern(
-                pattern_id=f"OP/ai.onnx/{node.op_type}",
-                pattern_type=PatternType.OPERATOR,
-                namespace="ai.onnx",
-                op_type=node.op_type,
-                description="",
-            )
-            skeleton = SkeletonMatchResult(
-                pattern=pattern,
-                matched_nodes=[node],
-                matched_node_keys=_stable_test_node_keys([node]),
-                matcher=None,
-            )
-            return PatternMatchResult(
-                skeleton_match_result=skeleton,
-                schema_input_to_value={},
-                schema_output_to_value={},
-                type_param_to_type={},
-            )
-
-        supported_result = RuntimeTestResult(compile=True, run=True)
-        subgraph_alternative = PatternAlternative(
-            pattern_id="SUBGRAPH/SingleGeluPattern",
-            result=supported_result,
-            alternative_type=AlternativeType.EQUIVALENT,
-        )
-
-        op_pr = PatternRuntime(
-            pattern_id="OP/ai.onnx/Add",
-            result=supported_result,
-            alternatives=[],
-            pattern_match=_make_pm(shared_node),
-        )
-        subgraph_pr = PatternRuntime(
-            pattern_id="SUBGRAPH/GeluPattern",
-            result=supported_result,
-            alternatives=[subgraph_alternative],  # subgraph has a non-empty alternative
-            pattern_match=_make_pm(shared_node),
-        )
-
-        monkeypatch.setattr(checker, "op_support", lambda **kw: [op_pr])
-        monkeypatch.setattr(checker, "subgraph_support", lambda *a, **kw: [subgraph_pr])
-
-        result = checker.summary(patterns=[])
-        merged_ops = result["op_runtime_check_result"]
-
-        assert len(merged_ops) == 1
-        merged = merged_ops[0]
-        # Result must be taken from the subgraph
-        assert merged.result is subgraph_pr.result
-        # alternatives must be empty — subgraph alternatives must NOT leak onto the op
-        assert merged.alternatives == []
-
 
 class TestRuntimeCheckerQueryCache:
     """Test RuntimeCheckerQuery caching functionality."""
@@ -500,28 +266,6 @@ class TestRuntimeCheckerQueryCache:
         # Results should be consistent
         assert len(first_result) == len(second_result)
 
-    def test_query_cache_across_methods(
-        self, simple_onnx_model: ONNXModel, sample_pattern_match: PatternMatchResult
-    ):
-        """Test that query cache is shared across op_support and pattern lookup."""
-        checker = RuntimeChecker(
-            ep="QNNExecutionProvider",
-            device="NPU",
-            model=simple_onnx_model,
-            patterns=[sample_pattern_match],
-        )
-
-        # Call op_support first
-        checker.op_support()
-        query_after_op_support = checker._query
-
-        # Call query_pattern_support
-        checker.query_pattern_support(sample_pattern_match)
-        query_after_pattern_support = checker._query
-
-        # Should be the same cached query
-        assert query_after_pattern_support is query_after_op_support
-
     def test_query_cache_performance(self, simple_onnx_model: ONNXModel):
         """Test that cache improves performance on repeated calls."""
         checker = RuntimeChecker(
@@ -534,29 +278,18 @@ class TestRuntimeCheckerQueryCache:
         start_time = time.time()
         checker.op_support()
         _first_call_time = time.time() - start_time
+        first_query = checker._query
 
         # Second call - warm (uses cache)
         start_time = time.time()
         checker.op_support()
         _second_call_time = time.time() - start_time
+        second_query = checker._query
 
         # Second call should be faster or at least not significantly slower
         # We're primarily checking that it doesn't recreate the query
         # which would add initialization overhead
-        assert checker._query is not None
         # Not asserting timing directly as it can be flaky,
         # but verifying cache exists proves the optimization
-
-    def test_get_query_without_model_raises_error(self, sample_pattern_match: PatternMatchResult):
-        """Test that _get_query raises error when model is not available."""
-        checker = RuntimeChecker(
-            ep="QNNExecutionProvider",
-            device="NPU",
-            patterns=[sample_pattern_match],
-        )
-
-        # _get_query should raise ValueError
-        with pytest.raises(
-            ValueError, match="Cannot create RuntimeCheckerQuery without ONNX model"
-        ):
-            checker._get_query()
+        assert first_query is not None
+        assert second_query is first_query

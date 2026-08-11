@@ -15,6 +15,7 @@ Purpose-built for Windows hardware diversity, the CLI handles conversion, graph 
 ## What you can do
 
 - **Build once, run across hardwares.** Compose your own workflow from primitive commands (`export`, `analyze`, `optimize`, `quantize`, `compile`), or use an auto-generated config with `winml build` - both produce portable models that run across hardware.
+- **Compare execution providers precisely.** Analyzer output reports detected pattern counts per EP because pattern sources and deduplication can differ by provider.
 - **Drill into the details.** Deep insights into operator compatibility, shape mismatches, graph optimizations, and EP-aware tuning at any stage of the pipeline.
 - **AI-ready.** CLI-driven tools with built-in skills, friendly to work with mainstream agents.
 

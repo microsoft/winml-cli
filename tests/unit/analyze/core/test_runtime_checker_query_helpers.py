@@ -6,6 +6,7 @@
 """Unit tests for runtime checker query helper functions."""
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import numpy as np
 import onnx
@@ -259,6 +260,208 @@ class TestGetQueryConditionsForNode:
 
 class TestLocalEPFallback:
     """Test local EP fallback helpers for single-node execution."""
+
+    def test_pattern_model_preserves_matched_subgraph_boundaries(self):
+        """Pattern fallback models include all matched nodes and boundary tensors."""
+        add = helper.make_node("Add", ["input", "weight"], ["sum"], name="add")
+        relu = helper.make_node("Relu", ["sum"], ["output"], name="relu")
+        input_info = helper.make_tensor_value_info("input", TensorProto.FLOAT, [2])
+        sum_info = helper.make_tensor_value_info("sum", TensorProto.FLOAT, [2])
+        output_info = helper.make_tensor_value_info("output", TensorProto.FLOAT, [2])
+        weight = helper.make_tensor("weight", TensorProto.FLOAT, [2], [1.0, 2.0])
+        graph = helper.make_graph(
+            [add, relu],
+            "pattern_graph",
+            [input_info],
+            [output_info],
+            initializer=[weight],
+            value_info=[sum_info],
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        query = RuntimeCheckerQuery(
+            model,
+            ep_name="CPUExecutionProvider",
+            device_type="CPU",
+        )
+
+        pattern_match = MagicMock()
+        pattern_match.pattern_id = "SUBGRAPH/AddRelu"
+        pattern_match.schema_output_to_value = {"Y": "output"}
+        pattern_match.skeleton_match_result.matched_nodes = [add, relu]
+        pattern_match.skeleton_match_result.output = "output"
+
+        pattern_model = query._build_pattern_test_model(pattern_match)
+
+        assert [node.op_type for node in pattern_model.graph.node] == ["Add", "Relu"]
+        assert {value.name for value in pattern_model.graph.input} == {"input"}
+        assert {value.name for value in pattern_model.graph.output} == {"output"}
+        assert {initializer.name for initializer in pattern_model.graph.initializer} == {
+            "weight"
+        }
+
+    def test_pattern_model_promotes_external_initializer_without_value_info(self):
+        """External pattern inputs use initializer metadata when value info is absent."""
+        add = helper.make_node("Add", ["input", "weight"], ["output"], name="add")
+        input_info = helper.make_tensor_value_info("input", TensorProto.FLOAT, [2])
+        output_info = helper.make_tensor_value_info("output", TensorProto.FLOAT, [2])
+        external_weight = onnx.TensorProto()
+        external_weight.name = "weight"
+        external_weight.data_type = TensorProto.FLOAT
+        external_weight.dims.extend([2])
+        external_weight.data_location = TensorProto.EXTERNAL
+        external_weight.external_data.add(key="location", value="weight.bin")
+        graph = helper.make_graph(
+            [add],
+            "external_pattern_graph",
+            [input_info],
+            [output_info],
+            initializer=[external_weight],
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        query = RuntimeCheckerQuery(
+            model,
+            ep_name="CPUExecutionProvider",
+            device_type="CPU",
+        )
+
+        pattern_match = MagicMock()
+        pattern_match.pattern_id = "SUBGRAPH/Add"
+        pattern_match.schema_output_to_value = {"Y": "output"}
+        pattern_match.skeleton_match_result.matched_nodes = [add]
+        pattern_match.skeleton_match_result.output = "output"
+
+        pattern_model = query._build_pattern_test_model(pattern_match)
+
+        inputs = {value.name: value for value in pattern_model.graph.input}
+        assert set(inputs) == {"input", "weight"}
+        assert inputs["weight"].type.tensor_type.elem_type == TensorProto.FLOAT
+        assert [dim.dim_value for dim in inputs["weight"].type.tensor_type.shape.dim] == [2]
+        assert not pattern_model.graph.initializer
+
+    def test_local_pattern_check_runs_complete_subgraph(self, monkeypatch):
+        """Pattern fallback compiles and runs the complete matched subgraph."""
+        add = helper.make_node("Add", ["input", "weight"], ["sum"], name="add")
+        relu = helper.make_node("Relu", ["sum"], ["output"], name="relu")
+        input_info = helper.make_tensor_value_info("input", TensorProto.FLOAT, [2])
+        sum_info = helper.make_tensor_value_info("sum", TensorProto.FLOAT, [2])
+        output_info = helper.make_tensor_value_info("output", TensorProto.FLOAT, [2])
+        weight = helper.make_tensor("weight", TensorProto.FLOAT, [2], [1.0, 2.0])
+        graph = helper.make_graph(
+            [add, relu],
+            "pattern_graph",
+            [input_info],
+            [output_info],
+            initializer=[weight],
+            value_info=[sum_info],
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        query = RuntimeCheckerQuery(
+            model,
+            ep_name="CPUExecutionProvider",
+            device_type="CPU",
+        )
+
+        pattern_match = MagicMock()
+        pattern_match.pattern_id = "SUBGRAPH/AddRelu"
+        pattern_match.schema_output_to_value = {"Y": "output"}
+        pattern_match.skeleton_match_result.matched_nodes = [add, relu]
+        pattern_match.skeleton_match_result.output = "output"
+
+        captured_models: list[onnx.ModelProto] = []
+
+        class FakeRunner:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                return False
+
+            def run(self, fn, *args):
+                return {"result": fn(*args), "stdout": "", "stderr": ""}
+
+        class FakeEPChecker:
+            def check_compile(self, model_bytes, _input_feed):
+                checked_model = onnx.ModelProto()
+                checked_model.ParseFromString(model_bytes)
+                captured_models.append(checked_model)
+                return {"success": True}
+
+            def check_run(self, _model_bytes, _input_feed):
+                return {"success": True}
+
+        monkeypatch.setattr(runtime_checker_query_module, "ResilientRunner", FakeRunner)
+        monkeypatch.setattr(RuntimeCheckerQuery, "_is_ep_available_locally", lambda self: True)
+        monkeypatch.setattr(
+            RuntimeCheckerQuery,
+            "_get_ep_checker",
+            lambda self: FakeEPChecker(),
+        )
+
+        result = query.try_local_pattern_check(
+            pattern_match,
+            fallback_reason="table_not_found",
+        )
+
+        assert result is not None
+        assert result.compile is True
+        assert result.run is True
+        assert [node.op_type for node in captured_models[0].graph.node] == ["Add", "Relu"]
+
+    def test_local_model_checks_reuse_runner_until_closed(self, monkeypatch):
+        """Pattern instances share one resilient worker for the analysis stage."""
+        input_info = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1])
+        output_info = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1])
+        node = helper.make_node("Identity", ["input"], ["output"])
+        graph = helper.make_graph([node], "runner_reuse", [input_info], [output_info])
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        query = RuntimeCheckerQuery(
+            model,
+            ep_name="CPUExecutionProvider",
+            device_type="CPU",
+        )
+        runner_instances = []
+
+        class FakeRunner:
+            def __init__(self, *args, **kwargs):
+                self.run_calls = 0
+                self.shutdown_calls = 0
+                runner_instances.append(self)
+
+            def run(self, fn, *args):
+                self.run_calls += 1
+                return {"result": fn(*args), "stdout": "", "stderr": ""}
+
+            def shutdown(self):
+                self.shutdown_calls += 1
+
+        class FakeEPChecker:
+            def check_compile(self, _model_bytes, _input_feed):
+                return {"success": True}
+
+            def check_run(self, _model_bytes, _input_feed):
+                return {"success": True}
+
+        monkeypatch.setattr(runtime_checker_query_module, "ResilientRunner", FakeRunner)
+        monkeypatch.setattr(
+            RuntimeCheckerQuery,
+            "_get_ep_checker",
+            lambda self: FakeEPChecker(),
+        )
+
+        for check_name in ("pattern_1", "pattern_2"):
+            query._run_local_model_check(
+                model_bytes=model.SerializeToString(),
+                input_feed={},
+                check_name=check_name,
+            )
+        query.close_local_checks()
+
+        assert len(runner_instances) == 1
+        assert runner_instances[0].run_calls == 4
+        assert runner_instances[0].shutdown_calls == 1
 
     def test_local_ep_check_feeds_promoted_external_initializer(self, monkeypatch):
         """Promoted external-data initializers are included in the local EP input feed."""

@@ -66,7 +66,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from utils.dataset_config import get_dataset_config, register_from_registry
-from utils.recipes import RecipeVariant, discover_recipe_variants
+from utils.recipes import RecipeVariant, copy_recipe_target, discover_recipe_variants
 from utils.registry import (
     ModelEntry,
     filter_registry,
@@ -142,6 +142,20 @@ def _effective_ep(ep: str | None, device: str | None) -> str | None:
     if ep:
         return normalize_ep_name(ep)
     return _deduce_ep_for_device(device or "auto")
+
+
+def _resolve_eval_target(ep: str | None, device: str | None) -> tuple[str, str]:
+    """Resolve possibly automatic CLI axes through the runtime target policy."""
+    from winml.modelkit.session import EPDeviceTarget, resolve_device
+
+    target = resolve_device(EPDeviceTarget(ep=ep or "auto", device=device or "auto"))
+    return target.ep, target.device
+
+
+def _validate_recipe_copy_target(ep: str | None, device: str | None) -> None:
+    """Require a concrete destination so copied recipes are discoverable."""
+    if not ep or ep.lower() == "auto" or not device or device.lower() == "auto":
+        raise ValueError("--copy-recipes-from requires explicit --ep and --device")
 
 
 def _should_skip_winml_quant(ep: str | None, device: str | None = None) -> bool:
@@ -476,30 +490,44 @@ def _kill_process_tree(pid: int) -> None:
     """
     try:
         import psutil
+    except ImportError:
+        psutil = None
 
-        parent = psutil.Process(pid)
-        children = parent.children(recursive=True)
-        for child in children:
-            with contextlib.suppress(psutil.NoSuchProcess):
-                child.kill()
-        with contextlib.suppress(psutil.NoSuchProcess):
-            parent.kill()
-        # Wait briefly for processes to terminate
-        psutil.wait_procs([*children, parent], timeout=5)
-    except (ImportError, psutil.NoSuchProcess):
-        # Fallback: taskkill on Windows, killpg on Unix
-        if platform.system() == "Windows":
-            subprocess.run(  # noqa: S603
-                ["taskkill", "/F", "/T", "/PID", str(pid)],  # noqa: S607
-                capture_output=True,
-            )
+    if psutil is not None:
+        try:
+            parent = psutil.Process(pid)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return
+        try:
+            children = parent.children(recursive=True)
+        except psutil.Error:
+            # The process tree may change between Process() and children().
+            # Fall through to the platform tree-kill as a best effort.
+            pass
         else:
-            import signal
+            for child in children:
+                with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied):
+                    child.kill()
+            with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied):
+                parent.kill()
+            # Wait briefly for processes to terminate
+            with contextlib.suppress(psutil.Error):
+                psutil.wait_procs([*children, parent], timeout=5)
+            return
 
-            try:
-                os.killpg(os.getpgid(pid), signal.SIGKILL)
-            except ProcessLookupError:
-                pass  # Process already exited; nothing to kill
+    # Fallback: taskkill on Windows, killpg on Unix
+    if platform.system() == "Windows":
+        subprocess.run(  # noqa: S603
+            ["taskkill", "/F", "/T", "/PID", str(pid)],  # noqa: S607
+            capture_output=True,
+        )
+    else:
+        import signal
+
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass  # Process already exited; nothing to kill
 
 
 def _run_subprocess(args: list[str], timeout: int) -> dict:
@@ -2467,6 +2495,10 @@ def _build_jobs(
 ) -> list[EvalJob]:
     """Expand entries into jobs. Recipes apply on every device; quant is NPU-only.
 
+    Automatic EP/device axes are resolved through the runtime target policy
+    before recipe lookup so target-specific directories always use concrete
+    ``<ep>/<device>`` names.
+
     Recipes carry the accuracy eval/dataset config, so they are consulted
     regardless of device -- but quantized recipe variants (``w8a16``/``w8a8``)
     only make sense on an NPU running a quantizing EP. For each entry:
@@ -2485,18 +2517,25 @@ def _build_jobs(
     * non-NPU (or a skip-quant EP) with no applicable recipe variant → a single
       ``winml config`` fallback job (``variant=None``).
     """
-    npu = device == "npu"
+    resolved_ep, resolved_device = _resolve_eval_target(ep, device)
+    npu = resolved_device == "npu"
     # Skip-quant EPs (VitisAI) are evaluated on the unquantized model: the
     # fallback path forces --no-quant, so the NPU multi-precision expansion
     # would produce duplicate artifacts under distinct precision slugs, and an
     # authored quantized recipe would hand the EP a QDQ graph its compiler is
     # not expected to consume.  Both are suppressed.
-    skip_quant = _should_skip_winml_quant(ep, device)
+    skip_quant = _should_skip_winml_quant(resolved_ep, resolved_device)
     expand_npu_quant = npu and not skip_quant
     jobs: list[EvalJob] = []
     for entry in entries:
         variants = (
-            discover_recipe_variants(recipes_dir, entry.hf_id, entry.task)
+            discover_recipe_variants(
+                recipes_dir,
+                entry.hf_id,
+                entry.task,
+                ep=resolved_ep,
+                device=resolved_device,
+            )
             if recipes_dir is not None
             else []
         )
@@ -2610,6 +2649,16 @@ def parse_args() -> argparse.Namespace:
         "--no-recipes",
         action="store_true",
         help="Ignore examples/recipes and build every model via winml config.",
+    )
+    parser.add_argument(
+        "--copy-recipes-from",
+        nargs=2,
+        metavar=("EP", "DEVICE"),
+        help=(
+            "Before evaluation, copy missing recipe configs from each model's "
+            "<EP>/<DEVICE> directory into the target --ep/--device directory. "
+            "Existing target configs are never overwritten."
+        ),
     )
     parser.add_argument(
         "--eval-type",
@@ -2961,6 +3010,29 @@ def main() -> None:
     # w8a16); off-NPU builds only the non-quantized recipe variants, else a
     # single winml-config fallback (variant=None).
     recipes_dir = None if args.no_recipes else args.recipes_dir
+    if args.copy_recipes_from:
+        if recipes_dir is None:
+            parser_error = "--copy-recipes-from cannot be used with --no-recipes"
+            raise ValueError(parser_error)
+        _validate_recipe_copy_target(args.ep, args.device)
+        source_ep, source_device = args.copy_recipes_from
+        copied_count = 0
+        for entry in entries:
+            copied = copy_recipe_target(
+                recipes_dir,
+                entry.hf_id,
+                source_ep,
+                source_device,
+                args.ep,
+                args.device,
+            )
+            copied_count += len(copied)
+            for path in copied:
+                safe_print(f"  [recipe] Copied: {path}")
+        safe_print(
+            f"Recipe copy: {copied_count} configs from {source_ep}/{source_device} "
+            f"to {args.ep}/{args.device}"
+        )
     jobs = _build_jobs(entries, recipes_dir, args.device, ep=args.ep)
     total_jobs = len(jobs)
 

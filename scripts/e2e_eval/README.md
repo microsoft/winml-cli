@@ -55,7 +55,8 @@ For each filtered model the runner builds the model, runs `winml perf`, and — 
 perf passes — runs `winml eval`. **Recipes drive the build on every device (they
 carry the accuracy eval/dataset config), but quantized precision variants are
 NPU-only.** On NPU, builds prefer an **authored recipe** under
-`examples/recipes/<slug>/<task>_<precision>_config*.json` (built with
+`examples/recipes/<slug>/<ep>/<device>/<task>_<precision>_config*.json` (with
+legacy fallback to `examples/recipes/<slug>/`; built with
 `winml build -c`, once per precision variant that exists, e.g. `fp16` + `w8a16`);
 an NPU model without a recipe falls back to `winml config` and is expanded into
 **two jobs — `w8a8` and `w8a16`** (an explicit per-model `precision` in the
@@ -109,8 +110,9 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 | `--registry` | `testsets/models_all.json` | Model registry file |
 | `--hf-model` | — | Single model (overrides registry) |
 | `--output-dir` | `eval_results/{date}` | Output directory |
-| `--recipes-dir` | `examples/recipes` | Authored recipe configs. NPU builds every precision variant (`winml config` `w8a8`+`w8a16` fallback when a model has none); CPU/GPU (and unquantized-track EPs like VitisAI) build only the non-quantized variants (e.g. `fp16`), else a `winml config` fallback |
+| `--recipes-dir` | `examples/recipes` | Authored recipe configs, selected from `<model>/<ep>/<device>` with legacy `<model>` fallback. NPU builds every precision variant (`winml config` `w8a8`+`w8a16` fallback when a model has none); CPU/GPU (and unquantized-track EPs like VitisAI) build only non-quantized variants, else a `winml config` fallback |
 | `--no-recipes` | off | Ignore recipes; build every model via `winml config` (on NPU still expands the `w8a8`+`w8a16` fallback) |
+| `--copy-recipes-from EP DEVICE` | — | Copy missing configs from each model's source target into `--ep/--device` before building; existing target configs are never overwritten |
 | `--eval-type` | `perf` | `perf`, `accuracy`, or `both` (perf-gated accuracy) |
 | `--task` | — | Filter by HF task |
 | `--priority` | `P0 P1 P2` | Filter: one or more of `P0`, `P1`, `P2`, `P3` (e.g. `--priority P0 P1`). Pass `P3` explicitly to include P3 models. |
@@ -125,6 +127,34 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 | `--continue` | off | Skip jobs with existing results (but backfill accuracy onto perf-only results when `--eval-type` wants it) |
 | `--retry-failed [TYPE ...]` | — | Re-run failed jobs (implies `--continue`) |
 | `--build-only` | off | Build with `--no-compile`, writing each stage's ONNX (no EP needed). Loops the EP matrix when `--ep`/`--device` omitted |
+
+### `run_llm_eval.py` — Run GenAI Context Sweep
+
+Runs an existing ONNX Runtime GenAI bundle through `winml perf --runtime
+winml-genai` at one or more prompt lengths. The runner enables the EPContext
+pre-compilation required by accelerator-backed GenAI stages and generation-window
+hardware monitoring, preserves each raw perf report as `perf_ctx<tokens>.json`, and
+writes a schema-validated `llm_eval_result.json` containing TTFT, decode and prefill
+throughput, total generation time, accelerator utilization, device memory, and
+process CPU/RAM metrics. Use `--compile-timeout` to adjust the per-stage compilation
+limit for larger bundles; compiled stages are cached under the bundle's `_compiled/`
+directory and reused by later runs.
+
+```bash
+uv run python scripts/e2e_eval/run_llm_eval.py \
+  -m out/qwen3-bundle \
+  --model-id Qwen/Qwen3-1.7B \
+  --output-dir eval_results/qwen3-npu \
+  --device npu \
+  --ep qnn \
+  --quantization w8a16 \
+  --context-lengths 256 512 1024
+```
+
+The input directory must contain `genai_config.json` and the bundle tokenizer.
+The result is validated against `schemas/llm_eval_result.schema.json` before it
+is written. If no context point completes, the runner writes
+`llm_eval_failure.json` instead of an invalid empty sweep.
 
 
 #### `--build-only` — Generate per-stage models (no EP required)
@@ -344,7 +374,10 @@ per precision variant; fallback (no recipe) runs omit the `__<precision>` suffix
 scripts/e2e_eval/
 ├── build_registry.py          # Step 1: Generate models_all.json
 ├── run_eval.py                # Step 2: Recipe-driven perf + accuracy runner
+├── run_llm_eval.py            # GenAI context-sweep runner
 ├── run_pytorch_baseline.py    # Offline PyTorch baseline (feeds baseline_cache.json)
+├── schemas/
+│   └── llm_eval_result.schema.json
 ├── testsets/
 │   ├── models_all.json        # Full model registry (generated)
 │   ├── models_with_acc.json   # Models with accuracy dataset configs

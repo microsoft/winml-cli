@@ -964,6 +964,175 @@ class TestEffectiveEp:
         assert session.effective_ep == "qnn"
 
 
+class TestEffectiveDevice:
+    def test_dml_bundle_routes_monitoring_to_gpu(self) -> None:
+        cfg = {
+            "model": {
+                "decoder": {
+                    "pipeline": [
+                        {
+                            "decoder": {
+                                "session_options": {"provider_options": [{"dml": {}}]}
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+
+        assert GenaiSession._device_from_config(cfg) == "gpu"
+
+    def test_ambiguous_multidevice_provider_omits_adapter(self) -> None:
+        cfg = {
+            "model": {
+                "decoder": {
+                    "pipeline": [
+                        {
+                            "decoder": {
+                                "session_options": {"provider_options": [{"qnn": {}}]}
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+
+        assert GenaiSession._device_from_config(cfg) is None
+
+    def test_device_type_resolves_multidevice_provider(self) -> None:
+        cfg = {
+            "model": {
+                "decoder": {
+                    "session_options": {
+                        "provider_options": [{"openvino": {"device_type": "GPU"}}]
+                    }
+                }
+            }
+        }
+
+        assert GenaiSession._device_from_config(cfg) == "gpu"
+
+    def test_provider_hint_resolves_qnn_htp_to_npu(self) -> None:
+        cfg = {
+            "model": {
+                "decoder": {
+                    "pipeline": [
+                        {
+                            "decoder": {
+                                "session_options": {
+                                    "provider_options": [
+                                        {"qnn": {"backend_path": r"C:\QNN\QnnHtp.dll"}}
+                                    ]
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+
+        assert GenaiSession._device_from_config(cfg) == "npu"
+
+    def test_effective_config_precedes_explicit_fallback(self, bundle_dir: Path) -> None:
+        session = GenaiSession(bundle_dir, ep="openvino", device="npu")
+        session._override_effective = True
+        cfg = {
+            "model": {
+                "decoder": {
+                    "session_options": {
+                        "provider_options": [{"openvino": {"device_type": "GPU"}}]
+                    }
+                }
+            }
+        }
+
+        assert session._resolve_effective_device(cfg) == "gpu"
+
+    def test_config_routing_wins_over_contradictory_requested_device(
+        self, bundle_dir: Path
+    ) -> None:
+        session = GenaiSession(bundle_dir, ep="dml", device="npu")
+        session._override_effective = True
+        cfg = {
+            "model": {
+                "decoder": {
+                    "pipeline": [
+                        {
+                            "decoder": {
+                                "session_options": {"provider_options": [{"dml": {}}]}
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+
+        assert session._resolve_effective_device(cfg) == "gpu"
+
+    def test_unresolved_multidevice_ep_does_not_trust_requested_device(
+        self, bundle_dir: Path
+    ) -> None:
+        session = GenaiSession(bundle_dir, ep="qnn", device="npu")
+        session._override_effective = True
+        cfg = {
+            "model": {
+                "decoder": {
+                    "pipeline": [
+                        {
+                            "decoder": {
+                                "session_options": {"provider_options": [{"qnn": {}}]}
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+
+        assert session._resolve_effective_device(cfg) is None
+
+
+class TestEffectiveHardwareEp:
+    def test_unique_configured_ep_is_reported(self) -> None:
+        cfg = {
+            "model": {
+                "decoder": {
+                    "session_options": {
+                        "provider_options": [{"openvino": {"device_type": "GPU"}}]
+                    }
+                }
+            }
+        }
+
+        assert GenaiSession._hardware_ep_from_config(cfg) == "OpenVINOExecutionProvider"
+
+    def test_mixed_hardware_eps_are_unresolved(self) -> None:
+        cfg = {
+            "model": {
+                "decoder": {
+                    "pipeline": [
+                        {
+                            "first": {"session_options": {"provider_options": [{"dml": {}}]}},
+                            "second": {"session_options": {"provider_options": [{"qnn": {}}]}},
+                        }
+                    ]
+                }
+            }
+        }
+
+        assert GenaiSession._hardware_ep_from_config(cfg) is None
+
+    def test_unknown_provider_is_unresolved(self) -> None:
+        cfg = {
+            "model": {
+                "decoder": {
+                    "session_options": {"provider_options": [{"future_ep": {}}]}
+                }
+            }
+        }
+
+        assert GenaiSession._hardware_ep_from_config(cfg) is None
+
+
 # ---------------------------------------------------------------------------
 # Tests: generate / generate_streaming
 # ---------------------------------------------------------------------------
