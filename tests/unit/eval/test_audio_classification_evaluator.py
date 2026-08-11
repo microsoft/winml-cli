@@ -160,6 +160,7 @@ class TestAudioPreprocessing:
         mono = np.array([1.0, 3.0], dtype=np.float32)
         channels_first = np.array([[1.0, 3.0], [3.0, 5.0]], dtype=np.float32)
         channels_last = channels_first.T
+        one_frame_channels_first = np.array([[1.0], [0.5]], dtype=np.float32)
 
         np.testing.assert_array_equal(
             WinMLAudioClassificationEvaluator._to_mono(mono),
@@ -172,6 +173,10 @@ class TestAudioPreprocessing:
         np.testing.assert_array_equal(
             WinMLAudioClassificationEvaluator._to_mono(channels_last),
             np.array([2.0, 4.0], dtype=np.float32),
+        )
+        np.testing.assert_array_equal(
+            WinMLAudioClassificationEvaluator._to_mono(one_frame_channels_first),
+            np.array([0.75], dtype=np.float32),
         )
 
     def test_exact_short_and_multi_window_padding(self):
@@ -193,6 +198,26 @@ class TestAudioPreprocessing:
     def test_empty_audio_is_rejected(self):
         with pytest.raises(ValueError, match="empty"):
             WinMLAudioClassificationEvaluator._window_waveform(np.array([], dtype=np.float32), 8)
+
+    def test_accepts_pre_normalized_waveform_without_feature_extractor(self):
+        evaluator = WinMLAudioClassificationEvaluator.__new__(WinMLAudioClassificationEvaluator)
+        evaluator.pipe = SimpleNamespace(padding_value=-1.0)
+        evaluator.model = _SignClassifier()
+
+        windows = evaluator._preprocess_audio([1.0, 2.0, 3.0])
+
+        np.testing.assert_array_equal(
+            windows,
+            [[1.0, 2.0, 3.0, -1.0, -1.0, -1.0, -1.0, -1.0]],
+        )
+
+    def test_pre_normalized_waveform_must_be_one_dimensional(self):
+        evaluator = WinMLAudioClassificationEvaluator.__new__(WinMLAudioClassificationEvaluator)
+        evaluator.pipe = SimpleNamespace(padding_value=0.0)
+        evaluator.model = _SignClassifier()
+
+        with pytest.raises(ValueError, match="must be 1D"):
+            evaluator._preprocess_audio(np.ones((1, 8), dtype=np.float32))
 
     def test_missing_feature_extractor_input_is_rejected_clearly(self):
         evaluator = WinMLAudioClassificationEvaluator.__new__(WinMLAudioClassificationEvaluator)
@@ -574,7 +599,7 @@ class TestAudioPredictionAndMetrics:
         )
 
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=hf_config),
+            patch("winml.modelkit.loader.load_hf_config", return_value=hf_config),
             patch(
                 "transformers.AutoFeatureExtractor.from_pretrained",
                 return_value=_IdentityFeatureExtractor(),

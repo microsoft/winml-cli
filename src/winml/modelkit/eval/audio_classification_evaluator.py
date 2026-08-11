@@ -409,7 +409,24 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
         }
 
     def _preprocess_audio(self, audio: Any) -> np.ndarray:
-        """Decode, mix to mono, resample, normalize, and make fixed-size windows."""
+        """Convert raw audio or pre-normalized waveform input to model-sized windows."""
+        input_name, input_shape = self._model_input_contract()
+        if isinstance(audio, (list, tuple, np.ndarray)):
+            if len(input_shape) != 2:
+                raise ValueError(
+                    "pre-normalized waveform input requires a rank-2 ONNX input",
+                )
+            input_values = np.asarray(audio, dtype=np.float32)
+            if input_values.ndim != 1:
+                raise ValueError(
+                    f"pre-normalized waveform input must be 1D, got shape {input_values.shape}",
+                )
+            return self._window_waveform(
+                input_values,
+                int(input_shape[1]),
+                float(getattr(self.pipe, "padding_value", 0.0)),
+            )
+
         waveform, sampling_rate = self._decode_audio(audio)
         target_rate = int(getattr(self.pipe, "sampling_rate", sampling_rate))
         waveform = self._to_mono(waveform)
@@ -430,7 +447,6 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
             sampling_rate=target_rate,
             return_tensors="np",
         )
-        input_name, input_shape = self._model_input_contract()
         if input_name not in encoded:
             raise ValueError(
                 f"audio feature extractor output must contain {input_name!r}; "

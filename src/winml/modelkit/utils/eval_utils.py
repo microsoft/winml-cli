@@ -61,7 +61,7 @@ _AUDIO_CLASSIFICATION_SCHEMA = TaskSchema(
     columns=(
         SchemaItem(
             "input_column",
-            "decoded audio waveform with sampling rate",
+            "decoded audio with sampling rate, or pre-normalized 1D waveform",
             default="audio",
             remap_hint="<your_audio_column>",
         ),
