@@ -42,8 +42,6 @@ def _ensure_evaluate_transformers_compat() -> None:
 class WinMLEvaluator:
     """Base evaluator. Loads dataset, creates pipeline, runs HF evaluator."""
 
-    supports_native = True
-
     def __init__(
         self,
         config: WinMLEvaluationConfig,

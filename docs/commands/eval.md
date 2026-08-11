@@ -46,7 +46,9 @@ $ winml eval [options]
 
 ## How it works
 
-`winml eval` loads the model and runs the evaluation pipeline via the internal `evaluate` function, then pulls the requested number of samples from a HuggingFace dataset. By default, Hugging Face model IDs and local checkpoints use the `winml` runtime: they are exported to ONNX and evaluated through WinML. With `--runtime pytorch`, the checkpoint-declared PyTorch class and stored dtype are preserved and the same dataset preprocessing, Hugging Face pipeline, task evaluator, and metrics run directly against that model. PyTorch `auto` selects CUDA when available and otherwise CPU; `gpu` requires CUDA. The JSON report identifies the effective runtime as `winml` or `pytorch`.
+`winml eval` loads the model and runs the evaluation pipeline via the internal `evaluate` function, then pulls the requested number of samples from a HuggingFace dataset. By default, Hugging Face model IDs and local checkpoints use the `winml` runtime: they are exported to ONNX and evaluated through WinML. With `--runtime pytorch`, the task-resolved PyTorch model and stored dtype are preserved and the same dataset preprocessing, evaluator, and metrics run directly against that model. PyTorch `auto` selects CUDA when available and otherwise CPU; `gpu` requires CUDA. The JSON report identifies the effective runtime as `winml` or `pytorch`.
+
+Python callers can pass an existing model directly with `evaluate(config, pytorch_model=model)`. An explicit `config.model_id` selects the tokenizer or processor; otherwise evaluation infers it from `model.config._name_or_path` and reports an error if neither source is available.
 
 Pre-built ONNX files, composite `role=path` models, GenAI bundles, text-generation evaluation, compare mode, references, and tensor input archives remain on their existing WinML paths. `--runtime pytorch` rejects those forms, along with ONNX build, export, EP, precision, quantization, optimization, analysis, and cache-related options.
 

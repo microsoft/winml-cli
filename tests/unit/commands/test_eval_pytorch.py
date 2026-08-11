@@ -270,24 +270,39 @@ class TestPyTorchRuntimeCli:
         assert result.exit_code == 2
         assert "use auto, cpu, or gpu" in result.output
 
-    @pytest.mark.parametrize(
-        "task",
-        [
-            "fill-mask",
-            "keypoint-detection",
-            "mask-generation",
-            "text-generation",
-        ],
-    )
-    def test_rejects_non_pipeline_evaluators(self, task: str) -> None:
+    def test_rejects_text_generation(self) -> None:
         result = CliRunner().invoke(
             eval,
-            ["-m", "fake/model", "--runtime", "pytorch", "--task", task],
+            [
+                "-m",
+                "fake/model",
+                "--runtime",
+                "pytorch",
+                "--task",
+                "text-generation",
+            ],
             obj={},
         )
 
         assert result.exit_code == 2
-        assert "does not use the standard labeled Hugging Face pipeline" in result.output
+        assert "Text-generation evaluation is not supported" in result.output
+
+    def test_rejects_mask_generation(self) -> None:
+        result = CliRunner().invoke(
+            eval,
+            [
+                "-m",
+                "fake/model",
+                "--runtime",
+                "pytorch",
+                "--task",
+                "mask-generation",
+            ],
+            obj={},
+        )
+
+        assert result.exit_code == 2
+        assert "requires composite ONNX models" in result.output
 
     def test_gpu_requires_cuda(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
@@ -327,6 +342,94 @@ class TestNativeEvaluation:
 
         with pytest.raises(ValueError, match="Invalid runtime"):
             evaluate(config)
+
+    def test_public_evaluate_passes_supplied_model_to_evaluator(self) -> None:
+        from winml.modelkit.eval import evaluate
+
+        model = MagicMock()
+        model.config = SimpleNamespace(_name_or_path="inferred/model")
+        model.device = torch.device("cpu")
+        captured: dict[str, object] = {}
+
+        class FakeEvaluator:
+            def __init__(self, config, evaluator_model) -> None:
+                captured["config"] = config
+                captured["model"] = evaluator_model
+
+            def compute(self) -> dict[str, float]:
+                return {"accuracy": 1.0}
+
+        config = WinMLEvaluationConfig(
+            task="image-classification",
+            dataset=DatasetConfig(path="fake/dataset"),
+        )
+
+        with (
+            patch(
+                "winml.modelkit.eval.evaluate.get_evaluator_class",
+                return_value=FakeEvaluator,
+            ),
+            patch("winml.modelkit.eval.evaluate._load_model") as load_model,
+        ):
+            result = evaluate(config, pytorch_model=model)
+
+        load_model.assert_not_called()
+        assert captured["model"] is model
+        assert captured["config"] is result.config
+        assert result.config.runtime == "pytorch"
+        assert result.config.model_id == "inferred/model"
+        assert result.config.device == "cpu"
+        assert config.runtime == "winml"
+        assert config.model_id is None
+
+    def test_supplied_model_id_overrides_model_config(self) -> None:
+        from winml.modelkit.eval.evaluate import _prepare_supplied_pytorch_model
+
+        model = MagicMock()
+        model.config = SimpleNamespace(_name_or_path="inferred/model")
+        model.device = torch.device("cpu")
+        config = WinMLEvaluationConfig(model_id="explicit/model")
+
+        resolved = _prepare_supplied_pytorch_model(config, model)
+
+        assert resolved.model_id == "explicit/model"
+
+    def test_supplied_model_requires_processor_source(self) -> None:
+        from winml.modelkit.eval import evaluate
+
+        model = MagicMock()
+        model.config = SimpleNamespace(_name_or_path="")
+        model.device = torch.device("cpu")
+        config = WinMLEvaluationConfig(
+            task="image-classification",
+            dataset=DatasetConfig(path="fake/dataset"),
+        )
+
+        with pytest.raises(ValueError, match=r"model\.config\._name_or_path"):
+            evaluate(config, pytorch_model=model)
+
+    def test_supplied_model_device_must_match_explicit_config(self) -> None:
+        from winml.modelkit.eval.evaluate import _prepare_supplied_pytorch_model
+
+        model = MagicMock()
+        model.config = SimpleNamespace(_name_or_path="fake/model")
+        model.device = torch.device("cuda")
+        config = WinMLEvaluationConfig(device="cpu")
+
+        with pytest.raises(ValueError, match="model is on gpu"):
+            _prepare_supplied_pytorch_model(config, model)
+
+    def test_supplied_model_preserves_cuda_ordinal_for_pipeline(self) -> None:
+        from winml.modelkit.eval.evaluate import _prepare_supplied_pytorch_model
+
+        model = MagicMock()
+        model.config = SimpleNamespace(_name_or_path="fake/model")
+        model.device = torch.device("cuda:1")
+
+        resolved = _prepare_supplied_pytorch_model(WinMLEvaluationConfig(), model)
+
+        assert resolved.device == "gpu"
+        assert resolved.pipeline_device == "cuda:1"
 
     def test_public_evaluate_rejects_onnx_state(self) -> None:
         from winml.modelkit.eval import evaluate

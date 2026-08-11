@@ -195,46 +195,38 @@ class TestModelArchitectureOverrideFast:
         assert call["task"] is None  # Auto-detect
         assert call["model_class"] is None
 
-    def test_checkpoint_class_and_dtype_override_export_wrapper(self, monkeypatch):
-        """Native consumers can load the checkpoint architecture and stored dtype."""
+    def test_dtype_is_forwarded_to_task_resolved_class(self, monkeypatch):
+        """Native consumers preserve dtype without overriding task resolution."""
         from types import SimpleNamespace
         from unittest.mock import MagicMock
 
         import winml.modelkit.loader.resolution as resolution_module
 
-        checkpoint_class = MagicMock()
-        checkpoint_class.__name__ = "CheckpointModel"
-        checkpoint_class.config_class = None
-        checkpoint_model = MagicMock()
-        checkpoint_class.from_pretrained.return_value = checkpoint_model
-        export_wrapper = MagicMock()
-        export_wrapper.__name__ = "ExportWrapper"
+        task_class = MagicMock()
+        task_class.__name__ = "TaskModel"
+        task_class.config_class = None
+        task_model = MagicMock()
+        task_class.from_pretrained.return_value = task_model
         config = SimpleNamespace(model_type="unit", architectures=["CheckpointModel"])
 
         monkeypatch.setattr(
             resolution_module,
             "resolve_task",
             lambda *_a, **_kw: SimpleNamespace(
-                task="text-generation",
-                model_class=export_wrapper,
+                task="image-classification",
+                model_class=task_class,
             ),
-        )
-        monkeypatch.setattr(
-            resolution_module,
-            "_resolve_model_class_from_config",
-            lambda _config: checkpoint_class,
         )
 
         model, _, task = load_hf_model(
             "fake/model",
             hf_config=config,
-            use_checkpoint_class=True,
             torch_dtype="auto",
         )
 
-        assert model is checkpoint_model
-        assert task == "text-generation"
-        checkpoint_class.from_pretrained.assert_called_once_with(
+        assert model is task_model
+        assert task == "image-classification"
+        task_class.from_pretrained.assert_called_once_with(
             "fake/model",
             trust_remote_code=False,
             config=config,

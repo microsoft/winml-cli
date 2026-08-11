@@ -38,7 +38,7 @@ class TestResolveNativeDevice:
             resolve_native_device("gpu")
 
 
-def test_load_native_hf_model_preserves_checkpoint_class_and_dtype() -> None:
+def test_load_native_hf_model_preserves_dtype_and_task_selection() -> None:
     model = MagicMock()
     model.to.return_value = model
     model.eval.return_value = model
@@ -59,7 +59,6 @@ def test_load_native_hf_model_preserves_checkpoint_class_and_dtype() -> None:
         "fake/model",
         task="image-classification",
         trust_remote_code=True,
-        use_checkpoint_class=True,
         torch_dtype="auto",
     )
     model.to.assert_called_once_with(torch.device("cpu"))

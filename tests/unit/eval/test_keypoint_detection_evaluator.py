@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from winml.modelkit.eval import WinMLKeypointDetectionEvaluator
+from winml.modelkit.eval import WinMLEvaluationConfig, WinMLKeypointDetectionEvaluator
 
 
 def _make_evaluator(box_format: str = "xywh") -> WinMLKeypointDetectionEvaluator:
@@ -32,6 +32,7 @@ def _make_evaluator(box_format: str = "xywh") -> WinMLKeypointDetectionEvaluator
     ev._sigmas = None
     ev._keypoint_names = None
     ev._dataset_index = 0
+    ev.config = WinMLEvaluationConfig(task="keypoint-detection")
     return ev
 
 
@@ -45,8 +46,6 @@ class TestBoxFormat:
         assert ev._to_xywh([10.0, 20.0, 40.0, 60.0]) == [10.0, 20.0, 30.0, 40.0]
 
     def test_processor_forwards_trust_remote_code(self):
-        from winml.modelkit.eval import WinMLEvaluationConfig
-
         ev = _make_evaluator()
         ev.config = WinMLEvaluationConfig(
             model_id="test/model",

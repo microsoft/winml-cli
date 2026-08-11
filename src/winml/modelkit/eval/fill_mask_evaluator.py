@@ -32,8 +32,6 @@ if TYPE_CHECKING:
 class WinMLFillMaskEvaluator(WinMLEvaluator):
     """Evaluate MLMs via pseudo-perplexity."""
 
-    supports_native = False
-
     def __init__(
         self,
         config: WinMLEvaluationConfig,
@@ -129,7 +127,9 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
                 continue
 
             encoding = {
-                k: v for k, v in tok(text, **tok_kwargs).items() if isinstance(v, torch.Tensor)
+                k: v.to(self.config.pipeline_device)
+                for k, v in tok(text, **tok_kwargs).items()
+                if isinstance(v, torch.Tensor)
             }
             ids = encoding["input_ids"][0].tolist()
             specials = tok.get_special_tokens_mask(ids, already_has_special_tokens=True)

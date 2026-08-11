@@ -164,13 +164,13 @@ def _validate_pytorch_runtime_config(config: WinMLEvaluationConfig) -> None:
             f"The PyTorch runtime cannot use WinML-only configuration: {', '.join(incompatible)}."
         )
 
-    if config.task is not None:
-        evaluator_class = get_evaluator_class(config)
-        if not evaluator_class.supports_native:
-            raise ValueError(
-                f"Task '{config.task}' does not use the standard labeled Hugging Face "
-                "pipeline and is not supported with --runtime pytorch."
-            )
+    if config.task == "text-generation":
+        raise ValueError("Text-generation evaluation is not supported with --runtime pytorch.")
+    if config.task == "mask-generation":
+        raise ValueError(
+            "Mask-generation evaluation requires composite ONNX models and is not "
+            "supported with --runtime pytorch."
+        )
 
 
 _FE_DEFAULT = {
@@ -512,7 +512,10 @@ def _load_genai_causal_lm(config: WinMLEvaluationConfig) -> WinMLGenaiCausalLM:
     )
 
 
-def _resolve_task(config: WinMLEvaluationConfig) -> str:
+def _resolve_task(
+    config: WinMLEvaluationConfig,
+    pytorch_model: nn.Module | None = None,
+) -> str:
     """Resolve the eval task and validate it is supported.
 
     An explicit ``config.task`` is surfaced verbatim (explicit means explicit).
@@ -524,7 +527,7 @@ def _resolve_task(config: WinMLEvaluationConfig) -> str:
     console = Console()
     console.print("[bold]Resolving task...[/bold]")
 
-    task = config.task if config.task is not None else _infer_task(config)
+    task = config.task if config.task is not None else _infer_task(config, pytorch_model)
 
     console.print(f"[dim]Use[/dim] {task} [dim]to evaluate[/dim]")
 
@@ -534,26 +537,103 @@ def _resolve_task(config: WinMLEvaluationConfig) -> str:
     return task
 
 
-def _infer_task(config: WinMLEvaluationConfig) -> str:
+def _infer_task(
+    config: WinMLEvaluationConfig,
+    pytorch_model: nn.Module | None = None,
+) -> str:
     """Infer the evaluation task from the model's Hugging Face config."""
-    if config.model_id is None:
-        raise ValueError("Cannot infer task without model_id. Provide --task.")
+    hf_config = getattr(pytorch_model, "config", None)
+    if hf_config is None:
+        if config.model_id is None:
+            raise ValueError("Cannot infer task without model_id or model.config. Provide --task.")
 
-    from transformers import AutoConfig
+        from transformers import AutoConfig
 
-    from ..loader import load_hf_config
+        from ..loader import load_hf_config
+
+        hf_config = load_hf_config(
+            AutoConfig,
+            config.model_id,
+            trust_remote_code=config.trust_remote_code,
+        )
+
     from ..loader.resolution import resolve_task
 
-    hf_config = load_hf_config(
-        AutoConfig,
-        config.model_id,
-        trust_remote_code=config.trust_remote_code,
-    )
     return resolve_task(hf_config).task
 
 
-def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
+def _pytorch_model_devices(model: nn.Module) -> tuple[str, str] | None:
+    """Return WinML and exact pipeline devices for a placed PyTorch model."""
+    device = getattr(model, "device", None)
+    if device is None:
+        parameters = getattr(model, "parameters", None)
+        if callable(parameters):
+            try:
+                device = next(iter(parameters())).device
+            except StopIteration:
+                device = None
+
+    device_type = getattr(device, "type", None)
+    if device_type == "cuda":
+        return "gpu", str(device)
+    if device_type == "cpu":
+        return "cpu", str(device)
+    if device_type is not None:
+        raise ValueError(
+            f"PyTorch model device {device!s} is not supported; use a CPU or CUDA model."
+        )
+    return None
+
+
+def _prepare_supplied_pytorch_model(
+    config: WinMLEvaluationConfig,
+    model: nn.Module,
+) -> WinMLEvaluationConfig:
+    """Resolve runtime metadata without reloading a supplied PyTorch model."""
+    model_id = config.model_id
+    if not model_id:
+        model_config = getattr(model, "config", None)
+        inferred_model_id = getattr(model_config, "_name_or_path", None)
+        if isinstance(inferred_model_id, str) and inferred_model_id.strip():
+            model_id = inferred_model_id
+    if not model_id:
+        raise ValueError(
+            "A supplied PyTorch model requires model_id or a non-empty "
+            "model.config._name_or_path for tokenizer or processor loading."
+        )
+
+    requested_device = config.device.lower()
+    if requested_device not in ("auto", "cpu", "gpu"):
+        raise ValueError(
+            f"Device {config.device!r} is not supported for a supplied PyTorch model; "
+            "use auto, cpu, or gpu."
+        )
+    model_devices = _pytorch_model_devices(model)
+    model_device = model_devices[0] if model_devices is not None else None
+    if model_device is not None and requested_device not in ("auto", model_device):
+        raise ValueError(
+            f"Supplied PyTorch model is on {model_device}, but config.device is {config.device!r}."
+        )
+
+    return replace(
+        config,
+        model_id=model_id,
+        runtime="pytorch",
+        device=model_device or config.device,
+        _pipeline_device_override=(model_devices[1] if model_devices is not None else None),
+    )
+
+
+def evaluate(
+    config: WinMLEvaluationConfig,
+    *,
+    pytorch_model: nn.Module | None = None,
+) -> EvalResult:
     """Run model evaluation.
+
+    A supplied ``pytorch_model`` is passed directly to the selected evaluator.
+    ``config.model_id`` remains an explicit processor/tokenizer override; when
+    omitted, it is inferred from ``pytorch_model.config._name_or_path``.
 
     This function does not mutate the caller's config. It creates internal
     copies via ``dataclasses.replace`` and ``deepcopy`` so the original
@@ -563,6 +643,8 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
 
     if config.runtime not in ("winml", "pytorch"):
         raise ValueError(f"Invalid runtime {config.runtime!r}; expected 'winml' or 'pytorch'.")
+    if pytorch_model is not None:
+        config = _prepare_supplied_pytorch_model(config, pytorch_model)
     mode = config.mode if config.mode is not None else "onnx"
     if mode not in EVAL_MODES:
         raise ValueError(f"Invalid mode {mode!r}; expected one of {EVAL_MODES} or None.")
@@ -572,7 +654,7 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
     config = replace(
         config,
         mode=mode,
-        task=config.task if onnx_compare else _resolve_task(config),
+        task=(config.task if onnx_compare else _resolve_task(config, pytorch_model)),
         dataset=deepcopy(config.dataset),
     )
     _validate_pytorch_runtime_config(config)
@@ -603,16 +685,21 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
     print_config(config)
     console = Console()
 
-    console.print("\n[bold]Loading model...[/bold]")
-    try:
-        model = _load_model(config)
-    except Exception as error:
-        raise ValueError(
-            f"Failed to load model '{config.model_id}'. "
-            "Check --model, --model-id, --task, device, and EP settings. "
-            f"For composite models, run 'winml eval --schema --task {config.task}' "
-            "to see supported role=path model options.",
-        ) from error
+    model: Any
+    if pytorch_model is not None:
+        console.print("\n[bold]Using supplied PyTorch model...[/bold]")
+        model = pytorch_model
+    else:
+        console.print("\n[bold]Loading model...[/bold]")
+        try:
+            model = _load_model(config)
+        except Exception as error:
+            raise ValueError(
+                f"Failed to load model '{config.model_id}'. "
+                "Check --model, --model-id, --task, device, and EP settings. "
+                f"For composite models, run 'winml eval --schema --task {config.task}' "
+                "to see supported role=path model options.",
+            ) from error
 
     from ..utils.eval_utils import DatasetValidationError
 

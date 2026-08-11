@@ -131,8 +131,6 @@ class WinMLMaskGenerationEvaluator(WinMLEvaluator):
     ``WinMLAutoModel`` composite-registry path.
     """
 
-    supports_native = False
-
     # Required sub-model role names (must appear as keys in
     # ``config.model_path`` when it is a dict).
     _ENCODER_ROLE = "image-encoder"

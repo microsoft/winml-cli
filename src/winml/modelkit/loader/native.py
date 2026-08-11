@@ -60,7 +60,7 @@ def load_native_hf_model(
     device: str = "auto",
     trust_remote_code: bool = False,
 ) -> NativeHFModel:
-    """Load a checkpoint-declared Hugging Face class without ONNX export."""
+    """Load the task-resolved Hugging Face model without ONNX export."""
     from .hf import load_hf_model
 
     resolved_device = resolve_native_device(device)
@@ -68,7 +68,6 @@ def load_native_hf_model(
         model_id,
         task=task,
         trust_remote_code=trust_remote_code,
-        use_checkpoint_class=True,
         torch_dtype="auto",
     )
     model = model.to(resolved_device.torch_device).eval()

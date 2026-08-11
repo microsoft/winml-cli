@@ -189,10 +189,18 @@ class WinMLEvaluationConfig:
     runtime: EvalRuntime = "winml"
     trust_remote_code: bool = False
     _auto_device_selected: bool = field(default=False, repr=False, compare=False, kw_only=True)
+    _pipeline_device_override: str | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        kw_only=True,
+    )
 
     @property
     def pipeline_device(self) -> str:
         """Return the tensor-placement device expected by Transformers pipelines."""
+        if self._pipeline_device_override is not None:
+            return self._pipeline_device_override
         if self.runtime == "pytorch" and self.device.lower() == "gpu":
             return "cuda"
         return "cpu"
