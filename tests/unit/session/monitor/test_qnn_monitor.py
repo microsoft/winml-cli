@@ -1280,7 +1280,7 @@ def test_try_qhas_falls_back_when_schematic_publication_fails(tmp_path, monkeypa
     assert summary is None
     assert operators is None
     assert result_path is None
-    assert fallback_reason == TraceFallbackReason.SCHEMATIC_MISSING
+    assert fallback_reason == TraceFallbackReason.SCHEMATIC_PUBLISH_FAILED
     assert "schematic" not in artifacts
     assert not list(output_dir.glob("*_schematic.bin"))
     assert not list(output_dir.glob("*.tmp"))

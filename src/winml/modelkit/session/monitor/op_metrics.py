@@ -41,6 +41,7 @@ class TraceFallbackReason(StrEnum):
     SCHEMATIC_MISSING = "schematic_missing"
     SDK_MISSING = "sdk_missing"
     VIEWER_FAILED = "viewer_failed"
+    SCHEMATIC_PUBLISH_FAILED = "schematic_publish_failed"
     QHAS_OUTPUT_MISSING = "qhas_output_missing"
     QHAS_PARSE_FAILED = "qhas_parse_failed"
 
@@ -157,10 +158,10 @@ class OpTraceResult:
     # Status of the trace. See :data:`TraceStatus` for the closed set of
     # legal values; static type checkers enforce the alias.
     status: TraceStatus = "ok"
-    # Populated when status == "basic_fallback".
-    fallback_reason: TraceFallbackReason | None = None
     # Populated when status == "parse_failed".
     error: str | None = None
+    # Populated when status == "basic_fallback".
+    fallback_reason: TraceFallbackReason | None = None
 
     def __post_init__(self) -> None:
         if self.fallback_reason is not None and self.status != "basic_fallback":
@@ -193,8 +194,8 @@ class OpTraceResult:
             "artifacts": self.artifacts,
             # ---- Additive ----
             "status": self.status,
-            "fallback_reason": fallback_reason,
             "error": self.error,
+            "fallback_reason": fallback_reason,
         }
 
     def to_json(self, indent: int = 2) -> str:

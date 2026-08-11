@@ -90,6 +90,9 @@ def _detail_fallback_guidance(reason: TraceFallbackReason | None) -> str:
             "the QNN SDK was not found; set QNN_SDK_ROOT to enable QHAS"
         ),
         TraceFallbackReason.VIEWER_FAILED: "the QHAS viewer did not produce an output",
+        TraceFallbackReason.SCHEMATIC_PUBLISH_FAILED: (
+            "could not copy the QNN optrace schematic next to the profiling artifacts"
+        ),
         TraceFallbackReason.QHAS_OUTPUT_MISSING: "the requested QHAS output was not found",
         TraceFallbackReason.QHAS_PARSE_FAILED: "the QHAS output could not be parsed",
     }

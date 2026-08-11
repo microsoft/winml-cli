@@ -974,6 +974,14 @@ class TestCliOpTracingDispatch:
 
         assert expected in _detail_fallback_guidance(reason)
 
+    def test_detail_fallback_guidance_distinguishes_schematic_publish_failure(self) -> None:
+        from winml.modelkit.commands.perf import _detail_fallback_guidance
+
+        guidance = _detail_fallback_guidance(TraceFallbackReason.SCHEMATIC_PUBLISH_FAILED)
+
+        assert "copy" in guidance.lower() or "publish" in guidance.lower()
+        assert "raw ONNX" not in guidance
+
     def test_basic_fallback_status_rejects_raw_running_model(self, tmp_path: Path):
         """Detail tracing cannot degrade successfully when ORT ran the raw model."""
         from unittest.mock import MagicMock

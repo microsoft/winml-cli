@@ -167,10 +167,34 @@ def test_to_dict_serializes_fallback_reason() -> None:
     assert serialized["error"] is None
 
 
+def test_positional_status_error_order_remains_backward_compatible() -> None:
+    """Existing callers that pass status/error positionally keep working."""
+    result = OpTraceResult(
+        None,
+        "npu",
+        "detail",
+        [],
+        "",
+        "",
+        "2026-01-01T00:00:00+00:00",
+        0,
+        {},
+        {},
+        {},
+        "parse_failed",
+        "invalid CSV header",
+    )
+
+    assert result.status == "parse_failed"
+    assert result.error == "invalid CSV header"
+    assert result.fallback_reason is None
+
+
 def test_trace_fallback_reason_is_str_enum() -> None:
     """Fallback reasons are centralized enum values that still behave as strings."""
     assert issubclass(TraceFallbackReason, StrEnum)
     assert TraceFallbackReason.SCHEMATIC_MISSING == "schematic_missing"
+    assert TraceFallbackReason.SCHEMATIC_PUBLISH_FAILED == "schematic_publish_failed"
 
 
 def test_non_fallback_status_rejects_fallback_reason() -> None:

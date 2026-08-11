@@ -730,7 +730,7 @@ class QNNMonitor(WinMLEPMonitor):
                 return None, None, None, TraceFallbackReason.SDK_MISSING
             schematic = self._publish_schematic(schematic)
             if schematic is None:
-                return None, None, None, TraceFallbackReason.SCHEMATIC_MISSING
+                return None, None, None, TraceFallbackReason.SCHEMATIC_PUBLISH_FAILED
 
             qhas_output = self._qhas_output_path()
             viewer_result = run_qhas_viewer_result(
