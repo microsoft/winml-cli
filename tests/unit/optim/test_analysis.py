@@ -13,6 +13,7 @@ Follows the Cardinal Rules:
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from onnx import GraphProto, ModelProto, TensorProto, helper, numpy_helper
 
 from winml.modelkit.optim import (
@@ -237,6 +238,30 @@ class TestInitializerDiff:
         assert added == []
         assert modified == []
 
+    @pytest.mark.parametrize(
+        ("data_type", "field_name"),
+        [
+            (TensorProto.FLOAT, "float_data"),
+            (TensorProto.DOUBLE, "double_data"),
+        ],
+    )
+    def test_repeated_float_signed_zero_change_is_detected(
+        self,
+        data_type: int,
+        field_name: str,
+    ) -> None:
+        base_init = TensorProto(name="W", data_type=data_type, dims=[1])
+        probe_init = TensorProto(name="W", data_type=data_type, dims=[1])
+        getattr(base_init, field_name).append(-0.0)
+        getattr(probe_init, field_name).append(0.0)
+
+        _, _, modified = _diff_initializers(
+            {"W": base_init},
+            {"W": probe_init},
+        )
+
+        assert modified == ["W"]
+
 
 class TestExternalDataInitializerDiff:
     """External-data location churn must not read as a modified initializer."""
@@ -434,6 +459,29 @@ class TestAnalyzeModel:
         after_value = numpy_helper.to_array(model.graph.initializer[0])
         np.testing.assert_array_equal(before_value, after_value)
 
+    def test_preparation_failure_falls_back_and_cleans_up(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from winml.modelkit.optim.pipes import SurgeryPipe
+
+        cleanup_calls: list[None] = []
+        monkeypatch.setattr("winml.modelkit.optim.pipes.PIPES", [SurgeryPipe])
+        monkeypatch.setattr(
+            SurgeryPipe,
+            "prepare_analysis_model",
+            lambda _self, _model: (_ for _ in ()).throw(RuntimeError("prepare failed")),
+        )
+        monkeypatch.setattr(
+            SurgeryPipe,
+            "finish_analysis",
+            lambda _self: cleanup_calls.append(None),
+        )
+
+        findings = analyze_model(_extreme_constant_model(), SurgeryPipe.capabilities)
+
+        assert "clamp-constant-values" in {finding.name for finding in findings}
+        assert cleanup_calls == [None]
+
 
 # =============================================================================
 # OPTIMIZATION OUTPUT ITERATION
@@ -473,3 +521,24 @@ class TestIterOptimizationOutputs:
         iter_names = {finding.name for finding, _ in iter_optimization_outputs(model, caps)}
         analyze_names = {finding.name for finding in analyze_model(_matmul_add_model(), caps)}
         assert iter_names == analyze_names
+
+    def test_closing_iterator_cleans_up_prepared_pipe(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from winml.modelkit.optim.pipes import SurgeryPipe
+
+        cleanup_calls: list[None] = []
+        monkeypatch.setattr("winml.modelkit.optim.pipes.PIPES", [SurgeryPipe])
+        monkeypatch.setattr(
+            SurgeryPipe,
+            "finish_analysis",
+            lambda _self: cleanup_calls.append(None),
+        )
+
+        outputs = iter_optimization_outputs(_extreme_constant_model(), SurgeryPipe.capabilities)
+        finding, _ = next(outputs)
+        assert finding.name == "clamp-constant-values"
+
+        outputs.close()
+
+        assert cleanup_calls == [None]

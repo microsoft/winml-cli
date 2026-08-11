@@ -24,6 +24,7 @@ is derived from the concrete graph diff.
 from __future__ import annotations
 
 import logging
+from array import array
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -228,6 +229,7 @@ def _initializers_equal(base: TensorProto, probe: TensorProto) -> bool:
         return True
 
     ignored_fields = {"data_location", "external_data"}
+    float_field_types = {"float_data": "f", "double_data": "d"}
     for descriptor in TensorProto.DESCRIPTOR.fields:
         if descriptor.name in ignored_fields:
             continue
@@ -235,7 +237,14 @@ def _initializers_equal(base: TensorProto, probe: TensorProto) -> bool:
         base_value = getattr(base, descriptor.name)
         probe_value = getattr(probe, descriptor.name)
         if descriptor.is_repeated:
-            if list(base_value) != list(probe_value):
+            typecode = float_field_types.get(descriptor.name)
+            if typecode is not None:
+                values_equal = array(typecode, base_value).tobytes() == array(
+                    typecode, probe_value
+                ).tobytes()
+            else:
+                values_equal = base_value == probe_value
+            if not values_equal:
                 return False
         elif descriptor.message_type is not None:
             if base.HasField(descriptor.name) != probe.HasField(descriptor.name):
@@ -377,78 +386,95 @@ def _iter_findings(
         base_nodes: dict[tuple[Any, ...], tuple[bytes, NodeRef]] = {}
         _collect_nodes(base_out.graph, (), base_nodes)
         base_inits = _collect_initializers(base_out)
-        prepared_probe_model = pipe.prepare_analysis_model(current)
-
-        for cap_name, cap in probe_caps:
-            if on_probe_start is not None:
-                on_probe_start(cap_name)
+        prepared_probe_model = current
+        analysis_prepared = False
+        try:
             try:
-                # Enable only this capability (plus its dependencies) on top of
-                # the all-defaults configuration.
-                kebab = dict(kebab_defaults)
-                kebab[cap_name] = True
-                kebab = auto_enable_dependencies(kebab, capabilities)
-                probe_kwargs = {
-                    capabilities[name].python_name: value
-                    for name, value in kebab.items()
-                    if name in capabilities
-                }
-
-                probe_config = pipe.build_config(**probe_kwargs)
-                should_process = getattr(pipe, "should_process", None)
-                if callable(should_process) and not should_process(probe_config):
-                    # Pipe would not run for this capability — nothing to apply.
-                    continue
-
-                # NB: this deliberately calls pipe.process directly rather than
-                # reusing _run_pipe. The probe must distinguish "pipe opts out"
-                # (handled above by continuing without emitting a finding) from
-                # "pipe ran but changed nothing", and it must isolate a failing
-                # capability in try/except so one bad probe cannot abort the scan.
-                try:
-                    probe_input = (
-                        _clone(prepared_probe_model)
-                        if pipe.requires_analysis_clone()
-                        else prepared_probe_model
-                    )
-                    probe_out = pipe.process_analysis(probe_input, probe_config)
-                except Exception as exc:
-                    logger.warning(
-                        "Could not evaluate capability '%s' on pipe '%s': %s",
-                        cap_name,
-                        pipe.name,
-                        exc,
-                    )
-                    continue
-
-                probe_nodes: dict[tuple[Any, ...], tuple[bytes, NodeRef]] = {}
-                _collect_nodes(probe_out.graph, (), probe_nodes)
-                removed, added, modified = _diff_nodes(base_nodes, probe_nodes)
-
-                probe_inits = _collect_initializers(probe_out)
-                rem_init, add_init, mod_init = _diff_initializers(base_inits, probe_inits)
-
-                finding = CapabilityFinding(
-                    name=cap.name,
-                    python_name=cap.python_name,
-                    enable_flag=f"--enable-{cap.name}",
-                    category=cap.category.value,
-                    description=cap.description,
-                    pipe_name=pipe.name,
-                    removed_nodes=removed,
-                    added_nodes=added,
-                    modified_nodes=modified,
-                    removed_initializers=rem_init,
-                    added_initializers=add_init,
-                    modified_initializers=mod_init,
+                prepared_probe_model = pipe.prepare_analysis_model(current)
+                analysis_prepared = True
+            except Exception as exc:
+                logger.warning(
+                    "Could not prepare accelerated analysis for pipe '%s': %s. "
+                    "Falling back to isolated capability probes.",
+                    pipe.name,
+                    exc,
                 )
 
-                if finding.applicable:
-                    yield finding, probe_out
-            finally:
-                complete_probe(cap_name)
+            for cap_name, cap in probe_caps:
+                if on_probe_start is not None:
+                    on_probe_start(cap_name)
+                try:
+                    # Enable only this capability (plus its dependencies) on top of
+                    # the all-defaults configuration.
+                    kebab = dict(kebab_defaults)
+                    kebab[cap_name] = True
+                    kebab = auto_enable_dependencies(kebab, capabilities)
+                    probe_kwargs = {
+                        capabilities[name].python_name: value
+                        for name, value in kebab.items()
+                        if name in capabilities
+                    }
 
-        pipe.finish_analysis()
+                    probe_config = pipe.build_config(**probe_kwargs)
+                    should_process = getattr(pipe, "should_process", None)
+                    if callable(should_process) and not should_process(probe_config):
+                        # Pipe would not run for this capability — nothing to apply.
+                        continue
+
+                    try:
+                        if analysis_prepared:
+                            probe_input = (
+                                _clone(prepared_probe_model)
+                                if pipe.requires_analysis_clone()
+                                else prepared_probe_model
+                            )
+                            probe_out = pipe.process_analysis(probe_input, probe_config)
+                        else:
+                            probe_out = pipe.process(_clone(current), probe_config)
+                    except Exception as exc:
+                        logger.warning(
+                            "Could not evaluate capability '%s' on pipe '%s': %s",
+                            cap_name,
+                            pipe.name,
+                            exc,
+                        )
+                        continue
+
+                    probe_nodes: dict[tuple[Any, ...], tuple[bytes, NodeRef]] = {}
+                    _collect_nodes(probe_out.graph, (), probe_nodes)
+                    removed, added, modified = _diff_nodes(base_nodes, probe_nodes)
+
+                    probe_inits = _collect_initializers(probe_out)
+                    rem_init, add_init, mod_init = _diff_initializers(base_inits, probe_inits)
+
+                    finding = CapabilityFinding(
+                        name=cap.name,
+                        python_name=cap.python_name,
+                        enable_flag=f"--enable-{cap.name}",
+                        category=cap.category.value,
+                        description=cap.description,
+                        pipe_name=pipe.name,
+                        removed_nodes=removed,
+                        added_nodes=added,
+                        modified_nodes=modified,
+                        removed_initializers=rem_init,
+                        added_initializers=add_init,
+                        modified_initializers=mod_init,
+                    )
+
+                    if finding.applicable:
+                        yield finding, probe_out
+                finally:
+                    complete_probe(cap_name)
+        finally:
+            try:
+                pipe.finish_analysis()
+            except Exception as exc:
+                logger.warning(
+                    "Could not finish analysis cleanup for pipe '%s': %s",
+                    pipe.name,
+                    exc,
+                )
 
         # Advance the pipeline exactly as the real optimizer would.
         current = base_out
