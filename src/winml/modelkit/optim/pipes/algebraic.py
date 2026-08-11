@@ -19,6 +19,7 @@ from .base import BasePipe, PipeConfig, caps_dict
 ALGEBRAIC_CAPABILITIES: dict[str, Any] = caps_dict(
     algebraic.STATIC_SPLIT_TO_SLICE,
     algebraic.CONV_CHANNEL_AFFINE_FOLDING,
+    algebraic.EXP_POSITIVE_SCALE_FOLDING,
 )
 MAX_AFFINE_ROUTE_DEPTH = 64
 
@@ -29,6 +30,7 @@ class AlgebraicRewritePipeConfig(PipeConfig):
 
     static_split_to_slice: bool = False
     conv_channel_affine_folding: bool = False
+    exp_positive_scale_folding: bool = False
 
 
 @dataclass
@@ -36,6 +38,8 @@ class _GraphIndex:
     """Graph metadata required to identify statically bounded Split nodes."""
 
     producers: dict[str, onnx.NodeProto]
+    definition_collisions: set[str]
+    has_cycle: bool
     consumers: dict[str, list[onnx.NodeProto]]
     initializers: dict[str, onnx.TensorProto]
     shapes: dict[str, tuple[int | None, ...]]
@@ -46,10 +50,24 @@ class _GraphIndex:
     def build(cls, model: onnx.ModelProto) -> _GraphIndex:
         graph = model.graph
         producers: dict[str, onnx.NodeProto] = {}
+        definition_collisions: set[str] = set()
         consumers: dict[str, list[onnx.NodeProto]] = {}
+        graph_input_names = [value.name for value in graph.input if value.name]
+        initializer_names = [
+            initializer.name for initializer in graph.initializer if initializer.name
+        ]
+        for names in (graph_input_names, initializer_names):
+            seen: set[str] = set()
+            for name in names:
+                if name in seen:
+                    definition_collisions.add(name)
+                seen.add(name)
+        protected_definitions = set(graph_input_names) | set(initializer_names)
         for node in graph.node:
             for output in node.output:
                 if output:
+                    if output in protected_definitions or output in producers:
+                        definition_collisions.add(output)
                     producers[output] = node
             consumed_names = {input_name for input_name in node.input if input_name}
             for attribute in node.attribute:
@@ -60,6 +78,28 @@ class _GraphIndex:
                         consumed_names.update(_captured_tensor_names(nested_graph))
             for input_name in consumed_names:
                 consumers.setdefault(input_name, []).append(node)
+
+        node_indexes = {id(node): index for index, node in enumerate(graph.node)}
+        successors: list[set[int]] = [set() for _ in graph.node]
+        indegrees = [0] * len(graph.node)
+        for consumer_index, node in enumerate(graph.node):
+            predecessor_indexes = {
+                node_indexes[id(producer)]
+                for input_name in node.input
+                if input_name and (producer := producers.get(input_name)) is not None
+            }
+            indegrees[consumer_index] = len(predecessor_indexes)
+            for predecessor_index in predecessor_indexes:
+                successors[predecessor_index].add(consumer_index)
+        ready = [index for index, indegree in enumerate(indegrees) if indegree == 0]
+        visited_count = 0
+        while ready:
+            node_index = ready.pop()
+            visited_count += 1
+            for successor_index in successors[node_index]:
+                indegrees[successor_index] -= 1
+                if indegrees[successor_index] == 0:
+                    ready.append(successor_index)
 
         initializers = {initializer.name: initializer for initializer in graph.initializer}
         shapes: dict[str, tuple[int | None, ...]] = {}
@@ -72,6 +112,8 @@ class _GraphIndex:
 
         return cls(
             producers=producers,
+            definition_collisions=definition_collisions,
+            has_cycle=visited_count != len(graph.node),
             consumers=consumers,
             initializers=initializers,
             shapes=shapes,
@@ -92,6 +134,27 @@ class _AffineCandidate:
     end: int
     scale: np.ndarray
     offset: np.ndarray
+
+
+@dataclass
+class _ExpScaleCandidate:
+    """A positive post-Exp scale that can be merged into an existing bias."""
+
+    add: onnx.NodeProto
+    bias_input_index: int
+    output_node: onnx.NodeProto
+    mul: onnx.NodeProto
+    combined_bias: np.ndarray
+
+
+@dataclass
+class _ExpScaleInsertCandidate:
+    """A positive post-Exp scale that requires a new input Add."""
+
+    exp: onnx.NodeProto
+    output_node: onnx.NodeProto
+    mul: onnx.NodeProto
+    log_scale: np.ndarray
 
 
 class _NameAllocator:
@@ -153,7 +216,12 @@ def _constant_array(index: _GraphIndex, name: str) -> np.ndarray | None:
         return None
     initializer = index.initializers.get(name)
     if initializer is not None:
-        return np.asarray(onnx.numpy_helper.to_array(initializer))
+        if initializer.data_location == onnx.TensorProto.EXTERNAL and not initializer.raw_data:
+            return None
+        try:
+            return np.asarray(onnx.numpy_helper.to_array(initializer))
+        except (TypeError, ValueError, RuntimeError, onnx.checker.ValidationError):
+            return None
 
     producer = index.producers.get(name)
     if producer is None or not _is_standard_onnx_node(producer) or producer.op_type != "Constant":
@@ -164,10 +232,15 @@ def _constant_array(index: _GraphIndex, name: str) -> np.ndarray | None:
             return np.asarray(onnx.numpy_helper.to_array(value))
         except (TypeError, ValueError):
             return None
-    for attribute_name in ("value_float", "value_floats", "value_int", "value_ints"):
+    for attribute_name, dtype in (
+        ("value_float", np.float32),
+        ("value_floats", np.float32),
+        ("value_int", np.int64),
+        ("value_ints", np.int64),
+    ):
         attribute_value = _attribute(producer, attribute_name)
         if attribute_value is not None:
-            return np.asarray(attribute_value)
+            return np.asarray(attribute_value, dtype=dtype)
     return None
 
 
@@ -511,6 +584,285 @@ def _channel_preserving_view_output(
         if conflict or axes is None:
             return None
     return output_name
+
+
+def _order_preserving_view_output(
+    index: _GraphIndex,
+    node: onnx.NodeProto,
+    input_name: str,
+) -> str | None:
+    """Return a static shape-only view output that preserves element order."""
+    output_name = _node_output(node)
+    if (
+        output_name is None
+        or not _is_standard_onnx_node(node)
+        or not node.input
+        or node.input[0] != input_name
+        or node.op_type not in {"Reshape", "Squeeze", "Unsqueeze"}
+    ):
+        return None
+    input_shape = _static_shape(index, input_name)
+    output_shape = _static_shape(index, output_name)
+    if (
+        input_shape is None
+        or output_shape is None
+        or any(dimension <= 0 for dimension in (*input_shape, *output_shape))
+        or np.prod(input_shape, dtype=np.int64) != np.prod(output_shape, dtype=np.int64)
+    ):
+        return None
+
+    if node.op_type == "Reshape":
+        target_shape = _constant_ints(index, node.input[1]) if len(node.input) == 2 else None
+        allowzero = _attribute(node, "allowzero", 0)
+        if target_shape is None or allowzero not in (0, 1):
+            return None
+        if allowzero == 1 and 0 in target_shape:
+            return None
+    else:
+        axes, conflict = _single_attribute_or_input_ints(index, node, "axes", 1)
+        if conflict or axes is None:
+            return None
+    return output_name
+
+
+def _single_unobserved_consumer(
+    index: _GraphIndex,
+    tensor_name: str,
+) -> onnx.NodeProto | None:
+    if tensor_name in index.graph_outputs:
+        return None
+    consumers = index.consumers.get(tensor_name, [])
+    return consumers[0] if len(consumers) == 1 else None
+
+
+def _constant_input(
+    index: _GraphIndex,
+    node: onnx.NodeProto,
+    data_name: str | None = None,
+) -> tuple[int, np.ndarray] | None:
+    if len(node.input) != 2 or any(not input_name for input_name in node.input):
+        return None
+    if data_name is not None and sum(name == data_name for name in node.input) != 1:
+        return None
+    constants = [
+        (position, values)
+        for position, input_name in enumerate(node.input)
+        if (data_name is None or input_name != data_name)
+        and (values := _constant_array(index, input_name)) is not None
+    ]
+    return constants[0] if len(constants) == 1 else None
+
+
+def _post_exp_scale(
+    index: _GraphIndex,
+    exp: onnx.NodeProto,
+    visited: set[str] | None = None,
+) -> tuple[onnx.NodeProto, onnx.NodeProto, np.ndarray, tuple[int, ...]] | None:
+    if not _is_standard_onnx_node(exp) or exp.op_type != "Exp" or len(exp.input) != 1:
+        return None
+    exp_output = _node_output(exp)
+    if exp_output is None:
+        return None
+    route = set() if visited is None else set(visited)
+    if exp_output in route or len(route) >= MAX_AFFINE_ROUTE_DEPTH:
+        return None
+    route.add(exp_output)
+    current_name = exp_output
+    current_node = exp
+    next_node = _single_unobserved_consumer(index, current_name)
+    while next_node is not None:
+        view_output = _order_preserving_view_output(index, next_node, current_name)
+        if view_output is None:
+            break
+        if view_output in route or len(route) >= MAX_AFFINE_ROUTE_DEPTH:
+            return None
+        route.add(view_output)
+        current_name = view_output
+        current_node = next_node
+        next_node = _single_unobserved_consumer(index, current_name)
+
+    if next_node is None or not _is_standard_onnx_node(next_node) or next_node.op_type != "Mul":
+        return None
+    scale_operand = _constant_input(index, next_node, current_name)
+    mul_output = _node_output(next_node)
+    output_shape = _static_shape(index, current_name)
+    if scale_operand is None or mul_output is None or output_shape is None:
+        return None
+    scale = scale_operand[1]
+    if (
+        not np.issubdtype(scale.dtype, np.floating)
+        or not np.isfinite(scale).all()
+        or not np.all(scale > 0)
+    ):
+        return None
+    try:
+        np.broadcast_to(scale, output_shape)
+    except ValueError:
+        return None
+    return current_node, next_node, scale, output_shape
+
+
+def _exp_scale_candidate(
+    index: _GraphIndex,
+    add: onnx.NodeProto,
+) -> _ExpScaleCandidate | None:
+    if not _is_standard_onnx_node(add) or add.op_type != "Add":
+        return None
+    add_output = _node_output(add)
+    bias_operand = _constant_input(index, add)
+    if add_output is None or bias_operand is None:
+        return None
+    add_shape = _static_shape(index, add_output)
+    if add_shape is None:
+        return None
+
+    current_name = add_output
+    visited = {add_output}
+    next_node = _single_unobserved_consumer(index, current_name)
+    while next_node is not None:
+        view_output = _order_preserving_view_output(index, next_node, current_name)
+        if view_output is None:
+            break
+        if view_output in visited or len(visited) >= MAX_AFFINE_ROUTE_DEPTH:
+            return None
+        visited.add(view_output)
+        current_name = view_output
+        next_node = _single_unobserved_consumer(index, current_name)
+
+    if (
+        next_node is None
+        or not _is_standard_onnx_node(next_node)
+        or next_node.op_type != "Exp"
+        or list(next_node.input) != [current_name]
+    ):
+        return None
+    post_exp = _post_exp_scale(index, next_node, visited)
+    if post_exp is None:
+        return None
+    output_node, mul, scale, output_shape = post_exp
+    if output_shape != add_shape:
+        return None
+
+    bias = bias_operand[1]
+    if (
+        not np.issubdtype(bias.dtype, np.floating)
+        or bias.dtype != scale.dtype
+        or not np.isfinite(bias).all()
+        or not np.isfinite(scale).all()
+        or not np.all(scale > 0)
+    ):
+        return None
+    try:
+        np.broadcast_to(bias, add_shape)
+        np.broadcast_to(scale, add_shape)
+        combined_bias = np.asarray(bias + np.log(scale), dtype=bias.dtype)
+        np.broadcast_to(combined_bias, add_shape)
+    except ValueError:
+        return None
+    if not np.isfinite(combined_bias).all():
+        return None
+    return _ExpScaleCandidate(
+        add=add,
+        bias_input_index=bias_operand[0],
+        output_node=output_node,
+        mul=mul,
+        combined_bias=combined_bias,
+    )
+
+
+def _exp_scale_insert_candidate(
+    index: _GraphIndex,
+    exp: onnx.NodeProto,
+) -> _ExpScaleInsertCandidate | None:
+    if not _is_standard_onnx_node(exp) or exp.op_type != "Exp" or len(exp.input) != 1:
+        return None
+    current_name = exp.input[0]
+    visited = {current_name}
+    producer = index.producers.get(current_name)
+    while producer is not None and producer.op_type in {"Reshape", "Squeeze", "Unsqueeze"}:
+        if (
+            not producer.input
+            or _order_preserving_view_output(index, producer, producer.input[0]) != current_name
+        ):
+            return None
+        current_name = producer.input[0]
+        if current_name in visited or len(visited) >= MAX_AFFINE_ROUTE_DEPTH:
+            return None
+        visited.add(current_name)
+        producer = index.producers.get(current_name)
+
+    post_exp = _post_exp_scale(index, exp)
+    if post_exp is None:
+        return None
+    output_node, mul, scale, output_shape = post_exp
+    input_shape = _static_shape(index, exp.input[0])
+    if (
+        input_shape is None
+        or any(dimension <= 0 for dimension in (*input_shape, *output_shape))
+        or np.prod(input_shape, dtype=np.int64) != np.prod(output_shape, dtype=np.int64)
+    ):
+        return None
+    broadcast_scale = np.asarray(np.broadcast_to(scale, output_shape))
+    log_scale = np.asarray(np.log(broadcast_scale).reshape(input_shape), dtype=scale.dtype)
+    if not np.isfinite(log_scale).all():
+        return None
+    return _ExpScaleInsertCandidate(
+        exp=exp,
+        output_node=output_node,
+        mul=mul,
+        log_scale=log_scale,
+    )
+
+
+def _fold_exp_positive_scales(
+    model: onnx.ModelProto,
+    allocator: _NameAllocator,
+) -> None:
+    """Fold eligible positive post-Exp constants into existing input biases."""
+    index = _GraphIndex.build(model)
+    for add in list(model.graph.node):
+        candidate = _exp_scale_candidate(index, add)
+        if candidate is None:
+            continue
+        combined_name = _new_initializer(
+            model,
+            allocator,
+            candidate.combined_bias,
+            "algebraic_exp_log_bias",
+        )
+        candidate.add.input[candidate.bias_input_index] = combined_name
+        candidate.output_node.output[0] = candidate.mul.output[0]
+        _remove_nodes(model, {id(candidate.mul)})
+        index = _GraphIndex.build(model)
+
+    for exp in list(model.graph.node):
+        candidate = _exp_scale_insert_candidate(index, exp)
+        if candidate is None:
+            continue
+        log_scale_name = _new_initializer(
+            model,
+            allocator,
+            candidate.log_scale,
+            "algebraic_exp_log_scale",
+        )
+        adjusted_name = allocator.new("algebraic_exp_adjusted")
+        add = onnx.helper.make_node(
+            "Add",
+            [candidate.exp.input[0], log_scale_name],
+            [adjusted_name],
+            name=allocator.new("algebraic_exp_log_add"),
+        )
+        candidate.exp.input[0] = adjusted_name
+        candidate.output_node.output[0] = candidate.mul.output[0]
+        rewritten: list[onnx.NodeProto] = []
+        for node in model.graph.node:
+            if node is candidate.exp:
+                rewritten.append(add)
+            if node is not candidate.mul:
+                rewritten.append(node)
+        del model.graph.node[:]
+        model.graph.node.extend(rewritten)
+        index = _GraphIndex.build(model)
 
 
 def _collect_affine_chain(
@@ -977,12 +1329,17 @@ class AlgebraicRewritePipe(BasePipe[AlgebraicRewritePipeConfig]):
         return AlgebraicRewritePipeConfig(
             static_split_to_slice=kwargs.get("static_split_to_slice", False),
             conv_channel_affine_folding=kwargs.get("conv_channel_affine_folding", False),
+            exp_positive_scale_folding=kwargs.get("exp_positive_scale_folding", False),
         )
 
     @classmethod
     def should_process(cls, config: AlgebraicRewritePipeConfig) -> bool:
         """Return whether any algebraic rewrite is enabled."""
-        return config.static_split_to_slice or config.conv_channel_affine_folding
+        return (
+            config.static_split_to_slice
+            or config.conv_channel_affine_folding
+            or config.exp_positive_scale_folding
+        )
 
     def process(
         self,
@@ -995,10 +1352,15 @@ class AlgebraicRewritePipe(BasePipe[AlgebraicRewritePipeConfig]):
 
         result = onnx.ModelProto()
         result.CopyFrom(model)
+        index = _GraphIndex.build(result)
+        if index.definition_collisions or index.has_cycle:
+            return result
         allocator = _NameAllocator(result)
         introduced_nodes: set[str] = set()
         if config.conv_channel_affine_folding:
             _fold_channel_affine(result, allocator)
+        if config.exp_positive_scale_folding:
+            _fold_exp_positive_scales(result, allocator)
         if config.static_split_to_slice:
             _rewrite_static_splits(result, allocator, introduced_nodes)
         _prune_generated_slices(result, introduced_nodes)

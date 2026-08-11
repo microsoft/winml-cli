@@ -30,3 +30,13 @@ CONV_CHANNEL_AFFINE_FOLDING = BoolCapability(
     category=CapabilityCategory.REWRITE,
     default=False,
 )
+
+EXP_POSITIVE_SCALE_FOLDING = BoolCapability(
+    name="exp-positive-scale-folding",
+    ort_name=None,
+    description=(
+        "Fold a finite, strictly positive constant scale after Exp into the log-domain input bias"
+    ),
+    category=CapabilityCategory.REWRITE,
+    default=False,
+)

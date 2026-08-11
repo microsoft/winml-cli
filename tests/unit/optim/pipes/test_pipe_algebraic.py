@@ -25,6 +25,7 @@ from winml.modelkit.optim.pipes import (
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from pathlib import Path
 
 
 def _tensor(name: str, values: np.ndarray) -> onnx.TensorProto:
@@ -90,7 +91,11 @@ class TestAlgebraicRegistration:
 
     def test_capabilities_are_opt_in_and_independent(self) -> None:
         capabilities = get_all_capabilities()
-        names = {"static-split-to-slice", "conv-channel-affine-folding"}
+        names = {
+            "static-split-to-slice",
+            "conv-channel-affine-folding",
+            "exp-positive-scale-folding",
+        }
         assert names <= capabilities.keys()
         assert all(capabilities[name].default is False for name in names)
         assert all(
@@ -101,15 +106,19 @@ class TestAlgebraicRegistration:
         config = AlgebraicRewritePipe.build_config(
             static_split_to_slice=True,
             conv_channel_affine_folding=False,
+            exp_positive_scale_folding=True,
         )
         assert config.static_split_to_slice is True
         assert config.conv_channel_affine_folding is False
+        assert config.exp_positive_scale_folding is True
+        assert AlgebraicRewritePipe.should_process(config)
 
     def test_cli_lists_algebraic_flag(self) -> None:
         result = CliRunner().invoke(optimize, ["--list-capabilities"])
         assert result.exit_code == 0
         assert "--enable-static-split-to-slice" in result.output
         assert "--enable-conv-channel-affine-folding" in result.output
+        assert "--enable-exp-positive-scale-folding" in result.output
 
     def test_pipe_is_after_ort_graph_and_before_cleanup(self) -> None:
         names = [pipe.name for pipe in PIPES]
@@ -117,6 +126,115 @@ class TestAlgebraicRegistration:
         assert names.index("algebraic_rewrite") < names.index("surgery")
         assert PIPES[names.index("algebraic_rewrite")] is AlgebraicRewritePipe
         assert not AlgebraicRewritePipe.should_process(AlgebraicRewritePipeConfig())
+
+    def test_cli_combines_split_affine_and_exp_folding(self, tmp_path: Path) -> None:
+        rng = np.random.default_rng(40)
+        model = _model(
+            [
+                onnx.helper.make_node("Conv", ["conv_input", "weight"], ["conv_out"]),
+                onnx.helper.make_node(
+                    "Slice",
+                    ["conv_out", "first_starts", "first_ends", "channel_axis"],
+                    ["first"],
+                ),
+                onnx.helper.make_node(
+                    "Slice",
+                    ["conv_out", "second_starts", "second_ends", "channel_axis"],
+                    ["second"],
+                ),
+                onnx.helper.make_node(
+                    "Mul",
+                    ["first", "first_scale"],
+                    ["first_out"],
+                    name="target_conv_mul",
+                ),
+                onnx.helper.make_node(
+                    "Add",
+                    ["second", "second_offset"],
+                    ["second_out"],
+                    name="target_conv_add",
+                ),
+                onnx.helper.make_node(
+                    "Add",
+                    ["exp_input", "exp_bias"],
+                    ["biased"],
+                    name="retained_exp_add",
+                ),
+                onnx.helper.make_node("Exp", ["biased"], ["exponential"]),
+                onnx.helper.make_node(
+                    "Mul",
+                    ["exponential", "exp_scale"],
+                    ["exp_out"],
+                    name="target_exp_mul",
+                ),
+            ],
+            [_info("conv_input", [1, 1, 2, 2]), _info("exp_input", [1, 2])],
+            [
+                _info("first_out", [1, 2, 2, 2]),
+                _info("second_out", [1, 2, 2, 2]),
+                _info("exp_out", [1, 2]),
+            ],
+            [
+                _tensor("weight", rng.normal(size=(4, 1, 1, 1)).astype(np.float32)),
+                _tensor("first_starts", np.asarray([0], dtype=np.int64)),
+                _tensor("first_ends", np.asarray([2], dtype=np.int64)),
+                _tensor("second_starts", np.asarray([2], dtype=np.int64)),
+                _tensor("second_ends", np.asarray([4], dtype=np.int64)),
+                _tensor("channel_axis", np.asarray([1], dtype=np.int64)),
+                _tensor(
+                    "first_scale", np.asarray([1.25, 0.75], dtype=np.float32).reshape(1, 2, 1, 1)
+                ),
+                _tensor(
+                    "second_offset", np.asarray([0.5, -0.5], dtype=np.float32).reshape(1, 2, 1, 1)
+                ),
+                _tensor("exp_bias", np.asarray(-1.0, dtype=np.float32)),
+                _tensor("exp_scale", np.asarray([1.5, 2.0], dtype=np.float32)),
+            ],
+            value_info=[
+                _info("conv_out", [1, 4, 2, 2]),
+                _info("first", [1, 2, 2, 2]),
+                _info("second", [1, 2, 2, 2]),
+                _info("biased", [1, 2]),
+                _info("exponential", [1, 2]),
+            ],
+        )
+        input_path = tmp_path / "input.onnx"
+        output_path = tmp_path / "output.onnx"
+        onnx.save_model(model, input_path)
+
+        result = CliRunner().invoke(
+            optimize,
+            [
+                "-m",
+                str(input_path),
+                "-o",
+                str(output_path),
+                "--enable-gather-slice-to-split-fusion",
+                "--enable-conv-channel-affine-folding",
+                "--enable-exp-positive-scale-folding",
+                "--no-color",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        transformed = onnx.load_model(output_path)
+        names = {node.name for node in transformed.graph.node}
+        assert not {"target_conv_mul", "target_conv_add", "target_exp_mul"} & names
+        assert any(node.op_type == "Split" for node in transformed.graph.node)
+        assert [output.SerializeToString() for output in transformed.graph.output] == [
+            output.SerializeToString() for output in model.graph.output
+        ]
+        _assert_valid_with_inferred_shapes(transformed)
+        values = {
+            "conv_input": rng.normal(size=(1, 1, 2, 2)).astype(np.float32),
+            "exp_input": rng.normal(size=(1, 2)).astype(np.float32),
+        }
+        for original, rewritten in zip(
+            _run(model, values),
+            _run(transformed, values),
+            strict=True,
+        ):
+            np.testing.assert_allclose(original, rewritten, rtol=2e-5, atol=2e-5)
 
 
 class TestStaticSplitToSlice:
@@ -1661,3 +1779,560 @@ class TestConvChannelAffineFolding:
         )
 
         _assert_byte_identical(model, transformed)
+
+
+class TestExpPositiveScaleFolding:
+    """Test conservative positive scale folding into an existing pre-Exp bias."""
+
+    @pytest.fixture
+    def exp_scale_model(self) -> onnx.ModelProto:
+        tensor_shape = [1, 2, 1, 2, 2]
+        return _model(
+            [
+                onnx.helper.make_node("Add", ["x", "bias"], ["biased"]),
+                onnx.helper.make_node("Reshape", ["biased", "flat_shape"], ["flat"]),
+                onnx.helper.make_node("Exp", ["flat"], ["exponential"]),
+                onnx.helper.make_node(
+                    "Reshape",
+                    ["exponential", "tensor_shape"],
+                    ["restored"],
+                ),
+                onnx.helper.make_node("Mul", ["restored", "scale"], ["y"]),
+            ],
+            [_info("x", tensor_shape)],
+            [_info("y", tensor_shape)],
+            [
+                _tensor("bias", np.asarray(-2.0, dtype=np.float32)),
+                _tensor("flat_shape", np.asarray([1, 8], dtype=np.int64)),
+                _tensor("tensor_shape", np.asarray(tensor_shape, dtype=np.int64)),
+                _tensor(
+                    "scale",
+                    np.asarray([[[[[1.25, 1.5], [2.0, 0.75]]]]], dtype=np.float32),
+                ),
+            ],
+            value_info=[
+                _info("biased", tensor_shape),
+                _info("flat", [1, 8]),
+                _info("exponential", [1, 8]),
+                _info("restored", tensor_shape),
+            ],
+        )
+
+    def test_broadcast_scale_folds_through_round_trip_reshapes(
+        self,
+        exp_scale_model: onnx.ModelProto,
+    ) -> None:
+        rng = np.random.default_rng(30)
+        model = exp_scale_model
+        tensor_shape = [1, 2, 1, 2, 2]
+        values = {"x": rng.normal(size=tensor_shape).astype(np.float32)}
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        assert [node.op_type for node in transformed.graph.node] == [
+            "Add",
+            "Reshape",
+            "Exp",
+            "Reshape",
+        ]
+        assert transformed.graph.node[-1].output[0] == "y"
+        combined_name = transformed.graph.node[0].input[1]
+        combined = onnx.numpy_helper.to_array(
+            next(value for value in transformed.graph.initializer if value.name == combined_name)
+        )
+        expected = np.asarray(-2.0 + np.log(onnx.numpy_helper.to_array(model.graph.initializer[3])))
+        assert combined.shape == (1, 1, 1, 2, 2)
+        np.testing.assert_array_equal(combined, expected)
+        _assert_valid_with_inferred_shapes(transformed)
+        np.testing.assert_allclose(
+            _run(model, values),
+            _run(transformed, values),
+            rtol=2e-6,
+            atol=2e-6,
+        )
+
+    def test_squeeze_and_unsqueeze_views_fold(self) -> None:
+        rng = np.random.default_rng(31)
+        model = _model(
+            [
+                onnx.helper.make_node("Add", ["x", "bias"], ["biased"]),
+                onnx.helper.make_node("Unsqueeze", ["biased", "axes"], ["expanded"]),
+                onnx.helper.make_node("Exp", ["expanded"], ["exponential"]),
+                onnx.helper.make_node("Squeeze", ["exponential", "axes"], ["restored"]),
+                onnx.helper.make_node("Mul", ["restored", "scale"], ["y"]),
+            ],
+            [_info("x", [1, 2, 2])],
+            [_info("y", [1, 2, 2])],
+            [
+                _tensor("bias", np.asarray(-1.0, dtype=np.float32)),
+                _tensor("axes", np.asarray([1], dtype=np.int64)),
+                _tensor("scale", np.asarray([[[1.0, 1.25], [1.5, 2.0]]], dtype=np.float32)),
+            ],
+            value_info=[
+                _info("biased", [1, 2, 2]),
+                _info("expanded", [1, 1, 2, 2]),
+                _info("exponential", [1, 1, 2, 2]),
+                _info("restored", [1, 2, 2]),
+            ],
+        )
+        values = {"x": rng.normal(size=(1, 2, 2)).astype(np.float32)}
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        assert not any(node.op_type == "Mul" for node in transformed.graph.node)
+        _assert_valid_with_inferred_shapes(transformed)
+        np.testing.assert_allclose(
+            _run(model, values),
+            _run(transformed, values),
+            rtol=2e-6,
+            atol=2e-6,
+        )
+
+    def test_scale_without_existing_bias_becomes_pre_exp_add(self) -> None:
+        rng = np.random.default_rng(32)
+        scale = np.asarray([[[[1.0, 1.25], [1.5, 2.0]]]], dtype=np.float32)
+        model = _model(
+            [
+                onnx.helper.make_node("Exp", ["x"], ["exponential"]),
+                onnx.helper.make_node(
+                    "Reshape",
+                    ["exponential", "output_shape"],
+                    ["restored"],
+                ),
+                onnx.helper.make_node("Mul", ["restored", "scale"], ["y"]),
+            ],
+            [_info("x", [1, 4])],
+            [_info("y", [1, 1, 2, 2])],
+            [
+                _tensor("output_shape", np.asarray([1, 1, 2, 2], dtype=np.int64)),
+                _tensor("scale", scale),
+            ],
+            value_info=[
+                _info("exponential", [1, 4]),
+                _info("restored", [1, 1, 2, 2]),
+            ],
+        )
+        values = {"x": rng.normal(size=(1, 4)).astype(np.float32)}
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        assert [node.op_type for node in transformed.graph.node] == ["Add", "Exp", "Reshape"]
+        assert transformed.graph.node[-1].output[0] == "y"
+        log_scale_name = transformed.graph.node[0].input[1]
+        log_scale = onnx.numpy_helper.to_array(
+            next(value for value in transformed.graph.initializer if value.name == log_scale_name)
+        )
+        np.testing.assert_array_equal(log_scale, np.log(scale).reshape(1, 4))
+        _assert_valid_with_inferred_shapes(transformed)
+        np.testing.assert_allclose(
+            _run(model, values),
+            _run(transformed, values),
+            rtol=2e-6,
+            atol=2e-6,
+        )
+
+    def test_runtime_bias_keeps_original_add_and_replaces_mul(self) -> None:
+        rng = np.random.default_rng(34)
+        model = _model(
+            [
+                onnx.helper.make_node(
+                    "Add",
+                    ["x", "runtime_bias"],
+                    ["biased"],
+                    name="runtime_bias_add",
+                ),
+                onnx.helper.make_node("Exp", ["biased"], ["exponential"]),
+                onnx.helper.make_node("Mul", ["exponential", "scale"], ["y"]),
+            ],
+            [_info("x", [1, 4]), _info("runtime_bias", [1, 4])],
+            [_info("y", [1, 4])],
+            [_tensor("scale", np.asarray([1.0, 1.25, 1.5, 2.0], dtype=np.float32))],
+            value_info=[_info("biased", [1, 4]), _info("exponential", [1, 4])],
+        )
+        values = {
+            "x": rng.normal(size=(1, 4)).astype(np.float32),
+            "runtime_bias": rng.normal(size=(1, 4)).astype(np.float32),
+        }
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        assert [node.op_type for node in transformed.graph.node] == ["Add", "Add", "Exp"]
+        assert transformed.graph.node[0].name == "runtime_bias_add"
+        assert list(transformed.graph.node[0].input) == ["x", "runtime_bias"]
+        _assert_valid_with_inferred_shapes(transformed)
+        np.testing.assert_allclose(
+            _run(model, values),
+            _run(transformed, values),
+            rtol=2e-6,
+            atol=2e-6,
+        )
+
+    def test_constant_attribute_operands_preserve_float32_dtype(self) -> None:
+        rng = np.random.default_rng(33)
+        model = _model(
+            [
+                onnx.helper.make_node("Constant", [], ["bias"], value_float=-1.0),
+                onnx.helper.make_node("Constant", [], ["scale"], value_float=1.5),
+                onnx.helper.make_node("Add", ["x", "bias"], ["biased"]),
+                onnx.helper.make_node("Exp", ["biased"], ["exponential"]),
+                onnx.helper.make_node("Mul", ["exponential", "scale"], ["y"]),
+            ],
+            [_info("x", [1, 4])],
+            [_info("y", [1, 4])],
+            [],
+            value_info=[_info("biased", [1, 4]), _info("exponential", [1, 4])],
+        )
+        values = {"x": rng.normal(size=(1, 4)).astype(np.float32)}
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        assert [node.op_type for node in transformed.graph.node] == ["Add", "Exp"]
+        combined_name = transformed.graph.node[0].input[1]
+        combined = onnx.numpy_helper.to_array(
+            next(value for value in transformed.graph.initializer if value.name == combined_name)
+        )
+        assert combined.dtype == np.float32
+        _assert_valid_with_inferred_shapes(transformed)
+        np.testing.assert_allclose(
+            _run(model, values),
+            _run(transformed, values),
+            rtol=2e-6,
+            atol=2e-6,
+        )
+
+    def test_direct_float64_chain_preserves_initializer_precision(self) -> None:
+        shape = [1, 2]
+
+        def double_info(name: str) -> onnx.ValueInfoProto:
+            return onnx.helper.make_tensor_value_info(
+                name,
+                onnx.TensorProto.DOUBLE,
+                shape,
+            )
+
+        bias = np.asarray(1.0 + 2**-30, dtype=np.float64)
+        scale = np.asarray([[1.0 + 2**-29, 1.0 + 2**-28]], dtype=np.float64)
+        model = _model(
+            [
+                onnx.helper.make_node("Add", ["x", "bias"], ["biased"]),
+                onnx.helper.make_node("Exp", ["biased"], ["exponential"]),
+                onnx.helper.make_node("Mul", ["exponential", "scale"], ["y"]),
+            ],
+            [double_info("x")],
+            [double_info("y")],
+            [_tensor("bias", bias), _tensor("scale", scale)],
+            value_info=[double_info("biased"), double_info("exponential")],
+        )
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        combined_name = transformed.graph.node[0].input[1]
+        combined = onnx.numpy_helper.to_array(
+            next(value for value in transformed.graph.initializer if value.name == combined_name)
+        )
+        assert combined.dtype == np.float64
+        np.testing.assert_array_equal(combined, bias + np.log(scale))
+        _assert_valid_with_inferred_shapes(transformed)
+
+    def test_invalid_scale_broadcast_is_unchanged(
+        self,
+        exp_scale_model: onnx.ModelProto,
+    ) -> None:
+        scale = next(value for value in exp_scale_model.graph.initializer if value.name == "scale")
+        scale.CopyFrom(_tensor("scale", np.ones((1, 3, 1, 2, 2), dtype=np.float32)))
+
+        transformed = AlgebraicRewritePipe().process(
+            exp_scale_model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        _assert_byte_identical(exp_scale_model, transformed)
+
+    @pytest.mark.parametrize("scale_value", [0.0, -1.0, np.nan, np.inf])
+    def test_nonpositive_or_nonfinite_scale_is_unchanged(
+        self,
+        exp_scale_model: onnx.ModelProto,
+        scale_value: float,
+    ) -> None:
+        scale = next(value for value in exp_scale_model.graph.initializer if value.name == "scale")
+        scale.CopyFrom(_tensor("scale", np.full((1, 1, 1, 2, 2), scale_value, np.float32)))
+
+        transformed = AlgebraicRewritePipe().process(
+            exp_scale_model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        _assert_byte_identical(exp_scale_model, transformed)
+
+    @pytest.mark.parametrize(
+        "constant_name",
+        ["flat_shape", "tensor_shape", "scale"],
+    )
+    def test_overridable_constants_are_unchanged(
+        self,
+        exp_scale_model: onnx.ModelProto,
+        constant_name: str,
+    ) -> None:
+        initializer = next(
+            value for value in exp_scale_model.graph.initializer if value.name == constant_name
+        )
+        exp_scale_model.graph.input.append(
+            onnx.helper.make_tensor_value_info(
+                constant_name,
+                initializer.data_type,
+                list(initializer.dims),
+            )
+        )
+
+        transformed = AlgebraicRewritePipe().process(
+            exp_scale_model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        _assert_byte_identical(exp_scale_model, transformed)
+
+    def test_unloaded_external_scale_is_unchanged(
+        self,
+        exp_scale_model: onnx.ModelProto,
+    ) -> None:
+        scale = next(value for value in exp_scale_model.graph.initializer if value.name == "scale")
+        scale.ClearField("raw_data")
+        scale.data_location = onnx.TensorProto.EXTERNAL
+        location = scale.external_data.add()
+        location.key = "location"
+        location.value = "missing-scale.bin"
+
+        transformed = AlgebraicRewritePipe().process(
+            exp_scale_model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        _assert_byte_identical(exp_scale_model, transformed)
+
+    @pytest.mark.parametrize("duplicate_name", ["biased", "exponential", "y"])
+    def test_duplicate_tensor_definition_is_unchanged(
+        self,
+        exp_scale_model: onnx.ModelProto,
+        duplicate_name: str,
+    ) -> None:
+        exp_scale_model.graph.node.append(
+            onnx.helper.make_node("Identity", ["x"], [duplicate_name])
+        )
+
+        transformed = AlgebraicRewritePipe().process(
+            exp_scale_model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        _assert_byte_identical(exp_scale_model, transformed)
+
+    @pytest.mark.parametrize("collision", ["initializer", "graph_input", "initializer_copy"])
+    def test_cross_kind_definition_collision_is_unchanged(
+        self,
+        exp_scale_model: onnx.ModelProto,
+        collision: str,
+    ) -> None:
+        if collision == "initializer":
+            exp_scale_model.graph.node.append(onnx.helper.make_node("Identity", ["x"], ["scale"]))
+        elif collision == "graph_input":
+            exp_scale_model.graph.node.append(onnx.helper.make_node("Identity", ["x"], ["x"]))
+        else:
+            duplicate = onnx.TensorProto()
+            duplicate.CopyFrom(
+                next(value for value in exp_scale_model.graph.initializer if value.name == "scale")
+            )
+            exp_scale_model.graph.initializer.append(duplicate)
+
+        transformed = AlgebraicRewritePipe().process(
+            exp_scale_model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        _assert_byte_identical(exp_scale_model, transformed)
+
+    def test_malformed_post_exp_cycle_is_unchanged(self) -> None:
+        model = _model(
+            [
+                onnx.helper.make_node("Add", ["x", "bias"], ["biased"]),
+                onnx.helper.make_node("Exp", ["biased"], ["route_0"]),
+                onnx.helper.make_node("Reshape", ["route_0", "shape"], ["route_1"]),
+                onnx.helper.make_node("Reshape", ["route_1", "shape"], ["route_0"]),
+                onnx.helper.make_node("Mul", ["route_1", "scale"], ["y"]),
+            ],
+            [_info("x", [1, 4])],
+            [_info("y", [1, 4])],
+            [
+                _tensor("bias", np.asarray(-1.0, dtype=np.float32)),
+                _tensor("shape", np.asarray([1, 4], dtype=np.int64)),
+                _tensor("scale", np.asarray(1.5, dtype=np.float32)),
+            ],
+            value_info=[
+                _info("biased", [1, 4]),
+                _info("route_0", [1, 4]),
+                _info("route_1", [1, 4]),
+            ],
+        )
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        _assert_byte_identical(model, transformed)
+
+    def test_malformed_exp_mul_cycle_is_unchanged(self) -> None:
+        model = _model(
+            [
+                onnx.helper.make_node("Exp", ["y"], ["exponential"]),
+                onnx.helper.make_node("Mul", ["exponential", "scale"], ["y"]),
+            ],
+            [],
+            [_info("y", [1, 4])],
+            [_tensor("scale", np.asarray(1.5, dtype=np.float32))],
+            value_info=[_info("exponential", [1, 4])],
+        )
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        _assert_byte_identical(model, transformed)
+
+    @pytest.mark.parametrize("node_index", [2, 3, 4])
+    def test_custom_domain_interpreted_nodes_are_unchanged(
+        self,
+        exp_scale_model: onnx.ModelProto,
+        node_index: int,
+    ) -> None:
+        exp_scale_model.graph.node[node_index].domain = "com.example"
+
+        transformed = AlgebraicRewritePipe().process(
+            exp_scale_model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        _assert_byte_identical(exp_scale_model, transformed)
+
+    @pytest.mark.parametrize("protection", ["graph_output", "shared", "captured"])
+    def test_observed_intermediate_is_unchanged(
+        self,
+        exp_scale_model: onnx.ModelProto,
+        protection: str,
+    ) -> None:
+        if protection == "graph_output":
+            exp_scale_model.graph.output.append(_info("restored", [1, 2, 1, 2, 2]))
+        elif protection == "shared":
+            exp_scale_model.graph.node.append(
+                onnx.helper.make_node("Identity", ["restored"], ["observed"])
+            )
+            exp_scale_model.graph.output.append(_info("observed", [1, 2, 1, 2, 2]))
+        else:
+            branch = onnx.helper.make_graph(
+                [onnx.helper.make_node("Identity", ["restored"], ["branch_output"])],
+                "capturing_branch",
+                [],
+                [_info("branch_output", [1, 2, 1, 2, 2])],
+            )
+            exp_scale_model.graph.initializer.append(
+                _tensor("condition", np.asarray(True, dtype=np.bool_))
+            )
+            exp_scale_model.graph.node.append(
+                onnx.helper.make_node(
+                    "If",
+                    ["condition"],
+                    ["observed"],
+                    then_branch=branch,
+                    else_branch=branch,
+                )
+            )
+            exp_scale_model.graph.output.append(_info("observed", [1, 2, 1, 2, 2]))
+
+        transformed = AlgebraicRewritePipe().process(
+            exp_scale_model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        _assert_byte_identical(exp_scale_model, transformed)
+
+    def test_shape_domain_mismatch_is_unchanged(
+        self,
+        exp_scale_model: onnx.ModelProto,
+    ) -> None:
+        restored = next(
+            value for value in exp_scale_model.graph.value_info if value.name == "restored"
+        )
+        restored.type.tensor_type.shape.dim[1].ClearField("dim_value")
+        restored.type.tensor_type.shape.dim[1].dim_param = "channels"
+
+        transformed = AlgebraicRewritePipe().process(
+            exp_scale_model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        _assert_byte_identical(exp_scale_model, transformed)
+
+    def test_deep_view_route_is_unchanged(self) -> None:
+        route_depth = 65
+        nodes = [
+            onnx.helper.make_node("Add", ["x", "bias"], ["biased"]),
+            onnx.helper.make_node("Exp", ["biased"], ["route_0"]),
+        ]
+        value_info = [_info("biased", [1, 4]), _info("route_0", [1, 4])]
+        for route_index in range(route_depth):
+            nodes.append(
+                onnx.helper.make_node(
+                    "Reshape",
+                    [f"route_{route_index}", "shape"],
+                    [f"route_{route_index + 1}"],
+                )
+            )
+            value_info.append(_info(f"route_{route_index + 1}", [1, 4]))
+        nodes.append(onnx.helper.make_node("Mul", [f"route_{route_depth}", "scale"], ["y"]))
+        model = _model(
+            nodes,
+            [_info("x", [1, 4])],
+            [_info("y", [1, 4])],
+            [
+                _tensor("bias", np.asarray(-1.0, dtype=np.float32)),
+                _tensor("shape", np.asarray([1, 4], dtype=np.int64)),
+                _tensor("scale", np.asarray(1.5, dtype=np.float32)),
+            ],
+            value_info=value_info,
+        )
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        _assert_byte_identical(model, transformed)
+
+    def test_public_optimize_path_is_idempotent(
+        self,
+        exp_scale_model: onnx.ModelProto,
+    ) -> None:
+        transformed = optimize_onnx(exp_scale_model, exp_positive_scale_folding=True)
+        second = optimize_onnx(transformed, exp_positive_scale_folding=True)
+
+        assert transformed.SerializeToString() == second.SerializeToString()
+        assert not any(node.op_type == "Mul" for node in transformed.graph.node)
+        _assert_valid_with_inferred_shapes(second)
