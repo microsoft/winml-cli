@@ -1116,12 +1116,175 @@ def test_try_qhas_uses_csv_bound_artifacts(tmp_path, monkeypatch):
     summary, operators, result_path, fallback_reason = monitor._try_qhas({})
 
     assert seen_logs == [qnn_log]
-    assert seen_schematics == [schematic]
+    published_schematic = _schematic_for_csv(csv_path)
+    assert seen_schematics == [published_schematic]
+    assert published_schematic.read_bytes() == schematic.read_bytes()
     assert seen_outputs == [qhas_output]
     assert summary is not None
     assert operators is not None
     assert result_path == qhas_output.with_name(f"{qhas_output.stem}_qnn_htp_analysis_summary.json")
     assert fallback_reason is None
+
+
+def test_try_qhas_publishes_cwd_schematic_to_output_dir(tmp_path, monkeypatch):
+    """Persist the exact run-bound schematic beside the profiling artifacts."""
+    from winml.modelkit.session.monitor.qnn.viewer import QHASViewerResult
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    context_dir = tmp_path / "context"
+    output_dir = tmp_path / "output"
+    cwd_dir = tmp_path / "cwd"
+    sdk_dir = tmp_path / "sdk"
+    context_dir.mkdir()
+    output_dir.mkdir()
+    cwd_dir.mkdir()
+    sdk_dir.mkdir()
+
+    partition_name = "published_partition"
+    context_model = context_dir / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [(partition_name, 1)])
+    monitor = QNNMonitor(level="detail", output_dir=output_dir)
+    monitor.set_running_model_path(context_model)
+    csv_path = _profiling_csv_path(monitor)
+    csv_path.write_text("dummy", encoding="utf-8")
+    monitor.__enter__()
+    _qnn_log_for_csv(csv_path).write_text("fresh", encoding="utf-8")
+
+    source_schematic = _schematic_for_partition(cwd_dir, partition_name)
+    source_schematic.write_bytes(b"schematic")
+    published_schematic = _schematic_for_csv(csv_path)
+    qhas_output = _qhas_output_for_csv(csv_path)
+    seen_schematics: list[Path] = []
+
+    def _run_qhas_viewer(
+        _log: Path,
+        schematic: Path,
+        output: Path,
+        *,
+        sdk_root: Path,
+    ) -> Path:
+        assert sdk_root == sdk_dir
+        seen_schematics.append(schematic)
+        summary_output = output.with_name(f"{output.stem}_qnn_htp_analysis_summary.json")
+        _write_minimal_qhas(summary_output)
+        return summary_output
+
+    monkeypatch.chdir(cwd_dir)
+    monkeypatch.setattr(
+        "winml.modelkit.session.monitor.qnn_monitor.find_qnn_sdk",
+        lambda: sdk_dir,
+    )
+    monkeypatch.setattr(
+        "winml.modelkit.session.monitor.qnn_monitor.run_qhas_viewer_result",
+        lambda *args, **kwargs: QHASViewerResult(
+            path=_run_qhas_viewer(*args, **kwargs),
+            failure_reason=None,
+        ),
+    )
+
+    artifacts: dict[str, str] = {}
+    summary, operators, result_path, fallback_reason = monitor._try_qhas(artifacts)
+
+    assert summary is not None
+    assert operators is not None
+    assert result_path == qhas_output.with_name(f"{qhas_output.stem}_qnn_htp_analysis_summary.json")
+    assert fallback_reason is None
+    assert published_schematic.read_bytes() == b"schematic"
+    assert seen_schematics == [published_schematic]
+    assert artifacts["schematic"] == str(published_schematic)
+
+
+def test_publish_schematic_uses_run_unique_destination(tmp_path):
+    """Monitors sharing an output directory must not overwrite each other."""
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    source_schematic = tmp_path / "shared_partition_schematic.bin"
+    source_schematic.write_bytes(b"schematic")
+    first_monitor = QNNMonitor(level="detail", output_dir=output_dir)
+    second_monitor = QNNMonitor(level="detail", output_dir=output_dir)
+
+    first = first_monitor._publish_schematic(source_schematic)
+    second = second_monitor._publish_schematic(source_schematic)
+
+    assert first == _schematic_for_csv(_profiling_csv_path(first_monitor))
+    assert second == _schematic_for_csv(_profiling_csv_path(second_monitor))
+    assert first != second
+    assert first.read_bytes() == b"schematic"
+    assert second.read_bytes() == b"schematic"
+
+
+def test_publish_schematic_does_not_overwrite_existing_destination(tmp_path):
+    """Atomic publication must fail closed when the unique path already exists."""
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    source_schematic = tmp_path / "partition_schematic.bin"
+    source_schematic.write_bytes(b"new")
+    monitor = QNNMonitor(level="detail", output_dir=output_dir)
+    destination = _schematic_for_csv(_profiling_csv_path(monitor))
+    destination.write_bytes(b"existing")
+
+    assert monitor._publish_schematic(source_schematic) is None
+    assert destination.read_bytes() == b"existing"
+    assert not list(output_dir.glob("*.tmp"))
+
+
+def test_try_qhas_falls_back_when_schematic_publication_fails(tmp_path, monkeypatch):
+    """A failed sidecar copy must not produce a success-shaped QHAS result."""
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    context_dir = tmp_path / "context"
+    output_dir = tmp_path / "output"
+    cwd_dir = tmp_path / "cwd"
+    context_dir.mkdir()
+    output_dir.mkdir()
+    cwd_dir.mkdir()
+
+    partition_name = "copy_failure_partition"
+    context_model = context_dir / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [(partition_name, 1)])
+    monitor = QNNMonitor(level="detail", output_dir=output_dir)
+    monitor.set_running_model_path(context_model)
+    csv_path = _profiling_csv_path(monitor)
+    csv_path.write_text("dummy", encoding="utf-8")
+    monitor.__enter__()
+    _qnn_log_for_csv(csv_path).write_text("fresh", encoding="utf-8")
+    _schematic_for_partition(cwd_dir, partition_name).write_bytes(b"schematic")
+
+    monkeypatch.chdir(cwd_dir)
+    monkeypatch.setattr(
+        "winml.modelkit.session.monitor.qnn_monitor.find_qnn_sdk",
+        lambda: tmp_path / "sdk",
+    )
+
+    def _fail_copy(_source: Path, destination: Path) -> None:
+        destination.write_bytes(b"partial")
+        raise OSError("copy failed")
+
+    monkeypatch.setattr(
+        "winml.modelkit.session.monitor.qnn_monitor.shutil.copy2",
+        _fail_copy,
+    )
+    viewer = MagicMock()
+    monkeypatch.setattr(
+        "winml.modelkit.session.monitor.qnn_monitor.run_qhas_viewer_result",
+        viewer,
+    )
+
+    artifacts: dict[str, str] = {}
+    summary, operators, result_path, fallback_reason = monitor._try_qhas(artifacts)
+
+    assert summary is None
+    assert operators is None
+    assert result_path is None
+    assert fallback_reason == TraceFallbackReason.SCHEMATIC_MISSING
+    assert "schematic" not in artifacts
+    assert not list(output_dir.glob("*_schematic.bin"))
+    assert not list(output_dir.glob("*.tmp"))
+    viewer.assert_not_called()
 
 
 def test_try_qhas_ignores_other_runs_newer_qnn_log(tmp_path, monkeypatch):
