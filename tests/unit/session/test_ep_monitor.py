@@ -1110,6 +1110,103 @@ class TestPollerDeviceRouting:
         assert poller.device_kind == "gpu"
         assert poller.adapter_luid == "0x00000000_0xDEADBEEF"
 
+    def test_explicit_adapter_luid_bypasses_discovery(self):
+        """A runtime-provided adapter identity must bind the monitor exactly."""
+        from winml.modelkit.session.monitor._pdh import PdhPoller
+
+        fake_query = type(
+            "Q",
+            (),
+            {
+                "open": lambda self: None,
+                "add_counter": lambda self, *a, **k: True,
+                "prime": lambda self: None,
+                "collect": lambda self, **k: {},
+                "_collect_once": lambda self: {},
+                "close": lambda self: None,
+                "counter_names": [],
+            },
+        )()
+
+        with (
+            patch("winml.modelkit.session.monitor._pdh.resolve_adapter_luid") as mock_resolve,
+            patch(
+                "winml.modelkit.session.monitor._pdh.build_gpu_query",
+                return_value=fake_query,
+            ) as mock_build_gpu,
+        ):
+            poller = PdhPoller(
+                poll_interval_ms=50,
+                device="gpu",
+                adapter_luid="0x00000001_0x00000002",
+            )
+            poller.start()
+            poller.stop()
+
+        mock_resolve.assert_not_called()
+        mock_build_gpu.assert_called_once_with("0x00000001_0x00000002")
+        assert poller.adapter_luid == "0x00000001_0x00000002"
+
+    def test_startup_failure_clears_explicit_adapter_identity(self):
+        """Failed PDH startup must not report telemetry for an unmonitored adapter."""
+        from winml.modelkit.session.monitor._pdh import PdhPoller
+
+        fake_query = MagicMock()
+        with (
+            patch(
+                "winml.modelkit.session.monitor._pdh.build_gpu_query",
+                return_value=fake_query,
+            ),
+            patch(
+                "winml.modelkit.session.monitor._pdh.discover_gpu_luids",
+                side_effect=RuntimeError("PDH unavailable"),
+            ),
+        ):
+            poller = PdhPoller(
+                poll_interval_ms=50,
+                device="gpu",
+                adapter_luid="0x00000001_0x00000002",
+            )
+            poller.start()
+
+        fake_query.close.assert_called_once()
+        assert poller.adapter_luid is None
+        assert poller.device_kind is None
+        assert poller.is_active is False
+
+    def test_gpu_aggregate_can_be_disabled(self):
+        """CPU/RAM-only fallback must not discover or poll unrelated GPUs."""
+        from winml.modelkit.session.monitor._pdh import PdhPoller
+
+        fake_query = type(
+            "Q",
+            (),
+            {
+                "open": lambda self: None,
+                "add_counter": lambda self, *a, **k: True,
+                "prime": lambda self: None,
+                "collect": lambda self, **k: {},
+                "_collect_once": lambda self: {},
+                "close": lambda self: None,
+                "counter_names": [],
+            },
+        )()
+        with (
+            patch("winml.modelkit.session.monitor._pdh.PdhQuery", return_value=fake_query),
+            patch("winml.modelkit.session.monitor._pdh.discover_gpu_luids") as mock_discover_gpu,
+        ):
+            poller = PdhPoller(
+                poll_interval_ms=50,
+                device="cpu",
+                include_gpu_aggregate=False,
+            )
+            poller.start()
+            poller.stop()
+
+        mock_discover_gpu.assert_not_called()
+        assert poller.gpu_luids == []
+        assert poller.gpu_sample_count == 0
+
     def test_auto_prefers_npu_then_gpu(self):
         """device='auto' must probe NPU first, then GPU."""
         from winml.modelkit.session.monitor._pdh import PdhPoller

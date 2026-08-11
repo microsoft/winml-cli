@@ -21,7 +21,7 @@ $ winml perf [options]
 | `--task` | | `TEXT` | auto-detected | Explicit task override (e.g., `image-classification`). Inferred from the model if omitted. |
 | `--iterations` | | `INTEGER` | `100` | Number of timed inference iterations used to compute statistics. |
 | `--warmup` | | `INTEGER` | `10` | Number of warm-up iterations run before timing begins; excluded from statistics. |
-| `--device` | `-d` | `auto\|cpu\|gpu\|npu` | `auto` | Device to run the benchmark on. `auto` selects the highest-priority available device. |
+| `--device` | `-d` | `auto\|cpu\|gpu\|npu` | `auto` | Device to run the benchmark on. `auto` selects the highest-priority available device. With `--no-export`, only `auto`, `cpu`, and `gpu` apply; `gpu` maps to `torch.device("cuda")`, while `auto` selects CUDA when available and CPU otherwise. |
 | `--precision` | | `TEXT` | `auto` | Precision mode applied during model build: `auto`, `fp32`, `fp16`, `int8`, `int16`, or compound forms such as `w8a16`. |
 | `--ep` | | `TEXT` | — | Force a specific execution provider (e.g., `qnn`, `dml`, `vitisai`, `openvino`, `cpu`). Overrides the device-to-provider mapping. |
 | `--ep-options` | | `KEY=VALUE` (multiple) | — | Runtime EP provider option forwarded to the inference session (e.g., `--ep-options htp_performance_mode=burst`). Repeatable. Applies to both HuggingFace model IDs and ONNX file inputs. When detail op-tracing automatically compiles a raw ONNX model, these options are also applied to that compilation. |
@@ -32,6 +32,7 @@ $ winml perf [options]
 | `--input-specs` | | `PATH` | — | JSON input tensor specs to merge into the Hugging Face export config before benchmarking. Symbolic string dimensions infer dynamic axes. Ignored for pre-exported ONNX files and in `--module` mode. |
 | `--export-config` | | `PATH` | — | JSON ONNX export config overrides to apply when `perf` builds a Hugging Face model before benchmarking. Ignored for pre-exported ONNX files and in `--module` mode. |
 | `--dynamic-axes` | | `PATH` | — | JSON dynamic axes mapping for Hugging Face ONNX export, for example `{"input_ids": {"0": "batch", "1": "sequence"}}`. Ignored for pre-exported ONNX files and in `--module` mode. |
+| `--export/--no-export` | | flag | `true` | Export a Hugging Face model to ONNX before benchmarking. `--no-export` instead times the original PyTorch model's raw forward pass. |
 | `--quantize/--no-quantize` | | flag | `true` | Run quantization during model build (use `--no-quantize` to skip it). Useful for measuring the fp32 baseline. |
 | `--rebuild/--no-rebuild` | | flag | `false` | Force model rebuild even if a cached artifact already exists. |
 | `--ignore-cache/--no-ignore-cache` | | flag | `false` | Build from scratch in a temporary folder and discard the artifact after benchmarking. Implies `--rebuild`. |
@@ -46,7 +47,11 @@ $ winml perf [options]
 
 ## How it works
 
-`winml perf` loads the model through `WinMLAutoModel` — accepting both HuggingFace IDs and local ONNX files — then generates random input tensors from the model's I/O configuration. It runs the specified number of warm-up iterations (excluded from statistics) followed by the timed iterations, collecting per-sample latency. The final report includes mean, min, max, P50, P90, P95, P99, standard deviation, and throughput in samples per second. When `--monitor` is active, a hardware polling loop runs in parallel and records NPU / GPU utilization, CPU usage, and device memory alongside the timing data.
+By default, `winml perf` loads the model through `WinMLAutoModel` — accepting both HuggingFace IDs and local ONNX files — then generates random input tensors from the model's I/O configuration. It runs the specified number of warm-up iterations (excluded from statistics) followed by the timed iterations, collecting per-sample latency. The final report includes mean, min, max, P50, P90, P95, P99, standard deviation, and throughput in samples per second. When `--monitor` is active, a hardware polling loop runs in parallel and records NPU / GPU utilization, CPU usage, and device memory alongside the timing data.
+
+With `--no-export`, `perf` loads the task-resolved pretrained Hugging Face module in eval mode and times `model(**inputs)` under `torch.inference_mode()`. Preprocessing and postprocessing are outside the timing boundary. CUDA runs synchronize immediately before and after each timed forward pass so reported latency includes asynchronous GPU work. The checkpoint's parameter dtype is preserved, and JSON reports identify this path with `"backend": "pytorch"` and `"ep": null`.
+
+The native PyTorch path is limited to complete Hugging Face models. It does not accept ONNX files, `--runtime winml-genai`, `--module`, `--submodel`, NPU devices, execution providers, op tracing, or ONNX build/export controls such as `--precision`, quantization, optimization, compilation, cache controls, and export overrides. Iteration, warm-up, duration, batch, shape, `.npz` input, monitoring, memory, and output options remain available.
 
 ## Examples
 
@@ -76,6 +81,12 @@ Benchmark a pre-exported ONNX file on CPU with more iterations:
 
 ```bash
 $ winml perf -m model.onnx --device cpu --iterations 500
+```
+
+Benchmark the original Hugging Face PyTorch model on CUDA without exporting:
+
+```bash
+$ winml perf -m microsoft/resnet-50 --no-export --device gpu
 ```
 
 Benchmark a text model with an explicit task, targeting the NPU:
@@ -136,6 +147,7 @@ and logs a warning.
 ## Common pitfalls
 
 - **Warm-up too low on NPU.** The first several inferences on an NPU EP can be significantly slower due to kernel compilation and caching. The default of 10 warm-up iterations is usually enough for vision models, but transformer models with many operators may need `--warmup 30` or higher to reach steady-state latency.
+- **CUDA unavailable with `--no-export --device gpu`.** This mode requires a CUDA-enabled PyTorch installation and an available CUDA device. Use `--device auto` to fall back to CPU automatically.
 - **Hidden third-party diagnostics.** Normal `winml perf` output suppresses noisy native warning-level diagnostics and Hugging Face download/progress chatter so benchmark results stay readable. Use `-v`/`-vv` or set `WINMLCLI_SHOW_ALL_WARNINGS=1` to show those warnings when debugging provider or Hub issues.
 - **`--input-data` keys must match; dtypes are cast.** The `.npz` keys must equal the model's input names — a missing or unexpected key is a hard error (typo protection). Array dtypes are cast to the model's expected dtype with a warning (matching normal inference), so you don't have to hand-match widths. `.npy` files are not supported — save named arrays as `.npz`. When `--input-data` is set, `--batch-size` and `--shape-config` are ignored (the tensors define their own shapes). It is also rejected for `--module` mode, `--runtime winml-genai`, and composite (dual-encoder) models such as CLIP/SigLIP, where each sub-model has its own inputs that a single `.npz` cannot address.
 - **Real data only binds if the export kept axes dynamic.** When `-m` is a HuggingFace model ID, `perf` exports it with default shapes (because `--shape-config`/`--batch-size` are ignored under `--input-data`). If that export baked in static shapes, ORT will reject differently-shaped `--input-data`. Use `--dynamic-axes`/symbolic `--input-specs` for the Hugging Face build, or point `-m` at an ONNX file that already has dynamic axes.

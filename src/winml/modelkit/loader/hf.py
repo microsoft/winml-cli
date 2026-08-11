@@ -145,6 +145,9 @@ def load_hf_model(
     trust_remote_code: bool = False,
     hf_config: PretrainedConfig | None = None,
     model_type: str | None = None,
+    *,
+    use_checkpoint_class: bool = False,
+    torch_dtype: Any | None = None,
 ) -> tuple[nn.Module, PretrainedConfig, str]:
     """Load, detect task, and prepare HuggingFace model.
 
@@ -172,6 +175,12 @@ def load_hf_model(
         hf_config: Optional pre-loaded HF config. When supplied, the
             ``AutoConfig.from_pretrained`` round-trip is skipped — same dedup
             pattern as ``resolve_loader_config(hf_config=...)`` from PR #719.
+        use_checkpoint_class: Load the architecture declared by the checkpoint
+            instead of a WinML task-specific export wrapper. Falls back to the
+            task-resolved class when the declared architecture is unavailable
+            from transformers (for example, a remote-code model).
+        torch_dtype: Optional dtype policy forwarded to ``from_pretrained``.
+            Pass ``"auto"`` to preserve the checkpoint's stored dtype.
 
     Returns:
         Tuple of (model, hf_config, task)
@@ -263,6 +272,17 @@ def load_hf_model(
             raise ValueError(
                 f"Cannot resolve task/model for {model_name_or_path}. Original error: {e}"
             ) from e
+        if use_checkpoint_class:
+            from .resolution import _resolve_model_class_from_config
+
+            try:
+                resolved_class = _resolve_model_class_from_config(hf_config)
+            except ValueError:
+                logger.debug(
+                    "Checkpoint architecture is not importable from transformers; "
+                    "using the task-resolved model class %s",
+                    resolved_class.__name__,
+                )
 
     # [4] Model Instantiation
     logger.debug("Loading model with class: %s", resolved_class.__name__)
@@ -279,11 +299,13 @@ def load_hf_model(
         if len(matching_subconfigs) == 1:
             model_config = cast("PretrainedConfig", matching_subconfigs[0])
 
-    model = loader_cls.from_pretrained(
-        model_name_or_path,
-        trust_remote_code=trust_remote_code,
-        config=model_config,
-    )
+    load_kwargs: dict[str, Any] = {
+        "trust_remote_code": trust_remote_code,
+        "config": model_config,
+    }
+    if torch_dtype is not None:
+        load_kwargs["torch_dtype"] = torch_dtype
+    model = loader_cls.from_pretrained(model_name_or_path, **load_kwargs)
 
     # [5] Export Preparation
     model.eval()

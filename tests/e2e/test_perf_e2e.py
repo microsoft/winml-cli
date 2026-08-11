@@ -129,6 +129,7 @@ def _build_perf_args(
     input_data: Path | None = None,
     op_tracing: str | None = None,
     duration_overwrite: float | None = None,
+    no_export: bool = False,
 ) -> list[str]:
     """Build the argv list passed to the perf CLI.
 
@@ -172,6 +173,8 @@ def _build_perf_args(
         args += ["--op-tracing", op_tracing]
     if duration_overwrite is not None:
         args += ["--duration", str(duration_overwrite)]
+    if no_export:
+        args.append("--no-export")
     return args
 
 
@@ -835,6 +838,247 @@ class TestPerfHuggingFace:
     @pytest.fixture
     def model_arg(self) -> str:
         return "microsoft/resnet-50"
+
+    def test_no_export_benchmark_cpu(self, tmp_path: Path, model_arg: str):
+        """Benchmark the original Hugging Face PyTorch model on CPU."""
+        output_file = tmp_path / "perf_hf_pytorch_cpu.json"
+
+        result = CliRunner().invoke(
+            perf,
+            _build_perf_args(
+                model_arg=model_arg,
+                output_file=output_file,
+                device="cpu",
+                memory=False,
+                no_export=True,
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        data = json.loads(output_file.read_text())
+        assert data["benchmark_info"]["backend"] == "pytorch"
+        assert data["benchmark_info"]["device"] == "cpu"
+        assert data["benchmark_info"]["ep"] is None
+        assert data["benchmark_info"]["running_model_path"] == ""
+        assert data["latency_ms"]["mean"] > 0
+
+    def test_no_export_benchmark_cuda(self, tmp_path: Path, model_arg: str):
+        """Benchmark the original Hugging Face PyTorch model on CUDA when available."""
+        import torch
+
+        if not torch.cuda.is_available():
+            pytest.skip("CUDA is not available")
+
+        output_file = tmp_path / "perf_hf_pytorch_cuda.json"
+        result = CliRunner().invoke(
+            perf,
+            _build_perf_args(
+                model_arg=model_arg,
+                output_file=output_file,
+                device="gpu",
+                memory=False,
+                no_export=True,
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        data = json.loads(output_file.read_text())
+        assert data["benchmark_info"]["backend"] == "pytorch"
+        assert data["benchmark_info"]["device"] == "gpu"
+        assert data["benchmark_info"]["ep"] is None
+        assert data["latency_ms"]["mean"] > 0
+
+    def test_no_export_benchmark_decoder(self, tmp_path: Path):
+        """Benchmark a full decoder model without passing flattened ONNX cache inputs."""
+        output_file = tmp_path / "perf_hf_pytorch_decoder.json"
+        shape_config = tmp_path / "shape.json"
+        shape_config.write_text(json.dumps({"sequence_length": 7}))
+        args = _build_perf_args(
+            model_arg="hf-internal-testing/tiny-random-T5ForConditionalGeneration",
+            output_file=output_file,
+            device="cpu",
+            memory=False,
+            no_export=True,
+        )
+        args += ["--task", "text2text-generation", "--shape-config", str(shape_config)]
+
+        result = CliRunner().invoke(
+            perf,
+            args,
+            obj={},
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        data = json.loads(output_file.read_text())
+        assert data["benchmark_info"]["backend"] == "pytorch"
+        assert data["benchmark_info"]["task"] == "text2text-generation"
+        assert "input_ids" in data["model_info"]["input_names"]
+        assert all("." not in name for name in data["model_info"]["input_names"])
+        assert all(shape[1] == 7 for shape in data["model_info"]["input_shapes"] if len(shape) == 2)
+        assert data["latency_ms"]["mean"] > 0
+
+    def test_no_export_benchmark_multimodal(self, tmp_path: Path):
+        """Benchmark a full multimodal checkpoint with every compatible component input."""
+        output_file = tmp_path / "perf_hf_pytorch_multimodal.json"
+        args = _build_perf_args(
+            model_arg="hf-internal-testing/tiny-random-CLIPModel",
+            output_file=output_file,
+            device="cpu",
+            memory=False,
+            no_export=True,
+        )
+
+        result = CliRunner().invoke(
+            perf,
+            args,
+            obj={},
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        data = json.loads(output_file.read_text())
+        assert data["benchmark_info"]["backend"] == "pytorch"
+        assert {"input_ids", "pixel_values"} <= set(data["model_info"]["input_names"])
+        assert data["latency_ms"]["mean"] > 0
+
+    def test_no_export_benchmark_unregistered_multimodal(self, tmp_path: Path):
+        """Derive full-model inputs from nested configs without a composite registration."""
+        from transformers import (
+            BertConfig,
+            VisionTextDualEncoderConfig,
+            VisionTextDualEncoderModel,
+            ViTConfig,
+        )
+
+        model_dir = tmp_path / "dual-encoder"
+        config = VisionTextDualEncoderConfig.from_vision_text_configs(
+            ViTConfig(
+                image_size=16,
+                patch_size=4,
+                hidden_size=16,
+                num_hidden_layers=1,
+                num_attention_heads=2,
+                intermediate_size=32,
+            ),
+            BertConfig(
+                vocab_size=100,
+                hidden_size=16,
+                num_hidden_layers=1,
+                num_attention_heads=2,
+                intermediate_size=32,
+                max_position_embeddings=16,
+            ),
+            projection_dim=8,
+        )
+        VisionTextDualEncoderModel(config).save_pretrained(model_dir)
+        output_file = tmp_path / "perf_hf_pytorch_unregistered_multimodal.json"
+        args = _build_perf_args(
+            model_arg=str(model_dir),
+            output_file=output_file,
+            device="cpu",
+            memory=False,
+            no_export=True,
+        )
+
+        result = CliRunner().invoke(
+            perf,
+            args,
+            obj={},
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        data = json.loads(output_file.read_text())
+        assert {"input_ids", "pixel_values"} <= set(data["model_info"]["input_names"])
+        assert data["latency_ms"]["mean"] > 0
+
+    def test_no_export_benchmark_audio_checkpoint_shape(self, tmp_path: Path):
+        """Use the checkpoint encoder contract instead of an export-only audio shape."""
+        from transformers import WhisperConfig, WhisperForConditionalGeneration
+
+        model_dir = tmp_path / "whisper"
+        config = WhisperConfig(
+            vocab_size=100,
+            num_mel_bins=8,
+            d_model=16,
+            encoder_layers=1,
+            decoder_layers=1,
+            encoder_attention_heads=2,
+            decoder_attention_heads=2,
+            encoder_ffn_dim=32,
+            decoder_ffn_dim=32,
+            max_source_positions=30,
+            max_target_positions=16,
+            decoder_start_token_id=1,
+            pad_token_id=0,
+            bos_token_id=1,
+            eos_token_id=2,
+        )
+        WhisperForConditionalGeneration(config).save_pretrained(model_dir)
+        output_file = tmp_path / "perf_hf_pytorch_audio.json"
+
+        result = CliRunner().invoke(
+            perf,
+            _build_perf_args(
+                model_arg=str(model_dir),
+                output_file=output_file,
+                device="cpu",
+                memory=False,
+                no_export=True,
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        data = json.loads(output_file.read_text())
+        main_index = data["model_info"]["input_names"].index("input_features")
+        assert data["model_info"]["input_shapes"][main_index] == [1, 8, 60]
+        assert data["latency_ms"]["mean"] > 0
+
+    def test_no_export_benchmark_video_checkpoint_shape(self, tmp_path: Path):
+        """Generate a native video tensor when the architecture has no exporter config."""
+        from transformers import VideoMAEConfig, VideoMAEForVideoClassification
+
+        model_dir = tmp_path / "videomae"
+        config = VideoMAEConfig(
+            image_size=16,
+            patch_size=4,
+            num_channels=3,
+            num_frames=4,
+            tubelet_size=2,
+            hidden_size=16,
+            num_hidden_layers=1,
+            num_attention_heads=2,
+            intermediate_size=32,
+            num_labels=2,
+        )
+        VideoMAEForVideoClassification(config).save_pretrained(model_dir)
+        output_file = tmp_path / "perf_hf_pytorch_video.json"
+
+        result = CliRunner().invoke(
+            perf,
+            _build_perf_args(
+                model_arg=str(model_dir),
+                output_file=output_file,
+                device="cpu",
+                memory=False,
+                no_export=True,
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        data = json.loads(output_file.read_text())
+        main_index = data["model_info"]["input_names"].index("pixel_values")
+        assert data["model_info"]["input_shapes"][main_index] == [1, 4, 3, 16, 16]
+        assert data["latency_ms"]["mean"] > 0
 
     @pytest.mark.parametrize("ep", CPU_EPS)
     def test_benchmark_ep_cpu(self, ep: str, tmp_path: Path, model_arg: str):
