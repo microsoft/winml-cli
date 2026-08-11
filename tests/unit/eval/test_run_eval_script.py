@@ -148,7 +148,7 @@ class TestKillProcessTree:
         )
 
 
-def test_added_models_are_p3_without_cross_ep_group(run_eval):
+def test_curated_target_models_preserve_existing_priorities(run_eval):
     testsets_dir = (
         Path(__file__).resolve().parents[3]
         / "scripts"
@@ -156,16 +156,33 @@ def test_added_models_are_p3_without_cross_ep_group(run_eval):
         / "testsets"
     )
     curated = json.loads((testsets_dir / "models_curated.json").read_text(encoding="utf-8"))
-    added = [entry for entry in curated if entry["priority"] == "P3"]
-    added_keys = {(entry["hf_id"], entry["task"]) for entry in added}
+    target_entries = curated[-43:]
+    target_keys = {(entry["hf_id"], entry["task"]) for entry in target_entries}
+    expected_p2 = {
+        ("Helsinki-NLP/opus-mt-en-ru", "translation"),
+        ("Helsinki-NLP/opus-mt-fr-en", "translation"),
+        ("cross-encoder/ms-marco-MiniLM-L4-v2", "text-classification"),
+        ("cross-encoder/ms-marco-MiniLM-L6-v2", "text-classification"),
+        ("facebook/bart-large-mnli", "text-classification"),
+        ("mixedbread-ai/mxbai-rerank-xsmall-v1", "text-classification"),
+    }
 
     entries = run_eval.load_registry(testsets_dir / "models_all.json")
-    generated = [entry for entry in entries if (entry.hf_id, entry.task) in added_keys]
+    generated = [entry for entry in entries if (entry.hf_id, entry.task) in target_keys]
 
-    assert len(added) == 43
+    assert len(target_entries) == 43
     assert len(generated) == 43
-    assert {entry["group"] for entry in added} == {"Top200"}
-    assert {entry.priority for entry in generated} == {"P3"}
+    assert {entry["group"] for entry in target_entries} == {"Top200"}
+    assert {
+        (entry["hf_id"], entry["task"])
+        for entry in target_entries
+        if entry["priority"] == "P2"
+    } == expected_p2
+    assert sum(entry["priority"] == "P3" for entry in target_entries) == 37
+    assert {
+        (entry.hf_id, entry.task) for entry in generated if entry.priority == "P2"
+    } == expected_p2
+    assert sum(entry.priority == "P3" for entry in generated) == 37
     assert {entry.group for entry in generated} == {"Top200"}
     assert "Cross EP" not in json.dumps(curated)
     assert "Cross EP" not in (testsets_dir / "models_all.json").read_text(encoding="utf-8")

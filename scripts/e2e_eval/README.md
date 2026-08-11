@@ -86,11 +86,6 @@ uv run python scripts/e2e_eval/run_eval.py --hf-model microsoft/resnet-50
 # Ignore recipes and build every model via winml config
 uv run python scripts/e2e_eval/run_eval.py --no-recipes --priority P0
 
-# Materialize CPU recipes for QNN NPU, then run the Cross EP P2 batch
-uv run python scripts/e2e_eval/run_eval.py --group "Cross EP" --priority P2 \
-  --ep qnn --device npu --copy-recipes-from cpu cpu \
-  --output-dir eval_results/cross_ep_qnn_npu --continue
-
 # List filtered models without running
 uv run python scripts/e2e_eval/run_eval.py --priority P0 --list
 
