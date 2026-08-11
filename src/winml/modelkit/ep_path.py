@@ -53,15 +53,11 @@ from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Final, cast
+from typing import Any, Final, cast
 
 from packaging.version import InvalidVersion, Version
 
 from .utils.constants import DEVICE_PRIORITY, EP_SUPPORTED_DEVICES, DeviceType
-
-
-if TYPE_CHECKING:
-    from .utils.constants import EPName
 
 
 logger = logging.getLogger(__name__)
@@ -153,7 +149,7 @@ class EPCatalog:
         entry = self._by_name.get(ep)
         if entry is None:
             return True
-        supported_devices = EP_SUPPORTED_DEVICES.get(cast("EPName", ep), DEVICE_PRIORITY)
+        supported_devices = EP_SUPPORTED_DEVICES.get(cast("Any", ep), DEVICE_PRIORITY)
         device_types: tuple[DeviceType, ...]
         if device_type is not None:
             if device_type not in supported_devices:
