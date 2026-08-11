@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 
-@click.command()
+@click.command(short_help="Quantize an ONNX model (QDQ, RTN weight-only, or FP16).")
 @cli_utils.model_path_option(required=True, help_text="Input ONNX model file")
 @cli_utils.output_option("Output path (default: {input}_quantized.onnx)")
 @cli_utils.overwrite_option()

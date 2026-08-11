@@ -14,13 +14,16 @@ import numpy as np
 import onnx
 import onnxruntime as ort
 
+from winml.modelkit.analyze.core.runtime_checker_query import get_query_conditions_for_pattern
 from winml.modelkit.pattern import (
     MatMulAddPattern,
     PatternMatcher,
     ReshapeGemmReshapePattern,
     ReshapeTransposeReshapeLowDimPattern,
     ReshapeTransposeReshapeOverlyHighDimPattern,
+    get_pattern_input_generator,
 )
+from winml.modelkit.pattern.transpose_patterns import _compute_merged_transpose
 
 from .conftest import TEST_DOMAIN_VERSIONS
 
@@ -244,3 +247,78 @@ class TestRTRPatternIdAlignment:
         pattern = ReshapeTransposeReshapeLowDimPattern()
         schema_based = f"SUBGRAPH/{pattern.get_schema().name}"
         assert pattern.pattern_id != schema_based
+
+
+class TestRTRPatternInputGeneratorCoverage:
+    """Regression tests for RTR pattern input-generation coverage."""
+
+    def test_output_dim_coverage_includes_3d_and_4d(self) -> None:
+        """Generator should include both 3-D and 4-D output-shape variants."""
+        generator_class = get_pattern_input_generator("ReshapeTransposeReshapeOverlyHighDimPattern")
+        gen = generator_class(domain_versions=TEST_DOMAIN_VERSIONS)
+
+        combinations = gen.get_input_and_infinite_attribute_combinations()
+        output_dims: set[int] = set()
+        for item in combinations:
+            output_shape = item.get("output_shape")
+            assert isinstance(output_shape, tuple)
+            output_dims.add(len(output_shape))
+
+        assert 3 in output_dims
+        assert 4 in output_dims
+
+    def test_output_dim_remains_finite_matching_property(self) -> None:
+        """output_dim should stay finite and participate in rule matching."""
+        generator_class = get_pattern_input_generator("ReshapeTransposeReshapeOverlyHighDimPattern")
+        gen = generator_class(domain_versions=TEST_DOMAIN_VERSIONS)
+
+        infinite_properties = gen.get_infinite_property_names()
+        assert "output_dim" not in infinite_properties
+
+    def test_coverage_includes_merged_transpose_dim_5(self) -> None:
+        """Generator should include a case producing merged_transpose_dim=5."""
+        generator_class = get_pattern_input_generator("ReshapeTransposeReshapeOverlyHighDimPattern")
+        gen = generator_class(domain_versions=TEST_DOMAIN_VERSIONS)
+
+        combinations = gen.get_input_and_infinite_attribute_combinations()
+        merged_dims = set()
+        for item in combinations:
+            transpose_shape = item.get("transpose_shape")
+            perm = item.get("perm")
+            assert isinstance(transpose_shape, tuple)
+            assert isinstance(perm, tuple)
+            merged_shape, _ = _compute_merged_transpose(
+                transpose_shape,
+                perm,
+            )
+            merged_dims.add(len(merged_shape))
+
+        assert 5 in merged_dims
+
+    def test_runtime_query_conditions_include_derived_rtr_properties(self) -> None:
+        """Matched RTR subgraph should flow through query-condition derivation."""
+        pattern = ReshapeTransposeReshapeOverlyHighDimPattern()
+        model = _create_reshape_transpose_model(
+            pattern,
+            data_shape=(1, 1, 3, 3, 4, 4),
+            transpose_shape=(1, 1, 3, 3, 4, 4),
+            perm=(0, 1, 4, 2, 5, 3),
+            output_shape=(1, 1, 12, 12),
+        )
+
+        matcher = PatternMatcher(model)
+        matcher.register_pattern(pattern)
+        matches = matcher.match()
+        assert len(matches) == 1
+
+        conditions, infinite_properties = get_query_conditions_for_pattern(
+            pattern_match=matches[0],
+            pattern_name=type(pattern).__name__,
+            opset_versions=TEST_DOMAIN_VERSIONS,
+        )
+
+        assert conditions["transpose_dim"] == 6
+        assert conditions["output_dim"] == 4
+        assert conditions["merged_transpose_dim"] == 5
+        assert conditions["transpose_last_dim"] == 4
+        assert "attr_transpose_shape" in infinite_properties

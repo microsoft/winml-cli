@@ -13,10 +13,27 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal, cast
 
-from ..sysinfo import resolve_eps
-from ..utils.constants import EP_SUPPORTED_DEVICES, EPName, EPNameOrAlias, normalize_ep_name
+from ..session import (
+    VALID_DEVICES,
+    default_ep_for_device,
+    ep_short_or_none,
+)
+
+# New session selection stays on EP_DEVICE_SPECS; this legacy build-policy
+# surface intentionally keeps using EP_SUPPORTED_DEVICES for compatibility.
+from ..utils.constants import (
+    EP_SUPPORTED_DEVICES,
+    EPS_WITH_INTERNAL_QUANT,
+    normalize_ep_name,
+)
+
+
+if TYPE_CHECKING:
+    # Referenced only from the quoted ``cast()`` below, so importing it at
+    # runtime would leave an unused import behind.
+    from ..utils.constants import EPNameOrAlias
 
 
 logger = logging.getLogger(__name__)
@@ -66,9 +83,6 @@ _BITS_TO_ACTIVATION_TYPE: dict[int, QuantType] = {
     8: "uint8",
     16: "uint16",
 }
-
-
-_VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})
 
 # Named precision presets (non-mixed)
 _NAMED_PRECISIONS = frozenset({"auto", "fp32", "fp16", "int4", "int8", "int16"})
@@ -306,23 +320,30 @@ class PrecisionPolicy:
     Attributes:
         device: Concrete device: "npu", "gpu", or "cpu".
         precision: Resolved precision string (e.g., "int8", "w8a16", "fp16").
+            Stays ``"auto"`` when ``skip_quantization`` is set — winml made no
+            precision choice, the EP decides.
         weight_type: Quantization weight type, or None for fp32/fp16.
         activation_type: Quantization activation type, or None for fp32/fp16.
-        compile_provider: Canonical EP name (e.g., "QNNExecutionProvider"), or None.
+        compile_provider: Short EP name (e.g. "qnn", "dml") or None for CPU.
+        skip_quantization: True when the build must run no quantization stage at
+            all, i.e. apply exactly what ``--no-quant`` does (``quant = None``).
+            Set for EPs that quantize internally (:data:`EPS_WITH_INTERNAL_QUANT`).
+            Callers must honor this BEFORE inspecting ``precision``.
     """
 
     device: str
     precision: str
     weight_type: QuantType | None
     activation_type: QuantType | None
-    compile_provider: EPName | None
+    compile_provider: str | None
+    skip_quantization: bool = False
 
 
 def resolve_precision(
     *,
     device: str = "auto",
     precision: str = "auto",
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     available_devices: list[str] | None = None,
     task: str | None = None,
 ) -> PrecisionPolicy:
@@ -343,7 +364,7 @@ def resolve_precision(
         ep: Explicit EP override (e.g., "migraphx", "nv_tensorrt_rtx"). When set,
             overrides the default device→provider mapping. If device is
             "auto", the device is inferred from the EP.
-        available_devices: Prioritized device list from resolve_device().
+        available_devices: Prioritized device list from sysinfo.get_available_devices().
             Used when device="auto" + precision is explicit.
         task: Optional task name for LLM-specific warnings.
 
@@ -364,16 +385,23 @@ def resolve_precision(
             f"Expected one of {sorted(_NAMED_PRECISIONS)} or w{{x}}a{{y}} format (e.g., w8a16)."
         )
 
-    # Validate EP override (normalize aliases → canonical name before lookup).
-    ep_canonical: EPName | None = None
+    # Normalize and validate the EP override against the shared catalog.
     if ep is not None:
-        ep_canonical = normalize_ep_name(ep)
+        ep_canonical = normalize_ep_name(cast("EPNameOrAlias", ep))
         if ep_canonical not in EP_SUPPORTED_DEVICES:
-            raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SUPPORTED_DEVICES)}")
-        # Infer device from EP when device is "auto" — first supported device.
+            raise ValueError(f"Unknown EP '{ep}'.")
+        ep = ep_canonical
+        supported_devices = EP_SUPPORTED_DEVICES[ep_canonical]
+        # Infer device from EP when device is "auto"
         if device == "auto":
-            device = EP_SUPPORTED_DEVICES[ep_canonical][0]
-            logger.info("Inferred device '%s' from EP '%s'", device, ep_canonical)
+            device = _pick_available_device_for_ep(
+                ep=ep_canonical,
+                supported_devices=supported_devices,
+                available_devices=available_devices,
+            )
+            logger.info("Inferred device '%s' from EP '%s'", device, ep)
+        elif device not in supported_devices:
+            raise ValueError(f"EP '{ep}' does not support device '{device}'.")
 
     # --- Both auto: no-op, keep config defaults ---
     if device == "auto" and resolved_precision == "auto":
@@ -387,10 +415,8 @@ def resolve_precision(
 
     # --- Device is explicit ---
     if device != "auto":
-        if device not in _VALID_DEVICES:
-            raise ValueError(
-                f"Unknown device '{device}'. Expected one of: {sorted(_VALID_DEVICES)}"
-            )
+        if device not in VALID_DEVICES:
+            raise ValueError(f"Unknown device '{device}'. Expected one of: {sorted(VALID_DEVICES)}")
         resolved_device = device
     else:
         # Device is "auto" but precision is explicit — pick best device
@@ -400,26 +426,50 @@ def resolve_precision(
             available_devices or ["cpu"],
         )
 
+    # Resolve the EP this build will actually target, BEFORE any policy decision
+    # that depends on it. An explicit --ep wins; otherwise deduce the registered
+    # default for the device. Callers routinely pin only the device
+    # (``--device npu`` with no ``--ep``), and on an AMD-only host that device
+    # still resolves to VitisAI — so the auto-precision decision below must see
+    # the deduced EP, not ``None``. ``compile_provider`` is derived from the same
+    # value so the two can never disagree.
+    effective_ep = ep if ep else default_ep_for_device(resolved_device)
+
     # Resolve "auto" precision for the resolved device
+    skip_quantization = False
     if resolved_precision == "auto":
-        resolved_precision = _AUTO_PRECISION[resolved_device]
-
-        # GPU + LLM: warn about w4a16 recommendation
-        if resolved_device == "gpu" and task in _LLM_TASKS:
+        if effective_ep in EPS_WITH_INTERNAL_QUANT:
+            # This EP applies its own quantization scheme and cannot consume a
+            # winml-produced QDQ graph, so make no precision choice at all and
+            # tell the caller to skip the quantization stage (what --no-quant
+            # does). Leaving precision as "auto" keeps the config honest: winml
+            # picked nothing, the EP decides.
+            skip_quantization = True
             logger.warning(
-                "GPU + LLM task '%s': auto-precision is fp32 (no conversion). "
-                "For better performance, consider w4a16 quantization manually.",
-                task,
+                "EP '%s' quantizes internally, so winml is skipping its own "
+                "quantization stage (equivalent to --no-quant) instead of applying "
+                "the '%s' default for device '%s'. This EP therefore behaves "
+                "differently from the others: the artifact stays unquantized and "
+                "the accelerator applies its own scheme at load time. "
+                "Pass --precision explicitly to force a winml quantization pass.",
+                effective_ep,
+                _AUTO_PRECISION[resolved_device],
+                resolved_device,
             )
+        else:
+            resolved_precision = _AUTO_PRECISION[resolved_device]
 
-    # ep=CPUExecutionProvider means no EPContext compilation needed.
-    # For all other explicit EPs (canonical names), use ep as the provider.
-    compile_provider: EPName | None = ep_canonical
-    if not compile_provider:
-        eps = resolve_eps(resolved_device)
-        compile_provider = eps[0] if eps else None
-    if compile_provider == "CPUExecutionProvider":
-        compile_provider = None
+            # GPU + LLM: warn about w4a16 recommendation
+            if resolved_device == "gpu" and task in _LLM_TASKS:
+                logger.warning(
+                    "GPU + LLM task '%s': auto-precision is fp32 (no conversion). "
+                    "For better performance, consider w4a16 quantization manually.",
+                    task,
+                )
+
+    # The policy contract uses short aliases, with CPU represented as no
+    # offline compiler.
+    compile_provider = ep_short_or_none(effective_ep) if effective_ep is not None else None
 
     # Resolve weight/activation types — supports named presets and w{x}a{y}.
     # Weight-only precisions (int4, w4a16) use RTN, not QDQ — they have no
@@ -438,6 +488,7 @@ def resolve_precision(
         weight_type=weight_type,
         activation_type=activation_type,
         compile_provider=compile_provider,
+        skip_quantization=skip_quantization,
     )
 
 
@@ -467,3 +518,31 @@ def _pick_device_for_precision(
 
     # Fallback: first available device
     return available_devices[0] if available_devices else "cpu"
+
+
+def _pick_available_device_for_ep(
+    *,
+    ep: str,
+    supported_devices: tuple[str, ...],
+    available_devices: list[str] | None,
+) -> str:
+    """Pick the first available device that the EP can actually target.
+
+    ``resolve_precision`` is intentionally pure/offline: it must not query the
+    runtime registry. When the caller provides ``available_devices``, that list
+    is the only host signal available, so auto-device inference for an explicit
+    EP must stay within its intersection with the EP's static device support.
+    """
+    if available_devices is None:
+        return supported_devices[0]
+
+    available_order = [candidate.lower() for candidate in available_devices]
+    for candidate in available_order:
+        if candidate in supported_devices:
+            return candidate
+
+    raise ValueError(
+        f"EP '{ep}' does not support any available devices. "
+        f"Supported devices: {', '.join(supported_devices)}. "
+        f"Available devices: {', '.join(available_order) or '<none>'}."
+    )

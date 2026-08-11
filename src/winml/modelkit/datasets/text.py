@@ -27,6 +27,11 @@ from .base import BaseTaskDataset
 
 logger = logging.getLogger(__name__)
 
+# HF requires fully qualified repository ids ("namespace/name"); the legacy
+# canonical alias "glue" is no longer resolvable.
+DEFAULT_TEXT_DATASET = "nyu-mll/glue"
+DEFAULT_TEXT_DATASET_SUBSET = "mrpc"
+
 
 class TextDataset(BaseTaskDataset):
     """Dataset for text tasks with universal tokenization.
@@ -56,7 +61,7 @@ class TextDataset(BaseTaskDataset):
 
         Args:
             model_name: HuggingFace model identifier
-            dataset_name: Dataset name (default: glue)
+            dataset_name: Dataset name (default: nyu-mll/glue)
             max_samples: Maximum samples (None = use all)
             data_split: Dataset split (default: train)
             max_length: Sequence length (default: from io_config or 128)
@@ -85,8 +90,8 @@ class TextDataset(BaseTaskDataset):
     def _get_default_dataset(self) -> None:
         """Set default dataset if none specified."""
         if self._dataset_name is None:
-            self._dataset_name = "glue"
-            self._config["subset"] = self._config.get("subset", "mrpc")
+            self._dataset_name = DEFAULT_TEXT_DATASET
+            self._config["subset"] = self._config.get("subset", DEFAULT_TEXT_DATASET_SUBSET)
             self._data_split = self._data_split or "train"
 
     def _resolve_max_length(self) -> None:

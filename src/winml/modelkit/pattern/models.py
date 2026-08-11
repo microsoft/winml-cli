@@ -8,12 +8,12 @@ These pure Pydantic data models are shared between modelkit.pattern and
 modelkit.analyze.
 """
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
 
 
-class PatternType(str, Enum):
+class PatternType(StrEnum):
     """Pattern type enum."""
 
     OPERATOR = "operator"
@@ -68,7 +68,6 @@ class SubgraphPattern(Pattern):
     pattern_id: str = Field(..., pattern=r"^SUBGRAPH/[^/]+$", description="Pattern ID")
     pattern_type: PatternType = Field(default=PatternType.SUBGRAPH, description="Pattern type")
     pattern_name: str = Field(..., description="Human-readable pattern name")
-    # Topology fields are optional when using semantic_label for hierarchy_tag matching
     node_topology: dict[str, str] = Field(
         default_factory=dict, description="Node role to op type mapping"
     )

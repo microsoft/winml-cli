@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "match": {
+        "ep": null,
+        "device": null
+      },
+      "export": {
+        "transformers_attention": "eager"
+      },
+      "reason": "Transformers SDPA-exported attention guard paths are not broadly portable."
+    }
+  ]
+}

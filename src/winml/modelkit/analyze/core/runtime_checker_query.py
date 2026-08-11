@@ -81,7 +81,6 @@ _LOG_COLOR_RESET = "\033[0m"
 if TYPE_CHECKING:
     from winml.modelkit.pattern.match import PatternMatchResult
 
-    from ...utils.constants import EPName
     from .node_checkers.base import NodeChecker
 
 
@@ -607,7 +606,6 @@ def get_query_conditions_for_node(
         # Build a synthetic model path so helper logic can resolve sidecar files
         # relative to the provided base directory.
         resolved_model_path = resolved_base / "__model__.onnx"
-
     # Build set of optional input names from schema
     optional_input_names = {
         inp.name
@@ -983,11 +981,12 @@ class RuntimeCheckerQuery:
     def __init__(
         self,
         model_proto: onnx.ModelProto,
-        ep_name: EPName,
+        ep_name: str,
         device_type: str,
         model_path: str | Path | None = None,
         dynamic_axis_strict_mode: bool = False,
         node_key_by_node_id: dict[int, str] | None = None,
+        pattern_matched_node_status_by_key: dict[str, str] | None = None,
     ) -> None:
         """Initialize runtime checker query.
 
@@ -1001,6 +1000,9 @@ class RuntimeCheckerQuery:
                 for matching against first_axis test data. If True, preserves exact
                 dynamic axis indices.
             node_key_by_node_id: Optional sidecar map from id(node) to stable node key.
+            pattern_matched_node_status_by_key: Optional stable node-key to
+                pattern status mapping (supported/partial/unsupported/unknown)
+                used to classify matched nodes when parquet lookup is skipped.
         """
         self.model_path = str(Path(model_path).resolve(strict=False)) if model_path else None
         self.model_base_dir = str(Path(self.model_path).parent) if self.model_path else None
@@ -1043,6 +1045,11 @@ class RuntimeCheckerQuery:
         else:
             self._node_key_by_node_id = build_node_key_by_node_id(self._graph_nodes)
 
+        self._pattern_matched_node_status_by_key: dict[str, str] = {
+            str(node_key): str(status)
+            for node_key, status in (pattern_matched_node_status_by_key or {}).items()
+        }
+
         self.ep_name = ep_name
         self.device_type = device_type
         self.valueinfo = collect_valueinfo_dict(self.model_proto)
@@ -1066,6 +1073,7 @@ class RuntimeCheckerQuery:
         # Lazy-initialized EP checker for local fallback
         self._ep_checker: EPChecker | None = None
         self._ep_available_locally: bool | None = None
+        self._local_runner: ResilientRunner | None = None
 
         # Instantiate registered node checkers from the registry
         self.node_checkers: list[NodeChecker] = [
@@ -1089,6 +1097,51 @@ class RuntimeCheckerQuery:
         ] = {}
         # since_version cache keyed by (op, domain, model_opset)
         self._since_version_cache: dict[tuple[str, str, int], int] = {}
+
+    @staticmethod
+    def _build_op_pattern_id(node: onnx.NodeProto) -> str:
+        """Build OP/<domain>/<op_type> identifier for one ONNX node."""
+        try:
+            op_domain = ONNXDomain.from_str(node.domain)
+            domain_value = op_domain.value
+        except ValueError:
+            domain_value = node.domain or ONNXDomain.AI_ONNX.value
+
+        return f"OP/{domain_value}/{node.op_type}"
+
+    @staticmethod
+    def _runtime_result_from_pattern_status(pattern_status: str) -> RuntimeTestResult:
+        """Map pattern status string to RuntimeTestResult for matched nodes."""
+        normalized = (pattern_status or "unknown").strip().lower()
+        if normalized == "unknow":
+            normalized = "unknown"
+        if normalized == "supported":
+            return RuntimeTestResult(
+                compile=True,
+                run=True,
+                no_data=False,
+                reason="pattern_matched",
+            )
+        if normalized == "partial":
+            return RuntimeTestResult(
+                compile=False,
+                run=True,
+                no_data=False,
+                reason="pattern_matched",
+            )
+        if normalized == "unsupported":
+            return RuntimeTestResult(
+                compile=False,
+                run=False,
+                no_data=False,
+                reason="pattern_matched",
+            )
+        return RuntimeTestResult(
+            compile=False,
+            run=False,
+            no_data=True,
+            reason="pattern_matched",
+        )
 
     def _collect_qdq_types(self) -> None:
         """Collect QDQ types from the model.
@@ -1146,28 +1199,44 @@ class RuntimeCheckerQuery:
     def _is_ep_available_locally(self) -> bool:
         """Check if the target EP is available on the local machine.
 
+        Targeted probe through :meth:`WinMLEPRegistry.auto_device`: the
+        registry handles plugin discovery + DLL load lazily, so we no
+        longer need a separate module-level pre-register pass. Negative
+        outcomes (EP not discovered, registration failed, no matching
+        device) are caught and reported as "not available locally"
+        rather than propagated.
+
         Returns:
             True if the EP+device combination is available locally.
         """
         if self._ep_available_locally is not None:
             return self._ep_available_locally
 
-        from ... import winml
-        from ...utils.constants import DEVICE_TO_DEVICE_TYPE
-
-        device_type_enum = DEVICE_TO_DEVICE_TYPE.get(self.device_type)
-        if device_type_enum is None:
-            self._ep_available_locally = False
-            return False
+        from ...session import (
+            DeviceNotFound,
+            EPDeviceTarget,
+            WinMLEPNotDiscovered,
+            WinMLEPRegistrationFailed,
+            WinMLEPRegistry,
+            resolve_device,
+            short_ep_name,
+        )
 
         try:
-            ep_devices = winml.get_registered_ep_devices()
-            self._ep_available_locally = any(
-                ep_dev.ep_name == self.ep_name and ep_dev.device.type == device_type_enum
-                for ep_dev in ep_devices
+            target = EPDeviceTarget(
+                ep=short_ep_name(self.ep_name),
+                device=self.device_type.lower(),
             )
-        except Exception as e:
-            logger.debug("Failed to query EP devices: %s", e)
+            resolved = resolve_device(target)
+            WinMLEPRegistry.instance().auto_device(resolved)
+            self._ep_available_locally = True
+        except (
+            WinMLEPNotDiscovered,
+            WinMLEPRegistrationFailed,
+            DeviceNotFound,
+            ValueError,
+        ) as e:
+            logger.debug("EP %s on %s not available locally: %s", self.ep_name, self.device_type, e)
             self._ep_available_locally = False
 
         return self._ep_available_locally
@@ -1179,13 +1248,20 @@ class RuntimeCheckerQuery:
             EPChecker instance configured for the target EP+device.
         """
         if self._ep_checker is None:
-            from ...utils.constants import DEVICE_TO_DEVICE_TYPE
+            from ...session import DEVICE_TO_DEVICE_TYPE
 
             self._ep_checker = EPChecker(
                 ep_name=self.ep_name,
-                device_type=DEVICE_TO_DEVICE_TYPE[self.device_type],
+                device_type=DEVICE_TO_DEVICE_TYPE[self.device_type.lower()],
             )
         return self._ep_checker
+
+    def close_local_checks(self) -> None:
+        """Release the worker used by local compile/run fallback checks."""
+        if self._local_runner is None:
+            return
+        self._local_runner.shutdown()
+        self._local_runner = None
 
     @staticmethod
     def _clone_node_proto(node: onnx.NodeProto) -> onnx.NodeProto:
@@ -1395,6 +1471,112 @@ class RuntimeCheckerQuery:
 
         return model
 
+    def _build_pattern_test_model(
+        self,
+        pattern_match: PatternMatchResult,
+    ) -> onnx.ModelProto:
+        """Build a standalone model for one matched subgraph pattern."""
+        matched_nodes = list(pattern_match.skeleton_match_result.matched_nodes)
+        if not matched_nodes:
+            raise ValueError("Pattern match has no nodes")
+
+        produced_names = {
+            output_name
+            for node in matched_nodes
+            for output_name in node.output
+            if output_name
+        }
+        graph_inputs: list[onnx.ValueInfoProto] = []
+        graph_initializers: list[onnx.TensorProto] = []
+        seen_inputs: set[str] = set()
+        seen_initializers: set[str] = set()
+
+        for node in matched_nodes:
+            for input_name in node.input:
+                if not input_name or input_name in produced_names:
+                    continue
+                if input_name in self.initializers:
+                    initializer = self.initializers[input_name]
+                    if initializer.data_location != onnx.TensorProto.EXTERNAL:
+                        if input_name not in seen_initializers:
+                            graph_initializers.append(initializer)
+                            seen_initializers.add(input_name)
+                        continue
+                    value_info = self.valueinfo.get(input_name)
+                    if value_info is None:
+                        value_info = onnx.helper.make_tensor_value_info(
+                            input_name,
+                            initializer.data_type,
+                            list(initializer.dims),
+                        )
+                elif input_name in self.constants:
+                    if input_name not in seen_initializers:
+                        graph_initializers.append(self.constants[input_name])
+                        seen_initializers.add(input_name)
+                    continue
+                else:
+                    value_info = self.valueinfo.get(input_name)
+                if value_info is None:
+                    raise ValueError(f"Pattern input '{input_name}' has no value info")
+                if input_name not in seen_inputs:
+                    graph_inputs.append(value_info)
+                    seen_inputs.add(input_name)
+
+        output_names = {
+            str(output_name)
+            for output_name in pattern_match.schema_output_to_value.values()
+            if output_name
+        }
+        if pattern_match.skeleton_match_result.output:
+            output_names.add(pattern_match.skeleton_match_result.output)
+        if not output_names:
+            output_names.update(name for name in matched_nodes[-1].output if name)
+
+        graph_outputs: list[onnx.ValueInfoProto] = []
+        for output_name in sorted(output_names):
+            value_info = self.valueinfo.get(output_name)
+            if value_info is not None:
+                graph_outputs.append(value_info)
+            else:
+                graph_outputs.append(
+                    onnx.helper.make_tensor_value_info(
+                        output_name,
+                        onnx.TensorProto.UNDEFINED,
+                        None,
+                    )
+                )
+
+        nodes = [self._clone_node_proto(node) for node in matched_nodes]
+        first_node = matched_nodes[0]
+        try:
+            fallback_domain = ONNXDomain.from_str(first_node.domain or "")
+        except ValueError:
+            fallback_domain = ONNXDomain.AI_ONNX
+        fallback_opset = self.opset_versions.get(fallback_domain, 1)
+
+        graph = onnx.helper.make_graph(
+            nodes,
+            f"pattern_test_{pattern_match.pattern_id.replace('/', '_')}",
+            graph_inputs,
+            graph_outputs,
+            initializer=graph_initializers,
+        )
+        model = onnx.helper.make_model(
+            graph,
+            opset_imports=self._build_opset_imports(
+                nodes,
+                fallback_domain,
+                fallback_opset,
+            ),
+        )
+
+        try:
+            model = infer_onnx_shapes(model)
+        except Exception as e:
+            logger.debug("Shape inference failed for pattern-test model: %s", e)
+
+        return model
+
     def _build_single_node_model(
         self, node: onnx.NodeProto, op_domain: ONNXDomain, opset_version: int
     ) -> onnx.ModelProto:
@@ -1520,78 +1702,6 @@ class RuntimeCheckerQuery:
 
         return input_feed
 
-    def _generate_node_inputs(self, node: onnx.NodeProto) -> dict[str, np.ndarray]:
-        """Generate dummy input data for a single-node model.
-
-        Creates numpy arrays with appropriate shapes and dtypes based on the
-        node's input value info. Initializer/constant inputs are excluded since
-        they are embedded in the model.
-
-        Args:
-            node: The ONNX node to generate inputs for.
-
-        Returns:
-            Dict mapping input names to numpy arrays.
-
-        Raises:
-            ValueError: If dtype or shape information is missing for an input.
-        """
-        input_feed: dict[str, np.ndarray] = {}
-        default_dim_size = 2  # Replace dynamic/unknown dims with this size
-
-        for inp_name in node.input:
-            if not inp_name:
-                continue
-            # Skip regular initializers/constants - they are embedded in the model.
-            # External-data initializers are modeled as runtime inputs.
-            if inp_name in self.initializers:
-                init = self.initializers[inp_name]
-                if init.data_location != onnx.TensorProto.EXTERNAL:
-                    continue
-
-                try:
-                    np_dtype = onnx.helper.tensor_dtype_to_np_dtype(init.data_type)
-                except Exception:
-                    np_dtype = np.dtype(np.float32)
-
-                shape = tuple(int(d) for d in init.dims)
-                input_feed[inp_name] = np.zeros(shape, dtype=np_dtype)
-                continue
-
-            if inp_name in self.constants:
-                continue
-
-            vi = self.valueinfo.get(inp_name)
-            if vi is None:
-                raise ValueError(
-                    f"Input '{inp_name}' for node '{node.name}' ({node.op_type}) "
-                    f"not found in valueinfo"
-                )
-
-            vi_shape, dtype_str = shape_and_dtype_from_valueinfo(vi)
-            if dtype_str is None:
-                raise ValueError(
-                    f"Input '{inp_name}' for node '{node.name}' ({node.op_type}) "
-                    f"has no dtype information"
-                )
-
-            # Convert dtype string to numpy dtype
-            np_dtype = SupportedONNXType.from_annotation(dtype_str).np_type
-
-            concrete_shape: tuple[int, ...]
-            if vi_shape is None:
-                # No shape info at all - use a simple 1D array
-                concrete_shape = (default_dim_size,)
-            else:
-                # Replace dynamic dimensions (strings or None) with default size
-                concrete_shape = tuple(
-                    d if isinstance(d, int) and d > 0 else default_dim_size for d in vi_shape
-                )
-
-            input_feed[inp_name] = np.zeros(concrete_shape, dtype=np_dtype)
-
-        return input_feed
-
     def _try_local_ep_check(
         self,
         node: onnx.NodeProto,
@@ -1662,43 +1772,11 @@ class RuntimeCheckerQuery:
             return None
 
         model_bytes = model.SerializeToString()
-        ep_checker = self._get_ep_checker()
-
-        compile_success = False
-        run_success = False
-        reasons: list[str] = []
-
-        try:
-            with ResilientRunner(capture_output=True, timeout_sec=60) as runner:
-                compile_result = runner.run(ep_checker.check_compile, model_bytes, input_feed)
-            compile_success = compile_result["result"]["success"]
-            if not compile_success:
-                reasons.append(
-                    f"compile_failed: {compile_result['result'].get('reason', 'unknown')}"
-                )
-        except Exception as e:
-            logger.warning(
-                "Local EP compile check failed for %s (%s): %s",
-                node.name,
-                node.op_type,
-                e,
-            )
-            reasons.append(f"compile_exception: {e}")
-
-        try:
-            with ResilientRunner(capture_output=True, timeout_sec=60) as runner:
-                run_result = runner.run(ep_checker.check_run, model_bytes, input_feed)
-            run_success = run_result["result"]["success"]
-            if not run_success:
-                reasons.append(f"run_failed: {run_result['result'].get('reason', 'unknown')}")
-        except Exception as e:
-            logger.warning(
-                "Local EP run check failed for %s (%s): %s",
-                node.name,
-                node.op_type,
-                e,
-            )
-            reasons.append(f"run_exception: {e}")
+        compile_success, run_success, reasons = self._run_local_model_check(
+            model_bytes=model_bytes,
+            input_feed=input_feed,
+            check_name=f"{node.name} ({node.op_type})",
+        )
 
         reason_str = f"local_ep_check ({fallback_reason})"
         if reasons:
@@ -1735,6 +1813,7 @@ class RuntimeCheckerQuery:
                 "opset_version": opset_version,
                 "table_path": None,
                 "table_file": None,
+                "match_status": "op_match",
             }
 
         result = RuntimeTestResult(
@@ -1754,6 +1833,99 @@ class RuntimeCheckerQuery:
             result=result,
             alternatives=self.alternatives,
             pattern_match=pattern_match,
+        )
+
+    def _run_local_model_check(
+        self,
+        *,
+        model_bytes: bytes,
+        input_feed: dict[str, np.ndarray],
+        check_name: str,
+    ) -> tuple[bool, bool, list[str]]:
+        """Compile and run one extracted model on the configured local EP."""
+        ep_checker = self._get_ep_checker()
+        if self._local_runner is None:
+            self._local_runner = ResilientRunner(capture_output=True, timeout_sec=60)
+        runner = self._local_runner
+        compile_success = False
+        run_success = False
+        reasons: list[str] = []
+
+        try:
+            compile_result = runner.run(ep_checker.check_compile, model_bytes, input_feed)
+            compile_success = compile_result["result"]["success"]
+            if not compile_success:
+                reasons.append(
+                    f"compile_failed: {compile_result['result'].get('reason', 'unknown')}"
+                )
+        except Exception as e:
+            logger.warning("Local EP compile check failed for %s: %s", check_name, e)
+            reasons.append(f"compile_exception: {e}")
+
+        try:
+            run_result = runner.run(ep_checker.check_run, model_bytes, input_feed)
+            run_success = run_result["result"]["success"]
+            if not run_success:
+                reasons.append(f"run_failed: {run_result['result'].get('reason', 'unknown')}")
+        except Exception as e:
+            logger.warning("Local EP run check failed for %s: %s", check_name, e)
+            reasons.append(f"run_exception: {e}")
+
+        logger.info(
+            "Local EP check for %s: compile=%s, run=%s",
+            check_name,
+            compile_success,
+            run_success,
+        )
+        return compile_success, run_success, reasons
+
+    def try_local_pattern_check(
+        self,
+        pattern_match: PatternMatchResult,
+        *,
+        fallback_reason: str,
+        for_debug: bool = False,
+    ) -> RuntimeTestResult | None:
+        """Compile and run one complete matched pattern on the local EP."""
+        if not self._is_ep_available_locally():
+            return None
+
+        try:
+            model = self._build_pattern_test_model(pattern_match)
+            input_feed = self._generate_model_inputs(model)
+        except Exception as e:
+            logger.debug(
+                "Failed to build local pattern model for %s: %s",
+                pattern_match.pattern_id,
+                e,
+            )
+            return None
+
+        compile_success, run_success, reasons = self._run_local_model_check(
+            model_bytes=model.SerializeToString(),
+            input_feed=input_feed,
+            check_name=pattern_match.pattern_id,
+        )
+        reason = f"local_ep_check ({fallback_reason})"
+        if reasons:
+            reason += ": " + "; ".join(reasons)
+
+        debug_details: RuntimeDebugDetails | None = None
+        if for_debug:
+            debug_details = {
+                "source": "local_ep_check",
+                "fallback_reason": fallback_reason,
+                "table_path": None,
+                "table_file": None,
+                "match_status": "pattern_match",
+            }
+
+        return RuntimeTestResult(
+            compile=compile_success,
+            run=run_success,
+            no_data=False,
+            reason=reason,
+            debug_details=debug_details,
         )
 
     def _detect_missing_shape_info(self, node: onnx.NodeProto) -> list[str]:
@@ -1867,15 +2039,6 @@ class RuntimeCheckerQuery:
             logger.info("Saved unsupported node to %s", model_path)
         except Exception as e:
             logger.warning("Failed to save node for %s: %s", node.op_type, e)
-
-    def run_for_model_per_op(self) -> dict[str, Any]:
-        """Run runtime check for all nodes in model.
-
-        Returns:
-            Dict with results for each operator
-        """
-        # run run_for_nodes for all nodes
-        return {}
 
     def _maybe_save_failed_node_result(
         self,
@@ -2078,6 +2241,7 @@ class RuntimeCheckerQuery:
                     "table_path": parquet_path_norm,
                     "table_file": parquet_file,
                     "op_since_version": op_since_version,
+                    "match_status": "op_match",
                 }
 
             return _finish(
@@ -2179,6 +2343,7 @@ class RuntimeCheckerQuery:
                     "op_since_version": op_since_version,
                     "lookup_columns": op_columns,
                     "query_signature": query_signature,
+                    "match_status": "op_match",
                 }
                 debug_details["steps"] = debug_steps
 
@@ -2253,6 +2418,7 @@ class RuntimeCheckerQuery:
                 "lookup_columns": op_columns,
                 "query_signature": query_signature,
                 "case_indices": matched_case_indices,
+                "match_status": "op_match",
             }
 
         result = RuntimeTestResult(
@@ -2330,10 +2496,6 @@ class RuntimeCheckerQuery:
             ),
         )
 
-        pattern_match_start = time.perf_counter()
-        pattern_match = node_to_pattern_match(node, node_key)
-        pattern_match_ms = _elapsed_ms(pattern_match_start)
-
         def _finish(result: PatternRuntime, outcome: str) -> PatternRuntime:
             _log_timing(
                 "run_for_node",
@@ -2357,6 +2519,37 @@ class RuntimeCheckerQuery:
                 reason=result.result.reason or "",
             )
             return result
+
+        if node_key in self._pattern_matched_node_status_by_key:
+            pattern_status = self._pattern_matched_node_status_by_key[node_key]
+            pattern_matched_debug_details: RuntimeDebugDetails | None = None
+            if for_debug:
+                pattern_matched_debug_details = {
+                    "type": "pattern_matched",
+                    "node_stable_key": node_key,
+                    "op_type": node.op_type,
+                    "status": pattern_status,
+                    "table_path": None,
+                    "table_file": None,
+                    "match_status": "pattern_match",
+                }
+
+            result = self._runtime_result_from_pattern_status(pattern_status)
+            result.debug_details = pattern_matched_debug_details
+
+            return _finish(
+                PatternRuntime(
+                    pattern_id=self._build_op_pattern_id(node),
+                    result=result,
+                    alternatives=self.alternatives,
+                    pattern_match=None,
+                ),
+                outcome="pattern_matched",
+            )
+
+        pattern_match_start = time.perf_counter()
+        pattern_match = node_to_pattern_match(node, node_key)
+        pattern_match_ms = _elapsed_ms(pattern_match_start)
 
         # Ignore QuantizeLinear and DequantizeLinear ops for now,
         # Q and DQ ops will be tested in quantized ops
@@ -2420,6 +2613,7 @@ class RuntimeCheckerQuery:
                     "op_type": node.op_type,
                     "node_stable_key": node_key,
                     "domain": node.domain,
+                    "match_status": "op_match",
                 }
             return _finish(
                 PatternRuntime(
@@ -2506,6 +2700,7 @@ class RuntimeCheckerQuery:
                     "error_message": str(e),
                     "table_path": None,
                     "table_file": None,
+                    "match_status": "op_match",
                 }
 
             return _finish(
@@ -2545,156 +2740,3 @@ class RuntimeCheckerQuery:
         )
         parquet_rules_ms = _elapsed_ms(parquet_rules_start)
         return _finish(final_result, outcome="parquet_rules")
-
-    def run_for_subgraph(
-        self,
-        pattern_match: PatternMatchResult,
-        run_unknown_op: bool = False,
-    ) -> PatternRuntime:
-        """Run runtime check for subgraph pattern via per-node checks."""
-        pattern_name = pattern_match.pattern.__class__.__name__
-        logger.debug(
-            "Pattern-level aggregated rules are removed; checking individual operators for '%s'",
-            pattern_name,
-        )
-        return self._run_for_subgraph_per_node(
-            pattern_match,
-            pattern_name,
-            run_unknown_op,
-        )
-
-    def _run_for_subgraph_per_node(
-        self,
-        pattern_match: PatternMatchResult,
-        pattern_name: str,
-        run_unknown_op: bool,
-    ) -> PatternRuntime:
-        """Fallback: check each operator in the pattern individually.
-
-        Args:
-            pattern_match: PatternMatchResult containing pattern information.
-            pattern_name: Pattern variant name.
-            run_unknown_op: If True, attempt local EP check for unknown ops.
-
-        Returns:
-            PatternRuntime with aggregated results from individual node checks.
-        """
-        pattern_id = pattern_match.pattern.pattern_id
-
-        if (
-            not hasattr(pattern_match, "skeleton_match_result")
-            or pattern_match.skeleton_match_result is None
-        ):
-            logger.warning(
-                f"Pattern '{pattern_id}' has no "
-                f"skeleton_match_result, cannot check "
-                f"individual nodes"
-            )
-            return PatternRuntime(
-                pattern_id=pattern_id,
-                result=RuntimeTestResult(
-                    compile=False,
-                    run=False,
-                    no_data=True,
-                    reason=(
-                        f"Pattern '{pattern_name}' not "
-                        f"found in database and has no "
-                        f"matched nodes to check"
-                    ),
-                    debug_details=None,
-                ),
-                alternatives=self.alternatives,
-                pattern_match=pattern_match,
-            )
-
-        matched_nodes = pattern_match.skeleton_match_result.matched_nodes
-
-        if not matched_nodes:
-            logger.warning("Pattern '%s' has no matched nodes", pattern_id)
-            return PatternRuntime(
-                pattern_id=pattern_id,
-                result=RuntimeTestResult(
-                    compile=False,
-                    run=False,
-                    no_data=True,
-                    reason=f"Pattern '{pattern_name}' has no nodes to check",
-                    debug_details=None,
-                ),
-                alternatives=self.alternatives,
-                pattern_match=pattern_match,
-            )
-
-        # Check runtime support for each node in the pattern
-        node_results: list[PatternRuntime] = []
-        for node in matched_nodes:
-            node_result = self.run_for_node(node, run_unknown_op=run_unknown_op)
-            node_results.append(node_result)
-
-        # Aggregate results: pattern is supported only if ALL nodes are supported
-        all_compile = all(r.result.compile for r in node_results)
-        all_run = all(r.result.run for r in node_results)
-        any_no_data = any(r.result.no_data for r in node_results)
-
-        # Collect failure reasons
-        failed_nodes = [
-            f"{r.pattern_id}: {r.result.reason}"
-            for r in node_results
-            if not r.result.compile or not r.result.run
-        ]
-
-        no_data_nodes = [r.pattern_id for r in node_results if r.result.no_data]
-
-        if all_compile and all_run and not any_no_data:
-            return PatternRuntime(
-                pattern_id=pattern_id,
-                result=RuntimeTestResult(
-                    compile=True,
-                    run=True,
-                    no_data=False,
-                    reason=(
-                        f"Pattern '{pattern_name}' fully "
-                        f"supported: all "
-                        f"{len(node_results)} operators "
-                        f"supported"
-                    ),
-                    debug_details=None,
-                ),
-                alternatives=self.alternatives,
-                pattern_match=pattern_match,
-            )
-
-        if any_no_data:
-            return PatternRuntime(
-                pattern_id=pattern_id,
-                result=RuntimeTestResult(
-                    compile=False,
-                    run=False,
-                    no_data=True,
-                    reason=(
-                        f"Pattern '{pattern_name}' status "
-                        f"unknown: no data for operators "
-                        f"{', '.join(no_data_nodes[:3])}"
-                        f"{'...' if len(no_data_nodes) > 3 else ''}"
-                    ),
-                    debug_details=None,
-                ),
-                alternatives=self.alternatives,
-                pattern_match=pattern_match,
-            )
-
-        failure_summary = "; ".join(failed_nodes[:3])
-        if len(failed_nodes) > 3:
-            failure_summary += f" (and {len(failed_nodes) - 3} more)"
-
-        return PatternRuntime(
-            pattern_id=pattern_id,
-            result=RuntimeTestResult(
-                compile=all_compile,
-                run=all_run,
-                no_data=False,
-                reason=f"Pattern '{pattern_name}' has unsupported operators: {failure_summary}",
-                debug_details=None,
-            ),
-            alternatives=self.alternatives,
-            pattern_match=pattern_match,
-        )

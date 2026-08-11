@@ -156,7 +156,9 @@ def extract_hierarchy(model_id: str) -> HierarchyInfo:
     except Exception as e:
         # Model not cached locally or other loading issue - use random weights
         logger.debug("Model not cached or load failed (%s), using random weights", type(e).__name__)
-        config = AutoConfig.from_pretrained(model_id, trust_remote_code=False)
+        from ..loader import load_hf_config
+
+        config = load_hf_config(AutoConfig, model_id, trust_remote_code=False)
         model = AutoModel.from_config(config)
         logger.info("Using random weights (model not downloaded)")
 

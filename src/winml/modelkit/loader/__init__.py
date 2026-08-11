@@ -27,6 +27,7 @@ Note:
 
 from typing import Any
 
+from ._autoconfig import load_hf_config
 from .config import WinMLLoaderConfig, resolve_loader_config
 from .onnx_hub import resolve_hf_onnx_path
 from .resolution import (
@@ -58,6 +59,7 @@ __all__ = [
     "composite_pipeline_tasks",
     "get_supported_tasks",
     "get_task_abbrev",
+    "load_hf_config",
     "load_hf_model",
     "normalize_task",
     "resolve_composite",

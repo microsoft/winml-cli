@@ -38,6 +38,7 @@ from ...core.onnx_node_tagger import (
     create_node_tagger_from_hierarchy,
 )
 from ...core.onnx_utils import infer_output_names
+from ...transformers_compat import use_eager_attention_for_export
 from .base_writer import ExportStep
 from .hierarchy import TracingHierarchyBuilder
 from .monitor import HTPExportMonitor
@@ -595,7 +596,10 @@ class HTPExporter:
         if export_config.dynamic_axes:
             onnx_kwargs["dynamic_axes"] = export_config.dynamic_axes
 
-        with self._get_optimum_patcher(model, task):
+        with (
+            self._get_optimum_patcher(model, task),
+            self._export_compatibility_context(model, export_config),
+        ):
             # Models can override input binding by implementing
             # get_export_args(inputs) → tuple of positional args.
             # Default: pass inputs dict as kwargs.
@@ -605,6 +609,16 @@ class HTPExporter:
                 torch.onnx.export(model, export_args, output_path, **onnx_kwargs)
             else:
                 torch.onnx.export(model, (), output_path, kwargs=inputs, **onnx_kwargs)
+
+    @staticmethod
+    def _export_compatibility_context(
+        model: nn.Module,
+        export_config: WinMLExportConfig,
+    ) -> contextlib.AbstractContextManager[None]:
+        """Return the export-time compatibility context requested by policy."""
+        if export_config.compatibility.transformers_attention == "eager":
+            return use_eager_attention_for_export(model)
+        return contextlib.nullcontext()
 
     @staticmethod
     def _resolve_keyword_input_names(

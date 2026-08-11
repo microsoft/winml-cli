@@ -225,3 +225,50 @@ class TestResolveModelTypeNormalization:
             f"Expected {expected_class_name} for model_type='{raw_model_type}', "
             f"got {r.model_class.__name__}. model_type normalization may be broken."
         )
+
+
+class TestExplicitTaskWithModelType:
+    """Explicit task without model_class must still use model_type for disambiguation.
+
+    Regression: when task is supplied but model_class is not, the USER_TASK branch
+    must pass model_type to get_model_class_for_task so that architectures sharing
+    a task (e.g. Wav2Vec2 CTC vs Whisper Seq2Seq for automatic-speech-recognition)
+    resolve to the correct model class.
+    """
+
+    @pytest.mark.parametrize(
+        "model_type,arch,task,expected_class",
+        [
+            pytest.param(
+                "wav2vec2",
+                "Wav2Vec2ForCTC",
+                "automatic-speech-recognition",
+                "AutoModelForCTC",
+                id="wav2vec2-asr-resolves-to-ctc",
+            ),
+            pytest.param(
+                "whisper",
+                "WhisperForConditionalGeneration",
+                "automatic-speech-recognition",
+                "AutoModelForSpeechSeq2Seq",
+                id="whisper-asr-resolves-to-seq2seq",
+            ),
+        ],
+    )
+    def test_explicit_task_respects_model_type(
+        self,
+        model_type: str,
+        arch: str,
+        task: str,
+        expected_class: str,
+        make_mock_config,
+    ) -> None:
+        """Explicit task + model_type resolves the model-type-specific class."""
+        config = make_mock_config(model_type, [arch])
+
+        r = resolve_task(config, task=task)
+
+        assert r.model_class.__name__ == expected_class, (
+            f"Expected {expected_class} for model_type='{model_type}' with task='{task}', "
+            f"got {r.model_class.__name__}. USER_TASK branch may not be passing model_type."
+        )

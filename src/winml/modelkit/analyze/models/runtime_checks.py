@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
@@ -27,11 +27,13 @@ class RuntimeDebugDetails(TypedDict):
     table_path: NotRequired[str | None]
     table_file: NotRequired[str | None]
     case_indices: NotRequired[tuple[Any, ...] | list[Any] | None]
+    match_status: NotRequired[str]
 
     type: NotRequired[str]
     source: NotRequired[str]
     fallback_reason: NotRequired[str]
     op_type: NotRequired[str]
+    status: NotRequired[str]
     node_stable_key: NotRequired[str | None]
     domain: NotRequired[str]
     opset_version: NotRequired[int]
@@ -39,18 +41,22 @@ class RuntimeDebugDetails(TypedDict):
     total_rows: NotRequired[int]
     lookup_columns: NotRequired[list[str]]
     query_signature: NotRequired[tuple[Any, ...]]
+    pattern_name: NotRequired[str]
+    query_condition_count: NotRequired[int]
+    query_conditions: NotRequired[dict[str, str]]
+    first_zero_column: NotRequired[str | None]
     steps: NotRequired[list[dict[str, Any]]]
     error_message: NotRequired[str]
 
 
-class NodeTag(str, Enum):
+class NodeTag(StrEnum):
     """Node tag enum for classifying nodes based on their properties."""
 
     ALL_INPUTS_CONSTANT = "all_inputs_constant"
     MISSING_SHAPE_INFERENCE = "missing_shape_inference"
 
 
-class AlternativeType(str, Enum):
+class AlternativeType(StrEnum):
     """Alternative pattern relationship type enum."""
 
     EQUIVALENT = "equivalent"

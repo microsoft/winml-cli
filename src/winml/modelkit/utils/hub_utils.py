@@ -20,11 +20,11 @@ logger = logging.getLogger(__name__)
 # Local-path indicators used to short-circuit Hub detection. Centralized
 # here so every callsite that classifies a model input string applies the
 # same rejection rules (existing path, ./ ../ /. ~/ prefixes, Windows
-# drive letter). Without this shared helper, each detector tends to
+# drive-qualified path). Without this shared helper, each detector tends to
 # reimplement only the easiest check (Path.exists) and accept inputs
 # like ``./model.onnx`` as Hub references.
 _LOCAL_PATH_PREFIXES: tuple[str, ...] = ("./", "../", "/", "~/")
-_WIN_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
+_WIN_DRIVE_RE = re.compile(r"^[A-Za-z]:")
 
 
 def _is_local_path(value: str | None) -> bool:
@@ -35,7 +35,8 @@ def _is_local_path(value: str | None) -> bool:
 
     * existing filesystem entries (``Path.exists()``);
     * Unix-style relative/absolute/home prefixes (``./``, ``../``, ``/``, ``~/``);
-    * Windows drive-letter absolute paths (``C:\``, ``D:/``).
+    * Windows drive-qualified absolute or relative paths (``C:\``, ``D:/``, ``C:model``);
+    * Windows backslash paths, including relative and UNC forms.
 
     ``None`` and empty strings are not local paths.
     """
@@ -51,7 +52,19 @@ def _is_local_path(value: str | None) -> bool:
         pass
     if value.startswith(_LOCAL_PATH_PREFIXES):
         return True
-    return bool(_WIN_DRIVE_RE.match(value))
+    return bool(_WIN_DRIVE_RE.match(value)) or "\\" in value
+
+
+def _is_valid_hub_model_id(value: str) -> bool:
+    """Return whether *value* is a syntactically valid Hugging Face repo ID."""
+    from huggingface_hub.errors import HFValidationError
+    from huggingface_hub.utils._validators import validate_repo_id
+
+    try:
+        validate_repo_id(value)
+    except HFValidationError:
+        return False
+    return True
 
 
 def is_hub_model(model_name_or_path: str) -> tuple[bool, dict]:
@@ -77,6 +90,8 @@ def is_hub_model(model_name_or_path: str) -> tuple[bool, dict]:
 
     org, model, revision = match.groups()
     full_model_id = f"{org}/{model}" if org else model
+    if not _is_valid_hub_model_id(full_model_id):
+        return False, {"type": "invalid"}
 
     # Try to verify with Hub API
     try:
@@ -154,7 +169,7 @@ def get_pipeline_tag(model_id: str) -> str | None:
     ``is_hub_model``. Returns ``None`` (never raises) when *model_id* is a
     local path, the Hub is unreachable, or the model has no tag.
     """
-    if _is_local_path(model_id):
+    if _is_local_path(model_id) or not _is_valid_hub_model_id(model_id):
         return None
     try:
         from huggingface_hub import HfApi
@@ -245,8 +260,10 @@ def save_local_model_configs(model_name_or_path: str, output_dir: Path, metadata
     try:
         from transformers import AutoConfig
 
+        from ..loader import load_hf_config
+
         # Save config
-        config = AutoConfig.from_pretrained(model_name_or_path)
+        config = load_hf_config(AutoConfig, model_name_or_path)
         config.save_pretrained(output_dir)
         logger.info(f"Saved config.json to {output_dir}")
 
@@ -346,6 +363,7 @@ def load_hf_components_from_onnx(onnx_path: str) -> tuple[Any, Any]:
         AutoTokenizer,
     )
 
+    from ..loader import load_hf_config
     from ..onnx import load_onnx
 
     # Load ONNX model and extract metadata
@@ -368,7 +386,7 @@ def load_hf_components_from_onnx(onnx_path: str) -> tuple[Any, Any]:
             raise ValueError("ONNX model marked as Hub model but missing hf_hub_id metadata")
 
         # Load config from Hub
-        config = AutoConfig.from_pretrained(hf_hub_id, revision=hf_revision)
+        config = load_hf_config(AutoConfig, hf_hub_id, revision=hf_revision)
 
         # Try to load preprocessor from Hub
         preprocessor = None
@@ -399,7 +417,7 @@ def load_hf_components_from_onnx(onnx_path: str) -> tuple[Any, Any]:
             )
 
         # Load config from local file
-        config = AutoConfig.from_pretrained(onnx_dir)
+        config = load_hf_config(AutoConfig, str(onnx_dir))
 
         # Try to load preprocessor from local files
         preprocessor = None

@@ -189,8 +189,6 @@ class TestEvalPerTask:
     def test_text_classification(self, runner: CliRunner, tmp_path: Path) -> None:
         # Model aligned with CLI default dataset (nyu-mll/glue/mrpc).
         # HF evaluate.evaluator("text-classification") returns `accuracy`.
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         out = tmp_path / "result.json"
         _invoke(
             runner,
@@ -213,8 +211,6 @@ class TestEvalPerTask:
             _assert_in_range(data["metrics"], "accuracy", 0.6, 1.0)
 
     def test_token_classification(self, runner: CliRunner, tmp_path: Path) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         out = tmp_path / "result.json"
         _invoke(
             runner,
@@ -264,8 +260,6 @@ class TestEvalPerTask:
             assert -1.0 <= v <= 1.0, f"{k}={v} outside [-1, 1]"
 
     def test_image_segmentation(self, runner: CliRunner, tmp_path: Path) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         out = tmp_path / "result.json"
         _invoke(
             runner,
@@ -398,8 +392,6 @@ class TestEvalPerTask:
 
     def test_image_to_text_fp16(self, runner: CliRunner, tmp_path: Path) -> None:
         # Only test that exercises non-auto --precision.
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         require_not_ep("migraphx")
         out = tmp_path / "result.json"
         _invoke(
@@ -424,17 +416,17 @@ class TestEvalPerTask:
                 str(out),
             ],
         )
-        # CLI contract: exit 0 and produce the metric keys. Tiny N may
-        # yield None values; magnitude is checked in the accuracy regression
-        # suite, not here.
+        # Every requested sample must reach metric aggregation. Magnitude is
+        # checked in the accuracy regression suite, not here.
         data = _assert_metrics_present(out, ["cer", "cider", "n_samples"])
         m = data["metrics"]
         for k, hi in (("cer", 10.0), ("cider", 20.0)):
             v = m[k]
-            assert v is None or (
-                isinstance(v, (int, float)) and math.isfinite(v) and 0.0 <= v <= hi
-            ), f"metric {k}={v!r} not None or in [0,{hi}]"
-        assert isinstance(m["n_samples"], int) and m["n_samples"] >= 0
+            assert isinstance(v, (int, float)) and math.isfinite(v) and 0.0 <= v <= hi, (
+                f"metric {k}={v!r} not in [0,{hi}]"
+            )
+        assert m["n_samples"] == int(SAMPLES)
+        assert "skipped" not in m
 
     def test_fill_mask(self, runner: CliRunner, tmp_path: Path) -> None:
         # Pseudo-perplexity >= 1 (perplexity is exp of non-neg NLL).
@@ -492,8 +484,6 @@ class TestEvalPerTask:
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         out = tmp_path / "result.json"
         _invoke(
             runner,
@@ -575,8 +565,6 @@ class TestEvalModelInputForms:
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         hf_id = "openai/clip-vit-base-patch32"
         task = "zero-shot-image-classification"
 
@@ -634,8 +622,6 @@ class TestEvalOutput:
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         out = tmp_path / "nested" / "subdir" / "result.json"
         _invoke(
             runner,
@@ -723,7 +709,7 @@ class TestEvalDeviceAndEp:
         tmp_path: Path,
     ) -> None:
         # Combined --device + --ep.
-        require_ep("qnn")
+        require_ep("qnn", device="npu")
         out = tmp_path / "result.json"
         _invoke(
             runner,
@@ -758,8 +744,6 @@ class TestEvalAdditionalOptions:
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         out = tmp_path / "result.json"
         _invoke(
             runner,
@@ -792,8 +776,6 @@ class TestEvalAdditionalOptions:
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         from pathlib import Path as _Path
 
         label_map = _Path(ADE20K_LABEL_MAP)
@@ -829,8 +811,6 @@ class TestEvalAdditionalOptions:
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         # `eval` section provides task + samples.
         cfg = tmp_path / "cfg.json"
         cfg.write_text(
@@ -866,8 +846,6 @@ class TestEvalAdditionalOptions:
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         # CLI wins over config file.
         cfg = tmp_path / "cfg.json"
         cfg.write_text(
@@ -905,8 +883,6 @@ class TestEvalAdditionalOptions:
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         # No --task flag; CLI infers from HF model.
         out = tmp_path / "result.json"
         _invoke(
@@ -980,8 +956,6 @@ class TestEvalAdditionalOptions:
         tmp_path: Path,
         tiny_textcls_script: Path,
     ) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         # --dataset-script + --column + --trust-remote-code (happy path).
         ds_path = tmp_path / "tiny_textcls"
         out = tmp_path / "result.json"
@@ -1231,7 +1205,20 @@ class TestEvalErrorPaths:
         # Needs a real .onnx file path that exists; reuse warmed cache.
         hf_id = "google/vit-base-patch16-224"
         task = "image-classification"
-        _invoke(runner, ["-m", hf_id, "--task", task, "--streaming", "--samples", SAMPLES])
+        _invoke(
+            runner,
+            [
+                "-m",
+                hf_id,
+                "--task",
+                task,
+                "--device",
+                "cpu",
+                "--streaming",
+                "--samples",
+                SAMPLES,
+            ],
+        )
         cache_dir = find_cache_dir(hf_id, task=task)
         assert cache_dir is not None
         onnx_files = list(cache_dir.glob("*_model.onnx"))

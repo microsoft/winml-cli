@@ -19,6 +19,7 @@ from winml.modelkit.eval import SpearmanCorrelationMetric, WinMLFeatureExtractio
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_evaluator(columns_mapping=None):
     """Instantiate evaluator by patching external dependencies."""
     from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
@@ -48,14 +49,20 @@ def make_evaluator(columns_mapping=None):
         dataset=DatasetConfig(path="mteb/stsbenchmark-sts", columns_mapping=mapping),
     )
 
-    with patch("datasets.load_dataset", return_value=mock_ds), \
-         patch("transformers.pipeline", return_value=mock_pipe):
+    with (
+        patch("datasets.load_dataset", return_value=mock_ds),
+        patch(
+            "winml.modelkit.inference.pipeline.create_pipeline",
+            return_value=mock_pipe,
+        ),
+    ):
         return WinMLFeatureExtractionEvaluator(config, model)
 
 
 # ---------------------------------------------------------------------------
 # SpearmanCorrelationMetric
 # ---------------------------------------------------------------------------
+
 
 class TestSpearmanCorrelationMetric:
     def test_perfect_positive_correlation(self):
@@ -101,6 +108,7 @@ class TestSpearmanCorrelationMetric:
 # ---------------------------------------------------------------------------
 # WinMLFeatureExtractionEvaluator._embed
 # ---------------------------------------------------------------------------
+
 
 class TestEmbed:
     def test_masked_mean_pooling_excludes_padding(self):
@@ -151,6 +159,7 @@ class TestEmbed:
 # WinMLFeatureExtractionEvaluator.compute
 # ---------------------------------------------------------------------------
 
+
 class TestComputeSpearman:
     def _make_pipe(self, vectors: list[np.ndarray]):
         """Return a pipeline mock that yields embeddings in sequence."""
@@ -171,13 +180,13 @@ class TestComputeSpearman:
         # Patch _embed to return predictable values
         embeddings = [
             np.array([1.0, 0.0]),
-            np.array([1.0, 0.0]),   # cos=1 -> score=5
+            np.array([1.0, 0.0]),  # cos=1 -> score=5
             np.array([1.0, 0.0]),
-            np.array([0.0, 1.0]),   # cos=0 -> score=1
+            np.array([0.0, 1.0]),  # cos=0 -> score=1
             np.array([0.7071, 0.7071]),
             np.array([0.7071, 0.7071]),  # cos=1 -> score=2.5 (middle)
             np.array([0.0, 1.0]),
-            np.array([0.0, 1.0]),   # cos=1 -> score=4
+            np.array([0.0, 1.0]),  # cos=1 -> score=4
         ]
         emb_iter = iter(embeddings)
         ev._embed = MagicMock(side_effect=lambda _: next(emb_iter))
@@ -198,10 +207,11 @@ class TestComputeSpearman:
 # prepare_pipeline: tokenizer padding
 # ---------------------------------------------------------------------------
 
+
 class TestPreparePipeline:
-    @patch("transformers.pipeline")
+    @patch("winml.modelkit.inference.pipeline.create_pipeline")
     @patch("datasets.load_dataset")
-    def test_sets_padding_when_io_config_present(self, mock_load_ds, mock_pipeline):
+    def test_sets_padding_when_io_config_present(self, mock_load_ds, mock_create_pipeline):
         from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
         mock_ds = MagicMock()
@@ -213,7 +223,7 @@ class TestPreparePipeline:
         mock_pipe = MagicMock()
         mock_pipe.tokenizer = MagicMock()
         mock_pipe._preprocess_params = {}
-        mock_pipeline.return_value = mock_pipe
+        mock_create_pipeline.return_value = mock_pipe
 
         model = MagicMock()
         model.config.label2id = None
@@ -231,9 +241,9 @@ class TestPreparePipeline:
         assert mock_pipe._preprocess_params["max_length"] == 256
         assert mock_pipe._preprocess_params["truncation"] is True
 
-    @patch("transformers.pipeline")
+    @patch("winml.modelkit.inference.pipeline.create_pipeline")
     @patch("datasets.load_dataset")
-    def test_no_padding_without_tokenizer(self, mock_load_ds, mock_pipeline):
+    def test_no_padding_without_tokenizer(self, mock_load_ds, mock_create_pipeline):
         from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
         mock_ds = MagicMock()
@@ -245,7 +255,7 @@ class TestPreparePipeline:
         mock_pipe = MagicMock()
         mock_pipe.tokenizer = None
         mock_pipe._preprocess_params = {}
-        mock_pipeline.return_value = mock_pipe
+        mock_create_pipeline.return_value = mock_pipe
 
         model = MagicMock()
         model.config.label2id = None

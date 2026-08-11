@@ -270,7 +270,12 @@ def export(
         if not cli_utils.is_cli_provided(ctx, "dynamo") and "dynamo" in ec:
             dynamo = ec["dynamo"]
 
-    from ..export import InputTensorSpec, OutputTensorSpec, WinMLExportConfig
+    from ..export import (
+        InputTensorSpec,
+        OutputTensorSpec,
+        WinMLExportConfig,
+        resolve_export_compatibility,
+    )
     from ..export import export_pytorch as export_onnx
     from ..loader import load_hf_model
 
@@ -430,6 +435,8 @@ def export(
 
         try:
             cfg = WinMLExportConfig.from_dict(config_kwargs)
+            if not cfg.compatibility:
+                cfg.compatibility = resolve_export_compatibility()
         except Exception as e:
             console.print(f"[bold red]Configuration error:[/bold red] {e}")
             logger.exception("Failed to create export config")

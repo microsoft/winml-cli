@@ -15,24 +15,32 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ..optim.config import WinMLOptimizationConfig
-from ..utils.constants import EP_SUPPORTED_DEVICES, EPName, EPNameOrAlias, normalize_ep_name
+from ..utils.constants import normalize_ep_name
 from .models.information import Information
 from .models.output import RuntimeDebugSummaryEntry
+from .models.runtime_checks import (
+    AlternativeType,
+    PatternAlternative,
+    PatternRuntime,
+    RuntimeTestResult,
+)
 from .models.support_level import SupportLevel
 from .utils.timing_utils import make_timing_logger
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping, Sequence
 
     import onnx
 
+    from ..pattern.match import PatternMatchResult
+    from ..utils.constants import EPName, EPNameOrAlias
     from .models.information import Action
+    from .models.onnx_model import ONNXModel
     from .models.output import AnalysisOutput
-    from .models.runtime_checks import PatternRuntime, RuntimeTestResult
 
 
 @dataclass
@@ -69,6 +77,13 @@ _RUNTIME_DEBUG_SUMMARY_LEVELS: tuple[SupportLevel, ...] = (
     SupportLevel.SUPPORTED,
 )
 
+_PATTERN_STATUS_QUALITY: dict[str, int] = {
+    "unknown": 0,
+    "unsupported": 1,
+    "partial": 2,
+    "supported": 3,
+}
+
 
 def _normalize_case_indices_for_summary(case_indices: Any) -> list[Any] | None:
     """Normalize case_indices to JSON-friendly list values."""
@@ -88,6 +103,358 @@ def _iter_runtime_test_results(pattern_runtime: PatternRuntime) -> list[RuntimeT
     return results
 
 
+def _candidate_to_supported_status(candidate: dict[str, Any] | None) -> str:
+    """Map compile/run candidate output to exported support status."""
+    if not candidate:
+        return "unknown"
+
+    if candidate.get("status") != "ok":
+        return "unknown"
+
+    compile_ok = candidate.get("compile")
+    run_ok = candidate.get("run")
+
+    if compile_ok is True and run_ok is True:
+        return "supported"
+    if compile_ok is False and run_ok is True:
+        return "partial"
+    return "unsupported"
+
+
+def _runtime_test_result_from_supported_status(
+    status: str,
+    *,
+    reason: str | None = None,
+) -> RuntimeTestResult:
+    """Convert exported pattern support status into a runtime result."""
+    normalized_status = status.strip().lower()
+    if normalized_status == "supported":
+        return RuntimeTestResult(compile=True, run=True, reason=reason)
+    if normalized_status == "partial":
+        return RuntimeTestResult(compile=False, run=True, reason=reason)
+    if normalized_status == "unsupported":
+        return RuntimeTestResult(compile=False, run=False, reason=reason)
+    return RuntimeTestResult(compile=False, run=False, reason=reason, no_data=True)
+
+
+def _build_subgraph_runtime_results(
+    subgraph_patterns: Sequence[PatternMatchResult],
+    merge_prep_entries: Sequence[Mapping[str, Any]],
+) -> list[PatternRuntime]:
+    """Build information-engine inputs from final filtered pattern alternatives."""
+    pattern_match_by_id = {pattern.match_id: pattern for pattern in subgraph_patterns}
+    runtime_results: list[PatternRuntime] = []
+
+    for entry in merge_prep_entries:
+        pattern_id = str(entry.get("pattern_id", ""))
+        if not pattern_id:
+            continue
+
+        candidates = entry.get("candidates", []) or []
+        alternatives: list[PatternAlternative] = []
+        for alternative_data in entry.get("alternatives", []) or []:
+            alternative_id = str(alternative_data.get("pattern_to_id", ""))
+            if not alternative_id:
+                continue
+
+            alternative_candidate = next(
+                (
+                    candidate
+                    for candidate in candidates
+                    if bool(candidate.get("is_alternative", False))
+                    and str(candidate.get("pattern_id", "")) == alternative_id
+                ),
+                None,
+            )
+            reason = alternative_data.get("reason")
+            alternatives.append(
+                PatternAlternative(
+                    pattern_id=alternative_id,
+                    result=_runtime_test_result_from_supported_status(
+                        _candidate_to_supported_status(alternative_candidate),
+                        reason=str(reason) if reason is not None else None,
+                    ),
+                    alternative_type=AlternativeType.EQUIVALENT,
+                    enabled=bool(alternative_data.get("enabled", True)),
+                    details=alternative_data.get("details"),
+                    action_items=alternative_data.get("action_items"),
+                )
+            )
+
+        runtime_results.append(
+            PatternRuntime(
+                pattern_id=pattern_id,
+                result=_runtime_test_result_from_supported_status(
+                    str(entry.get("support_status", "unknown"))
+                ),
+                alternatives=alternatives,
+                pattern_match=pattern_match_by_id.get(str(entry.get("match_id", ""))),
+            )
+        )
+
+    return runtime_results
+
+
+def _pick_worst_status(statuses: list[str]) -> str:
+    """Pick worst status for one pattern group across all its instances."""
+    if not statuses:
+        return "unknown"
+    return min(statuses, key=lambda status: _PATTERN_STATUS_QUALITY.get(status, 0))
+
+
+def _build_match_status_by_match_id(
+    merge_prep_entries: Sequence[Mapping[str, Any]],
+) -> dict[str, str]:
+    """Build best available support status for each pattern match_id."""
+    status_by_match_id: dict[str, str] = {}
+    for entry in merge_prep_entries:
+        match_id = str(entry.get("match_id", ""))
+        if not match_id:
+            continue
+
+        raw_status = str(entry.get("support_status", "")).strip().lower()
+        if raw_status == "unknown" or raw_status == "unknow":
+            raw_status = "unknown"
+
+        if raw_status in _PATTERN_STATUS_QUALITY:
+            status = raw_status
+        else:
+            pattern_id = str(entry.get("pattern_id", ""))
+            candidates = entry.get("candidates", []) or []
+            base_candidate = next(
+                (
+                    candidate
+                    for candidate in candidates
+                    if not bool(candidate.get("is_alternative", False))
+                    and str(candidate.get("pattern_id", "")) == pattern_id
+                ),
+                None,
+            )
+            status = _candidate_to_supported_status(base_candidate)
+
+        status_by_match_id[match_id] = status
+
+    return status_by_match_id
+
+
+def _build_pattern_status_by_node_key(
+    subgraph_patterns: list[PatternMatchResult],
+    merge_prep_entries: Sequence[Mapping[str, Any]],
+) -> dict[str, str]:
+    """Build per-node pattern status map for matched-node runtime short-circuit."""
+    status_by_match_id = _build_match_status_by_match_id(merge_prep_entries)
+    status_by_node_key: dict[str, str] = {}
+
+    for pattern_match in subgraph_patterns:
+        status = status_by_match_id.get(pattern_match.match_id, "unknown")
+        for node_key in pattern_match.matched_node_keys:
+            status_by_node_key[node_key] = status
+
+    return status_by_node_key
+
+
+def _build_pattern_matching_summary(
+    subgraph_patterns: list[PatternMatchResult],
+    merge_prep_entries: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Build per-EP pattern summary payload for CLI rendering."""
+    status_by_match_id = _build_match_status_by_match_id(merge_prep_entries)
+
+    grouped: dict[str, dict[str, Any]] = {}
+    covered_node_keys: set[str] = set()
+
+    for pattern_match in subgraph_patterns:
+        pattern_id = pattern_match.pattern.pattern_id
+        status = status_by_match_id.get(pattern_match.match_id, "unknown")
+        covered_node_keys.update(pattern_match.matched_node_keys)
+
+        bucket = grouped.setdefault(
+            pattern_id,
+            {
+                "pattern_id": pattern_id,
+                "statuses": [],
+                "instances": 0,
+                "node_op_counts": {},
+            },
+        )
+        bucket["statuses"].append(status)
+        bucket["instances"] += 1
+
+        skeleton_nodes = pattern_match.skeleton_match_result.matched_nodes
+        for node in skeleton_nodes:
+            op_type = node.op_type
+            node_op_counts: dict[str, int] = bucket["node_op_counts"]
+            node_op_counts[op_type] = node_op_counts.get(op_type, 0) + 1
+
+    patterns: list[dict[str, Any]] = []
+    for pattern_id, bucket in grouped.items():
+        instances = int(bucket["instances"])
+        op_counts: dict[str, int] = bucket["node_op_counts"]
+
+        node_breakdown: list[dict[str, Any]] = []
+        for op_type, total_count in sorted(op_counts.items(), key=lambda item: (-item[1], item[0])):
+            per_instance_count = (
+                total_count // instances
+                if instances > 0 and total_count % instances == 0
+                else None
+            )
+            node_breakdown.append(
+                {
+                    "op_type": op_type,
+                    "per_instance_count": per_instance_count,
+                    "total_count": total_count,
+                }
+            )
+
+        total_child_nodes = sum(op_counts.values())
+        patterns.append(
+            {
+                "pattern_id": pattern_id,
+                "status": _pick_worst_status(bucket["statuses"]),
+                "instances": instances,
+                "node_breakdown": node_breakdown,
+                "total_child_nodes": total_child_nodes,
+            }
+        )
+
+    patterns.sort(key=lambda item: (-int(item["instances"]), str(item["pattern_id"])))
+    return {
+        "patterns": patterns,
+        "pattern_nodes_total": len(covered_node_keys),
+    }
+
+
+def _build_information_from_pattern_optimization_hints(
+    hints: Sequence[Mapping[str, Any]],
+) -> list[Information]:
+    """Build fallback Information items from matched-pattern optimization hints.
+
+    Used when pattern rule lookup is disabled for a target EP/device.
+    """
+    from .models.information import Action, ActionItem, ActionLevel
+
+    info_items: list[Information] = []
+    seen_pairs: set[tuple[str, str]] = set()
+
+    for hint in hints:
+        pattern_id = str(hint.get("pattern_id", "")).strip()
+        pattern_to_id = str(hint.get("pattern_to_id", "")).strip()
+        if not pattern_id or not pattern_to_id:
+            continue
+
+        pair_key = (pattern_id, pattern_to_id)
+        if pair_key in seen_pairs:
+            continue
+
+        raw_action_items = hint.get("action_items", [])
+        action_items: list[ActionItem] = []
+        if isinstance(raw_action_items, list):
+            for raw_item in raw_action_items:
+                if not isinstance(raw_item, dict):
+                    continue
+
+                raw_options = raw_item.get("optimization_options")
+                if not isinstance(raw_options, dict) or not raw_options:
+                    continue
+
+                normalized_options: dict[str, bool] = {}
+                for option_key, option_value in raw_options.items():
+                    if isinstance(option_value, bool):
+                        normalized_options[str(option_key).replace("-", "_")] = option_value
+
+                if not normalized_options:
+                    continue
+
+                action_items.append(
+                    ActionItem(
+                        type=str(raw_item.get("type", "GraphOptimization")),
+                        optimization_options=normalized_options,
+                    )
+                )
+
+        if not action_items:
+            continue
+
+        enabled = bool(hint.get("enabled", True))
+        details = str(
+            hint.get("details")
+            or hint.get("reason")
+            or (
+                f"Pattern '{pattern_id}' matched, but rule lookup is unavailable for this "
+                f"target. Using optimization hint from '{pattern_to_id}'."
+            )
+        )
+
+        action = Action(
+            pattern_from_id=pattern_id,
+            pattern_to_id=pattern_to_id,
+            level=ActionLevel.OPTIONAL,
+            status=SupportLevel.UNKNOWN,
+            enabled=enabled,
+            details=details,
+            action_items=action_items,
+        )
+
+        instance_count = int(hint.get("instances", 0))
+        if instance_count > 1:
+            explanation = (
+                f"{instance_count} instances of pattern '{pattern_id}' matched. "
+                "Runtime rule lookup is skipped for this target; exposing fallback "
+                "optimization options from the first eligible alternative."
+            )
+        else:
+            explanation = (
+                f"Pattern '{pattern_id}' matched. Runtime rule lookup is skipped for "
+                "this target; exposing fallback optimization options from the first "
+                "eligible alternative."
+            )
+
+        info_items.append(
+            Information(
+                explanation=explanation,
+                actions=[action],
+                pattern_id=pattern_id,
+                status=SupportLevel.UNKNOWN,
+                enabled=enabled,
+            )
+        )
+        seen_pairs.add(pair_key)
+
+    return info_items
+
+
+def _build_operator_counts_excluding_pattern_nodes(
+    *,
+    operator_counts: Mapping[str, int],
+    onnx_model: ONNXModel,
+    matched_node_keys: set[str],
+) -> dict[str, int]:
+    """Subtract pattern-matched nodes from operator totals for OP CHECK display."""
+    if not matched_node_keys:
+        return {
+            str(op_type): int(count)
+            for op_type, count in operator_counts.items()
+            if int(count) > 0
+        }
+
+    matched_counts_by_op: dict[str, int] = {}
+    for node_key in matched_node_keys:
+        node = onnx_model.get_node_by_key(node_key)
+        if node is None:
+            continue
+        op_type = str(node.op_type)
+        matched_counts_by_op[op_type] = matched_counts_by_op.get(op_type, 0) + 1
+
+    adjusted_counts: dict[str, int] = {}
+    for op_type, total_count_raw in operator_counts.items():
+        total_count = int(total_count_raw)
+        remaining = total_count - matched_counts_by_op.get(str(op_type), 0)
+        if remaining > 0:
+            adjusted_counts[str(op_type)] = remaining
+
+    return adjusted_counts
+
+
 def _build_runtime_debug_details_summary(
     runtime_summary: dict[str, list[PatternRuntime]],
 ) -> dict[str, list[str] | dict[str, RuntimeDebugSummaryEntry]] | None:
@@ -104,50 +471,58 @@ def _build_runtime_debug_details_summary(
     }
     unknown_nodes: set[str] = set()
 
-    for runtime_key in ("op_runtime_check_result", "subgraph_runtime_check_result"):
-        for pattern_runtime in runtime_summary.get(runtime_key, []):
-            for test_result in _iter_runtime_test_results(pattern_runtime):
-                level = test_result.classification
+    for pattern_runtime in runtime_summary.get("op_runtime_check_result", []):
+        for test_result in _iter_runtime_test_results(pattern_runtime):
+            level = test_result.classification
 
-                debug_details = test_result.debug_details
-                if not debug_details:
-                    continue
+            debug_details = test_result.debug_details
+            if not debug_details:
+                continue
 
-                node_stable_key = debug_details.get("node_stable_key")
-                if not node_stable_key:
-                    continue
+            node_stable_key = debug_details.get("node_stable_key")
+            if not node_stable_key:
+                continue
 
-                if level == SupportLevel.UNKNOWN:
-                    # Unknown nodes carry no rule case data; record the
-                    # de-duplicated node key only.
-                    unknown_nodes.add(node_stable_key)
-                    continue
+            if level == SupportLevel.UNKNOWN:
+                # Unknown nodes carry no rule case data; record the
+                # de-duplicated node key only.
+                unknown_nodes.add(node_stable_key)
+                continue
 
-                if level not in _RUNTIME_DEBUG_SUMMARY_LEVELS:
-                    continue
+            if level not in _RUNTIME_DEBUG_SUMMARY_LEVELS:
+                continue
 
-                candidate_entry = RuntimeDebugSummaryEntry(
-                    case_indices=_normalize_case_indices_for_summary(
-                        debug_details.get("case_indices")
-                    ),
-                    table_path=debug_details.get("table_path"),
-                    table_file=debug_details.get("table_file"),
-                )
+            candidate_entry = RuntimeDebugSummaryEntry(
+                case_indices=_normalize_case_indices_for_summary(debug_details.get("case_indices")),
+                table_path=debug_details.get("table_path"),
+                table_file=debug_details.get("table_file"),
+                match_status=(
+                    "pattern_match"
+                    if debug_details.get("match_status") == "pattern_match"
+                    else "op_match"
+                ),
+            )
 
-                level_bucket = leveled_summary[level.value]
-                existing_entry = level_bucket.get(node_stable_key)
-                if existing_entry is None:
-                    level_bucket[node_stable_key] = candidate_entry
-                    continue
+            level_bucket = leveled_summary[level.value]
+            existing_entry = level_bucket.get(node_stable_key)
+            if existing_entry is None:
+                level_bucket[node_stable_key] = candidate_entry
+                continue
 
-                if existing_entry.case_indices is None and candidate_entry.case_indices is not None:
-                    existing_entry.case_indices = candidate_entry.case_indices
+            if existing_entry.case_indices is None and candidate_entry.case_indices is not None:
+                existing_entry.case_indices = candidate_entry.case_indices
 
-                if existing_entry.table_path is None and candidate_entry.table_path is not None:
-                    existing_entry.table_path = candidate_entry.table_path
+            if existing_entry.table_path is None and candidate_entry.table_path is not None:
+                existing_entry.table_path = candidate_entry.table_path
 
-                if existing_entry.table_file is None and candidate_entry.table_file is not None:
-                    existing_entry.table_file = candidate_entry.table_file
+            if existing_entry.table_file is None and candidate_entry.table_file is not None:
+                existing_entry.table_file = candidate_entry.table_file
+
+            if (
+                existing_entry.match_status != "pattern_match"
+                and candidate_entry.match_status == "pattern_match"
+            ):
+                existing_entry.match_status = candidate_entry.match_status
 
     has_any_entry = bool(unknown_nodes) or any(
         leveled_summary[level.value] for level in _RUNTIME_DEBUG_SUMMARY_LEVELS
@@ -173,20 +548,26 @@ class AnalysisResult:
     def __init__(
         self,
         output: AnalysisOutput,
+        pattern_matching_by_ep: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         """Initialize analysis result.
 
         Args:
             output: The analysis output
+            pattern_matching_by_ep: Per-EP pattern summary payload for CLI rendering.
         """
         self.output = output
+        self.pattern_matching_by_ep: dict[str, dict[str, Any]] = pattern_matching_by_ep or {}
 
     def __repr__(self) -> str:
         """String representation of analysis result."""
-        pattern_count = sum(self.output.metadata.detected_pattern_count.values())
-        return f"AnalysisResult(patterns={pattern_count})"
+        pattern_counts_by_ep = {
+            ep: sum(pattern_counts.values())
+            for ep, pattern_counts in self.output.metadata.detected_pattern_count.items()
+        }
+        return f"AnalysisResult(patterns_by_ep={pattern_counts_by_ep})"
 
-    def is_fully_supported(self, ep: EPNameOrAlias | None = None) -> bool:
+    def is_fully_supported(self, ep: str | None = None) -> bool:
         """Check if model is fully supported on the target EP and device.
 
         Args:
@@ -214,7 +595,7 @@ class AnalysisResult:
             return False
 
         # Normalize EP if specified
-        ep_normalized = normalize_ep_name(ep) if ep else None
+        ep_normalized = normalize_ep_name(cast("EPNameOrAlias", ep)) if ep else None
 
         # Track if we found the target EP when filtering
         found_target = ep_normalized is None  # True if not filtering
@@ -227,7 +608,7 @@ class AnalysisResult:
                 return False
         return found_target
 
-    def has_errors(self, ep: EPNameOrAlias | None = None) -> bool:
+    def has_errors(self, ep: str | None = None) -> bool:
         """Check if there are any unsupported patterns (blocking errors).
 
         Args:
@@ -251,7 +632,7 @@ class AnalysisResult:
             return False
 
         # Normalize EP if specified
-        ep_normalized = normalize_ep_name(ep) if ep else None
+        ep_normalized = normalize_ep_name(cast("EPNameOrAlias", ep)) if ep else None
 
         for ep_support in self.output.results:
             if ep_normalized and ep_support.ep_type != ep_normalized:
@@ -260,7 +641,7 @@ class AnalysisResult:
                 return True
         return False
 
-    def has_warnings(self, ep: EPNameOrAlias | None = None) -> bool:
+    def has_warnings(self, ep: str | None = None) -> bool:
         """Check if there are any partial patterns (warnings/optimization opportunities).
 
         Args:
@@ -284,7 +665,7 @@ class AnalysisResult:
             return False
 
         # Normalize EP if specified
-        ep_normalized = normalize_ep_name(ep) if ep else None
+        ep_normalized = normalize_ep_name(cast("EPNameOrAlias", ep)) if ep else None
 
         for ep_support in self.output.results:
             if ep_normalized and ep_support.ep_type != ep_normalized:
@@ -293,7 +674,7 @@ class AnalysisResult:
                 return True
         return False
 
-    def get_lint_result(self, ep: EPNameOrAlias | None = None) -> LintResult:
+    def get_lint_result(self, ep: str | None = None) -> LintResult:
         """Get lint-style result with error/warning/info counts.
 
         Args:
@@ -332,7 +713,7 @@ class AnalysisResult:
             )
 
         # Normalize EP if specified
-        ep_normalized = normalize_ep_name(ep) if ep else None
+        ep_normalized = normalize_ep_name(cast("EPNameOrAlias", ep)) if ep else None
 
         # Aggregate counts and lists
         error_patterns: list[str] = []
@@ -374,7 +755,7 @@ class AnalysisResult:
             optimization_config=optimization_config,
         )
 
-    def get_unsupported_operators(self, ep: EPNameOrAlias | None = None) -> list[str]:
+    def get_unsupported_operators(self, ep: str | None = None) -> list[str]:
         """Get list of unsupported operators for the target EP and device.
 
         Args:
@@ -395,7 +776,7 @@ class AnalysisResult:
             ...     print(f"Unsupported: {op_name}")
         """
         # Normalize EP if specified
-        ep_normalized = normalize_ep_name(ep) if ep else None
+        ep_normalized = normalize_ep_name(cast("EPNameOrAlias", ep)) if ep else None
 
         unsupported = []
         for ep_support in self.output.results:
@@ -409,7 +790,7 @@ class AnalysisResult:
 
         return unsupported
 
-    def get_optimization_opportunities(self, ep: EPNameOrAlias | None = None) -> list[Action]:
+    def get_optimization_opportunities(self, ep: str | None = None) -> list[Action]:
         """Get actions for patterns that could be optimized (UNSUPPORTED or PARTIAL status).
 
         Args:
@@ -432,7 +813,7 @@ class AnalysisResult:
             ...     print(f"Optimize: {action.pattern_from_id} -> {action.action}")
         """
         # Normalize EP if specified
-        ep_normalized = normalize_ep_name(ep) if ep else None
+        ep_normalized = normalize_ep_name(cast("EPNameOrAlias", ep)) if ep else None
 
         actions: list[Action] = []
         seen_patterns: set[tuple[str, str]] = set()
@@ -452,7 +833,7 @@ class AnalysisResult:
                             seen_patterns.add(pattern_key)
         return actions
 
-    def get_optimization_config(self, ep: EPNameOrAlias | None = None) -> WinMLOptimizationConfig:
+    def get_optimization_config(self, ep: str | None = None) -> WinMLOptimizationConfig:
         """Generate WinML optimization configuration based on action items.
 
         This method extracts optimization settings from action_items in Actions,
@@ -594,15 +975,17 @@ class ONNXStaticAnalyzer:
     def analyze(
         self,
         model_path: str,
-        ep: EPNameOrAlias | None = None,
+        ep: str | None = None,
         device: str | None = None,
         enable_information: bool = True,
-        htp_metadata_path: str | None = None,
         for_debug: bool = False,
         run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
         on_node_result: Callable | None = None,
         on_ep_start: Callable | None = None,
+        on_pattern_query_start: Callable | None = None,
+        on_pattern_query_result: Callable | None = None,
+        on_pattern_summary_ready: Callable | None = None,
     ) -> AnalysisResult:
         """Analyze ONNX model for runtime support.
 
@@ -622,8 +1005,6 @@ class ONNXStaticAnalyzer:
                 If None, uses "NPU" as default.
             enable_information: Whether to generate recommendations
                 Default: True
-            htp_metadata_path: Optional path to HTP metadata JSON file
-                for pattern extraction from hierarchy traces
             for_debug: Whether to include runtime debug payloads in check results.
                 Default: False
             run_unknown_op: Whether to run unknown operators on the local machine
@@ -675,7 +1056,7 @@ class ONNXStaticAnalyzer:
         total_start = time.perf_counter()
 
         # Normalize EP name (convert aliases to full names)
-        ep_normalized = normalize_ep_name(ep)
+        ep_normalized = normalize_ep_name(cast("EPNameOrAlias | None", ep))
         if ep != ep_normalized:
             logger.debug("EP alias '%s' normalized to '%s'", ep, ep_normalized)
 
@@ -706,12 +1087,14 @@ class ONNXStaticAnalyzer:
             device=device,
             enable_information=enable_information,
             model_path=str(model_file),
-            htp_metadata_path=htp_metadata_path,
             for_debug=for_debug,
             run_unknown_op=run_unknown_op,
             save_node_types=save_node_types,
             on_node_result=on_node_result,
             on_ep_start=on_ep_start,
+            on_pattern_query_start=on_pattern_query_start,
+            on_pattern_query_result=on_pattern_query_result,
+            on_pattern_summary_ready=on_pattern_summary_ready,
         )
         delegate_ms = int((time.perf_counter() - delegate_start) * 1000)
         _log_timing(
@@ -728,16 +1111,18 @@ class ONNXStaticAnalyzer:
     def analyze_from_proto(
         self,
         model_proto: onnx.ModelProto,
-        ep: EPNameOrAlias | None = None,
+        ep: str | None = None,
         device: str | None = None,
         enable_information: bool = True,
         model_path: str | None = None,
-        htp_metadata_path: str | None = None,
         for_debug: bool = False,
         run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
         on_node_result: Callable | None = None,
         on_ep_start: Callable | None = None,
+        on_pattern_query_start: Callable | None = None,
+        on_pattern_query_result: Callable | None = None,
+        on_pattern_summary_ready: Callable | None = None,
     ) -> AnalysisResult:
         """Analyze ONNX model from ModelProto object.
 
@@ -754,8 +1139,6 @@ class ONNXStaticAnalyzer:
                 If None, uses "NPU" as default.
             enable_information: Whether to generate recommendations
             model_path: Optional path to model file (for metadata)
-            htp_metadata_path: Optional path to HTP metadata JSON file
-                for pattern extraction from hierarchy traces
             for_debug: Whether to include runtime debug payloads in check results.
                 Default: False
             run_unknown_op: Whether to run unknown operators on local machine
@@ -783,9 +1166,25 @@ class ONNXStaticAnalyzer:
         from .core.pattern_extractor import PatternExtractor
         from .core.runtime_checker import RuntimeChecker
 
+        def _make_local_pattern_checker(
+            runtime_checker: RuntimeChecker,
+        ) -> Callable[[PatternMatchResult, str, bool], RuntimeTestResult | None]:
+            def _check_pattern_locally(
+                pattern_match: PatternMatchResult,
+                fallback_reason: str,
+                debug: bool,
+            ) -> RuntimeTestResult | None:
+                return runtime_checker.check_pattern_locally(
+                    pattern_match,
+                    fallback_reason=fallback_reason,
+                    for_debug=debug,
+                )
+
+            return _check_pattern_locally
+
         # Normalize EP name (convert aliases to full names)
         total_start = time.perf_counter()
-        ep_normalized = normalize_ep_name(ep)
+        ep_normalized = normalize_ep_name(cast("EPNameOrAlias | None", ep))
         if ep != ep_normalized:
             logger.debug("EP alias '%s' normalized to '%s'", ep, ep_normalized)
 
@@ -793,10 +1192,15 @@ class ONNXStaticAnalyzer:
 
         # Resolve device — rule files are device-specific (CPU/GPU/NPU).
         if device is not None and device.lower() == "auto":
-            from ..sysinfo import resolve_device
+            if ep_normalized is None:
+                from ..session import auto_detect_device
 
-            resolved, _ = resolve_device("auto", ep=ep_normalized)
-            device_to_use = resolved.upper()
+                device_to_use = auto_detect_device().upper()
+            else:
+                from ..session import EPDeviceTarget, resolve_device
+
+                resolved_target = resolve_device(EPDeviceTarget(ep=ep_normalized, device="auto"))
+                device_to_use = resolved_target.device.upper()
             logger.info("Device 'auto' resolved to: %s", device_to_use)
         else:
             device_to_use = device if device is not None else "NPU"
@@ -805,13 +1209,18 @@ class ONNXStaticAnalyzer:
         # Determine which EPs to analyze
         eps_to_analyze: list[EPName] = []
         if ep_normalized is None:
-            # Analyze all EPs that support the target device
-            eps_to_analyze = [
-                ep_name
-                for ep_name, supported_devices in EP_SUPPORTED_DEVICES.items()
-                if device_to_use.lower() in supported_devices
-            ]
-            logger.info("No EP specified, analyzing all supported EPs: %s", eps_to_analyze)
+            # Derive the EP list from the catalog so future EP additions
+            # are automatically included. sorted() gives deterministic order.
+            from ..session import eps_for_device
+
+            # eps_for_device returns EP full names as ``str``; they are members of
+            # the ``EPName`` Literal by construction (catalog parity is test-enforced).
+            eps_to_analyze = cast("list[EPName]", sorted(eps_for_device(device_to_use.lower())))
+            logger.info(
+                "No EP specified, analyzing all %s-capable EPs: %s",
+                device_to_use,
+                eps_to_analyze,
+            )
         else:
             eps_to_analyze = [ep_normalized]
 
@@ -825,13 +1234,15 @@ class ONNXStaticAnalyzer:
         if model_path:
             object.__setattr__(onnx_model, "model_path", model_path)
 
-        pattern_extractor = PatternExtractor(onnx_model, htp_metadata_path=htp_metadata_path)
-        extraction_result = pattern_extractor.summary()
-
-        metadata = extraction_result["summary"]
-        pattern_matches = extraction_result["subgraph_patterns"]
-        logger.info("Extracted %d patterns", len(pattern_matches))
+        pattern_extractor = PatternExtractor(onnx_model)
+        metadata = pattern_extractor.model_summary()
+        detected_pattern_count: dict[str, dict[str, int]] = {}
         extraction_ms = int((time.perf_counter() - extraction_start) * 1000)
+
+        # Keep subgraph runtime aggregation disabled for now. Pattern extraction
+        # still drives per-EP node skip sets and pattern UI payloads.
+        pattern_matching_by_ep: dict[str, dict[str, Any]] = {}
+        pattern_count_for_timing = 0
 
         # Step 2: Check runtime support for each EP
         check_op_results: dict[EPName, list[PatternRuntime]] = {}
@@ -843,31 +1254,161 @@ class ONNXStaticAnalyzer:
         ep_info_timing: dict[str, int] = {}
         for current_ep in eps_to_analyze:
             logger.info("Checking runtime support for %s...", current_ep)
-            if on_ep_start:
-                try:
-                    on_ep_start(current_ep, metadata.operator_counts)
-                except Exception:
-                    logger.debug("on_ep_start callback failed", exc_info=True)
-            runtime_summary_start = time.perf_counter()
-            runtime_checker = RuntimeChecker(
-                ep=current_ep,
-                device=device_to_use,
-                model=onnx_model,
-                patterns=pattern_matches,
-            )
+
             # TODO: add VitisAIExecutionProvider back once non-QDQ
             # data is ready, and run_unknown_op is supported for QDQ ops
             run_unknown_op_for_ep = run_unknown_op
             if current_ep == "VitisAIExecutionProvider":
                 run_unknown_op_for_ep = False
 
-            runtime_summary = runtime_checker.summary(
-                patterns=pattern_matches,
-                for_debug=for_debug,
-                run_unknown_op=run_unknown_op_for_ep,
-                save_node_types=save_node_types,
-                on_node_result=on_node_result,
+            pattern_runtime_checker = (
+                RuntimeChecker(
+                    ep=current_ep,
+                    device=device_to_use,
+                    model=onnx_model,
+                )
+                if run_unknown_op_for_ep
+                else None
             )
+
+            def _on_pattern_query_start_for_ep(
+                pattern_counts: Mapping[str, int],
+                pattern_lookup_supported: bool = True,
+                _ep: EPName = current_ep,
+            ) -> None:
+                if on_pattern_query_start is None:
+                    return
+                try:
+                    on_pattern_query_start(
+                        _ep,
+                        dict(pattern_counts),
+                        pattern_lookup_supported,
+                    )
+                except Exception:
+                    logger.debug("on_pattern_query_start callback failed", exc_info=True)
+
+            def _on_pattern_query_result_for_ep(
+                pattern_id: str,
+                support_status: str,
+                _ep: EPName = current_ep,
+            ) -> None:
+                if on_pattern_query_result is None:
+                    return
+                try:
+                    on_pattern_query_result(_ep, pattern_id, support_status)
+                except Exception:
+                    logger.debug("on_pattern_query_result callback failed", exc_info=True)
+
+            try:
+                ep_pattern_summary = pattern_extractor.summary(
+                    ep=current_ep,
+                    device=device_to_use,
+                    for_debug=for_debug,
+                    on_pattern_query_start=_on_pattern_query_start_for_ep,
+                    on_pattern_query_result=_on_pattern_query_result_for_ep,
+                    local_pattern_checker=(
+                        _make_local_pattern_checker(pattern_runtime_checker)
+                        if pattern_runtime_checker is not None
+                        else None
+                    ),
+                )
+            finally:
+                if pattern_runtime_checker is not None:
+                    pattern_runtime_checker.close_local_checks()
+            pattern_lookup_supported = bool(
+                ep_pattern_summary.get("parquet_lookup_supported", True)
+            )
+            pattern_optimization_hints = cast(
+                "list[Mapping[str, Any]]",
+                ep_pattern_summary.get("pattern_optimization_hints", []),
+            )
+            metadata = ep_pattern_summary["summary"]
+            detected_pattern_count.update(
+                ep_pattern_summary["summary"].detected_pattern_count
+            )
+
+            ep_subgraph_patterns = ep_pattern_summary["subgraph_patterns"]
+            ep_merge_prep = ep_pattern_summary.get("merge_prep", [])
+            subgraph_runtime_results = _build_subgraph_runtime_results(
+                ep_subgraph_patterns,
+                ep_merge_prep,
+            )
+            if not pattern_matching_by_ep:
+                pattern_count_for_timing = len(ep_subgraph_patterns)
+
+            pattern_status_by_node_key = _build_pattern_status_by_node_key(
+                ep_subgraph_patterns,
+                ep_merge_prep,
+            )
+            ep_pattern_payload = _build_pattern_matching_summary(
+                ep_subgraph_patterns,
+                ep_merge_prep,
+            )
+            pattern_matching_by_ep[current_ep] = ep_pattern_payload
+
+            if on_pattern_summary_ready is not None:
+                try:
+                    on_pattern_summary_ready(current_ep, ep_pattern_payload)
+                except Exception:
+                    logger.debug("on_pattern_summary_ready callback failed", exc_info=True)
+
+            if on_ep_start:
+                try:
+                    op_counts_for_display = _build_operator_counts_excluding_pattern_nodes(
+                        operator_counts=ep_pattern_summary["summary"].operator_counts,
+                        onnx_model=onnx_model,
+                        matched_node_keys=set(pattern_status_by_node_key),
+                    )
+                    on_ep_start(
+                        current_ep,
+                        op_counts_for_display,
+                        not pattern_lookup_supported and not run_unknown_op_for_ep,
+                    )
+                except Exception:
+                    logger.debug("on_ep_start callback failed", exc_info=True)
+
+            if not pattern_lookup_supported and not run_unknown_op_for_ep:
+                logger.info(
+                    "Skipping runtime rule checks for %s on %s: target is marked "
+                    "invalid in available providers config",
+                    current_ep,
+                    device_to_use,
+                )
+                check_op_results[current_ep] = []
+
+                fallback_info_start = time.perf_counter()
+                information_list[current_ep] = _build_information_from_pattern_optimization_hints(
+                    pattern_optimization_hints,
+                )
+                ep_info_timing[current_ep] = int((time.perf_counter() - fallback_info_start) * 1000)
+                ep_runtime_timing[current_ep] = 0
+                continue
+
+            if not pattern_lookup_supported:
+                logger.info(
+                    "Pattern rule lookup is unavailable for %s on %s; running "
+                    "operator checks with local unknown-op probing",
+                    current_ep,
+                    device_to_use,
+                )
+
+            runtime_summary_start = time.perf_counter()
+            runtime_checker = RuntimeChecker(
+                ep=current_ep,
+                device=device_to_use,
+                model=onnx_model,
+                pattern_matched_node_status_by_key=pattern_status_by_node_key,
+            )
+
+            try:
+                runtime_summary = runtime_checker.summary(
+                    for_debug=for_debug,
+                    run_unknown_op=run_unknown_op_for_ep,
+                    save_node_types=save_node_types,
+                    on_node_result=on_node_result,
+                )
+            finally:
+                runtime_checker.close_local_checks()
             runtime_summary_ms = int((time.perf_counter() - runtime_summary_start) * 1000)
             ep_runtime_timing[current_ep] = runtime_summary_ms
 
@@ -878,7 +1419,6 @@ class ONNXStaticAnalyzer:
 
             # Convert runtime summary to expected format
             op_results_list = runtime_summary.get("op_runtime_check_result", [])
-            subgraph_results_list = runtime_summary.get("subgraph_runtime_check_result", [])
 
             check_op_results[current_ep] = op_results_list  # Use EP name as key
 
@@ -890,7 +1430,7 @@ class ONNXStaticAnalyzer:
                 information_start = time.perf_counter()
                 engine = self.information_engine_cls(
                     op_runtime_results=op_results_list,
-                    subgraph_runtime_results=subgraph_results_list,
+                    subgraph_runtime_results=subgraph_runtime_results,
                     ep=current_ep,
                     model=onnx_model,
                     device=device_to_use,
@@ -900,6 +1440,7 @@ class ONNXStaticAnalyzer:
 
         # Step 4: Aggregate results
         logger.info("Aggregating results...")
+        metadata.detected_pattern_count = detected_pattern_count
         aggregate_start = time.perf_counter()
         output = self.output_aggregator.aggregate(
             metadata=metadata,
@@ -921,7 +1462,7 @@ class ONNXStaticAnalyzer:
             ep=ep_normalized,
             device=device_to_use,
             eps=len(eps_to_analyze),
-            patterns=len(pattern_matches),
+            patterns=pattern_count_for_timing,
             extraction_ms=extraction_ms,
             aggregate_ms=aggregate_ms,
             runtime_ms_by_ep=ep_runtime_timing,
@@ -930,7 +1471,7 @@ class ONNXStaticAnalyzer:
         )
 
         logger.info("Analysis complete")
-        return AnalysisResult(output=output)
+        return AnalysisResult(output=output, pattern_matching_by_ep=pattern_matching_by_ep)
 
 
 # =============================================================================
@@ -964,7 +1505,7 @@ class AnalyzeResult:
 def analyze_onnx(
     model: str | Path,
     *,
-    ep: EPNameOrAlias | None = None,
+    ep: str | None = None,
     device: str | None = None,
     autoconf: bool = True,
     run_unknown_op: bool = False,

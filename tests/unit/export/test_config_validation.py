@@ -19,6 +19,7 @@ from winml.modelkit.export import (
     OutputTensorSpec,
     WinMLExportConfig,
 )
+from winml.modelkit.export.policy import ExportCompatibilityConfig
 
 
 # =============================================================================
@@ -394,6 +395,37 @@ class TestWinMLExportConfigRoundtrip:
         assert restored.output_tensors[1].name == "hidden_states"
 
         assert restored.dynamic_axes == {"pixel_values": {1: "channels"}}
+
+
+class TestExportCompatibilitySerialization:
+    def test_compatibility_round_trips_when_present(self) -> None:
+        cfg = WinMLExportConfig(
+            compatibility=ExportCompatibilityConfig(transformers_attention="eager")
+        )
+
+        data = cfg.to_dict()
+        round_tripped = WinMLExportConfig.from_dict(data)
+
+        assert data["compatibility"] == {"transformers_attention": "eager"}
+        assert round_tripped.compatibility.transformers_attention == "eager"
+
+    def test_unresolved_empty_compatibility_is_omitted_from_export_dict(self) -> None:
+        cfg = WinMLExportConfig()
+
+        assert "compatibility" not in cfg.to_dict()
+
+    def test_empty_compatibility_is_omitted_from_export_dict(self) -> None:
+        cfg = WinMLExportConfig.from_dict({"compatibility": {}})
+
+        data = cfg.to_dict()
+        round_tripped = WinMLExportConfig.from_dict(data)
+
+        assert "compatibility" not in data
+        assert round_tripped.compatibility.transformers_attention is None
+
+    def test_invalid_compatibility_value_raises(self) -> None:
+        with pytest.raises(ValueError, match="transformers_attention"):
+            WinMLExportConfig.from_dict({"compatibility": {"transformers_attention": "sdpa"}})
 
     def test_from_dict_ignores_unknown_fields(self):
         data = {"opset_version": 17, "batch_size": 1, "unknown_field": "ignored"}

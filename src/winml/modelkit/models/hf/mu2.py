@@ -173,8 +173,8 @@ class Mu2DecoderWrapper(nn.Module):
             device=decoder_input_ids.device,
         )
         for i in range(self.num_layers):
-            cache.layers[i].keys = args[kv_start + i * 2]
-            cache.layers[i].values = args[kv_start + i * 2 + 1]
+            cache._layer(i).keys = args[kv_start + i * 2]
+            cache._layer(i).values = args[kv_start + i * 2 + 1]
 
         # Delegate to model's decoder — position_id is passed as cache_position
         # for RoPE computation (WinMLSlidingWindowCache.update ignores it for indexing)

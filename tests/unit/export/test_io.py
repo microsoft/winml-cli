@@ -1103,6 +1103,45 @@ class TestSlidingWindowCachePreparePrefillChunk:
 
 
 # =============================================================================
+# WinMLCache.early_initialization — traced shape arguments
+# =============================================================================
+
+
+class TestWinMLCacheEarlyInitialization:
+    """``early_initialization`` accepts the 0-dim tensors emitted while tracing.
+
+    Export wrappers derive the cache dimensions from the past-KV graph inputs
+    with ``Tensor.size(dim)``. Under the TorchScript tracer used by
+    ``torch.onnx.export`` that returns a 0-dim tensor rather than an ``int``,
+    which upstream's ``isinstance(..., int)`` broadcast does not handle.
+    """
+
+    @pytest.mark.parametrize("cache_cls_name", ["WinMLStaticCache", "WinMLSlidingWindowCache"])
+    def test_zero_dim_tensor_dims_initialize_layers(self, cache_cls_name: str) -> None:
+        from transformers import PretrainedConfig
+
+        import winml.modelkit.models.winml as winml_models
+
+        cache_cls = getattr(winml_models, cache_cls_name)
+        config = PretrainedConfig(num_hidden_layers=2)
+        cache = cache_cls(config, max_cache_len=16)
+
+        cache.early_initialization(
+            batch_size=torch.tensor(1),
+            num_heads=torch.tensor(2),
+            head_dim=torch.tensor(8),
+            dtype=torch.float32,
+            device=torch.device("cpu"),
+        )
+
+        assert all(layer.is_initialized for layer in cache.layers)
+        keys = cache.layers[0].keys
+        assert keys.shape[0] == 1
+        assert keys.shape[1] == 2
+        assert keys.shape[3] == 8
+
+
+# =============================================================================
 # WinMLStaticCache.update — multi-dim index_put_ writes correct positions
 # =============================================================================
 

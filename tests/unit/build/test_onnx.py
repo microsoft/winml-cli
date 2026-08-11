@@ -136,11 +136,11 @@ def mock_onnx_pipeline():
             return_value=_default_analyze_result(),
         ) as m_analyze,
         patch(
-            "winml.modelkit.build.onnx.quantize_onnx",
+            "winml.modelkit.build.common.quantize_onnx",
             side_effect=_create_file_side_effect("output_path", quant_result),
         ) as m_quantize,
         patch(
-            "winml.modelkit.build.onnx.compile_onnx",
+            "winml.modelkit.build.common.compile_onnx",
             side_effect=_create_file_side_effect("output_path", compile_result),
         ) as m_compile,
         patch(
@@ -423,7 +423,7 @@ class TestBuildOnnxPreQuantized:
     def test_skip_optimize_kwarg(
         self, tmp_path: Path, fake_onnx: Path, sample_onnx_config, mock_onnx_pipeline
     ) -> None:
-        """skip_optimize=True forces optimize+quantize skip even without QDQ."""
+        """skip_optimize=True skips optimize but still quantizes raw models."""
         mock_onnx_pipeline["is_quantized_onnx"].return_value = False
 
         output_dir = tmp_path / "output"
@@ -434,9 +434,9 @@ class TestBuildOnnxPreQuantized:
             skip_optimize=True,
         )
         assert "optimize" in result.stages_skipped
-        assert "quantize" in result.stages_skipped
+        assert "quantize" in result.stages_completed
         mock_onnx_pipeline["optimize"].assert_not_called()
-        mock_onnx_pipeline["quantize"].assert_not_called()
+        mock_onnx_pipeline["quantize"].assert_called_once()
 
 
 # =============================================================================

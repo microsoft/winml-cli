@@ -203,6 +203,36 @@ class TestExportUsesExportOnnx:
         assert "model_id" in call_kwargs
         assert call_kwargs["model_id"] == "test-model"
 
+    def test_export_resolves_portable_compatibility_by_default(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        mock_load_hf_model: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Standalone exports should get the same portable policy as build configs."""
+        from winml.modelkit.commands.export import export
+        from winml.modelkit.export import WinMLExportConfig
+
+        with patch(
+            "winml.modelkit.export.resolve_export_config",
+            return_value=(WinMLExportConfig(), MagicMock()),
+        ):
+            result = runner.invoke(
+                export,
+                [
+                    "--model",
+                    "test-model",
+                    "--output",
+                    str(tmp_path / "model.onnx"),
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        cfg = mock_export_onnx.call_args.kwargs["export_config"]
+        assert cfg.compatibility.transformers_attention == "eager"
+
     def test_export_passes_verbose_flag(
         self,
         runner: CliRunner,
