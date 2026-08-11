@@ -19,6 +19,7 @@ from .evaluate import EvalResult, evaluate, get_evaluator_class
 
 
 if TYPE_CHECKING:
+    from .audio_classification_evaluator import WinMLAudioClassificationEvaluator
     from .depth_estimation_evaluator import WinMLDepthEstimationEvaluator
     from .feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
     from .fill_mask_evaluator import WinMLFillMaskEvaluator
@@ -45,8 +46,12 @@ if TYPE_CHECKING:
     from .zero_shot_image_classification_evaluator import WinMLZeroShotImageClassificationEvaluator
 
 
+# Keep the key/value-per-line layout consistent with the evaluator registry.
+# fmt: off
 _LAZY_ATTRS: dict[str, str] = {
     # Evaluators
+    "WinMLAudioClassificationEvaluator":
+        ".audio_classification_evaluator:WinMLAudioClassificationEvaluator",
     "WinMLDepthEstimationEvaluator":
         ".depth_estimation_evaluator:WinMLDepthEstimationEvaluator",
     "WinMLFeatureExtractionEvaluator":
@@ -99,6 +104,7 @@ _LAZY_ATTRS: dict[str, str] = {
     "TopKAccuracyMetric":
         ".metrics.top_k_accuracy:TopKAccuracyMetric",
 }
+# fmt: on
 
 
 def __getattr__(name: str) -> Any:
@@ -132,6 +138,7 @@ __all__ = [
     "SpearmanCorrelationMetric",
     "TensorSimilarityEvaluator",
     "TopKAccuracyMetric",
+    "WinMLAudioClassificationEvaluator",
     "WinMLDepthEstimationEvaluator",
     "WinMLEvaluationConfig",
     "WinMLEvaluator",
