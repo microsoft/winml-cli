@@ -53,11 +53,15 @@ from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Final, cast
+from typing import TYPE_CHECKING, Any, Final, cast
 
 from packaging.version import InvalidVersion, Version
 
-from .utils.constants import DEVICE_PRIORITY, EP_SUPPORTED_DEVICES, DeviceType, EPName
+from .utils.constants import DEVICE_PRIORITY, EP_SUPPORTED_DEVICES, DeviceType
+
+
+if TYPE_CHECKING:
+    from .utils.constants import EPName
 
 
 logger = logging.getLogger(__name__)
