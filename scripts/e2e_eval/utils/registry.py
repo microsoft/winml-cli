@@ -31,7 +31,6 @@ class ModelEntry:
     last_update_time: str | None = None
     optimum_supported: bool = False
     op_tracing_targets: list[str] = field(default_factory=list)
-    groups: list[str] = field(default_factory=list)
 
 
 _REQUIRED_FIELDS = {"hf_id", "task", "model_type", "group", "priority"}
@@ -120,7 +119,6 @@ def load_registry(path: Path) -> list[ModelEntry]:
                     normalize_op_tracing_target(t)
                     for t in (item.get("op_tracing_targets", []) or [])
                 ],
-                groups=item.get("groups", []) or [],
             )
         )
 
@@ -145,7 +143,7 @@ def filter_registry(
     if model_type:
         result = [e for e in result if e.model_type == model_type]
     if group:
-        result = [e for e in result if e.group == group or group in e.groups]
+        result = [e for e in result if e.group == group]
     return result
 
 

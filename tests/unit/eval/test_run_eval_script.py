@@ -148,37 +148,27 @@ class TestKillProcessTree:
         )
 
 
-def test_filter_registry_matches_additional_group_membership(run_eval):
-    entry = run_eval.ModelEntry(
-        hf_id="acme/model",
-        task="image-classification",
-        model_type="vit",
-        group="Top200",
-        priority="P2",
-        groups=["Cross EP"],
-    )
-
-    assert run_eval.filter_registry([entry], group="Top200") == [entry]
-    assert run_eval.filter_registry([entry], group="Cross EP") == [entry]
-
-
-def test_registry_preserves_top200_membership_for_cross_ep_models(run_eval):
-    registry_path = (
+def test_added_models_are_p3_without_cross_ep_group(run_eval):
+    testsets_dir = (
         Path(__file__).resolve().parents[3]
         / "scripts"
         / "e2e_eval"
         / "testsets"
-        / "models_all.json"
     )
-    entries = run_eval.load_registry(registry_path)
-    cross_ep_entries = run_eval.filter_registry(entries, group="Cross EP")
-    top200_entries = {
-        (entry.hf_id, entry.task)
-        for entry in run_eval.filter_registry(entries, group="Top200")
-    }
+    curated = json.loads((testsets_dir / "models_curated.json").read_text(encoding="utf-8"))
+    added = [entry for entry in curated if entry["priority"] == "P3"]
+    added_keys = {(entry["hf_id"], entry["task"]) for entry in added}
 
-    assert len(cross_ep_entries) == 43
-    assert sum((entry.hf_id, entry.task) in top200_entries for entry in cross_ep_entries) == 30
+    entries = run_eval.load_registry(testsets_dir / "models_all.json")
+    generated = [entry for entry in entries if (entry.hf_id, entry.task) in added_keys]
+
+    assert len(added) == 43
+    assert len(generated) == 43
+    assert {entry["group"] for entry in added} == {"Top200"}
+    assert {entry.priority for entry in generated} == {"P3"}
+    assert {entry.group for entry in generated} == {"Top200"}
+    assert "Cross EP" not in json.dumps(curated)
+    assert "Cross EP" not in (testsets_dir / "models_all.json").read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("ep,device", [("auto", "npu"), ("qnn", "auto")])

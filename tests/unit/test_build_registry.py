@@ -131,38 +131,3 @@ def test_build_registry_recheck_downloads_keeps_existing_value_on_failure(monkey
     )
 
     assert entries[0]["downloads"] == 42
-
-
-def test_build_registry_preserves_additional_curated_groups() -> None:
-    build_registry = _load_build_registry_module()
-    existing_entries = [
-        {
-            "hf_id": "org/model-a",
-            "task": "image-classification",
-            "model_type": "vit",
-            "group": "Top200",
-            "priority": "P3",
-            "downloads": 42,
-            "last_update_time": None,
-        }
-    ]
-    curated_entries = [
-        {
-            "hf_id": "org/model-a",
-            "task": "image-classification",
-            "group": "Top200",
-            "groups": ["Cross EP"],
-            "priority": "P2",
-        }
-    ]
-
-    entries = build_registry.build_registry(
-        tasks=["image-classification"],
-        top_n=0,
-        existing_entries=existing_entries,
-        curated_entries=curated_entries,
-    )
-
-    assert entries[0]["group"] == "Top200"
-    assert entries[0]["groups"] == ["Cross EP"]
-    assert entries[0]["priority"] == "P2"
