@@ -985,44 +985,44 @@ def _fold_exp_positive_scales(
     """Fold eligible positive post-Exp constants into existing input biases."""
     index = _GraphIndex.build(model)
     for add in list(model.graph.node):
-        candidate = _exp_scale_candidate(index, add)
-        if candidate is None:
+        bias_candidate = _exp_scale_candidate(index, add)
+        if bias_candidate is None:
             continue
         combined_name = _new_initializer(
             model,
             allocator,
-            candidate.combined_bias,
+            bias_candidate.combined_bias,
             "algebraic_exp_log_bias",
         )
-        candidate.add.input[candidate.bias_input_index] = combined_name
-        candidate.output_node.output[0] = candidate.mul.output[0]
-        _remove_nodes(model, {id(candidate.mul)})
+        bias_candidate.add.input[bias_candidate.bias_input_index] = combined_name
+        bias_candidate.output_node.output[0] = bias_candidate.mul.output[0]
+        _remove_nodes(model, {id(bias_candidate.mul)})
         index = _GraphIndex.build(model)
 
     for exp in list(model.graph.node):
-        candidate = _exp_scale_insert_candidate(index, exp)
-        if candidate is None:
+        insert_candidate = _exp_scale_insert_candidate(index, exp)
+        if insert_candidate is None:
             continue
         log_scale_name = _new_initializer(
             model,
             allocator,
-            candidate.log_scale,
+            insert_candidate.log_scale,
             "algebraic_exp_log_scale",
         )
         adjusted_name = allocator.new("algebraic_exp_adjusted")
         add = onnx.helper.make_node(
             "Add",
-            [candidate.exp.input[0], log_scale_name],
+            [insert_candidate.exp.input[0], log_scale_name],
             [adjusted_name],
             name=allocator.new("algebraic_exp_log_add"),
         )
-        candidate.exp.input[0] = adjusted_name
-        candidate.output_node.output[0] = candidate.mul.output[0]
+        insert_candidate.exp.input[0] = adjusted_name
+        insert_candidate.output_node.output[0] = insert_candidate.mul.output[0]
         rewritten: list[onnx.NodeProto] = []
         for node in model.graph.node:
-            if node is candidate.exp:
+            if node is insert_candidate.exp:
                 rewritten.append(add)
-            if node is not candidate.mul:
+            if node is not insert_candidate.mul:
                 rewritten.append(node)
         del model.graph.node[:]
         model.graph.node.extend(rewritten)
@@ -1206,7 +1206,7 @@ def _collect_routed_affine_candidates(
         boundaries = nested_info[1]
         if len(boundaries) != len(nested_split.output):
             return []
-        candidates: list[_AffineCandidate] = []
+        nested_affine_candidates: list[_AffineCandidate] = []
         for output_index, (local_start, local_end) in enumerate(boundaries):
             nested_candidates = _collect_routed_affine_candidates(
                 index,
@@ -1220,8 +1220,8 @@ def _collect_routed_affine_candidates(
             )
             if nested_candidates is None:
                 return None
-            candidates.extend(nested_candidates)
-        return candidates
+            nested_affine_candidates.extend(nested_candidates)
+        return nested_affine_candidates
 
     if not consumers or any(
         not _is_standard_onnx_node(node) or node.op_type != "Slice" for node in consumers
@@ -1245,7 +1245,7 @@ def _collect_routed_affine_candidates(
     ):
         return []
 
-    candidates: list[_AffineCandidate] = []
+    routed_affine_candidates: list[_AffineCandidate] = []
     for routed_slice, local_start, local_end in routed_slices:
         routed_candidates = _collect_routed_affine_candidates(
             index,
@@ -1259,8 +1259,8 @@ def _collect_routed_affine_candidates(
         )
         if routed_candidates is None:
             return None
-        candidates.extend(routed_candidates)
-    return candidates
+        routed_affine_candidates.extend(routed_candidates)
+    return routed_affine_candidates
 
 
 def _copy_conv_parameters(
