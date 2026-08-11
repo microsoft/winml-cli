@@ -30,7 +30,6 @@ import numpy as np
 from rich.markup import escape
 from rich.table import Table
 
-from ..session.monitor.op_metrics import TraceFallbackReason
 from ..utils import cli as cli_utils
 from ..utils.console import SafeConsole
 from ..utils.constants import ACCELERATOR_DEVICE_TYPES, EPName, EPNameOrAlias
@@ -55,6 +54,7 @@ if TYPE_CHECKING:
     from ..models.winml.composite_model import WinMLCompositeModel
     from ..session import WinMLEPDevice
     from ..session.monitor.ep_monitor import WinMLEPMonitor
+    from ..session.monitor.op_metrics import TraceFallbackReason
     from ..session.stats import PerfStats
 
 logger = logging.getLogger(__name__)
@@ -78,6 +78,8 @@ RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
 
 def _detail_fallback_guidance(reason: TraceFallbackReason | None) -> str:
     """Return actionable guidance for a structured detail-trace fallback."""
+    from ..session.monitor.op_metrics import TraceFallbackReason
+
     guidance: dict[TraceFallbackReason, str] = {
         TraceFallbackReason.QNN_LOG_MISSING: "the QNN optrace log was not produced",
         TraceFallbackReason.SCHEMATIC_MISSING: (
