@@ -20,6 +20,7 @@ ALGEBRAIC_CAPABILITIES: dict[str, Any] = caps_dict(
     algebraic.STATIC_SPLIT_TO_SLICE,
     algebraic.CONV_CHANNEL_AFFINE_FOLDING,
 )
+MAX_AFFINE_ROUTE_DEPTH = 64
 
 
 @dataclass
@@ -38,6 +39,7 @@ class _GraphIndex:
     consumers: dict[str, list[onnx.NodeProto]]
     initializers: dict[str, onnx.TensorProto]
     shapes: dict[str, tuple[int | None, ...]]
+    graph_inputs: set[str]
     graph_outputs: set[str]
 
     @classmethod
@@ -73,6 +75,7 @@ class _GraphIndex:
             consumers=consumers,
             initializers=initializers,
             shapes=shapes,
+            graph_inputs={value.name for value in graph.input if value.name},
             graph_outputs={output.name for output in graph.output if output.name},
         )
 
@@ -140,16 +143,20 @@ def _attribute(node: onnx.NodeProto, name: str, default: Any = None) -> Any:
     return default
 
 
+def _is_standard_onnx_node(node: onnx.NodeProto) -> bool:
+    return node.domain in ("", "ai.onnx")
+
+
 def _constant_array(index: _GraphIndex, name: str) -> np.ndarray | None:
     """Read an initializer or a regular ONNX Constant value."""
-    if not name:
+    if not name or name in index.graph_inputs:
         return None
     initializer = index.initializers.get(name)
     if initializer is not None:
         return np.asarray(onnx.numpy_helper.to_array(initializer))
 
     producer = index.producers.get(name)
-    if producer is None or producer.op_type != "Constant":
+    if producer is None or not _is_standard_onnx_node(producer) or producer.op_type != "Constant":
         return None
     value = _attribute(producer, "value")
     if value is not None:
@@ -319,7 +326,16 @@ def _split_boundaries(
 ) -> tuple[int, list[tuple[int, int]]] | None:
     """Return a static Split axis and output boundaries."""
     input_shape = index.shapes.get(input_name)
-    if input_shape is None or len(node.output) == 0:
+    outputs = list(node.output)
+    if (
+        not _is_standard_onnx_node(node)
+        or node.op_type != "Split"
+        or input_shape is None
+        or not outputs
+        or any(not output for output in outputs)
+        or len(set(outputs)) != len(outputs)
+        or any(output in node.input for output in outputs)
+    ):
         return None
 
     axis_value = _attribute(node, "axis", 0)
@@ -360,20 +376,26 @@ def _slice_channel_boundary(
     channel_axis: int,
 ) -> tuple[int, int] | None:
     """Read a Slice that selects a contiguous, full non-channel region."""
-    if len(node.input) < 2:
+    if not _is_standard_onnx_node(node) or node.op_type != "Slice" or len(node.input) < 3:
         return None
     input_shape = _static_shape(index, input_name)
     if input_shape is None or channel_axis >= len(input_shape):
         return None
     starts = _constant_ints(index, node.input[1])
-    ends = _constant_ints(index, node.input[2]) if len(node.input) > 2 else None
-    axes = _constant_ints(index, node.input[3]) if len(node.input) > 3 else None
-    steps = _constant_ints(index, node.input[4]) if len(node.input) > 4 else None
+    ends = _constant_ints(index, node.input[2])
     if starts is None or ends is None:
         return None
-    if axes is None:
+    if len(node.input) > 3 and node.input[3]:
+        axes = _constant_ints(index, node.input[3])
+        if axes is None:
+            return None
+    else:
         axes = list(range(len(starts)))
-    if steps is None:
+    if len(node.input) > 4 and node.input[4]:
+        steps = _constant_ints(index, node.input[4])
+        if steps is None:
+            return None
+    else:
         steps = [1] * len(starts)
     if not (len(starts) == len(ends) == len(axes) == len(steps)):
         return None
@@ -458,6 +480,7 @@ def _channel_preserving_view_output(
     output_name = _node_output(node)
     if (
         output_name is None
+        or not _is_standard_onnx_node(node)
         or len(node.input) == 0
         or node.input[0] != input_name
         or node.op_type not in {"Reshape", "Squeeze", "Unsqueeze"}
@@ -477,11 +500,11 @@ def _channel_preserving_view_output(
         return None
 
     if node.op_type == "Reshape":
-        if (
-            len(node.input) < 2
-            or _constant_ints(index, node.input[1]) is None
-            or _attribute(node, "allowzero", 0) != 0
-        ):
+        target_shape = _constant_ints(index, node.input[1]) if len(node.input) >= 2 else None
+        allowzero = _attribute(node, "allowzero", 0)
+        if target_shape is None or allowzero not in (0, 1):
+            return None
+        if allowzero == 1 and 0 in target_shape:
             return None
     else:
         axes, conflict = _single_attribute_or_input_ints(index, node, "axes", 1)
@@ -498,8 +521,12 @@ def _collect_affine_chain(
     start: int,
     end: int,
     calculation_dtype: np.dtype[Any],
-) -> _AffineCandidate | None:
+    visited_routes: set[tuple[int, int, str]],
+    depth: int,
+) -> tuple[_AffineCandidate | None, bool]:
     """Collect a safe consecutive Mul/Add chain from one routed branch."""
+    if not _is_standard_onnx_node(first) or first.op_type not in {"Mul", "Add"}:
+        return None, True
     current = first
     current_input = source_name
     scale = np.ones(end - start, dtype=calculation_dtype)
@@ -508,13 +535,16 @@ def _collect_affine_chain(
 
     while current.op_type in {"Mul", "Add"}:
         if len(current.input) != 2 or current_input not in current.input:
-            return None
+            return None, True
         current_output = _node_output(current)
         if current_output is None:
-            return None
+            return None, False
+        if not _visit_affine_route(current, 0, visited_routes, depth + 1):
+            return None, False
+        depth += 1
         values = _affine_operand(index, current, current_input, output_shape, end - start)
         if values is None:
-            return None
+            return None, True
         values = values.astype(calculation_dtype, copy=False)
         if current.op_type == "Mul":
             scale *= values
@@ -527,7 +557,7 @@ def _collect_affine_chain(
         if current_output in index.graph_outputs or len(consumers) != 1:
             break
         next_node = consumers[0]
-        if next_node.op_type not in {"Mul", "Add"}:
+        if not _is_standard_onnx_node(next_node) or next_node.op_type not in {"Mul", "Add"}:
             break
         current_input = current_output
         current = next_node
@@ -536,17 +566,43 @@ def _collect_affine_chain(
     if final_output is None or (
         final_output not in index.graph_outputs and len(index.consumers.get(final_output, [])) == 0
     ):
-        return None
-    return _AffineCandidate(
-        source_node=first,
-        source_output_index=0,
-        final_output=final_output,
-        nodes=matched,
-        start=start,
-        end=end,
-        scale=scale,
-        offset=offset,
+        return None, True
+    return (
+        _AffineCandidate(
+            source_node=first,
+            source_output_index=0,
+            final_output=final_output,
+            nodes=matched,
+            start=start,
+            end=end,
+            scale=scale,
+            offset=offset,
+        ),
+        True,
     )
+
+
+def _visit_affine_route(
+    source_node: onnx.NodeProto,
+    source_output_index: int,
+    visited_routes: set[tuple[int, int, str]],
+    depth: int,
+) -> bool:
+    """Record one unique, bounded source-slot and tensor route."""
+    if (
+        depth > MAX_AFFINE_ROUTE_DEPTH
+        or source_output_index < 0
+        or source_output_index >= len(source_node.output)
+    ):
+        return False
+    source_name = source_node.output[source_output_index]
+    if not source_name:
+        return False
+    source_slot = (id(source_node), source_output_index)
+    if any(route[:2] == source_slot or route[2] == source_name for route in visited_routes):
+        return False
+    visited_routes.add((source_slot[0], source_slot[1], source_name))
+    return True
 
 
 def _collect_routed_affine_candidates(
@@ -556,12 +612,19 @@ def _collect_routed_affine_candidates(
     start: int,
     end: int,
     calculation_dtype: np.dtype[Any],
-) -> list[_AffineCandidate]:
+    visited_routes: set[tuple[int, int, str]],
+    depth: int,
+) -> list[_AffineCandidate] | None:
     """Collect affine leaves below safe views and disjoint channel slices."""
-    if source_output_index >= len(source_node.output):
-        return []
+    if not _visit_affine_route(
+        source_node,
+        source_output_index,
+        visited_routes,
+        depth,
+    ):
+        return None
     source_name = source_node.output[source_output_index]
-    if not source_name or source_name in index.graph_outputs:
+    if source_name in index.graph_outputs:
         return []
 
     current_node = source_node
@@ -582,6 +645,9 @@ def _collect_routed_affine_candidates(
         )
         if view_output is None or current_name in index.graph_outputs:
             break
+        if not _visit_affine_route(view, 0, visited_routes, depth + 1):
+            return None
+        depth += 1
         current_node = view
         current_output_index = 0
         current_name = view_output
@@ -592,8 +658,12 @@ def _collect_routed_affine_candidates(
 
     if current_name in index.graph_outputs:
         return []
-    if len(consumers) == 1 and consumers[0].op_type in {"Mul", "Add"}:
-        candidate = _collect_affine_chain(
+    if (
+        len(consumers) == 1
+        and _is_standard_onnx_node(consumers[0])
+        and consumers[0].op_type in {"Mul", "Add"}
+    ):
+        candidate, route_is_valid = _collect_affine_chain(
             index,
             consumers[0],
             current_name,
@@ -601,21 +671,57 @@ def _collect_routed_affine_candidates(
             start,
             end,
             calculation_dtype,
+            visited_routes,
+            depth,
         )
+        if not route_is_valid:
+            return None
         if candidate is None:
             return []
         candidate.source_node = current_node
         candidate.source_output_index = current_output_index
         return [candidate]
 
-    if not consumers or any(node.op_type != "Slice" for node in consumers):
+    if len(consumers) == 1 and consumers[0].op_type == "Split":
+        nested_split = consumers[0]
+        nested_info = _split_boundaries(index, nested_split, current_name)
+        if nested_info is None or nested_info[0] != 1:
+            return None
+        boundaries = nested_info[1]
+        if len(boundaries) != len(nested_split.output):
+            return []
+        candidates: list[_AffineCandidate] = []
+        for output_index, (local_start, local_end) in enumerate(boundaries):
+            nested_candidates = _collect_routed_affine_candidates(
+                index,
+                nested_split,
+                output_index,
+                start + local_start,
+                start + local_end,
+                calculation_dtype,
+                visited_routes,
+                depth + 1,
+            )
+            if nested_candidates is None:
+                return None
+            candidates.extend(nested_candidates)
+        return candidates
+
+    if not consumers or any(
+        not _is_standard_onnx_node(node) or node.op_type != "Slice" for node in consumers
+    ):
         return []
     routed_slices: list[tuple[onnx.NodeProto, int, int]] = []
+    routed_outputs: list[str] = []
     for routed_slice in consumers:
         boundary = _slice_channel_boundary(index, routed_slice, current_name, 1)
-        if boundary is None:
-            return []
+        output_name = _node_output(routed_slice)
+        if boundary is None or output_name is None or output_name == current_name:
+            return None
         routed_slices.append((routed_slice, *boundary))
+        routed_outputs.append(output_name)
+    if len(set(routed_outputs)) != len(routed_outputs):
+        return None
     if any(
         left_start < right_end and right_start < left_end
         for position, (_, left_start, left_end) in enumerate(routed_slices)
@@ -625,27 +731,31 @@ def _collect_routed_affine_candidates(
 
     candidates: list[_AffineCandidate] = []
     for routed_slice, local_start, local_end in routed_slices:
-        candidates.extend(
-            _collect_routed_affine_candidates(
-                index,
-                routed_slice,
-                0,
-                start + local_start,
-                start + local_end,
-                calculation_dtype,
-            )
+        routed_candidates = _collect_routed_affine_candidates(
+            index,
+            routed_slice,
+            0,
+            start + local_start,
+            start + local_end,
+            calculation_dtype,
+            visited_routes,
+            depth + 1,
         )
+        if routed_candidates is None:
+            return None
+        candidates.extend(routed_candidates)
     return candidates
 
 
 def _copy_conv_parameters(
     model: onnx.ModelProto,
+    index: _GraphIndex,
     allocator: _NameAllocator,
     conv: onnx.NodeProto,
     scale: np.ndarray,
     offset: np.ndarray,
 ) -> bool:
-    if len(conv.input) < 2:
+    if len(conv.input) < 2 or conv.input[1] in index.graph_inputs:
         return False
     weight = next(
         (
@@ -664,6 +774,8 @@ def _copy_conv_parameters(
         return False
 
     if len(conv.input) > 2 and conv.input[2]:
+        if conv.input[2] in index.graph_inputs:
+            return False
         bias = next(
             (
                 initializer
@@ -712,14 +824,15 @@ def _fold_channel_affine(
     index = _GraphIndex.build(model)
     for original_conv in list(model.graph.node):
         if (
-            original_conv.op_type != "Conv"
+            not _is_standard_onnx_node(original_conv)
+            or original_conv.op_type != "Conv"
             or len(original_conv.output) != 1
             or not original_conv.output[0]
         ):
             continue
         conv_output = original_conv.output[0]
         conv = index.producers.get(conv_output)
-        if conv is None or conv.op_type != "Conv":
+        if conv is None or not _is_standard_onnx_node(conv) or conv.op_type != "Conv":
             continue
         conv_shape = _static_shape(index, conv_output)
         if conv_shape is None or len(conv_shape) < 2:
@@ -733,72 +846,32 @@ def _fold_channel_affine(
             continue
         calculation_dtype = np.result_type(weight_dtype, np.float32)
 
-        route_name = conv_output
-        route_shape = conv_shape
-        route_source_node = conv
-        route_source_output_index = 0
-        direct_consumers = index.consumers.get(route_name, [])
-        while len(direct_consumers) == 1:
-            view = direct_consumers[0]
-            view_output = _channel_preserving_view_output(
-                index,
-                view,
-                route_name,
-                channels,
-            )
-            if view_output is None or route_name in index.graph_outputs:
-                break
-            route_name = view_output
-            next_route_shape = _static_shape(index, route_name)
-            if next_route_shape is None:
-                break
-            route_shape = next_route_shape
-            route_source_node = view
-            route_source_output_index = 0
-            direct_consumers = index.consumers.get(route_name, [])
-
-        candidates: list[_AffineCandidate] = []
-        if route_name not in index.graph_outputs and len(direct_consumers) == 1:
-            direct = _collect_affine_chain(
-                index,
-                direct_consumers[0],
-                route_name,
-                route_shape,
-                0,
-                channels,
-                calculation_dtype,
-            )
-            if direct is not None:
-                direct.source_node = route_source_node
-                direct.source_output_index = route_source_output_index
-                candidates.append(direct)
-
-        if not candidates and route_name not in index.graph_outputs and len(direct_consumers) == 1:
-            router = direct_consumers[0]
-            boundaries: list[tuple[int, int]] | None = None
-            if router.op_type == "Split":
-                split_info = _split_boundaries(index, router, route_name)
-                if split_info is not None and split_info[0] == 1:
-                    boundaries = split_info[1]
-            elif router.op_type == "Slice":
-                boundary = _slice_channel_boundary(index, router, route_name, 1)
-                if boundary is not None:
-                    boundaries = [boundary]
-
-            if boundaries is not None and len(boundaries) == len(router.output):
-                for output_index, (start, end) in enumerate(boundaries):
-                    candidates.extend(
-                        _collect_routed_affine_candidates(
-                            index,
-                            router,
-                            output_index,
-                            start,
-                            end,
-                            calculation_dtype,
-                        )
-                    )
-
-        if not candidates:
+        collected_candidates = _collect_routed_affine_candidates(
+            index,
+            conv,
+            0,
+            0,
+            channels,
+            calculation_dtype,
+            set(),
+            0,
+        )
+        if not collected_candidates:
+            continue
+        candidates = collected_candidates
+        candidate_source_slots = [
+            (id(candidate.source_node), candidate.source_output_index) for candidate in candidates
+        ]
+        candidate_source_tensors = [
+            candidate.source_node.output[candidate.source_output_index] for candidate in candidates
+        ]
+        candidate_node_ids = [id(node) for candidate in candidates for node in candidate.nodes]
+        if (
+            len({id(candidate) for candidate in candidates}) != len(candidates)
+            or len(set(candidate_source_slots)) != len(candidate_source_slots)
+            or len(set(candidate_source_tensors)) != len(candidate_source_tensors)
+            or len(set(candidate_node_ids)) != len(candidate_node_ids)
+        ):
             continue
         if any(
             left.start < right.end and right.start < left.end
@@ -820,7 +893,7 @@ def _fold_channel_affine(
         for candidate in candidates:
             scale[candidate.start : candidate.end] = candidate.scale
             offset[candidate.start : candidate.end] = candidate.offset
-        if not _copy_conv_parameters(model, allocator, conv, scale, offset):
+        if not _copy_conv_parameters(model, index, allocator, conv, scale, offset):
             continue
 
         removed = {id(node) for candidate in candidates for node in candidate.nodes}
@@ -846,7 +919,12 @@ def _rewrite_static_splits(
 
     replacements: dict[int, list[onnx.NodeProto]] = {}
     for split in list(model.graph.node):
-        if split.op_type != "Split" or len(split.input) < 1 or not split.input[0]:
+        if (
+            not _is_standard_onnx_node(split)
+            or split.op_type != "Split"
+            or len(split.input) < 1
+            or not split.input[0]
+        ):
             continue
         if any(not output for output in split.output):
             continue
