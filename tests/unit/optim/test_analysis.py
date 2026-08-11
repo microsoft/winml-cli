@@ -12,6 +12,8 @@ Follows the Cardinal Rules:
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import numpy as np
 from onnx import GraphProto, ModelProto, TensorProto, helper, numpy_helper
 
@@ -30,6 +32,7 @@ from winml.modelkit.optim.analysis import (
     _diff_initializers,
     _diff_nodes,
 )
+from winml.modelkit.optim.registry import CapabilityCategory
 
 
 # =============================================================================
@@ -417,6 +420,70 @@ class TestAnalyzeModel:
         assert len(model.graph.initializer) == before_inits
         after_value = numpy_helper.to_array(model.graph.initializer[0])
         np.testing.assert_array_equal(before_value, after_value)
+
+    def test_target_context_forwarded_and_ep_constraints_filtered(
+        self, monkeypatch, caplog
+    ) -> None:
+        dml_cap = BoolCapability(
+            name="dml-only",
+            ort_name=None,
+            description="DML-only probe",
+            category=CapabilityCategory.MISC,
+            ep_constraint=("DML",),
+        )
+        cuda_cap = BoolCapability(
+            name="cuda-only",
+            ort_name=None,
+            description="CUDA-only probe",
+            category=CapabilityCategory.MISC,
+            ep_constraint=("CUDA",),
+        )
+        cap_registry = {cap.name: cap for cap in (dml_cap, cuda_cap)}
+        captured_ep_devices = []
+        started: list[str] = []
+        completed: list[str] = []
+
+        class TargetAwarePipe:
+            name = "target-aware"
+            capabilities = cap_registry
+
+            @classmethod
+            def build_config(cls, **kwargs):
+                captured_ep_devices.append(kwargs.get("ep_device"))
+                return kwargs
+
+            @staticmethod
+            def process(model, config):
+                enabled = next(
+                    (name for name in ("dml_only", "cuda_only") if config.get(name)),
+                    None,
+                )
+                if enabled is not None:
+                    model.graph.node.append(
+                        helper.make_node("Identity", ["z"], [f"{enabled}_output"])
+                    )
+                return model
+
+        ep_device = MagicMock()
+        ep_device.device.ep_name = "DmlExecutionProvider"
+        caplog.set_level("DEBUG", logger="winml.modelkit.optim.analysis")
+        monkeypatch.setattr("winml.modelkit.optim.pipes.PIPES", [TargetAwarePipe])
+        monkeypatch.setattr("winml.modelkit.onnx.infer_shapes", lambda model: model)
+
+        findings = analyze_model(
+            _benign_model(),
+            cap_registry,
+            ep_device=ep_device,
+            on_probe_start=started.append,
+            on_probe_complete=completed.append,
+        )
+
+        assert [finding.name for finding in findings] == ["dml-only"]
+        assert captured_ep_devices
+        assert all(value is ep_device for value in captured_ep_devices)
+        assert "Skipping capability 'cuda-only'" in caplog.text
+        assert started == ["dml-only", "cuda-only"]
+        assert completed == ["dml-only", "cuda-only"]
 
 
 # =============================================================================
