@@ -95,6 +95,59 @@ class TestEvaluationConfig:
         assert ds.revision is None
         assert "revision" not in ds.to_dict()
 
+    def test_input_data_default_is_none(self):
+        """input_data defaults to None and is omitted from to_dict."""
+        config = WinMLEvaluationConfig(model_id="test/model")
+        assert config.input_data is None
+        assert "input_data" not in config.to_dict()
+
+    def test_config_roundtrip_preserves_input_data(self):
+        """input_data survives to_dict/from_dict roundtrip."""
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            input_data="inputs.npz",
+            mode="compare",
+        )
+        restored = WinMLEvaluationConfig.from_dict(config.to_dict())
+        assert restored.input_data == "inputs.npz"
+
+    def test_config_roundtrip_preserves_cache_controls(self):
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            use_cache=False,
+            rebuild=True,
+        )
+        serialized = config.to_dict()
+        restored = WinMLEvaluationConfig.from_dict(serialized)
+
+        assert serialized["use_cache"] is False
+        assert serialized["rebuild"] is True
+        assert restored.use_cache is False
+        assert restored.rebuild is True
+
+    def test_default_cache_controls_are_serialized(self):
+        serialized = WinMLEvaluationConfig(model_id="test/model").to_dict()
+
+        assert serialized["use_cache"] is True
+        assert serialized["rebuild"] is False
+
+    def test_reference_path_default_is_none(self):
+        """reference_path defaults to None and is omitted from to_dict."""
+        config = WinMLEvaluationConfig(model_id="test/model")
+        assert config.reference_path is None
+        assert "reference_path" not in config.to_dict()
+
+    def test_config_roundtrip_preserves_reference_path(self):
+        """reference_path survives to_dict/from_dict roundtrip."""
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            reference_path="ref.onnx",
+            mode="compare",
+        )
+        restored = WinMLEvaluationConfig.from_dict(config.to_dict())
+        assert restored.reference_path == "ref.onnx"
+        assert restored.mode == "compare"
+
     def test_eval_result_to_dict(self):
         config = WinMLEvaluationConfig(
             model_id="test/model",
@@ -105,6 +158,29 @@ class TestEvaluationConfig:
         d = result.to_dict()
         assert d["metrics"]["accuracy"] == 0.9
         assert d["dataset"]["path"] == "imagenet-1k"
+
+    def test_eval_result_num_samples_overrides_dataset_samples(self):
+        """num_samples surfaces the effective count in to_dict without mutating config."""
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            model_id="test/model",
+            mode="compare",
+            input_data="inputs.npz",
+        )
+        result = EvalResult(config=config, metrics={}, num_samples=2)
+        d = result.to_dict()
+        assert d["dataset"]["samples"] == 2
+        # The config itself is untouched (still the default).
+        assert config.dataset.samples == 100
+
+    def test_eval_result_num_samples_defaults_to_config(self):
+        """Without num_samples, to_dict keeps the config's dataset samples."""
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            dataset=DatasetConfig(path="imagenet-1k", samples=33),
+        )
+        result = EvalResult(config=config, metrics={})
+        assert result.to_dict()["dataset"]["samples"] == 33
 
 
 class TestResolveTask:
@@ -260,6 +336,50 @@ class TestEvaluate:
         ):
             result = eval_mod.evaluate(config)
         assert result.config.mode == "onnx"
+
+    def test_onnx_compare_skips_task_resolution_and_dataset(self):
+        """Two-ONNX compare skips HF task resolution and default-dataset lookup."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            reference_path="ref.onnx",
+            mode="compare",
+        )
+
+        evaluator = MagicMock()
+        evaluator.compute.return_value = {"cosine_mean": {"logits": 1.0}}
+        with (
+            patch.object(
+                eval_mod,
+                "_resolve_task",
+                side_effect=AssertionError("task resolution must be skipped"),
+            ),
+            patch.object(eval_mod, "_load_model", return_value=None) as load_model,
+            patch.object(eval_mod, "get_evaluator_class", return_value=lambda *_a, **_k: evaluator),
+        ):
+            result = eval_mod.evaluate(config)
+
+        assert result.config.mode == "compare"
+        assert result.config.task is None
+        assert result.metrics == {"cosine_mean": {"logits": 1.0}}
+        load_model.assert_called_once()
+
+    def test_load_model_returns_none_for_onnx_compare(self):
+        """_load_model short-circuits (no model_id needed) for two-ONNX compare."""
+        from winml.modelkit.eval.evaluate import _load_model
+
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            reference_path="ref.onnx",
+            mode="compare",
+        )
+        assert _load_model(config) is None
 
     def test_no_dataset_no_default_raises(self):
         """Tasks without a default dataset raise ValueError."""
@@ -652,7 +772,7 @@ class TestWinMLEvaluator:
             model_id="test/model",
             task="text-classification",
             dataset=DatasetConfig(
-                path="glue",
+                path="nyu-mll/glue",
                 name="mrpc",
                 columns_mapping={"input_column": "sentence1", "second_input_column": "sentence2"},
             ),
@@ -703,7 +823,7 @@ class TestSequenceClassificationEvaluator:
         config = WinMLEvaluationConfig(
             model_id="test/model",
             task="text-classification",
-            dataset=DatasetConfig(path="glue", name="mrpc"),
+            dataset=DatasetConfig(path="nyu-mll/glue", name="mrpc"),
         )
 
         WinMLTextClassificationEvaluator(config, model).compute()
@@ -747,7 +867,7 @@ class TestSequenceClassificationEvaluator:
         config = WinMLEvaluationConfig(
             model_id="test/model",
             task="text-classification",
-            dataset=DatasetConfig(path="glue"),
+            dataset=DatasetConfig(path="nyu-mll/glue"),
         )
 
         WinMLTextClassificationEvaluator(config, model).compute()
@@ -1402,6 +1522,11 @@ class TestLoadModel:
         # The mock auto_device returns a MagicMock — just confirm it landed.
         assert call_args.args[1] is not None
         assert call_args.kwargs["task"] == "image-classification"
+        # No --shape-config / export overrides -> both default to None.
+        assert call_args.kwargs["shape_config"] is None
+        assert call_args.kwargs["config"] is None
+        assert call_args.kwargs["use_cache"] is True
+        assert call_args.kwargs["force_rebuild"] is False
         assert result is mock_model
 
     def test_auto_target_retries_cpu_after_ort_runtime_failure(self, caplog):
@@ -1486,6 +1611,7 @@ class TestLoadModel:
             quant=False,
             optimize=False,
             max_optim_iterations=5,
+            use_cache=False,
         )
 
         with patch.dict(
@@ -1501,6 +1627,8 @@ class TestLoadModel:
         # --no-optimize -> skip_optimize; --max-optim-iterations 5 forwarded.
         assert kwargs["skip_optimize"] is True
         assert kwargs["hack_max_optim_iterations"] == 5
+        assert kwargs["use_cache"] is False
+        assert kwargs["force_rebuild"] is True
 
     def test_load_model_from_onnx(self):
         """When model_path is set, calls from_onnx and attaches config."""
@@ -1536,4 +1664,6 @@ class TestLoadModel:
             result = eval_mod._load_model(config)
 
         mock_auto.from_onnx.assert_called_once()
+        assert mock_auto.from_onnx.call_args.kwargs["use_cache"] is True
+        assert mock_auto.from_onnx.call_args.kwargs["force_rebuild"] is False
         assert result.config is mock_hf_config

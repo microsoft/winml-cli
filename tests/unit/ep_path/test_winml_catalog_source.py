@@ -4,25 +4,24 @@
 # --------------------------------------------------------------------------
 """Detailed unit tests for ``WinMLCatalogSource`` and the ``_get_catalog`` singleton.
 
-These tests inject a fake WinAppSDK ML Python binding into ``sys.modules``
-to exercise every branch of ``WinMLCatalogSource.resolve()`` without
-requiring the optional ``winml-catalog`` extra to be installed.
+These tests inject a fake ``windowsml`` module into ``sys.modules`` to
+exercise every branch of ``WinMLCatalogSource.resolve()`` without
+requiring the ``windowsml`` package to be installed.
 
-The ONLY mocked surface is the WinAppSDK Python binding itself
-(``winui3.microsoft.windows.ai.machinelearning`` and
-``winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap``)
-— per CLAUDE.md / project test conventions, no mocks for ``importlib.metadata``,
-``pathlib``, etc.
+The ONLY mocked surface is the ``windowsml`` Python package itself
+— per CLAUDE.md / project test conventions, no mocks for
+``importlib.metadata``, ``pathlib``, etc.
 
 Also covers:
     - The default EP source list includes the 5 ``WinMLCatalogSource`` rows
       with the canonical EP names from the design doc.
-    - ``atexit`` cleanup is registered exactly once across many
-      ``_get_catalog()`` calls.
+    - ``_get_catalog()`` disarms the native catalog handle at process exit
+      without calling into native release during interpreter shutdown.
 """
 
 from __future__ import annotations
 
+import atexit
 import logging
 import os
 import sys
@@ -44,39 +43,37 @@ from winml.modelkit.ep_path import (
 
 
 # ---------------------------------------------------------------------------
-# Fake WinAppSDK binding helpers.
+# Fake windowsml binding helpers.
 # ---------------------------------------------------------------------------
 
 
 class _FakeReadyState:
-    """Mimic the WinAppSDK ML ``ProviderReadyState`` enum."""
+    """Mimic the ``windowsml`` provider ready-state value."""
 
     def __init__(self, name: str) -> None:
         self.name = name
 
 
-class _FakeStatus:
-    """Mimic the WinAppSDK ML ``EnsureReadyResult.status`` enum."""
+class _FakeReadyOp:
+    """Mimic the async op handle returned by ``ensure_ready_async``."""
 
-    def __init__(self, name: str) -> None:
-        self.name = name
+    def __init__(self) -> None:
+        self.get_status_calls = 0
+        self.cancel_calls = 0
+        self.close_calls = 0
 
+    def get_status(self) -> None:
+        self.get_status_calls += 1
 
-class _FakeAsyncOp:
-    """Mimic the WinAppSDK ML async-op object returned by ensure_ready_async."""
+    def cancel(self) -> None:
+        self.cancel_calls += 1
 
-    def __init__(self, status: str, *, raises: Exception | None = None) -> None:
-        self._status = status
-        self._raises = raises
-
-    def get(self) -> Any:
-        if self._raises is not None:
-            raise self._raises
-        return types.SimpleNamespace(status=_FakeStatus(self._status))
+    def close(self) -> None:
+        self.close_calls += 1
 
 
 class _FakeProvider:
-    """Mimic the WinAppSDK ML ``ExecutionProvider`` row."""
+    """Mimic a ``windowsml`` execution-provider row."""
 
     def __init__(
         self,
@@ -84,96 +81,77 @@ class _FakeProvider:
         ready_state: str,
         library_path: str,
         *,
-        status: str = "Success",
         ensure_ready_raises: Exception | None = None,
+        becomes_ready: bool = True,
+        version: str = "",
+        package_family_name: str = "",
     ) -> None:
         self.name = name
         self.ready_state = _FakeReadyState(ready_state)
         self.library_path = library_path
-        self._status = status
+        self.ensure_ready_calls = 0
         self._ensure_ready_raises = ensure_ready_raises
+        self._becomes_ready = becomes_ready
+        self.version = version
+        self.package_family_name = package_family_name
 
-    def ensure_ready_async(self) -> _FakeAsyncOp:
-        return _FakeAsyncOp(self._status, raises=self._ensure_ready_raises)
+    def ensure_ready_async(
+        self,
+        on_complete: Any = None,
+        on_progress: Any = None,
+    ) -> _FakeReadyOp:
+        # The cold download path: drive a progress callback, (optionally) flip
+        # to Ready, then signal completion — mirroring the real windowsml
+        # async contract that ``_ensure_provider_ready`` consumes.
+        self.ensure_ready_calls += 1
+        if self._ensure_ready_raises is not None:
+            raise self._ensure_ready_raises
+        if on_progress is not None:
+            on_progress(1.0)
+        if self._becomes_ready:
+            self.ready_state = _FakeReadyState("Ready")
+        if on_complete is not None:
+            on_complete()
+        return _FakeReadyOp()
 
 
 class _FakeCatalog:
-    """Mimic the WinAppSDK ML ``ExecutionProviderCatalog``."""
+    """Mimic ``windowsml.EpCatalog``."""
 
-    def __init__(self, providers: list[_FakeProvider]) -> None:
+    def __init__(
+        self,
+        providers: list[_FakeProvider],
+        *,
+        find_raises: Exception | None = None,
+    ) -> None:
         self._providers = providers
+        self._find_raises = find_raises
+        self.closed = False
+        self._handle: object | None = object()
 
     def find_all_providers(self) -> list[_FakeProvider]:
+        if self._find_raises is not None:
+            raise self._find_raises
         return list(self._providers)
 
+    def close(self) -> None:
+        self.closed = True
 
-def _build_fake_binding(catalog: _FakeCatalog | Exception) -> dict[str, types.ModuleType]:
-    """Build the minimal module shape the lazy import needs.
 
-    Returns a dict suitable for ``monkeypatch.setitem(sys.modules, ...)``.
-    """
-    # winui3.microsoft.windows.ai.machinelearning module:
-    ml = types.ModuleType("winui3.microsoft.windows.ai.machinelearning")
+def _install_windowsml_module(
+    monkeypatch: pytest.MonkeyPatch,
+    catalog: _FakeCatalog | Exception,
+) -> None:
+    module = types.ModuleType("windowsml")
 
-    class _Catalog:
-        @staticmethod
-        def get_default() -> Any:
+    class _EpCatalog:
+        def __new__(cls) -> _FakeCatalog:
             if isinstance(catalog, Exception):
                 raise catalog
             return catalog
 
-    ml.ExecutionProviderCatalog = _Catalog  # type: ignore[attr-defined]
-
-    # winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap:
-    boot = types.ModuleType("winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap")
-
-    class _Options:
-        NONE = "NONE"
-        ON_ERROR_DEBUG_BREAK = "ON_ERROR_DEBUG_BREAK"
-        ON_ERROR_DEBUG_BREAK_IF_DEBUGGER_ATTACHED = "ON_ERROR_DEBUG_BREAK_IF_DEBUGGER_ATTACHED"
-        ON_ERROR_FAIL_FAST = "ON_ERROR_FAIL_FAST"
-        ON_NO_MATCH_SHOW_UI = "ON_NO_MATCH_SHOW_UI"
-        ON_PACKAGE_IDENTITY_NOOP = "ON_PACKAGE_IDENTITY_NOOP"
-
-    class _Handle:
-        entered = 0
-        exited = 0
-
-        def __enter__(self) -> _Handle:
-            type(self).entered += 1
-            return self
-
-        def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
-            type(self).exited += 1
-
-    def _initialize(options: Any = None) -> _Handle:
-        return _Handle()
-
-    boot.InitializeOptions = _Options  # type: ignore[attr-defined]
-    boot.initialize = _initialize  # type: ignore[attr-defined]
-    boot._Handle = _Handle  # type: ignore[attr-defined]
-
-    # Parent placeholder modules so ``import winui3.microsoft...`` can
-    # walk the package chain.
-    parents: list[tuple[str, types.ModuleType]] = []
-    name = "winui3.microsoft.windows.ai.machinelearning"
-    parts = name.split(".")
-    for i in range(1, len(parts)):
-        parent_name = ".".join(parts[:i])
-        if parent_name not in sys.modules:
-            parents.append((parent_name, types.ModuleType(parent_name)))
-
-    boot_name = "winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap"
-    parts = boot_name.split(".")
-    for i in range(1, len(parts)):
-        parent_name = ".".join(parts[:i])
-        if parent_name not in sys.modules:
-            parents.append((parent_name, types.ModuleType(parent_name)))
-
-    out: dict[str, types.ModuleType] = dict(parents)
-    out["winui3.microsoft.windows.ai.machinelearning"] = ml
-    out[boot_name] = boot
-    return out
+    module.EpCatalog = _EpCatalog  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "windowsml", module)
 
 
 @pytest.fixture
@@ -214,7 +192,7 @@ class TestDefaultEpPathIncludesCatalogEntries:
         # The catalog API returns provider.name as the full canonical EP
         # name (e.g. "QNNExecutionProvider"), so catalog_name in the
         # default source list must match. Verified empirically against the
-        # live WinAppSDK ML 2.0.1 binding on Snapdragon X Elite —
+        # live windowsml 2.0.300 binding on Snapdragon X Elite —
         # find_all_providers() returns provider.name == "QNNExecutionProvider",
         # not the short "QNN" form used by older Microsoft Learn
         # supported-execution-providers tables.
@@ -261,7 +239,7 @@ class TestDefaultEpPathIncludesCatalogEntries:
 
 
 class TestBindingMissing:
-    """When the WinAppSDK ML Python binding is not importable, resolve() yields nothing."""
+    """When the windowsml package is not importable, resolve() yields nothing."""
 
     def test_yields_nothing_when_binding_missing(
         self,
@@ -269,18 +247,17 @@ class TestBindingMissing:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        # Force the lazy import to fail by mapping the binding module to
-        # ``None`` in sys.modules. Python's import machinery treats a
-        # ``None`` entry in sys.modules as "module is known to be
-        # unimportable" and raises ImportError on import.
-        monkeypatch.setitem(sys.modules, "winui3.microsoft.windows.ai.machinelearning", None)
+        # Force the lazy import to fail by mapping the module to ``None``
+        # in sys.modules. Python's import machinery treats a ``None`` entry
+        # as "module is known to be unimportable" and raises ImportError.
+        monkeypatch.setitem(sys.modules, "windowsml", None)
         source = WinMLCatalogSource(catalog_name="VitisAI", eps=("VitisAIExecutionProvider",))
         with caplog.at_level(logging.DEBUG, logger="winml.modelkit.ep_path"):
             assert list(source.resolve()) == []
         # DEBUG-once semantics: the failure was logged at DEBUG level,
         # not WARN.
         debug_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
-        assert any("WinAppSDK ML Python binding not installed" in m for m in debug_messages)
+        assert any("windowsml package is not installed" in m for m in debug_messages)
         warn_messages = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
         assert not warn_messages
 
@@ -290,7 +267,7 @@ class TestBindingMissing:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        monkeypatch.setitem(sys.modules, "winui3.microsoft.windows.ai.machinelearning", None)
+        monkeypatch.setitem(sys.modules, "windowsml", None)
         s1 = WinMLCatalogSource(catalog_name="VitisAI", eps=("VitisAIExecutionProvider",))
         s2 = WinMLCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))
         with caplog.at_level(logging.DEBUG, logger="winml.modelkit.ep_path"):
@@ -300,7 +277,7 @@ class TestBindingMissing:
         debug_messages = [
             r.getMessage()
             for r in caplog.records
-            if "WinAppSDK ML Python binding not installed" in r.getMessage()
+            if "windowsml package is not installed" in r.getMessage()
         ]
         assert len(debug_messages) == 1
 
@@ -311,13 +288,7 @@ class TestBindingMissing:
 
 
 class TestWithFakeCatalog:
-    """Inject a fake WinAppSDK ML binding and exercise every resolve() branch."""
-
-    def _install_binding(
-        self, monkeypatch: pytest.MonkeyPatch, catalog: _FakeCatalog | Exception
-    ) -> None:
-        for name, mod in _build_fake_binding(catalog).items():
-            monkeypatch.setitem(sys.modules, name, mod)
+    """Inject a fake windowsml module and exercise every resolve() branch."""
 
     def test_yields_for_ready_provider(
         self,
@@ -333,11 +304,10 @@ class TestWithFakeCatalog:
                     name="VitisAI",
                     ready_state="Ready",
                     library_path=str(dll),
-                    status="Success",
                 ),
             ]
         )
-        self._install_binding(monkeypatch, catalog)
+        _install_windowsml_module(monkeypatch, catalog)
 
         source = WinMLCatalogSource(catalog_name="VitisAI", eps=("VitisAIExecutionProvider",))
         results = list(source.resolve())
@@ -365,7 +335,7 @@ class TestWithFakeCatalog:
                 ),
             ]
         )
-        self._install_binding(monkeypatch, catalog)
+        _install_windowsml_module(monkeypatch, catalog)
 
         source = WinMLCatalogSource(catalog_name="VitisAI", eps=("VitisAIExecutionProvider",))
         # No provider with name "VitisAI" -> nothing yielded.
@@ -385,7 +355,7 @@ class TestWithFakeCatalog:
                 ),
             ]
         )
-        self._install_binding(monkeypatch, catalog)
+        _install_windowsml_module(monkeypatch, catalog)
 
         source = WinMLCatalogSource(catalog_name="MIGraphX", eps=("MIGraphXExecutionProvider",))
         # NotPresent providers are skipped by default (auto_download=False).
@@ -402,39 +372,48 @@ class TestWithFakeCatalog:
                     name="QNN",
                     ready_state="Ready",
                     library_path="",
-                    status="Success",
                 ),
             ]
         )
-        self._install_binding(monkeypatch, catalog)
+        _install_windowsml_module(monkeypatch, catalog)
 
         source = WinMLCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))
         assert list(source.resolve()) == []
 
-    def test_non_success_status_warns_and_skips(
+    def test_ensure_ready_leaves_not_ready_warns_and_skips(
         self,
         reset_catalog_singleton: None,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        catalog = _FakeCatalog(
-            [
-                _FakeProvider(
-                    name="VitisAI",
-                    ready_state="NotReady",
-                    library_path=str(tmp_path / "v.dll"),
-                    status="Failed",
-                ),
-            ]
-        )
-        self._install_binding(monkeypatch, catalog)
+        # Provider whose download completes but never flips to Ready.
+        class _StuckProvider:
+            name = "VitisAI"
+            ready_state = _FakeReadyState("NotReady")
+            library_path = str(tmp_path / "v.dll")
+            version = ""
+            package_family_name = ""
+
+            def ensure_ready_async(
+                self, on_complete: Any = None, on_progress: Any = None
+            ) -> _FakeReadyOp:
+                # Completes the async op but intentionally does NOT update
+                # ready_state, so the caller must warn-and-skip.
+                if on_progress is not None:
+                    on_progress(1.0)
+                if on_complete is not None:
+                    on_complete()
+                return _FakeReadyOp()
+
+        catalog = _FakeCatalog([_StuckProvider()])  # type: ignore[list-item]
+        _install_windowsml_module(monkeypatch, catalog)
 
         source = WinMLCatalogSource(catalog_name="VitisAI", eps=("VitisAIExecutionProvider",))
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
             assert list(source.resolve()) == []
         warn_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-        assert any("non-Success status" in m for m in warn_messages), warn_messages
+        assert any("ensure_ready left provider in state" in m for m in warn_messages), warn_messages
 
     def test_ensure_ready_raises_warns_and_continues(
         self,
@@ -443,14 +422,15 @@ class TestWithFakeCatalog:
         tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        # First provider raises, second is good — the walk must continue.
+        # First provider raises during ensure_ready, second is already Ready
+        # — the walk must continue past the first failure.
         good_dll = tmp_path / "good.dll"
         good_dll.write_bytes(b"")
         catalog = _FakeCatalog(
             [
                 _FakeProvider(
                     name="OpenVINO",
-                    ready_state="Ready",
+                    ready_state="NotReady",
                     library_path="ignored",
                     ensure_ready_raises=RuntimeError("fake hardware missing"),
                 ),
@@ -458,11 +438,10 @@ class TestWithFakeCatalog:
                     name="OpenVINO",
                     ready_state="Ready",
                     library_path=str(good_dll),
-                    status="Success",
                 ),
             ]
         )
-        self._install_binding(monkeypatch, catalog)
+        _install_windowsml_module(monkeypatch, catalog)
 
         source = WinMLCatalogSource(catalog_name="OpenVINO", eps=("OpenVINOExecutionProvider",))
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
@@ -471,6 +450,8 @@ class TestWithFakeCatalog:
         assert len(results) == 1
         assert results[0].ep_name == "OpenVINOExecutionProvider"
         assert results[0].dll_path == Path(str(good_dll))
+        warn_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("ensure_ready raised" in m for m in warn_messages), warn_messages
 
     def test_find_all_providers_raises_yields_nothing(
         self,
@@ -478,23 +459,11 @@ class TestWithFakeCatalog:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        class _BadCatalog:
-            def find_all_providers(self) -> list[Any]:
-                raise RuntimeError("catalog query failed")
-
-        # _build_fake_binding takes a real catalog or an exception; here
-        # we want a catalog object whose method raises, so install
-        # manually.
-        for name, mod in _build_fake_binding(_FakeCatalog([])).items():
-            monkeypatch.setitem(sys.modules, name, mod)
-        ml = sys.modules["winui3.microsoft.windows.ai.machinelearning"]
-
-        class _Catalog2:
-            @staticmethod
-            def get_default() -> Any:
-                return _BadCatalog()
-
-        monkeypatch.setattr(ml, "ExecutionProviderCatalog", _Catalog2)
+        catalog = _FakeCatalog(
+            [],
+            find_raises=RuntimeError("catalog query failed"),
+        )
+        _install_windowsml_module(monkeypatch, catalog)
 
         source = WinMLCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
@@ -502,44 +471,148 @@ class TestWithFakeCatalog:
         warn_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert any("find_all_providers" in m for m in warn_messages)
 
-    def test_get_default_raises_yields_nothing(
+    def test_epcatalog_constructor_raises_yields_nothing(
         self,
         reset_catalog_singleton: None,
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        self._install_binding(monkeypatch, RuntimeError("get_default boom"))
+        _install_windowsml_module(monkeypatch, RuntimeError("EpCatalog() failed"))
         source = WinMLCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
             assert list(source.resolve()) == []
         warn_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-        assert any("get_default" in m for m in warn_messages)
+        assert any("EpCatalog()" in m for m in warn_messages)
 
 
 # ---------------------------------------------------------------------------
-# atexit cleanup.
+# Readiness and lifecycle expectations (async progress-driven download API).
 # ---------------------------------------------------------------------------
 
 
-class TestAtexitCleanup:
-    """The bootstrap handle is registered for cleanup exactly once."""
+def test_not_ready_provider_is_prepared_and_yielded(
+    reset_catalog_singleton: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    dll = tmp_path / "qnn.dll"
+    dll.write_bytes(b"")
+    provider = _FakeProvider("QNNExecutionProvider", "NotReady", str(dll))
+    _install_windowsml_module(monkeypatch, _FakeCatalog([provider]))
 
-    def test_atexit_registered_once_across_multiple_calls(
+    entries = list(
+        WinMLCatalogSource(
+            catalog_name="QNNExecutionProvider",
+            eps=("QNNExecutionProvider",),
+        ).resolve()
+    )
+
+    assert provider.ensure_ready_calls == 1
+    assert [entry.dll_path for entry in entries] == [dll]
+
+
+def test_ready_provider_is_not_prepared_again(
+    reset_catalog_singleton: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    dll = tmp_path / "qnn.dll"
+    dll.write_bytes(b"")
+    provider = _FakeProvider("QNNExecutionProvider", "Ready", str(dll))
+    _install_windowsml_module(monkeypatch, _FakeCatalog([provider]))
+
+    entries = list(
+        WinMLCatalogSource(
+            catalog_name="QNNExecutionProvider",
+            eps=("QNNExecutionProvider",),
+        ).resolve()
+    )
+
+    assert provider.ensure_ready_calls == 0
+    assert len(entries) == 1
+
+
+def test_not_present_provider_is_not_downloaded_by_default(
+    reset_catalog_singleton: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    dll = tmp_path / "qnn.dll"
+    dll.write_bytes(b"")
+    provider = _FakeProvider("QNNExecutionProvider", "NotPresent", str(dll))
+    catalog = _FakeCatalog([provider])
+    _install_windowsml_module(monkeypatch, catalog)
+
+    default_source = WinMLCatalogSource(
+        catalog_name="QNNExecutionProvider",
+        eps=("QNNExecutionProvider",),
+    )
+    assert list(default_source.resolve()) == []
+    assert provider.ensure_ready_calls == 0
+
+
+def test_not_present_provider_downloads_with_opt_in(
+    reset_catalog_singleton: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    dll = tmp_path / "qnn.dll"
+    dll.write_bytes(b"")
+    provider = _FakeProvider("QNNExecutionProvider", "NotPresent", str(dll))
+    _install_windowsml_module(monkeypatch, _FakeCatalog([provider]))
+
+    download_source = WinMLCatalogSource(
+        catalog_name="QNNExecutionProvider",
+        eps=("QNNExecutionProvider",),
+        auto_download=True,
+    )
+    assert len(list(download_source.resolve())) == 1
+    assert provider.ensure_ready_calls == 1
+
+
+# ---------------------------------------------------------------------------
+# _is_ready helper.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (_FakeReadyState("Ready"), True),
+        (_FakeReadyState("READY"), True),
+        (_FakeReadyState("NotReady"), False),
+        (_FakeReadyState("NOT_READY"), False),
+        (_FakeReadyState("NotPresent"), False),
+        (None, False),
+    ],
+)
+def test_is_ready(value: Any, expected: bool) -> None:
+    assert WinMLCatalogSource._is_ready(value) is expected
+
+
+# ---------------------------------------------------------------------------
+# catalog lifecycle.
+# ---------------------------------------------------------------------------
+
+
+class TestCatalogLifecycle:
+    """The catalog singleton avoids process-exit native release calls."""
+
+    def test_get_catalog_registers_atexit_handle_disarm_without_close(
         self,
         reset_catalog_singleton: None,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
     ) -> None:
-        # Track atexit.register calls within ep_path.
         registered: list[Any] = []
 
         def fake_register(func: Any, *args: Any, **kwargs: Any) -> Any:
             registered.append((func, args, kwargs))
             return func
 
-        monkeypatch.setattr(_ep.atexit, "register", fake_register)
+        monkeypatch.setattr(atexit, "register", fake_register)
 
-        # Install a working fake binding.
+        # Install a working fake module.
         dll = tmp_path / "x.dll"
         dll.write_bytes(b"")
         catalog = _FakeCatalog(
@@ -548,12 +621,10 @@ class TestAtexitCleanup:
                     name="VitisAI",
                     ready_state="Ready",
                     library_path=str(dll),
-                    status="Success",
                 ),
             ]
         )
-        for name, mod in _build_fake_binding(catalog).items():
-            monkeypatch.setitem(sys.modules, name, mod)
+        _install_windowsml_module(monkeypatch, catalog)
 
         # First call — initializes and registers.
         c1 = _ep._get_catalog()
@@ -563,15 +634,12 @@ class TestAtexitCleanup:
         assert c1 is not None
         assert c2 is c1
         assert c3 is c1
-        # Exactly one atexit registration.
-        cleanup_callbacks = [r for r in registered if r[0] is _ep._release_winml_handle]
-        assert len(cleanup_callbacks) == 1
+        assert len(registered) == 1
 
-    def test_release_handle_swallows_exceptions(self, caplog: pytest.LogCaptureFixture) -> None:
-        # Cleanup must not propagate exceptions during interpreter shutdown.
-        class _BoomHandle:
-            def __exit__(self, *args: Any) -> None:
-                raise RuntimeError("cleanup failure")
+        cleanup, args, kwargs = registered[0]
+        assert args == (catalog,)
+        assert kwargs == {}
+        cleanup(*args, **kwargs)
 
-        # Should not raise.
-        _ep._release_winml_handle(_BoomHandle())
+        assert catalog._handle is None
+        assert catalog.closed is False

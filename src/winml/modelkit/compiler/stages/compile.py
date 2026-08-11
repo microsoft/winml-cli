@@ -107,15 +107,19 @@ class CompileStage(BaseStage):
             ep_device=ep_device,
             ep_config=ep_config,
         )
-        winml_session.compile()
+        try:
+            winml_session.compile()
 
-        session = winml_session._session
-        context.session = session
-        if session is not None:
-            context.log(f"Actual providers: {session.get_providers()}")
-            if context.validate:
-                self._validate_model(session, context)
-            self._collect_model_info(session, context)
+            session = winml_session._session
+            context.session = session
+            if session is not None:
+                context.log(f"Actual providers: {session.get_providers()}")
+                if context.validate:
+                    self._validate_model(session, context)
+                self._collect_model_info(session, context)
+        finally:
+            context.session = None
+            winml_session.reset()
 
         if ep_config.enable_ep_context:
             self._finalize_output(
@@ -170,11 +174,15 @@ class CompileStage(BaseStage):
         if context.use_inference_session:
             session_options.add_session_config_entry("ep.context_file_path", str(ctx_path))
             session = ort.InferenceSession(str(model_path), sess_options=session_options)
-            context.session = session
-            context.log(f"Actual providers: {session.get_providers()}")
-            if context.validate:
-                self._validate_model(session, context)
-            self._collect_model_info(session, context)
+            try:
+                context.session = session
+                context.log(f"Actual providers: {session.get_providers()}")
+                if context.validate:
+                    self._validate_model(session, context)
+                self._collect_model_info(session, context)
+            finally:
+                context.session = None
+                del session
         else:
             ort.ModelCompiler(
                 session_options,

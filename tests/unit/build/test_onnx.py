@@ -423,7 +423,7 @@ class TestBuildOnnxPreQuantized:
     def test_skip_optimize_kwarg(
         self, tmp_path: Path, fake_onnx: Path, sample_onnx_config, mock_onnx_pipeline
     ) -> None:
-        """skip_optimize=True forces optimize+quantize skip even without QDQ."""
+        """skip_optimize=True skips optimize but still quantizes raw models."""
         mock_onnx_pipeline["is_quantized_onnx"].return_value = False
 
         output_dir = tmp_path / "output"
@@ -434,9 +434,9 @@ class TestBuildOnnxPreQuantized:
             skip_optimize=True,
         )
         assert "optimize" in result.stages_skipped
-        assert "quantize" in result.stages_skipped
+        assert "quantize" in result.stages_completed
         mock_onnx_pipeline["optimize"].assert_not_called()
-        mock_onnx_pipeline["quantize"].assert_not_called()
+        mock_onnx_pipeline["quantize"].assert_called_once()
 
 
 # =============================================================================

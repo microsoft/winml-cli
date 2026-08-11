@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import shutil
 import tempfile
 import time
 import uuid
@@ -681,31 +683,34 @@ class QNNMonitor(WinMLEPMonitor):
         if qhas_override is not None:
             # Offline path: caller supplied the QHAS JSON; parse directly.
             if not qhas_override.is_file():
-                logger.debug("QNNMonitor: qhas_override %s is not a file", qhas_override)
+                logger.info("QNNMonitor: qhas_override %s is not a file", qhas_override)
                 return None, None, None
             result_path = qhas_override
         else:
             # Live path: locate inputs and shell out to the QHAS viewer.
             qnn_log = self._select_fresh_qnn_log()
             if qnn_log is None:
-                logger.debug("QNNMonitor: no *_qnn.log found for QHAS")
+                logger.info("QNNMonitor: no *_qnn.log found for QHAS")
                 return None, None, None
 
             # Find the schematic by EPContext partition metadata (never chdir).
             schematic = self._find_schematic()
             if schematic is None:
-                logger.debug("QNNMonitor: no *_schematic.bin found for QHAS")
+                logger.info("QNNMonitor: no *_schematic.bin found for QHAS")
                 return None, None, None
 
             sdk_root = find_qnn_sdk()
             if sdk_root is None:
-                logger.debug("QNNMonitor: QNN SDK not located; skipping QHAS")
+                logger.info("QNNMonitor: QNN SDK not located; skipping QHAS")
+                return None, None, None
+            schematic = self._publish_schematic(schematic)
+            if schematic is None:
                 return None, None, None
 
             qhas_output = self._qhas_output_path()
             viewer_output = run_qhas_viewer(qnn_log, schematic, qhas_output, sdk_root=sdk_root)
             if viewer_output is None or not viewer_output.is_file():
-                logger.debug("QNNMonitor: QHAS viewer produced no output")
+                logger.info("QNNMonitor: QHAS viewer produced no output")
                 return None, None, None
             result_path = viewer_output
 
@@ -793,7 +798,7 @@ class QNNMonitor(WinMLEPMonitor):
             if not self._csv_path.is_file():
                 return None
         except OSError as exc:
-            logger.debug(
+            logger.info(
                 (
                     "QNNMonitor: unable to read profiling CSV metadata "
                     "for schematic discovery (%s): %s"
@@ -824,6 +829,33 @@ class QNNMonitor(WinMLEPMonitor):
                 return schematic
         return None
 
+    def _publish_schematic(self, schematic: Path) -> Path | None:
+        """Copy a run-bound schematic beside this monitor's profiling artifacts."""
+        destination = self._csv_path.with_name(f"{self._csv_path.stem}_schematic.bin")
+        staging = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            if schematic.resolve() != destination.resolve():
+                shutil.copy2(schematic, staging)
+                os.link(staging, destination)
+        except OSError as exc:
+            logger.warning(
+                "QNNMonitor: could not publish schematic %s to %s: %s",
+                schematic,
+                destination,
+                exc,
+            )
+            return None
+        finally:
+            try:
+                staging.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.debug(
+                    "QNNMonitor: could not remove schematic staging file %s: %s",
+                    staging,
+                    exc,
+                )
+        return destination
+
     def _schematic_partition_name(self) -> str | None:
         """Resolve the exact EPContext partition name for schematic lookup."""
         if self._running_model_path is None:
@@ -831,7 +863,7 @@ class QNNMonitor(WinMLEPMonitor):
         try:
             return select_main_epcontext_partition_name(self._running_model_path)
         except Exception as exc:
-            logger.debug(
+            logger.info(
                 "QNNMonitor: unable to inspect EPContext partition metadata from %s: %s",
                 self._running_model_path,
                 exc,

@@ -67,7 +67,22 @@ class TestUniversalPatternONNXGeneration:
         results = matcher.match()
 
         assert len(results) == 1, f"Expected 1 match, got {len(results)}"
-        assert results[0].skeleton_match_result.removable is False, (
+
+        skeleton_match = results[0].skeleton_match_result
+        intermediate_tensors = {
+            output_name
+            for node in skeleton_match.matched_nodes
+            for output_name in node.output
+            if output_name and output_name != skeleton_match.output
+        }
+
+        if not intermediate_tensors:
+            # Single-node single-output patterns have no intermediate tensors by definition,
+            # so removability stays True.
+            assert skeleton_match.removable is True
+            return
+
+        assert skeleton_match.removable is False, (
             "Expected removable=False when intermediate output is a graph output"
         )
 

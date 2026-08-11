@@ -22,6 +22,7 @@ $ winml optimize [options]
 | `--verbose` | `-v` | flag | off | Enable verbose output. |
 | `--list-capabilities` | `-l` | flag | off | Print all registered optimization capabilities grouped by category and exit. Add `--verbose` for descriptions and ORT names. |
 | `--list-rewrites` | | flag | off | Print all available pattern-rewrite families with their source-to-target mappings and exit. |
+| `--check-optim` | | flag | off | Analyze which optimizations would apply to `--model` and the nodes/constants they affect, then exit **without writing any output**. Probes every capability independently. |
 | *(dynamic)* | | flag | *(per capability)* | Each registered capability generates a `--enable-<name>` / `--disable-<name>` pair. Run `--list-capabilities` to see the full current list. Examples: `--enable-gelu-fusion`, `--disable-constant-folding`. Pattern-rewrite flags follow the form `--enable-<source-slug>-<target-slug>`; run `--list-rewrites` to discover all names. |
 
 ### Configuration precedence
@@ -84,6 +85,39 @@ Discover pattern-rewrite families and their flag names:
 ```bash
 $ winml optimize --list-rewrites
 ```
+
+Check which optimizations apply to a model before committing to a run (writes nothing):
+
+```bash
+$ winml optimize -m bert-base-uncased.onnx --check-optim
+```
+
+```text
+Input: bert-base-uncased.onnx
+--check-optim — analyzing applicable optimizations (no output written).
+
+Loading model...
+Probing 61 optimization capabilities... (this can take a while on large models)
+
+2 applicable optimization(s):
+
+--enable-matmul-add-fusion  (matmul)
+  Fuse MatMul+Add operations into single kernel
+  nodes: -1 ~1
+    removed: MatMul (1)
+      - MatMul 'mm'
+    modified: Gemm (1)
+      - Gemm 'mm/MatMulAddFusion'
+
+--enable-clamp-constant-values  (surgery)
+  Clamp extreme float constants (e.g., -inf -> -1e3) to prevent quantization issues
+  constants: ~1
+      - BIG
+
+Enable any of the above with its --enable-* flag (dependencies are auto-enabled).
+```
+
+Add `-v` to list every affected node and constant instead of a sample.
 
 ## Common pitfalls
 

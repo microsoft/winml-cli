@@ -411,6 +411,18 @@ class TestCommandHelp:
         """
         assert_cli_no_heavy_imports(["inspect", "--list-tasks"])
 
+    def test_inspect_model_type_hides_onnxruntime_startup_warning(self) -> None:
+        """``winml inspect --model-type`` must not leak ORT native warning noise."""
+        script = textwrap.dedent("""\
+            from winml.modelkit.cli import main
+
+            main(["inspect", "--model-type", "bert", "--format", "json"], standalone_mode=False)
+        """)
+        result = _run_in_subprocess(script)
+        assert result.returncode == 0, result.stderr.strip()
+        assert "Init provider bridge failed" not in result.stderr
+        assert "onnxruntime" not in result.stderr
+
 
 class TestCommandWithModel:
     """Verify import budgets when commands are invoked with --model.

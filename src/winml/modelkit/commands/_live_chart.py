@@ -10,12 +10,14 @@ plotext for chart rendering and Rich Live for terminal refresh.
 
 from __future__ import annotations
 
+import time
 from typing import Any, Final
 
-from rich.console import Console
+from rich.cells import cell_len
 from rich.panel import Panel
 
 from ..session.monitor.hw_monitor import adapter_label
+from ..utils.console import SafeConsole, SafeLive
 from ..utils.constants import ACCELERATOR_DEVICE_TYPES
 
 
@@ -24,6 +26,12 @@ _CHART_WINDOW_SECONDS = 15.0
 
 # Display refresh rate (frames per second)
 _REFRESH_FPS = 5
+_PANEL_HORIZONTAL_OVERHEAD = 4
+# plotext's requested canvas width excludes its y-axis labels, tick marks, and
+# border text. Keep this fixed overhead out of the Rich panel width budget.
+_PLOTEXT_HORIZONTAL_OVERHEAD = 21
+_MIN_CHART_WIDTH = 20
+_STATUS_CELL_WIDTH = 28
 
 
 class _OmittedDeviceKind:
@@ -65,11 +73,21 @@ class LiveMonitorDisplay:
         chart_height: int = 15,
         poll_interval_ms: int = 100,
         device_kind: str | None | _OmittedDeviceKind = _DEVICE_KIND_OMITTED,
+        duration_sec: float | None = None,
+        clock: Any = None,
     ) -> None:
         self._total = total_iterations
         self._warmup = warmup
         self._model_id = model_id
         self._device = device
+        # When set, the benchmark phase runs on a wall-clock budget instead of a
+        # fixed iteration count, so progress is reported as elapsed/total time.
+        # ``clock`` is the benchmark loop's shared start reference (an object
+        # with a ``.start`` timestamp); reading it — rather than stamping a local
+        # clock on the first update() — keeps the bar aligned with the exact
+        # budget the loop stops on.
+        self._duration_sec = duration_sec
+        self._clock = clock
         # `device_kind` is the value HWMonitor resolved at start() — pass it
         # in when you want the legend to reflect what's actually polled (e.g.
         # "auto" that resolved to GPU). Falls back to the requested string
@@ -86,8 +104,58 @@ class LiveMonitorDisplay:
         self._chart_height = chart_height
         self._poll_interval_s = poll_interval_ms / 1000.0
         self._live: Any = None
+        self._console: SafeConsole | None = None
         # Track the last rendered panel for transient=False final display
         self._last_panel: Any = None
+
+    def _panel_content_width(self) -> int | None:
+        """Return the Rich panel content width available in the current console."""
+        width = getattr(self._console, "width", None)
+        if not isinstance(width, int) or width <= _PANEL_HORIZONTAL_OVERHEAD:
+            return None
+        return width - _PANEL_HORIZONTAL_OVERHEAD
+
+    def _effective_chart_width(self) -> int:
+        """Clamp plotext's canvas width so its full output fits in the panel."""
+        content_width = self._panel_content_width()
+        if content_width is None:
+            return self._chart_width
+        available_chart_width = content_width - _PLOTEXT_HORIZONTAL_OVERHEAD
+        return min(self._chart_width, max(_MIN_CHART_WIDTH, available_chart_width))
+
+    def _pack_status_cells(self, cells: list[str]) -> list[str]:
+        """Pack status cells into as few panel-safe lines as possible."""
+        if not cells:
+            return []
+        max_width = self._panel_content_width()
+        separator = " | "
+        padded_line = "  " + separator.join(
+            [
+                self._pad_status_cell(cell, _STATUS_CELL_WIDTH)
+                if index < len(cells) - 1
+                else cell
+                for index, cell in enumerate(cells)
+            ]
+        )
+        if max_width is None or cell_len(padded_line) <= max_width:
+            return [padded_line]
+
+        lines: list[str] = []
+        current = f"  {cells[0]}"
+        for cell in cells[1:]:
+            candidate = f"{current}{separator}{cell}"
+            if max_width is not None and cell_len(candidate) > max_width:
+                lines.append(current)
+                current = f"  {cell}"
+            else:
+                current = candidate
+        lines.append(current)
+        return lines
+
+    @staticmethod
+    def _pad_status_cell(cell: str, width: int) -> str:
+        """Pad a status cell by terminal display width."""
+        return cell + (" " * max(width - cell_len(cell), 0))
 
     def _resolved_device_label(self) -> str:
         """Return the display label for the requested or resolved device."""
@@ -112,11 +180,10 @@ class LiveMonitorDisplay:
         return label
 
     def __enter__(self) -> LiveMonitorDisplay:
-        from rich.live import Live
-
-        self._live = Live(
+        self._console = SafeConsole(stderr=True)
+        self._live = SafeLive(
             refresh_per_second=_REFRESH_FPS,
-            console=Console(stderr=True),
+            console=self._console,
             transient=False,  # Keep last frame visible in scrollback
         )
         self._live.__enter__()
@@ -268,7 +335,7 @@ class LiveMonitorDisplay:
         plt.xlim(x_min, x_max)
         plt.xlabel("Time (s)")
 
-        plt.plotsize(self._chart_width, self._chart_height)
+        plt.plotsize(self._effective_chart_width(), self._chart_height)
 
         from rich.console import Group
         from rich.text import Text
@@ -315,14 +382,29 @@ class LiveMonitorDisplay:
         effective_iter = iteration - self._warmup if phase == "benchmark" else iteration
         total_bench = self._total - self._warmup
 
-        pct = iteration / self._total if self._total > 0 else 0
+        if phase == "warmup":
+            # Warmup is always a fixed count, so scale the bar by the warmup
+            # total. ``self._total`` must not be used here: in duration mode it
+            # includes the unused default iteration count, which would make the
+            # warmup bar crawl (e.g. 5/10 warmup showing as ~5% instead of 50%).
+            pct = iteration / self._warmup if self._warmup > 0 else 0.0
+            progress = f"[yellow]Warmup: {iteration}/{self._warmup}[/yellow]"
+        elif self._duration_sec is not None:
+            # Duration mode: base progress on elapsed wall-clock time, since the
+            # benchmark iteration count is not known ahead of time. The start
+            # reference is the loop's shared clock, so this tracks the same
+            # budget the loop terminates on.
+            start = getattr(self._clock, "start", None)
+            elapsed = time.perf_counter() - start if start else 0.0
+            pct = min(elapsed / self._duration_sec, 1.0) if self._duration_sec > 0 else 0.0
+            shown = min(elapsed, self._duration_sec)
+            progress = f"[green]Time: {shown:.1f}/{self._duration_sec:.0f}s[/green]"
+        else:
+            pct = effective_iter / total_bench if total_bench > 0 else 0.0
+            progress = f"[green]Iter: {effective_iter}/{total_bench}[/green]"
+
         bar_len = int(pct * 20)
         bar = f"[{'=' * bar_len}{' ' * (20 - bar_len)}]"
-
-        if phase == "warmup":
-            progress = f"[yellow]Warmup: {iteration}/{self._warmup}[/yellow]"
-        else:
-            progress = f"[green]Iter: {effective_iter}/{total_bench}[/green]"
 
         throughput = 1000.0 / latency_ms if latency_ms > 0 else 0.0
 
@@ -332,7 +414,9 @@ class LiveMonitorDisplay:
 
         # Row 1: Progress
         pct_cell = f"{bar} {pct:.0%}"
-        row1 = f"  {pct_cell:<30}|  {progress}  |  Device: {self._resolved_device_label()}"
+        row1_lines = self._pack_status_cells(
+            [pct_cell, progress, f"Device: {self._resolved_device_label()}"]
+        )
 
         # Row 2: Compute (unified now/avg format across all three)
         adapter_label_text = self._selected_adapter_label()
@@ -343,19 +427,19 @@ class LiveMonitorDisplay:
         row2_cells = [cpu_cell, gpu_cell]
         if self._show_adapter:
             row2_cells.insert(0, adapter_cell)
-        row2 = "  " + "| ".join(f"{cell:<28}" for cell in row2_cells)
+        row2_lines = self._pack_status_cells(row2_cells)
 
         # Row 3: Memory
         ram_cell = f"Sys Mem: {ram_mb:.0f} MB"
         mem_cell = f"Device Mem: {memory_local_mb:.0f}/{memory_shared_mb:.0f} MB (local/shared)"
-        row3 = f"  {ram_cell:<24}|  {mem_cell}"
+        row3_lines = self._pack_status_cells([ram_cell, mem_cell])
 
         # Row 4: Inference
         lat_cell = f"Latency: {latency_ms:.2f} ms"
         thr_cell = f"Throughput: ~{throughput:.0f} smp/s"
-        row4 = f"  {lat_cell:<24}|  {thr_cell}"
+        row4_lines = self._pack_status_cells([lat_cell, thr_cell])
 
-        return f"{row1}\n{row2}\n{row3}\n{row4}"
+        return "\n".join([*row1_lines, *row2_lines, *row3_lines, *row4_lines])
 
     def print_final_snapshot(
         self,

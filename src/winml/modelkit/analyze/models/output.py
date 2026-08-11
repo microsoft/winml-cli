@@ -36,6 +36,10 @@ class RuntimeDebugSummaryEntry(BaseModel):
         default=None,
         description="Source table filename.",
     )
+    match_status: str | None = Field(
+        default=None,
+        description="Match source classification: pattern_match or op_match.",
+    )
 
 
 class EPSupport(BaseModel):
@@ -100,7 +104,7 @@ class ModelStats(BaseModel):
         total_operators: Total number of operator nodes
         operator_counts: Operator type frequency map
         unique_operator_types: Number of unique operator types
-        detected_pattern_count: Total patterns detected
+        detected_pattern_count: Pattern counts grouped by execution provider
     """
 
     model_path: str = Field(..., description="Analyzed model path")
@@ -110,9 +114,9 @@ class ModelStats(BaseModel):
     total_operators: int = Field(..., ge=0, description="Total operator count")
     operator_counts: dict[str, int] = Field(..., description="Operator type frequencies")
     unique_operator_types: int = Field(..., ge=0, description="Unique operator types")
-    detected_pattern_count: dict[str, int] = Field(
+    detected_pattern_count: dict[str, dict[str, int]] = Field(
         default_factory=dict,
-        description="Pattern ID to count mapping (e.g., {'SUBGRAPH/GELU_Erf': 18})",
+        description="Execution provider to pattern ID count mapping",
     )
 
     @model_validator(mode="after")
@@ -158,13 +162,13 @@ class AnalysisOutput(BaseModel):
 
 def extract_model_stats(
     model: ONNXModel,
-    detected_pattern_count: dict[str, int] | None = None,
+    detected_pattern_count: dict[str, dict[str, int]] | None = None,
 ) -> ModelStats:
     """Extract metadata from ONNXModel for analysis output.
 
     Args:
         model: ONNXModel instance to extract metadata from
-        detected_pattern_count: Pattern ID to count mapping (default: empty dict)
+        detected_pattern_count: EP to pattern ID count mapping (default: empty dict)
 
     Returns:
         ModelStats object with model statistics

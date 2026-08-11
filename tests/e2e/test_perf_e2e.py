@@ -35,6 +35,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
 import onnx
 import pytest
 from click.testing import CliRunner
@@ -55,6 +56,14 @@ CPU_EPS = ("cpu", "openvino")
 NPU_EPS = ("qnn", "vitisai", "openvino")
 GPU_EPS = ("dml", "nv_tensorrt_rtx", "migraphx", "openvino", "qnn")
 NON_CPU_EPS = ("qnn", "vitisai", "dml", "nv_tensorrt_rtx", "migraphx")
+
+# Real image-classification ONNX models shipped in the repo, used by the
+# NPU / GPU tests where a bare float MatMul is not representative of
+# accelerator execution. NPU uses a quantized ResNet (w8a8, NHWC); GPU uses
+# the fp32 ResNet (NCHW). Both classify to ``logits`` [1, 3].
+_ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+ASSETS_NPU_ONNX_MODEL = _ASSETS_DIR / "resnet_w8a8" / "model.onnx"
+ASSETS_GPU_ONNX_MODEL = _ASSETS_DIR / "resnet_fp32" / "model.onnx"
 
 
 def _require_gpu() -> None:
@@ -97,9 +106,12 @@ def _assert_hw_monitor_section(
     else:
         assert hw["device_kind"] == device_kind
         assert hw["adapter_luid"] is not None
+        adapter = hw.get("adapter") or hw[device_kind]
         if require_utilization:
-            adapter = hw.get("adapter") or hw[device_kind]
             assert adapter["mean_pct"] > 0
+        else:
+            # Just a valid data
+            assert adapter["mean_pct"] >= 0
 
 
 def _build_perf_args(
@@ -113,12 +125,17 @@ def _build_perf_args(
     memory: bool | None = None,
     verbose: bool = False,
     no_skip_build: bool = False,
+    batch_size: int | None = None,
+    input_data: Path | None = None,
+    op_tracing: str | None = None,
+    duration_overwrite: float | None = None,
 ) -> list[str]:
     """Build the argv list passed to the perf CLI.
 
     Iterations are fixed by ``monitor``: 300 when monitoring (HWMonitor needs
     enough samples to observe utilization) and 3 otherwise (kept tiny for
-    e2e speed). Warmup is always 1.
+    e2e speed). ``duration_overwrite`` replaces the fixed benchmark count with
+    a wall-clock budget. Warmup is always 1.
     """
     iterations = 300 if monitor else 3
     args: list[str] = [
@@ -147,7 +164,32 @@ def _build_perf_args(
         args.append("--verbose")
     if no_skip_build:
         args.append("--no-skip-build")
+    if batch_size is not None:
+        args += ["--batch-size", str(batch_size)]
+    if input_data is not None:
+        args += ["--input-data", str(input_data)]
+    if op_tracing is not None:
+        args += ["--op-tracing", op_tracing]
+    if duration_overwrite is not None:
+        args += ["--duration", str(duration_overwrite)]
     return args
+
+
+def _run_winml_cli_subprocess(
+    args: list[str],
+    *,
+    timeout: int = 240,
+) -> subprocess.CompletedProcess[str]:
+    """Run the real winml CLI entry point in a fresh Python process."""
+    return subprocess.run(  # noqa: S603 -- trusted args from the test body
+        [sys.executable, "-m", "winml.modelkit", *args],
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
 
 
 def _assert_monitor_result(
@@ -186,6 +228,28 @@ class _PerfBenchmarkSuite:
     @pytest.fixture
     def model_arg(self, onnx_model_path: Path) -> str:
         return str(onnx_model_path)
+
+    @pytest.fixture
+    def npu_model_arg(self, model_arg: str) -> str:
+        """Model source used by the NPU tests.
+
+        Defaults to ``model_arg`` so subclasses share a single model.
+        Subclasses backed by a real ONNX file override this to point at a
+        model that actually executes on the NPU (QNN / VitisAI), where a
+        bare float MatMul is not representative.
+        """
+        return model_arg
+
+    @pytest.fixture
+    def gpu_model_arg(self, model_arg: str) -> str:
+        """Model source used by the GPU tests.
+
+        Defaults to ``model_arg`` so subclasses share a single model.
+        Subclasses backed by a real ONNX file override this to point at a
+        model that actually executes on the GPU, where a bare float MatMul
+        is not representative.
+        """
+        return model_arg
 
     def test_benchmark_cpu(self, tmp_path: Path, model_arg: str):
         """Benchmark on CPU with minimal iterations.
@@ -343,7 +407,7 @@ class _PerfBenchmarkSuite:
         # Console output should NOT contain Memory section
         assert "Memory:" not in result.output
 
-    def test_benchmark_npu_memory(self, tmp_path: Path, model_arg: str):
+    def test_benchmark_npu_memory(self, tmp_path: Path, npu_model_arg: str):
         """Benchmark on NPU with --memory produces VRAM fields.
 
         Verifies VRAM local/shared fields are present in JSON output.
@@ -355,7 +419,7 @@ class _PerfBenchmarkSuite:
         result = runner.invoke(
             perf,
             _build_perf_args(
-                model_arg=model_arg, output_file=output_file, device="npu", memory=True
+                model_arg=npu_model_arg, output_file=output_file, device="npu", memory=True
             ),
             obj={},
             catch_exceptions=False,
@@ -404,7 +468,7 @@ class _PerfBenchmarkSuite:
         data = json.loads(output_file.read_text())
         _assert_monitor_result(data, device="cpu")
 
-    def test_benchmark_gpu_monitor(self, tmp_path: Path, model_arg: str):
+    def test_benchmark_gpu_monitor(self, tmp_path: Path, gpu_model_arg: str):
         """Benchmark on GPU with --monitor.
 
         Requires a real GPU discoverable via PDH. Verifies the JSON output
@@ -418,7 +482,11 @@ class _PerfBenchmarkSuite:
         result = runner.invoke(
             perf,
             _build_perf_args(
-                model_arg=model_arg, output_file=output_file, device="gpu", monitor=True
+                model_arg=gpu_model_arg,
+                output_file=output_file,
+                device="gpu",
+                monitor=True,
+                duration_overwrite=3,
             ),
             obj={},
             catch_exceptions=False,
@@ -427,10 +495,10 @@ class _PerfBenchmarkSuite:
 
         assert output_file.exists(), f"Output file not created: {output_file}"
         data = json.loads(output_file.read_text())
-        # Tiny synthetic fixture: below PDH utilization-publish floor.
+        # TODO skip all due to openvino gpu could not emit valid pdh counter
         _assert_monitor_result(data, device="gpu", require_utilization=False)
 
-    def test_benchmark_npu_monitor(self, tmp_path: Path, model_arg: str):
+    def test_benchmark_npu_monitor(self, tmp_path: Path, npu_model_arg: str):
         """Benchmark on NPU with --monitor.
 
         Requires a real NPU discoverable via PDH. Verifies the JSON output
@@ -444,7 +512,7 @@ class _PerfBenchmarkSuite:
         result = runner.invoke(
             perf,
             _build_perf_args(
-                model_arg=model_arg, output_file=output_file, device="npu", monitor=True
+                model_arg=npu_model_arg, output_file=output_file, device="npu", monitor=True
             ),
             obj={},
             catch_exceptions=False,
@@ -453,8 +521,7 @@ class _PerfBenchmarkSuite:
 
         assert output_file.exists(), f"Output file not created: {output_file}"
         data = json.loads(output_file.read_text())
-        # Tiny synthetic fixture: below PDH utilization-publish floor.
-        _assert_monitor_result(data, device="npu", require_utilization=False)
+        _assert_monitor_result(data, device="npu")
 
     def test_benchmark_auto(self, tmp_path: Path, model_arg: str):
         """Benchmark with --device auto.
@@ -531,7 +598,7 @@ class _PerfBenchmarkSuite:
         _assert_monitor_result(data, device="cpu", ep=EP_ALIASES[ep])
 
     @pytest.mark.parametrize("ep", GPU_EPS)
-    def test_benchmark_ep_device_gpu(self, ep: str, tmp_path: Path, model_arg: str):
+    def test_benchmark_ep_device_gpu(self, ep: str, tmp_path: Path, gpu_model_arg: str):
         """Benchmark with --ep <ep> and --device gpu.
 
         Skipped if the specified EP or a GPU is unavailable on the host.
@@ -545,7 +612,12 @@ class _PerfBenchmarkSuite:
         result = runner.invoke(
             perf,
             _build_perf_args(
-                model_arg=model_arg, output_file=output_file, device="gpu", ep=ep, monitor=True
+                model_arg=gpu_model_arg,
+                output_file=output_file,
+                device="gpu",
+                ep=ep,
+                monitor=True,
+                duration_overwrite=3,
             ),
             obj={},
             catch_exceptions=False,
@@ -554,11 +626,16 @@ class _PerfBenchmarkSuite:
 
         assert output_file.exists()
         data = json.loads(output_file.read_text())
-        # Tiny synthetic fixture: below PDH utilization-publish floor.
-        _assert_monitor_result(data, device="gpu", ep=EP_ALIASES[ep], require_utilization=False)
+        # TODO OpenVINO GPU and TensorRT RTX do not emit reliable PDH utilization counters.
+        _assert_monitor_result(
+            data,
+            device="gpu",
+            ep=EP_ALIASES[ep],
+            require_utilization=ep not in ("nv_tensorrt_rtx", "openvino"),
+        )
 
     @pytest.mark.parametrize("ep", NPU_EPS)
-    def test_benchmark_ep_device_npu(self, ep: str, tmp_path: Path, model_arg: str):
+    def test_benchmark_ep_device_npu(self, ep: str, tmp_path: Path, npu_model_arg: str):
         """Benchmark with --ep <ep> and --device npu.
 
         Skipped if the specified EP or a NPU is unavailable on the host.
@@ -572,7 +649,7 @@ class _PerfBenchmarkSuite:
         result = runner.invoke(
             perf,
             _build_perf_args(
-                model_arg=model_arg, output_file=output_file, device="npu", ep=ep, monitor=True
+                model_arg=npu_model_arg, output_file=output_file, device="npu", ep=ep, monitor=True
             ),
             obj={},
             catch_exceptions=False,
@@ -581,8 +658,7 @@ class _PerfBenchmarkSuite:
 
         assert output_file.exists()
         data = json.loads(output_file.read_text())
-        # Tiny synthetic fixture: below PDH utilization-publish floor.
-        _assert_monitor_result(data, device="npu", ep=EP_ALIASES[ep], require_utilization=False)
+        _assert_monitor_result(data, device="npu", ep=EP_ALIASES[ep])
 
 
 # ===========================================================================
@@ -592,6 +668,165 @@ class _PerfBenchmarkSuite:
 
 class TestPerfONNXDirect(_PerfBenchmarkSuite):
     """Benchmark a pre-exported ONNX file directly via WinMLSession."""
+
+    @pytest.fixture
+    def model_arg(self, onnx_model_path: Path) -> str:
+        return str(onnx_model_path)
+
+    @pytest.fixture
+    def npu_model_arg(self, model_arg: str) -> str:
+        """NPU tests run against a real image-classification ONNX model.
+
+        A bare float MatMul does not exercise a representative NPU
+        (QNN / VitisAI) execution path, so the NPU tests use the model
+        shipped under ``tests/assets/`` instead of ``model_arg``.
+        """
+        return str(ASSETS_NPU_ONNX_MODEL)
+
+    @pytest.fixture
+    def gpu_model_arg(self, model_arg: str) -> str:
+        """GPU tests run against a real image-classification ONNX model.
+
+        A bare float MatMul does not exercise a representative GPU
+        execution path, so the GPU tests use the model shipped under
+        ``tests/assets/`` instead of ``model_arg``.
+        """
+        return str(ASSETS_GPU_ONNX_MODEL)
+
+    def test_benchmark_qnn_process_exit_releases_native_session(
+        self,
+        tmp_path: Path,
+        onnx_model_path: Path,
+    ) -> None:
+        """A successful QNN perf subprocess exits cleanly after releasing ORT sessions."""
+        qnn_provider = require_ep("qnn", device="npu")
+        output_file = tmp_path / "perf_qnn_process_exit.json"
+
+        proc = _run_winml_cli_subprocess(
+            [
+                "perf",
+                "-m",
+                str(onnx_model_path),
+                "--ep",
+                "qnn",
+                "--device",
+                "npu",
+                "--iterations",
+                "1",
+                "--warmup",
+                "0",
+                "--no-memory",
+                "-o",
+                str(output_file),
+            ]
+        )
+
+        assert proc.returncode == 0, f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        assert data["benchmark_info"]["ep"] == qnn_provider
+        assert data["benchmark_info"]["device"] == "npu"
+        assert data["latency_ms"]["mean"] > 0
+
+    def test_batch_size_cpu(self, tmp_path: Path, onnx_model_path: Path):
+        """--batch-size applies to a model with a dynamic leading dimension."""
+        model = onnx.load(onnx_model_path)
+        for value_info in (*model.graph.input, *model.graph.output):
+            dimensions = value_info.type.tensor_type.shape.dim
+            if dimensions:
+                dimensions[0].ClearField("dim_value")
+                dimensions[0].dim_param = "batch"
+
+        dynamic_model_path = tmp_path / "dynamic_batch.onnx"
+        onnx.save(model, dynamic_model_path)
+        output_file = tmp_path / "perf_batch_size_cpu.json"
+
+        result = CliRunner().invoke(
+            perf,
+            _build_perf_args(
+                model_arg=str(dynamic_model_path),
+                output_file=output_file,
+                device="cpu",
+                batch_size=4,
+                memory=False,
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        data = json.loads(output_file.read_text())
+        assert data["benchmark_info"]["batch_size"] == 4
+        assert data["benchmark_info"]["effective_batch_size"] == 4
+        assert all(shape[0] is None for shape in data["model_info"]["input_shapes"])
+        assert data["throughput"]["samples_per_sec"] > 0
+
+    def test_input_data_cpu(self, tmp_path: Path, onnx_model_path: Path):
+        """--input-data benchmarks named tensors from an NPZ archive on CPU."""
+        model = onnx.load(onnx_model_path)
+        initializer_names = {initializer.name for initializer in model.graph.initializer}
+        arrays = {}
+        for value_info in model.graph.input:
+            if value_info.name in initializer_names:
+                continue
+            tensor_type = value_info.type.tensor_type
+            shape = [dimension.dim_value or 1 for dimension in tensor_type.shape.dim]
+            dtype = onnx.helper.tensor_dtype_to_np_dtype(tensor_type.elem_type)
+            arrays[value_info.name] = np.ones(shape, dtype=dtype)
+
+        input_file = tmp_path / "inputs.npz"
+        np.savez(input_file, **arrays)
+        output_file = tmp_path / "perf_input_data_cpu.json"
+
+        result = CliRunner().invoke(
+            perf,
+            _build_perf_args(
+                model_arg=str(onnx_model_path),
+                output_file=output_file,
+                device="cpu",
+                input_data=input_file,
+                memory=False,
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        data = json.loads(output_file.read_text())
+        assert data["benchmark_info"]["device"] == "cpu"
+        effective_batch = next(iter(arrays.values())).shape[0]
+        assert data["benchmark_info"]["effective_batch_size"] == effective_batch
+        assert data["latency_ms"]["mean"] > 0
+
+    def test_op_tracing_basic_qnn_npu(self, tmp_path: Path, npu_model_arg: str):
+        """--op-tracing basic produces a QNN NPU operator trace."""
+        require_ep("qnn")
+        _require_npu()
+        output_file = tmp_path / "perf_op_tracing_qnn_npu.json"
+        trace_output = tmp_path / "perf_op_tracing_qnn_npu_op_trace.json"
+
+        result = CliRunner().invoke(
+            perf,
+            _build_perf_args(
+                model_arg=npu_model_arg,
+                output_file=output_file,
+                device="npu",
+                ep="qnn",
+                op_tracing="basic",
+                memory=False,
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        assert output_file.exists()
+        assert trace_output.exists()
+        trace = json.loads(trace_output.read_text())
+        assert trace["metadata"]["device"] == "npu"
+        assert trace["metadata"]["ep"] == EP_ALIASES["qnn"]
+        assert trace["metadata"]["tracing_level"] == "basic"
+        assert trace["metadata"]["num_samples"] == 3
+        assert trace["operators"]
 
 
 class TestPerfHuggingFace:
@@ -636,7 +871,12 @@ class TestPerfHuggingFace:
         result = runner.invoke(
             perf,
             _build_perf_args(
-                model_arg=model_arg, output_file=output_file, device="gpu", ep=ep, monitor=True
+                model_arg=model_arg,
+                output_file=output_file,
+                device="gpu",
+                ep=ep,
+                monitor=True,
+                duration_overwrite=3,
             ),
             obj={},
             catch_exceptions=False,
@@ -646,9 +886,12 @@ class TestPerfHuggingFace:
         assert output_file.exists()
         data = json.loads(output_file.read_text())
         assert data["benchmark_info"]["ep"] == EP_ALIASES[ep]
-        # Not all EPs bump PDH GPU-engine counters (OpenVINO routes via its own
-        # compute path); validate structure only, not utilization magnitude.
-        _assert_monitor_result(data, device="gpu", require_utilization=False)
+        # TODO OpenVINO GPU and TensorRT RTX do not emit reliable PDH utilization counters.
+        _assert_monitor_result(
+            data,
+            device="gpu",
+            require_utilization=ep not in ("nv_tensorrt_rtx", "openvino"),
+        )
 
     @pytest.mark.parametrize("ep", NPU_EPS)
     def test_benchmark_ep_npu(self, ep: str, tmp_path: Path, model_arg: str):
@@ -672,9 +915,7 @@ class TestPerfHuggingFace:
         assert output_file.exists()
         data = json.loads(output_file.read_text())
         assert data["benchmark_info"]["ep"] == EP_ALIASES[ep]
-        # Not all EPs bump PDH NPU-engine counters reliably for short runs;
-        # validate structure only, not utilization magnitude.
-        _assert_monitor_result(data, device="npu", require_utilization=False)
+        _assert_monitor_result(data, device="npu")
 
 
 # ===========================================================================

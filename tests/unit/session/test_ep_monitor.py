@@ -10,10 +10,12 @@ import json
 import sys
 import threading
 import time
+from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from rich.console import Console
 
 from winml.modelkit.session import PerfStats, VitisAIMonitor, WinMLEPMonitor
 
@@ -523,6 +525,8 @@ class TestHWMonitor:
         assert isinstance(hw.mean_utilization_pct, float)
         assert isinstance(hw.peak_utilization_pct, float)
         assert isinstance(hw.peak_memory_mb, float)
+        assert isinstance(hw.mean_memory_local_mb, float)
+        assert isinstance(hw.mean_memory_shared_mb, float)
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
     def test_to_dict_structure(self):
@@ -536,10 +540,12 @@ class TestHWMonitor:
         # CPU section
         assert "cpu" in d
         assert "mean_pct" in d["cpu"]
+        assert "process_mean_pct" in d["cpu"]
         assert "peak_pct" in d["cpu"]
         assert "sample_count" in d["cpu"]
         # RAM section
         assert "ram" in d
+        assert "mean_mb" in d["ram"]
         assert "used_mb" in d["ram"]
         assert "peak_mb" in d["ram"]
         # Aggregate GPU telemetry is independent of the selected inference
@@ -561,6 +567,8 @@ class TestHWMonitor:
             assert "npu" not in d
         # Device memory + running time
         assert "device_memory" in d
+        assert "local_mean_mb" in d["device_memory"]
+        assert "shared_mean_mb" in d["device_memory"]
         assert "local_peak_mb" in d["device_memory"]
         assert "shared_peak_mb" in d["device_memory"]
         assert "running_time_ns" in d
@@ -606,6 +614,7 @@ class TestHWMonitor:
             time.sleep(0.2)
 
         assert isinstance(hw.mean_cpu_pct, float)
+        assert isinstance(hw.mean_process_cpu_pct, float)
         assert isinstance(hw.peak_cpu_pct, float)
         assert hw.mean_cpu_pct >= 0.0
 
@@ -618,6 +627,7 @@ class TestHWMonitor:
 
         assert isinstance(hw.ram_used_mb, float)
         assert hw.ram_used_mb > 0.0  # System always uses some RAM
+        assert isinstance(hw.mean_ram_used_mb, float)
         assert isinstance(hw.peak_ram_used_mb, float)
         assert hw.peak_ram_used_mb >= hw.ram_used_mb  # Peak >= current
 
@@ -829,6 +839,47 @@ class TestResolveAdapterLuid:
 
         assert luid == "0x00000000_0x000000DE"
 
+    def test_multiple_ort_adapters_are_unresolved_when_pdh_exposes_only_one(self):
+        from winml.modelkit.sysinfo import pdh_adapters
+
+        def fake_device(luid: str):
+            return type(
+                "FakeEpDevice",
+                (),
+                {
+                    "ep_name": "DmlExecutionProvider",
+                    "device": type(
+                        "FakeHwDev",
+                        (),
+                        {"type": "GPU_TYPE", "metadata": {"LUID": luid}},
+                    )(),
+                },
+            )()
+
+        fake_ort = type(
+            "FakeOrt",
+            (),
+            {
+                "get_ep_devices": lambda: [fake_device("111"), fake_device("222")],
+                "OrtHardwareDeviceType": type(
+                    "Types", (), {"NPU": "NPU_TYPE", "GPU": "GPU_TYPE"}
+                ),
+            },
+        )
+        fake_pdh = {"0x00000000_0x0000006F": object()}
+
+        with (
+            patch.dict("sys.modules", {"onnxruntime": fake_ort}),
+            patch.object(pdh_adapters, "enumerate_adapters", return_value=fake_pdh),
+            patch.object(pdh_adapters, "discover_gpu_luid") as fallback,
+        ):
+            luid = pdh_adapters.resolve_adapter_luid(
+                "gpu", ep_name="DmlExecutionProvider"
+            )
+
+        assert luid is None
+        fallback.assert_not_called()
+
     def test_falls_back_to_pdh_when_ort_has_no_luid_metadata(self):
         """Some EPs may register without LUID metadata; PDH is the fallback."""
         from winml.modelkit.sysinfo import pdh_adapters
@@ -891,10 +942,8 @@ class TestResolveAdapterLuid:
 
         assert luid == "0x00000000_0x00012C89"
 
-    def test_falls_back_when_ort_luid_not_in_pdh_enumeration(self):
-        """If ORT publishes a LUID PDH doesn't enumerate, the resolver skips
-        it and falls through to the PDH-only fallback. Without this guard,
-        ``build_adapter_query`` would later raise for the unknown LUID."""
+    def test_ort_luid_missing_from_pdh_is_not_monitorable(self):
+        """A unique ORT adapter must not fall back to unrelated PDH telemetry."""
         from winml.modelkit.sysinfo import pdh_adapters
 
         ghost_dev = type(
@@ -919,9 +968,7 @@ class TestResolveAdapterLuid:
             },
         )
 
-        # PDH knows *some* adapters but not the one ORT named. A non-empty
-        # dict triggers validation; the ORT LUID is rejected and we fall
-        # through to discover_npu_luid().
+        # PDH knows some adapters but not the one ORT named.
         fake_pdh = {"0x00000000_0xC0FFEE": object()}
 
         with (
@@ -935,9 +982,10 @@ class TestResolveAdapterLuid:
         ):
             luid = pdh_adapters.resolve_adapter_luid("npu")
 
-        # 22278 == 0x5706 (the failing-test LUID); rejected, fallback wins.
-        assert luid == "0x00000000_0xFA11BACC"
-        mock_pdh.assert_called_once()
+        # 22278 == 0x5706. The ORT adapter cannot be monitored, and choosing
+        # another adapter would silently attribute unrelated telemetry.
+        assert luid is None
+        mock_pdh.assert_not_called()
 
     def test_skips_malformed_ep_device(self):
         """Accessing .device or .metadata may raise on bad ep_devices; the
@@ -1205,14 +1253,18 @@ class TestHWMonitorDeviceRouting:
                 "utilization_sample_count": 5,
                 "adapter_luid": "0x0_0xCAFE",
                 "mean_cpu_pct": 12.34,
+                "mean_process_cpu_pct": 98.72,
                 "peak_cpu_pct": 34.56,
                 "cpu_sample_count": 7,
+                "mean_ram_used_mb": 900.12,
                 "ram_used_mb": 1024.56,
                 "peak_ram_used_mb": 2048.78,
                 "mean_gpu_pct": 4.56,
                 "peak_gpu_pct": 7.89,
                 "gpu_sample_count": 11,
                 "gpu_luids": ["0x0_0xBEEF"],
+                "mean_memory_local_mb": 200.12,
+                "mean_memory_shared_mb": 100.34,
                 "peak_memory_local_mb": 256.78,
                 "peak_memory_shared_mb": 128.34,
                 "running_time_delta_ns": 123456789,
@@ -1805,6 +1857,134 @@ class TestLiveMonitorDisplay:
             gpu_samples=[33.0],
             gpu_pct=33.0,
         )
+
+    def test_duration_mode_status_shows_time_progress(self):
+        """With duration_sec set, the benchmark phase reports elapsed/total time
+        instead of an iteration count."""
+        import time
+
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+        from winml.modelkit.commands.perf import _BenchmarkClock
+
+        # The benchmark loop shares its start reference with the display via a
+        # clock object (normally stamped by _benchmark_indices after warmup).
+        clock = _BenchmarkClock(start=time.perf_counter())
+        display = LiveMonitorDisplay(
+            total_iterations=110,
+            warmup=10,
+            model_id="test",
+            device="npu",
+            duration_sec=30.0,
+            clock=clock,
+        )
+        status = display._render_status(
+            iteration=50,  # past warmup → benchmark phase
+            latency_ms=2.0,
+            util_samples=[80.0],
+            cpu_pct=10.0,
+            ram_mb=8000.0,
+        )
+        assert "Time:" in status
+        assert "/30s" in status
+        # Iteration-count progress must not appear in duration mode.
+        assert "Iter:" not in status
+
+    def test_iteration_mode_status_shows_iter_progress(self):
+        """Without duration_sec the benchmark phase still shows Iter: x/total."""
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        display = LiveMonitorDisplay(total_iterations=110, warmup=10, model_id="test", device="npu")
+        status = display._render_status(
+            iteration=50,
+            latency_ms=2.0,
+            util_samples=[80.0],
+            cpu_pct=10.0,
+            ram_mb=8000.0,
+        )
+        assert "Iter: 40/100" in status
+        assert "Time:" not in status
+
+    def test_duration_mode_warmup_progress_scales_by_warmup(self):
+        """Regression: in duration mode the warmup bar must scale by the warmup
+        count, not by total_iterations (which carries the unused default 100)."""
+        import time
+
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+        from winml.modelkit.commands.perf import _BenchmarkClock
+
+        clock = _BenchmarkClock(start=time.perf_counter())
+        display = LiveMonitorDisplay(
+            total_iterations=110,  # 10 warmup + unused default 100
+            warmup=10,
+            model_id="test",
+            device="npu",
+            duration_sec=30.0,
+            clock=clock,
+        )
+        status = display._render_status(
+            iteration=5,  # warmup phase, halfway through the 10 warmup iters
+            latency_ms=2.0,
+            util_samples=[12.0],
+            cpu_pct=3.0,
+            ram_mb=8000.0,
+        )
+        assert "Warmup: 5/10" in status
+        # Bar reflects warmup progress (5/10 = 50%), not 5/110 (~5%).
+        assert "] 50%" in status
+        assert "Time:" not in status
+
+    def test_render_chart_fits_narrow_console_panel(self):
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        console = Console(file=StringIO(), width=80, force_terminal=False)
+        display = LiveMonitorDisplay(
+            total_iterations=10,
+            warmup=0,
+            model_id="test",
+            device="npu",
+            chart_width=120,
+        )
+        display._console = console
+
+        renderable = display._render_chart(
+            util_samples=[10.0, 30.0, 50.0],
+            cpu_samples=[2.0, 4.0, 6.0],
+            gpu_samples=[1.0, 2.0, 3.0],
+        )
+
+        panel_content_width = console.width - 4
+        chart_lines = [line.plain for line in renderable.renderables[1:]]
+        assert max(len(line) for line in chart_lines) <= panel_content_width
+
+    def test_render_status_fits_narrow_console_panel(self):
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        console = Console(file=StringIO(), width=60, force_terminal=False)
+        display = LiveMonitorDisplay(
+            total_iterations=10,
+            warmup=0,
+            model_id="test",
+            device="gpu",
+        )
+        display._console = console
+
+        status = display._render_status(
+            iteration=1,
+            latency_ms=10.0,
+            util_samples=[80.0, 90.0],
+            cpu_pct=15.0,
+            cpu_samples=[10.0, 15.0],
+            gpu_pct=42.5,
+            gpu_samples=[40.0, 45.0],
+            memory_local_mb=36.0,
+            memory_shared_mb=60.0,
+            ram_mb=1377.0,
+        )
+
+        panel_content_width = console.width - 4
+        assert "GPU (selected): 90.0%/85.0%" in status
+        assert "GPU (aggregate): 45.0%/42.5%" in status
+        assert max(len(line) for line in status.splitlines()) <= panel_content_width
 
 
 # ============================================================================

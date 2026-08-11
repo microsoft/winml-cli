@@ -393,6 +393,7 @@ class TestCompileStageProcess:
 
         inference_session.assert_called_once()
         assert context.shared_session_options is session_options
+        assert context.session is None
 
     def test_process_preserves_trtrtx_provider_options(self, tmp_path):
         from unittest.mock import MagicMock, patch
@@ -431,6 +432,8 @@ class TestCompileStageProcess:
 
         passed_ep_config = mock_session_cls.call_args.kwargs["ep_config"]
         assert passed_ep_config.provider_options == {"device_type": "GPU", "precision": "fp16"}
+        fake_winml_session.reset.assert_called_once()
+        assert context.session is None
 
     def test_process_reconstructs_explicit_serialized_device(self, tmp_path):
         from unittest.mock import MagicMock, patch
@@ -1334,3 +1337,37 @@ class TestCompilerPipeline:
 
         assert result.success is True
         assert "passthrough" in result.warnings[0].lower()
+
+    def test_final_compile_releases_shared_session_options(self, tmp_path):
+        """The last compile in a run must not retain native ORT SessionOptions."""
+        from unittest.mock import MagicMock
+
+        from winml.modelkit.compiler import Compiler
+
+        model_path = tmp_path / "model.onnx"
+        create_simple_model(model_path)
+        shared_options = object()
+
+        class _Stage:
+            name = "fake"
+
+            @classmethod
+            def should_run(cls, _context):
+                return True
+
+            def process(self, context):
+                context.shared_session_options = shared_options
+                return context
+
+        old_stages = Compiler._stages
+        Compiler._stages = [_Stage]
+        try:
+            config = MagicMock()
+            config.to_dict.return_value = {"execution_provider": "qnn"}
+            config.verbose = False
+            compiler = Compiler()
+            compiler.compile(model_path, config=config)
+        finally:
+            Compiler._stages = old_stages
+
+        assert compiler.shared_session_options is None

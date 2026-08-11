@@ -76,7 +76,9 @@ class TestCompositeNativeRouting:
             lambda *args, **kwargs: _Cfg(),
         )
 
-        ep_device = SimpleNamespace(device=SimpleNamespace(device_type="CPU"))
+        ep_device = SimpleNamespace(
+            device=SimpleNamespace(device_type="CPU", ep_name="CPUExecutionProvider")
+        )
         result = WinMLAutoModel.from_pretrained(
             "dummy/model", task=_SHARED_TASK, ep_device=ep_device
         )
@@ -100,7 +102,9 @@ class TestCompositeNativeRouting:
                 )
             ),
         )
-        ep_device = SimpleNamespace(device=SimpleNamespace(device_type="CPU"))
+        ep_device = SimpleNamespace(
+            device=SimpleNamespace(device_type="CPU", ep_name="CPUExecutionProvider")
+        )
 
         result = WinMLAutoModel.from_pretrained(
             "dummy/model",

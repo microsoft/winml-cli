@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 import torch
 
 from winml.modelkit.models.hf.qwen3.qwen3_modeling import WinMLQwen3Attention
+from winml.modelkit.models.hf.qwen3.qwen_transformer_only import QWEN_TRANSFORMER_ONLY_CONFIG
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +122,12 @@ class TestPrepareForOnnxExport:
         mod = _make_attention_module(max_position_embeddings=512)
         WinMLQwen3Attention.prepare_for_onnx_export(mod, matmul_to_conv=False)
         assert mod._max_rope_len == 512
+
+
+class TestTransformerOnlyBuildConfig:
+    def test_skips_ort_optimize_without_disabling_quantization(self):
+        assert QWEN_TRANSFORMER_ONLY_CONFIG.skip_optimize is True
+        assert QWEN_TRANSFORMER_ONLY_CONFIG.quant is not None
 
     def test_max_rope_len_is_plain_int(self):
         """_max_rope_len must be a plain int, not a tensor or other type."""

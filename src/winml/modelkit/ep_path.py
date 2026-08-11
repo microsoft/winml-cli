@@ -46,18 +46,33 @@ import functools
 import logging
 import os
 import platform
+import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Final
 
 from packaging.version import InvalidVersion, Version
 
 
 logger = logging.getLogger(__name__)
+
+
+# Canonical EPSource origin tags accepted by ``--ep <name>@<source>`` and
+# ``EPDeviceTarget(source=...)``.
+VALID_SOURCE_TAGS: Final[frozenset[str]] = frozenset(
+    {
+        "bundled",
+        "pypi",
+        "nuget",
+        "msix",
+        "winml-catalog",
+        "directory",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -713,31 +728,21 @@ class DirectorySource(EPSource):
         return self.dll_patterns.keys()
 
 
-# ---------------------------------------------------------------------------
-# WinAppSDK ExecutionProviderCatalog singleton.
-# ---------------------------------------------------------------------------
-# Lazy, process-wide initialization of the WinAppSDK Application Runtime
-# bootstrap handle and the ``ExecutionProviderCatalog``. The bootstrap
-# handle holds the runtime alive for the lifetime of the process; we
-# register an ``atexit`` cleanup so it is released on interpreter shutdown.
-# ``__del__`` is intentionally NOT used — Python does not guarantee it is
-# invoked on shutdown, which would leak the runtime activation.
+# Lazy, process-wide initialization of the ``windowsml.EpCatalog``.
 _winml_catalog_warned_keys: set[str] = set()
 
 
-def _release_winml_handle(handle: Any) -> None:
-    """``atexit`` callback: release the WinAppSDK bootstrap handle."""
-    try:
-        # ``handle`` is the value returned by ``initialize(...)``; the
-        # context-manager protocol's ``__exit__`` deactivates the runtime.
-        handle.__exit__(None, None, None)
-    except Exception as e:  # pragma: no cover - shutdown best-effort
-        logger.debug("WinAppSDK bootstrap handle cleanup raised: %s", e)
+def _disarm_winml_catalog(catalog: Any) -> None:
+    """Prevent ``EpCatalog.__del__`` from releasing native state during shutdown."""
+    if not hasattr(catalog, "_handle"):
+        logger.debug("Windows ML catalog cleanup skipped: catalog has no _handle")
+        return
+    catalog._handle = None
 
 
 @functools.cache
 def _get_catalog() -> Any | None:
-    """Return the cached ``ExecutionProviderCatalog`` or ``None``.
+    """Return the cached ``windowsml.EpCatalog`` or ``None``.
 
     Runs exactly once per process via ``functools.cache`` (thread-safe via
     its internal lock). Failures cache as ``None`` and never retry; tests
@@ -745,66 +750,29 @@ def _get_catalog() -> Any | None:
 
     Returns ``None`` (not raises) when:
 
-    * The WinAppSDK ML Python binding is not importable (no ``wasdk-*``
-      install). Logged at DEBUG; this is the common case on machines
-      without the optional ``winml-catalog`` extra.
-    * The bootstrap initialize call raises. Logged at DEBUG with a
-      pointer to the WinAppSDK runtime download page.
-    * ``ExecutionProviderCatalog.get_default()`` raises. Logged at WARN.
+    * The ``windowsml`` package is not installed. Logged at DEBUG; this
+      is the common case on machines without the pinned
+      ``windowsml==2.0.300`` C API wrapper.
+    * ``windowsml.EpCatalog()`` raises. Logged at WARN.
     """
-    # Lazy import so we do not pay the binding-load cost (or fail
-    # outright on machines without the wasdk extra) at module import.
     try:
-        import winui3.microsoft.windows.ai.machinelearning as winml
-        from winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap import (
-            InitializeOptions,
-            initialize,
-        )
+        import windowsml
     except ImportError as e:
         logger.debug(
-            "WinMLCatalogSource: WinAppSDK ML Python binding not "
-            "installed; install the 'winml-catalog' extra to enable "
-            "MSIX-delivered EP discovery (%s)",
+            "WinMLCatalogSource: windowsml package is not installed; "
+            "MSIX-delivered EP discovery is unavailable (%s)",
             e,
         )
         return None
-
-    # Initialize the WinAppSDK Application Runtime bootstrap. The handle
-    # holds the runtime active for the rest of the process.
-    #
-    # InitializeOptions.NONE: silent fail if the OS-level Windows App
-    # Runtime is not installed. We log at DEBUG (not WARN) for that case
-    # because it's expected — users opt into the Python wasdk packages
-    # via the [winml-catalog] extra but may not yet have the runtime
-    # installed (which is a separate Microsoft installer at
-    # https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/downloads).
-    # ON_NO_MATCH_SHOW_UI would open that page in a browser on every
-    # invocation — too disruptive for an opt-in capability.
-    try:
-        handle = initialize(options=InitializeOptions.NONE)
-        handle.__enter__()
-    except Exception as e:
-        logger.debug(
-            "WinMLCatalogSource: WinAppSDK bootstrap initialize() "
-            "failed (%s). Install the Windows App SDK runtime from "
-            "https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/downloads "
-            "to enable MSIX-delivered EP discovery.",
-            e,
-        )
-        return None
-
-    # Register cleanup BEFORE accessing the catalog so a catalog
-    # error still releases the runtime.
-    atexit.register(_release_winml_handle, handle)
 
     try:
-        return winml.ExecutionProviderCatalog.get_default()
+        catalog = windowsml.EpCatalog()
     except Exception as e:
-        logger.warning(
-            "WinMLCatalogSource: ExecutionProviderCatalog.get_default() failed: %s",
-            e,
-        )
+        logger.warning("WinMLCatalogSource: EpCatalog() failed: %s", e)
         return None
+
+    atexit.register(_disarm_winml_catalog, catalog)
+    return catalog
 
 
 def _winml_warn_once(key: str, msg: str, *args: Any) -> None:
@@ -816,27 +784,301 @@ def _winml_warn_once(key: str, msg: str, *args: Any) -> None:
     logger.warning(msg, *args)
 
 
+def _ep_download_timeout_default() -> int:
+    """Read ``WINMLCLI_EP_DOWNLOAD_TIMEOUT`` (seconds) or fall back to 5 minutes.
+
+    Lets users on slow networks raise the cap without code changes. Falls back
+    to the default when the env var is unset, empty, or non-integer.
+    """
+    raw = os.environ.get("WINMLCLI_EP_DOWNLOAD_TIMEOUT")
+    if not raw:
+        return 5 * 60
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("Invalid WINMLCLI_EP_DOWNLOAD_TIMEOUT=%r; using default 300s.", raw)
+        return 5 * 60
+
+
+# Evaluated once at module import. Changing WINMLCLI_EP_DOWNLOAD_TIMEOUT
+# after import does NOT take effect for the running process; tests that need
+# a different value should monkeypatch ep_path.EP_DOWNLOAD_TIMEOUT_SECONDS
+# directly.
+EP_DOWNLOAD_TIMEOUT_SECONDS = _ep_download_timeout_default()
+
+
+class _NoopBar:
+    """No-op stand-in for tqdm when the optional dependency is missing.
+
+    Exposes the attribute (``n``) and methods (``refresh``, ``close``) that
+    ``_ensure_provider_ready`` touches, so the helper can stay branch-free.
+    """
+
+    def __init__(self) -> None:
+        self.n = 0
+
+    def refresh(self) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+class _SafeProgressBar:
+    """Wrap a tqdm bar so rendering I/O failures never abort the EP download.
+
+    ``_make_progress_bar`` only guards bar *construction*; tqdm still writes to
+    ``sys.stderr`` on every ``refresh()``/``close()``. If the stream is closed
+    or starts failing mid-download (spawn workers, redirected/closed consoles),
+    those writes raise — including from the native ``on_progress`` callback
+    thread — and can turn a successful provider install into a discovery
+    failure. This wrapper makes rendering best-effort: on the first I/O error it
+    drops the underlying bar and every later call becomes a silent no-op.
+    """
+
+    def __init__(self, bar: Any) -> None:
+        self._bar: Any = bar
+
+    @property
+    def n(self) -> int:
+        bar = self._bar
+        return int(getattr(bar, "n", 0)) if bar is not None else 0
+
+    @n.setter
+    def n(self, value: int) -> None:
+        if self._bar is None:
+            return
+        try:
+            self._bar.n = value
+        except Exception:
+            self._degrade()
+
+    def refresh(self) -> None:
+        if self._bar is None:
+            return
+        try:
+            self._bar.refresh()
+        except Exception:
+            self._degrade()
+
+    def close(self) -> None:
+        if self._bar is None:
+            return
+        try:
+            self._bar.close()
+        except Exception:
+            self._degrade()
+
+    def _degrade(self) -> None:
+        # Drop the real bar; subsequent refresh/close/n calls become no-ops.
+        logger.debug("Progress bar rendering failed; disabling live progress.")
+        self._bar = None
+
+
+def _make_progress_bar() -> Any:
+    """Return a tqdm bar if tqdm is installed, else a silent no-op stand-in.
+
+    tqdm is a dev-only optional dep in this package, so production installs
+    without it must still complete EP downloads — they just lose the live bar.
+    In Windows spawn workers, ``sys.stderr`` can be unavailable; tqdm write
+    failures must not abort provider readiness and leave child EP paths empty.
+    Also tolerates non-interactive runtimes where ``sys.stderr`` may be None
+    (e.g., GUI/no-console hosts) so progress rendering failures cannot block
+    EP discovery. A live bar is wrapped in :class:`_SafeProgressBar` so a
+    *mid-download* rendering failure also degrades to a no-op rather than
+    aborting the install.
+    The pre-download Console notice is emitted by the caller and is unaffected.
+
+    Format: ``Downloading... ████████████░░░░░░ 62%``
+    """
+    if sys.stderr is None or not hasattr(sys.stderr, "write"):
+        logger.debug("stderr is unavailable; using no-op progress bar.")
+        return _NoopBar()
+
+    try:
+        from tqdm import tqdm
+    except ImportError:
+        return _NoopBar()
+
+    try:
+        bar = tqdm(
+            total=100,
+            bar_format="Downloading... {bar} {percentage:3.0f}%",
+            ascii="░█",
+            leave=True,
+            file=sys.stderr,
+        )
+    except Exception as e:
+        logger.debug("Failed to initialize tqdm progress bar; falling back to no-op: %s", e)
+        return _NoopBar()
+    return _SafeProgressBar(bar)
+
+
+def _parse_ep_metadata_from_path(library_path: str) -> tuple[str, str]:
+    r"""Best-effort ``(version, package_family_name)`` from an EP's install path.
+
+    WinML's ``ExecutionProvider`` handle sometimes returns empty ``version`` /
+    ``package_family_name`` even after the EP is Ready. When the EP is delivered
+    as an MSIX package its ``library_path`` lives under ``WindowsApps`` in a
+    folder named with the full package identity::
+
+        ...\\WindowsApps\\<Name>_<Version>_<Arch>_<ResourceId>_<PublisherId>\\...
+
+    e.g. ``MicrosoftCorporationII.WinML.Intel.OpenVINO.EP.1.8_1.8.79.0_x64__8wekyb3d8bbwe``
+    yields version ``1.8.79.0`` and package family name
+    ``MicrosoftCorporationII.WinML.Intel.OpenVINO.EP.1.8_8wekyb3d8bbwe`` (the
+    package family name is ``<Name>_<PublisherId>``).
+
+    Returns ``("", "")`` when the path is empty or does not match this layout.
+    """
+    import re
+    from itertools import pairwise
+    from pathlib import PureWindowsPath
+
+    if not library_path:
+        return "", ""
+
+    parts = PureWindowsPath(library_path).parts
+    pkg_folder = next(
+        (child for parent, child in pairwise(parts) if parent.lower() == "windowsapps"),
+        "",
+    )
+    # Full MSIX package name: Name_Version_Arch_ResourceId_PublisherId (ResourceId
+    # is usually empty, giving the doubled "__" before the publisher id).
+    segments = pkg_folder.split("_")
+    if len(segments) < 5:
+        return "", ""
+
+    name, version, publisher = segments[0], segments[1], segments[-1]
+    # Guard against unexpected folder shapes: version must be dotted-numeric.
+    if not re.fullmatch(r"\d+(\.\d+)*", version):
+        version = ""
+    package_family_name = f"{name}_{publisher}" if name and publisher else ""
+    return version, package_family_name
+
+
+def _safe_console_print(console: Any, *args: Any, **kwargs: Any) -> None:
+    """Print via the ``rich`` Console, swallowing rendering/I-O errors.
+
+    ``get_console()`` writes to ``sys.stderr``; if that stream is closed or
+    otherwise unwritable (spawn workers, redirected/closed consoles) a ``print``
+    raises. ``_ensure_provider_ready`` runs inside ``WinMLCatalogSource.resolve``,
+    where an exception aborts the provider iteration and silently drops an EP that
+    is actually Ready. Status rendering must never block provider readiness, so —
+    mirroring :class:`_SafeProgressBar` — failures are logged at debug and
+    otherwise ignored.
+    """
+    try:
+        console.print(*args, **kwargs)
+    except Exception as e:
+        logger.debug("Console status print failed; ignoring: %s", e)
+
+
+def _ensure_provider_ready(provider: Any) -> None:
+    """Ensure an EP is ready, showing a tqdm progress bar while downloading.
+
+    Only invoked by ``WinMLCatalogSource._resolve_provider`` on the cold path
+    (the provider is not already ``Ready``), so it always drives the download
+    flow: a tqdm bar fed by ``ensure_ready_async``'s ``on_progress`` callback
+    (cumulative fraction 0.0-1.0, per windowsml docs) while waiting for the
+    ``on_complete`` callback via a ``threading.Event`` with an
+    ``EP_DOWNLOAD_TIMEOUT_SECONDS`` timeout. On timeout the async op is
+    cancelled and ``TimeoutError`` is raised.
+    """
+    import threading
+
+    # Lazy-import to keep ep_path import cheap (rich pulls in pygments etc.);
+    # this branch only runs on the cold "EP needs download" path.
+    from .utils.console import get_console
+
+    console = get_console()
+    _safe_console_print(
+        console, f"[WinML] Installing Execution Provider: [bold]{provider.name}[/bold]"
+    )
+
+    bar = _make_progress_bar()
+    done = threading.Event()
+
+    def _on_progress(fraction: float) -> None:
+        # Native ops may fire a stale on_progress after on_complete; once done
+        # is set the main thread owns bar.n (forces it to 100 and closes the
+        # bar), so silently drop late callbacks instead of clobbering 100 with
+        # an earlier fraction or writing to a closed bar.
+        if done.is_set():
+            return
+        bar.n = max(0, min(100, int(fraction * 100)))
+        bar.refresh()
+
+    op = None
+    success = False
+    try:
+        op = provider.ensure_ready_async(on_complete=done.set, on_progress=_on_progress)
+        if not done.wait(timeout=EP_DOWNLOAD_TIMEOUT_SECONDS):
+            op.cancel()
+            raise TimeoutError(
+                f"EP {provider.name!r} download did not complete within "
+                f"{EP_DOWNLOAD_TIMEOUT_SECONDS}s; cancelled."
+            )
+        # Surface any native failure (raises OSError on error).
+        op.get_status()
+        # Success: providers usually fire on_progress(1.0) before on_complete,
+        # but force the bar to 100 in case they didn't.
+        bar.n = 100
+        bar.refresh()
+        success = True
+    finally:
+        bar.close()
+        if op is not None:
+            op.close()
+        if not success:
+            # Failure-path notice — kept in finally so it fires for every
+            # non-success exit (launch failure, timeout, get_status OSError).
+            # Printed after bar.close() so it appears below the bar's last frame.
+            _safe_console_print(console, f"[red]❌ Failed to download {provider.name} EP[/red]")
+            _safe_console_print(console, "Try:")
+            _safe_console_print(console, "  1. Check your internet connection")
+            _safe_console_print(console, "  2. Troubleshoot: https://aka.ms/winmlcli/ep-errors")
+
+    _safe_console_print(console, f"{provider.name} EP installed successfully.")
+
+    # The native handle sometimes reports empty version/PFN even once Ready;
+    # fall back to parsing them from the MSIX install path. Skip a line entirely
+    # when its value can't be determined rather than printing a blank field.
+    version = provider.version
+    package_family_name = provider.package_family_name
+    if not version or not package_family_name:
+        parsed_version, parsed_pfn = _parse_ep_metadata_from_path(provider.library_path)
+        version = version or parsed_version
+        package_family_name = package_family_name or parsed_pfn
+    if version:
+        _safe_console_print(console, f"- Version: {version}", soft_wrap=True)
+    if package_family_name:
+        # soft_wrap so long package family names aren't hard-wrapped mid-string.
+        _safe_console_print(
+            console, f"- Package Family Name: {package_family_name}", soft_wrap=True
+        )
+
+
 @dataclass(frozen=True)
 class WinMLCatalogSource(EPSource):
-    """An MSIX EP delivered via the WinAppSDK ``ExecutionProviderCatalog``.
+    """An MSIX EP delivered via the ``windowsml.EpCatalog`` C API wrapper.
 
     The on-disk DLL path for an MSIX-delivered EP is decided by the
     Windows package manager and is queryable only at runtime via
-    ``provider.library_path`` (populated after ``ensure_ready_async()
-    .get()`` returns ``Success``). This source lazily binds to the
-    WinAppSDK ML Python binding on first ``resolve()``; if the binding
-    is not installed the source yields nothing silently (the optional
-    ``winml-catalog`` extra ships the binding).
+    ``provider.library_path`` (populated after ``ensure_ready()``
+    returns). This source lazily binds to the ``windowsml`` package on
+    first ``resolve()``; if the package is not installed the source
+    yields nothing silently.
 
     Args:
-        catalog_name: The provider name reported by the WinAppSDK
-            catalog (e.g. ``"VitisAI"``, ``"QNN"``, ``"OpenVINO"``,
-            ``"MIGraphX"``, ``"NvTensorRTRTX"``).
+        catalog_name: The provider name reported by the windowsml
+            catalog (e.g. ``"VitisAIExecutionProvider"``,
+            ``"QNNExecutionProvider"``).
         eps: Canonical EP names this source provides. Typically a single
             name, but listed as a tuple for symmetry with the other
             sources.
         auto_download: If ``True``, providers in the ``NotPresent`` ready
-            state will be (eventually) downloaded by ``ensure_ready_async``.
+            state will be downloaded by ``ensure_ready()``.
             Defaults to ``False`` to avoid surprising the user with a
             multi-second to multi-minute network operation on first call;
             see ``docs/ep-path-design.md`` Interaction section.
@@ -849,14 +1091,12 @@ class WinMLCatalogSource(EPSource):
     def resolve(self) -> Iterator[EPEntry]:
         """Yield one :class:`EPEntry` per ready provider.
 
-        Yields nothing (silently) when the WinAppSDK binding is not
-        installed. Logs a WARN (once per provider per process) when an
-        installed-but-not-ready provider's ``ensure_ready_async`` returns
-        a non-Success status. Per the design doc, registration is done
-        by the caller via ``ort.register_execution_provider_library`` —
-        this source does NOT call ``provider.TryRegister()`` or any of
-        the WinAppSDK ``EnsureAndRegisterCertifiedAsync`` /
-        ``RegisterCertifiedAsync`` methods.
+        Yields nothing (silently) when the ``windowsml`` package is not
+        installed. Logs a WARN (once per provider per process) when
+        ``ensure_ready()`` raises or leaves the provider in a non-ready
+        state. Per the design doc, registration is done by the caller via
+        ``ort.register_execution_provider_library`` — this source does
+        NOT call any WinML registration methods directly.
 
         Yielded entries carry ``version=None``; probing
         ``provider.version`` is a follow-up (the OQ-2 deferral was
@@ -908,29 +1148,27 @@ class WinMLCatalogSource(EPSource):
             )
             return
 
-        # ensure_ready_async().get() blocks until the EP is ready or
-        # fails. ``library_path`` is populated only after Success.
-        try:
-            result = provider.ensure_ready_async().get()
-        except Exception as e:
-            _winml_warn_once(
-                f"ensure-ready:{self.catalog_name}",
-                "WinMLCatalogSource(%s): ensure_ready_async raised %s",
-                self.catalog_name,
-                e,
-            )
-            return
+        if not self._is_ready(ready_state):
+            try:
+                _ensure_provider_ready(provider)
+            except Exception as e:
+                _winml_warn_once(
+                    f"ensure-ready:{self.catalog_name}",
+                    "WinMLCatalogSource(%s): ensure_ready raised %s",
+                    self.catalog_name,
+                    e,
+                )
+                return
 
-        status = getattr(result, "status", None)
-        if status is not None and not self._is_success(status):
-            _winml_warn_once(
-                f"ensure-ready-status:{self.catalog_name}",
-                "WinMLCatalogSource(%s): ensure_ready_async returned "
-                "non-Success status %r; skipping",
-                self.catalog_name,
-                status,
-            )
-            return
+            ready_state = getattr(provider, "ready_state", None)
+            if ready_state is not None and not self._is_ready(ready_state):
+                _winml_warn_once(
+                    f"ensure-ready-state:{self.catalog_name}",
+                    "WinMLCatalogSource(%s): ensure_ready left provider in state %r; skipping",
+                    self.catalog_name,
+                    ready_state,
+                )
+                return
 
         library_path = getattr(provider, "library_path", "") or ""
         if not library_path:
@@ -955,26 +1193,22 @@ class WinMLCatalogSource(EPSource):
     def _is_not_present(ready_state: Any) -> bool:
         """Return True iff the provider's ready_state is ``NotPresent``.
 
-        ``ready_state`` is an enum from the WinAppSDK ML binding; we
-        avoid importing the enum type directly (which would mean another
-        import that fails when the binding is absent) by comparing on the
-        string ``name`` attribute, falling back to ``str(...)``. The
-        wasdk 2.0 binding exposes the name as ``NOT_PRESENT``
-        (UPPER_SNAKE_CASE) while WinML docs spell it ``NotPresent``
-        (PascalCase); normalize underscores + casing to match either form.
+        ``ready_state`` is a value from the ``windowsml`` C API wrapper;
+        we avoid importing the type directly by comparing on the string
+        ``name`` attribute, falling back to ``str(...)``. The binding may
+        expose the name as ``NOT_PRESENT`` (UPPER_SNAKE_CASE) or
+        ``NotPresent`` (PascalCase); normalize underscores + casing to
+        match either form.
         """
         name = getattr(ready_state, "name", None) or str(ready_state)
         return name.replace("_", "").lower().endswith("notpresent")
 
     @staticmethod
-    def _is_success(status: Any) -> bool:
-        """Return True iff the ensure-ready status enum is ``Success``.
-
-        Accepts both ``SUCCESS`` and ``Success`` spellings (see
-        ``_is_not_present`` rationale).
-        """
-        name = getattr(status, "name", None) or str(status)
-        return name.replace("_", "").lower().endswith("success")
+    def _is_ready(ready_state: Any) -> bool:
+        """Return whether the catalog provider is ready in this process."""
+        name = getattr(ready_state, "name", None) or str(ready_state)
+        normalized = name.replace("_", "").lower()
+        return normalized.endswith("ready") and not normalized.endswith("notready")
 
     def iter_eps(self) -> Iterable[str]:
         """Return the canonical EP names this source provides."""
@@ -997,7 +1231,7 @@ def _get_pkg_manager() -> Any | None:
     except ImportError as e:
         logger.debug(
             "MSIXPackageSource: WinRT PackageManager binding not installed; "
-            "install the 'winml-catalog' extra to enable MSIX EP version "
+            "install 'winrt-Windows.Management.Deployment' to enable MSIX EP version "
             "discovery (%s)",
             e,
         )
@@ -1268,11 +1502,10 @@ def _default_ep_sources() -> list[EPSource]:
     dll_path)`` collapses any catalog/MSIX overlap; catalog precedence
     wins.
 
-    The ``WinMLCatalogSource`` rows are live: they yield nothing
-    silently when the optional ``winml-catalog`` extra is not installed
-    (no ``wasdk-*`` packages on this machine). On machines with the
-    extra installed, they pick up MSIX-delivered EPs that Windows Update
-    has already provisioned.
+    The ``WinMLCatalogSource`` rows are live: on Windows they use the
+    required ``windowsml`` dependency to pick up MSIX-delivered EPs that
+    Windows Update has provisioned. On unsupported platforms or when
+    catalog construction fails, they yield nothing.
 
     The ``NuGetSource`` rows are also live: they yield nothing silently
     when the relevant package is not in ``~/.nuget/packages``. Only EPs

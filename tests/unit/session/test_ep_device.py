@@ -11,13 +11,19 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from winml.modelkit.session import (
+    VALID_DEVICES,
     DeviceNotFound,
     EPDeviceTarget,
     expand_ep_name,
     resolve_device,
     short_ep_name,
 )
-from winml.modelkit.utils.constants import EP_ALIASES, EP_NAMES, normalize_ep_name
+from winml.modelkit.utils.constants import (
+    EP_ALIASES,
+    EP_NAMES,
+    EP_SUPPORTED_DEVICES,
+    normalize_ep_name,
+)
 
 
 def test_ep_device_round_trip() -> None:
@@ -231,6 +237,35 @@ def test_resolve_device_does_not_load_dll() -> None:
     mock_reg.instance.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "ep,device",
+    [
+        (ep, device)
+        for ep, supported in EP_SUPPORTED_DEVICES.items()
+        for device in sorted(set(VALID_DEVICES) - set(supported))
+    ],
+)
+def test_resolve_device_rejects_unsupported_ep_device_pair(ep: str, device: str) -> None:
+    """Pinning both axes to a policy-forbidden pair fails fast with a clear message.
+
+    Without this check the mismatch is only detected later, as a
+    ``DeviceNotFound`` raised from inside the compile stage.
+    """
+    with pytest.raises(ValueError, match=f"does not support device '{device}'"):
+        resolve_device(EPDeviceTarget(ep=ep, device=device))
+
+
+@pytest.mark.parametrize(
+    "ep,device",
+    [(ep, device) for ep, supported in EP_SUPPORTED_DEVICES.items() for device in supported],
+)
+def test_resolve_device_accepts_supported_ep_device_pair(ep: str, device: str) -> None:
+    """Every policy-allowed pair still resolves to itself."""
+    result = resolve_device(EPDeviceTarget(ep=ep, device=device))
+    assert result.ep == ep
+    assert result.device == device
+
+
 def test_resolve_both_auto_falls_back_to_cpu_when_vendor_detection_fails() -> None:
     """A vendor probe failure preserves the established fully-automatic CPU fallback."""
     from winml.modelkit.ep_path import EPCatalog
@@ -305,6 +340,29 @@ def test_resolve_auto_ep_skips_failed_vendor_probe_for_cpu_fallback() -> None:
     with (
         patch.object(WinMLEPRegistry, "instance", return_value=registry),
         patch.object(EPCatalog, "is_compatible", side_effect=check_compatibility),
+    ):
+        result = resolve_device(EPDeviceTarget(ep="auto", device="cpu"))
+
+    assert result == EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
+
+
+def test_resolve_auto_ep_for_explicit_cpu_skips_policy_unsupported_candidates() -> None:
+    """A CPU device request must not pick EPs that policy rejects for CPU."""
+    from winml.modelkit.ep_path import EPCatalog
+    from winml.modelkit.session.ep_registry import WinMLEPRegistry
+
+    registry = MagicMock()
+    registry.available_eps.return_value = frozenset(
+        {
+            "QNNExecutionProvider",
+            "CPUExecutionProvider",
+        }
+    )
+    registry.auto_device.return_value = object()
+
+    with (
+        patch.object(WinMLEPRegistry, "instance", return_value=registry),
+        patch.object(EPCatalog, "is_compatible", return_value=True),
     ):
         result = resolve_device(EPDeviceTarget(ep="auto", device="cpu"))
 

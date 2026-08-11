@@ -55,6 +55,17 @@ if TYPE_CHECKING:
     from transformers.cache_utils import CacheLayerMixin
 
 
+def _as_static_dim(value: Any) -> Any:
+    """Normalize a (possibly traced) shape value to Python ``int``/``list[int]``.
+
+    ``Tensor.size(dim)`` returns a 0-dim tensor while TorchScript tracing, which
+    breaks callers that type-check for ``int``.
+    """
+    if isinstance(value, (list, tuple)):
+        return [int(item) for item in value]
+    return int(value)
+
+
 # =============================================================================
 # WinMLCache — common interface
 # =============================================================================
@@ -102,6 +113,32 @@ class WinMLCache(StaticCache, ABC):
     def set_trace_position(self, position: torch.Tensor) -> None:
         """Provide the position tensor when a model omits cache update kwargs."""
         self._trace_position = position
+
+    def early_initialization(
+        self,
+        batch_size: int,
+        num_heads: int | list[int],
+        head_dim: int | list[int],
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> None:
+        """Initialize all layers, accepting traced 0-dim tensors as dimensions.
+
+        Export wrappers derive ``batch_size``/``num_heads``/``head_dim`` from
+        the past-KV graph inputs via ``Tensor.size(dim)``. Under the
+        TorchScript tracer used by ``torch.onnx.export`` that call returns a
+        0-dim tensor instead of an ``int``, so the upstream implementation
+        skips its ``isinstance(..., int)`` broadcast and then calls ``len()``
+        on the value, which fails. These dimensions are static for an exported
+        graph, so normalize them back to Python ints before delegating.
+        """
+        super().early_initialization(
+            batch_size=_as_static_dim(batch_size),
+            num_heads=_as_static_dim(num_heads),
+            head_dim=_as_static_dim(head_dim),
+            dtype=dtype,
+            device=device,
+        )
 
     # ----- Interface for WinMLEncoderDecoderModel.forward -----
 

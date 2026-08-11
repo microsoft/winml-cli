@@ -46,6 +46,8 @@ _COMMON_SDK_PATHS: list[Path] = [
     Path(r"D:\QC"),
     Path(r"C:\Qualcomm\AIStack\qairt"),
 ]
+_OPTRACE_READER_NAME = "QnnHtpOptraceProfilingReader.dll"
+_QHAS_SUMMARY_SUFFIX = "_qnn_htp_analysis_summary.json"
 
 
 def find_qnn_sdk() -> Path | None:
@@ -67,6 +69,8 @@ def find_qnn_sdk() -> Path | None:
         for child in sorted(base_path.iterdir(), reverse=True):
             if child.is_dir() and (child / "bin").is_dir():
                 return child
+        if (base_path / "bin").is_dir():
+            return base_path
 
     return None
 
@@ -94,6 +98,20 @@ def _find_viewer_exe(sdk_root: Path | None = None) -> Path | None:
         return candidate
 
     return None
+
+
+def _find_optrace_reader(viewer: Path) -> Path | None:
+    """Locate the optrace reader matching the selected viewer architecture."""
+    bin_dir = viewer.parent
+    if bin_dir.parent.name == "bin":
+        # Architecture-specific layout: bin/<arch> mirrors lib/<arch>.
+        sdk_root = bin_dir.parent.parent
+        candidate = sdk_root / "lib" / bin_dir.name / _OPTRACE_READER_NAME
+    else:
+        # Flat layout: bin/qnn-profile-viewer.exe pairs with lib/<reader>.
+        sdk_root = bin_dir.parent
+        candidate = sdk_root / "lib" / _OPTRACE_READER_NAME
+    return candidate if candidate.is_file() else None
 
 
 def run_basic_viewer(
@@ -146,7 +164,8 @@ def run_qhas_viewer(
     schematic:
         Path to the ``*_schematic.bin`` file.
     output:
-        Path for the resulting QHAS JSON file.
+        Output prefix passed to the viewer. The optrace reader appends its QHAS
+        artifact suffixes to this path.
     config:
         Post-processing features config.  Uses default if ``None``.
     sdk_root:
@@ -154,13 +173,21 @@ def run_qhas_viewer(
 
     Returns:
     -------
-    Path to the generated QHAS JSON, or ``None`` on failure.
+    Path to the generated QNN HTP analysis summary JSON, or ``None`` on failure.
     """
     viewer = _find_viewer_exe(sdk_root)
     if viewer is None:
         logger.warning(
             "qnn-profile-viewer not found; set QNN_SDK_ROOT to enable detail mode "
             "(falling back to basic CSV)"
+        )
+        return None
+    reader = _find_optrace_reader(viewer)
+    if reader is None:
+        logger.warning(
+            "%s not found for qnn-profile-viewer at %s; falling back to basic CSV",
+            _OPTRACE_READER_NAME,
+            viewer,
         )
         return None
 
@@ -180,7 +207,7 @@ def run_qhas_viewer(
         "--output",
         str(output),
         "--reader",
-        "optrace",
+        str(reader),
         "--schematic",
         str(schematic),
         "--config",
@@ -197,6 +224,8 @@ def run_qhas_viewer(
         logger.error("qnn-profile-viewer executable not found at %s", viewer)
         return None
 
-    if output.is_file():
-        return output
+    summary_output = output.with_name(f"{output.stem}{_QHAS_SUMMARY_SUFFIX}")
+    if summary_output.is_file():
+        return summary_output
+    logger.warning("QHAS viewer did not produce analysis summary: %s", summary_output)
     return None

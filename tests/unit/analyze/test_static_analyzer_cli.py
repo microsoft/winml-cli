@@ -23,6 +23,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from click.testing import CliRunner
 from rich.console import Console
+from rich.progress import Progress
 
 
 if TYPE_CHECKING:
@@ -390,6 +391,60 @@ class TestAnalyzeCommandExecution:
         mock_instance.analyze.assert_called_once()
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_pattern_progress_prints_only_final_table(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+    ) -> None:
+        """Output must not append one pattern table per result callback."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        def analyze_with_pattern_progress(**kwargs: object) -> Mock:
+            on_start = kwargs["on_pattern_query_start"]
+            on_result = kwargs["on_pattern_query_result"]
+            on_summary_ready = kwargs["on_pattern_summary_ready"]
+            assert callable(on_start)
+            assert callable(on_result)
+            assert callable(on_summary_ready)
+            on_start("DmlExecutionProvider", {"SUBGRAPH/Test": 2}, True)
+            on_result("DmlExecutionProvider", "SUBGRAPH/Test", "supported")
+            on_result("DmlExecutionProvider", "SUBGRAPH/Test", "unsupported")
+            on_summary_ready("DmlExecutionProvider", {"patterns": []})
+            return mock_analyzer_result
+
+        mock_instance = Mock()
+        mock_instance.analyze.side_effect = analyze_with_pattern_progress
+        mock_analyzer_class.return_value = mock_instance
+
+        with patch(
+            "winml.modelkit.commands.analyze.Progress",
+            wraps=Progress,
+        ) as mock_progress:
+            result = runner.invoke(
+                analyze,
+                [
+                    "--model",
+                    str(model_file),
+                    "--ep",
+                    "DmlExecutionProvider",
+                    "--device",
+                    "GPU",
+                    "--run-unknown-op",
+                ],
+            )
+
+        assert result.exit_code == 0
+        assert mock_progress.call_args.kwargs["redirect_stdout"] is False
+        assert mock_progress.call_args.kwargs["redirect_stderr"] is False
+        assert result.output.count("PATTERN CHECK") == 1
+        assert "Pattern progress" in result.output
+        assert "2/2" in result.output
+        assert "1/0/1/0" in result.output
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
     def test_partial_support_exits_one(
         self,
         mock_analyzer_class: MagicMock,
@@ -557,6 +612,7 @@ class TestAnalyzeCommandOptions:
                                     "case_indices": ["case_7"],
                                     "table_path": "rules/conv.parquet",
                                     "table_file": "conv.parquet",
+                                    "match_status": "op_match",
                                 }
                             },
                             "partial": {},
@@ -603,6 +659,7 @@ class TestAnalyzeCommandOptions:
             "case_indices": ["case_7"],
             "table_path": "rules/conv.parquet",
             "table_file": "conv.parquet",
+            "match_status": "op_match",
         }
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
@@ -1218,16 +1275,34 @@ class TestAnalyzeEPDeviceValidation:
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
+        def analyze_with_unknown_op_progress(**kwargs: object) -> Mock:
+            on_ep_start = kwargs["on_ep_start"]
+            assert callable(on_ep_start)
+            on_ep_start("DmlExecutionProvider", {"Add": 2}, False)
+            return mock_analyzer_result
+
         mock_instance = Mock()
-        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_instance.analyze.side_effect = analyze_with_unknown_op_progress
         mock_analyzer_class.return_value = mock_instance
 
-        result = runner.invoke(
-            analyze,
-            ["--model", str(model_file), "--ep", "dml", "--run-unknown-op"],
-        )
+        with (
+            patch(
+                "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
+                return_value=False,
+            ),
+            patch(
+                "winml.modelkit.commands.analyze.Progress",
+                wraps=Progress,
+            ) as mock_progress,
+        ):
+            result = runner.invoke(
+                analyze,
+                ["--model", str(model_file), "--ep", "dml", "--run-unknown-op"],
+            )
         assert result.exit_code == 0
         mock_instance.analyze.assert_called_once()
+        assert mock_progress.call_args.kwargs["redirect_stdout"] is False
+        assert mock_progress.call_args.kwargs["redirect_stderr"] is False
 
         call_kwargs = mock_instance.analyze.call_args.kwargs
         assert call_kwargs["ep"] == "DmlExecutionProvider"
@@ -1458,6 +1533,61 @@ class TestAnalyzeEPDeviceSelectionMatrix:
         assert "no supported local binding" in result.output.lower()
         assert "available on this system" in result.output.lower()
         assert not mock_analyzer_class.called
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_auto_ep_auto_device_uses_device_priority_before_resolved_device_fallback(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Default analyze target should use the strongest exact local binding."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        multi_device_ep = next(
+            ep_name
+            for ep_name, devices in EP_SUPPORTED_DEVICES.items()
+            if {"npu", "gpu"}.issubset(devices)
+        )
+
+        monkeypatch.setattr(
+            "winml.modelkit.commands.analyze._get_local_ep_device_pairs",
+            lambda: [
+                (multi_device_ep, "GPU"),
+                (multi_device_ep, "NPU"),
+                ("CPUExecutionProvider", "CPU"),
+            ],
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.session.resolve_device",
+            lambda target: type(target)(
+                ep=multi_device_ep,
+                device="gpu",
+                source=target.source,
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.session.available_eps_for_device",
+            lambda device_name: (
+                [multi_device_ep] if str(device_name).lower() in {"gpu", "npu"} else []
+            ),
+        )
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        result = runner.invoke(analyze, ["--model", str(model_file)])
+        assert result.exit_code == 0
+
+        actual_calls = [
+            (call.kwargs["ep"], call.kwargs["device"])
+            for call in mock_instance.analyze.call_args_list
+        ]
+        assert actual_calls == [(multi_device_ep, "NPU")]
 
     @pytest.mark.parametrize(
         "ranked_gpu_eps",
@@ -1916,6 +2046,32 @@ class TestQDQNodeDisplayMapping:
 class TestAnalyzeSummaryRendering:
     """Summary rendering behavior for no-rule-data fallback cases."""
 
+    def test_summary_heading_includes_per_ep_analyze_elapsed(self) -> None:
+        """Heading should show elapsed analyze time annotation for EP/device."""
+        from winml.modelkit.commands.analyze import _render_analysis_summary
+
+        console = Console(record=True, force_terminal=False, width=120)
+
+        ep_support = Mock()
+        ep_support.ep_type = "DmlExecutionProvider"
+        ep_support.device_type = "GPU"
+        ep_support.classification = {}
+        ep_support.information = []
+
+        _render_analysis_summary(
+            console,
+            [ep_support],
+            ep_instance_counts={("DmlExecutionProvider", "GPU"): {"Conv": {"supported": 1}}},
+            ep_patterns={},
+            ep="DmlExecutionProvider",
+            device="GPU",
+            analyze_elapsed_ms=1234,
+        )
+
+        output = console.export_text()
+        assert "ANALYSIS SUMMARY" in output
+        assert "Analyze total: DmlExecutionProvider (GPU), 1.23s" in output
+
     def test_no_rule_data_with_instance_counts_renders_op_summary(self) -> None:
         """When unknown-op probing produced counts, summary should not show skip message."""
         from winml.modelkit.commands.analyze import _render_analysis_summary
@@ -2083,3 +2239,375 @@ class TestAnalyzeFormatJson:
         assert output_file.exists()
         file_data = json.loads(output_file.read_text())
         assert "metadata" in file_data
+
+
+class TestAnalyzeCheckOptim:
+    """Test the --check-optim flag wiring and rendering."""
+
+    @staticmethod
+    def _write_model(path: Path) -> None:
+        """Write a small valid MatMul+Add model (a Gemm-fusion candidate)."""
+        import numpy as np
+        from onnx import TensorProto, helper, numpy_helper, save
+
+        x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [4, 8])
+        y = helper.make_tensor_value_info("y", TensorProto.FLOAT, [4, 16])
+        w = numpy_helper.from_array(np.random.randn(8, 16).astype(np.float32), "W")
+        b = numpy_helper.from_array(np.random.randn(16).astype(np.float32), "B")
+        nodes = [
+            helper.make_node("MatMul", ["x", "W"], ["mm"], name="mm"),
+            helper.make_node("Add", ["mm", "B"], ["y"], name="addbias"),
+        ]
+        graph = helper.make_graph(nodes, "matmul_add", [x], [y], initializer=[w, b])
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        model.ir_version = 10
+        save(model, str(path))
+
+    def test_flag_appears_in_help(self, runner: CliRunner) -> None:
+        result = runner.invoke(analyze, ["--help"])
+        assert result.exit_code == 0
+        assert "--check-optim" in result.output
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_opt_in_renders_section(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """--check-optim renders a produced-operator support section."""
+        from winml.modelkit.analyze.models.support_level import SupportLevel
+        from winml.modelkit.analyze.optim_output import (
+            OptimizationOutputSupport,
+            ProducedOperatorSupport,
+        )
+
+        model_file = tmp_path / "model.onnx"
+        self._write_model(model_file)
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        crafted = [
+            OptimizationOutputSupport(
+                name="matmul-add-fusion",
+                enable_flag="--enable-matmul-add-fusion",
+                category="matmul",
+                description="Fuse MatMul followed by Add into a single Gemm.",
+                pipe_name="fusion",
+                operators=[
+                    ProducedOperatorSupport(
+                        "Gemm", "Gemm 'gemm'", "modified", SupportLevel.SUPPORTED
+                    )
+                ],
+            )
+        ]
+        monkeypatch.setattr(
+            "winml.modelkit.analyze.optim_output.check_optimization_output_support",
+            lambda *a, **k: crafted,
+        )
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "qnn",
+                "--device",
+                "NPU",
+                "--check-optim",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "OPTIMIZATION OUTPUT SUPPORT" in result.output
+        assert "--enable-matmul-add-fusion" in result.output
+        assert "supported" in result.output.lower()
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_disabled_by_default(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Without the flag the section is not rendered and the bridge is not called."""
+        model_file = tmp_path / "model.onnx"
+        self._write_model(model_file)
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        def _should_not_run(*_a: object, **_k: object) -> list:
+            raise AssertionError("check_optimization_output_support should not be called")
+
+        monkeypatch.setattr(
+            "winml.modelkit.analyze.optim_output.check_optimization_output_support",
+            _should_not_run,
+        )
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "qnn",
+                "--device",
+                "NPU",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "OPTIMIZATION OUTPUT SUPPORT" not in result.output
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_quiet_json_includes_structured_optimization_support(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """--check-optim produces JSON even when Rich rendering is quiet."""
+        from winml.modelkit.analyze.models.support_level import SupportLevel
+        from winml.modelkit.analyze.optim_output import (
+            OptimizationOutputSupport,
+            ProducedOperatorSupport,
+        )
+
+        model_file = tmp_path / "model.onnx"
+        output_file = tmp_path / "analysis.json"
+        self._write_model(model_file)
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        monkeypatch.setattr(
+            "winml.modelkit.optim.iter_optimization_outputs",
+            lambda *_args, **_kwargs: [(object(), object())],
+        )
+        monkeypatch.setattr("winml.modelkit.optim.get_all_capabilities", dict)
+        monkeypatch.setattr(
+            "winml.modelkit.analyze.optim_output.check_optimization_output_support",
+            lambda *_args, **_kwargs: [
+                OptimizationOutputSupport(
+                    name="static-split-to-slice",
+                    enable_flag="--enable-static-split-to-slice",
+                    category="rewrite",
+                    description="Replace static Split with Slice.",
+                    pipe_name="algebraic",
+                    operators=[
+                        ProducedOperatorSupport(
+                            "Slice",
+                            "Slice 'slice_0'",
+                            "added",
+                            SupportLevel.SUPPORTED,
+                        )
+                    ],
+                )
+            ],
+        )
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "qnn",
+                "--device",
+                "NPU",
+                "--check-optim",
+                "--format",
+                "json",
+                "--output",
+                str(output_file),
+                "--quiet",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        stdout_data = json.loads(result.output)
+        file_data = json.loads(output_file.read_text(encoding="utf-8"))
+        assert file_data == stdout_data
+        support = stdout_data["optimization_output_support"]
+        assert support["ep_type"] == "QNNExecutionProvider"
+        assert support["device_type"] == "NPU"
+        assert support["probe_error"] is None
+        assert support["support_error"] is None
+        assert support["optimizations"][0]["enable_flag"] == ("--enable-static-split-to-slice")
+        assert support["optimizations"][0]["worst_support"] == "supported"
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_quiet_json_preserves_optimization_probe_error(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Optimization probe failures remain visible to JSON consumers."""
+        model_file = tmp_path / "model.onnx"
+        self._write_model(model_file)
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        def _fail_probe(*_args: object, **_kwargs: object) -> list:
+            raise RuntimeError("probe failed")
+
+        monkeypatch.setattr("winml.modelkit.optim.iter_optimization_outputs", _fail_probe)
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "qnn",
+                "--device",
+                "NPU",
+                "--check-optim",
+                "--format",
+                "json",
+                "--quiet",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        support = json.loads(result.output)["optimization_output_support"]
+        assert support["probe_error"] == "probe failed"
+        assert support["support_error"] is None
+        assert support["optimizations"] == []
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_quiet_json_preserves_target_support_error(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Target support failures are distinct from graph probe failures."""
+        model_file = tmp_path / "model.onnx"
+        self._write_model(model_file)
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        monkeypatch.setattr(
+            "winml.modelkit.optim.iter_optimization_outputs",
+            lambda *_args, **_kwargs: [(object(), object())],
+        )
+        monkeypatch.setattr("winml.modelkit.optim.get_all_capabilities", dict)
+
+        def _fail_support(*_args: object, **_kwargs: object) -> list:
+            raise RuntimeError("support check failed")
+
+        monkeypatch.setattr(
+            "winml.modelkit.analyze.optim_output.check_optimization_output_support",
+            _fail_support,
+        )
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "qnn",
+                "--device",
+                "NPU",
+                "--check-optim",
+                "--format",
+                "json",
+                "--quiet",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        support = json.loads(result.output)["optimization_output_support"]
+        assert support["probe_error"] is None
+        assert support["support_error"] == "support check failed"
+        assert support["optimizations"] == []
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_multi_device_json_aligns_optimization_support_with_each_target(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Each result in a fan-out carries support for its own EP/device."""
+        from winml.modelkit.analyze.optim_output import OptimizationOutputSupport
+
+        model_file = tmp_path / "model.onnx"
+        self._write_model(model_file)
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        monkeypatch.setattr(
+            "winml.modelkit.optim.iter_optimization_outputs",
+            lambda *_args, **_kwargs: [(object(), object())],
+        )
+        monkeypatch.setattr("winml.modelkit.optim.get_all_capabilities", dict)
+
+        def _support_for_target(*_args: object, **kwargs: object) -> list:
+            device = str(kwargs["device"])
+            return [
+                OptimizationOutputSupport(
+                    name=f"optimization-for-{device.lower()}",
+                    enable_flag=f"--enable-for-{device.lower()}",
+                    category="rewrite",
+                    description="Target-specific test result.",
+                    pipe_name="algebraic",
+                )
+            ]
+
+        monkeypatch.setattr(
+            "winml.modelkit.analyze.optim_output.check_optimization_output_support",
+            _support_for_target,
+        )
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "qnn",
+                "--device",
+                "all",
+                "--check-optim",
+                "--format",
+                "json",
+                "--quiet",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        payloads = json.loads(result.output)
+        assert len(payloads) == 2
+        for payload in payloads:
+            support = payload["optimization_output_support"]
+            device = support["device_type"]
+            assert support["ep_type"] == "QNNExecutionProvider"
+            assert support["optimizations"][0]["name"] == (f"optimization-for-{device.lower()}")
