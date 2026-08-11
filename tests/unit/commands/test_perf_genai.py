@@ -566,10 +566,7 @@ class TestSessionDevice:
             effective_hardware_ep="OpenVINOExecutionProvider",
         )
 
-        assert (
-            GenaiPerfBenchmark(cfg, session=session)._monitor_ep()
-            == "OpenVINOExecutionProvider"
-        )
+        assert GenaiPerfBenchmark(cfg, session=session)._monitor_ep() == "OpenVINOExecutionProvider"
 
     def test_accelerator_monitor_requires_unique_effective_ep(self, monkeypatch) -> None:
         captured: dict = {}

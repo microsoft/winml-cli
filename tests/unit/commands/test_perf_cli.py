@@ -84,14 +84,6 @@ class TestPerfCacheOptions:
         assert result.exit_code == 0, result.output
         assert "--use-cache / --no-use-cache" in result.output
         assert "--rebuild / --no-rebuild" in result.output
-        assert "--ignore-cache" not in result.output
-        assert "--no-ignore-cache" not in result.output
-
-    def test_removed_ignore_cache_flag_is_rejected(self, runner: CliRunner) -> None:
-        result = runner.invoke(perf, ["-m", "test/model", "--ignore-cache"], obj={})
-
-        assert result.exit_code != 0
-        assert "No such option '--ignore-cache'" in result.output
 
     @pytest.mark.parametrize(
         ("extra_args", "use_cache", "rebuild"),
@@ -1333,6 +1325,7 @@ class TestPerfUnifiedPipeline:
             return mock
 
         with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch(
                 "winml.modelkit.commands.perf.PerfBenchmark",
                 side_effect=capture_config,
@@ -1411,6 +1404,7 @@ class TestPerfUnifiedPipeline:
                     str(onnx_file),
                     "--no-skip-build",
                     "--no-use-cache",
+                    "--no-optimize",
                     "-o",
                     str(tmp_path / "out.json"),
                 ],
@@ -1419,6 +1413,8 @@ class TestPerfUnifiedPipeline:
 
         assert result.exit_code == 0, result.output
         assert "--no-use-cache ignored for pre-built ONNX inputs" in result.output
+        assert "--no-optimize ignored for pre-built ONNX inputs" in result.output
+        assert "pass --no-skip-build to rebuild" not in result.output
 
     def test_cli_onnx_not_found_error(self, runner: CliRunner, tmp_path: Path) -> None:
         """CLI with non-existent .onnx file should raise FileNotFoundError."""

@@ -3114,7 +3114,13 @@ def perf(
             # — shared detection with eval via utils/cli.py.
             from ..onnx import is_compiled_onnx
 
-            build_runs = not skip_build and not is_compiled_onnx(model_path)
+            build_control_was_set = (
+                not quant or not optimize or not analyze or max_optim_iterations is not None
+            )
+            compiled_onnx = (not skip_build or build_control_was_set) and is_compiled_onnx(
+                model_path
+            )
+            build_runs = not skip_build and not compiled_onnx
             build_flags_warning = cli_utils.ignored_build_flags_warning(
                 build_runs=build_runs,
                 quant=quant,
@@ -3122,7 +3128,7 @@ def perf(
                 analyze=analyze,
                 max_optim_iterations=max_optim_iterations,
                 reason="pre-built ONNX inputs",
-                rebuild_hint="--no-skip-build",
+                rebuild_hint=None if compiled_onnx else "--no-skip-build",
             )
             if build_flags_warning:
                 console.print(f"[yellow]Warning:[/yellow] {build_flags_warning}")
