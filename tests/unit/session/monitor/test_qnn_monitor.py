@@ -15,6 +15,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from onnx import AttributeProto, TensorProto, TypeProto, helper, load, save_model
 
+from winml.modelkit.session.monitor.op_metrics import TraceFallbackReason
+
 
 def _write_basic_profile(
     path: Path,
@@ -1071,6 +1073,7 @@ def test_find_schematic_malformed_main_context_falls_back_to_basic(tmp_path):
 
 
 def test_try_qhas_uses_csv_bound_artifacts(tmp_path, monkeypatch):
+    from winml.modelkit.session.monitor.qnn.viewer import QHASViewerResult
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
     context_model = tmp_path / "model_ctx.onnx"
@@ -1103,11 +1106,14 @@ def test_try_qhas_uses_csv_bound_artifacts(tmp_path, monkeypatch):
         lambda: tmp_path,
     )
     monkeypatch.setattr(
-        "winml.modelkit.session.monitor.qnn_monitor.run_qhas_viewer",
-        _run_qhas_viewer,
+        "winml.modelkit.session.monitor.qnn_monitor.run_qhas_viewer_result",
+        lambda *args, **kwargs: QHASViewerResult(
+            path=_run_qhas_viewer(*args, **kwargs),
+            failure_reason=None,
+        ),
     )
 
-    summary, operators, result_path = monitor._try_qhas({})
+    summary, operators, result_path, fallback_reason = monitor._try_qhas({})
 
     assert seen_logs == [qnn_log]
     published_schematic = _schematic_for_csv(csv_path)
@@ -1117,10 +1123,12 @@ def test_try_qhas_uses_csv_bound_artifacts(tmp_path, monkeypatch):
     assert summary is not None
     assert operators is not None
     assert result_path == qhas_output.with_name(f"{qhas_output.stem}_qnn_htp_analysis_summary.json")
+    assert fallback_reason is None
 
 
 def test_try_qhas_publishes_cwd_schematic_to_output_dir(tmp_path, monkeypatch):
     """Persist the exact run-bound schematic beside the profiling artifacts."""
+    from winml.modelkit.session.monitor.qnn.viewer import QHASViewerResult
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
     context_dir = tmp_path / "context"
@@ -1167,16 +1175,20 @@ def test_try_qhas_publishes_cwd_schematic_to_output_dir(tmp_path, monkeypatch):
         lambda: sdk_dir,
     )
     monkeypatch.setattr(
-        "winml.modelkit.session.monitor.qnn_monitor.run_qhas_viewer",
-        _run_qhas_viewer,
+        "winml.modelkit.session.monitor.qnn_monitor.run_qhas_viewer_result",
+        lambda *args, **kwargs: QHASViewerResult(
+            path=_run_qhas_viewer(*args, **kwargs),
+            failure_reason=None,
+        ),
     )
 
     artifacts: dict[str, str] = {}
-    summary, operators, result_path = monitor._try_qhas(artifacts)
+    summary, operators, result_path, fallback_reason = monitor._try_qhas(artifacts)
 
     assert summary is not None
     assert operators is not None
     assert result_path == qhas_output.with_name(f"{qhas_output.stem}_qnn_htp_analysis_summary.json")
+    assert fallback_reason is None
     assert published_schematic.read_bytes() == b"schematic"
     assert seen_schematics == [published_schematic]
     assert artifacts["schematic"] == str(published_schematic)
@@ -1258,16 +1270,17 @@ def test_try_qhas_falls_back_when_schematic_publication_fails(tmp_path, monkeypa
     )
     viewer = MagicMock()
     monkeypatch.setattr(
-        "winml.modelkit.session.monitor.qnn_monitor.run_qhas_viewer",
+        "winml.modelkit.session.monitor.qnn_monitor.run_qhas_viewer_result",
         viewer,
     )
 
     artifacts: dict[str, str] = {}
-    summary, operators, result_path = monitor._try_qhas(artifacts)
+    summary, operators, result_path, fallback_reason = monitor._try_qhas(artifacts)
 
     assert summary is None
     assert operators is None
     assert result_path is None
+    assert fallback_reason == TraceFallbackReason.SCHEMATIC_PUBLISH_FAILED
     assert "schematic" not in artifacts
     assert not list(output_dir.glob("*_schematic.bin"))
     assert not list(output_dir.glob("*.tmp"))
@@ -1275,6 +1288,7 @@ def test_try_qhas_falls_back_when_schematic_publication_fails(tmp_path, monkeypa
 
 
 def test_try_qhas_ignores_other_runs_newer_qnn_log(tmp_path, monkeypatch):
+    from winml.modelkit.session.monitor.qnn.viewer import QHASViewerResult
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
     context_model = tmp_path / "model_ctx.onnx"
@@ -1301,16 +1315,20 @@ def test_try_qhas_ignores_other_runs_newer_qnn_log(tmp_path, monkeypatch):
         lambda: tmp_path,
     )
     monkeypatch.setattr(
-        "winml.modelkit.session.monitor.qnn_monitor.run_qhas_viewer",
-        _run_qhas_viewer,
+        "winml.modelkit.session.monitor.qnn_monitor.run_qhas_viewer_result",
+        lambda *args, **kwargs: QHASViewerResult(
+            path=_run_qhas_viewer(*args, **kwargs),
+            failure_reason=None,
+        ),
     )
 
-    summary, operators, result_path = monitor._try_qhas({})
+    summary, operators, result_path, fallback_reason = monitor._try_qhas({})
 
     assert seen_logs == []
     assert summary is None
     assert operators is None
     assert result_path is None
+    assert fallback_reason == TraceFallbackReason.QNN_LOG_MISSING
 
 
 def test_find_schematic_returns_none_when_csv_metadata_cannot_be_read(tmp_path, monkeypatch):
@@ -1461,6 +1479,7 @@ def test_detail_mode_falls_back_to_basic_when_qhas_unavailable(tmp_path):
 
     assert monitor.result is not None
     assert monitor.result.status == "basic_fallback"
+    assert monitor.result.fallback_reason == TraceFallbackReason.QNN_LOG_MISSING
     # CSV-only data must still be populated — basic_fallback is degraded
     # *success*, not failure: operators and summary are non-empty.
     assert monitor.result.operators, "expected CSV-derived operators in basic_fallback result"
@@ -1473,6 +1492,197 @@ def test_detail_mode_falls_back_to_basic_when_qhas_unavailable(tmp_path):
     # No QHAS artifact recorded; CSV artifact recorded.
     assert "qhas" not in monitor.result.artifacts
     assert "csv" in monitor.result.artifacts
+
+
+def test_detail_mode_reports_schematic_missing(tmp_path):
+    """A fresh QNN log without its partition sidecar has a distinct reason."""
+    from pathlib import Path
+
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    context_model = tmp_path / "model_ctx.onnx"
+    _write_epcontext_model(context_model, [("missing_schematic_partition", 1)])
+    monitor.set_running_model_path(context_model)
+    fixture = Path(__file__).parent / "qnn" / "fixtures" / "optrace_resnet50.csv"
+    monitor.__enter__()
+    monitor._csv_path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+    _qnn_log_for_csv(monitor._csv_path).write_text("qnn log", encoding="utf-8")
+
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    assert monitor.result.status == "basic_fallback"
+    assert monitor.result.fallback_reason == TraceFallbackReason.SCHEMATIC_MISSING
+
+
+def test_detail_mode_reports_sdk_missing(tmp_path, monkeypatch):
+    """A complete trace input without QHAS tools reports sdk_missing."""
+    from pathlib import Path
+
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    context_model = tmp_path / "model_ctx.onnx"
+    partition_name = "sdk_missing_partition"
+    _write_epcontext_model(context_model, [(partition_name, 1)])
+    monitor.set_running_model_path(context_model)
+    fixture = Path(__file__).parent / "qnn" / "fixtures" / "optrace_resnet50.csv"
+    monitor.__enter__()
+    monitor._csv_path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+    _qnn_log_for_csv(monitor._csv_path).write_text("qnn log", encoding="utf-8")
+    _schematic_for_partition(tmp_path, partition_name).write_bytes(b"schematic")
+    monkeypatch.setattr(
+        "winml.modelkit.session.monitor.qnn_monitor.find_qnn_sdk",
+        lambda: None,
+    )
+
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    assert monitor.result.status == "basic_fallback"
+    assert monitor.result.fallback_reason == TraceFallbackReason.SDK_MISSING
+
+
+def test_detail_mode_contains_qnn_log_metadata_error(tmp_path, monkeypatch):
+    """An inaccessible QNN log degrades to basic CSV instead of parse_failed."""
+    from pathlib import Path
+
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    fixture = Path(__file__).parent / "qnn" / "fixtures" / "optrace_resnet50.csv"
+    qnn_log = _qnn_log_for_csv(monitor._csv_path)
+    qnn_log.write_text("pre-existing QNN log", encoding="utf-8")
+    original_is_file = Path.is_file
+
+    def _inaccessible_log(self: Path) -> bool:
+        if self == qnn_log:
+            raise PermissionError("cannot inspect QNN log")
+        return original_is_file(self)
+
+    monkeypatch.setattr(Path, "is_file", _inaccessible_log)
+
+    monitor.__enter__()
+    monitor._csv_path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    assert monitor.result.status == "basic_fallback"
+    assert monitor.result.fallback_reason == TraceFallbackReason.QNN_LOG_MISSING
+    assert monitor.result.operators
+
+
+def test_detail_mode_contains_sdk_discovery_error(tmp_path, monkeypatch):
+    """SDK filesystem discovery errors remain sdk_missing basic fallbacks."""
+    from pathlib import Path
+
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    context_model = tmp_path / "model_ctx.onnx"
+    partition_name = "sdk_discovery_error_partition"
+    _write_epcontext_model(context_model, [(partition_name, 1)])
+    monitor.set_running_model_path(context_model)
+    fixture = Path(__file__).parent / "qnn" / "fixtures" / "optrace_resnet50.csv"
+    monitor.__enter__()
+    monitor._csv_path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+    _qnn_log_for_csv(monitor._csv_path).write_text("qnn log", encoding="utf-8")
+    _schematic_for_partition(tmp_path, partition_name).write_bytes(b"schematic")
+
+    def _fail_sdk_discovery():
+        raise PermissionError("cannot enumerate SDK root")
+
+    monkeypatch.setattr(
+        "winml.modelkit.session.monitor.qnn_monitor.find_qnn_sdk",
+        _fail_sdk_discovery,
+    )
+
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    assert monitor.result.status == "basic_fallback"
+    assert monitor.result.fallback_reason == TraceFallbackReason.SDK_MISSING
+    assert monitor.result.operators
+
+
+@pytest.mark.parametrize(
+    "failure_reason",
+    [TraceFallbackReason.VIEWER_FAILED, TraceFallbackReason.QHAS_OUTPUT_MISSING],
+)
+def test_detail_mode_reports_viewer_failure_reason(tmp_path, monkeypatch, failure_reason):
+    """Detailed viewer failures retain their precise machine-readable reason."""
+    from pathlib import Path
+
+    from winml.modelkit.session.monitor.qnn.viewer import QHASViewerResult
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    context_model = tmp_path / "model_ctx.onnx"
+    partition_name = "viewer_failure_partition"
+    _write_epcontext_model(context_model, [(partition_name, 1)])
+    monitor.set_running_model_path(context_model)
+    fixture = Path(__file__).parent / "qnn" / "fixtures" / "optrace_resnet50.csv"
+    monitor.__enter__()
+    monitor._csv_path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+    _qnn_log_for_csv(monitor._csv_path).write_text("qnn log", encoding="utf-8")
+    _schematic_for_partition(tmp_path, partition_name).write_bytes(b"schematic")
+    monkeypatch.setattr(
+        "winml.modelkit.session.monitor.qnn_monitor.find_qnn_sdk",
+        lambda: tmp_path / "sdk",
+    )
+    monkeypatch.setattr(
+        "winml.modelkit.session.monitor.qnn_monitor.run_qhas_viewer_result",
+        lambda *_args, **_kwargs: QHASViewerResult(
+            path=None,
+            failure_reason=failure_reason,
+        ),
+    )
+
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    assert monitor.result.status == "basic_fallback"
+    assert monitor.result.fallback_reason == failure_reason
+
+
+def test_detail_mode_reports_qhas_parse_failure(tmp_path, monkeypatch):
+    """Malformed QHAS output is distinct from viewer execution failure."""
+    from pathlib import Path
+
+    from winml.modelkit.session.monitor.qnn.viewer import QHASViewerResult
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    context_model = tmp_path / "model_ctx.onnx"
+    partition_name = "qhas_parse_partition"
+    _write_epcontext_model(context_model, [(partition_name, 1)])
+    monitor.set_running_model_path(context_model)
+    fixture = Path(__file__).parent / "qnn" / "fixtures" / "optrace_resnet50.csv"
+    monitor.__enter__()
+    monitor._csv_path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+    _qnn_log_for_csv(monitor._csv_path).write_text("qnn log", encoding="utf-8")
+    _schematic_for_partition(tmp_path, partition_name).write_bytes(b"schematic")
+    qhas_output = tmp_path / "invalid_qhas.json"
+    qhas_output.write_text("not json", encoding="utf-8")
+    monkeypatch.setattr(
+        "winml.modelkit.session.monitor.qnn_monitor.find_qnn_sdk",
+        lambda: tmp_path / "sdk",
+    )
+    monkeypatch.setattr(
+        "winml.modelkit.session.monitor.qnn_monitor.run_qhas_viewer_result",
+        lambda *_args, **_kwargs: QHASViewerResult(
+            path=qhas_output,
+            failure_reason=None,
+        ),
+    )
+
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    assert monitor.result.status == "basic_fallback"
+    assert monitor.result.fallback_reason == TraceFallbackReason.QHAS_PARSE_FAILED
 
 
 def test_detail_mode_uses_basic_fallback_when_schematic_stat_fails(tmp_path, monkeypatch):

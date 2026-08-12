@@ -54,6 +54,7 @@ if TYPE_CHECKING:
     from ..models.winml.composite_model import WinMLCompositeModel
     from ..session import WinMLEPDevice
     from ..session.monitor.ep_monitor import WinMLEPMonitor
+    from ..session.monitor.op_metrics import TraceFallbackReason
     from ..session.stats import PerfStats
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,31 @@ _HW_POLL_INTERVAL_MS = 200
 #   "winml-genai" -> onnxruntime-genai decoder-pipeline generation
 RuntimeName = Literal["winml", "winml-genai"]
 RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
+
+
+def _detail_fallback_guidance(reason: TraceFallbackReason | None) -> str:
+    """Return actionable guidance for a structured detail-trace fallback."""
+    from ..session.monitor.op_metrics import TraceFallbackReason
+
+    guidance: dict[TraceFallbackReason, str] = {
+        TraceFallbackReason.QNN_LOG_MISSING: "the QNN optrace log was not produced",
+        TraceFallbackReason.SCHEMATIC_MISSING: (
+            "the compiled EPContext has no optrace schematic; rerun detail "
+            "profiling from the raw ONNX so WinML can compile it with optrace enabled"
+        ),
+        TraceFallbackReason.SDK_MISSING: (
+            "the QNN SDK was not found; set QNN_SDK_ROOT to enable QHAS"
+        ),
+        TraceFallbackReason.VIEWER_FAILED: "the QHAS viewer did not produce an output",
+        TraceFallbackReason.SCHEMATIC_PUBLISH_FAILED: (
+            "could not copy the QNN optrace schematic next to the profiling artifacts"
+        ),
+        TraceFallbackReason.QHAS_OUTPUT_MISSING: "the requested QHAS output was not found",
+        TraceFallbackReason.QHAS_PARSE_FAILED: "the QHAS output could not be parsed",
+    }
+    if reason is None:
+        return "QHAS post-processing was unavailable"
+    return guidance.get(reason, "QHAS post-processing was unavailable")
 
 
 class _NativeWarningFilteredPerfContext:
@@ -3255,9 +3281,9 @@ def perf(
                         "EPContext model, but the benchmark ran the original ONNX model."
                     )
                     sys.exit(4)
+                detail = _detail_fallback_guidance(trace_result.fallback_reason)
                 console.print(
-                    "[yellow]Notice:[/yellow] Detail mode degraded to basic CSV "
-                    "(QHAS unavailable; set QNN_SDK_ROOT to enable)."
+                    f"[yellow]Notice:[/yellow] Detail mode degraded to basic CSV ({detail})."
                 )
 
             if json_mode:
