@@ -51,7 +51,10 @@
       {
         "name": "last_hidden_state"
       }
-    ]
+    ],
+    "compatibility": {
+      "transformers_attention": "eager"
+    }
   },
   "optim": {
     "clamp_constant_values": true
