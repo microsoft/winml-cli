@@ -125,20 +125,6 @@ class TestPyTorchRuntimeCli:
         assert captured["config"].runtime == "pytorch"
         run_dataset_script.assert_called_once_with(captured["config"], True)
 
-    @pytest.mark.parametrize("legacy_field", ["backend", "export_model"])
-    def test_config_file_rejects_legacy_runtime_field(self, tmp_path, legacy_field) -> None:
-        config_path = tmp_path / "eval.json"
-        config_path.write_text(
-            json.dumps({"eval": {legacy_field: "pytorch"}}),
-            encoding="utf-8",
-        )
-
-        result = CliRunner().invoke(eval, ["--config", str(config_path)], obj={})
-
-        assert result.exit_code == 2
-        assert "Unsupported eval runtime field" in result.output
-        assert "Use 'runtime'" in result.output
-
     @pytest.mark.parametrize(
         ("field", "value"),
         [
@@ -474,8 +460,6 @@ class TestNativeEvaluation:
         model = MagicMock()
         loaded = NativeHFModel(
             model=model,
-            config=MagicMock(),
-            task="image-classification",
             device=NativeDevice(name="gpu", torch_device=torch.device("cuda")),
         )
         config = WinMLEvaluationConfig(
@@ -543,8 +527,3 @@ class TestNativeEvaluation:
         assert "use_cache" not in serialized
         assert "rebuild" not in serialized
         assert restored.runtime == "pytorch"
-
-    @pytest.mark.parametrize("legacy_field", ["backend", "export_model"])
-    def test_config_deserialization_rejects_legacy_runtime_field(self, legacy_field) -> None:
-        with pytest.raises(ValueError, match="Use 'runtime'"):
-            WinMLEvaluationConfig.from_dict({legacy_field: "pytorch"})

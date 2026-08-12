@@ -414,12 +414,7 @@ def _build_eval_config(
 
     # ── Config file layer (only explicitly-present keys) ──
     if config_file is not None:
-        from ..eval.config import _UnsupportedEvalRuntimeFieldError
-
-        try:
-            _, raw = cli_utils.load_build_config(config_file)
-        except _UnsupportedEvalRuntimeFieldError as error:
-            raise click.UsageError(str(error)) from error
+        _, raw = cli_utils.load_build_config(config_file)
 
         # Loader task as lowest-priority fallback
         loader_section = raw.get("loader") or {}
@@ -434,14 +429,6 @@ def _build_eval_config(
         # Eval section overrides loader/compile fallbacks
         eval_data = raw.get("eval")
         if eval_data:
-            eval_data = dict(eval_data)
-            legacy_runtime_fields = {"backend", "export_model"}.intersection(eval_data)
-            if legacy_runtime_fields:
-                fields = ", ".join(sorted(legacy_runtime_fields))
-                raise click.UsageError(
-                    f"Unsupported eval runtime field(s): {fields}. Use 'runtime' "
-                    "with 'winml' or 'pytorch' instead."
-                )
             config_fields.update(eval_data)
             cfg = merge_config(cfg, eval_data)
 

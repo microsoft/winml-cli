@@ -18,10 +18,6 @@ from ..utils.eval_utils import EvalMode
 EvalRuntime = Literal["winml", "pytorch"]
 
 
-class _UnsupportedEvalRuntimeFieldError(ValueError):
-    """Raised when a removed eval runtime field is deserialized."""
-
-
 @dataclass
 class DatasetConfig:
     """Dataset configuration, aligned with HF load_dataset() API.
@@ -255,14 +251,6 @@ class WinMLEvaluationConfig:
     @classmethod
     def from_dict(cls, data: dict) -> WinMLEvaluationConfig:
         """Create from dictionary, ignoring unknown fields."""
-        legacy_runtime_fields = {"backend", "export_model"}.intersection(data)
-        if legacy_runtime_fields:
-            fields = ", ".join(sorted(legacy_runtime_fields))
-            raise _UnsupportedEvalRuntimeFieldError(
-                f"Unsupported eval runtime field(s): {fields}. Use 'runtime' with "
-                "'winml' or 'pytorch' instead."
-            )
-
         ds_data = data.get("dataset", {})
         dataset = DatasetConfig(
             path=ds_data.get("path"),

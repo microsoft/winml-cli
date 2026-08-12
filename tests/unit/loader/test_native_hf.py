@@ -42,11 +42,9 @@ def test_load_native_hf_model_preserves_dtype_and_task_selection() -> None:
     model = MagicMock()
     model.to.return_value = model
     model.eval.return_value = model
-    hf_config = MagicMock()
-
     with patch(
         "winml.modelkit.loader.hf.load_hf_model",
-        return_value=(model, hf_config, "image-classification"),
+        return_value=(model, MagicMock(), "image-classification"),
     ) as load:
         result = load_native_hf_model(
             "fake/model",
@@ -64,6 +62,4 @@ def test_load_native_hf_model_preserves_dtype_and_task_selection() -> None:
     model.to.assert_called_once_with(torch.device("cpu"))
     model.eval.assert_called_once_with()
     assert result.model is model
-    assert result.config is hf_config
-    assert result.task == "image-classification"
     assert result.device.name == "cpu"

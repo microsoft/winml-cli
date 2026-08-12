@@ -24,11 +24,9 @@ class NativeDevice:
 
 @dataclass(frozen=True)
 class NativeHFModel:
-    """Loaded native Hugging Face model and resolved runtime metadata."""
+    """Loaded native Hugging Face model and its resolved device."""
 
     model: "nn.Module"
-    config: Any
-    task: str
     device: NativeDevice
 
 
@@ -64,7 +62,7 @@ def load_native_hf_model(
     from .hf import load_hf_model
 
     resolved_device = resolve_native_device(device)
-    model, hf_config, resolved_task = load_hf_model(
+    model, _, _ = load_hf_model(
         model_id,
         task=task,
         trust_remote_code=trust_remote_code,
@@ -73,7 +71,5 @@ def load_native_hf_model(
     model = model.to(resolved_device.torch_device).eval()
     return NativeHFModel(
         model=model,
-        config=hf_config,
-        task=resolved_task,
         device=resolved_device,
     )
