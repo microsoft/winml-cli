@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Opt-in, exact algebraic graph-rewrite capabilities."""
+"""Opt-in algebraic graph-rewrite capabilities."""
 
 from __future__ import annotations
 
@@ -35,7 +35,8 @@ EXP_POSITIVE_SCALE_FOLDING = BoolCapability(
     name="exp-positive-scale-folding",
     ort_name=None,
     description=(
-        "Fold a finite, strictly positive constant scale after Exp into the log-domain input bias"
+        "Fold a finite, strictly positive constant scale after Exp into the log-domain input "
+        "bias with relaxed floating-point overflow semantics"
     ),
     category=CapabilityCategory.REWRITE,
     default=False,

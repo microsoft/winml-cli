@@ -1980,7 +1980,104 @@ class TestConvChannelAffineFolding:
 
 
 class TestExpPositiveScaleFolding:
-    """Test conservative positive scale folding into an existing pre-Exp bias."""
+    """Test opt-in positive scale folding into the Exp input."""
+
+    def test_multiple_exp_chains_are_folded_from_live_graph_nodes(self) -> None:
+        rng = np.random.default_rng(35)
+        model = _model(
+            [
+                onnx.helper.make_node("Add", ["x0", "bias0"], ["biased0"]),
+                onnx.helper.make_node("Exp", ["biased0"], ["exp0"]),
+                onnx.helper.make_node("Mul", ["exp0", "scale0"], ["y0"]),
+                onnx.helper.make_node("Add", ["x1", "bias1"], ["biased1"]),
+                onnx.helper.make_node("Exp", ["biased1"], ["exp1"]),
+                onnx.helper.make_node("Mul", ["exp1", "scale1"], ["y1"]),
+            ],
+            [_info("x0", [1, 2]), _info("x1", [1, 2])],
+            [_info("y0", [1, 2]), _info("y1", [1, 2])],
+            [
+                _tensor("bias0", np.asarray([[0.25, -0.5]], dtype=np.float32)),
+                _tensor("scale0", np.asarray([[1.25, 0.75]], dtype=np.float32)),
+                _tensor("bias1", np.asarray([[1.0, -1.25]], dtype=np.float32)),
+                _tensor("scale1", np.asarray([[2.0, 1.5]], dtype=np.float32)),
+            ],
+            value_info=[
+                _info("biased0", [1, 2]),
+                _info("exp0", [1, 2]),
+                _info("biased1", [1, 2]),
+                _info("exp1", [1, 2]),
+            ],
+        )
+        values = {
+            "x0": rng.normal(size=(1, 2)).astype(np.float32),
+            "x1": rng.normal(size=(1, 2)).astype(np.float32),
+        }
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        assert [node.op_type for node in transformed.graph.node] == ["Add", "Exp", "Add", "Exp"]
+        assert [output.name for output in transformed.graph.output] == ["y0", "y1"]
+        _assert_valid_with_inferred_shapes(transformed)
+        for original, rewritten in zip(
+            _run(model, values),
+            _run(transformed, values),
+            strict=True,
+        ):
+            np.testing.assert_allclose(original, rewritten, rtol=2e-6, atol=2e-6)
+
+    def test_scalar_scale_without_bias_stays_compact(self) -> None:
+        model = _model(
+            [
+                onnx.helper.make_node("Exp", ["x"], ["exponential"]),
+                onnx.helper.make_node("Mul", ["exponential", "scale"], ["y"]),
+            ],
+            [_info("x", [1, 2, 3])],
+            [_info("y", [1, 2, 3])],
+            [_tensor("scale", np.asarray(1.5, dtype=np.float32))],
+            value_info=[_info("exponential", [1, 2, 3])],
+        )
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        assert [node.op_type for node in transformed.graph.node] == ["Add", "Exp"]
+        log_scale_name = transformed.graph.node[0].input[1]
+        log_scale = onnx.numpy_helper.to_array(
+            next(value for value in transformed.graph.initializer if value.name == log_scale_name)
+        )
+        assert log_scale.shape == ()
+        np.testing.assert_array_equal(log_scale, np.log(np.asarray(1.5, dtype=np.float32)))
+
+    def test_exp_scale_flag_discloses_relaxed_float_boundary_semantics(self) -> None:
+        description = get_all_capabilities()["exp-positive-scale-folding"].description
+        assert "relaxed floating-point overflow semantics" in description
+
+    def test_float32_boundary_behavior_is_relaxed_when_enabled(self) -> None:
+        x = np.asarray([89.0], dtype=np.float32)
+        model = _model(
+            [
+                onnx.helper.make_node("Exp", ["x"], ["exponential"]),
+                onnx.helper.make_node("Mul", ["exponential", "scale"], ["y"]),
+            ],
+            [_info("x", [1])],
+            [_info("y", [1])],
+            [_tensor("scale", np.asarray(1.0e-10, dtype=np.float32))],
+            value_info=[_info("exponential", [1])],
+        )
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        assert [node.op_type for node in transformed.graph.node] == ["Add", "Exp"]
+        assert np.isinf(_run(model, {"x": x})[0][0])
+        assert np.isfinite(_run(transformed, {"x": x})[0][0])
 
     def test_simple_numeric_example_matches_log_domain_identity(self) -> None:
         x = np.asarray([[0.0, 2.0]], dtype=np.float32)

@@ -311,6 +311,16 @@ def _static_shape(index: _GraphIndex, name: str) -> tuple[int, ...] | None:
     return cast("tuple[int, ...]", shape)
 
 
+def _shape_broadcasts_to(shape: tuple[int, ...], target_shape: tuple[int, ...]) -> bool:
+    if len(shape) > len(target_shape):
+        return False
+    padded_shape = (1,) * (len(target_shape) - len(shape)) + shape
+    return all(
+        source_dimension in (1, target_dimension)
+        for source_dimension, target_dimension in zip(padded_shape, target_shape, strict=True)
+    )
+
+
 def _new_initializer(
     model: onnx.ModelProto,
     allocator: _NameAllocator,
@@ -966,9 +976,8 @@ def _exp_scale_insert_candidate(
         or np.prod(input_shape, dtype=np.int64) != np.prod(output_shape, dtype=np.int64)
     ):
         return None
-    broadcast_scale = np.asarray(np.broadcast_to(scale, output_shape))
-    log_scale = np.asarray(np.log(broadcast_scale).reshape(input_shape), dtype=scale.dtype)
-    if not np.isfinite(log_scale).all():
+    log_scale = _compact_log_scale_for_input(scale, input_shape)
+    if log_scale is None:
         return None
     return _ExpScaleInsertCandidate(
         exp=exp,
@@ -978,13 +987,26 @@ def _exp_scale_insert_candidate(
     )
 
 
-def _fold_exp_positive_scales(
+def _compact_log_scale_for_input(
+    scale: np.ndarray,
+    input_shape: tuple[int, ...],
+) -> np.ndarray | None:
+    """Return a log-scale initializer without expanding broadcast-only dimensions."""
+    if _shape_broadcasts_to(scale.shape, input_shape):
+        log_scale = np.asarray(np.log(scale), dtype=scale.dtype)
+    elif scale.size == int(np.prod(input_shape, dtype=np.int64)):
+        log_scale = np.asarray(np.log(scale).reshape(input_shape), dtype=scale.dtype)
+    else:
+        return None
+    return log_scale if np.isfinite(log_scale).all() else None
+
+
+def _fold_existing_exp_bias_scale(
     model: onnx.ModelProto,
     allocator: _NameAllocator,
-) -> None:
-    """Fold eligible positive post-Exp constants into existing input biases."""
+) -> bool:
     index = _GraphIndex.build(model)
-    for add in list(model.graph.node):
+    for add in model.graph.node:
         bias_candidate = _exp_scale_candidate(index, add)
         if bias_candidate is None:
             continue
@@ -997,9 +1019,16 @@ def _fold_exp_positive_scales(
         bias_candidate.add.input[bias_candidate.bias_input_index] = combined_name
         bias_candidate.output_node.output[0] = bias_candidate.mul.output[0]
         _remove_nodes(model, {id(bias_candidate.mul)})
-        index = _GraphIndex.build(model)
+        return True
+    return False
 
-    for exp in list(model.graph.node):
+
+def _fold_inserted_exp_scale(
+    model: onnx.ModelProto,
+    allocator: _NameAllocator,
+) -> bool:
+    index = _GraphIndex.build(model)
+    for exp in model.graph.node:
         insert_candidate = _exp_scale_insert_candidate(index, exp)
         if insert_candidate is None:
             continue
@@ -1026,7 +1055,19 @@ def _fold_exp_positive_scales(
                 rewritten.append(node)
         del model.graph.node[:]
         model.graph.node.extend(rewritten)
-        index = _GraphIndex.build(model)
+        return True
+    return False
+
+
+def _fold_exp_positive_scales(
+    model: onnx.ModelProto,
+    allocator: _NameAllocator,
+) -> None:
+    """Fold eligible positive post-Exp constants into the Exp input."""
+    while _fold_existing_exp_bias_scale(model, allocator):
+        pass
+    while _fold_inserted_exp_scale(model, allocator):
+        pass
 
 
 def _collect_affine_chain(
