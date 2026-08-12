@@ -35,6 +35,7 @@ from winml.modelkit.optim.analysis import (
     _collect_nodes,
     _diff_initializers,
     _diff_nodes,
+    _initializers_equal,
 )
 from winml.modelkit.optim.registry import CapabilityCategory
 
@@ -270,9 +271,11 @@ class TestInitializerDiff:
 
     def test_signed_zero_change_with_pure_python_protobuf(self) -> None:
         code = """
+from google.protobuf.internal import api_implementation
 from onnx import TensorProto
 from winml.modelkit.optim.analysis import _initializers_equal
 
+assert api_implementation.Type() == "python"
 base = TensorProto(
     name="W", data_type=TensorProto.FLOAT, dims=[1], float_data=[-0.0]
 )
@@ -293,6 +296,29 @@ assert not _initializers_equal(base, probe)
             text=True,
             env=env,
         )
+
+    def test_native_protobuf_equality_does_not_copy_float_fields(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        base_init = TensorProto(
+            name="W",
+            data_type=TensorProto.FLOAT,
+            dims=[1],
+            float_data=[1.0],
+        )
+        probe_init = TensorProto()
+        probe_init.CopyFrom(base_init)
+
+        monkeypatch.setattr(
+            "winml.modelkit.optim.analysis._PURE_PYTHON_PROTOBUF", False
+        )
+
+        def fail_array(*_args, **_kwargs):
+            raise AssertionError("native equality fast path copied typed fields")
+
+        monkeypatch.setattr("winml.modelkit.optim.analysis.array", fail_array)
+
+        assert _initializers_equal(base_init, probe_init)
 
     def test_repeated_integer_change_is_detected(self) -> None:
         base_init = TensorProto(

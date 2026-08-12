@@ -29,6 +29,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from google.protobuf.internal import api_implementation
 from onnx import AttributeProto, GraphProto, ModelProto, NodeProto, TensorProto
 
 
@@ -39,6 +40,7 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+_PURE_PYTHON_PROTOBUF = api_implementation.Type() == "python"
 
 
 # =============================================================================
@@ -225,6 +227,10 @@ def _initializers_equal(base: TensorProto, probe: TensorProto) -> bool:
     comparison reads payloads in place, while serializing every initializer
     would allocate and copy all model weights for every capability probe.
     """
+    protobuf_equal = base == probe
+    if protobuf_equal and not _PURE_PYTHON_PROTOBUF:
+        return True
+
     float_field_types = {"float_data": "f", "double_data": "d"}
     for field_name, typecode in float_field_types.items():
         if array(typecode, getattr(base, field_name)).tobytes() != array(
@@ -232,7 +238,7 @@ def _initializers_equal(base: TensorProto, probe: TensorProto) -> bool:
         ).tobytes():
             return False
 
-    if base == probe:
+    if protobuf_equal:
         return True
 
     ignored_fields = {"data_location", "external_data", *float_field_types}
