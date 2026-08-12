@@ -394,6 +394,67 @@ class TestWinMLSessionCompilation:
 
         assert second_session.running_model_path == ctx_path
 
+    def test_relative_provider_option_file_is_canonicalized_for_identity_and_ort(
+        self,
+        simple_matmul_onnx: Path,
+        qnn_npu_ep_device: WinMLEPDevice,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """File-valued relative options are resolved once before hashing and ORT binding."""
+        option_name = "compiler-input.bin"
+        cwd_dir = tmp_path / "cwd"
+        cwd_dir.mkdir()
+        cwd_option_file = cwd_dir / option_name
+        cwd_option_file.write_bytes(b"cwd option")
+        model_dir_option_file = simple_matmul_onnx.parent / option_name
+        model_dir_option_file.write_bytes(b"model option")
+        monkeypatch.chdir(cwd_dir)
+        captured_provider_options: list[dict[str, str]] = []
+
+        def _session_options(*_args, provider_options, **_kwargs):
+            captured_provider_options.append(dict(provider_options))
+            return MagicMock()
+
+        session = WinMLSession(
+            onnx_path=simple_matmul_onnx,
+            ep_device=qnn_npu_ep_device,
+            ep_config=EPConfig(
+                provider="qnn",
+                provider_options={"compiler_input": option_name},
+                enable_ep_context=True,
+            ),
+        )
+        expected_path = str(cwd_option_file.resolve())
+        monkeypatch.setattr(
+            "winml.modelkit.session.session._build_session_options",
+            _session_options,
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.session.session.ort.ModelCompiler",
+            MagicMock(
+                return_value=SimpleNamespace(
+                    compile_to_file=lambda path: _write_fake_epcontext(session, path)
+                )
+            ),
+        )
+        runtime_session = MagicMock()
+        runtime_session.get_providers.return_value = ["QNNExecutionProvider"]
+        monkeypatch.setattr(
+            "winml.modelkit.session.session.ort.InferenceSession",
+            lambda *_args, **_kwargs: runtime_session,
+        )
+
+        session.compile()
+
+        identity = session._epcontext_cache_identity()
+        assert session._provider_options["compiler_input"] == expected_path
+        assert identity["provider_option_files"]["compiler_input"]["path"] == expected_path
+        assert captured_provider_options
+        assert all(
+            options["compiler_input"] == expected_path for options in captured_provider_options
+        )
+
     def test_different_compile_identities_use_distinct_context_paths(
         self,
         simple_matmul_onnx: Path,
@@ -780,6 +841,10 @@ class TestWinMLSessionCompilation:
         assert session.running_model_path != cached_path
         assert cached_path.read_bytes() == cached_bytes
         assert session._session is not None
+        generation_path = Path(model_compiler.return_value.compile_to_file.call_args.args[0])
+        sidecar_path = generation_path.with_name(f"{generation_path.stem}_qnn.bin")
+        assert not generation_path.exists()
+        assert not sidecar_path.exists()
 
     def test_custom_session_options_factory_disables_cache_reuse(
         self,
@@ -804,6 +869,10 @@ class TestWinMLSessionCompilation:
 
         model_compiler.return_value.compile_to_file.assert_called_once()
         assert second_session.running_model_path != first_session.running_model_path
+        generation_path = Path(model_compiler.return_value.compile_to_file.call_args.args[0])
+        sidecar_path = generation_path.with_name(f"{generation_path.stem}_qnn.bin")
+        assert not generation_path.exists()
+        assert not sidecar_path.exists()
 
     def test_successful_epcontext_cache_prunes_old_identity_artifacts(
         self,
@@ -859,6 +928,80 @@ class TestWinMLSessionCompilation:
         assert not first_lock.exists()
         assert second_generation.is_file()
         assert second_marker.is_file()
+
+    def test_cache_hit_generation_is_pinned_until_runtime_session_opens(
+        self,
+        simple_matmul_onnx: Path,
+        qnn_npu_ep_device: WinMLEPDevice,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Pruning a different identity cannot delete a cache hit before ORT opens it."""
+        from winml.modelkit.session.session import _epcontext_thread_lock
+
+        checked = False
+        old_generation: Path | None = None
+        old_lock: Path | None = None
+
+        def _session_options(*_args, provider_options, **_kwargs):
+            return SimpleNamespace(mode=provider_options["mode"])
+
+        class _ModeCompiler:
+            def __init__(self, session_options, *_args, **_kwargs):
+                self.mode = session_options.mode
+
+            def compile_to_file(self, path: str) -> None:
+                _write_fake_epcontext(first_session, path)
+
+        def _runtime_session(path: str, *_args, **_kwargs):
+            nonlocal checked
+            model_path = Path(path)
+            if old_generation is not None and old_lock is not None and model_path == old_generation:
+                checked = True
+                assert _epcontext_thread_lock(old_lock).locked()
+            runtime_session = MagicMock()
+            runtime_session.get_providers.return_value = ["QNNExecutionProvider"]
+            return runtime_session
+
+        monkeypatch.setattr(
+            "winml.modelkit.session.session._build_session_options",
+            _session_options,
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.session.session.ort.ModelCompiler",
+            _ModeCompiler,
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.session.session.ort.InferenceSession",
+            _runtime_session,
+        )
+        first_session = WinMLSession(
+            onnx_path=simple_matmul_onnx,
+            ep_device=qnn_npu_ep_device,
+            ep_config=EPConfig(
+                provider="qnn",
+                provider_options={"mode": "old"},
+                enable_ep_context=True,
+            ),
+        )
+        first_session.compile()
+        old_generation = first_session.running_model_path
+        old_cache_path = _cache_path(first_session)
+        old_lock = old_cache_path.with_name(f"{old_cache_path.name}.lock")
+        first_session.reset()
+        hit_session = WinMLSession(
+            onnx_path=simple_matmul_onnx,
+            ep_device=qnn_npu_ep_device,
+            ep_config=EPConfig(
+                provider="qnn",
+                provider_options={"mode": "old"},
+                enable_ep_context=True,
+            ),
+        )
+
+        hit_session.compile()
+
+        assert checked is True
+        assert hit_session.running_model_path == old_generation
 
     def test_concurrent_different_identities_use_distinct_artifacts(
         self,

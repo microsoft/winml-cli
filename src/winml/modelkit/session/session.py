@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import onnxruntime as ort
-from filelock import FileLock
+from filelock import FileLock, Timeout
 from google.protobuf.message import DecodeError
 
 from ..core.onnx_utils import get_io_config
@@ -66,6 +66,83 @@ def _epcontext_thread_lock(lock_path: Path) -> threading.Lock:
     resolved = lock_path.resolve(strict=False)
     with _EPCONTEXT_THREAD_LOCKS_GUARD:
         return _EPCONTEXT_THREAD_LOCKS.setdefault(resolved, threading.Lock())
+
+
+@dataclass
+class _EPContextCacheLease:
+    """Held cache lock that can be transferred from compile selection to runtime open."""
+
+    lock_path: Path
+    thread_lock: threading.Lock
+    file_lock: FileLock
+    _released: bool = False
+
+    @classmethod
+    def acquire(cls, lock_path: Path, *, blocking: bool = True) -> _EPContextCacheLease | None:
+        thread_lock = _epcontext_thread_lock(lock_path)
+        if not thread_lock.acquire(blocking=blocking):
+            return None
+        file_lock = FileLock(lock_path)
+        try:
+            if blocking:
+                file_lock.acquire()
+            else:
+                file_lock.acquire(timeout=0)
+        except Timeout:
+            thread_lock.release()
+            return None
+        except Exception:
+            thread_lock.release()
+            raise
+        return cls(lock_path=lock_path, thread_lock=thread_lock, file_lock=file_lock)
+
+    def release(self) -> None:
+        if self._released:
+            return
+        try:
+            self.file_lock.release()
+        finally:
+            self.thread_lock.release()
+            self._released = True
+
+    def __enter__(self) -> _EPContextCacheLease:
+        return self
+
+    def __exit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        _exc: BaseException | None,
+        _tb: TracebackType | None,
+    ) -> None:
+        self.release()
+
+
+@dataclass
+class _PreparedEPContextModel:
+    """Model path selected for runtime loading plus any lock held until ORT opens it."""
+
+    path: Path
+    markerless: bool = False
+    lease: _EPContextCacheLease | None = None
+
+    @property
+    def lock_path(self) -> Path | None:
+        return self.lease.lock_path if self.lease is not None else None
+
+    def release(self) -> None:
+        if self.lease is not None:
+            self.lease.release()
+
+    def __enter__(self) -> _PreparedEPContextModel:
+        return self
+
+    def __exit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        _exc: BaseException | None,
+        _tb: TracebackType | None,
+    ) -> None:
+        self.release()
 
 
 @contextmanager
@@ -384,10 +461,13 @@ class WinMLSession:
         )
 
         # Snapshots preserved across perf()/reset()/compile() entry/exit (see perf()).
-        self._provider_options: dict[str, str] = _build_provider_options(
-            ep_device, ep_config, ep_monitor
+        self._provider_options: dict[str, str] = self._canonicalize_option_files(
+            _build_provider_options(ep_device, ep_config, ep_monitor)
         )
-        self._active_session_option_entries: dict[str, str] = dict(initial_session_option_entries)
+        self._active_session_option_entries: dict[str, str] = self._canonicalize_option_files(
+            dict(initial_session_option_entries)
+        )
+        self._markerless_epcontext_generations: dict[Path, Path | None] = {}
         # Convenience: the canonical EP name from the chosen handle.
         self._ep: str = ep_device.device.ep_name
 
@@ -490,7 +570,7 @@ class WinMLSession:
             self._state = SessionState.COMPILED
             return
 
-        model_path = self._onnx_path
+        prepared_model = _PreparedEPContextModel(self._onnx_path)
 
         # Native QNN SDK compiler writes progress to stdout/stderr;
         # redirect to log file to keep the console clean.
@@ -500,7 +580,9 @@ class WinMLSession:
             # Input model is already an EPContext — use it directly.
             logger.info("Model already compiled (EPContext), skipping ModelCompiler")
         else:
-            model_path = self._compile_epcontext_with_stable_source(compile_log)
+            prepared_model = self._compile_epcontext_with_stable_source(compile_log)
+
+        model_path = prepared_model.path
 
         try:
             # Create the runtime InferenceSession against the (possibly compiled) model.
@@ -512,7 +594,7 @@ class WinMLSession:
                 session_option_entries=self._active_session_option_entries,
                 provider_options=self._provider_options,
             )
-            with _suppress_native_output(compile_log):
+            with prepared_model, _suppress_native_output(compile_log):
                 session = ort.InferenceSession(str(model_path), sess_options=runtime_so)
 
             actual_providers = session.get_providers()
@@ -523,6 +605,9 @@ class WinMLSession:
             )
 
         except Exception as e:
+            prepared_model.release()
+            if prepared_model.markerless and model_path != self._onnx_path:
+                self._discard_epcontext_generation(model_path)
             self._state = SessionState.ERROR
             self._last_error = e
             raise CompilationError(
@@ -538,8 +623,11 @@ class WinMLSession:
         self._session = session
         self._running_model_path = model_path
         self._state = SessionState.COMPILED
+        if prepared_model.markerless and model_path != self._onnx_path:
+            self._markerless_epcontext_generations[model_path] = prepared_model.lock_path
+            self._cleanup_markerless_epcontext_generations()
 
-    def _compile_epcontext_with_stable_source(self, compile_log: Path) -> Path:
+    def _compile_epcontext_with_stable_source(self, compile_log: Path) -> _PreparedEPContextModel:
         """Prepare an EPContext whose marker matches a stable source snapshot."""
         for _attempt in range(3):
             try:
@@ -551,17 +639,27 @@ class WinMLSession:
                 )
                 cache_path = self._epcontext_cache_path(None)
                 lock_path = cache_path.with_name(f"{cache_path.name}.lock")
-                with _epcontext_thread_lock(lock_path), FileLock(lock_path):
+                lease = _EPContextCacheLease.acquire(lock_path)
+                assert lease is not None
+                try:
                     prepared = self._prepare_epcontext_model(
                         cache_path,
                         compile_log,
                         None,
                     )
-                return prepared or self._onnx_path
+                    if prepared is not None and prepared.path != self._onnx_path:
+                        prepared.lease = lease
+                        lease = None
+                    return prepared or _PreparedEPContextModel(self._onnx_path)
+                finally:
+                    if lease is not None:
+                        lease.release()
 
             cache_path = self._epcontext_cache_path(expected_identity)
             lock_path = cache_path.with_name(f"{cache_path.name}.lock")
-            with _epcontext_thread_lock(lock_path), FileLock(lock_path):
+            lease = _EPContextCacheLease.acquire(lock_path)
+            assert lease is not None
+            try:
                 try:
                     locked_identity = self._epcontext_cache_identity()
                 except (OSError, ValueError):
@@ -580,23 +678,31 @@ class WinMLSession:
                 except (OSError, ValueError):
                     continue
                 if final_identity == locked_identity:
+                    if prepared.path != self._onnx_path:
+                        prepared.lease = lease
+                        lease = None
                     return prepared
+                if prepared.markerless and prepared.path != self._onnx_path:
+                    self._discard_epcontext_generation(prepared.path)
+            finally:
+                if lease is not None:
+                    lease.release()
 
         logger.warning("ONNX source changed during EPContext compilation; using original model")
-        return self._onnx_path
+        return _PreparedEPContextModel(self._onnx_path)
 
     def _prepare_epcontext_model(
         self,
         cache_path: Path,
         compile_log: Path,
         cache_identity: dict[str, object] | None,
-    ) -> Path | None:
+    ) -> _PreparedEPContextModel | None:
         """Reuse or compile one EPContext while the caller holds its file lock."""
         if cache_identity is not None:
             cached_generation = self._epcontext_cached_generation(cache_path, cache_identity)
             if cached_generation is not None:
                 logger.info("Using cached EPContext: %s", cached_generation)
-                return cached_generation
+                return _PreparedEPContextModel(cached_generation)
 
         generation_path = cache_path.with_name(
             f"{cache_path.stem}_{uuid.uuid4().hex[:16]}{cache_path.suffix}"
@@ -620,11 +726,12 @@ class WinMLSession:
         except Exception as exc:
             self._discard_epcontext_generation(generation_path)
             logger.warning("ModelCompiler failed, using original: %s", exc)
-            return self._onnx_path
+            return _PreparedEPContextModel(self._onnx_path)
 
         if not generation_path.exists():
             self._discard_epcontext_generation(generation_path)
-            return self._onnx_path
+            return _PreparedEPContextModel(self._onnx_path)
+        markerless = cache_identity is None
         if cache_identity is not None:
             try:
                 current_identity = self._epcontext_cache_identity()
@@ -646,10 +753,11 @@ class WinMLSession:
                     self._epcontext_cache_marker_path(cache_path),
                     exc,
                 )
+                markerless = True
             else:
                 self._prune_epcontext_cache(cache_path)
         logger.info("Compiled to EPContext: %s", generation_path)
-        return generation_path
+        return _PreparedEPContextModel(generation_path, markerless=markerless)
 
     @classmethod
     def _discard_epcontext_generation(cls, generation_path: Path) -> None:
@@ -734,10 +842,38 @@ class WinMLSession:
         ]:
             if is_current:
                 continue
-            if generation_path is not None:
-                self._discard_epcontext_generation(generation_path)
-            self._unlink_generation_file(marker_path)
+            lease = _EPContextCacheLease.acquire(lock_path, blocking=False)
+            if lease is None:
+                continue
+            try:
+                if generation_path is not None:
+                    self._discard_epcontext_generation(generation_path)
+                self._unlink_generation_file(marker_path)
+            finally:
+                lease.release()
             self._unlink_generation_file(lock_path)
+
+    def _cleanup_markerless_epcontext_generations(self) -> None:
+        """Best-effort cleanup for non-reusable EPContext generations owned by this session."""
+        remaining: dict[Path, Path | None] = {}
+        for generation_path, lock_path in self._markerless_epcontext_generations.items():
+            self._discard_epcontext_generation(generation_path)
+            if self._epcontext_generation_artifacts_exist(generation_path):
+                remaining[generation_path] = lock_path
+                continue
+            if lock_path is not None:
+                self._unlink_generation_file(lock_path)
+        self._markerless_epcontext_generations = remaining
+
+    @staticmethod
+    def _epcontext_generation_artifacts_exist(generation_path: Path) -> bool:
+        try:
+            return any(
+                candidate.name.startswith(generation_path.stem) and candidate.is_file()
+                for candidate in generation_path.parent.iterdir()
+            )
+        except OSError:
+            return generation_path.exists()
 
     @staticmethod
     def _unlink_generation_file(path: Path) -> None:
@@ -811,6 +947,15 @@ class WinMLSession:
                 fingerprints[key] = self._file_fingerprint(option_path)
         return fingerprints
 
+    def _canonicalize_option_files(self, options: dict[str, str]) -> dict[str, str]:
+        """Resolve existing file-valued options once before hashing and ORT binding."""
+        canonicalized = dict(options)
+        for key, value in options.items():
+            option_path = self._resolve_option_file(value)
+            if option_path is not None:
+                canonicalized[key] = str(option_path)
+        return canonicalized
+
     def _resolve_option_file(self, value: object) -> Path | None:
         if not isinstance(value, str) or not value:
             return None
@@ -818,11 +963,9 @@ class WinMLSession:
             raw_path = Path(value).expanduser()
         except (RuntimeError, ValueError):
             return None
-        candidates: tuple[Path, ...]
-        if raw_path.is_absolute():
-            candidates = (raw_path,)
-        else:
-            candidates = (self._onnx_path.parent / raw_path, Path.cwd() / raw_path)
+        candidates: tuple[Path, ...] = (
+            (raw_path,) if raw_path.is_absolute() else (Path.cwd() / raw_path,)
+        )
         seen: set[Path] = set()
         for candidate in candidates:
             try:
@@ -1053,6 +1196,7 @@ class WinMLSession:
         Clears compiled session and error state.
         """
         self._session = None
+        self._cleanup_markerless_epcontext_generations()
         self._running_model_path = None
         self._state = SessionState.INITIALIZED
         self._last_error = None
@@ -1062,6 +1206,7 @@ class WinMLSession:
         """Clean up resources on deletion."""
         try:
             self._session = None
+            self._cleanup_markerless_epcontext_generations()
         except Exception:
             pass  # Suppress errors during interpreter shutdown
 
@@ -1294,13 +1439,17 @@ class WinMLSession:
         effective_monitor.set_onnx_model_path(self._onnx_path)
         effective_monitor.set_onnx_op_types(self._build_op_type_map(self._onnx_path))
 
-        desired_sess_entries = _overlay_options(
-            saved_sess_entries,
-            dict(monitor.get_session_options()) if monitor is not None else None,
+        desired_sess_entries = self._canonicalize_option_files(
+            _overlay_options(
+                saved_sess_entries,
+                dict(monitor.get_session_options()) if monitor is not None else None,
+            )
         )
-        new_prov = _overlay_options(
-            saved_prov,
-            dict(monitor.get_provider_options()) if monitor is not None else None,
+        new_prov = self._canonicalize_option_files(
+            _overlay_options(
+                saved_prov,
+                dict(monitor.get_provider_options()) if monitor is not None else None,
+            )
         )
 
         # Rebuild InferenceSession only when monitor-contributed provider/session
