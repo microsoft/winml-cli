@@ -343,6 +343,12 @@ class TestSurgeryPipeIntegration:
         # SurgeryPipe should be last in the list
         assert PIPES[-1].name == "surgery"
 
+    def test_proof_dependent_surgeries_run_first(self) -> None:
+        """Graph-pattern proofs must be checked before ORT rewrites the graph."""
+        from winml.modelkit.optim.pipes import PIPES
+
+        assert PIPES[0].name == "pre-surgery"
+
 
 # =============================================================================
 # UNTIE-CONSTANT-BATCHED-MATMUL TESTS
