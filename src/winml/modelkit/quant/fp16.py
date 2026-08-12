@@ -20,7 +20,7 @@ from google.protobuf.message import EncodeError
 
 
 if TYPE_CHECKING:
-    from onnx import GraphProto, ModelProto, TensorProto
+    from onnx import GraphProto, ModelProto, NodeProto, TensorProto
 
 logger = logging.getLogger(__name__)
 
@@ -353,12 +353,16 @@ def _has_blocked_free_consumer(graph: GraphProto, name: str, blocked_ops: set[st
             if any(_descendant_has_free_consumer_in_any_graph(child, name) for child in children):
                 return True
             continue
-        if any(_has_blocked_free_consumer(child, name, blocked_ops) for child in children):
+        if any(
+            not _graph_defines_name(child, name)
+            and _has_blocked_free_consumer(child, name, blocked_ops)
+            for child in children
+        ):
             return True
     return False
 
 
-def _iter_all_child_graphs_from_node(node) -> list[GraphProto]:
+def _iter_all_child_graphs_from_node(node: NodeProto) -> list[GraphProto]:
     """Return all child graphs attached to a node."""
     from onnx import AttributeProto
 

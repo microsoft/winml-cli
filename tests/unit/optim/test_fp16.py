@@ -490,6 +490,67 @@ def _build_blocked_if_free_capture_output_initializer_model() -> ModelProto:
     return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
 
 
+def _build_blocked_if_shadowed_free_capture_model() -> ModelProto:
+    """Build blocked branches that capture a local shadow, not the top-level initializer."""
+    trip_count = helper.make_tensor_value_info("trip_count", TensorProto.INT64, [])
+    condition = helper.make_tensor_value_info("condition", TensorProto.BOOL, [])
+    loop_state = helper.make_tensor_value_info("loop_state", TensorProto.FLOAT, [1])
+    shared = helper.make_tensor_value_info("shared", TensorProto.FLOAT, [1])
+    loop_output = helper.make_tensor_value_info("loop_output", TensorProto.FLOAT, [1])
+    top_initializer = numpy_helper.from_array(np.array([9.0], dtype=np.float32), "shared")
+
+    iteration = helper.make_tensor_value_info("iteration", TensorProto.INT64, [])
+    body_condition = helper.make_tensor_value_info("body_condition", TensorProto.BOOL, [])
+    body_state = helper.make_tensor_value_info("body_state", TensorProto.FLOAT, [1])
+    body_condition_out = helper.make_tensor_value_info("body_condition_out", TensorProto.BOOL, [])
+    body_state_out = helper.make_tensor_value_info("body_state_out", TensorProto.FLOAT, [1])
+    local_shared = numpy_helper.from_array(np.array([7.0], dtype=np.float16), "shared")
+
+    def _branch(name: str) -> GraphProto:
+        branch_output = helper.make_tensor_value_info(f"{name}_output", TensorProto.FLOAT16, [1])
+        identity = helper.make_node(
+            "Identity", ["shared"], [f"{name}_output"], name=f"{name}_identity"
+        )
+        return helper.make_graph([identity], name, [], [branch_output])
+
+    blocked_if = helper.make_node(
+        "If",
+        ["body_condition"],
+        ["if_output"],
+        name="if",
+        then_branch=_branch("then"),
+        else_branch=_branch("else"),
+    )
+    body = helper.make_graph(
+        [
+            helper.make_node(
+                "Identity", ["body_condition"], ["body_condition_out"], name="body_condition"
+            ),
+            helper.make_node("Identity", ["body_state"], ["body_state_out"], name="body_state"),
+            blocked_if,
+        ],
+        "body",
+        [iteration, body_condition, body_state],
+        [body_condition_out, body_state_out],
+        [local_shared],
+    )
+    loop = helper.make_node(
+        "Loop",
+        ["trip_count", "condition", "loop_state"],
+        ["loop_output"],
+        name="loop",
+        body=body,
+    )
+    graph = helper.make_graph(
+        [loop],
+        "blocked_shadowed_capture",
+        [trip_count, condition, loop_state],
+        [shared, loop_output],
+        [top_initializer],
+    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
 def _build_duplicate_non_output_initializer_name_model() -> ModelProto:
     """Build duplicate initializer names across scopes without initializer-backed outputs."""
     condition = helper.make_tensor_value_info("condition", TensorProto.BOOL, [])
@@ -1001,6 +1062,19 @@ class TestConvertToFP16:
         with np.testing.assert_raises_regex(RuntimeError, "blocked subgraph"):
             convert_to_fp16(model, keep_io_types=False, op_block_list=["If"])
         assert model.SerializeToString() == original
+
+    def test_blocked_free_capture_of_shadowed_value_does_not_reject_outer_initializer(self) -> None:
+        """Blocked descendants that capture local shadows do not consume outer initializers."""
+        model = _build_blocked_if_shadowed_free_capture_model()
+
+        result = convert_to_fp16(model, keep_io_types=False, op_block_list=["If"])
+
+        assert result.graph.output[0].type.tensor_type.elem_type == TensorProto.FLOAT16
+        assert result.graph.initializer[0].data_type == TensorProto.FLOAT16
+        [body] = _iter_attribute_graphs(result)
+        assert body.initializer[0].data_type == TensorProto.FLOAT16
+        checker.check_model(result)
+        shape_inference.infer_shapes(result, strict_mode=True)
 
     def test_unconsumed_nested_initializer_outputs_are_converted_to_fp16(self) -> None:
         """Unconsumed nested direct output initializers are repaired after conversion."""
