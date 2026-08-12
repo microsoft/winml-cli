@@ -297,6 +297,31 @@ def _build_nested_shadowed_initializer_output_model() -> ModelProto:
     return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
 
 
+def _build_blocked_if_duplicate_local_initializer_model() -> ModelProto:
+    """Build blocked If branches with duplicate local FLOAT initializer names."""
+    condition = helper.make_tensor_value_info("condition", TensorProto.BOOL, [])
+    output = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1])
+
+    def _branch(name: str, value: float) -> GraphProto:
+        branch_output = helper.make_tensor_value_info(f"{name}_output", TensorProto.FLOAT, [1])
+        initializer = numpy_helper.from_array(np.array([value], dtype=np.float32), "same")
+        identity = helper.make_node(
+            "Identity", ["same"], [f"{name}_output"], name=f"{name}_identity"
+        )
+        return helper.make_graph([identity], name, [], [branch_output], [initializer])
+
+    node = helper.make_node(
+        "If",
+        ["condition"],
+        ["output"],
+        name="if",
+        then_branch=_branch("then", 1.0),
+        else_branch=_branch("else", 2.0),
+    )
+    graph = helper.make_graph([node], "blocked_if_duplicate_local", [condition], [output])
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
 def _build_duplicate_non_output_initializer_name_model() -> ModelProto:
     """Build duplicate initializer names across scopes without initializer-backed outputs."""
     condition = helper.make_tensor_value_info("condition", TensorProto.BOOL, [])
@@ -726,6 +751,16 @@ class TestConvertToFP16:
         with np.testing.assert_raises_regex(RuntimeError, "duplicate FLOAT initializer names"):
             convert_to_fp16(model, keep_io_types=False, op_block_list=[])
         assert model.SerializeToString() == original
+
+    def test_duplicate_initializers_under_blocked_if_are_not_rejected(self) -> None:
+        """Duplicate local initializers under blocked nodes are not traversed by ORT."""
+        model = _build_blocked_if_duplicate_local_initializer_model()
+
+        result = convert_to_fp16(model, keep_io_types=False, op_block_list=["If"])
+
+        assert result.graph.output[0].type.tensor_type.elem_type == TensorProto.FLOAT16
+        checker.check_model(result)
+        shape_inference.infer_shapes(result, strict_mode=True)
 
     def test_nested_fp32_initializer_prevents_already_fp16_shortcut(self) -> None:
         """Nested FP32 outputs are rejected before the already-FP16 shortcut."""

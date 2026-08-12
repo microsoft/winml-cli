@@ -88,6 +88,28 @@ def _iter_nested_graphs(model: ModelProto) -> list[GraphProto]:
     return nested
 
 
+def _ort_traversed_graphs(model: ModelProto, op_block_list: list[str] | None) -> list[GraphProto]:
+    """Return graphs ORT's FP16 converter visits for the given op block list."""
+    from onnx import AttributeProto
+    from onnxruntime.transformers.float16 import DEFAULT_OP_BLOCK_LIST
+
+    blocked_ops = set(DEFAULT_OP_BLOCK_LIST if op_block_list is None else op_block_list)
+    traversed: list[GraphProto] = []
+    pending = [model.graph]
+    while pending:
+        graph = pending.pop()
+        traversed.append(graph)
+        for node in graph.node:
+            if node.op_type in blocked_ops:
+                continue
+            for attribute in node.attribute:
+                if attribute.type == AttributeProto.GRAPH:
+                    pending.append(attribute.g)
+                elif attribute.type == AttributeProto.GRAPHS:
+                    pending.extend(attribute.graphs)
+    return traversed
+
+
 def _direct_initializer_outputs_in_graph(
     graph: GraphProto,
     *,
@@ -131,13 +153,15 @@ def _has_nested_initializer_outputs(model: ModelProto) -> bool:
     )
 
 
-def _reject_duplicate_float_initializer_names(model: ModelProto) -> None:
+def _reject_duplicate_float_initializer_names(
+    model: ModelProto, op_block_list: list[str] | None
+) -> None:
     """Reject FLOAT initializer names that ORT's global conversion map cannot scope."""
     from onnx import TensorProto
 
     seen: set[str] = set()
     duplicates: set[str] = set()
-    for graph in _all_graphs(model):
+    for graph in _ort_traversed_graphs(model, op_block_list):
         if not hasattr(graph, "initializer"):
             continue
         for initializer in graph.initializer:
@@ -430,7 +454,7 @@ def convert_to_fp16(
     from onnx import TensorProto
     from onnxruntime.transformers.float16 import convert_float_to_float16
 
-    _reject_duplicate_float_initializer_names(model)
+    _reject_duplicate_float_initializer_names(model, op_block_list)
     captured = _capture_safe_initializer_outputs(model, keep_io_types=keep_io_types)
     needs_safe_conversion = bool(captured) or _has_nested_initializer_outputs(model)
     if needs_safe_conversion:
