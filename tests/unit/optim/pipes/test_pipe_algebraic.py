@@ -238,6 +238,31 @@ class TestAlgebraicRegistration:
             np.testing.assert_allclose(original, rewritten, rtol=2e-5, atol=2e-5)
 
 
+class TestNameAllocator:
+    """Test generated-name allocation behavior used by batched rewrites."""
+
+    def test_repeated_prefix_allocation_does_not_restart_suffix_probe(self) -> None:
+        class CountingNames(set[str]):
+            def __init__(self) -> None:
+                super().__init__()
+                self.contains_count = 0
+
+            def __contains__(self, value: object) -> bool:
+                self.contains_count += 1
+                return super().__contains__(value)
+
+        allocator = algebraic_pipe._NameAllocator(_model([], [], [], []))
+        used = CountingNames()
+        allocator._used = used
+
+        names = [allocator.new("algebraic_exp_log_scale") for _ in range(32)]
+
+        assert names == ["algebraic_exp_log_scale"] + [
+            f"algebraic_exp_log_scale_{suffix}" for suffix in range(1, 32)
+        ]
+        assert used.contains_count <= 40
+
+
 class TestStaticSplitToSlice:
     """Test static Split replacement using generated data."""
 
@@ -2160,6 +2185,60 @@ class TestExpPositiveScaleFolding:
 
         assert build_count <= 6
         assert [node.op_type for node in transformed.graph.node] == ["Add", "Exp"] * chain_count
+
+    def test_serial_exp_mul_scales_are_folded_without_per_scale_rebuilds(
+        self,
+        monkeypatch,
+    ) -> None:
+        scale_count = 6
+        nodes = [
+            onnx.helper.make_node("Add", ["x", "bias"], ["biased"]),
+            onnx.helper.make_node("Exp", ["biased"], ["exp"]),
+        ]
+        initializers = [_tensor("bias", np.asarray(-0.25, dtype=np.float32))]
+        value_info = [_info("biased", [1, 2]), _info("exp", [1, 2])]
+        current = "exp"
+        for index in range(scale_count):
+            output = "y" if index == scale_count - 1 else f"scaled{index}"
+            nodes.append(onnx.helper.make_node("Mul", [current, f"scale{index}"], [output]))
+            initializers.append(
+                _tensor(f"scale{index}", np.asarray(1.1 + index / 10, dtype=np.float32))
+            )
+            if output != "y":
+                value_info.append(_info(output, [1, 2]))
+            current = output
+        model = _model(
+            nodes,
+            [_info("x", [1, 2])],
+            [_info("y", [1, 2])],
+            initializers,
+            value_info=value_info,
+        )
+        values = {"x": np.asarray([[0.5, -1.0]], dtype=np.float32)}
+        build_count = 0
+        original_build = algebraic_pipe._GraphIndex.build
+
+        def counted_build(model: onnx.ModelProto) -> algebraic_pipe._GraphIndex:
+            nonlocal build_count
+            build_count += 1
+            return original_build(model)
+
+        monkeypatch.setattr(algebraic_pipe._GraphIndex, "build", counted_build)
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        assert build_count <= 6
+        assert [node.op_type for node in transformed.graph.node] == ["Add", "Exp"]
+        _assert_valid_with_inferred_shapes(transformed)
+        np.testing.assert_allclose(
+            _run(model, values),
+            _run(transformed, values),
+            rtol=2e-6,
+            atol=2e-6,
+        )
 
     def test_scalar_scale_without_bias_stays_compact(self) -> None:
         model = _model(

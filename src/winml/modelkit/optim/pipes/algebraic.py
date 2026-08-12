@@ -151,7 +151,7 @@ class _ExpScaleCandidate:
     add: onnx.NodeProto
     bias_input_index: int
     output_node: onnx.NodeProto
-    mul: onnx.NodeProto
+    muls: list[onnx.NodeProto]
     add_output: str
     route_consumer: onnx.NodeProto
     combined_bias: np.ndarray | None
@@ -164,7 +164,7 @@ class _ExpScaleInsertCandidate:
 
     exp: onnx.NodeProto
     output_node: onnx.NodeProto
-    mul: onnx.NodeProto
+    muls: list[onnx.NodeProto]
     log_scale: np.ndarray
 
 
@@ -197,14 +197,16 @@ class _NameAllocator:
             )
             if name
         }
+        self._next_suffix: dict[str, int] = {}
 
     def new(self, prefix: str) -> str:
-        candidate = prefix
-        suffix = 0
+        suffix = self._next_suffix.get(prefix, 0)
+        candidate = prefix if suffix == 0 else f"{prefix}_{suffix}"
         while candidate in self._used:
             suffix += 1
             candidate = f"{prefix}_{suffix}"
         self._used.add(candidate)
+        self._next_suffix[prefix] = suffix + 1
         return candidate
 
 
@@ -851,11 +853,35 @@ def _constant_input(
     return constants[0] if len(constants) == 1 else None
 
 
+def _compact_combined_scale(
+    left: np.ndarray,
+    right: np.ndarray,
+    target_shape: tuple[int, ...],
+) -> np.ndarray | None:
+    if left.dtype != right.dtype:
+        return None
+    try:
+        combined_shape = np.broadcast_shapes(left.shape, right.shape)
+    except ValueError:
+        return None
+    combined_count = _shape_element_count(combined_shape)
+    if (
+        combined_count < 0
+        or not _shape_broadcasts_to(combined_shape, target_shape)
+        or combined_count > max(int(left.size), int(right.size))
+    ):
+        return None
+    combined_scale = np.asarray(left * right, dtype=left.dtype)
+    return (
+        combined_scale if np.isfinite(combined_scale).all() and np.all(combined_scale > 0) else None
+    )
+
+
 def _post_exp_scale(
     index: _GraphIndex,
     exp: onnx.NodeProto,
     visited: set[str] | None = None,
-) -> tuple[onnx.NodeProto, onnx.NodeProto, np.ndarray, tuple[int, ...]] | None:
+) -> tuple[onnx.NodeProto, list[onnx.NodeProto], np.ndarray, tuple[int, ...]] | None:
     if not _is_standard_onnx_node(exp) or exp.op_type != "Exp" or len(exp.input) != 1:
         return None
     exp_output = _node_output(exp)
@@ -881,23 +907,45 @@ def _post_exp_scale(
 
     if next_node is None or not _is_standard_onnx_node(next_node) or next_node.op_type != "Mul":
         return None
-    scale_operand = _constant_input(index, next_node, current_name)
-    mul_output = _node_output(next_node)
     output_shape = _static_shape(index, current_name)
-    if scale_operand is None or mul_output is None or output_shape is None:
+    if output_shape is None:
         return None
-    scale = scale_operand[1]
-    if (
-        not np.issubdtype(scale.dtype, np.floating)
-        or not np.isfinite(scale).all()
-        or not np.all(scale > 0)
+
+    muls: list[onnx.NodeProto] = []
+    combined_scale: np.ndarray | None = None
+    while (
+        next_node is not None and _is_standard_onnx_node(next_node) and next_node.op_type == "Mul"
     ):
+        scale_operand = _constant_input(index, next_node, current_name)
+        mul_output = _node_output(next_node)
+        if scale_operand is None or mul_output is None:
+            break
+        scale = scale_operand[1]
+        if (
+            not np.issubdtype(scale.dtype, np.floating)
+            or not np.isfinite(scale).all()
+            or not np.all(scale > 0)
+        ):
+            break
+        try:
+            np.broadcast_to(scale, output_shape)
+        except ValueError:
+            break
+        next_scale = (
+            scale
+            if combined_scale is None
+            else _compact_combined_scale(combined_scale, scale, output_shape)
+        )
+        if next_scale is None:
+            break
+        combined_scale = next_scale
+        muls.append(next_node)
+        current_name = mul_output
+        next_node = _single_unobserved_consumer(index, current_name)
+
+    if combined_scale is None:
         return None
-    try:
-        np.broadcast_to(scale, output_shape)
-    except ValueError:
-        return None
-    return current_node, next_node, scale, output_shape
+    return current_node, muls, combined_scale, output_shape
 
 
 def _exp_scale_candidate(
@@ -939,7 +987,7 @@ def _exp_scale_candidate(
     post_exp = _post_exp_scale(index, next_node, visited)
     if post_exp is None:
         return None
-    output_node, mul, scale, output_shape = post_exp
+    output_node, muls, scale, output_shape = post_exp
     if output_shape != add_shape:
         return None
 
@@ -966,7 +1014,7 @@ def _exp_scale_candidate(
         add=add,
         bias_input_index=bias_operand[0],
         output_node=output_node,
-        mul=mul,
+        muls=muls,
         add_output=add_output,
         route_consumer=route_consumer,
         combined_bias=combined_bias,
@@ -998,7 +1046,7 @@ def _exp_scale_insert_candidate(
     post_exp = _post_exp_scale(index, exp)
     if post_exp is None:
         return None
-    output_node, mul, scale, output_shape = post_exp
+    output_node, muls, scale, output_shape = post_exp
     input_shape = _static_shape(index, exp.input[0])
     if (
         input_shape is None
@@ -1012,7 +1060,7 @@ def _exp_scale_insert_candidate(
     return _ExpScaleInsertCandidate(
         exp=exp,
         output_node=output_node,
-        mul=mul,
+        muls=muls,
         log_scale=log_scale,
     )
 
@@ -1078,7 +1126,12 @@ def _select_exp_bias_scale_candidates(
         ):
             continue
         candidate_nodes = _candidate_node_ids(
-            [candidate.add, candidate.route_consumer, candidate.output_node, candidate.mul]
+            [
+                candidate.add,
+                candidate.route_consumer,
+                candidate.output_node,
+                *candidate.muls,
+            ]
         )
         if candidate_nodes & reserved_nodes:
             continue
@@ -1097,7 +1150,9 @@ def _select_exp_scale_insert_candidates(
         candidate = _exp_scale_insert_candidate(index, exp)
         if candidate is None:
             continue
-        candidate_nodes = _candidate_node_ids([candidate.exp, candidate.output_node, candidate.mul])
+        candidate_nodes = _candidate_node_ids(
+            [candidate.exp, candidate.output_node, *candidate.muls]
+        )
         if candidate_nodes & reserved_nodes:
             continue
         reserved_nodes.update(candidate_nodes)
@@ -1143,8 +1198,8 @@ def _fold_existing_exp_bias_scales(
             insert_after[id(bias_candidate.add)] = log_add
         else:
             continue
-        bias_candidate.output_node.output[0] = bias_candidate.mul.output[0]
-        removed.add(id(bias_candidate.mul))
+        bias_candidate.output_node.output[0] = bias_candidate.muls[-1].output[0]
+        removed.update(id(mul) for mul in bias_candidate.muls)
 
     rewritten: list[onnx.NodeProto] = []
     for node in model.graph.node:
@@ -1185,9 +1240,9 @@ def _fold_inserted_exp_scales(
             name=allocator.new("algebraic_exp_log_add"),
         )
         insert_candidate.exp.input[0] = adjusted_name
-        insert_candidate.output_node.output[0] = insert_candidate.mul.output[0]
+        insert_candidate.output_node.output[0] = insert_candidate.muls[-1].output[0]
         insert_before[id(insert_candidate.exp)] = add
-        removed.add(id(insert_candidate.mul))
+        removed.update(id(mul) for mul in insert_candidate.muls)
 
     rewritten: list[onnx.NodeProto] = []
     for node in model.graph.node:
