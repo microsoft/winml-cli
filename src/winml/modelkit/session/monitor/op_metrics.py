@@ -14,6 +14,7 @@ import json
 import statistics as _stats
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any, Literal
 
 
@@ -31,6 +32,18 @@ from typing import Any, Literal
 #: still a plain ``str`` so :py:meth:`OpTraceResult.to_dict` and JSON
 #: serialization are unaffected.
 TraceStatus = Literal["ok", "no_data", "parse_failed", "basic_fallback", "not_run"]
+
+
+class TraceFallbackReason(StrEnum):
+    """Machine-readable reason why a detail trace degraded to basic data."""
+
+    QNN_LOG_MISSING = "qnn_log_missing"
+    SCHEMATIC_MISSING = "schematic_missing"
+    SDK_MISSING = "sdk_missing"
+    VIEWER_FAILED = "viewer_failed"
+    SCHEMATIC_PUBLISH_FAILED = "schematic_publish_failed"
+    QHAS_OUTPUT_MISSING = "qhas_output_missing"
+    QHAS_PARSE_FAILED = "qhas_parse_failed"
 
 
 @dataclass
@@ -147,6 +160,12 @@ class OpTraceResult:
     status: TraceStatus = "ok"
     # Populated when status == "parse_failed".
     error: str | None = None
+    # Populated when status == "basic_fallback".
+    fallback_reason: TraceFallbackReason | None = None
+
+    def __post_init__(self) -> None:
+        if self.fallback_reason is not None and self.status != "basic_fallback":
+            raise ValueError("fallback_reason requires status='basic_fallback'")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to structured dict.
@@ -154,6 +173,11 @@ class OpTraceResult:
         Preserves existing nested schema; adds top-level ``status`` and
         ``error`` keys additively.
         """
+        fallback_reason = (
+            self.fallback_reason.value
+            if isinstance(self.fallback_reason, TraceFallbackReason)
+            else self.fallback_reason
+        )
         return {
             "metadata": {
                 "model": self.model,
@@ -171,6 +195,7 @@ class OpTraceResult:
             # ---- Additive ----
             "status": self.status,
             "error": self.error,
+            "fallback_reason": fallback_reason,
         }
 
     def to_json(self, indent: int = 2) -> str:

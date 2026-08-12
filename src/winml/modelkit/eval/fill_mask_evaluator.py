@@ -43,7 +43,10 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
 
         mapping = config.dataset.columns_mapping
         self._input_col = mapping.get("input_column", get_default("fill-mask", "input_column"))
-        self._tokenizer = AutoTokenizer.from_pretrained(config.model_id)
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            config.model_id,
+            trust_remote_code=config.trust_remote_code,
+        )
         super().__init__(config, model)
 
     def prepare_pipeline(self) -> Pipeline:
@@ -124,13 +127,15 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
                 continue
 
             encoding = {
-                k: v for k, v in tok(text, **tok_kwargs).items()
+                k: v.to(self.config.pipeline_device)
+                for k, v in tok(text, **tok_kwargs).items()
                 if isinstance(v, torch.Tensor)
             }
             ids = encoding["input_ids"][0].tolist()
             specials = tok.get_special_tokens_mask(ids, already_has_special_tokens=True)
             positions = [
-                i for i, (t, s) in enumerate(zip(ids, specials, strict=True))
+                i
+                for i, (t, s) in enumerate(zip(ids, specials, strict=True))
                 if not s and t != tok.pad_token_id
             ]
             if not positions:

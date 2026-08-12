@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from winml.modelkit.commands.perf import _resolve_ep_monitor, perf
+from winml.modelkit.session.monitor.op_metrics import TraceFallbackReason
 
 
 def _invoke_perf(args: list[str]):
@@ -923,6 +924,7 @@ class TestCliOpTracingDispatch:
             device="npu",
             tracing_level="detail",
             status="basic_fallback",
+            fallback_reason=TraceFallbackReason.SCHEMATIC_MISSING,
         )
         mock_ctx = MagicMock()
         mock_ctx.monitor.result = trace
@@ -949,7 +951,36 @@ class TestCliOpTracingDispatch:
             )
 
         assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}: {result.output}"
-        assert "degraded" in result.output.lower() or "notice" in result.output.lower()
+        assert "schematic" in result.output.lower()
+        assert "raw onnx" in result.output.lower()
+        assert "qnn_sdk_root" not in result.output.lower()
+
+    @pytest.mark.parametrize(
+        ("reason", "expected"),
+        [
+            (TraceFallbackReason.QNN_LOG_MISSING, "optrace log"),
+            (TraceFallbackReason.SCHEMATIC_MISSING, "raw ONNX"),
+            (TraceFallbackReason.SDK_MISSING, "QNN_SDK_ROOT"),
+            (TraceFallbackReason.VIEWER_FAILED, "viewer"),
+            (TraceFallbackReason.QHAS_OUTPUT_MISSING, "output was not found"),
+            (TraceFallbackReason.QHAS_PARSE_FAILED, "could not be parsed"),
+            (None, "post-processing was unavailable"),
+        ],
+    )
+    def test_detail_fallback_guidance_is_reason_specific(
+        self, reason: TraceFallbackReason | None, expected: str
+    ) -> None:
+        from winml.modelkit.commands.perf import _detail_fallback_guidance
+
+        assert expected in _detail_fallback_guidance(reason)
+
+    def test_detail_fallback_guidance_distinguishes_schematic_publish_failure(self) -> None:
+        from winml.modelkit.commands.perf import _detail_fallback_guidance
+
+        guidance = _detail_fallback_guidance(TraceFallbackReason.SCHEMATIC_PUBLISH_FAILED)
+
+        assert "copy" in guidance.lower() or "publish" in guidance.lower()
+        assert "raw ONNX" not in guidance
 
     def test_basic_fallback_status_rejects_raw_running_model(self, tmp_path: Path):
         """Detail tracing cannot degrade successfully when ORT ran the raw model."""
