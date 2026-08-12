@@ -236,20 +236,18 @@ def _initializers_equal(base: TensorProto, probe: TensorProto) -> bool:
 
         base_value = getattr(base, descriptor.name)
         probe_value = getattr(probe, descriptor.name)
-        if descriptor.is_repeated:
-            typecode = float_field_types.get(descriptor.name)
-            if typecode is not None:
-                values_equal = array(typecode, base_value).tobytes() == array(
-                    typecode, probe_value
-                ).tobytes()
-            else:
-                values_equal = base_value == probe_value
-            if not values_equal:
+        typecode = float_field_types.get(descriptor.name)
+        if typecode is not None:
+            if array(typecode, base_value).tobytes() != array(
+                typecode, probe_value
+            ).tobytes():
                 return False
         elif descriptor.message_type is not None:
-            if base.HasField(descriptor.name) != probe.HasField(descriptor.name):
+            if descriptor.has_presence and (
+                base.HasField(descriptor.name) != probe.HasField(descriptor.name)
+            ):
                 return False
-            if base.HasField(descriptor.name) and base_value != probe_value:
+            if base_value != probe_value:
                 return False
         elif base_value != probe_value:
             return False

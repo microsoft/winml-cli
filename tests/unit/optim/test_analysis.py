@@ -265,6 +265,27 @@ class TestInitializerDiff:
 
         assert modified == ["W"]
 
+    def test_repeated_integer_change_is_detected(self) -> None:
+        base_init = TensorProto(
+            name="W",
+            data_type=TensorProto.INT64,
+            dims=[1],
+            int64_data=[1],
+        )
+        probe_init = TensorProto(
+            name="W",
+            data_type=TensorProto.INT64,
+            dims=[1],
+            int64_data=[2],
+        )
+
+        _, _, modified = _diff_initializers(
+            {"W": base_init},
+            {"W": probe_init},
+        )
+
+        assert modified == ["W"]
+
 
 class TestExternalDataInitializerDiff:
     """External-data location churn must not read as a modified initializer."""
