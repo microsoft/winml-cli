@@ -339,11 +339,9 @@ def _same_shape_element_count(
     return left_count >= 0 and left_count == _shape_element_count(right)
 
 
-def _standard_opset_version(model: onnx.ModelProto) -> int | None:
-    for opset in model.opset_import:
-        if opset.domain in ("", "ai.onnx"):
-            return int(opset.version)
-    return None
+def _strict_default_opset_version(model: onnx.ModelProto) -> int | None:
+    versions = [int(opset.version) for opset in model.opset_import if opset.domain == ""]
+    return versions[0] if len(versions) == 1 else None
 
 
 def _new_initializer(
@@ -595,11 +593,8 @@ def _fold_sibling_slices_to_split(
     allocator: _NameAllocator,
 ) -> None:
     """Replace contiguous sibling Slice nodes with an equivalent Split."""
-    opset = next(
-        (int(opset.version) for opset in model.opset_import if opset.domain in ("", "ai.onnx")),
-        0,
-    )
-    if opset < 13:
+    opset = _strict_default_opset_version(model)
+    if opset is None or opset < 13:
         return
     index = _GraphIndex.build(model)
     groups = _sibling_slice_split_groups(model, index)
@@ -1541,11 +1536,8 @@ def _rewrite_static_splits(
 ) -> None:
     """Replace statically bounded Split nodes with input-form Slice nodes."""
     index = _GraphIndex.build(model)
-    opset = next(
-        (int(opset.version) for opset in model.opset_import if opset.domain in ("", "ai.onnx")),
-        0,
-    )
-    if opset and opset < 10:
+    opset = _strict_default_opset_version(model)
+    if opset is None or opset < 10:
         return
 
     replacements: dict[int, list[onnx.NodeProto]] = {}
@@ -1641,7 +1633,7 @@ class AlgebraicRewritePipe(BasePipe[AlgebraicRewritePipeConfig]):
         if config.conv_channel_affine_folding:
             _fold_channel_affine(result, allocator)
         if config.exp_positive_scale_folding:
-            standard_opset = _standard_opset_version(result)
+            standard_opset = _strict_default_opset_version(result)
             if standard_opset is not None and standard_opset >= 7:
                 _fold_exp_positive_scales(result, allocator)
         if config.sibling_slice_to_split:

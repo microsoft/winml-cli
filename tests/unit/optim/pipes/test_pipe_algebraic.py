@@ -515,6 +515,52 @@ class TestStaticSplitToSlice:
         assert transformed.SerializeToString() == original
 
     @pytest.mark.parametrize(
+        "opset_imports",
+        [
+            [onnx.helper.make_opsetid("ai.onnx", 17), onnx.helper.make_opsetid("", 12)],
+            [onnx.helper.make_opsetid("", 17), onnx.helper.make_opsetid("", 12)],
+        ],
+    )
+    def test_sibling_static_slices_are_unchanged_for_ambiguous_standard_opset(
+        self,
+        opset_imports: list[onnx.OperatorSetIdProto],
+    ) -> None:
+        model = _model(
+            [
+                onnx.helper.make_node(
+                    "Slice",
+                    ["x", "left_starts", "left_ends", "axis", "steps"],
+                    ["left"],
+                ),
+                onnx.helper.make_node(
+                    "Slice",
+                    ["x", "right_starts", "right_ends", "axis", "steps"],
+                    ["right"],
+                ),
+            ],
+            [_info("x", [1, 6, 2])],
+            [_info("left", [1, 2, 2]), _info("right", [1, 4, 2])],
+            [
+                _tensor("left_starts", np.asarray([0], dtype=np.int64)),
+                _tensor("left_ends", np.asarray([2], dtype=np.int64)),
+                _tensor("right_starts", np.asarray([2], dtype=np.int64)),
+                _tensor("right_ends", np.asarray([6], dtype=np.int64)),
+                _tensor("axis", np.asarray([1], dtype=np.int64)),
+                _tensor("steps", np.asarray([1], dtype=np.int64)),
+            ],
+        )
+        del model.opset_import[:]
+        model.opset_import.extend(opset_imports)
+        original = model.SerializeToString()
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipe.build_config(gather_slice_to_split_fusion=True),
+        )
+
+        assert transformed.SerializeToString() == original
+
+    @pytest.mark.parametrize(
         ("left_starts", "left_ends", "right_starts", "right_ends", "axes", "steps"),
         [
             ([0], [2], [3], [6], [1], [1]),
@@ -2175,6 +2221,43 @@ class TestExpPositiveScaleFolding:
         del model.opset_import[:]
         if opset_version is not None:
             model.opset_import.append(onnx.helper.make_opsetid("", opset_version))
+        original = model.SerializeToString()
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        assert transformed.SerializeToString() == original
+
+    @pytest.mark.parametrize(
+        "opset_imports",
+        [
+            [onnx.helper.make_opsetid("ai.onnx", 17), onnx.helper.make_opsetid("", 6)],
+            [onnx.helper.make_opsetid("", 17), onnx.helper.make_opsetid("", 6)],
+        ],
+    )
+    def test_ambiguous_standard_opset_is_unchanged(
+        self,
+        opset_imports: list[onnx.OperatorSetIdProto],
+    ) -> None:
+        model = _model(
+            [
+                onnx.helper.make_node("Exp", ["x"], ["exponential"]),
+                onnx.helper.make_node(
+                    "Mul",
+                    ["exponential", "scale"],
+                    ["y"],
+                    broadcast=1,
+                ),
+            ],
+            [_info("x", [1, 2])],
+            [_info("y", [1, 2])],
+            [_tensor("scale", np.asarray([1.25, 0.75], dtype=np.float32))],
+            value_info=[_info("exponential", [1, 2])],
+        )
+        del model.opset_import[:]
+        model.opset_import.extend(opset_imports)
         original = model.SerializeToString()
 
         transformed = AlgebraicRewritePipe().process(
