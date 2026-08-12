@@ -12,6 +12,9 @@ Follows the Cardinal Rules:
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -264,6 +267,32 @@ class TestInitializerDiff:
         )
 
         assert modified == ["W"]
+
+    def test_signed_zero_change_with_pure_python_protobuf(self) -> None:
+        code = """
+from onnx import TensorProto
+from winml.modelkit.optim.analysis import _initializers_equal
+
+base = TensorProto(
+    name="W", data_type=TensorProto.FLOAT, dims=[1], float_data=[-0.0]
+)
+probe = TensorProto(
+    name="W", data_type=TensorProto.FLOAT, dims=[1], float_data=[0.0]
+)
+assert not _initializers_equal(base, probe)
+"""
+        env = {
+            **os.environ,
+            "PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION": "python",
+        }
+
+        subprocess.run(  # noqa: S603 -- fixed interpreter and inline test code
+            [sys.executable, "-c", code],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
 
     def test_repeated_integer_change_is_detected(self) -> None:
         base_init = TensorProto(

@@ -225,24 +225,24 @@ def _initializers_equal(base: TensorProto, probe: TensorProto) -> bool:
     comparison reads payloads in place, while serializing every initializer
     would allocate and copy all model weights for every capability probe.
     """
+    float_field_types = {"float_data": "f", "double_data": "d"}
+    for field_name, typecode in float_field_types.items():
+        if array(typecode, getattr(base, field_name)).tobytes() != array(
+            typecode, getattr(probe, field_name)
+        ).tobytes():
+            return False
+
     if base == probe:
         return True
 
-    ignored_fields = {"data_location", "external_data"}
-    float_field_types = {"float_data": "f", "double_data": "d"}
+    ignored_fields = {"data_location", "external_data", *float_field_types}
     for descriptor in TensorProto.DESCRIPTOR.fields:
         if descriptor.name in ignored_fields:
             continue
 
         base_value = getattr(base, descriptor.name)
         probe_value = getattr(probe, descriptor.name)
-        typecode = float_field_types.get(descriptor.name)
-        if typecode is not None:
-            if array(typecode, base_value).tobytes() != array(
-                typecode, probe_value
-            ).tobytes():
-                return False
-        elif descriptor.message_type is not None:
+        if descriptor.message_type is not None:
             if descriptor.has_presence and (
                 base.HasField(descriptor.name) != probe.HasField(descriptor.name)
             ):
