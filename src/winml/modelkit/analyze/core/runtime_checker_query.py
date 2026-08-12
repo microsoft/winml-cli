@@ -20,6 +20,7 @@ import numpy as np
 import onnx
 import pandas as pd
 from onnx import numpy_helper
+from onnx.defs import SchemaError
 
 from ...onnx import (
     ONNXDomain,
@@ -590,7 +591,18 @@ def get_query_conditions_for_node(
         - is_qdq: True if node has QDQ quantization on inputs or outputs.
     """
     conditions = {}
-    schema = domain.get_op_schema(node.op_type, opset_version)
+    try:
+        schema = domain.get_op_schema(node.op_type, opset_version)
+    except SchemaError as e:
+        # Some runtime-specific models emit extension ops in the default ONNX
+        # domain where no standard schema exists (for example
+        # SimplifiedLayerNormalization). Treat this as unsupported instead of
+        # aborting the whole analyze command.
+        raise OpUnsupportedError(
+            "Node "
+            f"{node.op_type} has no registered schema for domain "
+            f"'{domain.schema_domain}' at opset {opset_version}: {e}"
+        ) from e
     input_names, variadic_input_name, attribute_names, type_annotations = get_op_input_properties(
         schema
     )
@@ -2685,7 +2697,8 @@ class RuntimeCheckerQuery:
         ) as e:
             conditions_ms = _elapsed_ms(conditions_start)
             exception_type = type(e).__name__
-            logger.error(
+            log_fn = logger.debug if isinstance(e, OpUnsupportedError) else logger.error
+            log_fn(
                 "%s caught for op %s (node: %s): %s",
                 exception_type,
                 node.op_type,

@@ -22,7 +22,7 @@ from winml.modelkit.analyze.core.runtime_checker_query import (
     node_to_pattern_match,
     try_load_external_initializer_array,
 )
-from winml.modelkit.analyze.exceptions import OpOptionalInputSupportError
+from winml.modelkit.analyze.exceptions import OpOptionalInputSupportError, OpUnsupportedError
 from winml.modelkit.analyze.utils.model_utils import DUMMY_FLOAT
 from winml.modelkit.analyze.utils.node_key_utils import resolve_stable_node_key
 from winml.modelkit.onnx import ONNXDomain
@@ -128,6 +128,29 @@ class TestBuildQuerySignature:
 
 class TestGetQueryConditionsForNode:
     """Test condition extraction for runtime rule lookups."""
+
+    def test_missing_schema_is_reported_as_unsupported_error(self):
+        """Unknown schema should be classified as unsupported instead of crashing analyze."""
+        node = helper.make_node(
+            "SimplifiedLayerNormalization",
+            ["X", "gamma"],
+            ["Y"],
+            name="rms_norm",
+        )
+
+        with pytest.raises(OpUnsupportedError) as exc_info:
+            get_query_conditions_for_node(
+                node=node,
+                opset_version=21,
+                valueinfo={},
+                initializers={},
+                constants={},
+                domain=ONNXDomain.AI_ONNX,
+                input_to_dq={},
+                output_to_q={},
+            )
+
+        assert "has no registered schema" in str(exc_info.value)
 
     def test_external_initializer_without_payload_is_not_marked_constant(self):
         """External-data initializers without loaded values keep shape but not constant status."""
