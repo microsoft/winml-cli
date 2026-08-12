@@ -373,6 +373,43 @@ def _remove_orphan_output_casts(
     model.graph.value_info.extend(retained)
 
 
+def _graph_topological_sort(graph: GraphProto) -> None:
+    """Topologically sort nodes while treating dense and sparse initializers as inputs."""
+    deps = {initializer.name for initializer in getattr(graph, "initializer", [])}
+    deps.update(sparse.values.name for sparse in getattr(graph, "sparse_initializer", []))
+    deps.update(value.name for value in getattr(graph, "input", []))
+
+    sorted_indices: set[int] = set()
+    sorted_nodes = []
+    last_blocked_node = None
+    previous_count = -1
+    while len(sorted_indices) != len(graph.node):
+        if len(sorted_indices) == previous_count:
+            break
+        previous_count = len(sorted_indices)
+        for node_index, node in enumerate(graph.node):
+            if node_index in sorted_indices:
+                continue
+            if all(not input_name or input_name in deps for input_name in node.input):
+                sorted_nodes.append(node)
+                sorted_indices.add(node_index)
+                deps.update(output for output in node.output if output)
+            else:
+                last_blocked_node = node.name
+
+    if len(sorted_indices) != len(graph.node):
+        msg = (
+            "Graph is not a DAG: "
+            f"len(sorted_node_set)={len(sorted_indices)}, "
+            f"len(graph.node)={len(graph.node)}, "
+            f"failed at node {last_blocked_node}"
+        )
+        raise RuntimeError(msg)
+
+    del graph.node[:]
+    graph.node.extend(sorted_nodes)
+
+
 def convert_to_fp16(
     model: ModelProto,
     *,
@@ -392,18 +429,6 @@ def convert_to_fp16(
     """
     from onnx import TensorProto
     from onnxruntime.transformers.float16 import convert_float_to_float16
-
-    fp32_types = {TensorProto.FLOAT, TensorProto.DOUBLE, TensorProto.BFLOAT16}
-    initializers = [
-        initializer for graph in _all_graphs(model) for initializer in graph.initializer
-    ]
-    if initializers:
-        floating = [
-            value for value in initializers if value.data_type in fp32_types | {TensorProto.FLOAT16}
-        ]
-        if floating and all(value.data_type == TensorProto.FLOAT16 for value in floating):
-            logger.info("Model is already FP16 - skipping conversion.")
-            return model
 
     _reject_duplicate_float_initializer_names(model)
     captured = _capture_safe_initializer_outputs(model, keep_io_types=keep_io_types)
@@ -452,9 +477,7 @@ def convert_to_fp16(
             elif not item.has_consumers:
                 _convert_output_initializer_to_fp16(converted, item.name)
 
-    from onnxruntime.transformers.onnx_model import OnnxModel
-
-    OnnxModel.graph_topological_sort(converted.graph)
+    _graph_topological_sort(converted.graph)
     _validate_initializer_output_types(converted)
 
     if needs_safe_conversion:

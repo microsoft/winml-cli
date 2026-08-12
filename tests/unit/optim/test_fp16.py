@@ -17,7 +17,16 @@ from __future__ import annotations
 
 import numpy as np
 import onnxruntime as ort
-from onnx import GraphProto, ModelProto, TensorProto, checker, helper, numpy_helper, shape_inference
+from onnx import (
+    GraphProto,
+    ModelProto,
+    SparseTensorProto,
+    TensorProto,
+    checker,
+    helper,
+    numpy_helper,
+    shape_inference,
+)
 
 from winml.modelkit.quant.fp16 import convert_to_fp16
 
@@ -114,6 +123,48 @@ def _build_nested_consumed_initializer_output_model() -> ModelProto:
         else_branch=_branch("else", 2.0),
     )
     graph = helper.make_graph([node], "nested_consumed_initializer", [condition], [output])
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
+def _build_fp32_identity_with_fp16_nested_initializer_model() -> ModelProto:
+    """Build FP32 top-level I/O with only nested FP16 floating initializers."""
+    x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1])
+    y = helper.make_tensor_value_info("y", TensorProto.FLOAT, [1])
+    condition = helper.make_tensor_value_info("condition", TensorProto.BOOL, [])
+    branch_output = helper.make_tensor_value_info("branch_value", TensorProto.FLOAT16, [1])
+    nested_output = helper.make_tensor_value_info("nested_output", TensorProto.FLOAT16, [1])
+    initializer = numpy_helper.from_array(np.array([1.0], dtype=np.float16), "branch_value")
+    branch = helper.make_graph([], "branch", [], [branch_output], [initializer])
+    identity = helper.make_node("Identity", ["x"], ["y"], name="identity")
+    if_node = helper.make_node(
+        "If",
+        ["condition"],
+        ["nested_output"],
+        name="if",
+        then_branch=branch,
+        else_branch=branch,
+    )
+    graph = helper.make_graph(
+        [identity, if_node],
+        "fp32_top_level_with_fp16_nested_initializer",
+        [x, condition],
+        [y, nested_output],
+    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
+def _build_sparse_shape_reshape_model() -> ModelProto:
+    """Build a Reshape graph that consumes a sparse INT64 shape initializer."""
+    x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [4])
+    output = helper.make_tensor_value_info("output", TensorProto.FLOAT, [2, 2])
+    sparse_shape = SparseTensorProto()
+    sparse_shape.values.CopyFrom(numpy_helper.from_array(np.array([2, 2], dtype=np.int64)))
+    sparse_shape.indices.CopyFrom(numpy_helper.from_array(np.array([[0], [1]], dtype=np.int64)))
+    sparse_shape.dims.extend([2])
+    sparse_shape.values.name = "shape"
+    reshape = helper.make_node("Reshape", ["x", "shape"], ["output"], name="reshape")
+    graph = helper.make_graph([reshape], "sparse_shape", [x], [output])
+    graph.sparse_initializer.append(sparse_shape)
     return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
 
 
@@ -395,6 +446,27 @@ class TestConvertToFP16:
             session.run(None, {"condition": np.array(True)})[0],
             np.array([1.0], dtype=np.float16),
         )
+
+    def test_fp16_initializers_do_not_skip_fp32_graph_conversion(self) -> None:
+        """FP16 initializers alone do not prove graph I/O and nodes are already FP16."""
+        model = _build_fp32_identity_with_fp16_nested_initializer_model()
+
+        result = convert_to_fp16(model, keep_io_types=False, op_block_list=[])
+
+        assert result.graph.input[0].type.tensor_type.elem_type == TensorProto.FLOAT16
+        assert result.graph.output[0].type.tensor_type.elem_type == TensorProto.FLOAT16
+        checker.check_model(result)
+        shape_inference.infer_shapes(result, strict_mode=True)
+
+    def test_sparse_initializer_inputs_are_available_to_topological_sort(self) -> None:
+        """Sorting after conversion treats sparse initializer names as available values."""
+        model = _build_sparse_shape_reshape_model()
+
+        result = convert_to_fp16(model, keep_io_types=False, op_block_list=[])
+
+        assert result.graph.output[0].type.tensor_type.elem_type == TensorProto.FLOAT16
+        checker.check_model(result)
+        shape_inference.infer_shapes(result, strict_mode=True)
 
     def test_unloaded_nested_external_initializer_output_is_rejected_before_mutation(
         self,
@@ -725,8 +797,8 @@ class TestConvertToFP16:
         result = convert_to_fp16(model, op_block_list=None)
         assert result is not None
 
-    def test_skips_already_fp16_model(self) -> None:
-        """If all floating-point initializers are already FP16, conversion is skipped."""
+    def test_preserves_already_fp16_model_without_casts(self) -> None:
+        """Already-FP16 graph I/O and initializers remain FP16 without extra Casts."""
         # Build a model with FP16 initializers directly
         x = helper.make_tensor_value_info("x", TensorProto.FLOAT16, [1, 4])
         out = helper.make_tensor_value_info("out", TensorProto.FLOAT16, [1, 4])
@@ -736,15 +808,21 @@ class TestConvertToFP16:
         graph = helper.make_graph([add], "fp16_model", [x], [out], [weight])
         model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
 
-        original_nodes = len(model.graph.node)
         result = convert_to_fp16(model)
 
-        # Should return the same model unchanged (no Cast nodes inserted)
-        assert len(result.graph.node) == original_nodes
-        assert result is model
+        assert all(
+            value.type.tensor_type.elem_type == TensorProto.FLOAT16
+            for value in (*result.graph.input, *result.graph.output)
+        )
+        assert all(
+            initializer.data_type == TensorProto.FLOAT16 for initializer in result.graph.initializer
+        )
+        assert all(node.op_type != "Cast" for node in result.graph.node)
+        checker.check_model(result)
+        shape_inference.infer_shapes(result, strict_mode=True)
 
-    def test_skips_fp16_model_with_int_initializers(self) -> None:
-        """FP16 model with non-float initializers (e.g. INT64 shapes) should still skip."""
+    def test_preserves_fp16_model_with_int_initializers_without_casts(self) -> None:
+        """FP16 graph with INT64 shape initializers remains FP16 without extra Casts."""
         x = helper.make_tensor_value_info("x", TensorProto.FLOAT16, [1, 4])
         out = helper.make_tensor_value_info("out", TensorProto.FLOAT16, [1, 4])
         weight_data = np.array([[1.0, 2.0, 3.0, 4.0]], dtype=np.float16)
@@ -755,8 +833,16 @@ class TestConvertToFP16:
         graph = helper.make_graph([add], "fp16_mixed", [x], [out], [weight, shape_tensor])
         model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
 
-        original_nodes = len(model.graph.node)
         result = convert_to_fp16(model)
 
-        assert len(result.graph.node) == original_nodes
-        assert result is model
+        assert all(
+            value.type.tensor_type.elem_type == TensorProto.FLOAT16
+            for value in (*result.graph.input, *result.graph.output)
+        )
+        assert any(
+            initializer.name == "shape" and initializer.data_type == TensorProto.INT64
+            for initializer in result.graph.initializer
+        )
+        assert all(node.op_type != "Cast" for node in result.graph.node)
+        checker.check_model(result)
+        shape_inference.infer_shapes(result, strict_mode=True)
