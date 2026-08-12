@@ -126,6 +126,33 @@ def _build_nested_consumed_initializer_output_model() -> ModelProto:
     return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
 
 
+def _build_nested_consumed_initializer_output_with_top_level_input_collision_model() -> ModelProto:
+    """Build nested local initializer consumers shadowing a kept top-level input."""
+    same = helper.make_tensor_value_info("same", TensorProto.FLOAT, [1])
+    condition = helper.make_tensor_value_info("condition", TensorProto.BOOL, [])
+    output = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1])
+
+    def _branch(name: str, value: float, *, collides: bool) -> GraphProto:
+        output_name = "same" if collides else f"{name}_value"
+        branch_output = helper.make_tensor_value_info(output_name, TensorProto.FLOAT, [1])
+        initializer = numpy_helper.from_array(np.array([value], dtype=np.float32), output_name)
+        identity = helper.make_node(
+            "Identity", [output_name], [f"{name}_used"], name=f"{name}_identity"
+        )
+        return helper.make_graph([identity], name, [], [branch_output], [initializer])
+
+    node = helper.make_node(
+        "If",
+        ["condition"],
+        ["output"],
+        name="if",
+        then_branch=_branch("then", 1.0, collides=True),
+        else_branch=_branch("else", 2.0, collides=False),
+    )
+    graph = helper.make_graph([node], "nested_input_collision", [same, condition], [output])
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
 def _build_fp32_identity_with_fp16_nested_initializer_model() -> ModelProto:
     """Build FP32 top-level I/O with only nested FP16 floating initializers."""
     x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1])
@@ -319,6 +346,147 @@ def _build_blocked_if_duplicate_local_initializer_model() -> ModelProto:
         else_branch=_branch("else", 2.0),
     )
     graph = helper.make_graph([node], "blocked_if_duplicate_local", [condition], [output])
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
+def _build_blocked_if_shadowed_output_initializer_model() -> ModelProto:
+    """Build a top-level output initializer shadowed by blocked branch-local values."""
+    condition = helper.make_tensor_value_info("condition", TensorProto.BOOL, [])
+    shared = helper.make_tensor_value_info("shared", TensorProto.FLOAT, [1])
+    initializer = numpy_helper.from_array(np.array([9.0], dtype=np.float32), "shared")
+
+    def _branch(name: str, value: float) -> GraphProto:
+        branch_output = helper.make_tensor_value_info(f"{name}_output", TensorProto.FLOAT, [1])
+        local = numpy_helper.from_array(np.array([value], dtype=np.float32), "shared")
+        identity = helper.make_node(
+            "Identity", ["shared"], [f"{name}_output"], name=f"{name}_identity"
+        )
+        return helper.make_graph([identity], name, [], [branch_output], [local])
+
+    node = helper.make_node(
+        "If",
+        ["condition"],
+        ["if_output"],
+        name="if",
+        then_branch=_branch("then", 1.0),
+        else_branch=_branch("else", 2.0),
+    )
+    graph = helper.make_graph([node], "blocked_if_shadowed", [condition], [shared], [initializer])
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
+def _build_traversed_shadowed_output_initializer_model() -> ModelProto:
+    """Build traversed Loop body names that shadow a top-level output initializer."""
+    trip_count = helper.make_tensor_value_info("trip_count", TensorProto.INT64, [])
+    condition = helper.make_tensor_value_info("condition", TensorProto.BOOL, [])
+    loop_carried = helper.make_tensor_value_info("loop_carried", TensorProto.FLOAT, [1])
+    shared = helper.make_tensor_value_info("shared", TensorProto.FLOAT, [1])
+    loop_output = helper.make_tensor_value_info("loop_output", TensorProto.FLOAT, [1])
+    initializer = numpy_helper.from_array(np.array([9.0], dtype=np.float32), "shared")
+
+    iteration = helper.make_tensor_value_info("iteration", TensorProto.INT64, [])
+    body_condition = helper.make_tensor_value_info("body_condition", TensorProto.BOOL, [])
+    local_shared = helper.make_tensor_value_info("shared", TensorProto.FLOAT, [1])
+    body_condition_out = helper.make_tensor_value_info("body_condition_out", TensorProto.BOOL, [])
+    body_value_out = helper.make_tensor_value_info("body_value_out", TensorProto.FLOAT, [1])
+    body = helper.make_graph(
+        [
+            helper.make_node(
+                "Identity", ["body_condition"], ["body_condition_out"], name="body_condition"
+            ),
+            helper.make_node("Identity", ["shared"], ["body_value_out"], name="body_value"),
+        ],
+        "body",
+        [iteration, body_condition, local_shared],
+        [body_condition_out, body_value_out],
+    )
+    loop = helper.make_node(
+        "Loop",
+        ["trip_count", "condition", "loop_carried"],
+        ["loop_output"],
+        name="loop",
+        body=body,
+    )
+    graph = helper.make_graph(
+        [loop],
+        "traversed_shadowed",
+        [trip_count, condition, loop_carried],
+        [shared, loop_output],
+        [initializer],
+    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
+def _build_nested_output_initializer_with_top_level_io_name_collision_model() -> ModelProto:
+    """Build a nested direct initializer output matching an unrelated top-level input."""
+    trip_count = helper.make_tensor_value_info("trip_count", TensorProto.INT64, [])
+    condition = helper.make_tensor_value_info("condition", TensorProto.BOOL, [])
+    loop_state = helper.make_tensor_value_info("loop_state", TensorProto.FLOAT, [1])
+    same = helper.make_tensor_value_info("same", TensorProto.FLOAT, [1])
+    loop_output = helper.make_tensor_value_info("loop_output", TensorProto.FLOAT, [1])
+
+    iteration = helper.make_tensor_value_info("iteration", TensorProto.INT64, [])
+    body_condition = helper.make_tensor_value_info("body_condition", TensorProto.BOOL, [])
+    body_state = helper.make_tensor_value_info("body_state", TensorProto.FLOAT, [1])
+    body_condition_out = helper.make_tensor_value_info("body_condition_out", TensorProto.BOOL, [])
+    body_output = helper.make_tensor_value_info("same", TensorProto.FLOAT, [1])
+    body_initializer = numpy_helper.from_array(np.array([7.0], dtype=np.float32), "same")
+    body = helper.make_graph(
+        [
+            helper.make_node(
+                "Identity", ["body_condition"], ["body_condition_out"], name="body_condition"
+            )
+        ],
+        "body",
+        [iteration, body_condition, body_state],
+        [body_condition_out, body_output],
+        [body_initializer],
+    )
+    loop = helper.make_node(
+        "Loop",
+        ["trip_count", "condition", "loop_state"],
+        ["loop_output"],
+        name="loop",
+        body=body,
+    )
+    graph = helper.make_graph(
+        [loop],
+        "nested_io_name_collision",
+        [trip_count, condition, loop_state, same],
+        [loop_output],
+    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
+def _build_blocked_if_free_capture_output_initializer_model() -> ModelProto:
+    """Build a blocked If branch that free-captures a top-level output initializer."""
+    condition = helper.make_tensor_value_info("condition", TensorProto.BOOL, [])
+    shared = helper.make_tensor_value_info("shared", TensorProto.FLOAT, [1])
+    if_output = helper.make_tensor_value_info("if_output", TensorProto.FLOAT, [1])
+    initializer = numpy_helper.from_array(np.array([9.0], dtype=np.float32), "shared")
+
+    def _branch(name: str) -> GraphProto:
+        branch_output = helper.make_tensor_value_info(f"{name}_output", TensorProto.FLOAT, [1])
+        identity = helper.make_node(
+            "Identity", ["shared"], [f"{name}_output"], name=f"{name}_identity"
+        )
+        return helper.make_graph([identity], name, [], [branch_output])
+
+    node = helper.make_node(
+        "If",
+        ["condition"],
+        ["if_output"],
+        name="if",
+        then_branch=_branch("then"),
+        else_branch=_branch("else"),
+    )
+    graph = helper.make_graph(
+        [node],
+        "blocked_if_free_capture",
+        [condition],
+        [shared, if_output],
+        [initializer],
+    )
     return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
 
 
@@ -687,14 +855,29 @@ class TestConvertToFP16:
             convert_to_fp16(model, keep_io_types=True, op_block_list=[])
         assert model.SerializeToString() == original
 
-    def test_nested_initializer_outputs_are_rejected_before_mutation(self) -> None:
-        """Nested initializer-output semantics are rejected before mutation."""
+    def test_nested_initializer_outputs_are_converted_when_io_types_are_kept(self) -> None:
+        """Nested direct output initializers are repaired in traversed graphs."""
         model = _build_nested_initializer_output_model()
-        original = model.SerializeToString()
 
-        with np.testing.assert_raises_regex(RuntimeError, "mismatched types"):
-            convert_to_fp16(model, keep_io_types=True, op_block_list=[])
-        assert model.SerializeToString() == original
+        result = convert_to_fp16(model, keep_io_types=True, op_block_list=[])
+
+        assert result.graph.output[0].type.tensor_type.elem_type == TensorProto.FLOAT
+        for graph in _iter_attribute_graphs(result):
+            assert all(
+                output.type.tensor_type.elem_type == TensorProto.FLOAT16 for output in graph.output
+            )
+            assert all(
+                initializer.data_type == TensorProto.FLOAT16 for initializer in graph.initializer
+            )
+        checker.check_model(result)
+        shape_inference.infer_shapes(result, strict_mode=True)
+        session = ort.InferenceSession(
+            result.SerializeToString(), providers=["CPUExecutionProvider"]
+        )
+        np.testing.assert_array_equal(
+            session.run(None, {"condition": np.array(True)})[0],
+            np.array([1.0], dtype=np.float32),
+        )
 
     def test_lexical_nested_consumers_are_rejected_before_mutation(self) -> None:
         """Lexically shared output initializers are rejected before mutation."""
@@ -762,17 +945,82 @@ class TestConvertToFP16:
         checker.check_model(result)
         shape_inference.infer_shapes(result, strict_mode=True)
 
-    def test_nested_fp32_initializer_prevents_already_fp16_shortcut(self) -> None:
-        """Nested FP32 outputs are rejected before the already-FP16 shortcut."""
+    def test_blocked_shadowed_consumers_do_not_make_output_initializer_shared(self) -> None:
+        """Blocked branch-local values do not consume a top-level output initializer."""
+        model = _build_blocked_if_shadowed_output_initializer_model()
+
+        result = convert_to_fp16(model, keep_io_types=True, op_block_list=["If"])
+
+        assert result.graph.output[0].type.tensor_type.elem_type == TensorProto.FLOAT
+        assert result.graph.initializer[0].data_type == TensorProto.FLOAT
+        checker.check_model(result)
+        shape_inference.infer_shapes(result, strict_mode=True)
+        session = ort.InferenceSession(
+            result.SerializeToString(), providers=["CPUExecutionProvider"]
+        )
+        np.testing.assert_array_equal(
+            session.run(None, {"condition": np.array(True)})[0],
+            np.array([9.0], dtype=np.float32),
+        )
+
+    def test_traversed_shadowed_output_initializer_references_are_rejected(self) -> None:
+        """Traversed nested refs with the same name hit ORT's global I/O name mapping."""
+        model = _build_traversed_shadowed_output_initializer_model()
+        original = model.SerializeToString()
+
+        with np.testing.assert_raises_regex(RuntimeError, "scope-aware"):
+            convert_to_fp16(model, keep_io_types=True, op_block_list=[])
+        assert model.SerializeToString() == original
+
+    def test_nested_shadowed_top_level_input_references_are_rejected(self) -> None:
+        """Top-level input casts are also globally mapped by ORT keep_io_types."""
+        model = _build_nested_consumed_initializer_output_with_top_level_input_collision_model()
+        original = model.SerializeToString()
+
+        with np.testing.assert_raises_regex(RuntimeError, "scope-aware"):
+            convert_to_fp16(model, keep_io_types=True, op_block_list=[])
+        assert model.SerializeToString() == original
+
+    def test_nested_output_initializer_matching_kept_top_level_io_is_repaired(self) -> None:
+        """Nested direct output repair overrides ORT's global top-level I/O skip name."""
+        model = _build_nested_output_initializer_with_top_level_io_name_collision_model()
+
+        result = convert_to_fp16(model, keep_io_types=True, op_block_list=[])
+
+        [body] = _iter_attribute_graphs(result)
+        assert body.output[1].type.tensor_type.elem_type == TensorProto.FLOAT16
+        assert body.initializer[0].data_type == TensorProto.FLOAT16
+        checker.check_model(result)
+        shape_inference.infer_shapes(result, strict_mode=True)
+
+    def test_blocked_free_capture_prevents_pure_fp16_initializer_repair(self) -> None:
+        """Blocked subgraphs can still consume outer initializers at runtime."""
+        model = _build_blocked_if_free_capture_output_initializer_model()
+        original = model.SerializeToString()
+
+        with np.testing.assert_raises_regex(RuntimeError, "blocked subgraph"):
+            convert_to_fp16(model, keep_io_types=False, op_block_list=["If"])
+        assert model.SerializeToString() == original
+
+    def test_unconsumed_nested_initializer_outputs_are_converted_to_fp16(self) -> None:
+        """Unconsumed nested direct output initializers are repaired after conversion."""
         model = _build_nested_initializer_output_model()
         model.graph.initializer.append(
             numpy_helper.from_array(np.array([1.0], dtype=np.float16), "top_level_fp16")
         )
 
-        original = model.SerializeToString()
-        with np.testing.assert_raises_regex(RuntimeError, "mismatched types"):
-            convert_to_fp16(model, keep_io_types=False, op_block_list=[])
-        assert model.SerializeToString() == original
+        result = convert_to_fp16(model, keep_io_types=False, op_block_list=[])
+
+        assert result.graph.output[0].type.tensor_type.elem_type == TensorProto.FLOAT16
+        for graph in _iter_attribute_graphs(result):
+            assert all(
+                output.type.tensor_type.elem_type == TensorProto.FLOAT16 for output in graph.output
+            )
+            assert all(
+                initializer.data_type == TensorProto.FLOAT16 for initializer in graph.initializer
+            )
+        checker.check_model(result)
+        shape_inference.infer_shapes(result, strict_mode=True)
 
     def test_blocked_fp32_consumer_does_not_round_trip_through_fp16(self) -> None:
         """Blocked consumers are rejected instead of silently losing precision."""
