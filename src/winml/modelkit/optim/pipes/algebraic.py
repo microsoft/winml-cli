@@ -9,13 +9,17 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from itertools import pairwise
-from typing import Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import numpy as np
 import onnx
 
 from ..capabilities import algebraic
 from .base import BasePipe, PipeConfig, caps_dict
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 ALGEBRAIC_CAPABILITIES: dict[str, Any] = caps_dict(
@@ -226,7 +230,7 @@ def _attribute(node: onnx.NodeProto, name: str, default: Any = None) -> Any:
 
 
 def _is_standard_onnx_node(node: onnx.NodeProto) -> bool:
-    return node.domain in ("", "ai.onnx")
+    return node.domain == ""
 
 
 def _constant_array(index: _GraphIndex, name: str) -> np.ndarray | None:
@@ -1053,15 +1057,66 @@ def _compact_combined_bias(
     return combined_bias if np.isfinite(combined_bias).all() else None
 
 
-def _fold_existing_exp_bias_scale(
+def _candidate_node_ids(nodes: Iterable[onnx.NodeProto]) -> set[int]:
+    return {id(node) for node in nodes}
+
+
+def _select_exp_bias_scale_candidates(
+    model: onnx.ModelProto,
+    index: _GraphIndex,
+) -> list[_ExpScaleCandidate]:
+    selected: list[_ExpScaleCandidate] = []
+    reserved_nodes: set[int] = set()
+    for add in model.graph.node:
+        candidate = _exp_scale_candidate(index, add)
+        if candidate is None:
+            continue
+        if candidate.combined_bias is None and (
+            candidate.log_scale is None
+            or not candidate.route_consumer.input
+            or candidate.route_consumer.input[0] != candidate.add_output
+        ):
+            continue
+        candidate_nodes = _candidate_node_ids(
+            [candidate.add, candidate.route_consumer, candidate.output_node, candidate.mul]
+        )
+        if candidate_nodes & reserved_nodes:
+            continue
+        reserved_nodes.update(candidate_nodes)
+        selected.append(candidate)
+    return selected
+
+
+def _select_exp_scale_insert_candidates(
+    model: onnx.ModelProto,
+    index: _GraphIndex,
+) -> list[_ExpScaleInsertCandidate]:
+    selected: list[_ExpScaleInsertCandidate] = []
+    reserved_nodes: set[int] = set()
+    for exp in model.graph.node:
+        candidate = _exp_scale_insert_candidate(index, exp)
+        if candidate is None:
+            continue
+        candidate_nodes = _candidate_node_ids([candidate.exp, candidate.output_node, candidate.mul])
+        if candidate_nodes & reserved_nodes:
+            continue
+        reserved_nodes.update(candidate_nodes)
+        selected.append(candidate)
+    return selected
+
+
+def _fold_existing_exp_bias_scales(
     model: onnx.ModelProto,
     allocator: _NameAllocator,
 ) -> bool:
     index = _GraphIndex.build(model)
-    for add in model.graph.node:
-        bias_candidate = _exp_scale_candidate(index, add)
-        if bias_candidate is None:
-            continue
+    bias_candidates = _select_exp_bias_scale_candidates(model, index)
+    if not bias_candidates:
+        return False
+
+    removed: set[int] = set()
+    insert_after: dict[int, onnx.NodeProto] = {}
+    for bias_candidate in bias_candidates:
         if bias_candidate.combined_bias is not None:
             combined_name = _new_initializer(
                 model,
@@ -1070,11 +1125,7 @@ def _fold_existing_exp_bias_scale(
                 "algebraic_exp_log_bias",
             )
             bias_candidate.add.input[bias_candidate.bias_input_index] = combined_name
-        elif (
-            bias_candidate.log_scale is not None
-            and bias_candidate.route_consumer.input
-            and bias_candidate.route_consumer.input[0] == bias_candidate.add_output
-        ):
+        elif bias_candidate.log_scale is not None:
             log_scale_name = _new_initializer(
                 model,
                 allocator,
@@ -1089,34 +1140,37 @@ def _fold_existing_exp_bias_scale(
                 name=allocator.new("algebraic_exp_log_add"),
             )
             bias_candidate.route_consumer.input[0] = adjusted_name
-            bias_candidate.output_node.output[0] = bias_candidate.mul.output[0]
-            rewritten: list[onnx.NodeProto] = []
-            for node in model.graph.node:
-                if node is bias_candidate.mul:
-                    continue
-                rewritten.append(node)
-                if node is bias_candidate.add:
-                    rewritten.append(log_add)
-            del model.graph.node[:]
-            model.graph.node.extend(rewritten)
+            insert_after[id(bias_candidate.add)] = log_add
         else:
             continue
-        if bias_candidate.combined_bias is not None:
-            bias_candidate.output_node.output[0] = bias_candidate.mul.output[0]
-            _remove_nodes(model, {id(bias_candidate.mul)})
-        return True
-    return False
+        bias_candidate.output_node.output[0] = bias_candidate.mul.output[0]
+        removed.add(id(bias_candidate.mul))
+
+    rewritten: list[onnx.NodeProto] = []
+    for node in model.graph.node:
+        if id(node) in removed:
+            continue
+        rewritten.append(node)
+        inserted = insert_after.get(id(node))
+        if inserted is not None:
+            rewritten.append(inserted)
+    del model.graph.node[:]
+    model.graph.node.extend(rewritten)
+    return True
 
 
-def _fold_inserted_exp_scale(
+def _fold_inserted_exp_scales(
     model: onnx.ModelProto,
     allocator: _NameAllocator,
 ) -> bool:
     index = _GraphIndex.build(model)
-    for exp in model.graph.node:
-        insert_candidate = _exp_scale_insert_candidate(index, exp)
-        if insert_candidate is None:
-            continue
+    insert_candidates = _select_exp_scale_insert_candidates(model, index)
+    if not insert_candidates:
+        return False
+
+    removed: set[int] = set()
+    insert_before: dict[int, onnx.NodeProto] = {}
+    for insert_candidate in insert_candidates:
         log_scale_name = _new_initializer(
             model,
             allocator,
@@ -1132,16 +1186,19 @@ def _fold_inserted_exp_scale(
         )
         insert_candidate.exp.input[0] = adjusted_name
         insert_candidate.output_node.output[0] = insert_candidate.mul.output[0]
-        rewritten: list[onnx.NodeProto] = []
-        for node in model.graph.node:
-            if node is insert_candidate.exp:
-                rewritten.append(add)
-            if node is not insert_candidate.mul:
-                rewritten.append(node)
-        del model.graph.node[:]
-        model.graph.node.extend(rewritten)
-        return True
-    return False
+        insert_before[id(insert_candidate.exp)] = add
+        removed.add(id(insert_candidate.mul))
+
+    rewritten: list[onnx.NodeProto] = []
+    for node in model.graph.node:
+        inserted = insert_before.get(id(node))
+        if inserted is not None:
+            rewritten.append(inserted)
+        if id(node) not in removed:
+            rewritten.append(node)
+    del model.graph.node[:]
+    model.graph.node.extend(rewritten)
+    return True
 
 
 def _fold_exp_positive_scales(
@@ -1149,9 +1206,9 @@ def _fold_exp_positive_scales(
     allocator: _NameAllocator,
 ) -> None:
     """Fold eligible positive post-Exp constants into the Exp input."""
-    while _fold_existing_exp_bias_scale(model, allocator):
+    while _fold_existing_exp_bias_scales(model, allocator):
         pass
-    while _fold_inserted_exp_scale(model, allocator):
+    while _fold_inserted_exp_scales(model, allocator):
         pass
 
 
@@ -1625,17 +1682,22 @@ class AlgebraicRewritePipe(BasePipe[AlgebraicRewritePipeConfig]):
 
         result = onnx.ModelProto()
         result.CopyFrom(model)
+        if result.ir_version < 4:
+            return result
         index = _GraphIndex.build(result)
         if index.definition_collisions or index.has_cycle:
             return result
         allocator = _NameAllocator(result)
         introduced_nodes: set[str] = set()
-        if config.conv_channel_affine_folding:
+        standard_opset = _strict_default_opset_version(result)
+        if (
+            config.conv_channel_affine_folding
+            and standard_opset is not None
+            and standard_opset >= 7
+        ):
             _fold_channel_affine(result, allocator)
-        if config.exp_positive_scale_folding:
-            standard_opset = _strict_default_opset_version(result)
-            if standard_opset is not None and standard_opset >= 7:
-                _fold_exp_positive_scales(result, allocator)
+        if config.exp_positive_scale_folding and standard_opset is not None and standard_opset >= 7:
+            _fold_exp_positive_scales(result, allocator)
         if config.sibling_slice_to_split:
             _fold_sibling_slices_to_split(result, allocator)
         if config.static_split_to_slice:

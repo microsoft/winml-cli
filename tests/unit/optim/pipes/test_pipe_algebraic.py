@@ -21,6 +21,7 @@ from winml.modelkit.optim.pipes import (
     AlgebraicRewritePipe,
     AlgebraicRewritePipeConfig,
 )
+from winml.modelkit.optim.pipes import algebraic as algebraic_pipe
 
 
 if TYPE_CHECKING:
@@ -360,7 +361,7 @@ class TestStaticSplitToSlice:
 
     @pytest.mark.parametrize(
         ("domain", "should_rewrite"),
-        [("ai.onnx", True), ("com.example", False)],
+        [("", True), ("ai.onnx", False), ("com.example", False)],
     )
     def test_only_standard_domain_split_is_rewritten(
         self,
@@ -392,6 +393,23 @@ class TestStaticSplitToSlice:
             assert [node.op_type for node in transformed.graph.node] == ["Slice", "Slice"]
         else:
             assert transformed.SerializeToString() == original
+
+    def test_legacy_ir_generated_initializer_rewrite_is_unchanged(self) -> None:
+        model = _model(
+            [onnx.helper.make_node("Split", ["x", "split_sizes"], ["left", "right"], axis=1)],
+            [_info("x", [1, 4, 2])],
+            [_info("left", [1, 2, 2]), _info("right", [1, 2, 2])],
+            [_tensor("split_sizes", np.asarray([2, 2], dtype=np.int64))],
+        )
+        model.ir_version = 3
+        original = model.SerializeToString()
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(static_split_to_slice=True),
+        )
+
+        assert transformed.SerializeToString() == original
 
     @pytest.mark.parametrize(
         "outputs",
@@ -726,6 +744,36 @@ class TestConvChannelAffineFolding:
             rtol=2e-5,
             atol=2e-5,
         )
+
+    def test_legacy_opset_conv_affine_broadcast_is_unchanged(self) -> None:
+        model = _model(
+            [
+                onnx.helper.make_node("Conv", ["x", "weights"], ["conv_out"]),
+                onnx.helper.make_node(
+                    "Mul",
+                    ["conv_out", "scale"],
+                    ["y"],
+                    broadcast=1,
+                    axis=0,
+                ),
+            ],
+            [_info("x", [1, 2, 2, 2])],
+            [_info("y", [1, 3, 2, 2])],
+            [
+                _tensor("weights", np.ones((3, 2, 1, 1), dtype=np.float32)),
+                _tensor("scale", np.ones((3, 1, 1), dtype=np.float32)),
+            ],
+            value_info=[_info("conv_out", [1, 3, 2, 2])],
+        )
+        model.opset_import[0].version = 6
+        original = model.SerializeToString()
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(conv_channel_affine_folding=True),
+        )
+
+        assert transformed.SerializeToString() == original
 
     def test_float64_affine_values_preserve_weight_precision(self) -> None:
         shape = [1, 1, 1, 1]
@@ -1784,7 +1832,7 @@ class TestConvChannelAffineFolding:
 
     @pytest.mark.parametrize(
         ("domain", "should_fold"),
-        [("ai.onnx", True), ("com.example", False)],
+        [("", True), ("ai.onnx", False), ("com.example", False)],
     )
     def test_only_standard_domain_constant_is_interpreted(
         self,
@@ -2073,6 +2121,45 @@ class TestExpPositiveScaleFolding:
             strict=True,
         ):
             np.testing.assert_allclose(original, rewritten, rtol=2e-6, atol=2e-6)
+
+    def test_independent_exp_scale_chains_are_batched(self, monkeypatch) -> None:
+        chain_count = 6
+        nodes = []
+        inputs = []
+        outputs = []
+        initializers = []
+        value_info = []
+        for index in range(chain_count):
+            inputs.append(_info(f"x{index}", [1, 2]))
+            outputs.append(_info(f"y{index}", [1, 2]))
+            initializers.append(
+                _tensor(f"scale{index}", np.asarray([1.25, 0.75], dtype=np.float32))
+            )
+            value_info.append(_info(f"exp{index}", [1, 2]))
+            nodes.extend(
+                [
+                    onnx.helper.make_node("Exp", [f"x{index}"], [f"exp{index}"]),
+                    onnx.helper.make_node("Mul", [f"exp{index}", f"scale{index}"], [f"y{index}"]),
+                ]
+            )
+        model = _model(nodes, inputs, outputs, initializers, value_info=value_info)
+        build_count = 0
+        original_build = algebraic_pipe._GraphIndex.build
+
+        def counted_build(model: onnx.ModelProto) -> algebraic_pipe._GraphIndex:
+            nonlocal build_count
+            build_count += 1
+            return original_build(model)
+
+        monkeypatch.setattr(algebraic_pipe._GraphIndex, "build", counted_build)
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        assert build_count <= 6
+        assert [node.op_type for node in transformed.graph.node] == ["Add", "Exp"] * chain_count
 
     def test_scalar_scale_without_bias_stays_compact(self) -> None:
         model = _model(
@@ -2770,13 +2857,15 @@ class TestExpPositiveScaleFolding:
 
         _assert_byte_identical(model, transformed)
 
+    @pytest.mark.parametrize("domain", ["ai.onnx", "com.example"])
     @pytest.mark.parametrize("node_index", [2, 3, 4])
-    def test_custom_domain_interpreted_nodes_are_unchanged(
+    def test_non_empty_domain_interpreted_nodes_are_unchanged(
         self,
         exp_scale_model: onnx.ModelProto,
         node_index: int,
+        domain: str,
     ) -> None:
-        exp_scale_model.graph.node[node_index].domain = "com.example"
+        exp_scale_model.graph.node[node_index].domain = domain
 
         transformed = AlgebraicRewritePipe().process(
             exp_scale_model,
