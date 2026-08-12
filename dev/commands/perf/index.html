@@ -2696,7 +2696,7 @@
 <td></td>
 <td><code>winml\|winml-genai</code></td>
 <td><code>winml</code></td>
-<td>Inference runtime. <code>winml</code> benchmarks single-shot ONNX inference; <code>winml-genai</code> benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec). With <code>winml-genai</code>, a model ID that is not a bundle directory is auto-built into one (cached under <code>~/.cache/winml/</code>, targeting the NPU HTP via QNN) before benchmarking. Cache handling matches the <code>winml</code> runtime: <code>--rebuild</code> overwrites the cached bundle, and <code>--ignore-cache</code> builds a throwaway bundle in a temp folder and leaves the cache untouched.</td>
+<td>Inference runtime. <code>winml</code> benchmarks single-shot ONNX inference; <code>winml-genai</code> benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec). With <code>winml-genai</code>, a model ID that is not a bundle directory is auto-built into one (cached under <code>~/.cache/winml/</code>, targeting the NPU HTP via QNN) before benchmarking. GenAI cache controls are tracked in issue #1275.</td>
 </tr>
 <tr>
 <td><code>--task</code></td>
@@ -2804,18 +2804,18 @@
 <td>Run quantization during model build (use <code>--no-quantize</code> to skip it). Useful for measuring the fp32 baseline.</td>
 </tr>
 <tr>
+<td><code>--use-cache/--no-use-cache</code></td>
+<td></td>
+<td>flag</td>
+<td><code>true</code></td>
+<td>Reuse persistent model build artifacts. <code>--no-use-cache</code> performs a fresh build in a temporary folder and discards it after benchmarking.</td>
+</tr>
+<tr>
 <td><code>--rebuild/--no-rebuild</code></td>
 <td></td>
 <td>flag</td>
 <td><code>false</code></td>
 <td>Force model rebuild even if a cached artifact already exists.</td>
-</tr>
-<tr>
-<td><code>--ignore-cache/--no-ignore-cache</code></td>
-<td></td>
-<td>flag</td>
-<td><code>false</code></td>
-<td>Build from scratch in a temporary folder and discard the artifact after benchmarking. Implies <code>--rebuild</code>.</td>
 </tr>
 <tr>
 <td><code>--module</code></td>
