@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
-_PURE_PYTHON_PROTOBUF = api_implementation.Type() == "python"
+_PROTOBUF_IMPLEMENTATION = api_implementation.Type()
 
 
 # =============================================================================
@@ -228,7 +228,7 @@ def _initializers_equal(base: TensorProto, probe: TensorProto) -> bool:
     would allocate and copy all model weights for every capability probe.
     """
     protobuf_equal = base == probe
-    if protobuf_equal and not _PURE_PYTHON_PROTOBUF:
+    if protobuf_equal and _PROTOBUF_IMPLEMENTATION == "upb":
         return True
 
     float_field_types = {"float_data": "f", "double_data": "d"}

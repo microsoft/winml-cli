@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from array import array
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -297,7 +298,7 @@ assert not _initializers_equal(base, probe)
             env=env,
         )
 
-    def test_native_protobuf_equality_does_not_copy_float_fields(
+    def test_upb_equality_does_not_copy_float_fields(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         base_init = TensorProto(
@@ -310,15 +311,43 @@ assert not _initializers_equal(base, probe)
         probe_init.CopyFrom(base_init)
 
         monkeypatch.setattr(
-            "winml.modelkit.optim.analysis._PURE_PYTHON_PROTOBUF", False
+            "winml.modelkit.optim.analysis._PROTOBUF_IMPLEMENTATION", "upb"
         )
 
         def fail_array(*_args, **_kwargs):
-            raise AssertionError("native equality fast path copied typed fields")
+            raise AssertionError("upb equality fast path copied typed fields")
 
         monkeypatch.setattr("winml.modelkit.optim.analysis.array", fail_array)
 
         assert _initializers_equal(base_init, probe_init)
+
+    def test_cpp_equality_still_compares_float_bits(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        base_init = TensorProto(
+            name="W",
+            data_type=TensorProto.FLOAT,
+            dims=[1],
+            float_data=[1.0],
+        )
+        probe_init = TensorProto()
+        probe_init.CopyFrom(base_init)
+        array_calls = 0
+        real_array = array
+
+        monkeypatch.setattr(
+            "winml.modelkit.optim.analysis._PROTOBUF_IMPLEMENTATION", "cpp"
+        )
+
+        def track_array(*args, **kwargs):
+            nonlocal array_calls
+            array_calls += 1
+            return real_array(*args, **kwargs)
+
+        monkeypatch.setattr("winml.modelkit.optim.analysis.array", track_array)
+
+        assert _initializers_equal(base_init, probe_init)
+        assert array_calls > 0
 
     def test_repeated_integer_change_is_detected(self) -> None:
         base_init = TensorProto(
