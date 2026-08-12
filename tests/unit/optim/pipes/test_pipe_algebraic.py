@@ -2152,6 +2152,69 @@ class TestExpPositiveScaleFolding:
         assert np.isinf(_run(model, {"x": x})[0][0])
         assert np.isfinite(_run(transformed, {"x": x})[0][0])
 
+    @pytest.mark.parametrize("opset_version", [None, 6])
+    def test_legacy_or_missing_standard_opset_is_unchanged(
+        self,
+        opset_version: int | None,
+    ) -> None:
+        model = _model(
+            [
+                onnx.helper.make_node("Exp", ["x"], ["exponential"]),
+                onnx.helper.make_node(
+                    "Mul",
+                    ["exponential", "scale"],
+                    ["y"],
+                    broadcast=1,
+                ),
+            ],
+            [_info("x", [1, 2])],
+            [_info("y", [1, 2])],
+            [_tensor("scale", np.asarray([1.25, 0.75], dtype=np.float32))],
+            value_info=[_info("exponential", [1, 2])],
+        )
+        del model.opset_import[:]
+        if opset_version is not None:
+            model.opset_import.append(onnx.helper.make_opsetid("", opset_version))
+        original = model.SerializeToString()
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        assert transformed.SerializeToString() == original
+
+    def test_huge_shape_product_overflow_is_unchanged(self) -> None:
+        huge_dimension = 5_270_498_306_774_157_605
+        model = _model(
+            [
+                onnx.helper.make_node("Exp", ["x"], ["exponential"]),
+                onnx.helper.make_node("Reshape", ["exponential", "output_shape"], ["reshaped"]),
+                onnx.helper.make_node(
+                    "Mul",
+                    ["reshaped", "scale"],
+                    ["y"],
+                ),
+            ],
+            [_info("x", [7, huge_dimension])],
+            [_info("y", [3])],
+            [
+                _tensor("output_shape", np.asarray([3], dtype=np.int64)),
+                _tensor("scale", np.asarray([1.25, 0.75, 1.5], dtype=np.float32)),
+            ],
+            value_info=[
+                _info("exponential", [7, huge_dimension]),
+                _info("reshaped", [3]),
+            ],
+        )
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        _assert_byte_identical(model, transformed)
+
     def test_simple_numeric_example_matches_log_domain_identity(self) -> None:
         x = np.asarray([[0.0, 2.0]], dtype=np.float32)
         bias = np.asarray([[1.0, -1.0]], dtype=np.float32)

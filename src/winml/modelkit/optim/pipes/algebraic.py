@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from itertools import pairwise
 from typing import Any, ClassVar, cast
@@ -23,6 +24,7 @@ ALGEBRAIC_CAPABILITIES: dict[str, Any] = caps_dict(
     algebraic.EXP_POSITIVE_SCALE_FOLDING,
 )
 MAX_AFFINE_ROUTE_DEPTH = 64
+MAX_NUMPY_ELEMENTS = np.iinfo(np.intp).max
 
 
 @dataclass
@@ -325,7 +327,23 @@ def _shape_broadcasts_to(shape: tuple[int, ...], target_shape: tuple[int, ...]) 
 
 
 def _shape_element_count(shape: tuple[int, ...]) -> int:
-    return int(np.prod(shape, dtype=np.int64))
+    count = math.prod(shape)
+    return count if count <= MAX_NUMPY_ELEMENTS else -1
+
+
+def _same_shape_element_count(
+    left: tuple[int, ...],
+    right: tuple[int, ...],
+) -> bool:
+    left_count = _shape_element_count(left)
+    return left_count >= 0 and left_count == _shape_element_count(right)
+
+
+def _standard_opset_version(model: onnx.ModelProto) -> int | None:
+    for opset in model.opset_import:
+        if opset.domain in ("", "ai.onnx"):
+            return int(opset.version)
+    return None
 
 
 def _new_initializer(
@@ -749,7 +767,7 @@ def _channel_preserving_view_output(
         or len(output_shape) < 2
         or input_shape[:2] != output_shape[:2]
         or input_shape[1] != channels
-        or np.prod(input_shape[2:], dtype=np.int64) != np.prod(output_shape[2:], dtype=np.int64)
+        or not _same_shape_element_count(input_shape[2:], output_shape[2:])
     ):
         return None
 
@@ -788,7 +806,7 @@ def _order_preserving_view_output(
         input_shape is None
         or output_shape is None
         or any(dimension <= 0 for dimension in (*input_shape, *output_shape))
-        or np.prod(input_shape, dtype=np.int64) != np.prod(output_shape, dtype=np.int64)
+        or not _same_shape_element_count(input_shape, output_shape)
     ):
         return None
 
@@ -986,7 +1004,7 @@ def _exp_scale_insert_candidate(
     if (
         input_shape is None
         or any(dimension <= 0 for dimension in (*input_shape, *output_shape))
-        or np.prod(input_shape, dtype=np.int64) != np.prod(output_shape, dtype=np.int64)
+        or not _same_shape_element_count(input_shape, output_shape)
     ):
         return None
     log_scale = _compact_log_scale_for_input(scale, input_shape, output_shape)
@@ -1011,7 +1029,10 @@ def _compact_log_scale_for_input(
     ):
         log_scale = np.asarray(np.log(scale), dtype=scale.dtype)
     elif scale.size == _shape_element_count(input_shape):
-        log_scale = np.asarray(np.log(scale).reshape(input_shape), dtype=scale.dtype)
+        try:
+            log_scale = np.asarray(np.log(scale).reshape(input_shape), dtype=scale.dtype)
+        except (MemoryError, ValueError):
+            return None
     else:
         return None
     return log_scale if np.isfinite(log_scale).all() else None
@@ -1026,9 +1047,12 @@ def _compact_combined_bias(
         combined_shape = np.broadcast_shapes(bias.shape, log_scale.shape)
     except ValueError:
         return None
-    if not _shape_broadcasts_to(combined_shape, target_shape) or _shape_element_count(
-        combined_shape
-    ) > max(int(bias.size), int(log_scale.size)):
+    combined_count = _shape_element_count(combined_shape)
+    if (
+        combined_count < 0
+        or not _shape_broadcasts_to(combined_shape, target_shape)
+        or combined_count > max(int(bias.size), int(log_scale.size))
+    ):
         return None
     combined_bias = np.asarray(bias + log_scale, dtype=bias.dtype)
     return combined_bias if np.isfinite(combined_bias).all() else None
@@ -1617,7 +1641,9 @@ class AlgebraicRewritePipe(BasePipe[AlgebraicRewritePipeConfig]):
         if config.conv_channel_affine_folding:
             _fold_channel_affine(result, allocator)
         if config.exp_positive_scale_folding:
-            _fold_exp_positive_scales(result, allocator)
+            standard_opset = _standard_opset_version(result)
+            if standard_opset is not None and standard_opset >= 7:
+                _fold_exp_positive_scales(result, allocator)
         if config.sibling_slice_to_split:
             _fold_sibling_slices_to_split(result, allocator)
         if config.static_split_to_slice:
