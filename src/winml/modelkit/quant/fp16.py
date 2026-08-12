@@ -166,6 +166,40 @@ def _has_nested_initializer_outputs(model: ModelProto, op_block_list: list[str] 
     )
 
 
+def _has_float_sparse_initializers(model: ModelProto, op_block_list: list[str] | None) -> bool:
+    """Whether any ORT-traversed graph has sparse FLOAT initializer values."""
+    from onnx import TensorProto
+
+    return any(
+        sparse.values.data_type == TensorProto.FLOAT
+        for graph in _ort_traversed_graphs(model, op_block_list)
+        for sparse in getattr(graph, "sparse_initializer", [])
+    )
+
+
+def _reject_sparse_initializer_tensor_metadata(
+    model: ModelProto, op_block_list: list[str] | None
+) -> None:
+    """Reject sparse initializer metadata that conflicts with ONNX sparse typing."""
+    for graph in _ort_traversed_graphs(model, op_block_list):
+        sparse_names = {sparse.values.name for sparse in getattr(graph, "sparse_initializer", [])}
+        if not sparse_names:
+            continue
+        for value_info in (
+            *getattr(graph, "input", []),
+            *getattr(graph, "output", []),
+            *getattr(graph, "value_info", []),
+        ):
+            if value_info.name in sparse_names and value_info.type.HasField("tensor_type"):
+                graph_name = graph.name or "<unnamed>"
+                msg = (
+                    f"Sparse initializer '{graph_name}.{value_info.name}' has "
+                    "tensor_type metadata; sparse initializer metadata must use "
+                    "sparse_tensor_type."
+                )
+                raise RuntimeError(msg)
+
+
 def _reject_duplicate_float_initializer_names(
     model: ModelProto, op_block_list: list[str] | None
 ) -> None:
@@ -362,6 +396,44 @@ def _has_blocked_free_consumer(graph: GraphProto, name: str, blocked_ops: set[st
     return False
 
 
+def _node_expects_fp32_input(node: NodeProto, input_index: int, blocked_ops: set[str]) -> bool:
+    """Whether ORT leaves this node input in FP32 during FP16 conversion."""
+    from onnxruntime.transformers.float16 import ALWAYS_FLOAT_INPUTS
+
+    return node.op_type in blocked_ops or input_index in ALWAYS_FLOAT_INPUTS.get(node.op_type, [])
+
+
+def _sparse_initializer_consumer_types(
+    graph: GraphProto, name: str, blocked_ops: set[str]
+) -> tuple[bool, bool]:
+    """Return whether a sparse initializer has FP16 and/or FP32 consumers."""
+    has_fp16_consumer = False
+    has_fp32_consumer = False
+    for node in getattr(graph, "node", []):
+        for input_index, input_name in enumerate(node.input):
+            if input_name != name:
+                continue
+            if _node_expects_fp32_input(node, input_index, blocked_ops):
+                has_fp32_consumer = True
+            else:
+                has_fp16_consumer = True
+
+        children = _iter_all_child_graphs_from_node(node)
+        if node.op_type in blocked_ops:
+            if any(_descendant_has_free_consumer_in_any_graph(child, name) for child in children):
+                has_fp32_consumer = True
+            continue
+        for child in children:
+            if _graph_defines_name(child, name):
+                continue
+            child_has_fp16, child_has_fp32 = _sparse_initializer_consumer_types(
+                child, name, blocked_ops
+            )
+            has_fp16_consumer = has_fp16_consumer or child_has_fp16
+            has_fp32_consumer = has_fp32_consumer or child_has_fp32
+    return has_fp16_consumer, has_fp32_consumer
+
+
 def _iter_all_child_graphs_from_node(node: NodeProto) -> list[GraphProto]:
     """Return all child graphs attached to a node."""
     from onnx import AttributeProto
@@ -554,6 +626,106 @@ def _convert_output_initializer_to_fp16(graph: GraphProto, name: str) -> None:
     initializer.CopyFrom(cast("TensorProto", convert_tensor_float_to_float16(initializer)))
 
 
+def _convert_sparse_initializer_to_fp16(graph: GraphProto, name: str) -> None:
+    """Convert a sparse FLOAT initializer's values tensor to FLOAT16."""
+    from onnx import TensorProto
+    from onnx.external_data_helper import uses_external_data
+    from onnxruntime.transformers.float16 import convert_tensor_float_to_float16
+
+    sparse_initializer = next(
+        sparse for sparse in graph.sparse_initializer if sparse.values.name == name
+    )
+    if uses_external_data(sparse_initializer.values):
+        del sparse_initializer.values.external_data[:]
+        sparse_initializer.values.data_location = TensorProto.DEFAULT
+    sparse_initializer.values.CopyFrom(
+        cast("TensorProto", convert_tensor_float_to_float16(sparse_initializer.values))
+    )
+    for value_info in (
+        *getattr(graph, "input", []),
+        *getattr(graph, "output", []),
+        *getattr(graph, "value_info", []),
+    ):
+        if (
+            value_info.name == name
+            and value_info.type.HasField("sparse_tensor_type")
+            and value_info.type.sparse_tensor_type.elem_type == TensorProto.FLOAT
+        ):
+            value_info.type.sparse_tensor_type.elem_type = TensorProto.FLOAT16
+
+
+def _has_sparse_graph_io(graph: GraphProto, name: str) -> bool:
+    """Whether a sparse initializer name is part of graph input/output metadata."""
+    return any(
+        value_info.name == name and value_info.type.HasField("sparse_tensor_type")
+        for value_info in (*getattr(graph, "input", []), *getattr(graph, "output", []))
+    )
+
+
+def _has_sparse_graph_output(graph: GraphProto, name: str) -> bool:
+    """Whether a sparse initializer name is a graph output."""
+    return any(
+        value_info.name == name and value_info.type.HasField("sparse_tensor_type")
+        for value_info in getattr(graph, "output", [])
+    )
+
+
+def _has_sparse_graph_input(graph: GraphProto, name: str) -> bool:
+    """Whether a sparse initializer name is a graph input."""
+    return any(
+        value_info.name == name and value_info.type.HasField("sparse_tensor_type")
+        for value_info in getattr(graph, "input", [])
+    )
+
+
+def _repair_sparse_float_initializers(
+    model: ModelProto, op_block_list: list[str] | None, *, keep_io_types: bool
+) -> None:
+    """Convert sparse FLOAT initializers when ORT converted every consumer to FP16."""
+    from onnx import TensorProto
+    from onnx.external_data_helper import uses_external_data
+
+    blocked_ops = _effective_blocked_ops(op_block_list)
+    for graph in _ort_traversed_graphs(model, op_block_list):
+        for sparse_initializer in getattr(graph, "sparse_initializer", []):
+            values = sparse_initializer.values
+            if values.data_type != TensorProto.FLOAT:
+                continue
+            has_fp16_consumer, has_fp32_consumer = _sparse_initializer_consumer_types(
+                graph, values.name, blocked_ops
+            )
+            has_fp16_output = not keep_io_types and _has_sparse_graph_output(graph, values.name)
+            if (has_fp16_consumer or has_fp16_output) and has_fp32_consumer:
+                msg = (
+                    f"Sparse FLOAT initializer '{values.name}' has both FP16 and "
+                    "FP32 consumers after conversion; FP16 conversion cannot safely "
+                    "choose one initializer type."
+                )
+                raise RuntimeError(msg)
+            if not has_fp16_consumer and not has_fp16_output:
+                continue
+            if has_fp16_output and _has_sparse_graph_input(graph, values.name):
+                msg = (
+                    f"Sparse FLOAT initializer '{values.name}' is also sparse graph input "
+                    "and output; FP16 conversion cannot preserve overridable-initializer "
+                    "semantics."
+                )
+                raise RuntimeError(msg)
+            if keep_io_types and _has_sparse_graph_io(graph, values.name):
+                msg = (
+                    f"Sparse FLOAT initializer '{values.name}' is also sparse graph I/O; "
+                    "FP16 conversion cannot preserve keep_io_types semantics."
+                )
+                raise RuntimeError(msg)
+            if uses_external_data(values) and not _tensor_data_is_loaded(values):
+                msg = (
+                    f"Sparse FLOAT initializer '{values.name}' uses unloaded external data; "
+                    "load external weights before FP16 conversion."
+                )
+                raise RuntimeError(msg)
+            _convert_sparse_initializer_to_fp16(graph, values.name)
+
+
 def _internalize_output_initializer(graph: GraphProto, name: str) -> None:
     """Drop stale external metadata after resident bytes were loaded."""
     from onnx import TensorProto
@@ -703,11 +875,16 @@ def convert_to_fp16(
     from onnx import TensorProto
     from onnxruntime.transformers.float16 import convert_float_to_float16
 
+    _reject_sparse_initializer_tensor_metadata(model, op_block_list)
     _reject_duplicate_float_initializer_names(model, op_block_list)
     captured = _capture_safe_initializer_outputs(
         model, keep_io_types=keep_io_types, op_block_list=op_block_list
     )
-    needs_safe_conversion = bool(captured) or _has_nested_initializer_outputs(model, op_block_list)
+    needs_safe_conversion = (
+        bool(captured)
+        or _has_nested_initializer_outputs(model, op_block_list)
+        or _has_float_sparse_initializers(model, op_block_list)
+    )
     if needs_safe_conversion:
         _reject_unloaded_external_initializer_outputs(model, op_block_list)
     original_nodes = len(model.graph.node)
@@ -754,6 +931,7 @@ def convert_to_fp16(
             _set_direct_output_elem_type(graph, item.name, TensorProto.FLOAT16)
             _convert_output_initializer_to_fp16(graph, item.name)
 
+    _repair_sparse_float_initializers(converted, op_block_list, keep_io_types=keep_io_types)
     _graph_topological_sort(converted.graph)
     _validate_initializer_output_types(converted)
 

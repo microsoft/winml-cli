@@ -78,6 +78,17 @@ def _build_shared_initializer_output_model() -> ModelProto:
     return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
 
 
+def _build_overridable_shared_initializer_output_model() -> ModelProto:
+    """Build a graph input/output initializer that can be overridden by callers."""
+    x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 2])
+    shared = helper.make_tensor_value_info("shared", TensorProto.FLOAT, [1, 2])
+    y = helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 2])
+    value = numpy_helper.from_array(np.array([[1.0, 2.0]], dtype=np.float32), "shared")
+    add = helper.make_node("Add", ["x", "shared"], ["y"], name="add")
+    graph = helper.make_graph([add], "overridable_shared", [x, shared], [shared, y], [value])
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
 def _build_nested_initializer_output_model() -> ModelProto:
     """Build an If whose branch outputs are supplied by initializers."""
     condition = helper.make_tensor_value_info("condition", TensorProto.BOOL, [])
@@ -193,6 +204,81 @@ def _build_sparse_shape_reshape_model() -> ModelProto:
     graph = helper.make_graph([reshape], "sparse_shape", [x], [output])
     graph.sparse_initializer.append(sparse_shape)
     return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
+def _build_sparse_float_add_model() -> ModelProto:
+    """Build an Add graph that consumes a sparse FLOAT initializer."""
+    x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [2])
+    output = helper.make_tensor_value_info("output", TensorProto.FLOAT, [2])
+    sparse_weight = SparseTensorProto()
+    sparse_weight.values.CopyFrom(numpy_helper.from_array(np.array([1.0, 2.0], dtype=np.float32)))
+    sparse_weight.indices.CopyFrom(numpy_helper.from_array(np.array([[0], [1]], dtype=np.int64)))
+    sparse_weight.dims.extend([2])
+    sparse_weight.values.name = "weight"
+    add = helper.make_node("Add", ["x", "weight"], ["output"], name="add")
+    graph = helper.make_graph([add], "sparse_float_add", [x], [output])
+    graph.sparse_initializer.append(sparse_weight)
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
+def _build_sparse_float_add_model_with_value_info() -> ModelProto:
+    """Build an Add graph with sparse FLOAT initializer metadata."""
+    model = _build_sparse_float_add_model()
+    model.graph.value_info.append(
+        helper.make_sparse_tensor_value_info("weight", TensorProto.FLOAT, [2])
+    )
+    return model
+
+
+def _build_sparse_float_add_model_with_tensor_value_info() -> ModelProto:
+    """Build an Add graph with tensor metadata for a sparse FLOAT initializer."""
+    model = _build_sparse_float_add_model()
+    model.graph.value_info.append(helper.make_tensor_value_info("weight", TensorProto.FLOAT, [2]))
+    return model
+
+
+def _build_sparse_float_add_model_with_io_metadata() -> ModelProto:
+    """Build an Add graph whose sparse FLOAT initializer is also graph sparse I/O."""
+    model = _build_sparse_float_add_model()
+    model.graph.input.append(helper.make_sparse_tensor_value_info("weight", TensorProto.FLOAT, [2]))
+    model.graph.output.append(
+        helper.make_sparse_tensor_value_info("weight", TensorProto.FLOAT, [2])
+    )
+    return model
+
+
+def _build_sparse_float_add_model_with_tensor_io_metadata() -> ModelProto:
+    """Build an Add graph whose sparse FLOAT initializer is also graph tensor I/O."""
+    model = _build_sparse_float_add_model()
+    model.graph.input.append(helper.make_tensor_value_info("weight", TensorProto.FLOAT, [2]))
+    model.graph.output.append(helper.make_tensor_value_info("weight", TensorProto.FLOAT, [2]))
+    return model
+
+
+def _build_direct_sparse_float_output_model() -> ModelProto:
+    """Build a graph with a direct sparse FLOAT initializer output."""
+    x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [2])
+    dense_output = helper.make_tensor_value_info("dense_output", TensorProto.FLOAT, [2])
+    sparse_output = helper.make_sparse_tensor_value_info("sparse_output", TensorProto.FLOAT, [2])
+    sparse_value = SparseTensorProto()
+    sparse_value.values.CopyFrom(numpy_helper.from_array(np.array([1.0, 2.0], dtype=np.float32)))
+    sparse_value.indices.CopyFrom(numpy_helper.from_array(np.array([[0], [1]], dtype=np.int64)))
+    sparse_value.dims.extend([2])
+    sparse_value.values.name = "sparse_output"
+    identity = helper.make_node("Identity", ["x"], ["dense_output"], name="identity")
+    graph = helper.make_graph(
+        [identity], "direct_sparse_output", [x], [dense_output, sparse_output]
+    )
+    graph.sparse_initializer.append(sparse_value)
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
+def _build_direct_sparse_float_tensor_output_model() -> ModelProto:
+    """Build a graph with a direct sparse FLOAT initializer and tensor output metadata."""
+    model = _build_direct_sparse_float_output_model()
+    sparse_output = next(value for value in model.graph.output if value.name == "sparse_output")
+    sparse_output.CopyFrom(helper.make_tensor_value_info("sparse_output", TensorProto.FLOAT, [2]))
+    return model
 
 
 def _iter_attribute_graphs(model: ModelProto) -> list[GraphProto]:
@@ -684,6 +770,17 @@ class TestConvertToFP16:
         np.testing.assert_array_equal(shared, np.array([[1.0, 2.0]], dtype=np.float16))
         np.testing.assert_array_equal(y, np.array([[4.0, 6.0]], dtype=np.float16))
 
+    def test_overridable_initializer_output_is_rejected_when_io_types_are_not_kept(
+        self,
+    ) -> None:
+        """Graph input/output initializer aliases are rejected before ORT optimizer crashes."""
+        model = _build_overridable_shared_initializer_output_model()
+        original = model.SerializeToString()
+
+        with np.testing.assert_raises_regex(RuntimeError, "also a graph input"):
+            convert_to_fp16(model, keep_io_types=False, op_block_list=[])
+        assert model.SerializeToString() == original
+
     def test_nested_initializer_output_with_fp16_consumer_converts_to_fp16(self) -> None:
         """Nested initializer outputs are allowed when ORT converts them consistently."""
         model = _build_nested_consumed_initializer_output_model()
@@ -721,6 +818,123 @@ class TestConvertToFP16:
         assert result.graph.output[0].type.tensor_type.elem_type == TensorProto.FLOAT16
         checker.check_model(result)
         shape_inference.infer_shapes(result, strict_mode=True)
+
+    def test_sparse_float_initializer_converts_with_fp16_consumers(self) -> None:
+        """Sparse FLOAT initializers are converted when their consumers become FP16."""
+        model = _build_sparse_float_add_model()
+
+        result = convert_to_fp16(model, keep_io_types=False, op_block_list=[])
+
+        assert result.graph.output[0].type.tensor_type.elem_type == TensorProto.FLOAT16
+        assert result.graph.sparse_initializer[0].values.data_type == TensorProto.FLOAT16
+        checker.check_model(result)
+        shape_inference.infer_shapes(result, strict_mode=True)
+        session = ort.InferenceSession(
+            result.SerializeToString(), providers=["CPUExecutionProvider"]
+        )
+        np.testing.assert_array_equal(
+            session.run(None, {"x": np.array([3.0, 4.0], dtype=np.float16)})[0],
+            np.array([4.0, 6.0], dtype=np.float16),
+        )
+
+    def test_sparse_float_initializer_value_info_converts_with_values(self) -> None:
+        """Sparse FLOAT value_info metadata is kept consistent with converted values."""
+        model = _build_sparse_float_add_model_with_value_info()
+
+        result = convert_to_fp16(model, keep_io_types=False, op_block_list=[])
+
+        sparse_info = next(value for value in result.graph.value_info if value.name == "weight")
+        assert sparse_info.type.sparse_tensor_type.elem_type == TensorProto.FLOAT16
+        assert result.graph.sparse_initializer[0].values.data_type == TensorProto.FLOAT16
+        checker.check_model(result)
+        shape_inference.infer_shapes(result, strict_mode=True)
+
+    def test_sparse_float_initializer_tensor_value_info_is_rejected_before_mutation(
+        self,
+    ) -> None:
+        """Tensor metadata for sparse FLOAT initializers is rejected before ORT fails."""
+        model = _build_sparse_float_add_model_with_tensor_value_info()
+        original = model.SerializeToString()
+
+        with np.testing.assert_raises_regex(RuntimeError, "sparse initializer metadata"):
+            convert_to_fp16(model, keep_io_types=False, op_block_list=[])
+        assert model.SerializeToString() == original
+
+    def test_sparse_float_initializer_io_alias_is_rejected_when_io_types_are_not_kept(
+        self,
+    ) -> None:
+        """Sparse graph input/output initializer aliases are rejected before mutation."""
+        model = _build_sparse_float_add_model_with_io_metadata()
+        original = model.SerializeToString()
+
+        with np.testing.assert_raises_regex(RuntimeError, "also sparse graph input"):
+            convert_to_fp16(model, keep_io_types=False, op_block_list=[])
+        assert model.SerializeToString() == original
+
+    def test_sparse_float_initializer_tensor_io_alias_is_rejected_before_mutation(
+        self,
+    ) -> None:
+        """Tensor graph input/output sparse initializer metadata is rejected pre-ORT."""
+        model = _build_sparse_float_add_model_with_tensor_io_metadata()
+        original = model.SerializeToString()
+
+        with np.testing.assert_raises_regex(RuntimeError, "sparse initializer metadata"):
+            convert_to_fp16(model, keep_io_types=False, op_block_list=[])
+        assert model.SerializeToString() == original
+
+    def test_sparse_float_initializer_io_metadata_is_rejected_when_io_is_kept(self) -> None:
+        """Sparse graph I/O dtypes are not silently changed when keep_io_types=True."""
+        model = _build_sparse_float_add_model_with_io_metadata()
+        original = model.SerializeToString()
+
+        with np.testing.assert_raises_regex(RuntimeError, "sparse graph I/O"):
+            convert_to_fp16(model, keep_io_types=True, op_block_list=[])
+        assert model.SerializeToString() == original
+
+    def test_sparse_float_initializer_tensor_io_metadata_is_rejected_before_keep_io(
+        self,
+    ) -> None:
+        """Tensor graph I/O sparse initializer metadata is rejected before ORT fails."""
+        model = _build_sparse_float_add_model_with_tensor_io_metadata()
+        original = model.SerializeToString()
+
+        with np.testing.assert_raises_regex(RuntimeError, "sparse initializer metadata"):
+            convert_to_fp16(model, keep_io_types=True, op_block_list=[])
+        assert model.SerializeToString() == original
+
+    def test_direct_sparse_float_output_converts_when_io_types_are_not_kept(self) -> None:
+        """Direct sparse FLOAT outputs convert without requiring node consumers."""
+        model = _build_direct_sparse_float_output_model()
+
+        result = convert_to_fp16(model, keep_io_types=False, op_block_list=[])
+
+        sparse_output = next(
+            value for value in result.graph.output if value.name == "sparse_output"
+        )
+        assert sparse_output.type.sparse_tensor_type.elem_type == TensorProto.FLOAT16
+        assert result.graph.sparse_initializer[0].values.data_type == TensorProto.FLOAT16
+        checker.check_model(result)
+        shape_inference.infer_shapes(result, strict_mode=True)
+
+    def test_direct_sparse_float_tensor_output_is_rejected_before_mutation(
+        self,
+    ) -> None:
+        """Direct sparse FLOAT outputs with tensor metadata are rejected pre-ORT."""
+        model = _build_direct_sparse_float_tensor_output_model()
+        original = model.SerializeToString()
+
+        with np.testing.assert_raises_regex(RuntimeError, "sparse initializer metadata"):
+            convert_to_fp16(model, keep_io_types=False, op_block_list=[])
+        assert model.SerializeToString() == original
+
+    def test_direct_sparse_float_output_with_fp32_consumer_is_rejected(self) -> None:
+        """Direct sparse FP16 outputs are mixed uses when blocked consumers stay FP32."""
+        model = _build_sparse_float_add_model_with_io_metadata()
+        original = model.SerializeToString()
+
+        with np.testing.assert_raises_regex(RuntimeError, "both FP16 and FP32"):
+            convert_to_fp16(model, keep_io_types=False, op_block_list=["Add"])
+        assert model.SerializeToString() == original
 
     def test_unloaded_nested_external_initializer_output_is_rejected_before_mutation(
         self,
