@@ -659,7 +659,11 @@ class WinMLSession:
             for sidecar in cls._epcontext_external_sidecars(generation_path):
                 paths.setdefault(sidecar, None)
         except (OSError, ValueError, DecodeError):
-            pass
+            logger.debug(
+                "Could not parse EPContext sidecars for %s; using prefix cleanup fallback",
+                generation_path,
+                exc_info=True,
+            )
         paths.setdefault(generation_path, None)
         try:
             for candidate in generation_path.parent.iterdir():
