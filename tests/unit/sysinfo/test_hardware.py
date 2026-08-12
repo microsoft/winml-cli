@@ -207,6 +207,11 @@ class TestGetVendorIdDeviceIdFromPnpId:
         vendor_id, device_id = get_vendor_id_device_id_from_pnp_id("PCI\\VEN_QCOM&DEV_5C40")
         assert (vendor_id, device_id) == (0x4D4F4351, 0x30344335)
 
+    def test_nvidia_acpi_quirk(self) -> None:
+        """``ACPI\\NVDA####`` should map to NVIDIA vendor id + hex device id."""
+        vendor_id, device_id = get_vendor_id_device_id_from_pnp_id("ACPI\\NVDA200A\\0")
+        assert (vendor_id, device_id) == (0x10DE, 0x200A)
+
     def test_missing_vendor_raises(self) -> None:
         with pytest.raises(ValueError, match="Invalid PNPDeviceID"):
             get_vendor_id_device_id_from_pnp_id("PCI\\DEV_2204")

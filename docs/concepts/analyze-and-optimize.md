@@ -84,12 +84,6 @@ Leave `--run-unknown-op` disabled when:
 
 When a pattern is unsupported and the recommendation does not immediately tell you what is wrong, use `--save-node` to dump the offending subgraph to disk as a self-contained, runnable `.onnx` file. You can then open it in [Netron](https://netron.app/), re-analyze it in isolation, or attach it to a bug report as a minimal reproducer. See the [analyze command reference](../commands/analyze.md) for usage examples.
 
-### HTP metadata enhancement
-
-When a model is exported with hierarchy-preserving tags (HTP), the export produces a sidecar `_htp_metadata.json` that maps each ONNX node back to its source module (e.g., `encoder.layer.0.attention.self.GELUActivation`). Passing this file via `--htp-metadata` lets the `PatternExtractor` use the module hierarchy to match subgraph patterns more accurately than operator-level heuristics alone.
-
-HTP metadata is consumed at the pattern extraction stage — before any EP-specific runtime checking — so the enriched patterns benefit all target EPs equally (QNN, OpenVINO, VitisAI, etc.). Without HTP metadata, the analyzer falls back to attribute-based tag matching and then the general-purpose `PatternMatcher`; with it, the analyzer can correctly identify fused patterns (GELU, LayerNorm, Attention) that are difficult to detect from the raw operator graph. See the [analyze command reference](../commands/analyze.md) for usage examples.
-
 ### What runs internally
 
 The analyzer is composed of five stages that run in order. You normally do not need to think about them, but they are worth knowing when reading recommendations or extending the analyzer:
@@ -97,7 +91,7 @@ The analyzer is composed of five stages that run in order. You normally do not n
 | Stage               | Job                                                                                                                                                           |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ONNXLoader`        | Load the ONNX file (or `ModelProto`), record metadata.                                                                                                        |
-| `PatternExtractor`  | Walk the graph, match operator and subgraph patterns from the rule catalog. Optionally consume HTP metadata.                                                   |
+| `PatternExtractor`  | Walk the graph and match operator and subgraph patterns from the rule catalog.                                                                                |
 | `RuntimeChecker`    | For each pattern, consult the rule database; if no rule applies, run the op locally (when allowed).                                                            |
 | `InformationEngine` | Turn classifications into human-readable `Information` items; also runs model validators (constant folding, dynamic input, pattern matching, QDQ validation, shape inference). |
 | `OutputAggregator`  | Assemble the final `AnalysisOutput` (the JSON you get from `--output`).                                                                                       |

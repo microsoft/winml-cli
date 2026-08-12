@@ -316,8 +316,10 @@ def _run_pipe(pipe: Any, model: ModelProto, config: Any) -> ModelProto:
 def _iter_findings(
     model: ModelProto,
     capabilities: dict[str, CapabilityDef],
+    *,
     on_probe_start: Callable[[str], None] | None = None,
     on_probe_complete: Callable[[str], None] | None = None,
+    **optimizer_kwargs: Any,
 ) -> Iterator[tuple[CapabilityFinding, ModelProto]]:
     """Yield ``(finding, produced_model)`` for every applicable optimization.
 
@@ -352,6 +354,7 @@ def _iter_findings(
 
     # Baseline kwargs = every capability at its default value.
     default_kwargs = {cap.python_name: cap.default for cap in capabilities.values()}
+    default_kwargs.update(optimizer_kwargs)
     kebab_defaults = {name: cap.default for name, cap in capabilities.items()}
 
     # Mandatory pre-stage — mirrors Optimizer.optimize(). The clone is required:
@@ -404,6 +407,22 @@ def _iter_findings(
                 if on_probe_start is not None:
                     on_probe_start(cap_name)
                 try:
+                    ep_device = optimizer_kwargs.get("ep_device")
+                    if ep_device is not None and cap.ep_constraint is not None:
+                        from ..utils.constants import normalize_ep_name
+
+                        target_ep = normalize_ep_name(ep_device.device.ep_name)
+                        if not any(
+                            normalize_ep_name(name) == target_ep for name in cap.ep_constraint
+                        ):
+                            logger.debug(
+                                "Skipping capability '%s': target EP %s is not in %s",
+                                cap.name,
+                                target_ep,
+                                cap.ep_constraint,
+                            )
+                            continue
+
                     # Enable only this capability (plus its dependencies) on top of
                     # the all-defaults configuration.
                     kebab = dict(kebab_defaults)
@@ -414,6 +433,7 @@ def _iter_findings(
                         for name, value in kebab.items()
                         if name in capabilities
                     }
+                    probe_kwargs.update(optimizer_kwargs)
 
                     probe_config = pipe.build_config(**probe_kwargs)
                     should_process = getattr(pipe, "should_process", None)
@@ -486,6 +506,7 @@ def analyze_model(
     *,
     on_probe_start: Callable[[str], None] | None = None,
     on_probe_complete: Callable[[str], None] | None = None,
+    **optimizer_kwargs: Any,
 ) -> list[CapabilityFinding]:
     """Probe every applicable optimization capability against ``model``.
 
@@ -498,6 +519,8 @@ def analyze_model(
         model: The input ONNX model (never modified).
         capabilities: The full capability registry (kebab-case keyed), e.g.
             from ``optim.pipes.get_all_capabilities()``.
+        **optimizer_kwargs: Pipeline context forwarded to every pipe configuration,
+            such as a resolved ``ep_device``.
         on_probe_start: Optional callback invoked with the capability name
             before each probe begins.
         on_probe_complete: Optional callback invoked with the capability name
@@ -514,6 +537,7 @@ def analyze_model(
             capabilities,
             on_probe_start=on_probe_start,
             on_probe_complete=on_probe_complete,
+            **optimizer_kwargs,
         )
     ]
 
@@ -521,6 +545,7 @@ def analyze_model(
 def iter_optimization_outputs(
     model: ModelProto,
     capabilities: dict[str, CapabilityDef],
+    **optimizer_kwargs: Any,
 ) -> Iterator[tuple[CapabilityFinding, ModelProto]]:
     """Yield each applicable optimization together with the model it produces.
 
@@ -534,10 +559,11 @@ def iter_optimization_outputs(
     Args:
         model: The input ONNX model (never modified).
         capabilities: The full capability registry (kebab-case keyed).
+        **optimizer_kwargs: Pipeline context forwarded to every pipe configuration.
 
     Yields:
         ``(finding, produced_model)`` pairs in pipeline order, one per applicable
         optimization. The pairs are produced lazily; materialize the iterator if
         the produced models must outlive iteration.
     """
-    yield from _iter_findings(model, capabilities)
+    yield from _iter_findings(model, capabilities, **optimizer_kwargs)

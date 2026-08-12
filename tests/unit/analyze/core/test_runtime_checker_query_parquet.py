@@ -119,6 +119,48 @@ def clear_debug_rules_env(monkeypatch: pytest.MonkeyPatch):
 class TestRuntimeCheckerQueryParquet:
     """Validate parquet runtime rule lookup."""
 
+    def test_pattern_matched_node_skips_parquet_lookup(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Nodes covered by pattern hashset should bypass parquet table checks."""
+        monkeypatch.setenv("WINMLCLI_RULES_DIR", str(tmp_path))
+
+        model = _build_add_model()
+        node = model.graph.node[0]
+
+        def _unexpected_get_conditions(*args, **kwargs):
+            del args, kwargs
+            raise AssertionError("get_query_conditions_for_node should not be called")
+
+        monkeypatch.setattr(
+            runtime_checker_query_module,
+            "get_query_conditions_for_node",
+            _unexpected_get_conditions,
+        )
+
+        query_parquet = RuntimeCheckerQuery(
+            model,
+            "QNNExecutionProvider",
+            "NPU",
+            pattern_matched_node_status_by_key={"add_node": "unsupported"},
+        )
+        query_parquet.node_checkers = []
+
+        result = query_parquet.run_for_node(node, for_debug=True, run_unknown_op=False)
+
+        assert result.pattern_id == "OP/ai.onnx/Add"
+        assert result.result.no_data is False
+        assert result.result.compile is False
+        assert result.result.run is False
+        assert result.result.reason == "pattern_matched"
+        debug_details = result.result.debug_details
+        assert isinstance(debug_details, dict)
+        assert debug_details.get("type") == "pattern_matched"
+        assert debug_details.get("status") == "unsupported"
+        assert debug_details.get("match_status") == "pattern_match"
+
     def test_parquet_lookup_returns_expected_result(
         self,
         tmp_path: Path,
@@ -142,6 +184,7 @@ class TestRuntimeCheckerQueryParquet:
         assert result_parquet.result.compile is True
         assert result_parquet.result.run is False
         assert str(result_parquet.result.debug_details.get("table_file", "")).endswith(".parquet")
+        assert result_parquet.result.debug_details.get("match_status") == "op_match"
 
     def test_parquet_lookup_omits_debug_details_without_for_debug(
         self,

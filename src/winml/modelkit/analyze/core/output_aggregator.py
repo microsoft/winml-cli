@@ -79,8 +79,9 @@ class OutputAggregator:
             ...     total_operators=176,
             ...     operator_counts={"Conv": 53, "Relu": 53},
             ...     unique_operator_types=2,
-            ...     detected_pattern_count=10,
-            ...     detected_patterns=patterns
+            ...     detected_pattern_count={
+            ...         "QNNExecutionProvider": {"SUBGRAPH/GELU_Erf": 18}
+            ...     },
             ... )
             >>> output = aggregator.aggregate(
             ...     metadata=metadata,
@@ -122,18 +123,22 @@ class OutputAggregator:
             results=results,
         )
         output_build_ms = int((time.perf_counter() - output_build_start) * 1000)
+        pattern_counts_by_ep = {
+            ep: sum(pattern_counts.values())
+            for ep, pattern_counts in metadata.detected_pattern_count.items()
+        }
 
         logger.info(
-            "Aggregation complete: %d IHV results, %d patterns",
+            "Aggregation complete: %d IHV results, pattern counts by EP: %s",
             len(results),
-            sum(metadata.detected_pattern_count.values()),
+            pattern_counts_by_ep,
         )
 
         _log_timing(
             "output_aggregator.aggregate",
             model=metadata.model_path,
             eps=len(all_ep_names),
-            total_pattern_count=sum(metadata.detected_pattern_count.values()),
+            pattern_counts_by_ep=pattern_counts_by_ep,
             build_results_ms=build_results_ms,
             output_build_ms=output_build_ms,
             total_ms=int((time.perf_counter() - total_start) * 1000),

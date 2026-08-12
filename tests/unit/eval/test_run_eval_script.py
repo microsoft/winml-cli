@@ -68,9 +68,22 @@ def _deterministic_ep_deduction(run_eval):
     deduction patch it themselves.
     """
     run_eval._deduce_ep_for_device.cache_clear()
-    with patch(
-        "winml.modelkit.session.default_ep_for_device",
-        return_value="QNNExecutionProvider",
+    def resolve_target(ep, device):
+        from winml.modelkit.session import default_device_for_ep, expand_ep_name
+
+        resolved_device = device if device and device != "auto" else None
+        if resolved_device is None and ep and ep != "auto":
+            resolved_device = default_device_for_ep(expand_ep_name(ep))
+        resolved_device = resolved_device or "cpu"
+        resolved_ep = ep if ep and ep != "auto" else run_eval._effective_ep(None, resolved_device)
+        return resolved_ep or "CPUExecutionProvider", resolved_device
+
+    with (
+        patch(
+            "winml.modelkit.session.default_ep_for_device",
+            return_value="QNNExecutionProvider",
+        ),
+        patch.object(run_eval, "_resolve_eval_target", side_effect=resolve_target),
     ):
         yield
     run_eval._deduce_ep_for_device.cache_clear()
@@ -96,6 +109,96 @@ class TestShouldSkipWinmlQuant:
     )
     def test_other_eps_do_not_skip(self, run_eval, ep):
         assert run_eval._should_skip_winml_quant(ep) is False
+
+
+class TestKillProcessTree:
+    def test_access_denied_child_does_not_escape(self, run_eval):
+        import psutil
+
+        child = MagicMock()
+        child.kill.side_effect = psutil.AccessDenied(pid=456)
+        parent = MagicMock()
+        parent.children.return_value = [child]
+
+        with (
+            patch.object(psutil, "Process", return_value=parent),
+            patch.object(psutil, "wait_procs") as wait_procs,
+        ):
+            run_eval._kill_process_tree(123)
+
+        parent.kill.assert_called_once_with()
+        wait_procs.assert_called_once_with([child, parent], timeout=5)
+
+    def test_children_race_falls_back_to_platform_kill(self, run_eval):
+        import psutil
+
+        parent = MagicMock()
+        parent.children.side_effect = psutil.NoSuchProcess(pid=123)
+
+        with (
+            patch.object(psutil, "Process", return_value=parent),
+            patch.object(run_eval.platform, "system", return_value="Windows"),
+            patch.object(run_eval.subprocess, "run") as subprocess_run,
+        ):
+            run_eval._kill_process_tree(123)
+
+        subprocess_run.assert_called_once_with(
+            ["taskkill", "/F", "/T", "/PID", "123"],
+            capture_output=True,
+        )
+
+
+def test_curated_target_models_preserve_existing_priorities(run_eval):
+    testsets_dir = (
+        Path(__file__).resolve().parents[3]
+        / "scripts"
+        / "e2e_eval"
+        / "testsets"
+    )
+    curated = json.loads((testsets_dir / "models_curated.json").read_text(encoding="utf-8"))
+    target_entries = curated[-43:]
+    target_keys = {(entry["hf_id"], entry["task"]) for entry in target_entries}
+    expected_p2 = {
+        ("Helsinki-NLP/opus-mt-en-ru", "translation"),
+        ("Helsinki-NLP/opus-mt-fr-en", "translation"),
+        ("cross-encoder/ms-marco-MiniLM-L4-v2", "text-classification"),
+        ("cross-encoder/ms-marco-MiniLM-L6-v2", "text-classification"),
+        ("facebook/bart-large-mnli", "text-classification"),
+        ("mixedbread-ai/mxbai-rerank-xsmall-v1", "text-classification"),
+    }
+
+    entries = run_eval.load_registry(testsets_dir / "models_all.json")
+    generated = [entry for entry in entries if (entry.hf_id, entry.task) in target_keys]
+
+    assert len(target_entries) == 43
+    assert len(generated) == 43
+    assert {entry["group"] for entry in target_entries} == {"Top200"}
+    assert {
+        (entry["hf_id"], entry["task"])
+        for entry in target_entries
+        if entry["priority"] == "P2"
+    } == expected_p2
+    assert sum(entry["priority"] == "P3" for entry in target_entries) == 37
+    assert {
+        (entry.hf_id, entry.task) for entry in generated if entry.priority == "P2"
+    } == expected_p2
+    assert sum(entry.priority == "P3" for entry in generated) == 37
+    assert {entry.group for entry in generated} == {"Top200"}
+    assert "Cross EP" not in json.dumps(curated)
+    assert "Cross EP" not in (testsets_dir / "models_all.json").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("ep,device", [("auto", "npu"), ("qnn", "auto")])
+def test_recipe_copy_rejects_automatic_destination(run_eval, ep, device):
+    with pytest.raises(
+        ValueError,
+        match="--copy-recipes-from requires explicit --ep and --device",
+    ):
+        run_eval._validate_recipe_copy_target(ep, device)
+
+
+def test_recipe_copy_accepts_concrete_destination(run_eval):
+    run_eval._validate_recipe_copy_target("qnn", "npu")
 
 
 class TestDeducedEpForPinnedDevice:
@@ -167,6 +270,47 @@ class TestDeducedEpForPinnedDevice:
         run_eval._deduce_ep_for_device.cache_clear()
         assert run_eval._deduce_ep_for_device("auto") is None
         assert run_eval._should_skip_winml_quant(None, "auto") is False
+
+
+class TestBuildJobsTargetResolution:
+    @staticmethod
+    def _entry(run_eval):
+        return run_eval.ModelEntry(
+            hf_id="acme/model",
+            task="image-classification",
+            model_type="vit",
+            priority="P0",
+            group="Benchmark",
+        )
+
+    @pytest.mark.parametrize(
+        ("ep", "device", "resolved_ep", "resolved_device"),
+        [
+            (None, "cpu", "CPUExecutionProvider", "cpu"),
+            ("qnn", "auto", "QNNExecutionProvider", "npu"),
+        ],
+    )
+    def test_resolves_single_auto_axis_before_recipe_lookup(
+        self, run_eval, ep, device, resolved_ep, resolved_device
+    ):
+        with (
+            patch.object(
+                run_eval,
+                "_resolve_eval_target",
+                return_value=(resolved_ep, resolved_device),
+            ) as resolve,
+            patch.object(run_eval, "discover_recipe_variants", return_value=[]) as discover,
+        ):
+            run_eval._build_jobs([self._entry(run_eval)], Path("recipes"), device, ep=ep)
+
+        resolve.assert_called_once_with(ep, device)
+        discover.assert_called_once_with(
+            Path("recipes"),
+            "acme/model",
+            "image-classification",
+            ep=resolved_ep,
+            device=resolved_device,
+        )
 
 
 class TestResolvePrecision:
