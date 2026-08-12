@@ -2053,6 +2053,79 @@ class TestExpPositiveScaleFolding:
         assert log_scale.shape == ()
         np.testing.assert_array_equal(log_scale, np.log(np.asarray(1.5, dtype=np.float32)))
 
+    def test_post_view_scale_with_different_flattened_pattern_is_unchanged(self) -> None:
+        model = _model(
+            [
+                onnx.helper.make_node("Exp", ["x"], ["exponential"]),
+                onnx.helper.make_node("Reshape", ["exponential", "output_shape"], ["reshaped"]),
+                onnx.helper.make_node("Mul", ["reshaped", "scale"], ["y"]),
+            ],
+            [_info("x", [2, 2, 3])],
+            [_info("y", [3, 2, 2])],
+            [
+                _tensor("output_shape", np.asarray([3, 2, 2], dtype=np.int64)),
+                _tensor("scale", np.asarray([[[1.0], [2.0]]], dtype=np.float32)),
+            ],
+            value_info=[
+                _info("exponential", [2, 2, 3]),
+                _info("reshaped", [3, 2, 2]),
+            ],
+        )
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        _assert_byte_identical(model, transformed)
+
+    def test_orthogonal_bias_and_scale_broadcast_uses_compact_log_scale_add(self) -> None:
+        rng = np.random.default_rng(36)
+        model = _model(
+            [
+                onnx.helper.make_node("Add", ["x", "bias"], ["biased"], name="bias_add"),
+                onnx.helper.make_node("Exp", ["biased"], ["exponential"], name="exp"),
+                onnx.helper.make_node("Mul", ["exponential", "scale"], ["y"], name="scale_mul"),
+            ],
+            [_info("x", [2, 2, 3])],
+            [_info("y", [2, 2, 3])],
+            [
+                _tensor(
+                    "bias",
+                    rng.normal(size=(2, 1, 3)).astype(np.float32),
+                ),
+                _tensor("scale", np.asarray([[[1.25], [0.75]]], dtype=np.float32)),
+            ],
+            value_info=[
+                _info("biased", [2, 2, 3]),
+                _info("exponential", [2, 2, 3]),
+            ],
+        )
+        values = {"x": rng.normal(size=(2, 2, 3)).astype(np.float32)}
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        assert [node.op_type for node in transformed.graph.node] == ["Add", "Add", "Exp"]
+        assert transformed.graph.node[0].name == "bias_add"
+        assert transformed.graph.node[0].input[1] == "bias"
+        assert transformed.graph.node[-1].output[0] == "y"
+        log_scale_name = transformed.graph.node[1].input[1]
+        log_scale = onnx.numpy_helper.to_array(
+            next(value for value in transformed.graph.initializer if value.name == log_scale_name)
+        )
+        assert log_scale.shape == (1, 2, 1)
+        assert not any(tuple(value.dims) == (2, 2, 3) for value in transformed.graph.initializer)
+        _assert_valid_with_inferred_shapes(transformed)
+        np.testing.assert_allclose(
+            _run(model, values),
+            _run(transformed, values),
+            rtol=2e-6,
+            atol=2e-6,
+        )
+
     def test_exp_scale_flag_discloses_relaxed_float_boundary_semantics(self) -> None:
         description = get_all_capabilities()["exp-positive-scale-folding"].description
         assert "relaxed floating-point overflow semantics" in description

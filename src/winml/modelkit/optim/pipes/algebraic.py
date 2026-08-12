@@ -140,13 +140,16 @@ class _AffineCandidate:
 
 @dataclass
 class _ExpScaleCandidate:
-    """A positive post-Exp scale that can be merged into an existing bias."""
+    """A positive post-Exp scale that can be moved before Exp with an existing bias."""
 
     add: onnx.NodeProto
     bias_input_index: int
     output_node: onnx.NodeProto
     mul: onnx.NodeProto
-    combined_bias: np.ndarray
+    add_output: str
+    route_consumer: onnx.NodeProto
+    combined_bias: np.ndarray | None
+    log_scale: np.ndarray | None
 
 
 @dataclass
@@ -319,6 +322,10 @@ def _shape_broadcasts_to(shape: tuple[int, ...], target_shape: tuple[int, ...]) 
         source_dimension in (1, target_dimension)
         for source_dimension, target_dimension in zip(padded_shape, target_shape, strict=True)
     )
+
+
+def _shape_element_count(shape: tuple[int, ...]) -> int:
+    return int(np.prod(shape, dtype=np.int64))
 
 
 def _new_initializer(
@@ -893,6 +900,7 @@ def _exp_scale_candidate(
     current_name = add_output
     visited = {add_output}
     next_node = _single_unobserved_consumer(index, current_name)
+    route_consumer = next_node
     while next_node is not None:
         view_output = _order_preserving_view_output(index, next_node, current_name)
         if view_output is None:
@@ -908,6 +916,7 @@ def _exp_scale_candidate(
         or not _is_standard_onnx_node(next_node)
         or next_node.op_type != "Exp"
         or list(next_node.input) != [current_name]
+        or route_consumer is None
     ):
         return None
     post_exp = _post_exp_scale(index, next_node, visited)
@@ -929,18 +938,22 @@ def _exp_scale_candidate(
     try:
         np.broadcast_to(bias, add_shape)
         np.broadcast_to(scale, add_shape)
-        combined_bias = np.asarray(bias + np.log(scale), dtype=bias.dtype)
-        np.broadcast_to(combined_bias, add_shape)
+        log_scale = np.asarray(np.log(scale), dtype=scale.dtype)
+        np.broadcast_to(log_scale, add_shape)
     except ValueError:
         return None
-    if not np.isfinite(combined_bias).all():
+    if not np.isfinite(log_scale).all():
         return None
+    combined_bias = _compact_combined_bias(bias, log_scale, add_shape)
     return _ExpScaleCandidate(
         add=add,
         bias_input_index=bias_operand[0],
         output_node=output_node,
         mul=mul,
+        add_output=add_output,
+        route_consumer=route_consumer,
         combined_bias=combined_bias,
+        log_scale=None if combined_bias is not None else log_scale,
     )
 
 
@@ -976,7 +989,7 @@ def _exp_scale_insert_candidate(
         or np.prod(input_shape, dtype=np.int64) != np.prod(output_shape, dtype=np.int64)
     ):
         return None
-    log_scale = _compact_log_scale_for_input(scale, input_shape)
+    log_scale = _compact_log_scale_for_input(scale, input_shape, output_shape)
     if log_scale is None:
         return None
     return _ExpScaleInsertCandidate(
@@ -990,15 +1003,35 @@ def _exp_scale_insert_candidate(
 def _compact_log_scale_for_input(
     scale: np.ndarray,
     input_shape: tuple[int, ...],
+    output_shape: tuple[int, ...],
 ) -> np.ndarray | None:
     """Return a log-scale initializer without expanding broadcast-only dimensions."""
-    if _shape_broadcasts_to(scale.shape, input_shape):
+    if scale.size == 1 or (
+        input_shape == output_shape and _shape_broadcasts_to(scale.shape, input_shape)
+    ):
         log_scale = np.asarray(np.log(scale), dtype=scale.dtype)
-    elif scale.size == int(np.prod(input_shape, dtype=np.int64)):
+    elif scale.size == _shape_element_count(input_shape):
         log_scale = np.asarray(np.log(scale).reshape(input_shape), dtype=scale.dtype)
     else:
         return None
     return log_scale if np.isfinite(log_scale).all() else None
+
+
+def _compact_combined_bias(
+    bias: np.ndarray,
+    log_scale: np.ndarray,
+    target_shape: tuple[int, ...],
+) -> np.ndarray | None:
+    try:
+        combined_shape = np.broadcast_shapes(bias.shape, log_scale.shape)
+    except ValueError:
+        return None
+    if not _shape_broadcasts_to(combined_shape, target_shape) or _shape_element_count(
+        combined_shape
+    ) > max(int(bias.size), int(log_scale.size)):
+        return None
+    combined_bias = np.asarray(bias + log_scale, dtype=bias.dtype)
+    return combined_bias if np.isfinite(combined_bias).all() else None
 
 
 def _fold_existing_exp_bias_scale(
@@ -1010,15 +1043,48 @@ def _fold_existing_exp_bias_scale(
         bias_candidate = _exp_scale_candidate(index, add)
         if bias_candidate is None:
             continue
-        combined_name = _new_initializer(
-            model,
-            allocator,
-            bias_candidate.combined_bias,
-            "algebraic_exp_log_bias",
-        )
-        bias_candidate.add.input[bias_candidate.bias_input_index] = combined_name
-        bias_candidate.output_node.output[0] = bias_candidate.mul.output[0]
-        _remove_nodes(model, {id(bias_candidate.mul)})
+        if bias_candidate.combined_bias is not None:
+            combined_name = _new_initializer(
+                model,
+                allocator,
+                bias_candidate.combined_bias,
+                "algebraic_exp_log_bias",
+            )
+            bias_candidate.add.input[bias_candidate.bias_input_index] = combined_name
+        elif (
+            bias_candidate.log_scale is not None
+            and bias_candidate.route_consumer.input
+            and bias_candidate.route_consumer.input[0] == bias_candidate.add_output
+        ):
+            log_scale_name = _new_initializer(
+                model,
+                allocator,
+                bias_candidate.log_scale,
+                "algebraic_exp_log_scale",
+            )
+            adjusted_name = allocator.new("algebraic_exp_adjusted")
+            log_add = onnx.helper.make_node(
+                "Add",
+                [bias_candidate.add_output, log_scale_name],
+                [adjusted_name],
+                name=allocator.new("algebraic_exp_log_add"),
+            )
+            bias_candidate.route_consumer.input[0] = adjusted_name
+            bias_candidate.output_node.output[0] = bias_candidate.mul.output[0]
+            rewritten: list[onnx.NodeProto] = []
+            for node in model.graph.node:
+                if node is bias_candidate.mul:
+                    continue
+                rewritten.append(node)
+                if node is bias_candidate.add:
+                    rewritten.append(log_add)
+            del model.graph.node[:]
+            model.graph.node.extend(rewritten)
+        else:
+            continue
+        if bias_candidate.combined_bias is not None:
+            bias_candidate.output_node.output[0] = bias_candidate.mul.output[0]
+            _remove_nodes(model, {id(bias_candidate.mul)})
         return True
     return False
 
