@@ -29,6 +29,12 @@ ALGEBRAIC_CAPABILITIES: dict[str, Any] = caps_dict(
 )
 MAX_AFFINE_ROUTE_DEPTH = 64
 MAX_NUMPY_ELEMENTS = np.iinfo(np.intp).max
+EXP_FOLDING_GENERATED_PREFIXES = (
+    "algebraic_exp_log_bias",
+    "algebraic_exp_log_scale",
+    "algebraic_exp_log_add",
+    "algebraic_exp_adjusted",
+)
 
 
 @dataclass
@@ -853,27 +859,13 @@ def _constant_input(
     return constants[0] if len(constants) == 1 else None
 
 
-def _compact_combined_scale(
-    left: np.ndarray,
-    right: np.ndarray,
-    target_shape: tuple[int, ...],
-) -> np.ndarray | None:
-    if left.dtype != right.dtype:
-        return None
-    try:
-        combined_shape = np.broadcast_shapes(left.shape, right.shape)
-    except ValueError:
-        return None
-    combined_count = _shape_element_count(combined_shape)
-    if (
-        combined_count < 0
-        or not _shape_broadcasts_to(combined_shape, target_shape)
-        or combined_count > max(int(left.size), int(right.size))
-    ):
-        return None
-    combined_scale = np.asarray(left * right, dtype=left.dtype)
-    return (
-        combined_scale if np.isfinite(combined_scale).all() and np.all(combined_scale > 0) else None
+def _is_generated_exp_folding_name(name: str) -> bool:
+    return any(name.startswith(prefix) for prefix in EXP_FOLDING_GENERATED_PREFIXES)
+
+
+def _has_generated_exp_folding_marker(node: onnx.NodeProto) -> bool:
+    return bool(node.name and _is_generated_exp_folding_name(node.name)) or any(
+        _is_generated_exp_folding_name(input_name) for input_name in node.input if input_name
     )
 
 
@@ -911,41 +903,22 @@ def _post_exp_scale(
     if output_shape is None:
         return None
 
-    muls: list[onnx.NodeProto] = []
-    combined_scale: np.ndarray | None = None
-    while (
-        next_node is not None and _is_standard_onnx_node(next_node) and next_node.op_type == "Mul"
-    ):
-        scale_operand = _constant_input(index, next_node, current_name)
-        mul_output = _node_output(next_node)
-        if scale_operand is None or mul_output is None:
-            break
-        scale = scale_operand[1]
-        if (
-            not np.issubdtype(scale.dtype, np.floating)
-            or not np.isfinite(scale).all()
-            or not np.all(scale > 0)
-        ):
-            break
-        try:
-            np.broadcast_to(scale, output_shape)
-        except ValueError:
-            break
-        next_scale = (
-            scale
-            if combined_scale is None
-            else _compact_combined_scale(combined_scale, scale, output_shape)
-        )
-        if next_scale is None:
-            break
-        combined_scale = next_scale
-        muls.append(next_node)
-        current_name = mul_output
-        next_node = _single_unobserved_consumer(index, current_name)
-
-    if combined_scale is None:
+    scale_operand = _constant_input(index, next_node, current_name)
+    mul_output = _node_output(next_node)
+    if scale_operand is None or mul_output is None:
         return None
-    return current_node, muls, combined_scale, output_shape
+    scale = scale_operand[1]
+    if (
+        not np.issubdtype(scale.dtype, np.floating)
+        or not np.isfinite(scale).all()
+        or not np.all(scale > 0)
+    ):
+        return None
+    try:
+        np.broadcast_to(scale, output_shape)
+    except ValueError:
+        return None
+    return current_node, [next_node], scale, output_shape
 
 
 def _exp_scale_candidate(
@@ -953,6 +926,8 @@ def _exp_scale_candidate(
     add: onnx.NodeProto,
 ) -> _ExpScaleCandidate | None:
     if not _is_standard_onnx_node(add) or add.op_type != "Add":
+        return None
+    if _has_generated_exp_folding_marker(add):
         return None
     add_output = _node_output(add)
     bias_operand = _constant_input(index, add)
@@ -1031,6 +1006,8 @@ def _exp_scale_insert_candidate(
     current_name = exp.input[0]
     visited = {current_name}
     producer = index.producers.get(current_name)
+    if producer is not None and _has_generated_exp_folding_marker(producer):
+        return None
     while producer is not None and producer.op_type in {"Reshape", "Squeeze", "Unsqueeze"}:
         if (
             not producer.input
@@ -1042,6 +1019,8 @@ def _exp_scale_insert_candidate(
             return None
         visited.add(current_name)
         producer = index.producers.get(current_name)
+        if producer is not None and _has_generated_exp_folding_marker(producer):
+            return None
 
     post_exp = _post_exp_scale(index, exp)
     if post_exp is None:
@@ -1109,6 +1088,21 @@ def _candidate_node_ids(nodes: Iterable[onnx.NodeProto]) -> set[int]:
     return {id(node) for node in nodes}
 
 
+def _exp_bias_candidate_node_ids(candidate: _ExpScaleCandidate) -> set[int]:
+    return _candidate_node_ids(
+        [
+            candidate.add,
+            candidate.route_consumer,
+            candidate.output_node,
+            *candidate.muls,
+        ]
+    )
+
+
+def _exp_insert_candidate_node_ids(candidate: _ExpScaleInsertCandidate) -> set[int]:
+    return _candidate_node_ids([candidate.exp, candidate.output_node, *candidate.muls])
+
+
 def _select_exp_bias_scale_candidates(
     model: onnx.ModelProto,
     index: _GraphIndex,
@@ -1125,14 +1119,7 @@ def _select_exp_bias_scale_candidates(
             or candidate.route_consumer.input[0] != candidate.add_output
         ):
             continue
-        candidate_nodes = _candidate_node_ids(
-            [
-                candidate.add,
-                candidate.route_consumer,
-                candidate.output_node,
-                *candidate.muls,
-            ]
-        )
+        candidate_nodes = _exp_bias_candidate_node_ids(candidate)
         if candidate_nodes & reserved_nodes:
             continue
         reserved_nodes.update(candidate_nodes)
@@ -1143,33 +1130,38 @@ def _select_exp_bias_scale_candidates(
 def _select_exp_scale_insert_candidates(
     model: onnx.ModelProto,
     index: _GraphIndex,
+    reserved_nodes: set[int] | None = None,
 ) -> list[_ExpScaleInsertCandidate]:
     selected: list[_ExpScaleInsertCandidate] = []
-    reserved_nodes: set[int] = set()
+    selected_nodes: set[int] = set() if reserved_nodes is None else set(reserved_nodes)
     for exp in model.graph.node:
         candidate = _exp_scale_insert_candidate(index, exp)
         if candidate is None:
             continue
-        candidate_nodes = _candidate_node_ids(
-            [candidate.exp, candidate.output_node, *candidate.muls]
-        )
-        if candidate_nodes & reserved_nodes:
+        candidate_nodes = _exp_insert_candidate_node_ids(candidate)
+        if candidate_nodes & selected_nodes:
             continue
-        reserved_nodes.update(candidate_nodes)
+        selected_nodes.update(candidate_nodes)
         selected.append(candidate)
     return selected
 
 
-def _fold_existing_exp_bias_scales(
+def _fold_exp_positive_scales(
     model: onnx.ModelProto,
     allocator: _NameAllocator,
-) -> bool:
+) -> None:
+    """Fold eligible positive post-Exp constants into the Exp input."""
     index = _GraphIndex.build(model)
     bias_candidates = _select_exp_bias_scale_candidates(model, index)
-    if not bias_candidates:
-        return False
+    reserved_nodes = set().union(
+        *(_exp_bias_candidate_node_ids(candidate) for candidate in bias_candidates),
+    )
+    insert_candidates = _select_exp_scale_insert_candidates(model, index, reserved_nodes)
+    if not bias_candidates and not insert_candidates:
+        return
 
     removed: set[int] = set()
+    insert_before: dict[int, onnx.NodeProto] = {}
     insert_after: dict[int, onnx.NodeProto] = {}
     for bias_candidate in bias_candidates:
         if bias_candidate.combined_bias is not None:
@@ -1201,30 +1193,6 @@ def _fold_existing_exp_bias_scales(
         bias_candidate.output_node.output[0] = bias_candidate.muls[-1].output[0]
         removed.update(id(mul) for mul in bias_candidate.muls)
 
-    rewritten: list[onnx.NodeProto] = []
-    for node in model.graph.node:
-        if id(node) in removed:
-            continue
-        rewritten.append(node)
-        inserted = insert_after.get(id(node))
-        if inserted is not None:
-            rewritten.append(inserted)
-    del model.graph.node[:]
-    model.graph.node.extend(rewritten)
-    return True
-
-
-def _fold_inserted_exp_scales(
-    model: onnx.ModelProto,
-    allocator: _NameAllocator,
-) -> bool:
-    index = _GraphIndex.build(model)
-    insert_candidates = _select_exp_scale_insert_candidates(model, index)
-    if not insert_candidates:
-        return False
-
-    removed: set[int] = set()
-    insert_before: dict[int, onnx.NodeProto] = {}
     for insert_candidate in insert_candidates:
         log_scale_name = _new_initializer(
             model,
@@ -1246,25 +1214,16 @@ def _fold_inserted_exp_scales(
 
     rewritten: list[onnx.NodeProto] = []
     for node in model.graph.node:
-        inserted = insert_before.get(id(node))
-        if inserted is not None:
-            rewritten.append(inserted)
+        before = insert_before.get(id(node))
+        if before is not None:
+            rewritten.append(before)
         if id(node) not in removed:
             rewritten.append(node)
+        after = insert_after.get(id(node))
+        if after is not None:
+            rewritten.append(after)
     del model.graph.node[:]
     model.graph.node.extend(rewritten)
-    return True
-
-
-def _fold_exp_positive_scales(
-    model: onnx.ModelProto,
-    allocator: _NameAllocator,
-) -> None:
-    """Fold eligible positive post-Exp constants into the Exp input."""
-    while _fold_existing_exp_bias_scales(model, allocator):
-        pass
-    while _fold_inserted_exp_scales(model, allocator):
-        pass
 
 
 def _collect_affine_chain(
@@ -1301,10 +1260,19 @@ def _collect_affine_chain(
             return None, True
         values = values.astype(calculation_dtype, copy=False)
         if current.op_type == "Mul":
-            scale *= values
-            offset *= values
+            with np.errstate(over="ignore", invalid="ignore"):
+                next_scale = scale * values
+                next_offset = offset * values
+            if not np.isfinite(next_scale).all() or not np.isfinite(next_offset).all():
+                return None, True
+            scale = next_scale
+            offset = next_offset
         else:
-            offset += values
+            with np.errstate(over="ignore", invalid="ignore"):
+                next_offset = offset + values
+            if not np.isfinite(next_offset).all():
+                return None, True
+            offset = next_offset
         matched.append(current)
 
         consumers = index.consumers.get(current_output, [])
@@ -1509,6 +1477,8 @@ def _copy_conv_parameters(
     scale: np.ndarray,
     offset: np.ndarray,
 ) -> bool:
+    if not np.isfinite(scale).all() or not np.isfinite(offset).all():
+        return False
     if len(conv.input) < 2 or conv.input[1] in index.graph_inputs:
         return False
     weights = _initializer_array(index, conv.input[1])
@@ -1517,6 +1487,8 @@ def _copy_conv_parameters(
     if weights.ndim < 1 or weights.shape[0] != len(scale):
         return False
     if not np.issubdtype(weights.dtype, np.floating):
+        return False
+    if not np.isfinite(weights).all():
         return False
 
     if len(conv.input) > 2 and conv.input[2]:
@@ -1529,24 +1501,34 @@ def _copy_conv_parameters(
             return False
         if not np.issubdtype(bias_values.dtype, np.floating):
             return False
+        if not np.isfinite(bias_values).all():
+            return False
     else:
         bias_values = np.zeros(len(scale), dtype=weights.dtype)
 
-    new_weights = weights * scale.reshape((len(scale),) + (1,) * (weights.ndim - 1))
+    with np.errstate(over="ignore", invalid="ignore"):
+        new_weights = weights * scale.reshape((len(scale),) + (1,) * (weights.ndim - 1))
+    folded_weights = np.asarray(new_weights, dtype=weights.dtype)
+    if not np.isfinite(folded_weights).all():
+        return False
+    with np.errstate(over="ignore", invalid="ignore"):
+        new_bias = bias_values * scale + offset
+    folded_bias = np.asarray(new_bias, dtype=bias_values.dtype)
+    if not np.isfinite(folded_bias).all():
+        return False
     weight_name = _new_initializer(
         model,
         allocator,
-        np.asarray(new_weights, dtype=weights.dtype),
+        folded_weights,
         "algebraic_conv_weight",
     )
-    conv.input[1] = weight_name
-    new_bias = bias_values * scale + offset
     bias_name = _new_initializer(
         model,
         allocator,
-        np.asarray(new_bias, dtype=bias_values.dtype),
+        folded_bias,
         "algebraic_conv_bias",
     )
+    conv.input[1] = weight_name
     if len(conv.input) > 2:
         conv.input[2] = bias_name
     else:
