@@ -125,7 +125,15 @@ analyze stage. It reports EP compatibility and operator classification:
       "Gemm": 1
     },
     "unique_operator_types": 7,
-    "detected_pattern_count": {}
+    "detected_pattern_count": {
+      "QNNExecutionProvider": {
+        "SUBGRAPH/GELU_Erf": 18,
+        "SUBGRAPH/LayerNorm": 12
+      },
+      "OpenVINOExecutionProvider": {
+        "SUBGRAPH/GELU_Erf": 16
+      }
+    }
   },
   "results": [
     {
@@ -161,11 +169,15 @@ Key fields:
 |-------|-------------|
 | `metadata.total_operators` | Total ONNX operator nodes in the model graph |
 | `metadata.operator_counts` | Frequency of each operator type |
-| `metadata.detected_pattern_count` | Fused subgraph patterns (GeLU, LayerNorm, etc.) |
+| `metadata.detected_pattern_count` | Pattern counts grouped by EP, then pattern ID |
 | `results[].ihv_type` | Hardware vendor (`"Microsoft"`, `"QC"`, `"Intel"`, etc.) |
 | `results[].runtime_support` | `true` if the EP can run all operators |
 | `results[].classification` | Operators grouped by support level: `supported`, `partial`, `unsupported`, `unknown` |
 | `results[].has_errors` | `true` if unsupported ops exist (model won't run on that EP) |
+
+Pattern extraction and deduplication are EP-specific. Read one EP's total with
+`sum(metadata.detected_pattern_count[ep].values())`; summing across EPs may count
+the same model pattern more than once.
 
 ---
 

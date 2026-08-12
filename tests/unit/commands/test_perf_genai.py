@@ -77,6 +77,8 @@ class _FakeSession:
         context_length: int = 256,
         chat_template: bool = True,
         effective_ep: str | None = None,
+        effective_device: str | None = None,
+        effective_hardware_ep: str | None = None,
     ) -> None:
         self._timings = list(timings)
         self._i = 0
@@ -89,6 +91,8 @@ class _FakeSession:
         # None to mean "config").  Reported by the benchmark instead of the
         # requested ep so a no-op override is not falsely claimed.
         self.effective_ep = effective_ep
+        self.effective_device = effective_device
+        self.effective_hardware_ep = effective_hardware_ep
 
     def encode(self, text: str) -> list[int]:
         self.encoded_text = text
@@ -150,22 +154,22 @@ def _fake_build_genai_bundle(captured: dict):
 
 
 class TestResolveGenaiEp:
-    """``resolve_genai_ep`` reuses the shared resolve_device/resolve_eps path.
+    """``resolve_genai_ep`` reuses the shared session resolve_device / available_eps_for_device.
 
-    ``resolve_genai_ep`` imports them from ``..sysinfo`` at call time, so the
-    tests patch ``winml.modelkit.sysinfo`` and assert the *device -> best
+    ``resolve_genai_ep`` imports them from ``..session`` at call time, so the
+    tests patch ``winml.modelkit.session`` and assert the *device -> best
     available EP alias* mapping without probing real hardware.
     """
 
     def test_config_short_circuits_without_resolving(self, monkeypatch) -> None:
         # "config" means "respect the bundle": no device resolution happens.
-        import winml.modelkit.sysinfo as sysinfo
+        import winml.modelkit.session as session
 
         def _must_not_run(*_args: object, **_kwargs: object) -> object:
             raise AssertionError("resolve_device must not be called for 'config'")
 
-        monkeypatch.setattr(sysinfo, "resolve_device", _must_not_run)
-        monkeypatch.setattr(sysinfo, "resolve_eps", _must_not_run)
+        monkeypatch.setattr(session, "resolve_device", _must_not_run)
+        monkeypatch.setattr(session, "available_eps_for_device", _must_not_run)
         assert resolve_genai_ep("config") is None
 
     @pytest.mark.parametrize(
@@ -195,32 +199,38 @@ class TestResolveGenaiEp:
         eps: list[str],
         expected: str,
     ) -> None:
-        import winml.modelkit.sysinfo as sysinfo
+        import winml.modelkit.session as session
+        from winml.modelkit.session import EPDeviceTarget
 
         monkeypatch.setattr(
-            sysinfo, "resolve_device", lambda **_kwargs: (resolved_device, [resolved_device])
+            session,
+            "resolve_device",
+            lambda _target: EPDeviceTarget(ep="auto", device=resolved_device),
         )
-        monkeypatch.setattr(sysinfo, "resolve_eps", lambda _device: list(eps))
+        monkeypatch.setattr(session, "available_eps_for_device", lambda _device: list(eps))
         assert resolve_genai_ep(device) == expected
 
     def test_no_available_ep_returns_none(self, monkeypatch) -> None:
         # A device that resolves to an empty EP list falls back to None
         # (respect config) rather than raising.
-        import winml.modelkit.sysinfo as sysinfo
+        import winml.modelkit.session as session
+        from winml.modelkit.session import EPDeviceTarget
 
-        monkeypatch.setattr(sysinfo, "resolve_device", lambda **_kwargs: ("npu", ["npu"]))
-        monkeypatch.setattr(sysinfo, "resolve_eps", lambda _device: [])
+        monkeypatch.setattr(
+            session, "resolve_device", lambda _target: EPDeviceTarget(ep="auto", device="npu")
+        )
+        monkeypatch.setattr(session, "available_eps_for_device", lambda _device: [])
         assert resolve_genai_ep("npu") is None
 
     def test_unavailable_device_propagates_valueerror(self, monkeypatch) -> None:
         # resolve_device raises for an unavailable device; genai fails fast
         # (matches the ONNX path) instead of silently respecting config.
-        import winml.modelkit.sysinfo as sysinfo
+        import winml.modelkit.session as session
 
-        def _raise(**_kwargs: object) -> object:
+        def _raise(_target: object) -> object:
             raise ValueError("Device 'npu' requested but no compatible EP is available.")
 
-        monkeypatch.setattr(sysinfo, "resolve_device", _raise)
+        monkeypatch.setattr(session, "resolve_device", _raise)
         with pytest.raises(ValueError, match="no compatible EP"):
             resolve_genai_ep("npu")
 
@@ -380,7 +390,10 @@ class TestResultToDict:
             compile_timeout=120,
         )
         session = _FakeSession(
-            [_timing(0.4, 0.6, [0.4, 0.4, 0.4])], prompt_ids=[1, 2, 3], effective_ep="qnn"
+            [_timing(0.4, 0.6, [0.4, 0.4, 0.4])],
+            prompt_ids=[1, 2, 3],
+            effective_ep="qnn",
+            effective_device="npu",
         )
         bench = GenaiPerfBenchmark(cfg, session=session)
         return bench.run()
@@ -400,11 +413,13 @@ class TestResultToDict:
         assert info["runtime"] == "winml-genai"
         assert info["ep"] == "qnn"
         assert info["device"] == "npu"
+        assert info["effective_device"] == "npu"
         assert info["max_new_tokens"] == 4
         assert info["prompt_tokens"] == 3
         assert info["generated_tokens"] == 4
         assert info["compile"] is True
         assert info["compile_timeout"] == 120
+        assert info["monitor"] is False
         assert info["apply_template"] is True
         assert info["prompt"] == "Benchmark this exact prompt"
         assert set(d["ttft_ms"]) == {"mean", "min", "max", "p50", "p90", "p95", "p99"}
@@ -444,6 +459,47 @@ class TestResultToDict:
         info = GenaiPerfBenchmark(cfg, session=session).run().to_dict()["benchmark_info"]
         assert info["ep"] == "config"
         assert info["device"] == "npu"
+
+    def test_to_dict_includes_generation_monitor_metrics(self, monkeypatch) -> None:
+        metrics = {
+            "device_kind": "npu",
+            "npu": {"mean_pct": 42.0, "sample_count": 4},
+            "cpu": {"process_mean_pct": 250.0, "sample_count": 4},
+            "ram": {"mean_mb": 2048.0},
+        }
+
+        class FakeMonitor:
+            @classmethod
+            def is_available(cls) -> bool:
+                return True
+
+            def __init__(self, **_kwargs: object) -> None:
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                pass
+
+            def to_dict(self) -> dict:
+                return metrics
+
+        monkeypatch.setattr(perf_genai, "HWMonitor", FakeMonitor)
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("bundle"),
+            ep="qnn",
+            device="npu",
+            iterations=1,
+            warmup=0,
+            monitor=True,
+        )
+        session = _FakeSession([_timing(0.4, 0.6, [0.4])], effective_ep="qnn")
+
+        data = GenaiPerfBenchmark(cfg, session=session).run().to_dict()
+
+        assert data["benchmark_info"]["monitor"] is True
+        assert data["hw_monitor"] == metrics
 
 
 # ---------------------------------------------------------------------------
@@ -485,6 +541,69 @@ class TestSessionDevice:
         cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), ep="openvino", device="npu")
         GenaiPerfBenchmark(cfg)._build_session()
         assert captured == {"ep": "openvino", "device": "npu"}
+
+    def test_monitor_uses_bundle_effective_device_for_config(self) -> None:
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="config")
+        session = _FakeSession([], effective_device="gpu")
+        assert GenaiPerfBenchmark(cfg, session=session)._monitor_device() == "gpu"
+
+    def test_monitor_uses_cpu_only_when_bundle_device_is_ambiguous(self) -> None:
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="config")
+        session = _FakeSession([], effective_device=None)
+        assert GenaiPerfBenchmark(cfg, session=session)._monitor_device() is None
+
+    def test_monitor_uses_session_device_when_override_is_noop(self) -> None:
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="npu", ep="qnn")
+        session = _FakeSession([], effective_ep=None, effective_device="cpu")
+        assert GenaiPerfBenchmark(cfg, session=session)._monitor_device() == "cpu"
+
+    def test_monitor_ep_comes_from_effective_config_not_request(self) -> None:
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="gpu", ep="dml")
+        session = _FakeSession(
+            [],
+            effective_ep=None,
+            effective_device="gpu",
+            effective_hardware_ep="OpenVINOExecutionProvider",
+        )
+
+        assert (
+            GenaiPerfBenchmark(cfg, session=session)._monitor_ep()
+            == "OpenVINOExecutionProvider"
+        )
+
+    def test_accelerator_monitor_requires_unique_effective_ep(self, monkeypatch) -> None:
+        captured: dict = {}
+
+        class FakeMonitor:
+            @classmethod
+            def is_available(cls) -> bool:
+                return True
+
+            def __init__(self, **kwargs: object) -> None:
+                captured.update(kwargs)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                pass
+
+            def to_dict(self) -> dict:
+                return {}
+
+        monkeypatch.setattr(perf_genai, "HWMonitor", FakeMonitor)
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("bundle"), device="gpu", ep="dml", iterations=1, warmup=0, monitor=True
+        )
+        session = _FakeSession(
+            [_timing(0.4, 0.6, [0.4])],
+            effective_device="gpu",
+            effective_hardware_ep=None,
+        )
+
+        GenaiPerfBenchmark(cfg, session=session).run()
+
+        assert captured == {"poll_interval_ms": 200, "device": "cpu", "ep_name": None}
 
 
 # ---------------------------------------------------------------------------
@@ -616,11 +735,16 @@ class TestCliDispatch:
         self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
     ) -> None:
         # A concrete --device resolves to the best available EP for that device
-        # via the shared resolve_device/resolve_eps path (here: npu -> qnn).
-        import winml.modelkit.sysinfo as sysinfo
+        # via the shared session resolve_device / available_eps_for_device path.
+        import winml.modelkit.session as session
+        from winml.modelkit.session import EPDeviceTarget
 
-        monkeypatch.setattr(sysinfo, "resolve_device", lambda **_k: ("npu", ["npu"]))
-        monkeypatch.setattr(sysinfo, "resolve_eps", lambda _d: ["QNNExecutionProvider"])
+        monkeypatch.setattr(
+            session, "resolve_device", lambda _t: EPDeviceTarget(ep="auto", device="npu")
+        )
+        monkeypatch.setattr(
+            session, "available_eps_for_device", lambda _d: ["QNNExecutionProvider"]
+        )
         bundle = _make_bundle(tmp_path)
         result = runner.invoke(
             perf, ["-m", str(bundle), "--runtime", "winml-genai", "--device", "npu"]
@@ -636,10 +760,15 @@ class TestCliDispatch:
     ) -> None:
         # Explicit --device auto matches the ONNX path: pick the best device +
         # its best available EP and force the whole pipeline onto it.
-        import winml.modelkit.sysinfo as sysinfo
+        import winml.modelkit.session as session
+        from winml.modelkit.session import EPDeviceTarget
 
-        monkeypatch.setattr(sysinfo, "resolve_device", lambda **_k: ("gpu", ["gpu"]))
-        monkeypatch.setattr(sysinfo, "resolve_eps", lambda _d: ["DmlExecutionProvider"])
+        monkeypatch.setattr(
+            session, "resolve_device", lambda _t: EPDeviceTarget(ep="auto", device="gpu")
+        )
+        monkeypatch.setattr(
+            session, "available_eps_for_device", lambda _d: ["DmlExecutionProvider"]
+        )
         bundle = _make_bundle(tmp_path)
         result = runner.invoke(
             perf, ["-m", str(bundle), "--runtime", "winml-genai", "--device", "auto"]
@@ -719,6 +848,32 @@ class TestCliDispatch:
         assert result.exit_code == 0, result.output
         assert "--ep" not in result.output
 
+    def test_duration_op_tracing_conflict_not_fatal_for_genai(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        # The --duration + --op-tracing conflict is a WinML-path constraint. For
+        # winml-genai both flags are ignored (non-fatal), so passing both must
+        # warn and continue rather than aborting with the conflict UsageError.
+        bundle = _make_bundle(tmp_path)
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(bundle),
+                "--runtime",
+                "winml-genai",
+                "--duration",
+                "5",
+                "--op-tracing",
+                "basic",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "not valid with --op-tracing" not in result.output
+        # Both stay non-fatal ignored options for genai.
+        assert "--duration" in result.output
+        assert "--op-tracing" in result.output
+
     def test_genai_iteration_defaults(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
     ) -> None:
@@ -774,6 +929,77 @@ class TestCliDispatch:
         cfg = capture_run["config"]
         assert cfg.prompt == "hello there"
         assert cfg.max_new_tokens == 64
+
+    def test_prompt_file_is_read_as_utf8(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        bundle = _make_bundle(tmp_path)
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_text("hello from a long prompt", encoding="utf-8")
+
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(bundle),
+                "--runtime",
+                "winml-genai",
+                "--prompt-file",
+                str(prompt_file),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].prompt == "hello from a long prompt"
+
+    def test_prompt_and_prompt_file_are_mutually_exclusive(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        bundle = _make_bundle(tmp_path)
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_text("file prompt", encoding="utf-8")
+
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(bundle),
+                "--runtime",
+                "winml-genai",
+                "--prompt",
+                "argv prompt",
+                "--prompt-file",
+                str(prompt_file),
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "mutually exclusive" in result.output
+        assert "config" not in capture_run
+
+    def test_invalid_utf8_prompt_file_is_a_click_error(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        bundle = _make_bundle(tmp_path)
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_bytes(b"\xff\xfe")
+
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(bundle),
+                "--runtime",
+                "winml-genai",
+                "--prompt-file",
+                str(prompt_file),
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "Could not read prompt file" in result.output
+        assert "Traceback" not in result.output
+        assert "config" not in capture_run
 
     def test_default_prompt_used_when_omitted(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict

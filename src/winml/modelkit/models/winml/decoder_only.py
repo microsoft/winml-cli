@@ -186,8 +186,9 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
         self,
         sub_models: dict[str, Any],
         config: PretrainedConfig,
+        device: str = "cpu",
     ) -> None:
-        super().__init__(sub_models, config)
+        super().__init__(sub_models, config, device)
         self._prefill_model = sub_models["decoder_prefill"]
         self._gen_model = sub_models["decoder_gen"]
 

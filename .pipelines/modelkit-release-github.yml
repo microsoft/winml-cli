@@ -94,8 +94,9 @@ extends:
               # the wheels, and is not matched by the release task's asset globs.
               $changelog = "$(Build.SourcesDirectory)/CHANGELOG.md"
               $notesFile = Join-Path $dst "RELEASE_NOTES.md"
+              $utf8WithBom = New-Object System.Text.UTF8Encoding($true)
               if (Test-Path $changelog) {
-                $lines = Get-Content $changelog
+                $lines = [System.IO.File]::ReadAllLines($changelog, [System.Text.Encoding]::UTF8)
                 $start = -1
                 for ($i = 0; $i -lt $lines.Count; $i++) {
                   if ($lines[$i] -match "^##\s+WinML CLI v$([regex]::Escape($version))\s*$") { $start = $i; break }
@@ -106,15 +107,15 @@ extends:
                     if ($lines[$j] -match '^##\s') { $end = $j; break }
                   }
                   $section = if ($end -gt ($start + 1)) { $lines[($start + 1)..($end - 1)] } else { @() }
-                  [System.IO.File]::WriteAllText($notesFile, (($section -join "`n").Trim() + "`n"))
+                  [System.IO.File]::WriteAllText($notesFile, (($section -join "`n").Trim() + "`n"), $utf8WithBom)
                   Write-Host "Wrote release notes for v$version to $notesFile"
                 } else {
                   Write-Warning "No '## WinML CLI v$version' section in CHANGELOG.md; release notes will be empty"
-                  [System.IO.File]::WriteAllText($notesFile, "")
+                  [System.IO.File]::WriteAllText($notesFile, "", $utf8WithBom)
                 }
               } else {
                 Write-Warning "CHANGELOG.md not found at $changelog; release notes will be empty"
-                [System.IO.File]::WriteAllText($notesFile, "")
+                [System.IO.File]::WriteAllText($notesFile, "", $utf8WithBom)
               }
 
       - job: CreateGitHubRelease
@@ -156,7 +157,8 @@ extends:
         - task: GitHubRelease@1
           displayName: 'Create GitHub Release'
           inputs:
-            gitHubConnection: 'ModelKit'
+            # GitHub App-backed connection; avoids expiring and SAML-bound PAT credentials.
+            gitHubConnection: 'microsoft'
             repositoryName: 'microsoft/winml-cli'
             action: create
             target: '$(Build.SourceVersion)'

@@ -24,9 +24,65 @@ from winml.modelkit.analyze import (
     ONNXStaticAnalyzer,
     SupportLevel,
 )
-from winml.modelkit.analyze.analyzer import _build_runtime_debug_details_summary
+from winml.modelkit.analyze.analyzer import (
+    _build_runtime_debug_details_summary,
+    _build_subgraph_runtime_results,
+)
 from winml.modelkit.analyze.models.runtime_checks import PatternRuntime, RuntimeTestResult
 from winml.modelkit.optim import WinMLOptimizationConfig
+
+
+def test_build_subgraph_runtime_results_preserves_selected_alternative_metadata() -> None:
+    """Final selected alternatives retain action metadata for optimization config."""
+    pattern_match = MagicMock()
+    pattern_match.match_id = "match-1"
+    action_items = [
+        {
+            "type": "GraphOptimization",
+            "optimization_options": {"test_fusion": True},
+        }
+    ]
+    merge_prep_entries = [
+        {
+            "pattern_id": "SUBGRAPH/SourcePattern",
+            "match_id": "match-1",
+            "support_status": "partial",
+            "alternatives": [
+                {
+                    "pattern_to_id": "SUBGRAPH/SelectedAlternative",
+                    "enabled": True,
+                    "details": "Use the selected alternative.",
+                    "reason": "The alternative is supported.",
+                    "action_items": action_items,
+                }
+            ],
+            "candidates": [
+                {
+                    "pattern_id": "SUBGRAPH/SelectedAlternative",
+                    "is_alternative": True,
+                    "status": "ok",
+                    "compile": True,
+                    "run": True,
+                }
+            ],
+        }
+    ]
+
+    runtime_results = _build_subgraph_runtime_results(
+        [pattern_match],
+        merge_prep_entries,
+    )
+
+    assert len(runtime_results) == 1
+    runtime_result = runtime_results[0]
+    assert runtime_result.result.classification == SupportLevel.PARTIAL
+    assert runtime_result.pattern_match is pattern_match
+    assert len(runtime_result.alternatives) == 1
+    selected_alternative = runtime_result.alternatives[0]
+    assert selected_alternative.pattern_id == "SUBGRAPH/SelectedAlternative"
+    assert selected_alternative.result.classification == SupportLevel.SUPPORTED
+    assert selected_alternative.details == "Use the selected alternative."
+    assert selected_alternative.action_items == action_items
 
 
 class TestAnalyzerConfig:
@@ -97,7 +153,7 @@ class TestAnalysisResult:
     def test_repr(self, mock_output: AnalysisOutput) -> None:
         """Test string representation."""
         result = AnalysisResult(output=mock_output)
-        assert repr(result) == "AnalysisResult(patterns=0)"
+        assert repr(result) == "AnalysisResult(patterns_by_ep={})"
 
     def test_is_fully_supported_true(self, mock_output: AnalysisOutput) -> None:
         """Test is_fully_supported returns True when all ops are supported."""
@@ -734,6 +790,7 @@ class TestRuntimeDebugDetailsSummary:
                             "case_indices": ("case_1", "case_2"),
                             "table_path": "rules/conv.parquet",
                             "table_file": "conv.parquet",
+                            "match_status": "op_match",
                         },
                     ),
                 ),
@@ -747,6 +804,7 @@ class TestRuntimeDebugDetailsSummary:
                             "case_indices": ["case_3"],
                             "table_path": "rules/resize.parquet",
                             "table_file": "resize.parquet",
+                            "match_status": "op_match",
                         },
                     ),
                 ),
@@ -761,21 +819,21 @@ class TestRuntimeDebugDetailsSummary:
                             "case_indices": ["case_4"],
                             "table_path": "rules/unknown.parquet",
                             "table_file": "unknown.parquet",
+                            "match_status": "op_match",
                         },
                     ),
                 ),
-            ],
-            "subgraph_runtime_check_result": [
                 PatternRuntime(
-                    pattern_id="SUBGRAPH/TestPattern",
+                    pattern_id="OP/ai.onnx/Unsupported",
                     result=RuntimeTestResult(
                         compile=False,
                         run=False,
                         debug_details={
-                            "node_stable_key": "node_subgraph",
+                            "node_stable_key": "node_unsupported",
                             "case_indices": ["case_5"],
-                            "table_path": "rules/subgraph.parquet",
-                            "table_file": "subgraph.parquet",
+                            "table_path": "rules/unsupported.parquet",
+                            "table_file": "unsupported.parquet",
+                            "match_status": "pattern_match",
                         },
                     ),
                 )
@@ -792,14 +850,17 @@ class TestRuntimeDebugDetailsSummary:
         assert summary["supported"]["node_conv"].case_indices == ["case_1", "case_2"]
         assert summary["supported"]["node_conv"].table_path == "rules/conv.parquet"
         assert summary["supported"]["node_conv"].table_file == "conv.parquet"
+        assert summary["supported"]["node_conv"].match_status == "op_match"
 
         assert summary["partial"]["node_resize"].case_indices == ["case_3"]
         assert summary["partial"]["node_resize"].table_path == "rules/resize.parquet"
         assert summary["partial"]["node_resize"].table_file == "resize.parquet"
+        assert summary["partial"]["node_resize"].match_status == "op_match"
 
-        assert summary["unsupported"]["node_subgraph"].case_indices == ["case_5"]
-        assert summary["unsupported"]["node_subgraph"].table_path == "rules/subgraph.parquet"
-        assert summary["unsupported"]["node_subgraph"].table_file == "subgraph.parquet"
+        assert summary["unsupported"]["node_unsupported"].case_indices == ["case_5"]
+        assert summary["unsupported"]["node_unsupported"].table_path == "rules/unsupported.parquet"
+        assert summary["unsupported"]["node_unsupported"].table_file == "unsupported.parquet"
+        assert summary["unsupported"]["node_unsupported"].match_status == "pattern_match"
 
         # Unknown nodes are recorded as a plain list of node keys (no case data).
         assert summary["unknown"] == ["node_unknown"]
@@ -819,6 +880,7 @@ class TestRuntimeDebugDetailsSummary:
                         debug_details={
                             "node_stable_key": "node_conv",
                             "table_path": "rules/conv.parquet",
+                            "match_status": "op_match",
                         },
                     ),
                 ),
@@ -831,11 +893,11 @@ class TestRuntimeDebugDetailsSummary:
                             "node_stable_key": "node_conv",
                             "case_indices": ("case_42",),
                             "table_file": "conv.parquet",
+                            "match_status": "pattern_match",
                         },
                     ),
                 ),
             ],
-            "subgraph_runtime_check_result": [],
         }
 
         summary = _build_runtime_debug_details_summary(runtime_summary)
@@ -845,6 +907,7 @@ class TestRuntimeDebugDetailsSummary:
         assert node_entry.table_path == "rules/conv.parquet"
         assert node_entry.table_file == "conv.parquet"
         assert node_entry.case_indices == ["case_42"]
+        assert node_entry.match_status == "pattern_match"
 
 
 class TestONNXStaticAnalyzer:
@@ -921,23 +984,35 @@ class TestONNXStaticAnalyzer:
         mock_checker = MagicMock()
         mock_checker.summary.return_value = {
             "op_runtime_check_result": [],
-            "subgraph_runtime_check_result": [],
         }
         mock_runtime_checker_cls.return_value = mock_checker
 
         # Create analyzer
         analyzer = ONNXStaticAnalyzer()
+        mock_information_engine_cls = MagicMock()
+        mock_information_engine_cls.return_value.summary.return_value = []
+        analyzer.information_engine_cls = mock_information_engine_cls
+        subgraph_runtime_results = [
+            PatternRuntime(
+                pattern_id="SUBGRAPH/SelectedPattern",
+                result=RuntimeTestResult(compile=True, run=True),
+            )
+        ]
 
         # Mock model proto
         model_proto = MagicMock(spec=onnx.ModelProto)
 
         # Analyze
-        result = analyzer.analyze_from_proto(
-            model_proto=model_proto,
-            ep="QNNExecutionProvider",
-            device="NPU",
-            enable_information=False,
-        )
+        with patch(
+            "winml.modelkit.analyze.analyzer._build_subgraph_runtime_results",
+            return_value=subgraph_runtime_results,
+        ) as mock_build_subgraph_runtime_results:
+            result = analyzer.analyze_from_proto(
+                model_proto=model_proto,
+                ep="QNNExecutionProvider",
+                device="NPU",
+                enable_information=True,
+            )
 
         # Assertions
         assert isinstance(result, AnalysisResult)
@@ -946,6 +1021,166 @@ class TestONNXStaticAnalyzer:
 
         # Verify RuntimeChecker was called once
         assert mock_runtime_checker_cls.call_count == 1
+        mock_build_subgraph_runtime_results.assert_called_once_with([], [])
+        assert (
+            mock_information_engine_cls.call_args.kwargs["subgraph_runtime_results"]
+            is subgraph_runtime_results
+        )
+
+    @patch(
+        "winml.modelkit.analyze.analyzer._build_pattern_status_by_node_key",
+        return_value={"node-1": "supported"},
+    )
+    @patch("winml.modelkit.analyze.core.onnx_loader.ONNXLoader")
+    @patch("winml.modelkit.analyze.core.pattern_extractor.PatternExtractor")
+    @patch("winml.modelkit.analyze.core.runtime_checker.RuntimeChecker")
+    def test_run_unknown_op_without_pattern_parquet_checks_pattern_then_ops(
+        self,
+        mock_runtime_checker_cls: Mock,
+        mock_pattern_extractor_cls: Mock,
+        mock_onnx_loader_cls: Mock,
+        _mock_pattern_status: Mock,
+    ) -> None:
+        """Local probing checks matched patterns before remaining operators."""
+        mock_model = MagicMock()
+        mock_loader = MagicMock()
+        mock_loader.load.return_value = mock_model
+        mock_onnx_loader_cls.return_value = mock_loader
+
+        pattern_match = MagicMock()
+        mock_extractor = MagicMock()
+
+        def summary_with_local_pattern_check(**kwargs: object) -> dict[str, object]:
+            local_pattern_checker = kwargs["local_pattern_checker"]
+            assert callable(local_pattern_checker)
+            local_pattern_checker(pattern_match, "table_not_found", False)
+            return {
+                "summary": ModelStats(
+                    model_path="test.onnx",
+                    opset_version=13,
+                    total_operators=1,
+                    operator_counts={"Conv": 1},
+                    unique_operator_types=1,
+                    detected_pattern_count={
+                        "QNNExecutionProvider": {"SUBGRAPH/Test": 1}
+                    },
+                ),
+                "subgraph_patterns": [pattern_match],
+                "parquet_lookup_supported": False,
+                "pattern_optimization_hints": [],
+            }
+
+        mock_extractor.summary.side_effect = summary_with_local_pattern_check
+        mock_pattern_extractor_cls.return_value = mock_extractor
+
+        pattern_checker = MagicMock()
+        pattern_checker.check_pattern_locally.return_value = RuntimeTestResult(
+            compile=True,
+            run=True,
+        )
+        op_checker = MagicMock()
+        op_checker.summary.return_value = {"op_runtime_check_result": []}
+        mock_runtime_checker_cls.side_effect = [pattern_checker, op_checker]
+        on_ep_start = MagicMock()
+
+        result = ONNXStaticAnalyzer().analyze_from_proto(
+            model_proto=MagicMock(spec=onnx.ModelProto),
+            ep="QNNExecutionProvider",
+            device="NPU",
+            enable_information=False,
+            run_unknown_op=True,
+            on_ep_start=on_ep_start,
+        )
+
+        assert isinstance(result, AnalysisResult)
+        assert mock_runtime_checker_cls.call_count == 2
+        assert mock_runtime_checker_cls.call_args_list[0].kwargs == {
+            "ep": "QNNExecutionProvider",
+            "device": "NPU",
+            "model": mock_model,
+        }
+        assert mock_runtime_checker_cls.call_args_list[1].kwargs == {
+            "ep": "QNNExecutionProvider",
+            "device": "NPU",
+            "model": mock_model,
+            "pattern_matched_node_status_by_key": {"node-1": "supported"},
+        }
+        pattern_checker.check_pattern_locally.assert_called_once_with(
+            pattern_match,
+            fallback_reason="table_not_found",
+            for_debug=False,
+        )
+        pattern_checker.close_local_checks.assert_called_once_with()
+        on_ep_start.assert_called_once()
+        assert on_ep_start.call_args.args[2] is False
+        op_checker.summary.assert_called_once_with(
+            for_debug=False,
+            run_unknown_op=True,
+            save_node_types=None,
+            on_node_result=None,
+        )
+        op_checker.close_local_checks.assert_called_once_with()
+
+    def test_analyze_from_proto_resolves_auto_device_for_pinned_ep(self) -> None:
+        from winml.modelkit.session import EPDeviceTarget
+
+        resolved = EPDeviceTarget(ep="OpenVINOExecutionProvider", device="gpu")
+        with (
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=resolved,
+            ) as mock_resolve,
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="npu",
+            ) as mock_global_auto,
+            patch(
+                "winml.modelkit.analyze.core.onnx_loader.ONNXLoader",
+                side_effect=RuntimeError("stop after target resolution"),
+            ),
+            pytest.raises(RuntimeError, match="stop after target resolution"),
+        ):
+            ONNXStaticAnalyzer().analyze_from_proto(
+                model_proto=MagicMock(spec=onnx.ModelProto),
+                ep="openvino",
+                device="auto",
+                enable_information=False,
+            )
+
+        mock_resolve.assert_called_once_with(
+            EPDeviceTarget(ep="OpenVINOExecutionProvider", device="auto")
+        )
+        mock_global_auto.assert_not_called()
+
+    def test_analyze_from_proto_keeps_unpinned_auto_device_offline(self) -> None:
+        from winml.modelkit.session import EPDeviceTarget
+
+        resolved = EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
+        with (
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=resolved,
+            ) as mock_resolve,
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="cpu",
+            ) as mock_global_auto,
+            patch(
+                "winml.modelkit.analyze.core.onnx_loader.ONNXLoader",
+                side_effect=RuntimeError("stop after target resolution"),
+            ),
+            pytest.raises(RuntimeError, match="stop after target resolution"),
+        ):
+            ONNXStaticAnalyzer().analyze_from_proto(
+                model_proto=MagicMock(spec=onnx.ModelProto),
+                ep=None,
+                device="auto",
+                enable_information=False,
+                run_unknown_op=False,
+            )
+
+        mock_global_auto.assert_called_once_with()
+        mock_resolve.assert_not_called()
 
     @patch("winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep", return_value=True)
     @patch("winml.modelkit.analyze.core.onnx_loader.ONNXLoader")
@@ -991,6 +1226,7 @@ class TestONNXStaticAnalyzer:
                             "case_indices": ("case_7",),
                             "table_path": "rules/conv.parquet",
                             "table_file": "conv.parquet",
+                            "match_status": "op_match",
                         },
                     ),
                 ),
@@ -1005,11 +1241,11 @@ class TestONNXStaticAnalyzer:
                             "case_indices": ["case_9"],
                             "table_path": "rules/relu.parquet",
                             "table_file": "relu.parquet",
+                            "match_status": "pattern_match",
                         },
                     ),
                 ),
             ],
-            "subgraph_runtime_check_result": [],
         }
         mock_runtime_checker_cls.return_value = mock_checker
 
@@ -1033,6 +1269,7 @@ class TestONNXStaticAnalyzer:
         assert node_conv_entry.case_indices == ["case_7"]
         assert node_conv_entry.table_path == "rules/conv.parquet"
         assert node_conv_entry.table_file == "conv.parquet"
+        assert node_conv_entry.match_status == "op_match"
         assert ep_result.runtime_debug_details_summary["partial"] == {}
         assert ep_result.runtime_debug_details_summary["unsupported"] == {}
         assert ep_result.runtime_debug_details_summary["unknown"] == ["node_unknown"]
@@ -1057,23 +1294,31 @@ class TestONNXStaticAnalyzer:
         mock_onnx_loader_cls.return_value = mock_loader
 
         mock_extractor = MagicMock()
-        mock_extractor.summary.return_value = {
-            "summary": ModelStats(
-                model_path="test.onnx",
-                opset_version=13,
-                total_operators=10,
-                operator_counts={"Conv": 10},
-                unique_operator_types=1,
-                detected_pattern_count={},
-            ),
-            "subgraph_patterns": [],
+        pattern_counts_by_ep = {
+            "QNNExecutionProvider": {"SUBGRAPH/GELU": 2},
+            "OpenVINOExecutionProvider": {"SUBGRAPH/GELU": 1},
+            "VitisAIExecutionProvider": {"SUBGRAPH/LayerNorm": 3},
         }
+
+        def summary_for_ep(*, ep: str, **_kwargs: object) -> dict[str, object]:
+            return {
+                "summary": ModelStats(
+                    model_path="test.onnx",
+                    opset_version=13,
+                    total_operators=10,
+                    operator_counts={"Conv": 10},
+                    unique_operator_types=1,
+                    detected_pattern_count={ep: pattern_counts_by_ep[ep]},
+                ),
+                "subgraph_patterns": [],
+            }
+
+        mock_extractor.summary.side_effect = summary_for_ep
         mock_pattern_extractor_cls.return_value = mock_extractor
 
         mock_checker = MagicMock()
         mock_checker.summary.return_value = {
             "op_runtime_check_result": [],
-            "subgraph_runtime_check_result": [],
         }
         mock_runtime_checker_cls.return_value = mock_checker
 
@@ -1101,6 +1346,16 @@ class TestONNXStaticAnalyzer:
         assert "QNNExecutionProvider" in ep_types
         assert "OpenVINOExecutionProvider" in ep_types
         assert "VitisAIExecutionProvider" in ep_types
+
+        assert result.output.metadata.detected_pattern_count == pattern_counts_by_ep
+        assert (
+            sum(
+                result.output.metadata.detected_pattern_count[
+                    "QNNExecutionProvider"
+                ].values()
+            )
+            == 2
+        )
 
         # Verify RuntimeChecker was called 3 times (once per NPU-capable EP)
         assert mock_runtime_checker_cls.call_count == 3
@@ -1140,7 +1395,6 @@ class TestONNXStaticAnalyzer:
         mock_checker = MagicMock()
         mock_checker.summary.return_value = {
             "op_runtime_check_result": [],
-            "subgraph_runtime_check_result": [],
         }
         mock_runtime_checker_cls.return_value = mock_checker
 
@@ -1204,7 +1458,6 @@ class TestONNXStaticAnalyzer:
 
         mock_checker.summary.return_value = {
             "op_runtime_check_result": [mock_pattern_runtime],  # Non-empty
-            "subgraph_runtime_check_result": [],
         }
         mock_runtime_checker_cls.return_value = mock_checker
 
@@ -1274,7 +1527,6 @@ class TestONNXStaticAnalyzer:
         mock_runtime_checker = MagicMock()
         mock_runtime_checker.summary.return_value = {
             "op_runtime_check_result": [],
-            "subgraph_runtime_check_result": [],
         }
         mock_runtime_checker_cls.return_value = mock_runtime_checker
 

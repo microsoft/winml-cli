@@ -18,7 +18,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
-from transformers import BertConfig
 
 # Import models package to trigger ONNX config registration with TasksManager
 import winml.modelkit.models  # noqa: F401
@@ -28,6 +27,7 @@ from winml.modelkit.config import (
     SubmoduleClassNotFoundError,
     WinMLBuildConfig,
     generate_build_config,
+    generate_hf_build_config,
     generate_onnx_build_config,
 )
 from winml.modelkit.config.build import (
@@ -43,6 +43,7 @@ from winml.modelkit.export import (
     WinMLExportConfig,
     resolve_io_specs,
 )
+from winml.modelkit.export.policy import ExportCompatibilityConfig
 from winml.modelkit.loader import WinMLLoaderConfig
 from winml.modelkit.optim import WinMLOptimizationConfig
 from winml.modelkit.quant import WinMLQuantizationConfig
@@ -126,6 +127,187 @@ def mock_io_specs() -> dict:
         },
         "input_shapes": [(2, 16), (2, 16)],
     }
+
+
+class TestGeneratedExportCompatibilityPolicy:
+    def test_generated_hf_config_uses_portable_policy_by_default(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        monkeypatch.setattr(
+            "winml.modelkit.config.build.resolve_loader_config",
+            lambda *args, **kwargs: (
+                mock_loader_config,
+                mock_hf_config,
+                mock_model_class,
+                MagicMock(),
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.config.build._resolve_export_config_from_specs",
+            lambda *args, **kwargs: mock_export_config,
+        )
+
+        cfg = generate_hf_build_config(
+            "local-model",
+            device="auto",
+            ep=None,
+            policy_overrides_config=True,
+        )
+
+        assert cfg.export is not None
+        assert cfg.export.compatibility.transformers_attention == "eager"
+
+    def test_generated_hf_config_applies_global_export_policy_to_explicit_target(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        # MonkeyPatch fixture typing note.
+        monkeypatch.setattr(
+            "winml.modelkit.config.build.resolve_loader_config",
+            lambda *args, **kwargs: (
+                mock_loader_config,
+                mock_hf_config,
+                mock_model_class,
+                MagicMock(),
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.config.build._resolve_export_config_from_specs",
+            lambda *args, **kwargs: mock_export_config,
+        )
+
+        cfg = generate_hf_build_config(
+            "local-model",
+            device="gpu",
+            ep="DmlExecutionProvider",
+            policy_overrides_config=True,
+        )
+
+        assert cfg.export is not None
+        assert cfg.export.compatibility.transformers_attention == "eager"
+
+    def test_generated_hf_config_can_split_build_and_export_policy_targets(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        target_policy_calls: list[tuple[str, str, str | None]] = []
+        export_policy_calls: list[tuple[str | None, str | None]] = []
+
+        monkeypatch.setattr(
+            "winml.modelkit.config.build.resolve_loader_config",
+            lambda *args, **kwargs: (
+                mock_loader_config,
+                mock_hf_config,
+                mock_model_class,
+                MagicMock(),
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.config.build._resolve_export_config_from_specs",
+            lambda *args, **kwargs: mock_export_config,
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.config.build._apply_target_policy",
+            lambda config, *, device, precision, ep: target_policy_calls.append(
+                (device, precision, ep)
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.config.build.apply_export_compatibility_policy",
+            lambda config, *, device, ep: export_policy_calls.append((device, ep)),
+        )
+
+        generate_hf_build_config(
+            "local-model",
+            device="gpu",
+            ep="DmlExecutionProvider",
+            export_policy_target=("auto", None),
+            policy_overrides_config=True,
+        )
+
+        assert target_policy_calls == [("gpu", "auto", "DmlExecutionProvider")]
+        assert export_policy_calls == [("auto", None)]
+
+    def test_submodule_config_inherits_export_compatibility(self) -> None:
+        parent = WinMLBuildConfig(
+            loader=WinMLLoaderConfig(model_type="bert", task="fill-mask"),
+            export=WinMLExportConfig(
+                compatibility=ExportCompatibilityConfig(transformers_attention="eager")
+            ),
+        )
+        sub_info = SubmoduleInfo(
+            class_name="Linear",
+            module_path="encoder.layer.0.output.dense",
+            input_shapes=[[1, 4]],
+            output_shapes=[[1, 4]],
+            input_dtypes=["float32"],
+            output_dtypes=["float32"],
+            input_names=["hidden_states"],
+        )
+
+        sub_cfg = _build_submodule_config(sub_info, parent)
+
+        assert sub_cfg.export is not None
+        assert sub_cfg.export.compatibility.transformers_attention == "eager"
+
+
+class TestLoadedConfigExportCompatibilityPolicy:
+    def test_apply_export_policy_populates_loaded_config_without_compatibility(self) -> None:
+        from winml.modelkit.config.build import apply_export_compatibility_policy
+
+        cfg = WinMLBuildConfig(export=WinMLExportConfig())
+
+        apply_export_compatibility_policy(cfg)
+
+        assert cfg.export is not None
+        assert cfg.export.compatibility.transformers_attention == "eager"
+
+    def test_apply_export_policy_preserves_serialized_compatibility(self) -> None:
+        from winml.modelkit.config.build import apply_export_compatibility_policy
+
+        cfg = WinMLBuildConfig(
+            export=WinMLExportConfig(
+                compatibility=ExportCompatibilityConfig(transformers_attention="eager")
+            )
+        )
+
+        apply_export_compatibility_policy(cfg, device="gpu", ep="DmlExecutionProvider")
+
+        assert cfg.export is not None
+        assert cfg.export.compatibility.transformers_attention == "eager"
+
+    def test_serialized_empty_compatibility_receives_policy(self) -> None:
+        from winml.modelkit.config.build import apply_export_compatibility_policy
+
+        cfg = WinMLBuildConfig.from_dict({"export": {"compatibility": {}}})
+        apply_export_compatibility_policy(cfg)
+
+        assert cfg.export is not None
+        assert cfg.export.compatibility.transformers_attention == "eager"
+
+    def test_apply_export_policy_accepts_config_lists(self) -> None:
+        from winml.modelkit.config.build import apply_export_compatibility_policy
+
+        cfgs = [WinMLBuildConfig(export=WinMLExportConfig()), WinMLBuildConfig(export=None)]
+
+        apply_export_compatibility_policy(cfgs)
+
+        assert cfgs[0].export is not None
+        assert cfgs[0].export.compatibility.transformers_attention == "eager"
+        assert cfgs[1].export is None
 
 
 # =============================================================================
@@ -268,6 +450,30 @@ class TestMergeExportOverrides:
         assert merged.export.opset_version == 18
         # input_tensors untouched when not patched
         assert [t.name for t in merged.export.input_tensors] == ["input_ids", "attention_mask"]
+
+
+class TestExportCompatibilityBuildConfig:
+    def test_export_compatibility_changes_cache_key(self) -> None:
+        default_config = WinMLBuildConfig(export=WinMLExportConfig())
+        eager_config = WinMLBuildConfig(
+            export=WinMLExportConfig(
+                compatibility=ExportCompatibilityConfig(transformers_attention="eager")
+            )
+        )
+
+        assert default_config.generate_cache_key() != eager_config.generate_cache_key()
+
+    def test_registered_export_merge_preserves_override_compatibility(self) -> None:
+        from winml.modelkit.config.build import _merge_export_config
+
+        base = WinMLExportConfig()
+        override = WinMLExportConfig(
+            compatibility=ExportCompatibilityConfig(transformers_attention="eager")
+        )
+
+        merged = _merge_export_config(base, override)
+
+        assert merged.compatibility.transformers_attention == "eager"
 
 
 class TestGetIoSpecsFromConfig:
@@ -589,6 +795,263 @@ class TestStep45PreservesModelType:
 
 
 # =============================================================================
+# TestHfOverridePolicyPrecedence - config override vs target policy ordering
+# =============================================================================
+
+
+class TestHfOverridePolicyPrecedence:
+    """JSON/config overrides beat defaults; explicit CLI policy can beat JSON."""
+
+    @staticmethod
+    def _run(
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+        *,
+        use_legacy_dispatcher: bool = False,
+        override_data: dict | None = None,
+        policy_data: dict | None = None,
+        **kwargs,
+    ) -> WinMLBuildConfig:
+        from winml.modelkit.config.precision import PrecisionPolicy
+
+        policy = PrecisionPolicy(
+            **(
+                policy_data
+                or {
+                    "device": "npu",
+                    "precision": "int8",
+                    "weight_type": "uint8",
+                    "activation_type": "uint8",
+                    "compile_provider": "qnn",
+                }
+            )
+        )
+        effective_override = (
+            {
+                "quant": None,
+                "compile": {
+                    "execution_provider": "openvino",
+                    "device": "npu",
+                },
+            }
+            if override_data is None
+            else override_data
+        )
+        with (
+            patch(
+                "winml.modelkit.config.build.resolve_loader_config",
+                return_value=(
+                    mock_loader_config,
+                    mock_hf_config,
+                    mock_model_class,
+                    MagicMock(),
+                ),
+            ),
+            patch(
+                "winml.modelkit.config.build._resolve_export_config_from_specs",
+                return_value=mock_export_config,
+            ),
+            patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+            patch(
+                "winml.modelkit.config.build._resolve_policy_target",
+                return_value=("npu", "QNNExecutionProvider"),
+            ),
+            patch(
+                "winml.modelkit.config.precision.resolve_precision",
+                return_value=policy,
+            ),
+        ):
+            generator = generate_build_config if use_legacy_dispatcher else generate_hf_build_config
+            return generator(
+                "some/model",
+                override=effective_override,
+                **kwargs,
+            )
+
+    def test_override_beats_default_target_policy(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        result = self._run(
+            mock_hf_config,
+            mock_model_class,
+            mock_loader_config,
+            mock_export_config,
+        )
+
+        assert result.quant is None
+        assert result.compile is not None
+        assert result.compile.ep_config.provider == "openvino"
+
+    def test_explicit_cli_target_policy_beats_override(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        result = self._run(
+            mock_hf_config,
+            mock_model_class,
+            mock_loader_config,
+            mock_export_config,
+            policy_overrides_config=True,
+        )
+
+        assert result.quant is not None
+        assert result.quant.weight_type == "uint8"
+        assert result.compile is not None
+        assert result.compile.ep_config.provider == "qnn"
+
+    def test_sparse_json_deserializes_tensor_specs(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        result = self._run(
+            mock_hf_config,
+            mock_model_class,
+            mock_loader_config,
+            mock_export_config,
+            override_data={
+                "export": {
+                    "input_tensors": [
+                        {
+                            "name": "input_ids",
+                            "dtype": "int64",
+                            "shape": [1, 8],
+                        }
+                    ],
+                    "output_tensors": [{"name": "logits"}],
+                }
+            },
+        )
+
+        assert result.export is not None
+        assert result.export.input_tensors is not None
+        assert isinstance(result.export.input_tensors[0], InputTensorSpec)
+        assert result.export.output_tensors is not None
+        assert isinstance(result.export.output_tensors[0], OutputTensorSpec)
+        assert result.to_dict()["export"]["output_tensors"] == [{"name": "logits"}]
+
+    def test_sparse_json_uses_quant_compat_deserializer(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        result = self._run(
+            mock_hf_config,
+            mock_model_class,
+            mock_loader_config,
+            mock_export_config,
+            override_data={"quant": {"mode": "qdq"}},
+        )
+
+        assert result.quant is not None
+        assert result.quant.mode == "static"
+
+    def test_sparse_json_deserializes_eval_once(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        result = self._run(
+            mock_hf_config,
+            mock_model_class,
+            mock_loader_config,
+            mock_export_config,
+            override_data={"eval": {"dataset": {"samples": 5}}},
+        )
+
+        assert result.eval is not None
+        assert result.eval.dataset.samples == 5
+
+    def test_sparse_quant_reenabled_after_fp32_policy_preserves_identity(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        result = self._run(
+            mock_hf_config,
+            mock_model_class,
+            mock_loader_config,
+            mock_export_config,
+            override_data={"quant": {"samples": 5}},
+            policy_data={
+                "device": "cpu",
+                "precision": "fp32",
+                "weight_type": None,
+                "activation_type": None,
+                "compile_provider": None,
+            },
+        )
+
+        assert result.quant is not None
+        assert result.quant.samples == 5
+        assert result.quant.task == mock_loader_config.task
+        assert result.quant.model_id == "some/model"
+        assert result.quant.model_type == mock_loader_config.model_type
+        result.validate()
+
+    def test_explicit_qdq_policy_resets_conflicting_quant_mode(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        result = self._run(
+            mock_hf_config,
+            mock_model_class,
+            mock_loader_config,
+            mock_export_config,
+            override_data={"quant": {"mode": "fp16"}},
+            policy_overrides_config=True,
+        )
+
+        assert result.quant is not None
+        assert result.quant.mode == "static"
+        assert result.quant.weight_type == "uint8"
+        assert result.quant.activation_type == "uint8"
+
+    def test_legacy_dispatcher_preserves_explicit_target_precedence(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        result = self._run(
+            mock_hf_config,
+            mock_model_class,
+            mock_loader_config,
+            mock_export_config,
+            use_legacy_dispatcher=True,
+            device="npu",
+            precision="int8",
+            ep="qnn",
+        )
+
+        assert result.quant is not None
+        assert result.quant.weight_type == "uint8"
+        assert result.compile is not None
+        assert result.compile.ep_config.provider == "qnn"
+
+
+# =============================================================================
 # TestRegistryShortCircuit - Registry-before-Optimum export config resolution
 # =============================================================================
 
@@ -668,6 +1131,47 @@ class TestRegistryShortCircuit:
 
         # Optimum SHOULD have been called
         mock_optimum.assert_called_once()
+
+    def test_registry_skip_optimize_survives_assembly(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        """Registered skip_optimize is carried into generated configs."""
+        registry_config = WinMLBuildConfig(
+            export=WinMLExportConfig(dynamo=False, opset_version=18),
+            optim=WinMLOptimizationConfig(),
+            skip_optimize=True,
+        )
+        loader_config = WinMLLoaderConfig(
+            task="text-generation",
+            model_class="Qwen3ForCausalLM",
+            model_type="qwen3_transformer_only",
+        )
+        mock_hf_config.model_type = "qwen3"
+
+        with (
+            patch(
+                "winml.modelkit.config.build.resolve_loader_config",
+                return_value=(loader_config, mock_hf_config, mock_model_class, MagicMock()),
+            ),
+            patch(
+                "winml.modelkit.config.build._resolve_export_config_from_specs",
+                return_value=mock_export_config,
+            ),
+            patch(
+                "winml.modelkit.models.hf.MODEL_BUILD_CONFIGS",
+                {"qwen3-transformer-only": registry_config},
+            ),
+        ):
+            result = generate_hf_build_config(
+                "Qwen/Qwen3-1.7B",
+                model_type="qwen3_transformer_only",
+                task="text-generation",
+            )
+
+        assert result.skip_optimize is True
 
     def test_registry_with_none_input_tensors_falls_through(
         self,
@@ -969,7 +1473,7 @@ class TestBuildSubmoduleConfig:
 
         return WinMLBuildConfig(
             optim=WinMLOptimizationConfig(gelu_fusion=True, matmul_add_fusion=True),
-            compile=WinMLCompileConfig.for_qnn(),
+            compile=WinMLCompileConfig(),
         )
 
     def test_single_input_single_output(self, parent_config: WinMLBuildConfig) -> None:
@@ -1136,6 +1640,24 @@ class TestBuildSubmoduleConfig:
         assert result.quant.model_id is None
         assert result.quant.samples == 1
 
+    def test_disabled_parent_quant_stays_disabled(
+        self,
+        parent_config: WinMLBuildConfig,
+    ) -> None:
+        parent_config.quant = None
+        sub_info = SubmoduleInfo(
+            class_name="Linear",
+            module_path="encoder.proj",
+            input_shapes=[[1, 8]],
+            output_shapes=[[1, 8]],
+            input_dtypes=["float32"],
+            output_dtypes=["float32"],
+        )
+
+        result = _build_submodule_config(sub_info, parent_config)
+
+        assert result.quant is None
+
     def test_submodule_config_with_quant_passes_validate(
         self,
         parent_config: WinMLBuildConfig,
@@ -1156,6 +1678,7 @@ class TestBuildSubmoduleConfig:
         result = _build_submodule_config(sub_info, parent_config)
 
         # Should NOT raise — validation relaxed for submodules
+        result.compile = None
         result.validate()
 
     def test_submodule_quant_omits_task_in_json(
@@ -1268,6 +1791,102 @@ class TestBuildSubmoduleConfig:
 
 class TestFindSubmodulesByClass:
     """Tests for _find_submodules_by_class branches."""
+
+    def test_hook_capture_uses_resolved_model_input_names(self) -> None:
+        """Hook capture passes tensors under the resolved model input names."""
+        import torch
+        from torch import nn
+
+        from winml.modelkit.config.build import _find_submodules_by_class
+
+        class TargetLayer(nn.Module):
+            def forward(self, value: torch.Tensor) -> torch.Tensor:
+                return value + 1
+
+        class KeywordTolerantWrapper(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.layer = TargetLayer()
+
+            def forward(
+                self,
+                required_input: torch.Tensor | None = None,
+                **_kwargs,
+            ) -> torch.Tensor:
+                if required_input is None:
+                    raise ValueError("required_input was not bound")
+                return self.layer(required_input)
+
+        results = _find_submodules_by_class(
+            KeywordTolerantWrapper(),
+            "TargetLayer",
+            input_shapes=[(1, 8)],
+            input_dtypes=["float32"],
+            input_names=["required_input"],
+        )
+
+        assert len(results) == 1
+        assert results[0].input_names == ["value"]
+
+    def test_torchinfo_uses_resolved_names_for_keyword_only_input(self) -> None:
+        """The hierarchy pass must bind keyword-only model inputs by name."""
+        import torch
+        from torch import nn
+
+        from winml.modelkit.config.build import _find_submodules_by_class
+
+        class TargetLayer(nn.Module):
+            def forward(self, value: torch.Tensor) -> torch.Tensor:
+                return value + 1
+
+        class KeywordOnlyWrapper(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.layer = TargetLayer()
+
+            def forward(self, *, required_input: torch.Tensor) -> torch.Tensor:
+                return self.layer(required_input)
+
+        results = _find_submodules_by_class(
+            KeywordOnlyWrapper(),
+            "TargetLayer",
+            input_shapes=[(1, 8)],
+            input_dtypes=["float32"],
+            input_names=["required_input"],
+        )
+
+        assert len(results) == 1
+        assert results[0].input_names == ["value"]
+
+    def test_unnamed_input_uses_positional_torchinfo_binding(self) -> None:
+        """A missing tensor name must retain positional model invocation."""
+        import torch
+        from torch import nn
+
+        from winml.modelkit.config.build import _find_submodules_by_class
+
+        class TargetLayer(nn.Module):
+            def forward(self, value: torch.Tensor) -> torch.Tensor:
+                return value + 1
+
+        class PositionalOnlyWrapper(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.layer = TargetLayer()
+
+            def forward(self, required_input: torch.Tensor, /) -> torch.Tensor:
+                return self.layer(required_input)
+
+        results = _find_submodules_by_class(
+            PositionalOnlyWrapper(),
+            "TargetLayer",
+            input_shapes=[(1, 8)],
+            input_dtypes=["float32"],
+            input_names=[None],
+        )
+
+        assert len(results) == 1
+        assert results[0].input_names == ["value"]
 
     def test_signature_fallback_when_hook_data_empty(self) -> None:
         """Empty hook_data triggers inspect.signature fallback for input_names."""
@@ -1385,9 +2004,6 @@ class TestConfigCliOverride:
                 return_value=mock_export_config,
             ),
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
-            # config now inspects the HF config to route seq2seq composites (#850);
-            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
-            patch("transformers.AutoConfig.from_pretrained", return_value=BertConfig()),
         ):
             runner = CliRunner()
             result = runner.invoke(
@@ -1421,9 +2037,6 @@ class TestConfigCliOverride:
                 return_value=mock_export_config,
             ),
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
-            # config now inspects the HF config to route seq2seq composites (#850);
-            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
-            patch("transformers.AutoConfig.from_pretrained", return_value=BertConfig()),
         ):
             runner = CliRunner()
             result = runner.invoke(
@@ -1461,7 +2074,7 @@ class TestModelTypeOverride:
         mock_model_class: MagicMock,
         mock_export_config: WinMLExportConfig,
     ) -> None:
-        """model_type + task: threads variant model_type through, uses given task."""
+        """model_type + task: overrides hf_config.model_type, uses given task."""
         gpt2_loader_config = WinMLLoaderConfig(
             task="text-generation",
             model_class="GPT2LMHeadModel",
@@ -1668,6 +2281,9 @@ class TestModelTypeCliOverride:
     ) -> None:
         """--model-type without --task auto-detects task from resolve_loader_config."""
         output_file = tmp_path / "result.json"
+        model_dir = tmp_path / "some-model"
+        model_dir.mkdir()
+        (model_dir / "config.json").write_text('{"model_type": "bert"}')
 
         with (
             patch(
@@ -1679,14 +2295,11 @@ class TestModelTypeCliOverride:
                 return_value=mock_export_config,
             ),
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
-            # config now inspects the HF config to route seq2seq composites (#850);
-            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
-            patch("transformers.AutoConfig.from_pretrained", return_value=BertConfig()),
         ):
             runner = CliRunner()
             result = runner.invoke(
                 config_command,
-                ["-m", "some-model", "--model-type", "bert", "-o", str(output_file)],
+                ["-m", str(model_dir), "--model-type", "bert", "-o", str(output_file)],
             )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
@@ -1875,9 +2488,6 @@ class TestEdgeCases:
                 return_value=mock_export_config,
             ),
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
-            # config now inspects the HF config to route seq2seq composites (#850);
-            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
-            patch("transformers.AutoConfig.from_pretrained", return_value=BertConfig()),
         ):
             runner = CliRunner()
             result = runner.invoke(
@@ -2073,9 +2683,6 @@ class TestShapeConfigCli:
                 return_value=mock_export_config,
             ) as mock_gen_export,
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
-            # config now inspects the HF config to route seq2seq composites (#850);
-            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
-            patch("transformers.AutoConfig.from_pretrained", return_value=BertConfig()),
         ):
             runner = CliRunner()
             result = runner.invoke(
@@ -2289,6 +2896,22 @@ class TestValidate:
         assert "compile.ep_config.provider is required" in error_msg
 
 
+class TestQuantModelId:
+    """Tests for the quant model_id field (renamed from model_name)."""
+
+    def test_to_dict_emits_model_id_key(self) -> None:
+        """to_dict() serializes the HF model id under the 'model_id' key."""
+        config = WinMLQuantizationConfig(model_id="microsoft/resnet-50")
+        data = config.to_dict()
+        assert data["model_id"] == "microsoft/resnet-50"
+        assert "model_name" not in data
+
+    def test_from_dict_reads_model_id(self) -> None:
+        """from_dict() reads the canonical 'model_id' key."""
+        config = WinMLQuantizationConfig.from_dict({"model_id": "microsoft/resnet-50"})
+        assert config.model_id == "microsoft/resnet-50"
+
+
 # =============================================================================
 # TestInt16QuantTypes - Tests for int16/uint16 quantization type support
 # =============================================================================
@@ -2336,22 +2959,6 @@ class TestInt16QuantTypes:
         assert config.activation_type == "uint8"
 
 
-class TestQuantModelId:
-    """Tests for the quant model_id field (renamed from model_name)."""
-
-    def test_to_dict_emits_model_id_key(self) -> None:
-        """to_dict() serializes the HF model id under the 'model_id' key."""
-        config = WinMLQuantizationConfig(model_id="microsoft/resnet-50")
-        data = config.to_dict()
-        assert data["model_id"] == "microsoft/resnet-50"
-        assert "model_name" not in data
-
-    def test_from_dict_reads_model_id(self) -> None:
-        """from_dict() reads the canonical 'model_id' key."""
-        config = WinMLQuantizationConfig.from_dict({"model_id": "microsoft/resnet-50"})
-        assert config.model_id == "microsoft/resnet-50"
-
-
 # =============================================================================
 # TestDevicePrecisionIntegration - device/precision in generate_build_config()
 # =============================================================================
@@ -2382,17 +2989,19 @@ class TestDevicePrecisionIntegration:
         "device,precision,expect_quant,expect_weight,expect_act,expect_compile_provider",
         [
             ("npu", "auto", True, "uint8", "uint16", "qnn"),
-            ("npu", "fp16", True, "uint8", "uint8", "qnn"),  # fp16 algorithm quant config
+            ("npu", "fp16", False, None, None, "qnn"),
             ("npu", "int8", True, "uint8", "uint8", "qnn"),
-            ("gpu", "auto", False, None, None, None),  # auto on gpu -> fp32 (no-op)
-            ("gpu", "int8", True, "uint8", "uint8", None),
-            ("gpu", "fp16", True, None, None, None),  # fp16 algorithm quant config
-            ("cpu", "auto", False, None, None, None),  # auto on cpu -> fp32 (no-op)
-            ("cpu", "int8", True, "uint8", "uint8", None),
-            ("cpu", "int16", True, "int16", "uint16", None),
-            ("cpu", "fp16", True, None, None, None),  # fp16 algorithm quant config
+            # After the built-ins-as-fallback catalog reorder: gpu/cpu deduce
+            # to first-plugin (openvino) rather than the DML/CPU built-in.
+            ("gpu", "auto", False, None, None, "openvino"),
+            ("gpu", "int8", True, "uint8", "uint8", "openvino"),
+            ("gpu", "fp16", False, None, None, "openvino"),
+            ("cpu", "auto", False, None, None, "openvino"),
+            ("cpu", "int8", True, "uint8", "uint8", "openvino"),
+            ("cpu", "int16", True, "int16", "uint16", "openvino"),
+            ("cpu", "fp16", False, None, None, "openvino"),
             # auto device + explicit precision → picks NPU (mock returns npu first)
-            ("auto", "fp16", True, None, None, "qnn"),  # fp16 algorithm quant config
+            ("auto", "fp16", False, None, None, "qnn"),
             ("auto", "int8", True, "uint8", "uint8", "qnn"),
             ("auto", "int16", True, "int16", "uint16", "qnn"),
         ],
@@ -2423,19 +3032,12 @@ class TestDevicePrecisionIntegration:
             ),
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
             patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=(
-                    "npu" if device == "auto" else device,
-                    ["npu", "gpu", "cpu"],
-                    [
-                        {
-                            "npu": "QNNExecutionProvider",
-                            "gpu": "DmlExecutionProvider",
-                            "cpu": "CPUExecutionProvider",
-                            "auto": "QNNExecutionProvider",
-                        }[device]
-                    ],
-                ),
+                "winml.modelkit.session.auto_detect_device",
+                return_value="npu" if device == "auto" else device,
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["npu", "gpu", "cpu"],
             ),
         ):
             result = generate_build_config(
@@ -2449,15 +3051,14 @@ class TestDevicePrecisionIntegration:
             assert result.quant is not None, (
                 f"Expected quant config for device={device}, precision={precision}"
             )
-            if result.quant.mode != "fp16":
-                assert result.quant.weight_type == expect_weight
-                assert result.quant.activation_type == expect_act
-            else:
-                # FP16 algorithm: quant stage does FP16 conversion, not QDQ
-                assert result.quant.mode == "fp16"
+            assert result.quant.weight_type == expect_weight
+            assert result.quant.activation_type == expect_act
         else:
-            assert result.quant is None, (
-                f"Expected no quant for device={device}, precision={precision}"
+            # fp16 precision is not "no quant" — it's the fp16-conversion
+            # quant mode. Accept either None (no quant stage at all) or a
+            # fp16-mode quant config (no QDQ weight/activation types).
+            assert result.quant is None or result.quant.mode == "fp16", (
+                f"Expected no quant (or fp16 conversion) for device={device}, precision={precision}"
             )
 
         # Verify compile config
@@ -2465,7 +3066,7 @@ class TestDevicePrecisionIntegration:
             assert result.compile is not None
             assert result.compile.ep_config.provider == expect_compile_provider
             # TODO(#241): assert qdq_config alignment with quant policy
-            # Currently for_qnn() creates qdq_config even for the fp16 algorithm.
+            # Currently for_qnn() creates qdq_config even for fp16.
             # Issue #241 will pass quantize= to for_provider().
         else:
             assert result.compile is None
@@ -2504,8 +3105,8 @@ class TestDevicePrecisionIntegration:
         # Default compile provider is "qnn" (from WinMLCompileConfig -> EPConfig)
         assert result.compile.ep_config.provider == "qnn"
 
-    def test_auto_auto_still_calls_resolve_check_device_ep(self) -> None:
-        """device='auto' + precision='auto' DOES call resolve_check_device_ep (#412).
+    def test_auto_auto_still_calls_resolve_device(self) -> None:
+        """device='auto' + precision='auto' DOES call resolve_device (#412).
 
         Previously this was skipped, causing EPConfig to default to 'qnn'
         on machines without an NPU. Now we always detect hardware.
@@ -2526,9 +3127,13 @@ class TestDevicePrecisionIntegration:
             ),
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
             patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("npu", ["npu", "gpu", "cpu"], ["QNNExecutionProvider"]),
-            ) as mock_rcde,
+                "winml.modelkit.session.auto_detect_device",
+                return_value="npu",
+            ) as mock_rd,
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["npu", "gpu", "cpu"],
+            ),
         ):
             generate_build_config(
                 "bert-base-uncased",
@@ -2536,10 +3141,17 @@ class TestDevicePrecisionIntegration:
                 precision="auto",
             )
 
-        mock_rcde.assert_called_once_with(device="auto", ep=None)
+        mock_rd.assert_called_once_with()
 
-    def test_explicit_precision_triggers_resolve_check_device_ep(self) -> None:
-        """device='auto' + precision='int8' DOES call resolve_check_device_ep."""
+    def test_auto_cpu_target_does_not_reselect_unusable_plugin(self) -> None:
+        from winml.modelkit.ep_path import EPCatalog
+        from winml.modelkit.session import WinMLEPRegistrationFailed, WinMLEPRegistry
+
+        def _probe(target):
+            if target.ep == "OpenVINOExecutionProvider":
+                raise WinMLEPRegistrationFailed("OpenVINO DLL dependencies are unavailable")
+            return object()
+
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
@@ -2556,9 +3168,59 @@ class TestDevicePrecisionIntegration:
             ),
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
             patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("npu", ["npu", "gpu", "cpu"], ["QNNExecutionProvider"]),
-            ) as mock_rcde,
+                "winml.modelkit.session.auto_detect_device",
+                return_value="cpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["cpu"],
+            ),
+            patch.object(
+                WinMLEPRegistry,
+                "available_eps",
+                return_value=frozenset(
+                    {
+                        "OpenVINOExecutionProvider",
+                        "CPUExecutionProvider",
+                    }
+                ),
+            ),
+            patch.object(WinMLEPRegistry, "auto_device", side_effect=_probe),
+            patch.object(EPCatalog, "is_compatible", return_value=True),
+        ):
+            result = generate_build_config(
+                "bert-base-uncased",
+                device="auto",
+                precision="auto",
+            )
+
+        assert result.compile is None
+
+    def test_explicit_precision_triggers_resolve_device(self) -> None:
+        """device='auto' + precision='int8' DOES call resolve_device."""
+        with (
+            patch(
+                "winml.modelkit.config.build.resolve_loader_config",
+                return_value=(
+                    self._mock_loader_config,
+                    self._mock_hf_config,
+                    self._mock_model_class,
+                    MagicMock(),
+                ),
+            ),
+            patch(
+                "winml.modelkit.config.build._resolve_export_config_from_specs",
+                return_value=self._mock_export_config,
+            ),
+            patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="npu",
+            ) as mock_rd,
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["npu", "gpu", "cpu"],
+            ),
         ):
             generate_build_config(
                 "bert-base-uncased",
@@ -2566,7 +3228,7 @@ class TestDevicePrecisionIntegration:
                 precision="int8",
             )
 
-        mock_rcde.assert_called_once()
+        mock_rd.assert_called_once()
 
 
 # =============================================================================
@@ -2600,14 +3262,13 @@ class TestDevicePrecisionCli:
                 return_value=mock_export_config,
             ),
             "registry": patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
-            "device": patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("npu", ["npu", "gpu", "cpu"], ["QNNExecutionProvider"]),
+            "auto_detect": patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="npu",
             ),
-            # config now inspects the HF config to route seq2seq composites (#850);
-            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
-            "autoconfig": patch(
-                "transformers.AutoConfig.from_pretrained", return_value=BertConfig()
+            "available": patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["npu", "gpu", "cpu"],
             ),
         }
 
@@ -2622,8 +3283,8 @@ class TestDevicePrecisionCli:
             self._patches["loader"],
             self._patches["export"],
             self._patches["registry"],
-            self._patches["device"],
-            self._patches["autoconfig"],
+            self._patches["auto_detect"],
+            self._patches["available"],
         ):
             runner = CliRunner()
             result = runner.invoke(config_command, args)
@@ -2631,22 +3292,25 @@ class TestDevicePrecisionCli:
         return result, output_file
 
     def test_device_npu_produces_qnn(self, tmp_path) -> None:
-        """--device npu --compile → compile.provider=qnn, quant with w8a16."""
-        result, output_file = self._invoke(tmp_path, ["--device", "npu", "--compile"])
+        """An NPU without a registered EP emits no compile stage."""
+        result, output_file = self._invoke(tmp_path, ["--device", "npu"])
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
-        assert data["compile"] is not None
-        assert data["compile"]["execution_provider"] == "qnn"
+        assert data["compile"] is None
         assert data["quant"] is not None
         assert data["quant"]["weight_type"] == "uint8"
         assert data["quant"]["activation_type"] == "uint16"
 
     def test_device_gpu_precision_fp16(self, tmp_path) -> None:
-        """--device gpu --precision fp16 → fp16 algorithm quant config, no compile."""
-        self._patches["device"] = patch(
-            "winml.modelkit.sysinfo.resolve_check_device_ep",
-            return_value=("gpu", ["gpu", "cpu"], ["DmlExecutionProvider"]),
+        """--device gpu --precision fp16 keeps the FP16 conversion policy."""
+        self._patches["auto_detect"] = patch(
+            "winml.modelkit.session.auto_detect_device",
+            return_value="gpu",
+        )
+        self._patches["available"] = patch(
+            "winml.modelkit.sysinfo.hardware.get_available_devices",
+            return_value=["gpu", "cpu"],
         )
         result, output_file = self._invoke(
             tmp_path,
@@ -2655,15 +3319,18 @@ class TestDevicePrecisionCli:
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
-        assert data["quant"] is not None
         assert data["quant"]["mode"] == "fp16"
         assert data["compile"] is None
 
     def test_device_cpu_precision_fp32(self, tmp_path) -> None:
-        """--device cpu --precision fp32 → no quant, no compile."""
-        self._patches["device"] = patch(
-            "winml.modelkit.sysinfo.resolve_check_device_ep",
-            return_value=("cpu", ["cpu"], ["CPUExecutionProvider"]),
+        """--device cpu --precision fp32 emits no compiler without a registered EP."""
+        self._patches["auto_detect"] = patch(
+            "winml.modelkit.session.auto_detect_device",
+            return_value="cpu",
+        )
+        self._patches["available"] = patch(
+            "winml.modelkit.sysinfo.hardware.get_available_devices",
+            return_value=["cpu"],
         )
         result, output_file = self._invoke(
             tmp_path,
@@ -2681,21 +3348,20 @@ class TestDevicePrecisionCli:
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
-        # Default: quant present, compile excluded (--no-compile is default)
+        # Default precision retains quantization, but no unavailable compiler.
         assert data["quant"] is not None
         assert data["compile"] is None
 
     def test_auto_precision_int8_triggers_detection(self, tmp_path) -> None:
-        """--device auto --precision int8 --compile → triggers device detection."""
+        """--device auto --precision int8 → triggers device detection."""
         result, output_file = self._invoke(
             tmp_path,
-            ["--device", "auto", "--precision", "int8", "--compile"],
+            ["--device", "auto", "--precision", "int8"],
         )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
-        # Mock resolve_device returns "npu" → qnn
-        assert data["compile"]["execution_provider"] == "qnn"
+        assert data["compile"] is None
         assert data["quant"] is not None
 
 
@@ -2741,39 +3407,56 @@ class TestConfigOnnxAutoDetect:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("npu", ["npu", "gpu", "cpu"], ["QNNExecutionProvider"]),
+                "winml.modelkit.session.auto_detect_device",
+                return_value="npu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["npu", "gpu", "cpu"],
             ),
         ):
             runner = CliRunner()
             result = runner.invoke(
                 config_command,
-                ["-m", str(onnx_file), "--device", "npu", "--compile", "-o", str(output_file)],
+                ["-m", str(onnx_file), "--device", "npu", "-o", str(output_file)],
             )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         output_data = json.loads(output_file.read_text())
         assert output_data["export"] is None
         assert output_data["quant"] is not None
-        assert output_data["compile"] is not None
-        assert output_data["compile"]["execution_provider"] == "qnn"
+        assert output_data["compile"] is None
 
-    def test_config_onnx_suffix_not_exists_raises(
+    def test_config_onnx_suffix_not_exists_uses_hf(
         self,
         tmp_path,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
     ) -> None:
-        """A missing .onnx path raises instead of silently falling through to HF (#553)."""
+        """A missing .onnx path is rejected instead of being treated as a HF model."""
         output_file = tmp_path / "result.json"
 
-        runner = CliRunner()
-        result = runner.invoke(
-            config_command,
-            ["-m", "nonexistent.onnx", "-o", str(output_file)],
-        )
+        with (
+            patch(
+                "winml.modelkit.config.build.resolve_loader_config",
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
+            ),
+            patch(
+                "winml.modelkit.config.build._resolve_export_config_from_specs",
+                return_value=mock_export_config,
+            ),
+            patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                config_command,
+                ["-m", "nonexistent.onnx", "-o", str(output_file)],
+            )
 
         assert result.exit_code != 0
         assert "ONNX file not found" in result.output
-        assert not output_file.exists()
 
 
 # =============================================================================
@@ -2803,8 +3486,12 @@ class TestGenerateBuildConfigOnnxPath:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("npu", ["npu", "cpu"], ["QNNExecutionProvider"]),
+                "winml.modelkit.session.auto_detect_device",
+                return_value="npu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["npu", "cpu"],
             ),
         ):
             config = generate_onnx_build_config(str(onnx_file), device="npu")
@@ -2817,7 +3504,7 @@ class TestGenerateBuildConfigOnnxPath:
         assert config.compile.ep_config.provider == "qnn"
 
     def test_raw_onnx_cpu(self, tmp_path) -> None:
-        """Raw ONNX + device=cpu with auto-precision resolves to fp32 (no-op), compile=None."""
+        """Raw ONNX + device=cpu resolves quant=None, compile=openvino (first plugin CPU EP)."""
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
 
@@ -2825,15 +3512,20 @@ class TestGenerateBuildConfigOnnxPath:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("cpu", ["cpu"], ["CPUExecutionProvider"]),
+                "winml.modelkit.session.auto_detect_device",
+                return_value="cpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["cpu"],
             ),
         ):
             config = generate_onnx_build_config(str(onnx_file), device="cpu")
 
         assert config.export is None
         assert config.quant is None
-        assert config.compile is None
+        assert config.compile is not None
+        assert config.compile.ep_config.provider == "openvino"
 
     def test_quantized_onnx_skips_quant(self, tmp_path) -> None:
         """Quantized ONNX + device=npu sets quant=None, compile=qnn."""
@@ -2844,8 +3536,12 @@ class TestGenerateBuildConfigOnnxPath:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=True),
             patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("npu", ["npu", "cpu"], ["QNNExecutionProvider"]),
+                "winml.modelkit.session.auto_detect_device",
+                return_value="npu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["npu", "cpu"],
             ),
         ):
             config = generate_onnx_build_config(str(onnx_file), device="npu")
@@ -2855,7 +3551,7 @@ class TestGenerateBuildConfigOnnxPath:
         assert config.compile.ep_config.provider == "qnn"
 
     def test_quantized_onnx_cpu(self, tmp_path) -> None:
-        """Quantized ONNX + device=cpu sets quant=None, compile=None."""
+        """Quantized ONNX + device=cpu sets quant=None, compile=openvino."""
         onnx_file = tmp_path / "quantized.onnx"
         onnx_file.write_bytes(b"fake")
 
@@ -2863,14 +3559,19 @@ class TestGenerateBuildConfigOnnxPath:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=True),
             patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("cpu", ["cpu"], ["CPUExecutionProvider"]),
+                "winml.modelkit.session.auto_detect_device",
+                return_value="cpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["cpu"],
             ),
         ):
             config = generate_onnx_build_config(str(onnx_file), device="cpu")
 
         assert config.quant is None
-        assert config.compile is None
+        assert config.compile is not None
+        assert config.compile.ep_config.provider == "openvino"
 
     def test_compiled_onnx_skips_all(self, tmp_path) -> None:
         """Compiled ONNX (EPContext) sets quant=None and compile=None."""
@@ -2923,8 +3624,12 @@ class TestGenerateBuildConfigOnnxPath:
                 patch("winml.modelkit.onnx.is_compiled_onnx", return_value=is_compiled),
                 patch("winml.modelkit.onnx.is_quantized_onnx", return_value=is_quantized),
                 patch(
-                    "winml.modelkit.sysinfo.resolve_check_device_ep",
-                    return_value=("cpu", ["cpu"], ["CPUExecutionProvider"]),
+                    "winml.modelkit.session.auto_detect_device",
+                    return_value="cpu",
+                ),
+                patch(
+                    "winml.modelkit.sysinfo.hardware.get_available_devices",
+                    return_value=["cpu"],
                 ),
             ):
                 config = generate_onnx_build_config(str(onnx_file))
@@ -2946,8 +3651,12 @@ class TestGenerateBuildConfigOnnxPath:
                 patch("winml.modelkit.onnx.is_compiled_onnx", return_value=is_compiled),
                 patch("winml.modelkit.onnx.is_quantized_onnx", return_value=is_quantized),
                 patch(
-                    "winml.modelkit.sysinfo.resolve_check_device_ep",
-                    return_value=("cpu", ["cpu"], ["CPUExecutionProvider"]),
+                    "winml.modelkit.session.auto_detect_device",
+                    return_value="cpu",
+                ),
+                patch(
+                    "winml.modelkit.sysinfo.hardware.get_available_devices",
+                    return_value=["cpu"],
                 ),
             ):
                 config = generate_onnx_build_config(str(onnx_file))
@@ -2965,8 +3674,12 @@ class TestGenerateBuildConfigOnnxPath:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("cpu", ["cpu"], ["CPUExecutionProvider"]),
+                "winml.modelkit.session.auto_detect_device",
+                return_value="cpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["cpu"],
             ),
         ):
             config = generate_onnx_build_config(
@@ -2985,8 +3698,12 @@ class TestGenerateBuildConfigOnnxPath:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("cpu", ["cpu"], ["CPUExecutionProvider"]),
+                "winml.modelkit.session.auto_detect_device",
+                return_value="cpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["cpu"],
             ),
         ):
             config = generate_onnx_build_config(str(onnx_file))
@@ -3013,8 +3730,12 @@ class TestGenerateBuildConfigOnnxPath:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("npu", ["npu", "cpu"], ["QNNExecutionProvider"]),
+                "winml.modelkit.session.auto_detect_device",
+                return_value="npu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["npu", "cpu"],
             ),
         ):
             config = generate_onnx_build_config(
@@ -3042,8 +3763,12 @@ class TestGenerateBuildConfigOnnxPath:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("npu", ["npu", "cpu"], ["QNNExecutionProvider"]),
+                "winml.modelkit.session.auto_detect_device",
+                return_value="npu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["npu", "cpu"],
             ),
             patch(
                 "winml.modelkit.config.build.merge_config",
@@ -3104,8 +3829,12 @@ class TestGenerateBuildConfigOnnxPath:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("npu", ["npu", "cpu"], ["QNNExecutionProvider"]),
+                "winml.modelkit.session.auto_detect_device",
+                return_value="npu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["npu", "cpu"],
             ),
         ):
             config = generate_onnx_build_config(
@@ -3131,8 +3860,12 @@ class TestGenerateBuildConfigOnnxPath:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("cpu", ["cpu"], ["CPUExecutionProvider"]),
+                "winml.modelkit.session.auto_detect_device",
+                return_value="cpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["cpu"],
             ),
         ):
             config = generate_onnx_build_config(str(onnx_file))
@@ -3150,8 +3883,12 @@ class TestGenerateBuildConfigOnnxPath:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("cpu", ["cpu"], ["CPUExecutionProvider"]),
+                "winml.modelkit.session.auto_detect_device",
+                return_value="cpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["cpu"],
             ),
         ):
             config = generate_onnx_build_config(Path(onnx_file))
@@ -3159,10 +3896,10 @@ class TestGenerateBuildConfigOnnxPath:
         assert config.export is None
 
     def test_auto_device_auto_precision_defaults(self, tmp_path) -> None:
-        """device=auto + precision=auto (defaults) resolves to fp32 on CPU.
+        """device=auto + precision=auto (defaults) keeps config defaults.
 
-        resolve_check_device_ep returns device="auto" but resolve_precision
-        resolves the EP to pick a concrete device, yielding fp32 (no-op, no conversion).
+        resolve_quant_compile_config returns (None, None) when both are auto,
+        so raw ONNX gets quant=None, compile=None.
         """
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
@@ -3171,13 +3908,17 @@ class TestGenerateBuildConfigOnnxPath:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("auto", ["npu", "gpu", "cpu"], ["CPUExecutionProvider"]),
+                "winml.modelkit.session.auto_detect_device",
+                return_value="auto",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["npu", "gpu", "cpu"],
             ),
         ):
             config = generate_onnx_build_config(str(onnx_file))
 
-        # EP resolves to CPU, auto-precision=fp32 → no quantization, no compile
+        # Both auto -> resolve_precision returns device="auto" -> (None, None)
         assert config.quant is None
         assert config.compile is None
 
@@ -3198,7 +3939,7 @@ class TestGenerateBuildConfigOnnxPath:
         mock_resolve.assert_not_called()
 
     def test_raw_onnx_with_gpu(self, tmp_path) -> None:
-        """Raw ONNX + device=gpu with auto-precision resolves to fp32 (no-op), compile=None."""
+        """Raw ONNX + device=gpu resolves quant=None, compile=openvino (first plugin GPU EP)."""
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
 
@@ -3206,15 +3947,21 @@ class TestGenerateBuildConfigOnnxPath:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("gpu", ["gpu", "cpu"], ["DmlExecutionProvider"]),
+                "winml.modelkit.session.auto_detect_device",
+                return_value="gpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["gpu", "cpu"],
             ),
         ):
             config = generate_onnx_build_config(str(onnx_file), device="gpu")
 
-        # GPU auto-precision is fp32 → no quantization, no compile (DML has no offline step)
+        # GPU auto-precision is fp16 -> no quantization; compile=openvino
+        # (first plugin EP for gpu after built-ins-as-fallback catalog reorder).
         assert config.quant is None
-        assert config.compile is None
+        assert config.compile is not None
+        assert config.compile.ep_config.provider == "openvino"
 
     def test_ep_override_forwarded(self, tmp_path) -> None:
         """Explicit ep parameter is forwarded to resolve_quant_compile_config."""
@@ -3225,8 +3972,12 @@ class TestGenerateBuildConfigOnnxPath:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("gpu", ["gpu", "cpu"], ["DmlExecutionProvider"]),
+                "winml.modelkit.session.auto_detect_device",
+                return_value="gpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["gpu", "cpu"],
             ),
         ):
             config = generate_onnx_build_config(
@@ -3235,7 +3986,6 @@ class TestGenerateBuildConfigOnnxPath:
                 ep="migraphx",
             )
 
-        # migraphx has enable_ep_context=False → no offline compile step
         assert config.compile is None
 
 
@@ -3251,16 +4001,124 @@ class TestResolveQuantCompileConfig:
     the HF and ONNX build config paths.
     """
 
-    def test_auto_auto_returns_no_quant(self) -> None:
-        """device=auto + precision=auto resolves to fp32 (no quantization, no conversion).
+    def test_auto_auto_returns_none_none(self) -> None:
+        """device=auto + precision=auto returns (None, None)."""
+        with (
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="auto",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["npu", "gpu", "cpu"],
+            ),
+        ):
+            quant, compile_cfg = resolve_quant_compile_config()
 
-        When resolve_check_device_ep returns device="auto" but the EP
-        resolves to a concrete device, resolve_precision picks auto-precision
-        (fp32 for CPU), yielding no quant config.
-        """
-        with patch(
-            "winml.modelkit.sysinfo.resolve_check_device_ep",
-            return_value=("auto", ["npu", "gpu", "cpu"], ["CPUExecutionProvider"]),
+        assert quant is None
+        assert compile_cfg is None
+
+    def test_auto_target_keeps_registration_validated_provider(self) -> None:
+        """Policy selection must not reselect an unloadable EP for the detected device."""
+        from winml.modelkit.ep_path import EPCatalog
+        from winml.modelkit.session import WinMLEPRegistrationFailed, WinMLEPRegistry
+
+        def _probe(target):
+            if target.ep == "QNNExecutionProvider":
+                raise WinMLEPRegistrationFailed("QNN DLL dependencies are unavailable")
+            return object()
+
+        with (
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="npu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["npu", "cpu"],
+            ),
+            patch.object(
+                WinMLEPRegistry,
+                "available_eps",
+                return_value=frozenset(
+                    {
+                        "QNNExecutionProvider",
+                        "OpenVINOExecutionProvider",
+                        "CPUExecutionProvider",
+                    }
+                ),
+            ),
+            patch.object(WinMLEPRegistry, "auto_device", side_effect=_probe),
+            patch.object(EPCatalog, "is_compatible", return_value=True),
+        ):
+            _quant, compile_cfg = resolve_quant_compile_config()
+
+        assert compile_cfg is not None
+        assert compile_cfg.ep_config.provider == "openvino"
+
+    def test_auto_cpu_skips_runtime_pair_unsupported_by_build_policy(self) -> None:
+        """Auto policy skips valid runtime pairs outside the legacy build support table."""
+        from winml.modelkit.ep_path import EPCatalog
+        from winml.modelkit.session import WinMLEPRegistry
+
+        with (
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="cpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["cpu"],
+            ),
+            patch.object(
+                WinMLEPRegistry,
+                "available_eps",
+                return_value=frozenset(
+                    {
+                        "QNNExecutionProvider",
+                        "CPUExecutionProvider",
+                    }
+                ),
+            ),
+            patch.object(WinMLEPRegistry, "auto_device", return_value=object()),
+            patch.object(EPCatalog, "is_compatible", return_value=True),
+        ):
+            quant, compile_cfg = resolve_quant_compile_config()
+
+        assert quant is None
+        assert compile_cfg is None
+
+    def test_auto_cpu_survives_vendor_probe_failure(self) -> None:
+        """A vendor-gated CPU candidate must not block the built-in CPU fallback."""
+        from winml.modelkit.ep_path import EPCatalog
+        from winml.modelkit.session import WinMLEPRegistry
+
+        def _compatible(ep: str) -> bool:
+            if ep == "OpenVINOExecutionProvider":
+                raise RuntimeError("WMI unavailable")
+            return True
+
+        with (
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="cpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["cpu"],
+            ),
+            patch.object(
+                WinMLEPRegistry,
+                "available_eps",
+                return_value=frozenset(
+                    {
+                        "OpenVINOExecutionProvider",
+                        "CPUExecutionProvider",
+                    }
+                ),
+            ),
+            patch.object(WinMLEPRegistry, "auto_device", return_value=object()),
+            patch.object(EPCatalog, "is_compatible", side_effect=_compatible),
         ):
             quant, compile_cfg = resolve_quant_compile_config()
 
@@ -3269,9 +4127,15 @@ class TestResolveQuantCompileConfig:
 
     def test_npu_returns_quant_and_compile(self) -> None:
         """device=npu returns (WinMLQuantizationConfig, WinMLCompileConfig)."""
-        with patch(
-            "winml.modelkit.sysinfo.resolve_check_device_ep",
-            return_value=("npu", ["npu", "cpu"], ["QNNExecutionProvider"]),
+        with (
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="npu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["npu", "cpu"],
+            ),
         ):
             quant, compile_cfg = resolve_quant_compile_config(device="npu")
 
@@ -3281,51 +4145,95 @@ class TestResolveQuantCompileConfig:
         assert isinstance(compile_cfg, WinMLCompileConfig)
         assert compile_cfg.ep_config.provider == "qnn"
 
-    def test_gpu_returns_no_quant_and_none_compile(self) -> None:
-        """device=gpu returns (None, None) — auto-precision is fp32 (no conversion)."""
-        with patch(
-            "winml.modelkit.sysinfo.resolve_check_device_ep",
-            return_value=("gpu", ["gpu", "cpu"], ["DmlExecutionProvider"]),
+    def test_gpu_returns_none_quant_and_openvino_compile(self) -> None:
+        """device=gpu returns (None, WinMLCompileConfig(openvino)) — first plugin GPU EP."""
+        with (
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="gpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["gpu", "cpu"],
+            ),
         ):
             quant, compile_cfg = resolve_quant_compile_config(device="gpu")
 
         assert quant is None
-        assert compile_cfg is None
+        assert isinstance(compile_cfg, WinMLCompileConfig)
+        assert compile_cfg.ep_config.provider == "openvino"
 
-    def test_cpu_returns_no_quant_and_none_compile(self) -> None:
-        """device=cpu returns (None, None) — auto-precision is fp32 (no conversion)."""
-        with patch(
-            "winml.modelkit.sysinfo.resolve_check_device_ep",
-            return_value=("cpu", ["cpu"], ["CPUExecutionProvider"]),
+    def test_cpu_returns_none_quant_and_openvino_compile(self) -> None:
+        """device=cpu returns (None, WinMLCompileConfig(openvino)) — first plugin CPU EP."""
+        with (
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="cpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["cpu"],
+            ),
         ):
             quant, compile_cfg = resolve_quant_compile_config(device="cpu")
 
         assert quant is None
-        assert compile_cfg is None
+        assert isinstance(compile_cfg, WinMLCompileConfig)
+        assert compile_cfg.ep_config.provider == "openvino"
 
     def test_ep_override_changes_provider(self) -> None:
-        """Explicit ep overrides the default device-to-provider mapping.
-
-        nv_tensorrt_rtx now supports EPContext compile config for GPU routing.
-        Device is stored in ep_config.device (not provider_options) to avoid
-        crashes when trtrtx gets device_type in add_provider_for_devices.
-        """
-        # The mock must echo the requested ep back as available_eps[0] —
-        # resolve_quant_compile_config forwards available_eps[0] to
-        # resolve_precision, so the ep argument to resolve_precision needs to
-        # match what the user passed (nv_tensorrt_rtx).
-        with patch(
-            "winml.modelkit.sysinfo.resolve_check_device_ep",
-            return_value=("gpu", ["gpu", "cpu"], ["NvTensorRTRTXExecutionProvider"]),
+        """Explicit ep overrides the default device-to-provider mapping."""
+        with (
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="gpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["gpu", "cpu"],
+            ),
         ):
             _quant, compile_cfg = resolve_quant_compile_config(
                 device="gpu",
-                ep="nv_tensorrt_rtx",
+                ep="nvtensorrtrtx",
             )
 
         assert compile_cfg is not None
-        assert compile_cfg.ep_config.provider == "nv_tensorrt_rtx"
-        assert compile_cfg.ep_config.device == "gpu"
+        assert compile_cfg.ep_config.provider == "nvtensorrtrtx"
+
+    def test_ep_override_with_auto_device_uses_catalog_default_device(self) -> None:
+        """Explicit EP + device=auto should ignore unrelated hardware auto-detection."""
+        with (
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="npu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["npu", "gpu", "cpu"],
+            ),
+            patch(
+                "winml.modelkit.config.precision.resolve_precision",
+                wraps=__import__(
+                    "winml.modelkit.config.precision", fromlist=["resolve_precision"]
+                ).resolve_precision,
+            ) as mock_prec,
+            patch(
+                "winml.modelkit.config.build.WinMLCompileConfig.for_provider",
+                wraps=WinMLCompileConfig.for_provider,
+            ) as mock_for_provider,
+        ):
+            quant, compile_cfg = resolve_quant_compile_config(
+                device="auto",
+                ep="migraphx",
+            )
+
+        mock_prec.assert_called_once()
+        assert mock_prec.call_args.kwargs["device"] == "auto"
+        assert mock_prec.call_args.kwargs["ep"] == "migraphx"
+        mock_for_provider.assert_called_once_with("migraphx", device="gpu")
+        assert quant is None
+        assert compile_cfg is None
 
     def test_task_forwarded_to_resolve_precision(self) -> None:
         """task parameter is forwarded to resolve_precision.
@@ -3335,8 +4243,12 @@ class TestResolveQuantCompileConfig:
         """
         with (
             patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("gpu", ["gpu", "cpu"], ["DmlExecutionProvider"]),
+                "winml.modelkit.session.auto_detect_device",
+                return_value="gpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["gpu", "cpu"],
             ),
             patch(
                 "winml.modelkit.config.precision.resolve_precision",
@@ -3352,9 +4264,15 @@ class TestResolveQuantCompileConfig:
 
     def test_explicit_int8_precision_on_npu(self) -> None:
         """Explicit precision=int8 on npu produces uint8 quant."""
-        with patch(
-            "winml.modelkit.sysinfo.resolve_check_device_ep",
-            return_value=("npu", ["npu", "cpu"], ["QNNExecutionProvider"]),
+        with (
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="npu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["npu", "cpu"],
+            ),
         ):
             quant, _compile_cfg = resolve_quant_compile_config(
                 device="npu",
@@ -3367,9 +4285,15 @@ class TestResolveQuantCompileConfig:
 
     def test_explicit_fp32_precision_no_quant(self) -> None:
         """Explicit precision=fp32 produces no quantization."""
-        with patch(
-            "winml.modelkit.sysinfo.resolve_check_device_ep",
-            return_value=("gpu", ["gpu", "cpu"], ["DmlExecutionProvider"]),
+        with (
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="gpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["gpu", "cpu"],
+            ),
         ):
             quant, _compile_cfg = resolve_quant_compile_config(
                 device="gpu",

@@ -5,10 +5,17 @@
 
 """Tensor-similarity evaluator.
 
-Runs an ONNX candidate and an HF PyTorch reference on identical random
-inputs (drawn from :class:`RandomDataset` over the candidate's ONNX I/O)
+Runs an ONNX candidate and a reference on identical inputs (random by
+default, drawn from :class:`RandomDataset` over the candidate's ONNX I/O)
 and reports per-output tensor-parity metrics (SQNR, PSNR, cosine, MSE,
 max absolute diff) via :class:`TensorSimilarityMetric`.
+
+The reference is an HF PyTorch model resolved from ``model_id`` by default.
+When ``config.reference_path`` is set, the reference is instead a second
+ONNX file and both sides run as raw ORT sessions (no HF config / task).
+
+When ``config.input_data`` is set, both sides run on real tensors from a
+``.npz`` archive instead of random inputs.
 
 No labeled dataset, no HF pipeline, no preprocessor — any divergence
 reflects the build pipeline (optimize / quantize / compile) only.
@@ -29,8 +36,46 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class _ONNXSessionModel:
+    """Minimal raw-ORT wrapper for two-ONNX ``--mode compare``.
+
+    Exposes just the slice of the :class:`WinMLPreTrainedModel` surface that
+    the tensor-similarity loop needs — ``onnx_path``, ``io_config`` and a
+    callable returning named ``torch`` tensors — without any HF config or
+    task-specific output renaming, so both sides compare on their raw ONNX
+    output names.
+    """
+
+    def __init__(self, onnx_path: str, device: str = "auto", ep: Any | None = None) -> None:
+        from pathlib import Path
+
+        from ..session.session import WinMLSession
+
+        self.onnx_path = Path(onnx_path)
+        self._session = WinMLSession(onnx_path=self.onnx_path, device=device, ep=ep)
+
+    @property
+    def io_config(self) -> dict:
+        """ONNX I/O metadata (delegated to the session)."""
+        return self._session.io_config
+
+    def __call__(self, **inputs: Any) -> dict[str, Any]:
+        """Run one sample and return raw outputs as named ``torch`` tensors."""
+        import torch
+
+        # ``inputs`` may be torch tensors (fed by _inference_model); WinMLSession.run
+        # -> _prepare_inputs converts them to numpy and enforces the graph dtype, so
+        # no explicit .numpy() conversion is needed here.
+        outputs = self._session.run(inputs)
+        return {name: torch.from_numpy(arr) for name, arr in outputs.items()}
+
+
 class TensorSimilarityEvaluator:
     """Per-output tensor parity between an ONNX candidate and an HF reference."""
+
+    # Either an HF-backed model (default path) or a raw-ORT wrapper (two-ONNX
+    # compare); annotated here so both __init__ branches type-check.
+    model: WinMLPreTrainedModel | _ONNXSessionModel
 
     def __init__(
         self,
@@ -38,6 +83,20 @@ class TensorSimilarityEvaluator:
         model: WinMLPreTrainedModel | WinMLCompositeModel,
     ) -> None:
         from ..models.winml.composite_model import WinMLCompositeModel
+
+        self.config = config
+
+        # Two-ONNX compare: build both raw ORT sessions directly, bypassing the
+        # HF PyTorch reference. ``model`` is None here (see evaluate._load_model).
+        if config.reference_path is not None:
+            self.model = _ONNXSessionModel(
+                str(config.model_path), device=config.device, ep=config.ep
+            )
+            self.reference_model = _ONNXSessionModel(
+                str(config.reference_path), device=config.device, ep=config.ep
+            )
+            self.data = self.prepare_data()
+            return
 
         # Composite models must be split into their sub-components before
         # tensor-similarity comparison — the union param keeps this runtime
@@ -50,7 +109,6 @@ class TensorSimilarityEvaluator:
                 "Example: winml eval --mode compare --task <sub_task> "
                 f"--model <sub_onnx_path> --model-id {config.model_id}"
             )
-        self.config = config
         self.model = model
         self.reference_model = self._load_reference_model()
         self.data = self.prepare_data()
@@ -65,12 +123,13 @@ class TensorSimilarityEvaluator:
         import torch
         from transformers import AutoConfig
 
+        from ..loader import load_hf_config
         from ..loader.resolution import resolve_task
 
         if self.config.model_id is None:
             raise ValueError("model_id is required to load the HF reference model.")
 
-        hf_config = AutoConfig.from_pretrained(self.config.model_id)
+        hf_config = load_hf_config(AutoConfig, self.config.model_id)
         cls = resolve_task(hf_config, task=self.config.task).model_class
         logger.info("Loading HF reference %s on CPU/fp32", cls.__name__)
         # cls is a HF model class which exposes from_pretrained; not in `type`.
@@ -79,7 +138,21 @@ class TensorSimilarityEvaluator:
         ).eval()
 
     def prepare_data(self) -> Any:
-        """Build a RandomDataset over the candidate ONNX's I/O spec."""
+        """Build the compare dataset over the candidate ONNX's I/O spec.
+
+        Uses real tensors from ``config.input_data`` (wrapped as a multi-sample
+        :class:`InputDataDataset` whose leading axis is the sample axis and
+        validated against the candidate's inputs) when provided, otherwise a
+        :class:`RandomDataset` of synthetic inputs sized by ``config.dataset``.
+
+        The real sample count is reported via ``EvalResult.num_samples`` (set by
+        :func:`evaluate`), not by mutating ``config`` here.
+        """
+        if self.config.input_data is not None:
+            from ..datasets.input_data import InputDataDataset
+
+            return InputDataDataset(self.config.input_data, self.model.io_config)
+
         from ..datasets.random_dataset import RandomDataset
 
         ds = self.config.dataset
@@ -106,6 +179,9 @@ class TensorSimilarityEvaluator:
         common_keys: list[str] | None = None
         ort_keys: set[str] = set()
         hf_keys: set[str] = set()
+        # Both sides are raw ONNX in the two-ONNX path; only the default path
+        # has an HF PyTorch reference. Label diagnostics accordingly.
+        reference_label = "reference ONNX" if self.config.reference_path else "HF reference"
 
         with torch.no_grad():
             for i in tqdm(range(len(self.data)), desc="compare", unit="sample"):
@@ -120,8 +196,9 @@ class TensorSimilarityEvaluator:
                     common_keys = [name for name in hf_out if name in ort_keys & hf_keys]
                     if not common_keys:
                         raise ValueError(
-                            f"ONNX and HF reference output names do not overlap. "
-                            f"ONNX: {sorted(ort_keys)}, HF: {sorted(hf_keys)}."
+                            f"Candidate ONNX and {reference_label} output names do not "
+                            f"overlap. candidate: {sorted(ort_keys)}, "
+                            f"reference: {sorted(hf_keys)}."
                         )
 
                 for name in common_keys:
@@ -132,7 +209,8 @@ class TensorSimilarityEvaluator:
 
         if ort_keys != hf_keys:
             logger.warning(
-                "ONNX and HF reference output names differ. ONNX: %s, HF: %s.",
+                "Candidate ONNX and %s output names differ. candidate: %s, reference: %s.",
+                reference_label,
                 sorted(ort_keys),
                 sorted(hf_keys),
             )

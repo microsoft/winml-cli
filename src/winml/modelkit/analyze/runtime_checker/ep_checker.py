@@ -5,20 +5,17 @@
 from __future__ import annotations
 
 import tempfile
+from abc import abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 
 import onnx
 import onnxruntime as ort
 
-from ... import winml
-
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from os import PathLike
-
-    from ...utils.constants import EPName
 
 
 # TODO: allow test case iter to take dtypes as inputs
@@ -32,11 +29,12 @@ if TYPE_CHECKING:
 class _RulesPrefilterProtocol(Protocol):
     """Protocol for rules-prefilter service used by EPChecker."""
 
+    @abstractmethod
     def build_skip_check_result_for_rules_all_nodes_compile_run_pass(
         self,
         onnx_model: onnx.ModelProto,
     ) -> dict[str, Any] | None:
-        ...
+        raise NotImplementedError
 
 
 class EPChecker:
@@ -45,34 +43,58 @@ class EPChecker:
     # EPs that require a file path (not in-memory bytes) for compilation.
     # VitisAI EP fails with "ep.context_file_path and model_path are both empty"
     # when given in-memory model bytes.
-    EPS_REQUIRING_FILE_PATH: ClassVar[set[EPName]] = {"VitisAIExecutionProvider"}
+    EPS_REQUIRING_FILE_PATH: ClassVar[set[str]] = {"VitisAIExecutionProvider"}
 
     # EP/device combinations that are known to leak resources/state across many
     # sequential checks inside a single worker process. Running each case in an
     # isolated process avoids "first case passes, later cases fail" behavior.
     EPS_REQUIRING_CASE_ISOLATION_BY_DEVICE: ClassVar[
-        dict[EPName, set[ort.OrtHardwareDeviceType]]
+        dict[str, set[ort.OrtHardwareDeviceType]]
     ] = {
         "OpenVINOExecutionProvider": {ort.OrtHardwareDeviceType.NPU},
     }
 
     def __init__(
         self,
-        ep_name: EPName,
+        ep_name: str,
         device_type: ort.OrtHardwareDeviceType,
         provider_options: Sequence[dict[Any, Any]] | None = None,
         rules_prefilter: _RulesPrefilterProtocol | None = None,
     ) -> None:
         self.device_type = device_type
-        self.ep_name: EPName = ep_name
+        self.ep_name: str = ep_name
         self._provider_options = provider_options
         self._rules_prefilter = rules_prefilter
 
     def _get_sess_options(self) -> ort.SessionOptions:
-        winml.register_execution_providers(ort=True)
+        from ...session import (
+            EPDeviceTarget,
+            WinMLEPRegistry,
+            resolve_device,
+            short_ep_name,
+        )
+
         sess_options = ort.SessionOptions()
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
-        winml.add_ep_for_device(sess_options, self.ep_name, self.device_type)
+
+        # self.device_type is ort.OrtHardwareDeviceType (CPU/GPU/NPU enum).
+        # self.ep_name is the full EP name (e.g. "QNNExecutionProvider").
+        target = EPDeviceTarget(
+            ep=short_ep_name(self.ep_name),
+            device=self.device_type.name.lower(),
+        )
+        resolved = resolve_device(target)
+        ep_device = WinMLEPRegistry.instance().auto_device(resolved)
+
+        options: dict[str, str] = {}
+        if self._provider_options:
+            # _provider_options is Sequence[dict[Any, Any]] | None; take the first.
+            options = dict(self._provider_options[0])
+
+        sess_options.add_provider_for_devices(
+            [ep_device.device.ort_handle],
+            options,
+        )
         return sess_options
 
     def _needs_file_path(self) -> bool:

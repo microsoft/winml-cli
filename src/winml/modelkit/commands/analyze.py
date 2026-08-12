@@ -17,13 +17,16 @@ import json
 import logging
 import os
 import re
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import click
+from rich.cells import cell_len
 from rich.console import Console
 from rich.live import Live
 from rich.logging import RichHandler
+from rich.markup import escape
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -35,9 +38,10 @@ from rich.progress import (
 from rich.table import Table
 from rich.text import Text
 
+from ..session import DEVICE_TYPE_TO_DEVICE
 from ..utils import cli as cli_utils
 from ..utils.constants import (
-    DEVICE_TYPE_TO_DEVICE,
+    DEVICE_PRIORITY,
     EP_SUPPORTED_DEVICES,
     SUPPORTED_DEVICES,
     SUPPORTED_EPS,
@@ -50,6 +54,7 @@ from ..utils.logging import configure_logging
 
 if TYPE_CHECKING:
     from ..analyze.models.runtime_checks import PatternRuntime
+    from ..analyze.optim_output import OptimizationOutputSupport
 
 
 logger = logging.getLogger(__name__)
@@ -68,6 +73,20 @@ _COLORS = {
 
 _TRAILING_PAREN_RE = re.compile(r" \([^()]*\)$")
 _RUNTIME_DEBUG_LEVELS = ("unsupported", "partial", "supported")
+_SUPPORT_LEVEL_KEYS = ("supported", "partial", "unsupported", "unknown")
+_SKIP_NO_RULE_DATA_SUFFIX = "  Skipped - no rule data"
+_SKIP_TABLE_MIN_WIDTH = 80
+
+
+def _skip_table_width(section_name: str, ep_device_pair_display_name: str | None) -> int:
+    """Return a stable width for skip tables based on rendered title length."""
+    title = f"📊 {section_name}"
+    if ep_device_pair_display_name:
+        title += f" — {ep_device_pair_display_name}"
+    title += _SKIP_NO_RULE_DATA_SUFFIX
+
+    # Keep a small margin for table padding and terminal glyph width variance.
+    return max(_SKIP_TABLE_MIN_WIDTH, cell_len(title) + 2)
 
 
 def _display_name(pattern_id: str) -> str:
@@ -103,19 +122,19 @@ def _worst_level_icon(counts: dict[str, int]) -> str:
 
 def _build_stacked_bar(counts: dict[str, int], max_count: int) -> Text:
     """Build a stacked bar where total width is proportional to max_count."""
-    total = sum(counts.values())
+    total = sum(counts.get(level, 0) for level in _SUPPORT_LEVEL_KEYS)
     if total == 0:
         return Text()
 
     bar_width = max(1, round(total / max_count * MAX_BAR_WIDTH))
     # Ensure bar can fit all non-zero segments
-    nonzero = sum(1 for v in counts.values() if v > 0)
+    nonzero = sum(1 for level in _SUPPORT_LEVEL_KEYS if counts.get(level, 0) > 0)
     bar_width = max(bar_width, nonzero)
 
     bar = Text()
     chars_used = 0
 
-    for level in ("supported", "partial", "unsupported", "unknown"):
+    for level in _SUPPORT_LEVEL_KEYS:
         count = counts.get(level, 0)
         if count == 0:
             continue
@@ -127,22 +146,71 @@ def _build_stacked_bar(counts: dict[str, int], max_count: int) -> Text:
     return bar
 
 
-def _build_analyzed_text(counts: dict[str, int]) -> Text:
-    """Build 'S/P/U/Unk' format like '53/0/0/0' or '12/5/1/3' with colors."""
-    w = counts.get("supported", 0)
-    g = counts.get("partial", 0)
-    b = counts.get("unsupported", 0)
-    u = counts.get("unknown", 0)
+def _build_support_text(counts: dict[str, int]) -> Text:
+    """Build 'S/P/U/Unk' format with per-level colors."""
+    supported_count = counts.get("supported", 0)
+    partial_count = counts.get("partial", 0)
+    unsupported_count = counts.get("unsupported", 0)
+    unknown_count = counts.get("unknown", 0)
 
     text = Text()
-    text.append(str(w), style="bold green")
+    text.append(str(supported_count), style="bold green")
     text.append("/", style="dim")
-    text.append(str(g), style="bold yellow" if g > 0 else "dim")
+    text.append(str(partial_count), style="bold yellow" if partial_count > 0 else "dim")
     text.append("/", style="dim")
-    text.append(str(b), style="bold red" if b > 0 else "dim")
+    text.append(str(unsupported_count), style="bold red" if unsupported_count > 0 else "dim")
     text.append("/", style="dim")
-    text.append(str(u), style="bold bright_black" if u > 0 else "dim")
+    text.append(str(unknown_count), style="bold bright_black" if unknown_count > 0 else "dim")
     return text
+
+
+def _format_count_breakdown(
+    *,
+    counts_by_item: dict[str, int],
+    max_items: int = 8,
+) -> str:
+    """Build compact breakdown text like A(1)+B(2)+..."""
+    ranked_items = sorted(
+        ((name, int(count)) for name, count in counts_by_item.items() if int(count) > 0),
+        key=lambda item: (-item[1], item[0]),
+    )
+    if not ranked_items:
+        return ""
+
+    displayed_items = ranked_items[:max_items]
+    tokens = [
+        f"{name.split('/')[-1]}({count})"
+        for name, count in displayed_items
+    ]
+    if len(ranked_items) > max_items:
+        tokens.append("...")
+
+    return "+".join(tokens)
+
+
+def _build_pattern_coverage_op_line(ep_payload: dict[str, Any]) -> str:
+    """Build one-line internal-op coverage summary for PATTERN CHECK."""
+    op_counts: dict[str, int] = {}
+
+    pattern_items = ep_payload.get("patterns", []) if isinstance(ep_payload, dict) else []
+    for pattern_item in pattern_items:
+        node_breakdown = pattern_item.get("node_breakdown", [])
+        if not isinstance(node_breakdown, list):
+            continue
+        for breakdown_item in node_breakdown:
+            if not isinstance(breakdown_item, dict):
+                continue
+            op_type = str(breakdown_item.get("op_type", "")).strip()
+            total_count = int(breakdown_item.get("total_count", 0))
+            if not op_type or total_count <= 0:
+                continue
+            op_counts[op_type] = op_counts.get(op_type, 0) + total_count
+
+    breakdown = _format_count_breakdown(counts_by_item=op_counts)
+    total_op_count = sum(op_counts.values())
+    if not breakdown:
+        return "Coverage OP(0)=(none)"
+    return f"Coverage OP({total_op_count})={breakdown}"
 
 
 def _build_analysis_table(
@@ -168,7 +236,8 @@ def _build_analysis_table(
         title += f" — [bold cyan]{ep_device_pair_display_name}[/bold cyan]"
 
     if op_check_skipped:
-        title += "  Skipped - no rule data"
+        title += _SKIP_NO_RULE_DATA_SUFFIX
+        skip_width = _skip_table_width("OP CHECK", ep_device_pair_display_name)
         table = Table(
             title=title,
             show_header=False,
@@ -176,7 +245,7 @@ def _build_analysis_table(
             box=None,
             padding=(0, 1),
             expand=False,
-            width=80,
+            width=skip_width,
         )
         # add_column is required even though no rows are added — without it the
         # empty table doesn't render the centered title.
@@ -195,7 +264,10 @@ def _build_analysis_table(
     if all_ops:
         max_count = max(all_ops.values(), default=1)
     else:
-        max_count = max((sum(v.values()) for v in data.values()), default=1)
+        max_count = max(
+            (sum(v.get(level, 0) for level in _SUPPORT_LEVEL_KEYS) for v in data.values()),
+            default=1,
+        )
 
     table = Table(
         title=title,
@@ -207,10 +279,15 @@ def _build_analysis_table(
     )
 
     table.add_column("Op Type", width=28, no_wrap=True)
-    table.add_column("S/P/U/Unk", width=16, no_wrap=True)
-    table.add_column("", no_wrap=True)
+    table.add_column("S/P/U/Unk", width=20, no_wrap=True)
+    table.add_column("", no_wrap=False)
 
-    agg: dict[str, int] = {"supported": 0, "partial": 0, "unsupported": 0, "unknown": 0}
+    agg: dict[str, int] = {
+        "supported": 0,
+        "partial": 0,
+        "unsupported": 0,
+        "unknown": 0,
+    }
 
     for op_type in display_order:
         total = all_ops.get(op_type, 0) if all_ops else sum(data.get(op_type, {}).values())
@@ -226,7 +303,7 @@ def _build_analysis_table(
             )
         else:
             # Has data — show progress (partial or complete)
-            analyzed_for_op = sum(counts.values())
+            analyzed_for_op = sum(counts.get(level, 0) for level in _SUPPORT_LEVEL_KEYS)
             for level in agg:
                 agg[level] += counts.get(level, 0)
 
@@ -246,12 +323,16 @@ def _build_analysis_table(
                 remaining_width = max(1, round(remaining / max_count * MAX_BAR_WIDTH))
                 bar.append("░" * remaining_width, style="dim")
 
-            table.add_row(op_label, _build_analyzed_text(counts), bar)
+            table.add_row(op_label, _build_support_text(counts), bar)
 
     # Summary row
     table.add_section()
-    total_ops = sum(all_ops.values()) if all_ops else sum(agg.values())
-    analyzed_count = sum(agg.values())
+    total_ops = (
+        sum(all_ops.values())
+        if all_ops
+        else sum(agg.get(level, 0) for level in _SUPPORT_LEVEL_KEYS)
+    )
+    analyzed_count = sum(agg.get(level, 0) for level in _SUPPORT_LEVEL_KEYS)
     total_label = Text()
     total_label.append("TOTAL", style="bold")
     if analyzed_count < total_ops:
@@ -268,97 +349,197 @@ def _build_analysis_table(
 
     table.add_row(
         total_label,
-        _build_analyzed_text(agg),
+        _build_support_text(agg),
         total_bar,
     )
 
     return table
 
 
-_STATUS_ICONS = {"s": "🟢", "p": "🟡", "u": "🔴", "uk": "🔵"}
-_PATTERN_STATUS_LABELS = {"s": "supported", "p": "partial", "u": "unsupported", "uk": "unknown"}
-_SUPPORT_LEVEL_TO_SHORT = {
-    "supported": "s",
-    "partial": "p",
-    "unsupported": "u",
-    "unknown": "uk",
+def _build_pattern_query_table(
+    data: dict[str, dict[str, int]],
+    ep_device_pair_display_name: str | None = None,
+    complete: bool = False,
+    all_patterns: dict[str, int] | None = None,
+    pattern_check_skipped: bool = False,
+) -> Table:
+    """Build pattern query progress table with S/P/U/Unk counts."""
+    title = "📊 PATTERN CHECK"
+    if ep_device_pair_display_name:
+        title += f" — [bold cyan]{ep_device_pair_display_name}[/bold cyan]"
+    if pattern_check_skipped:
+        title += _SKIP_NO_RULE_DATA_SUFFIX
+        skip_width = _skip_table_width("PATTERN CHECK", ep_device_pair_display_name)
+        table = Table(
+            title=title,
+            show_header=True,
+            header_style="bold",
+            box=None,
+            padding=(0, 1),
+            expand=False,
+            width=skip_width,
+        )
+        table.add_column("Pattern", width=60, no_wrap=True)
+
+        if all_patterns:
+            display_order = sorted(all_patterns, key=lambda x: all_patterns[x], reverse=True)
+            for pattern_id in display_order:
+                total = int(all_patterns.get(pattern_id, 0))
+                table.add_row(Text(f"   {pattern_id} ({total})", style="dim"))
+        else:
+            table.add_row(Text("   (none)", style="dim"))
+        return table
+
+    if complete:
+        title += "  [bold green]✅ Complete[/bold green]"
+
+    if all_patterns:
+        display_order = sorted(all_patterns, key=lambda x: all_patterns[x], reverse=True)
+        max_count = max(all_patterns.values(), default=1)
+    else:
+        display_order = sorted(data, key=lambda x: sum(data[x].values()), reverse=True)
+        max_count = max(
+            (sum(v.get(level, 0) for level in _SUPPORT_LEVEL_KEYS) for v in data.values()),
+            default=1,
+        )
+
+    table = Table(
+        title=title,
+        show_header=True,
+        header_style="bold",
+        box=None,
+        padding=(0, 1),
+        expand=False,
+    )
+
+    table.add_column("Pattern", width=36, no_wrap=True)
+    table.add_column("S/P/U/Unk", width=20, no_wrap=True)
+    table.add_column("", no_wrap=False)
+
+    agg: dict[str, int] = {
+        "supported": 0,
+        "partial": 0,
+        "unsupported": 0,
+        "unknown": 0,
+    }
+
+    for pattern_id in display_order:
+        total = (
+            all_patterns.get(pattern_id, 0)
+            if all_patterns
+            else sum(data.get(pattern_id, {}).values())
+        )
+        counts = data.get(pattern_id)
+
+        if not counts:
+            bar_width = max(1, round(total / max_count * MAX_BAR_WIDTH)) if max_count else 1
+            table.add_row(
+                Text(f"   {pattern_id} ({total})", style="dim"),
+                Text("...", style="dim"),
+                Text("░" * bar_width, style="dim"),
+            )
+            continue
+
+        analyzed_for_pattern = sum(counts.get(level, 0) for level in _SUPPORT_LEVEL_KEYS)
+        for level in agg:
+            agg[level] += counts.get(level, 0)
+
+        icon = _worst_level_icon(counts)
+        pattern_label = Text()
+        pattern_label.append(f"{icon} ")
+        pattern_label.append(pattern_id, style="cyan")
+        if analyzed_for_pattern < total:
+            pattern_label.append(f" ({analyzed_for_pattern}/{total})", style="dim")
+        else:
+            pattern_label.append(f" ({total})", style="dim")
+
+        bar = _build_stacked_bar(counts, max_count)
+        remaining = total - analyzed_for_pattern
+        if remaining > 0:
+            remaining_width = max(1, round(remaining / max_count * MAX_BAR_WIDTH))
+            bar.append("░" * remaining_width, style="dim")
+
+        table.add_row(pattern_label, _build_support_text(counts), bar)
+
+    table.add_section()
+    total_patterns = (
+        sum(all_patterns.values())
+        if all_patterns
+        else sum(agg.get(level, 0) for level in _SUPPORT_LEVEL_KEYS)
+    )
+    analyzed_count = sum(agg.get(level, 0) for level in _SUPPORT_LEVEL_KEYS)
+
+    total_label = Text()
+    total_label.append("TOTAL", style="bold")
+    if analyzed_count < total_patterns:
+        total_label.append(f" ({analyzed_count}/{total_patterns})", style="dim")
+    else:
+        total_label.append(f" ({total_patterns})", style="dim")
+
+    total_bar = _build_stacked_bar(agg, max(total_patterns, 1))
+    total_remaining = total_patterns - analyzed_count
+    if total_remaining > 0:
+        total_remaining_width = max(
+            1,
+            round(total_remaining / max(total_patterns, 1) * MAX_BAR_WIDTH),
+        )
+        total_bar.append("░" * total_remaining_width, style="dim")
+
+    table.add_row(
+        total_label,
+        _build_support_text(agg),
+        total_bar,
+    )
+
+    return table
+
+
+_PATTERN_STATUS_ICONS = {
+    "supported": "🟢",
+    "partial": "🟡",
+    "unsupported": "🔴",
+    "unknown": "🔵",
 }
 
 
-_PAT_COLORS = {"s": "green", "p": "yellow", "u": "red", "uk": "bright_black"}
+def _pattern_status_view_for_summary(
+    ep_patterns: dict[str, dict[str, Any]] | None,
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Normalize pattern payload into {ep: {pattern_id: {count,status}}} view."""
+    if not ep_patterns or not isinstance(ep_patterns, dict):
+        return {}
 
+    summary_view: dict[str, dict[str, dict[str, Any]]] = {}
+    for ep_name, payload in ep_patterns.items():
+        pattern_items = payload.get("patterns", []) if isinstance(payload, dict) else []
+        summary_view[ep_name] = {
+            str(item.get("pattern_id", "")): {
+                "count": int(item.get("instances", 0)),
+                # Keep backward compatibility for legacy payload values.
+                "status": (
+                    "unknown"
+                    if str(item.get("status", "unknown")).strip().lower() == "unknow"
+                    else str(item.get("status", "unknown")).strip().lower()
+                ),
+            }
+            for item in pattern_items
+            if str(item.get("pattern_id", ""))
+        }
 
-def _render_pattern_matching(
-    console: Console,
-    ep_patterns: dict[str, dict[str, dict]],
-) -> None:
-    """Render the PATTERN MATCHING section — per-EP pattern support."""
-    if not any(ep_patterns.values()):
-        return
-
-    console.print("═" * 80)
-    console.print("🔍 [bold]PATTERN MATCHING[/bold]")
-    console.print("═" * 80)
-
-    for ep_name, patterns in ep_patterns.items():
-        if not patterns:
-            continue
-
-        console.print(f"   💻 [bold cyan]{ep_name}[/bold cyan]")
-
-        for pat_id, pat_info in sorted(patterns.items(), key=lambda x: x[1]["count"], reverse=True):
-            status = pat_info["status"]
-            count = pat_info["count"]
-            icon = _STATUS_ICONS.get(status, "❓")
-            label = _PATTERN_STATUS_LABELS.get(status, "unknown")
-            console.print(
-                f"      {icon} [cyan]{pat_id}[/cyan] [dim]({count} instances)[/dim]"
-                f" — [{_PAT_COLORS.get(status, 'dim')}]{label}[/{_PAT_COLORS.get(status, 'dim')}]"
-            )
-
-        console.print()
-
-
-def _extract_ep_patterns(
-    results: list,
-) -> dict[str, dict[str, dict]]:
-    """Extract per-EP subgraph pattern support from analysis results.
-
-    Args:
-        results: List of EPSupport objects from AnalysisOutput.
-
-    Returns:
-        Dict keyed by EP name, containing dicts of pattern_id to
-        ``{"count": int, "status": str}`` where status is one of
-        ``"s"`` (supported), ``"p"`` (partial), ``"u"`` (unsupported),
-        ``"uk"`` (unknown).
-    """
-    ep_patterns: dict[str, dict[str, dict]] = {}
-    for ep_support in results:
-        patterns: dict[str, dict] = {}
-        for info in ep_support.information:
-            if info.pattern_id and info.pattern_id.startswith("SUBGRAPH/"):
-                status = (
-                    _SUPPORT_LEVEL_TO_SHORT.get(info.status.value, "uk") if info.status else "uk"
-                )
-                patterns[info.pattern_id] = {
-                    "count": len(info.pattern_node_list),
-                    "status": status,
-                }
-        ep_patterns[ep_support.ep_type] = patterns
-    return ep_patterns
+    return summary_view
 
 
 def _render_analysis_summary(
     console: Console,
     results: list,
     ep_instance_counts: dict[tuple[str, str], dict[str, dict[str, int]]],
-    ep_patterns: dict[str, dict[str, dict]] | None = None,
+    ep_patterns: dict[str, dict[str, Any]] | None = None,
     *,
     ep: EPNameOrAlias | Literal["all", "auto"] | None = None,
     device: str | None = None,
     no_data_eps: set[tuple[str, str]] | None = None,
     op_check_skipped: bool = False,
+    analyze_elapsed_ms: int | None = None,
 ) -> None:
     """Render the Analysis Summary section after pattern detection.
 
@@ -374,12 +555,39 @@ def _render_analysis_summary(
             unknown-op probing). When True, the per-op classification list is
             suppressed — every op would land in "unknown" with no actionable
             information.
+        analyze_elapsed_ms: End-to-end analyze call duration for the current
+            EP/device run. Rendered as a dim annotation beside the heading.
     """
     from ..analyze.models.support_level import SupportLevel
 
     console.print("═" * 80)
-    console.print("\U0001f4c8 [bold]ANALYSIS SUMMARY[/bold]")
+    summary_title = "\U0001f4c8 [bold]ANALYSIS SUMMARY[/bold]"
+    if analyze_elapsed_ms is not None:
+        if ep is not None and device:
+            ep_display = _ep_name_device_display_name(str(ep), str(device))
+        elif ep is not None:
+            ep_display = str(ep)
+        elif results:
+            first_ep = results[0]
+            first_ep_name = str(getattr(first_ep, "ep_type", ""))
+            first_device = str(getattr(first_ep, "device_type", "")).upper()
+            ep_display = (
+                _ep_name_device_display_name(first_ep_name, first_device)
+                if first_ep_name and first_device
+                else first_ep_name or "current EP"
+            )
+        else:
+            ep_display = "current EP"
+
+        elapsed_seconds = max(0.0, analyze_elapsed_ms / 1000.0)
+        summary_title += (
+            f" [dim](Analyze total: {ep_display}, {elapsed_seconds:.2f}s)[/dim]"
+        )
+
+    console.print(summary_title)
     console.print("═" * 80)
+
+    pattern_status_view = _pattern_status_view_for_summary(ep_patterns)
 
     if not results:
         ep_label: str = ep or "all EPs"
@@ -411,7 +619,8 @@ def _render_analysis_summary(
             ep_data = {}
         has_instance_data = any(
             sum(
-                counts.get(level, 0) for level in ("supported", "partial", "unsupported", "unknown")
+                counts.get(level, 0)
+                for level in _SUPPORT_LEVEL_KEYS
             )
             > 0
             for counts in ep_data.values()
@@ -420,14 +629,14 @@ def _render_analysis_summary(
         # For EPs with no rule data, skip op-level rows — only show patterns.
         # Always render at least a header so the EP is visible in the summary.
         if no_data_eps and ep_device_pair in no_data_eps and not has_instance_data:
-            patterns = (ep_patterns or {}).get(ep_name, {})
+            patterns = pattern_status_view.get(ep_name, {})
             console.print(f"   🔵 [bold bright_black]{ep_label}[/bold bright_black]:")
             if patterns:
                 console.print("      [dim]Op check skipped — no rule data[/dim]")
                 for pid, p in sorted(patterns.items(), key=lambda x: x[1]["count"], reverse=True):
                     status = p["status"]
-                    icon_p = _STATUS_ICONS.get(status, "❓")
-                    label = _PATTERN_STATUS_LABELS.get(status, "unknown")
+                    icon_p = _PATTERN_STATUS_ICONS.get(status, "❓")
+                    label = status
                     console.print(
                         f"      {icon_p} [dim]{pid}[/dim] ({p['count']} instances, {label})"
                     )
@@ -436,7 +645,12 @@ def _render_analysis_summary(
             console.print()
             continue
 
-        agg: dict[str, int] = {"supported": 0, "partial": 0, "unsupported": 0, "unknown": 0}
+        agg: dict[str, int] = {
+            "supported": 0,
+            "partial": 0,
+            "unsupported": 0,
+            "unknown": 0,
+        }
         for counts in ep_data.values():
             for level in agg:
                 agg[level] += counts.get(level, 0)
@@ -448,12 +662,15 @@ def _render_analysis_summary(
             ep_style = "bold red"
         elif agg.get("partial", 0) > 0:
             ep_style = "bold yellow"
-        elif agg.get("unknown", 0) > 0 and agg.get("supported", 0) == 0:
+        elif (
+            agg.get("unknown", 0) > 0
+            and agg.get("supported", 0) == 0
+        ):
             ep_style = "bold bright_black"
         else:
             ep_style = "bold green"
 
-        analyzed = _build_analyzed_text(agg)
+        analyzed = _build_support_text(agg)
         console.print(f"   {icon} [{ep_style}]{ep_label}[/{ep_style}]: ", end="")
         console.print(analyzed)
 
@@ -465,23 +682,28 @@ def _render_analysis_summary(
             (SupportLevel.UNKNOWN, "bright_black", "\u2753 Unknown"),
         ]
         classification = ep_support.classification
+        visible_op_names = set(ep_data)
         if not op_check_skipped:
             for level, color, heading in _issue_sections:
-                ops = classification.get(level, [])
+                ops = [
+                    op
+                    for op in classification.get(level, [])
+                    if _display_name(op) in visible_op_names
+                ]
                 if ops:
                     console.print(f"      [{color}]{heading}:[/{color}]")
                     for op in sorted(ops):
                         console.print(f"         \u2022 [dim]{op}[/dim]")
 
         # List non-supported patterns for this EP
-        patterns = (ep_patterns or {}).get(ep_name, {})
-        bad_patterns = {pid: p for pid, p in patterns.items() if p["status"] != "s"}
+        patterns = pattern_status_view.get(ep_name, {})
+        bad_patterns = {pid: p for pid, p in patterns.items() if p["status"] != "supported"}
         if bad_patterns:
             console.print("      [dim]Patterns:[/dim]")
             for pid, p in sorted(bad_patterns.items(), key=lambda x: x[1]["count"], reverse=True):
                 status = p["status"]
-                icon_p = _STATUS_ICONS.get(status, "\u2753")
-                label = _PATTERN_STATUS_LABELS.get(status, "unknown")
+                icon_p = _PATTERN_STATUS_ICONS.get(status, "\u2753")
+                label = status
                 console.print(
                     f"         {icon_p} [dim]{pid}[/dim] ({p['count']} instances, {label})"
                 )
@@ -489,12 +711,93 @@ def _render_analysis_summary(
         # "Ready to deploy" requires actual op-check data; suppress when skipped.
         if not op_check_skipped:
             has_issues = (
-                any(classification.get(lvl) for lvl, _, _ in _issue_sections) or bad_patterns
+                any(
+                    _display_name(op) in visible_op_names
+                    for lvl, _, _ in _issue_sections
+                    for op in classification.get(lvl, [])
+                )
+                or bad_patterns
             )
             if not has_issues:
                 console.print("      [green]Ready to deploy[/green]")
 
         console.print()
+
+
+def _render_optim_output_support(
+    console: Console,
+    results: list[OptimizationOutputSupport],
+    target_label: str,
+    *,
+    verbose: bool = False,
+) -> None:
+    """Render produced-operator target support for applicable optimizations.
+
+    For each optimization that would change the model, this shows whether the
+    operators it *introduces* (added/modified nodes) are supported on the
+    resolved EP/device, using the same runtime-support rule data as the op
+    check above.
+
+    Args:
+        console: Rich console for output.
+        results: Per-optimization support results for one target, in pipeline
+            order (from :func:`check_optimization_output_support`).
+        target_label: Human-readable EP/device label for the section header.
+        verbose: When True, always show the per-operator reason string.
+    """
+    console.print("\u2550" * 80)
+    console.print(f"\U0001f9e9 [bold]OPTIMIZATION OUTPUT SUPPORT[/bold] \u2014 {target_label}")
+    console.print("\u2550" * 80)
+
+    from ..analyze.models.support_level import SupportLevel
+
+    if not results:
+        console.print(
+            "   [dim]No registered optimization would change this model \u2014 "
+            "nothing to check.[/dim]"
+        )
+        console.print()
+        return
+
+    for opt in results:
+        worst_color = _COLORS.get(opt.worst_support.value, "white")
+        console.print(
+            f"[bold green]{escape(opt.enable_flag)}[/bold green]  "
+            f"[dim]({escape(opt.category)})[/dim]  "
+            f"[{worst_color}]{opt.worst_support.value}[/{worst_color}]"
+        )
+        console.print(f"  [dim]{escape(opt.description)}[/dim]")
+
+        if opt.error:
+            console.print(
+                f"  [yellow]Could not check produced operators: {escape(opt.error)}[/yellow]"
+            )
+            console.print()
+            continue
+
+        if not opt.operators:
+            console.print("  [dim]No new operators produced.[/dim]")
+            console.print()
+            continue
+
+        for op in opt.operators:
+            color = _COLORS.get(op.support.value, "white")
+            marker = "+" if op.change == "added" else "~"
+            line = (
+                f"    [{color}]\u25cf[/{color}] {marker} {escape(op.label)} "
+                f"[{color}]{op.support.value}[/{color}]"
+            )
+            if op.reason and (verbose or op.support is not SupportLevel.SUPPORTED):
+                line += f" [dim]({escape(op.reason)})[/dim]"
+            console.print(line)
+
+        console.print()
+
+    console.print(
+        "  [dim]Shows whether operators an optimization would introduce are supported "
+        "on the target. Enable one with its --enable-* flag (dependencies auto-enabled).[/dim]"
+    )
+    console.print()
 
 
 def _resolve_run_unknown_op(
@@ -543,33 +846,27 @@ def _get_local_ep_device_pairs() -> list[tuple[EPName, str]]:
     """
     pairs: set[tuple[EPName, str]] = set()
 
-    try:
-        from .. import winml
+    from .. import winml
 
-        for registered_ep_device in winml.get_registered_ep_devices():
-            ep_name_raw = str(getattr(registered_ep_device, "ep_name", ""))
-            if not ep_name_raw or ep_name_raw.endswith(".AUTO"):
-                continue
+    for registered_ep_device in winml.get_registered_ep_devices():
+        ep_name_raw = str(getattr(registered_ep_device, "ep_name", ""))
+        if not ep_name_raw or ep_name_raw.endswith(".AUTO"):
+            continue
 
-            # ep_name_raw is an arbitrary attribute string from ORT; cast lets
-            # normalize_ep_name (typed for EPNameOrAlias | None) accept it.
-            # Unknown values return None and get filtered below.
-            ep_name = normalize_ep_name(cast("EPNameOrAlias", ep_name_raw))
-            if ep_name is None or ep_name not in SUPPORTED_EPS:
-                continue
+        # ep_name_raw is an arbitrary attribute string from ORT; cast lets
+        # normalize_ep_name (typed for EPNameOrAlias | None) accept it.
+        # Unknown values return None and get filtered below.
+        ep_name = normalize_ep_name(cast("EPNameOrAlias", ep_name_raw))
+        if ep_name is None or ep_name not in SUPPORTED_EPS:
+            continue
 
-            device_obj = getattr(registered_ep_device, "device", None)
-            device_type = getattr(device_obj, "type", None)
-            device_name = DEVICE_TYPE_TO_DEVICE.get(device_type)
-            if device_name is None:
-                continue
+        device_obj = getattr(registered_ep_device, "device", None)
+        device_type = getattr(device_obj, "type", None)
+        device_name = DEVICE_TYPE_TO_DEVICE.get(device_type)
+        if device_name is None:
+            continue
 
-            pairs.add((ep_name, device_name))
-    except Exception:
-        logger.debug(
-            "Failed to query local EP/device pairs via ort.get_ep_devices()",
-            exc_info=True,
-        )
+        pairs.add((ep_name, device_name.upper()))
 
     return _sort_ep_device_pairs(pairs)
 
@@ -602,6 +899,68 @@ def _sort_ep_device_pairs(
         set(pairs),
         key=_pair_sort_key,
     )
+
+
+def _filter_supported_local_ep_device_pairs(
+    pairs: list[tuple[EPName, str]] | set[tuple[EPName, str]],
+) -> list[tuple[EPName, str]]:
+    """Keep only local EP/device pairs supported by the legacy matrix."""
+    return [
+        (ep_name, device_name)
+        for ep_name, device_name in pairs
+        if device_name.lower() in EP_SUPPORTED_DEVICES.get(ep_name, ())
+    ]
+
+
+def _select_best_exact_local_pair_for_device(
+    device_name: str,
+    supported_local_pairs: list[tuple[EPName, str]],
+    ranked_eps_for_device: list[str],
+) -> tuple[EPName, str] | None:
+    """Pick the best exact supported local pair for one device.
+
+    ``ranked_eps_for_device`` is treated as a preference list only. The chosen
+    pair must come from ``supported_local_pairs`` so analyze never fabricates an
+    EP/device combination that is not available locally. When the ranking omits
+    local candidates, fall back to the existing deterministic local pair order.
+    """
+    target_device = str(device_name).upper()
+    local_candidates = [
+        (candidate_ep, candidate_device)
+        for candidate_ep, candidate_device in supported_local_pairs
+        if candidate_device == target_device
+    ]
+    if not local_candidates:
+        return None
+
+    candidate_by_ep = {
+        candidate_ep: (candidate_ep, candidate_device)
+        for candidate_ep, candidate_device in local_candidates
+    }
+    for ranked_ep in ranked_eps_for_device:
+        canonical_ep = normalize_ep_name(cast("EPNameOrAlias", ranked_ep))
+        ranked_pair = candidate_by_ep.get(canonical_ep)
+        if ranked_pair is not None:
+            return ranked_pair
+
+    return local_candidates[0]
+
+
+def _select_best_auto_local_pair(
+    supported_local_pairs: list[tuple[EPName, str]],
+) -> tuple[EPName, str] | None:
+    """Pick the best default target from exact local bindings."""
+    from ..session import available_eps_for_device
+
+    for device_name in DEVICE_PRIORITY:
+        best_local_pair = _select_best_exact_local_pair_for_device(
+            device_name.upper(),
+            supported_local_pairs,
+            available_eps_for_device(device_name),
+        )
+        if best_local_pair is not None:
+            return best_local_pair
+    return None
 
 
 def _ep_name_device_display_name(ep_name: str, device_name: str) -> str:
@@ -649,6 +1008,7 @@ def _normalize_runtime_debug_summary_payload(
                 "case_indices": raw_entry.get("case_indices"),
                 "table_path": raw_entry.get("table_path"),
                 "table_file": raw_entry.get("table_file"),
+                "match_status": raw_entry.get("match_status", "op_match"),
             }
 
         normalized[level] = level_entries
@@ -744,12 +1104,6 @@ def _build_runtime_debug_output_path(model_path: Path, ep_name: str, device_name
     default=True,
     help="Include detailed recommendations (default: enabled)",
 )
-@click.option(
-    "--htp-metadata",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help="Path to HTP metadata JSON file for enhanced pattern extraction",
-)
 @cli_utils.format_option()
 @click.option(
     "--run-unknown-op/--no-run-unknown-op",
@@ -778,6 +1132,15 @@ def _build_runtime_debug_output_path(model_path: Path, ep_name: str, device_name
     default=None,
     help="Save auto-discovered optimization config to JSON file",
 )
+@click.option(
+    "--check-optim/--no-check-optim",
+    default=False,
+    help=(
+        "For each optimization that would change the model, check whether the "
+        "operators it introduces are supported on the resolved EP/device "
+        "(default: disabled)"
+    ),
+)
 @click.pass_context
 def analyze(
     ctx: click.Context,
@@ -791,11 +1154,11 @@ def analyze(
     verbose: int,
     quiet: bool,
     config_file: Path | None,
-    htp_metadata: Path | None,
     run_unknown_op: bool,
     debug: bool,
     save_node: tuple[str, ...],
     optim_config: Path | None,
+    check_optim: bool,
 ) -> None:
     r"""Analyze ONNX model for runtime support with live progress.
 
@@ -813,7 +1176,7 @@ def analyze(
     Examples:
     \b
         winml analyze --model model.onnx --ep qnn
-        winml analyze --model model.onnx --ep ov --device GPU
+        winml analyze --model model.onnx --ep openvino --device gpu
         winml analyze --model model.onnx --output results.json
     """
     # Apply build config defaults (CLI explicit options take precedence).
@@ -899,10 +1262,11 @@ def analyze(
             raise click.UsageError("No runtime rule parquet files were found.")
 
         # Resolve the EP/device selection. `all` keeps the full rule-data-backed
-        # set (fan-out, unchanged). `auto` resolves to a single best target from
-        # local availability via the shared sysinfo helpers — the same path
-        # build/run/perf use. A concrete value is used as-is.
-        from ..sysinfo import resolve_device, resolve_eps
+        # set (fan-out, unchanged). `auto` uses exact local OrtEpDevice bindings
+        # when the request needs them (concrete EP + auto device, or auto EP +
+        # all devices); the remaining auto cases keep using the shared session
+        # helpers from build/run/perf.
+        from ..session import EPDeviceTarget, available_eps_for_device, resolve_device
 
         # Only a pinned (concrete) EP can constrain device auto-resolution.
         # ``ep`` is a concrete EP/alias here unless it is the "auto"/"all"
@@ -910,16 +1274,47 @@ def analyze(
         ep_hint: EPNameOrAlias | None = (
             None if ep in ("auto", "all") or ep is None else cast("EPNameOrAlias", ep)
         )
+        concrete_requested_ep = None if ep_hint is None else normalize_ep_name(ep_hint)
+        needs_local_inventory = ep in (None, "auto") or device in (None, "auto") or run_unknown_op
+        local_pair_list = (
+            _sort_ep_device_pairs(_get_local_ep_device_pairs()) if needs_local_inventory else []
+        )
+        supported_local_pair_list = _sort_ep_device_pairs(
+            _filter_supported_local_ep_device_pairs(local_pair_list)
+        )
+        local_pairs = set(supported_local_pair_list)
+        default_auto_pair = (
+            _select_best_auto_local_pair(supported_local_pair_list)
+            if ep in (None, "auto") and device in (None, "auto")
+            else None
+        )
 
         devices: list[str]
         if device == "all":
             devices = list(SUPPORTED_DEVICES)
         elif device == "auto":
-            try:
-                resolved_device, _ = resolve_device(device="auto", ep=ep_hint)
-            except (ValueError, RuntimeError) as e:
-                raise click.UsageError(f"Could not auto-select a device: {e}") from e
-            devices = [resolved_device]
+            if concrete_requested_ep is not None:
+                matching_local_pairs = [
+                    (candidate_ep, candidate_device)
+                    for candidate_ep, candidate_device in supported_local_pair_list
+                    if candidate_ep == concrete_requested_ep
+                ]
+                if not matching_local_pairs:
+                    raise click.UsageError(
+                        "Could not auto-select a device: "
+                        f"{ep} has no supported local binding available on this system."
+                    )
+                devices = [matching_local_pairs[0][1]]
+            elif default_auto_pair is not None:
+                devices = [default_auto_pair[1]]
+            else:
+                try:
+                    resolved_device = resolve_device(
+                        EPDeviceTarget(ep=ep_hint or "auto", device="auto")
+                    ).device
+                except (ValueError, RuntimeError) as e:
+                    raise click.UsageError(f"Could not auto-select a device: {e}") from e
+                devices = [resolved_device]
         elif device is not None:
             devices = [device]
         else:
@@ -928,73 +1323,81 @@ def analyze(
 
         execution_pairs: list[tuple[EPName, str]]
         if ep == "auto" and device == "all":
-            # auto + all: resolve the best available EP per device rather than
-            # picking a single EP from one ref device and fanning it across
-            # unrelated devices. resolve_eps() already returns only EPs that are
-            # valid and locally available for the given device, so the resulting
-            # pairs need no further EP_SUPPORTED_DEVICES filtering.
-            execution_pairs = _sort_ep_device_pairs(
-                [
-                    (device_eps[0], target_device)
-                    for target_device in devices
-                    if (device_eps := resolve_eps(target_device))
-                ]
-            )
+            # auto + all: resolve the best exact local binding per represented
+            # device using the same per-device ranking as auto + concrete
+            # device, while keeping full fan-out unchanged.
+            best_local_pairs: list[tuple[EPName, str]] = []
+            for target_device in devices:
+                best_local_pair = _select_best_exact_local_pair_for_device(
+                    target_device,
+                    supported_local_pair_list,
+                    available_eps_for_device(target_device),
+                )
+                if best_local_pair is not None:
+                    best_local_pairs.append(best_local_pair)
+            execution_pairs = _sort_ep_device_pairs(best_local_pairs)
         else:
-            eps: list[EPName | None]
             if ep == "all":
-                eps = list(SUPPORTED_EPS)
+                eps: list[EPName | None] = list(SUPPORTED_EPS)
             elif ep == "auto":
-                # Single highest-priority EP available on the target device.
-                # device == "all" is handled above, so a concrete device context
-                # exists here -- but guard against an empty device list (e.g. a
-                # programmatic ``device=None`` call) so we exit cleanly instead
-                # of raising an unguarded IndexError on ``devices[0]``.
-                ref_device = devices[0] if devices else None
+                # Single highest-priority exact local EP available on the target
+                # device. device == "all" is handled above, so a concrete device
+                # context exists here -- but guard against an empty device list
+                # (e.g. a programmatic ``device=None`` call) so we exit cleanly
+                # instead of raising an unguarded IndexError on ``devices[0]``.
+                ref_device = default_auto_pair[1] if default_auto_pair is not None else None
+                ref_device = ref_device or (devices[0] if devices else None)
+                if default_auto_pair is not None:
+                    best_local_pair = default_auto_pair
+                elif ref_device:
+                    best_local_pair = _select_best_exact_local_pair_for_device(
+                        ref_device,
+                        supported_local_pair_list,
+                        available_eps_for_device(ref_device),
+                    )
+                else:
+                    best_local_pair = None
                 if not ref_device:
                     raise click.UsageError("No device context available for EP auto-resolution.")
-                compatible_eps = resolve_eps(ref_device)
-                if not compatible_eps:
+                if best_local_pair is None:
                     raise click.UsageError(
                         f"No execution provider is available for device '{ref_device}'."
                     )
-                eps = [compatible_eps[0]]
+                execution_pairs = _sort_ep_device_pairs([best_local_pair])
+                eps = []
             else:
                 # ep is a specific EP or alias
                 eps = [normalize_ep_name(ep)]
 
-            # Build with a for-loop rather than a single nested comprehension so
-            # the `candidate_ep is not None and ... in EP_SUPPORTED_DEVICES`
-            # narrowing carries through to the appended tuple's type (EPName,
-            # not str). The inner generator stays a comprehension to satisfy
-            # ruff PERF401.
-            execution_pairs = []
-            for candidate_ep in eps:
-                if candidate_ep is None or candidate_ep not in EP_SUPPORTED_DEVICES:
-                    continue
-                execution_pairs.extend(
-                    (candidate_ep, candidate_device)
-                    for candidate_device in devices
-                    if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
-                )
-            execution_pairs = _sort_ep_device_pairs(execution_pairs)
-
-        # Local pairs are still needed to gate --run-unknown-op probing
-        # (_resolve_run_unknown_op). Single-target `auto` selection is already
-        # local by construction, so no extra intersection/warning is required.
-        local_pairs = set(_get_local_ep_device_pairs())
+            if ep != "auto":
+                # Build with a for-loop rather than a single nested comprehension so
+                # the `candidate_ep is not None and ... in EP_SUPPORTED_DEVICES`
+                # narrowing carries through to the appended tuple's type (EPName,
+                # not str). The inner generator stays a comprehension to satisfy
+                # ruff PERF401.
+                execution_pairs = []
+                for candidate_ep in eps:
+                    if candidate_ep is None or candidate_ep not in EP_SUPPORTED_DEVICES:
+                        continue
+                    execution_pairs.extend(
+                        (candidate_ep, candidate_device)
+                        for candidate_device in devices
+                        if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
+                    )
+                execution_pairs = _sort_ep_device_pairs(execution_pairs)
 
         if not execution_pairs:
             raise click.UsageError("No EP/device combination matched the current selection.")
 
         logger.info("Analyzing model: %s", model)
-        logger.info(
-            "Local targets: %s",
-            ", ".join(
-                _ep_name_device_display_name(candidate_ep, candidate_device)
-                for candidate_ep, candidate_device in local_pairs
-            ),
-        )
+        if needs_local_inventory:
+            logger.info(
+                "Local targets: %s",
+                ", ".join(
+                    _ep_name_device_display_name(candidate_ep, candidate_device)
+                    for candidate_ep, candidate_device in local_pair_list
+                ),
+            )
         logger.info(
             "Execution targets: %s",
             ", ".join(
@@ -1008,11 +1411,44 @@ def analyze(
         # Console for Rich output (stderr so stdout stays clean for JSON)
         console = Console(stderr=True)
 
+        # Optionally probe which optimizations would change the model and what
+        # operators they would introduce. This probe is target-independent, so
+        # materialize it once here and only re-run the (cheap) support lookup per
+        # EP/device below. Quiet mode disables rendering, not data collection.
+        optim_outputs: list[tuple[Any, Any]] = []
+        optim_probe_error: str | None = None
+        if check_optim:
+            try:
+                import onnx
+
+                from ..optim import get_all_capabilities, iter_optimization_outputs
+
+                if not quiet:
+                    console.print(
+                        "[dim]Probing optimization outputs "
+                        "(this can take a while on large models)…[/dim]"
+                    )
+                optim_proto = onnx.load(str(model))
+                optim_outputs = list(iter_optimization_outputs(optim_proto, get_all_capabilities()))
+                # Each entry retains a full produced-model clone so the (cheap)
+                # per-target support lookup below can reuse them across every
+                # resolved EP/device without re-running the probe. The trade-off
+                # is peak memory ~ (#applicable optimizations x model size); log
+                # the count so that cost is visible for large models.
+                logger.info(
+                    "Probed %d applicable optimization(s) for output support checking",
+                    len(optim_outputs),
+                )
+            except Exception as exc:
+                logger.warning("Could not probe optimization outputs: %s", exc)
+                optim_probe_error = str(exc)
+                optim_outputs = []
+
         # Model info header
         if not quiet:
             console.print()
             console.print("═" * 80)
-            console.print("📊 [bold]OP CHECK[/bold]")
+            console.print("📊 [bold]ANALYSIS PROGRESS[/bold]")
             console.print("═" * 80)
             console.print(f"   📦 Model: [bold cyan]{model.name}[/bold cyan]")
 
@@ -1050,16 +1486,53 @@ def analyze(
         current_device = execution_pairs[0][1]
         all_op_counts: dict[str, int] = {}
         instance_counts: dict[str, dict[str, int]] = {}
+        all_pattern_counts: dict[str, int] = {}
+        pattern_instance_counts: dict[str, dict[str, int]] = {}
         ep_instance_counts: dict[tuple[str, str], dict[str, dict[str, int]]] = {}
         live: Live | None = None
+        pattern_progress: Progress | None = None
+        pattern_progress_task_id: TaskID | None = None
+        pattern_progress_total = 0
         unknown_op_progress: Progress | None = None
         unknown_op_task_id: TaskID | None = None
         unknown_op_total_nodes = 0
         ep_counter = 0
+        ep_header_rendered = False
         _no_data_eps: set[tuple[str, str]] = set()  # EP/device pairs with no op rule data
         analysis_results: list = []
+        optimization_support_payloads: list[dict[str, object] | None] = []
         current_run_unknown_op = False
         current_op_check_skipped = False
+        current_pattern_check_skipped = False
+        pattern_check_active = False
+
+        def _collect_optimization_support(
+            target_ep: EPName, target_device: str
+        ) -> tuple[list[Any], dict[str, object]]:
+            """Check one target and return renderable results plus JSON data."""
+            from ..analyze.optim_output import check_optimization_output_support
+
+            support_error: str | None = None
+            optim_support = []
+            if optim_probe_error is None:
+                try:
+                    optim_support = check_optimization_output_support(
+                        optim_outputs,
+                        ep=target_ep,
+                        device=target_device,
+                        model_path=str(model),
+                    )
+                except Exception as exc:
+                    support_error = str(exc)
+                    logger.warning("Could not check optimization output support: %s", exc)
+            payload: dict[str, object] = {
+                "ep_type": target_ep,
+                "device_type": target_device,
+                "probe_error": optim_probe_error,
+                "support_error": support_error,
+                "optimizations": [item.to_dict() for item in optim_support],
+            }
+            return optim_support, payload
 
         def _current_ep_device_pair_display_name() -> str:
             """Return current EP/device display label, or empty when unset."""
@@ -1105,6 +1578,40 @@ def analyze(
                 unknown_op_task_id = None
                 unknown_op_total_nodes = 0
 
+        def _finalize_pattern_live(mark_complete: bool = True) -> None:
+            """Render the completed pattern-query table once."""
+            nonlocal current_pattern_check_skipped, pattern_check_active
+            nonlocal pattern_progress, pattern_progress_task_id, pattern_progress_total
+            if not pattern_check_active:
+                return
+            if pattern_progress is not None:
+                try:
+                    if (
+                        mark_complete
+                        and pattern_progress_task_id is not None
+                        and pattern_progress_total > 0
+                    ):
+                        pattern_progress.update(
+                            pattern_progress_task_id,
+                            completed=pattern_progress_total,
+                        )
+                except Exception:
+                    logger.debug("Failed to finalize pattern progress", exc_info=True)
+                finally:
+                    pattern_progress.stop()
+                    pattern_progress = None
+                    pattern_progress_task_id = None
+                    pattern_progress_total = 0
+            final_table = _build_pattern_query_table(
+                pattern_instance_counts,
+                ep_device_pair_display_name=_current_ep_device_pair_display_name(),
+                complete=mark_complete and not current_pattern_check_skipped,
+                all_patterns=all_pattern_counts,
+                pattern_check_skipped=current_pattern_check_skipped,
+            )
+            console.print(final_table)
+            pattern_check_active = False
+
         def _finalize_live(mark_complete: bool = True) -> None:
             """Stop the active Live display, optionally marking it complete."""
             nonlocal live
@@ -1130,23 +1637,132 @@ def analyze(
                 live.stop()
                 live = None
 
-        def on_ep_start(ep_name: EPName, operator_counts: dict[str, int]) -> None:
-            """Called when analysis starts for a new EP."""
+        def on_pattern_query_start(
+            ep_name: EPName,
+            pattern_counts: dict[str, int],
+            pattern_lookup_supported: bool = True,
+        ) -> None:
+            """Called when pattern query stage starts for one EP."""
             nonlocal current_ep_device_pair
-            nonlocal instance_counts, all_op_counts, ep_counter, live
+            nonlocal pattern_instance_counts, all_pattern_counts, ep_counter
+            nonlocal ep_header_rendered, current_pattern_check_skipped, pattern_check_active
+            nonlocal pattern_progress, pattern_progress_task_id, pattern_progress_total
+
+            # Safety: finalize any stale displays.
+            _finalize_pattern_live()
+            _finalize_live()
+            _finalize_unknown_op_progress()
+
+            current_ep_device_pair = (ep_name, current_device)
+            all_pattern_counts = {
+                str(pattern_id): int(total)
+                for pattern_id, total in pattern_counts.items()
+                if int(total) > 0
+            }
+            pattern_instance_counts = {}
+            current_pattern_check_skipped = not pattern_lookup_supported
+            pattern_check_active = True
+
+            ep_counter += 1
+            console.print("─" * 80)
+            console.print(
+                f"💻 [bold]EP {ep_counter}[/bold]: [bold cyan]{ep_name}[/bold cyan] "
+                f"on [bold]{current_device}[/bold]"
+            )
+            console.print("─" * 80)
+            ep_header_rendered = True
+
+            pattern_total = sum(all_pattern_counts.values())
+            if pattern_total > 0 and not current_pattern_check_skipped:
+                pattern_progress_total = pattern_total
+                pattern_progress = Progress(
+                    TextColumn("   [cyan]Pattern progress[/cyan]"),
+                    BarColumn(),
+                    MofNCompleteColumn(),
+                    TimeElapsedColumn(),
+                    console=console,
+                    redirect_stdout=False,
+                    redirect_stderr=False,
+                )
+                pattern_progress.start()
+                pattern_progress_task_id = pattern_progress.add_task(
+                    "pattern",
+                    total=pattern_progress_total,
+                )
+
+        def on_pattern_query_result(ep_name: EPName, pattern_id: str, support_status: str) -> None:
+            """Called when one pattern instance gets a query status."""
+            if current_ep_device_pair is None:
+                return
+            if ep_name != current_ep_device_pair[0]:
+                return
+
+            status = str(support_status).strip().lower()
+            if status == "unknow":
+                status = "unknown"
+            if status not in _SUPPORT_LEVEL_KEYS:
+                status = "unknown"
+
+            counts = pattern_instance_counts.setdefault(str(pattern_id), {})
+            counts[status] = counts.get(status, 0) + 1
+
+            if pattern_progress is not None and pattern_progress_task_id is not None:
+                pattern_progress.advance(pattern_progress_task_id, 1)
+
+        def on_pattern_summary_ready(ep_name: EPName, ep_payload: dict[str, Any]) -> None:
+            """Finalize pattern progress display before OP CHECK starts."""
+            _ = ep_name
+            _finalize_pattern_live(mark_complete=not current_pattern_check_skipped)
+            console.print()
+            console.print(_build_pattern_coverage_op_line(ep_payload), soft_wrap=True)
+
+        def on_ep_start(
+            ep_name: EPName,
+            operator_counts: dict[str, int],
+            skip_runtime_checks: bool = False,
+        ) -> None:
+            """Called when OP CHECK stage starts for a new EP."""
+            nonlocal current_ep_device_pair
+            nonlocal instance_counts, all_op_counts, live
             nonlocal unknown_op_progress, unknown_op_task_id, unknown_op_total_nodes
             nonlocal current_run_unknown_op, current_op_check_skipped
+            nonlocal ep_counter, ep_header_rendered
 
-            # Finalize previous EP's Live display
-            if current_ep_device_pair is not None:
-                _finalize_live()
-                _finalize_unknown_op_progress()
-                console.print()  # blank line between EP tables
+            _finalize_pattern_live()
+            _finalize_live()
+            _finalize_unknown_op_progress()
+
+            if not ep_header_rendered:
+                ep_counter += 1
+                console.print("─" * 80)
+                console.print(
+                    f"💻 [bold]EP {ep_counter}[/bold]: [bold cyan]{ep_name}[/bold cyan] "
+                    f"on [bold]{current_device}[/bold]"
+                )
+                console.print("─" * 80)
+                ep_header_rendered = True
 
             # Reset for new EP (normalize keys to display names)
             current_ep_device_pair = (ep_name, current_device)
-            all_op_counts = {_display_name(k): v for k, v in operator_counts.items()}
+            all_op_counts = {
+                _display_name(k): int(v)
+                for k, v in operator_counts.items()
+                if int(v) > 0
+            }
             instance_counts = {}
+
+            if skip_runtime_checks:
+                current_op_check_skipped = True
+                _no_data_eps.add((ep_name, current_device))
+                console.print()
+                console.print(
+                    _build_analysis_table(
+                        instance_counts,
+                        ep_device_pair_display_name=_current_ep_device_pair_display_name(),
+                        op_check_skipped=True,
+                    )
+                )
+                return
 
             has_rule_data = has_rule_data_for_ep(ep_name, current_device)
             current_op_check_skipped = not has_rule_data and not current_run_unknown_op
@@ -1158,16 +1774,16 @@ def analyze(
                 _no_data_eps.add((ep_name, current_device))
 
                 if current_run_unknown_op:
-                    ep_counter += 1
                     total_nodes = sum(operator_counts.values())
                     unknown_op_total_nodes = max(0, total_nodes)
 
-                    console.print("─" * 80)
-                    console.print(
-                        f"💻 [bold]EP {ep_counter}[/bold]: [bold cyan]{ep_name}[/bold cyan] "
-                        f"on [bold]{current_device}[/bold]"
-                    )
-                    console.print("─" * 80)
+                    if unknown_op_total_nodes == 0:
+                        console.print(
+                            "   [green]All operators are covered by pattern matching; "
+                            "no OP CHECK nodes remain.[/green]"
+                        )
+                        return
+
                     console.print(
                         "   [yellow]No rule data detected; probing unknown ops "
                         "one by one...[/yellow]"
@@ -1179,6 +1795,8 @@ def analyze(
                         MofNCompleteColumn(),
                         TimeElapsedColumn(),
                         console=console,
+                        redirect_stdout=False,
+                        redirect_stderr=False,
                     )
                     unknown_op_progress.start()
                     unknown_op_task_id = unknown_op_progress.add_task(
@@ -1187,15 +1805,17 @@ def analyze(
                     )
                     return
 
-            ep_counter += 1
+                console.print()
+                console.print(
+                    _build_analysis_table(
+                        instance_counts,
+                        ep_device_pair_display_name=_current_ep_device_pair_display_name(),
+                        op_check_skipped=True,
+                    )
+                )
+                return
 
-            # EP section header
-            console.print("─" * 80)
-            console.print(
-                f"💻 [bold]EP {ep_counter}[/bold]: [bold cyan]{ep_name}[/bold cyan] "
-                f"on [bold]{current_device}[/bold]"
-            )
-            console.print("─" * 80)
+            console.print()
 
             # Start new Live display — all ops shown as pending
             live = Live(
@@ -1212,6 +1832,10 @@ def analyze(
 
         def on_node_result(pattern_runtime: PatternRuntime) -> None:
             """Callback invoked per-node during analysis."""
+            if pattern_runtime.result.reason == "pattern_matched":
+                # Pattern-matched nodes are excluded from OP CHECK totals and rows.
+                return
+
             op = _display_name(pattern_runtime.pattern_id)
             level = pattern_runtime.result.classification.value
             op_counts = instance_counts.setdefault(op, {})
@@ -1250,6 +1874,7 @@ def analyze(
                 for target_ep, target_device in execution_pairs:
                     current_device = target_device
                     current_ep_device_pair = None
+                    ep_header_rendered = False
 
                     run_unknown_op_for_ep = _resolve_run_unknown_op(
                         target_ep, target_device, run_unknown_op, local_pairs
@@ -1257,31 +1882,31 @@ def analyze(
 
                     current_run_unknown_op = run_unknown_op_for_ep
 
+                    analyze_start = time.perf_counter()
                     result = analyzer.analyze(
                         model_path=str(model),
                         ep=target_ep,
                         device=target_device,
                         enable_information=information,
-                        htp_metadata_path=str(htp_metadata) if htp_metadata else None,
                         for_debug=for_debug,
                         run_unknown_op=run_unknown_op_for_ep,
                         save_node_types=save_node_types,
                         on_node_result=on_node_result,
                         on_ep_start=on_ep_start,
+                        on_pattern_query_start=on_pattern_query_start,
+                        on_pattern_query_result=on_pattern_query_result,
+                        on_pattern_summary_ready=on_pattern_summary_ready,
                     )
+                    analyze_elapsed_ms = int((time.perf_counter() - analyze_start) * 1000)
                     analysis_results.append(result)
 
-                    # Extract per-EP pattern support (available now)
-                    ep_patterns = _extract_ep_patterns(result.output.results)
+                    ep_patterns = result.pattern_matching_by_ep
 
                     # Finalize last EP's Live display
                     _finalize_live()
                     _finalize_unknown_op_progress()
 
                     console.print()
-
-                    # Pattern Matching section (per-EP)
-                    _render_pattern_matching(console, ep_patterns)
 
                     # Analysis Summary section
                     _render_analysis_summary(
@@ -1293,6 +1918,7 @@ def analyze(
                         device=target_device,
                         no_data_eps=_no_data_eps,
                         op_check_skipped=current_op_check_skipped,
+                        analyze_elapsed_ms=analyze_elapsed_ms,
                     )
 
                     # Legend (at the very bottom, only when there are EP results)
@@ -1305,8 +1931,22 @@ def analyze(
                             "  [bright_black]██[/bright_black] unknown"
                         )
                         console.print()
+
+                    # Optimization output support section (per-EP), when opted in.
+                    if check_optim:
+                        optim_support, payload = _collect_optimization_support(
+                            target_ep, target_device
+                        )
+                        optimization_support_payloads.append(payload)
+                        _render_optim_output_support(
+                            console,
+                            optim_support,
+                            _ep_name_device_display_name(target_ep, target_device),
+                            verbose=verbose > 0,
+                        )
             finally:
                 # Safety: stop Live if still running (e.g. on exception)
+                _finalize_pattern_live(mark_complete=False)
                 _finalize_live(mark_complete=False)
                 _finalize_unknown_op_progress()
                 root_logger.handlers = old_handlers
@@ -1322,28 +1962,35 @@ def analyze(
                     ep=target_ep,
                     device=target_device,
                     enable_information=information,
-                    htp_metadata_path=str(htp_metadata) if htp_metadata else None,
                     for_debug=for_debug,
                     run_unknown_op=run_unknown_op_for_ep,
                     save_node_types=save_node_types,
                 )
                 analysis_results.append(result)
 
+                if check_optim:
+                    _, payload = _collect_optimization_support(target_ep, target_device)
+                    optimization_support_payloads.append(payload)
+
         result = analysis_results[-1]
+
+        serialized_results: list[dict[str, object]] = []
+        json_mode = output_format == "json"
+        if output or json_mode:
+            for index, run_result in enumerate(analysis_results):
+                payload = json.loads(run_result.to_json())
+                if check_optim:
+                    payload["optimization_output_support"] = optimization_support_payloads[index]
+                serialized_results.append(payload)
 
         # Save JSON if requested
         if output:
             try:
                 output.parent.mkdir(parents=True, exist_ok=True)
                 if len(analysis_results) == 1:
-                    output.write_text(result.to_json(), encoding="utf-8")
+                    output.write_text(json.dumps(serialized_results[0], indent=2), encoding="utf-8")
                 else:
-                    output.write_text(
-                        json.dumps(
-                            [json.loads(run_result.to_json()) for run_result in analysis_results]
-                        ),
-                        encoding="utf-8",
-                    )
+                    output.write_text(json.dumps(serialized_results), encoding="utf-8")
                 logger.info("JSON results saved to: %s", output)
             except OSError as e:
                 logger.error("Failed to write JSON output to %s: %s", output, e)
@@ -1422,17 +2069,11 @@ def analyze(
                 logger.debug("Config generation traceback:", exc_info=True)
 
         # Emit JSON to stdout if requested
-        json_mode = output_format == "json"
         if json_mode:
             if len(analysis_results) == 1:
-                click.echo(result.to_json())
+                click.echo(json.dumps(serialized_results[0], indent=2))
             else:
-                click.echo(
-                    json.dumps(
-                        [json.loads(run_result.to_json()) for run_result in analysis_results],
-                        indent=2,
-                    )
-                )
+                click.echo(json.dumps(serialized_results, indent=2))
 
         # Exit code: 0 = fully supported, 1 = partial support
         overall_supported = all(run_result.is_fully_supported() for run_result in analysis_results)

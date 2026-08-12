@@ -4,10 +4,10 @@
 # --------------------------------------------------------------------------
 """Support level classification enum."""
 
-from enum import Enum
+from enum import StrEnum
 
 
-class SupportLevel(str, Enum):
+class SupportLevel(StrEnum):
     """Support level classification."""
 
     SUPPORTED = "supported"

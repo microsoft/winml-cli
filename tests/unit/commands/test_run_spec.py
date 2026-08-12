@@ -522,7 +522,7 @@ class TestEPOption:
         assert result.exit_code == 0, f"--ep {ep_val} failed: {result.output}"
 
     def test_invalid_ep_exits_nonzero(self, runner: CliRunner) -> None:
-        result = runner.invoke(run, ["--model", "m", "--text", "hi", "--ep", "cuda"])
+        result = runner.invoke(run, ["--model", "m", "--text", "hi", "--ep", "bogusxx"])
         assert result.exit_code != 0
 
     def test_ep_default_none(self, runner: CliRunner) -> None:

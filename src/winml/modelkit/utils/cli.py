@@ -9,12 +9,15 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict, TypeVar
 
 import click
 from rich.console import Console
 
-from .constants import ALL_EP_NAMES, SUPPORTED_DEVICES
+from .constants import (
+    ALL_EP_NAMES,
+    SUPPORTED_DEVICES,
+)
 
 
 if TYPE_CHECKING:
@@ -28,6 +31,11 @@ F = TypeVar("F", bound="Callable[..., Any]")
 
 # Allowed values for ``--format`` / ``-f``.
 OutputFormat: TypeAlias = Literal["text", "json", "table", "compact"]
+
+
+class _CacheExtraKwargs(TypedDict):
+    use_cache: bool
+    force_rebuild: bool
 
 
 class ModelLoadError(click.ClickException):
@@ -412,6 +420,7 @@ def ep_option(
     default: str | None = None,
     include_auto: bool = False,
     include_all: bool = False,
+    include_cuda: bool = False,
 ) -> Callable[[F], F]:
     """Add --ep (execution provider) option to a Click command.
 
@@ -425,6 +434,8 @@ def ep_option(
             (default: False).
         include_all: Whether to include "all" as a valid choice
             (default: False).
+        include_cuda: Whether to include CUDA aliases and the full provider name
+            (default: False).
 
     Returns:
         Decorator function
@@ -437,7 +448,11 @@ def ep_option(
     if optional_message:
         help_text = f"{help_text}. {optional_message}"
 
-    ep_choices = [name for name in ALL_EP_NAMES if name not in ("cuda", "CUDAExecutionProvider")]
+    ep_choices = [
+        name
+        for name in ALL_EP_NAMES
+        if include_cuda or name not in ("cuda", "CUDAExecutionProvider")
+    ]
     choices = ["auto", *ep_choices] if include_auto else ep_choices
     choices = ["all", *choices] if include_all else choices
 
@@ -455,10 +470,8 @@ def ep_option(
 def ep_options_option(optional_message: str | None = None) -> Callable[[F], F]:
     """Add a repeatable ``--ep-options KEY=VALUE`` option to a Click command.
 
-    Collects runtime EP provider options (e.g. QNN ``htp_performance_mode``)
-    that are forwarded to ``add_provider_for_devices`` when the inference
-    session is created. Distinct from build-time provider options set via
-    ``--config``: these affect the runtime session, not the compiled graph.
+    Collects EP provider options (e.g. QNN ``htp_performance_mode``) that are
+    forwarded when the command creates its execution-provider session.
 
     Use :func:`parse_ep_options` to turn the collected tuple into a dict.
 
@@ -469,8 +482,8 @@ def ep_options_option(optional_message: str | None = None) -> Callable[[F], F]:
         Decorator function.
     """
     help_text = (
-        "Runtime EP provider option as KEY=VALUE (repeatable). Forwarded to the "
-        "inference session's execution provider (e.g. "
+        "EP provider option as KEY=VALUE (repeatable). Forwarded to the command's "
+        "execution-provider session (e.g. "
         "--ep-options htp_performance_mode=burst). Duplicate keys: later "
         "occurrence wins."
     )
@@ -766,6 +779,58 @@ def skip_build_option(
     )
 
 
+def cache_options(
+    *,
+    use_cache_default: bool = True,
+    use_cache_help: str = "Use the persistent model build cache",
+    rebuild_help: str = "Force rebuild even if cached artifacts exist",
+) -> Callable[[F], F]:
+    """Add the shared cache-control toggles to a Click command.
+
+    The decorated function receives ``use_cache`` and ``rebuild`` parameters.
+    Commands that auto-build models should translate them with
+    :func:`cache_extra_kwargs`. ``build`` uses the same option contract with a
+    command-specific ``use_cache_default=False`` because cache selection is also
+    its artifact-destination choice.
+
+    Args:
+        use_cache_default: Whether persistent caching is enabled by default.
+        use_cache_help: Command-specific help for the cache toggle.
+        rebuild_help: Command-specific help for the rebuild toggle.
+
+    Returns:
+        Decorator function.
+    """
+
+    def decorator(func: F) -> F:
+        func = click.option(
+            "--rebuild/--no-rebuild",
+            default=False,
+            show_default=True,
+            help=rebuild_help,
+        )(func)
+        return click.option(
+            "--use-cache/--no-use-cache",
+            default=use_cache_default,
+            show_default=True,
+            help=use_cache_help,
+        )(func)
+
+    return decorator
+
+
+def cache_extra_kwargs(*, use_cache: bool, rebuild: bool) -> _CacheExtraKwargs:
+    """Translate shared cache controls into ``WinMLAutoModel`` keyword arguments.
+
+    Disabling the persistent cache selects a temporary build directory in the
+    model-loading API, so it must always produce a fresh build.
+    """
+    return {
+        "use_cache": use_cache,
+        "force_rebuild": rebuild or not use_cache,
+    }
+
+
 def trust_remote_code_option(optional_message: str | None = None) -> Callable[[F], F]:
     """Add shared --trust-remote-code option to a Click command.
 
@@ -986,33 +1051,33 @@ def build_pipeline_extra_kwargs(
 
 def ignored_build_flags_warning(
     *,
-    skip_build_onnx: bool,
+    build_runs: bool,
     quant: bool = True,
     optimize: bool = True,
     analyze: bool = True,
     max_optim_iterations: int | None = None,
+    reason: str | None = None,
+    rebuild_hint: str | None = None,
+    explanation: str | None = None,
 ) -> str | None:
-    """Build a warning for build-pipeline flags that are no-ops on a pre-built ONNX.
+    """Build a warning for build-pipeline flags when no model build runs.
 
-    Commands that accept a pre-built ``.onnx`` input (``eval``, ``perf``) forward
-    ``--no-quant``/``--no-optimize``/``--no-analyze``/``--max-optim-iterations`` to
-    ``from_onnx``, but with ``skip_build`` (the default) no build runs, so those
-    toggles silently take no effect. This returns a message naming the flags the
-    user actually set (or ``None`` when nothing was set or a build will run), so
-    callers can surface it through their own logger/console — mirroring the
-    ``--precision``-ignored warning.
+    Returns a message naming the controls the user changed, or ``None`` when
+    nothing was changed or a build will run.
 
     Args:
-        skip_build_onnx: True when the input is a pre-built ONNX *and* the build
-            is skipped (the precondition under which the flags are no-ops).
+        build_runs: Whether the selected command path builds model artifacts.
         quant/optimize/analyze: Enabled-semantics toggles (False = user passed
             the ``--no-*`` form).
         max_optim_iterations: Explicit value, or ``None`` when left at default.
+        reason: Description of the path that bypasses the build.
+        rebuild_hint: Optional flag that enables a build for this path.
+        explanation: Optional explanation of why the controls have no effect.
 
     Returns:
         Warning message, or ``None`` if no ignored flags apply.
     """
-    if not skip_build_onnx:
+    if build_runs:
         return None
     ignored = [
         flag
@@ -1026,10 +1091,39 @@ def ignored_build_flags_warning(
     ]
     if not ignored:
         return None
-    return (
-        f"{', '.join(ignored)} ignored for pre-built ONNX inputs "
-        "(no build runs; pass --no-skip-build to rebuild)."
-    )
+    hint = f"; pass {rebuild_hint} to rebuild" if rebuild_hint else ""
+    detail = explanation or "no build runs"
+    return f"{', '.join(ignored)} ignored for {reason or 'this input'} ({detail}{hint})."
+
+
+def ignored_cache_flags_warning(
+    *,
+    build_runs: bool,
+    use_cache: bool = True,
+    rebuild: bool = False,
+    use_cache_was_set: bool = False,
+    rebuild_was_set: bool = False,
+    use_cache_source: str | None = None,
+    rebuild_source: str | None = None,
+    reason: str | None = None,
+    explanation: str | None = None,
+) -> str | None:
+    """Build a warning for explicit cache controls when no model build runs."""
+    if build_runs:
+        return None
+    ignored: list[str] = []
+    if use_cache_was_set:
+        ignored.append("--use-cache" if use_cache else "--no-use-cache")
+    elif use_cache_source is not None:
+        ignored.append(f"use_cache={str(use_cache).lower()} from {use_cache_source}")
+    if rebuild_was_set:
+        ignored.append("--rebuild" if rebuild else "--no-rebuild")
+    elif rebuild_source is not None:
+        ignored.append(f"rebuild={str(rebuild).lower()} from {rebuild_source}")
+    if not ignored:
+        return None
+    detail = explanation or "no build runs"
+    return f"{', '.join(ignored)} ignored for {reason or 'this input'} ({detail})."
 
 
 def allow_unsupported_nodes_option(optional_message: str | None = None) -> Callable[[F], F]:

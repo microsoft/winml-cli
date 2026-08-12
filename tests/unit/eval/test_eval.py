@@ -13,6 +13,46 @@ import pytest
 from click.testing import CliRunner
 
 from winml.modelkit.eval import DatasetConfig, EvalResult, WinMLEvaluationConfig
+from winml.modelkit.session import EPDeviceTarget
+
+
+class TestPreparePipeline:
+    def test_relies_on_model_framework_inference(self) -> None:
+        from winml.modelkit.eval.base_evaluator import WinMLEvaluator
+
+        evaluator = WinMLEvaluator.__new__(WinMLEvaluator)
+        evaluator.config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+        )
+        evaluator.model = MagicMock()
+        sentinel = MagicMock()
+
+        with patch("transformers.pipeline", return_value=sentinel) as mock_pipeline:
+            assert evaluator.prepare_pipeline() is sentinel
+
+        assert "framework" not in mock_pipeline.call_args.kwargs
+
+    def test_compute_supports_transformers_without_tensorflow_base_class(self) -> None:
+        from winml.modelkit.eval.base_evaluator import WinMLEvaluator
+
+        class EvaluateCompatProbe:
+            def compute(self, **_kwargs) -> dict[str, str]:
+                import transformers
+
+                return {"compat_type": transformers.TFPreTrainedModel.__name__}
+
+        evaluator = WinMLEvaluator.__new__(WinMLEvaluator)
+        evaluator.config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+        )
+        evaluator.model = MagicMock()
+        evaluator.data = MagicMock()
+        evaluator.pipe = MagicMock()
+
+        with patch("evaluate.evaluator", return_value=EvaluateCompatProbe()):
+            assert evaluator.compute() == {"compat_type": "TFPreTrainedModel"}
 
 
 class TestEvaluationConfig:
@@ -55,6 +95,59 @@ class TestEvaluationConfig:
         assert ds.revision is None
         assert "revision" not in ds.to_dict()
 
+    def test_input_data_default_is_none(self):
+        """input_data defaults to None and is omitted from to_dict."""
+        config = WinMLEvaluationConfig(model_id="test/model")
+        assert config.input_data is None
+        assert "input_data" not in config.to_dict()
+
+    def test_config_roundtrip_preserves_input_data(self):
+        """input_data survives to_dict/from_dict roundtrip."""
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            input_data="inputs.npz",
+            mode="compare",
+        )
+        restored = WinMLEvaluationConfig.from_dict(config.to_dict())
+        assert restored.input_data == "inputs.npz"
+
+    def test_config_roundtrip_preserves_cache_controls(self):
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            use_cache=False,
+            rebuild=True,
+        )
+        serialized = config.to_dict()
+        restored = WinMLEvaluationConfig.from_dict(serialized)
+
+        assert serialized["use_cache"] is False
+        assert serialized["rebuild"] is True
+        assert restored.use_cache is False
+        assert restored.rebuild is True
+
+    def test_default_cache_controls_are_serialized(self):
+        serialized = WinMLEvaluationConfig(model_id="test/model").to_dict()
+
+        assert serialized["use_cache"] is True
+        assert serialized["rebuild"] is False
+
+    def test_reference_path_default_is_none(self):
+        """reference_path defaults to None and is omitted from to_dict."""
+        config = WinMLEvaluationConfig(model_id="test/model")
+        assert config.reference_path is None
+        assert "reference_path" not in config.to_dict()
+
+    def test_config_roundtrip_preserves_reference_path(self):
+        """reference_path survives to_dict/from_dict roundtrip."""
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            reference_path="ref.onnx",
+            mode="compare",
+        )
+        restored = WinMLEvaluationConfig.from_dict(config.to_dict())
+        assert restored.reference_path == "ref.onnx"
+        assert restored.mode == "compare"
+
     def test_eval_result_to_dict(self):
         config = WinMLEvaluationConfig(
             model_id="test/model",
@@ -65,6 +158,29 @@ class TestEvaluationConfig:
         d = result.to_dict()
         assert d["metrics"]["accuracy"] == 0.9
         assert d["dataset"]["path"] == "imagenet-1k"
+
+    def test_eval_result_num_samples_overrides_dataset_samples(self):
+        """num_samples surfaces the effective count in to_dict without mutating config."""
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            model_id="test/model",
+            mode="compare",
+            input_data="inputs.npz",
+        )
+        result = EvalResult(config=config, metrics={}, num_samples=2)
+        d = result.to_dict()
+        assert d["dataset"]["samples"] == 2
+        # The config itself is untouched (still the default).
+        assert config.dataset.samples == 100
+
+    def test_eval_result_num_samples_defaults_to_config(self):
+        """Without num_samples, to_dict keeps the config's dataset samples."""
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            dataset=DatasetConfig(path="imagenet-1k", samples=33),
+        )
+        result = EvalResult(config=config, metrics={})
+        assert result.to_dict()["dataset"]["samples"] == 33
 
 
 class TestResolveTask:
@@ -91,7 +207,7 @@ class TestResolveTask:
         config = WinMLEvaluationConfig(model_id="microsoft/resnet-50")
         with (
             patch(
-                "transformers.AutoConfig.from_pretrained",
+                "winml.modelkit.loader.load_hf_config",
                 return_value=fake_hf_config,
             ),
             patch(
@@ -126,7 +242,7 @@ class TestResolveTask:
         fake_resolution.task = "image-feature-extraction"
         config = WinMLEvaluationConfig(model_id="facebook/dinov2-base")  # no explicit task
         with (
-            patch("transformers.AutoConfig.from_pretrained", return_value=MagicMock()),
+            patch("winml.modelkit.loader.load_hf_config", return_value=MagicMock()),
             patch(
                 "winml.modelkit.loader.resolution.resolve_task",
                 return_value=fake_resolution,
@@ -220,6 +336,50 @@ class TestEvaluate:
         ):
             result = eval_mod.evaluate(config)
         assert result.config.mode == "onnx"
+
+    def test_onnx_compare_skips_task_resolution_and_dataset(self):
+        """Two-ONNX compare skips HF task resolution and default-dataset lookup."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            reference_path="ref.onnx",
+            mode="compare",
+        )
+
+        evaluator = MagicMock()
+        evaluator.compute.return_value = {"cosine_mean": {"logits": 1.0}}
+        with (
+            patch.object(
+                eval_mod,
+                "_resolve_task",
+                side_effect=AssertionError("task resolution must be skipped"),
+            ),
+            patch.object(eval_mod, "_load_model", return_value=None) as load_model,
+            patch.object(eval_mod, "get_evaluator_class", return_value=lambda *_a, **_k: evaluator),
+        ):
+            result = eval_mod.evaluate(config)
+
+        assert result.config.mode == "compare"
+        assert result.config.task is None
+        assert result.metrics == {"cosine_mean": {"logits": 1.0}}
+        load_model.assert_called_once()
+
+    def test_load_model_returns_none_for_onnx_compare(self):
+        """_load_model short-circuits (no model_id needed) for two-ONNX compare."""
+        from winml.modelkit.eval.evaluate import _load_model
+
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            reference_path="ref.onnx",
+            mode="compare",
+        )
+        assert _load_model(config) is None
 
     def test_no_dataset_no_default_raises(self):
         """Tasks without a default dataset raise ValueError."""
@@ -612,7 +772,7 @@ class TestWinMLEvaluator:
             model_id="test/model",
             task="text-classification",
             dataset=DatasetConfig(
-                path="glue",
+                path="nyu-mll/glue",
                 name="mrpc",
                 columns_mapping={"input_column": "sentence1", "second_input_column": "sentence2"},
             ),
@@ -629,12 +789,12 @@ class TestSequenceClassificationEvaluator:
     """Tests for text classification evaluator padding."""
 
     @patch("evaluate.evaluator")
-    @patch("transformers.pipeline")
+    @patch("winml.modelkit.inference.pipeline.create_pipeline")
     @patch("datasets.load_dataset")
     def test_sets_padding_for_text_model(
         self,
         mock_load_ds,
-        mock_pipeline,
+        mock_create_pipeline,
         mock_hf_eval,
     ):
         from winml.modelkit.eval import (
@@ -650,7 +810,7 @@ class TestSequenceClassificationEvaluator:
         mock_pipe = MagicMock()
         mock_pipe.tokenizer = MagicMock()
         mock_pipe._preprocess_params = {}
-        mock_pipeline.return_value = mock_pipe
+        mock_create_pipeline.return_value = mock_pipe
 
         mock_eval_inst = MagicMock()
         mock_eval_inst.compute.return_value = {"accuracy": 0.9}
@@ -663,7 +823,7 @@ class TestSequenceClassificationEvaluator:
         config = WinMLEvaluationConfig(
             model_id="test/model",
             task="text-classification",
-            dataset=DatasetConfig(path="glue", name="mrpc"),
+            dataset=DatasetConfig(path="nyu-mll/glue", name="mrpc"),
         )
 
         WinMLTextClassificationEvaluator(config, model).compute()
@@ -707,7 +867,7 @@ class TestSequenceClassificationEvaluator:
         config = WinMLEvaluationConfig(
             model_id="test/model",
             task="text-classification",
-            dataset=DatasetConfig(path="glue"),
+            dataset=DatasetConfig(path="nyu-mll/glue"),
         )
 
         WinMLTextClassificationEvaluator(config, model).compute()
@@ -719,12 +879,12 @@ class TestTokenClassificationEvaluator:
     """Tests for token classification evaluator padding."""
 
     @patch("evaluate.evaluator")
-    @patch("transformers.pipeline")
+    @patch("winml.modelkit.inference.pipeline.create_pipeline")
     @patch("datasets.load_dataset")
     def test_sets_tokenizer_params_nesting(
         self,
         mock_load_ds,
-        mock_pipeline,
+        mock_create_pipeline,
         mock_hf_eval,
     ):
         """Padding is set via tokenizer_params dict, not top-level."""
@@ -741,7 +901,7 @@ class TestTokenClassificationEvaluator:
         mock_pipe = MagicMock()
         mock_pipe.tokenizer = MagicMock()
         mock_pipe._preprocess_params = {}
-        mock_pipeline.return_value = mock_pipe
+        mock_create_pipeline.return_value = mock_pipe
 
         mock_eval_inst = MagicMock()
         mock_eval_inst.compute.return_value = {"f1": 0.85}
@@ -859,10 +1019,7 @@ class TestEvalCli:
         from winml.modelkit.commands.eval import eval as eval_cmd
 
         runner = CliRunner()
-        with (
-            patch("winml.modelkit.sysinfo.resolve_device", return_value=("npu", ["npu", "cpu"])),
-            patch("winml.modelkit.eval.evaluate") as mock_evaluate,
-        ):
+        with patch("winml.modelkit.eval.evaluate") as mock_evaluate:
             mock_evaluate.return_value = EvalResult(
                 config=WinMLEvaluationConfig(),
                 metrics={},
@@ -906,10 +1063,7 @@ class TestEvalCli:
         onnx_file.touch()
 
         runner = CliRunner()
-        with (
-            patch("winml.modelkit.sysinfo.resolve_device", return_value=("cpu", ["cpu"])),
-            patch("winml.modelkit.eval.evaluate") as mock_evaluate,
-        ):
+        with patch("winml.modelkit.eval.evaluate") as mock_evaluate:
             mock_evaluate.return_value = EvalResult(
                 config=WinMLEvaluationConfig(),
                 metrics={},
@@ -1008,10 +1162,7 @@ class TestEvalCli:
         from winml.modelkit.commands.eval import eval as eval_cmd
 
         runner = CliRunner()
-        with (
-            patch("winml.modelkit.sysinfo.resolve_device", return_value=("cpu", ["cpu"])),
-            patch("winml.modelkit.eval.evaluate", side_effect=RuntimeError("broken model")),
-        ):
+        with patch("winml.modelkit.eval.evaluate", side_effect=RuntimeError("broken model")):
             result = runner.invoke(
                 eval_cmd,
                 [
@@ -1031,7 +1182,10 @@ class TestEvalCli:
 
         runner = CliRunner()
         with (
-            patch("winml.modelkit.sysinfo.resolve_device", return_value=("npu", ["npu", "cpu"])),
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="auto", device="npu"),
+            ),
             patch("winml.modelkit.eval.evaluate") as mock_evaluate,
         ):
             mock_evaluate.return_value = EvalResult(
@@ -1071,7 +1225,10 @@ class TestEvalCli:
 
         runner = CliRunner()
         with (
-            patch("winml.modelkit.sysinfo.resolve_device", return_value=("gpu", ["gpu", "cpu"])),
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="auto", device="gpu"),
+            ),
             patch(
                 "winml.modelkit.utils.cli.load_build_config",
                 return_value=(MagicMock(), raw_cfg),
@@ -1110,7 +1267,10 @@ class TestEvalCli:
 
         runner = CliRunner()
         with (
-            patch("winml.modelkit.sysinfo.resolve_device", return_value=("npu", ["npu", "cpu"])),
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="auto", device="npu"),
+            ),
             patch(
                 "winml.modelkit.utils.cli.load_build_config",
                 return_value=(MagicMock(), raw_cfg),
@@ -1306,6 +1466,22 @@ class TestDefaultDatasetImmutability:
 class TestLoadModel:
     """Tests for _load_model."""
 
+    @pytest.fixture(autouse=True)
+    def _mock_resolve_device(self):
+        """Mock resolve_device + auto_device so unit tests don't hit live EP registry."""
+        from winml.modelkit.session import EPDeviceTarget
+
+        fake_cpu = EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
+        with (
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=fake_cpu,
+            ),
+            patch("winml.modelkit.session.WinMLEPRegistry") as mock_reg,
+        ):
+            mock_reg.instance.return_value.auto_device.return_value = MagicMock()
+            yield
+
     def test_load_model_no_model_id_raises(self):
         """_load_model raises ValueError when model_id is None."""
         from winml.modelkit.eval.evaluate import _load_model
@@ -1339,19 +1515,80 @@ class TestLoadModel:
         ):
             result = eval_mod._load_model(config)
 
-        # quant defaults to True -> no quant override (config=None); optimize/
-        # analyze default True with max_optim_iterations=None -> no extra build
-        # kwargs (build_pipeline_extra_kwargs returns {}).
-        mock_auto.from_pretrained.assert_called_once_with(
-            "test/model",
-            task="image-classification",
-            device="cpu",
-            precision="auto",
-            ep=None,
-            allow_unsupported_nodes=False,
-            config=None,
-        )
+        mock_auto.from_pretrained.assert_called_once()
+        call_args = mock_auto.from_pretrained.call_args
+        # _load_model now passes a WinMLEPDevice as the 2nd positional arg.
+        assert call_args.args[0] == "test/model"
+        # The mock auto_device returns a MagicMock — just confirm it landed.
+        assert call_args.args[1] is not None
+        assert call_args.kwargs["task"] == "image-classification"
+        # No --shape-config / export overrides -> both default to None.
+        assert call_args.kwargs["shape_config"] is None
+        assert call_args.kwargs["config"] is None
+        assert call_args.kwargs["use_cache"] is True
+        assert call_args.kwargs["force_rebuild"] is False
         assert result is mock_model
+
+    def test_auto_target_retries_cpu_after_ort_runtime_failure(self, caplog):
+        """An unusable auto-selected accelerator retries with the CPU EP."""
+        import importlib
+        import logging
+        import sys
+
+        from onnxruntime.capi.onnxruntime_pybind11_state import RuntimeException
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        mock_model = MagicMock()
+        mock_auto = MagicMock()
+        mock_auto.from_pretrained.side_effect = [
+            RuntimeException("accelerator session initialization failed"),
+            mock_model,
+        ]
+        gpu_ep_device = MagicMock()
+        gpu_ep_device.device.device_type = "GPU"
+        gpu_ep_device.device.ep_name = "DmlExecutionProvider"
+        cpu_ep_device = MagicMock()
+        cpu_ep_device.device.device_type = "CPU"
+        cpu_ep_device.device.ep_name = "CPUExecutionProvider"
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            device="gpu",
+        )
+        config._auto_device_selected = True
+
+        def resolve_target(target: EPDeviceTarget) -> EPDeviceTarget:
+            if target.device == "gpu":
+                return EPDeviceTarget(ep="DmlExecutionProvider", device=target.device)
+            return EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
+
+        with (
+            patch.dict(
+                "sys.modules",
+                {"winml.modelkit.models": MagicMock(WinMLAutoModel=mock_auto)},
+            ),
+            patch("winml.modelkit.session.resolve_device", side_effect=resolve_target),
+            patch("winml.modelkit.session.WinMLEPRegistry") as mock_registry,
+            caplog.at_level(logging.WARNING),
+        ):
+            mock_registry.instance.return_value.auto_device.side_effect = [
+                gpu_ep_device,
+                cpu_ep_device,
+            ]
+            result = eval_mod._load_model(config)
+
+        assert result is mock_model
+        assert [call.args[1] for call in mock_auto.from_pretrained.call_args_list] == [
+            gpu_ep_device,
+            cpu_ep_device,
+        ]
+        assert config.device == "cpu"
+        assert config.ep == "cpu"
+        assert config._auto_device_selected is False
+        assert "Retrying with CPUExecutionProvider" in caplog.text
 
     def test_load_model_forwards_build_flags(self):
         """--no-quant/--no-optimize/--max-optim-iterations reach from_pretrained."""
@@ -1374,6 +1611,7 @@ class TestLoadModel:
             quant=False,
             optimize=False,
             max_optim_iterations=5,
+            use_cache=False,
         )
 
         with patch.dict(
@@ -1389,6 +1627,8 @@ class TestLoadModel:
         # --no-optimize -> skip_optimize; --max-optim-iterations 5 forwarded.
         assert kwargs["skip_optimize"] is True
         assert kwargs["hack_max_optim_iterations"] == 5
+        assert kwargs["use_cache"] is False
+        assert kwargs["force_rebuild"] is True
 
     def test_load_model_from_onnx(self):
         """When model_path is set, calls from_onnx and attaches config."""
@@ -1417,11 +1657,13 @@ class TestLoadModel:
                 {"winml.modelkit.models": MagicMock(WinMLAutoModel=mock_auto)},
             ),
             patch(
-                "transformers.AutoConfig.from_pretrained",
+                "winml.modelkit.loader.load_hf_config",
                 return_value=mock_hf_config,
             ),
         ):
             result = eval_mod._load_model(config)
 
         mock_auto.from_onnx.assert_called_once()
+        assert mock_auto.from_onnx.call_args.kwargs["use_cache"] is True
+        assert mock_auto.from_onnx.call_args.kwargs["force_rebuild"] is False
         assert result.config is mock_hf_config

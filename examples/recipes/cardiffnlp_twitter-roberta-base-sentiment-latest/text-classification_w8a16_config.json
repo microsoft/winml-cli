@@ -70,7 +70,7 @@
   "eval": {
     "task": "text-classification",
     "dataset": {
-      "path": "tweet_eval",
+      "path": "cardiffnlp/tweet_eval",
       "name": "sentiment",
       "samples": 1000,
       "columns_mapping": {

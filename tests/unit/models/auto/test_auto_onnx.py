@@ -14,16 +14,24 @@ Verifies:
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, ClassVar
+from pathlib import Path
+from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from winml.modelkit.ep_path import BuiltinSource, EPEntry
 from winml.modelkit.models.auto import WinMLAutoModel
+from winml.modelkit.session import EPDeviceTarget, WinMLDevice, WinMLEP, WinMLEPDevice
 
 
-if TYPE_CHECKING:
-    from pathlib import Path
+@pytest.fixture()
+def cpu_ep_device():
+    """Minimal stub WinMLEPDevice for CPU used across from_onnx/from_pretrained tests."""
+    ep_device = MagicMock()
+    ep_device.device.ep_name = "CPUExecutionProvider"
+    ep_device.device.device_type = "CPU"
+    return ep_device
 
 
 @pytest.fixture()
@@ -42,22 +50,39 @@ def _make_build_result(tmp_path: Path) -> MagicMock:
     return result
 
 
+def _make_cpu_ep_device_with_bridge_name() -> WinMLEPDevice:
+    """Resolved CPU target whose ORT handle reports a bridge provider name."""
+    ort_device = MagicMock()
+    ort_device.ep_name = "ONNXExecutionProvider"
+    ort_device.ep_metadata = {}
+    ort_device.ep_vendor = "Microsoft"
+    ort_device.device.type.name = "CPU"
+    ort_device.device.metadata = {}
+    ort_device.device.vendor = "Microsoft"
+
+    winml_device = WinMLDevice(ort_device)
+    entry = EPEntry(
+        ep_name="CPUExecutionProvider",
+        dll_path=Path(),
+        source=BuiltinSource(eps=("CPUExecutionProvider",)),
+    )
+    winml_ep = WinMLEP(source=entry, devices=(winml_device,), arg0=entry.ep_name)
+    return WinMLEPDevice(ep=winml_ep, device=winml_device)
+
+
 class TestFromOnnx:
     """Test WinMLAutoModel.from_onnx()."""
 
-    def test_auto_generates_config_when_none(self, fake_onnx: Path, tmp_path: Path):
+    def test_auto_generates_config_when_none(
+        self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: EPDeviceTarget
+    ):
         """from_onnx() without config auto-generates via generate_build_config."""
+        mock_config = MagicMock()
+        mock_config.export = None
+        mock_config.loader = None
         with (
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
-            patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
-            patch(
-                "winml.modelkit.sysinfo.resolve_check_device_ep",
-                return_value=("npu", ["npu", "cpu"], ["QNNExecutionProvider"]),
-            ),
-            patch(
-                "winml.modelkit.config.precision.resolve_eps",
-                return_value=["QNNExecutionProvider"],
-            ),
+            patch("winml.modelkit.config.generate_onnx_build_config", return_value=mock_config),
             patch("winml.modelkit.build.build_onnx_model") as mock_build,
             patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
         ):
@@ -67,8 +92,8 @@ class TestFromOnnx:
 
             WinMLAutoModel.from_onnx(
                 str(fake_onnx),
+                ep_device=cpu_ep_device,
                 task="image-classification",
-                device="npu",
             )
 
         mock_build.assert_called_once()
@@ -77,7 +102,9 @@ class TestFromOnnx:
         # ONNX builds have export=None (no HF export needed)
         assert config.export is None
 
-    def test_uses_explicit_config_as_override(self, fake_onnx: Path, tmp_path: Path):
+    def test_uses_explicit_config_as_override(
+        self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: EPDeviceTarget
+    ):
         """from_onnx() with explicit config merges it as override on generated config."""
         from winml.modelkit.config import WinMLBuildConfig
         from winml.modelkit.optim.config import WinMLOptimizationConfig
@@ -89,16 +116,13 @@ class TestFromOnnx:
             quant=None,
         )
 
+        # generate_onnx_build_config applies the override and returns a merged config.
+        # Simulate that by returning the explicit_config directly (the merged result).
         with (
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
-            patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("cpu", ["cpu"]),
-            ),
-            patch(
-                "winml.modelkit.config.precision.resolve_eps",
-                return_value=["CPUExecutionProvider"],
+                "winml.modelkit.config.generate_onnx_build_config",
+                return_value=explicit_config,
             ),
             patch("winml.modelkit.build.build_onnx_model") as mock_build,
             patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
@@ -109,6 +133,7 @@ class TestFromOnnx:
 
             WinMLAutoModel.from_onnx(
                 fake_onnx,
+                ep_device=cpu_ep_device,
                 task="image-classification",
                 config=explicit_config,
             )
@@ -120,13 +145,17 @@ class TestFromOnnx:
         assert call_kwargs["config"].optim.get("gelu_fusion") is True  # from override
 
     def test_passes_ep_and_device_to_build(self, fake_onnx: Path, tmp_path: Path):
-        """from_onnx() forwards ep and device through to build_onnx_model."""
+        """from_onnx() extracts ep and device from WinMLEPDevice, forwards to build_onnx_model."""
+        npu_ep_device = MagicMock()
+        npu_ep_device.device.ep_name = "QNNExecutionProvider"
+        npu_ep_device.device.device_type = "NPU"
+        mock_config = MagicMock()
+        mock_config.loader = None
         with (
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
-            patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("npu", ["npu", "cpu"]),
+                "winml.modelkit.config.generate_onnx_build_config",
+                return_value=mock_config,
             ),
             patch("winml.modelkit.build.build_onnx_model") as mock_build,
             patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
@@ -137,24 +166,87 @@ class TestFromOnnx:
 
             WinMLAutoModel.from_onnx(
                 fake_onnx,
+                ep_device=npu_ep_device,
                 task="image-classification",
-                device="npu",
-                ep="qnn",
             )
 
+        # from_onnx converts ep_device.ep to short form via short_ep_name() before build
         call_kwargs = mock_build.call_args.kwargs
         assert call_kwargs["ep"] == "qnn"
         assert call_kwargs["device"] == "npu"
 
-    def test_passes_allow_unsupported_nodes_to_build(self, fake_onnx: Path, tmp_path: Path):
-        """from_onnx() forwards allow_unsupported_nodes through to build_onnx_model."""
+    def test_applies_compile_provider_options(
+        self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: EPDeviceTarget
+    ) -> None:
+        """Compile-only provider options are added to the generated compile config."""
+        from winml.modelkit.config import WinMLBuildConfig
+
+        mock_config = WinMLBuildConfig(export=None, quant=None)
         with (
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
-            patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("cpu", ["cpu"]),
+                "winml.modelkit.config.generate_onnx_build_config",
+                return_value=mock_config,
             ),
+            patch("winml.modelkit.build.build_onnx_model") as mock_build,
+            patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
+        ):
+            mock_build.return_value = _make_build_result(tmp_path)
+            mock_get_class.return_value = lambda **kw: MagicMock()
+
+            WinMLAutoModel.from_onnx(
+                fake_onnx,
+                ep_device=cpu_ep_device,
+                compile_provider_options={
+                    "profiling_level": "optrace",
+                    "profiling_file_path": "compile.csv",
+                },
+            )
+
+        compile_options = mock_build.call_args.kwargs["config"].compile.ep_config.provider_options
+        assert compile_options == {
+            "profiling_level": "optrace",
+            "profiling_file_path": "compile.csv",
+        }
+
+    def test_compile_provider_options_require_compile_config(
+        self, fake_onnx: Path, cpu_ep_device: EPDeviceTarget
+    ) -> None:
+        """Compile-only provider options cannot be silently dropped."""
+        from winml.modelkit.config import WinMLBuildConfig
+
+        mock_config = WinMLBuildConfig(export=None, quant=None, compile=None)
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+            patch(
+                "winml.modelkit.config.generate_onnx_build_config",
+                return_value=mock_config,
+            ),
+            pytest.raises(
+                ValueError,
+                match="compile_provider_options requires compilation to be enabled",
+            ),
+        ):
+            WinMLAutoModel.from_onnx(
+                fake_onnx,
+                ep_device=cpu_ep_device,
+                compile_provider_options={"profiling_level": "optrace"},
+            )
+
+    def test_uses_resolved_catalog_ep_when_runtime_handle_reports_bridge_provider(
+        self, fake_onnx: Path, tmp_path: Path
+    ) -> None:
+        """CPU builds use the resolved catalog EP, not ORT bridge handle names."""
+        ep_device = _make_cpu_ep_device_with_bridge_name()
+        mock_config = MagicMock()
+        mock_config.loader = None
+
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+            patch(
+                "winml.modelkit.config.generate_onnx_build_config",
+                return_value=mock_config,
+            ) as mock_generate_config,
             patch("winml.modelkit.build.build_onnx_model") as mock_build,
             patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
         ):
@@ -164,25 +256,51 @@ class TestFromOnnx:
 
             WinMLAutoModel.from_onnx(
                 fake_onnx,
+                ep_device=ep_device,
                 task="image-classification",
-                device="cpu",
+            )
+
+        assert mock_generate_config.call_args.kwargs["ep"] == "cpu"
+        assert mock_build.call_args.kwargs["ep"] == "cpu"
+        assert mock_build.call_args.kwargs["device"] == "cpu"
+
+    def test_passes_allow_unsupported_nodes_to_build(
+        self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: EPDeviceTarget
+    ):
+        """from_onnx() forwards allow_unsupported_nodes through to build_onnx_model."""
+        mock_config = MagicMock()
+        mock_config.export = None
+        mock_config.loader = None
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+            patch("winml.modelkit.config.generate_onnx_build_config", return_value=mock_config),
+            patch("winml.modelkit.build.build_onnx_model") as mock_build,
+            patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
+        ):
+            mock_build.return_value = _make_build_result(tmp_path)
+            mock_instance = MagicMock()
+            mock_get_class.return_value = lambda **kw: mock_instance
+
+            WinMLAutoModel.from_onnx(
+                fake_onnx,
+                ep_device=cpu_ep_device,
+                task="image-classification",
                 allow_unsupported_nodes=True,
             )
 
         assert mock_build.call_args.kwargs["allow_unsupported_nodes"] is True
 
-    def test_returns_winml_pretrained_model(self, fake_onnx: Path, tmp_path: Path):
+    def test_returns_winml_pretrained_model(
+        self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: EPDeviceTarget
+    ):
         """from_onnx() returns the inference wrapper from get_winml_class."""
+        mock_config = MagicMock()
+        mock_config.loader = None
         with (
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
-            patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("cpu", ["cpu"]),
-            ),
-            patch(
-                "winml.modelkit.config.precision.resolve_eps",
-                return_value=["CPUExecutionProvider"],
+                "winml.modelkit.config.generate_onnx_build_config",
+                return_value=mock_config,
             ),
             patch("winml.modelkit.build.build_onnx_model") as mock_build,
             patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
@@ -193,6 +311,7 @@ class TestFromOnnx:
 
             result = WinMLAutoModel.from_onnx(
                 fake_onnx,
+                ep_device=cpu_ep_device,
                 task="image-classification",
             )
 
@@ -202,37 +321,219 @@ class TestFromOnnx:
 class TestFromPretrainedDelegatesToFromOnnx:
     """Test that from_pretrained delegates .onnx files to from_onnx."""
 
-    def test_delegates_onnx_to_from_onnx(self, fake_onnx: Path, tmp_path: Path):
+    def test_delegates_onnx_to_from_onnx(
+        self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: EPDeviceTarget
+    ):
         """from_pretrained with .onnx file delegates to from_onnx."""
         with patch.object(WinMLAutoModel, "from_onnx") as mock_from_onnx:
             mock_from_onnx.return_value = MagicMock()
 
             WinMLAutoModel.from_pretrained(
                 str(fake_onnx),
+                cpu_ep_device,
                 task="image-classification",
-                device="cpu",
                 precision="fp32",
             )
 
         mock_from_onnx.assert_called_once()
         call_kwargs = mock_from_onnx.call_args.kwargs
         assert call_kwargs["task"] == "image-classification"
-        assert call_kwargs["device"] == "cpu"
+        assert call_kwargs["ep_device"] is cpu_ep_device
         assert call_kwargs["precision"] == "fp32"
 
-    def test_passes_ep_from_kwargs(self, fake_onnx: Path, tmp_path: Path):
-        """from_pretrained extracts ep from kwargs and passes to from_onnx."""
+    def test_passes_ep_from_kwargs(
+        self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: EPDeviceTarget
+    ):
+        """from_pretrained passes ep_device through to from_onnx."""
         with patch.object(WinMLAutoModel, "from_onnx") as mock_from_onnx:
             mock_from_onnx.return_value = MagicMock()
 
             WinMLAutoModel.from_pretrained(
                 str(fake_onnx),
+                cpu_ep_device,
                 task="image-classification",
-                ep="qnn",
             )
 
         call_kwargs = mock_from_onnx.call_args.kwargs
-        assert call_kwargs["ep"] == "qnn"
+        # ep_device is forwarded as-is — assert identity rather than walking
+        # the (now nested) device.ep_name attribute on the stub MagicMock.
+        assert call_kwargs["ep_device"] is cpu_ep_device
+
+    def test_resolves_hub_onnx_reference_before_hf_dispatch(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        fake_onnx: Path,
+        cpu_ep_device: EPDeviceTarget,
+    ) -> None:
+        """Hub ONNX references must take the programmatic ONNX fast path."""
+        from winml.modelkit.utils.model_input import ModelInput, ModelInputKind
+
+        hub_ref = "org/repository/path/model.onnx"
+        monkeypatch.setattr(
+            "winml.modelkit.utils.model_input.resolve_model_input",
+            lambda _value: ModelInput(
+                kind=ModelInputKind.HUB_ONNX,
+                raw=hub_ref,
+                local_path=str(fake_onnx),
+                hf_id="org/repository",
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.config.generate_hf_build_config",
+            lambda *_args, **_kwargs: pytest.fail("Hub ONNX reference reached HF config dispatch."),
+        )
+
+        with patch.object(WinMLAutoModel, "from_onnx", return_value=MagicMock()) as from_onnx:
+            WinMLAutoModel.from_pretrained(
+                hub_ref,
+                ep_device=cpu_ep_device,
+                task="image-classification",
+            )
+
+        assert from_onnx.call_args.kwargs["onnx_path"] == fake_onnx
+
+    def test_resolves_uppercase_hub_onnx_reference_before_hf_dispatch(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cpu_ep_device: EPDeviceTarget,
+    ) -> None:
+        """An uppercase Hub ONNX reference must take the ONNX fast path."""
+        from winml.modelkit.utils.model_input import ModelInput, ModelInputKind
+
+        local_onnx = tmp_path / "model.ONNX"
+        local_onnx.write_bytes(b"fake-onnx")
+        hub_ref = "org/repository/path/model.ONNX"
+        monkeypatch.setattr(
+            "winml.modelkit.utils.model_input.resolve_model_input",
+            lambda _value: ModelInput(
+                kind=ModelInputKind.HUB_ONNX,
+                raw=hub_ref,
+                local_path=str(local_onnx),
+                hf_id="org/repository",
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.config.generate_hf_build_config",
+            lambda *_args, **_kwargs: pytest.fail("Hub ONNX reference reached HF config dispatch."),
+        )
+
+        with patch.object(WinMLAutoModel, "from_onnx", return_value=MagicMock()) as from_onnx:
+            WinMLAutoModel.from_pretrained(
+                hub_ref,
+                ep_device=cpu_ep_device,
+                task="image-classification",
+            )
+
+        assert from_onnx.call_args.kwargs["onnx_path"] == local_onnx
+
+    def test_delegates_uppercase_local_onnx_to_from_onnx(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cpu_ep_device: EPDeviceTarget,
+    ) -> None:
+        """An uppercase local ONNX path must use the same fast path as lowercase."""
+        local_onnx = tmp_path / "model.ONNX"
+        local_onnx.write_bytes(b"fake-onnx")
+        monkeypatch.setattr(
+            "winml.modelkit.config.generate_hf_build_config",
+            lambda *_args, **_kwargs: pytest.fail("Local ONNX path reached HF config dispatch."),
+        )
+
+        with patch.object(WinMLAutoModel, "from_onnx", return_value=MagicMock()) as from_onnx:
+            WinMLAutoModel.from_pretrained(
+                local_onnx,
+                ep_device=cpu_ep_device,
+                task="image-classification",
+            )
+
+        assert from_onnx.call_args.kwargs["onnx_path"] == local_onnx
+
+
+class TestFromPretrainedBuildConfigTarget:
+    """Target request forwarding for HF from_pretrained builds."""
+
+    def test_config_uses_runtime_target_and_requested_export_policy(self, tmp_path: Path) -> None:
+        """Runtime target drives quant/compile while request target drives export policy."""
+        from winml.modelkit.config import WinMLBuildConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
+
+        ep_device = MagicMock()
+        ep_device.device.ep_name = "QNNExecutionProvider"
+        ep_device.device.device_type = "GPU"
+        build_config = WinMLBuildConfig(
+            loader=WinMLLoaderConfig(task="image-classification", model_type="resnet"),
+            compile=None,
+        )
+        hf_config = MagicMock()
+        hf_config.model_type = "resnet"
+        build_result = _make_build_result(tmp_path)
+
+        with (
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=build_config,
+            ) as mock_gen,
+            patch("winml.modelkit.loader.load_hf_config", return_value=hf_config),
+            patch("winml.modelkit.build.build_hf_model", return_value=build_result),
+            patch(
+                "winml.modelkit.models.auto.get_winml_class",
+                return_value=lambda **_: MagicMock(),
+            ),
+        ):
+            WinMLAutoModel.from_pretrained(
+                "fake/model",
+                ep_device=ep_device,
+                device="auto",
+                ep="qnn",
+                task="image-classification",
+            )
+
+        assert mock_gen.call_args.kwargs["device"] == "gpu"
+        assert mock_gen.call_args.kwargs["ep"] == "qnn"
+        assert mock_gen.call_args.kwargs["export_policy_target"] == ("auto", "qnn")
+
+    def test_bare_default_request_stays_auto_after_runtime_resolution(self, tmp_path: Path) -> None:
+        """Default export policy stays portable while quant/compile use runtime target."""
+        from winml.modelkit.config import WinMLBuildConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
+        from winml.modelkit.session import EPDeviceTarget
+
+        ep_device = MagicMock()
+        ep_device.device.ep_name = "DmlExecutionProvider"
+        ep_device.device.device_type = "GPU"
+        build_config = WinMLBuildConfig(
+            loader=WinMLLoaderConfig(task="image-classification", model_type="resnet"),
+            compile=None,
+        )
+        hf_config = MagicMock()
+        hf_config.model_type = "resnet"
+        build_result = _make_build_result(tmp_path)
+
+        with (
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="DmlExecutionProvider", device="gpu"),
+            ),
+            patch("winml.modelkit.session.WinMLEPRegistry.instance") as mock_registry,
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=build_config,
+            ) as mock_gen,
+            patch("winml.modelkit.loader.load_hf_config", return_value=hf_config),
+            patch("winml.modelkit.build.build_hf_model", return_value=build_result),
+            patch(
+                "winml.modelkit.models.auto.get_winml_class",
+                return_value=lambda **_: MagicMock(),
+            ),
+        ):
+            mock_registry.return_value.auto_device.return_value = ep_device
+            WinMLAutoModel.from_pretrained("fake/model", task="image-classification")
+
+        assert mock_gen.call_args.kwargs["device"] == "gpu"
+        assert mock_gen.call_args.kwargs["ep"] == "dml"
+        assert mock_gen.call_args.kwargs["export_policy_target"] == ("auto", None)
 
 
 # =============================================================================
@@ -251,12 +552,8 @@ class TestFromOnnxCacheDirAndKey:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("cpu", ["cpu"]),
-            ),
-            patch(
-                "winml.modelkit.config.precision.resolve_eps",
-                return_value=["CPUExecutionProvider"],
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="CPUExecutionProvider", device="cpu"),
             ),
             patch("winml.modelkit.build.build_onnx_model") as mock_build,
             patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
@@ -345,12 +642,8 @@ class TestFromOnnxCacheDirAndKey:
                 return_value=["missing.data"],
             ),
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("cpu", ["cpu"]),
-            ),
-            patch(
-                "winml.modelkit.config.precision.resolve_eps",
-                return_value=["CPUExecutionProvider"],
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="CPUExecutionProvider", device="cpu"),
             ),
             patch("winml.modelkit.build.build_onnx_model") as mock_build,
             patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
@@ -375,12 +668,8 @@ class TestFromOnnxCacheDirAndKey:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("cpu", ["cpu"]),
-            ),
-            patch(
-                "winml.modelkit.config.precision.resolve_eps",
-                return_value=["CPUExecutionProvider"],
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="CPUExecutionProvider", device="cpu"),
             ),
             patch("winml.modelkit.build.build_onnx_model") as mock_build,
             patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
@@ -400,11 +689,93 @@ class TestFromOnnxCacheDirAndKey:
         assert call_kwargs["cache_key"]
         assert "imgcls" in call_kwargs["cache_key"]
 
+    def test_taskless_onnx_uses_default_cache_abbrev(
+        self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: EPDeviceTarget
+    ):
+        """from_onnx() falls back to the stable ONNX cache abbrev when task is absent."""
+        mock_config = MagicMock()
+        mock_config.export = None
+        mock_config.loader = None
+        mock_config.generate_cache_key.return_value = "feedfacefeedface"
+
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+            patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
+            patch("winml.modelkit.config.generate_onnx_build_config", return_value=mock_config),
+            patch("winml.modelkit.build.build_onnx_model") as mock_build,
+            patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
+        ):
+            mock_build.return_value = _make_build_result(tmp_path)
+            mock_get_class.return_value = lambda **kw: MagicMock()
+
+            WinMLAutoModel.from_onnx(
+                fake_onnx,
+                ep_device=cpu_ep_device,
+                task=None,
+            )
+
+        from winml.modelkit.cache import get_cache_key
+
+        call_kwargs = mock_build.call_args.kwargs
+        assert call_kwargs["cache_key"] == get_cache_key("onnx", "feedfacefeedface")
+
+    def test_build_controls_change_cache_key(self, fake_onnx: Path, tmp_path: Path):
+        """Artifact-changing build controls must produce distinct shared-helper keys."""
+        from winml.modelkit.cache import get_cache_key
+        from winml.modelkit.loader.task import get_task_abbrev
+
+        config_hash = "deadbeefdeadbeef"
+        mock_config = MagicMock()
+        mock_config.loader.task = "image-classification"
+        mock_config.generate_cache_key.return_value = config_hash
+
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+            patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="CPUExecutionProvider", device="cpu"),
+            ),
+            patch("winml.modelkit.config.generate_onnx_build_config", return_value=mock_config),
+            patch("winml.modelkit.build.build_onnx_model") as mock_build,
+            patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
+        ):
+            mock_build.return_value = _make_build_result(tmp_path)
+            mock_get_class.return_value = lambda **kw: MagicMock()
+
+            WinMLAutoModel.from_onnx(
+                fake_onnx,
+                task="image-classification",
+                device="cpu",
+                skip_optimize=True,
+            )
+            WinMLAutoModel.from_onnx(
+                fake_onnx,
+                task="image-classification",
+                device="cpu",
+                hack_max_optim_iterations=0,
+            )
+
+        task_abbrev = get_task_abbrev("image-classification")
+        skip_opt_key = mock_build.call_args_list[0].kwargs["cache_key"]
+        no_analyze_key = mock_build.call_args_list[1].kwargs["cache_key"]
+        assert skip_opt_key == get_cache_key(
+            task_abbrev,
+            config_hash,
+            {"skip_optimize": True},
+        )
+        assert no_analyze_key == get_cache_key(
+            task_abbrev,
+            config_hash,
+            {"hack_max_optim_iterations": 0},
+        )
+        assert skip_opt_key != no_analyze_key
+
 
 class TestFromOnnxDictDispatch:
     """from_onnx with dict onnx_path delegates to WinMLCompositeModel.from_onnx."""
 
-    def test_dict_dispatches_to_composite(self, tmp_path: Path):
+    def test_dict_dispatches_to_composite(self, tmp_path: Path, cpu_ep_device: EPDeviceTarget):
         """Dict onnx_path calls WinMLCompositeModel.from_onnx."""
         with patch(
             "winml.modelkit.models.winml.composite_model.WinMLCompositeModel.from_onnx"
@@ -414,6 +785,7 @@ class TestFromOnnxDictDispatch:
             WinMLAutoModel.from_onnx(
                 {"encoder": str(tmp_path / "enc.onnx"), "decoder": str(tmp_path / "dec.onnx")},
                 task="translation",
+                ep_device=cpu_ep_device,
                 skip_build=True,
             )
 
@@ -422,7 +794,55 @@ class TestFromOnnxDictDispatch:
             assert call_kwargs["task"] == "translation"
             assert call_kwargs["skip_build"] is True
 
-    def test_hf_config_dispatches_composite_via_registry(self, tmp_path: Path):
+    def test_dict_dispatch_forwards_no_compile(
+        self,
+        tmp_path: Path,
+        cpu_ep_device: EPDeviceTarget,
+    ) -> None:
+        """Composite ONNX loading preserves the caller's no-compile request."""
+        with patch(
+            "winml.modelkit.models.winml.composite_model.WinMLCompositeModel.from_onnx"
+        ) as mock_from_onnx:
+            mock_from_onnx.return_value = MagicMock()
+
+            WinMLAutoModel.from_onnx(
+                {"encoder": str(tmp_path / "enc.onnx"), "decoder": str(tmp_path / "dec.onnx")},
+                task="translation",
+                ep_device=cpu_ep_device,
+                no_compile=True,
+            )
+
+        assert mock_from_onnx.call_args.kwargs["no_compile"] is True
+
+    def test_mapping_dispatches_to_composite(
+        self,
+        tmp_path: Path,
+        cpu_ep_device: EPDeviceTarget,
+    ) -> None:
+        """Public Mapping implementations must use composite ONNX dispatch."""
+        from collections import UserDict
+
+        with patch(
+            "winml.modelkit.models.winml.composite_model.WinMLCompositeModel.from_onnx"
+        ) as mock_from_onnx:
+            mock_from_onnx.return_value = MagicMock()
+
+            WinMLAutoModel.from_onnx(
+                UserDict(
+                    {
+                        "encoder": str(tmp_path / "enc.onnx"),
+                        "decoder": str(tmp_path / "dec.onnx"),
+                    }
+                ),
+                task="translation",
+                ep_device=cpu_ep_device,
+            )
+
+        assert isinstance(mock_from_onnx.call_args.args[0], UserDict)
+
+    def test_hf_config_dispatches_composite_via_registry(
+        self, tmp_path: Path, cpu_ep_device: EPDeviceTarget
+    ):
         """hf_config kwarg threads through so model_type registry lookup works.
 
         Exercises the real WinMLCompositeModel.from_onnx body via a fake
@@ -476,6 +896,7 @@ class TestFromOnnxDictDispatch:
                     {"encoder": str(enc_path), "decoder": str(dec_path)},
                     task="_test_task_",
                     hf_config=_FakeHFConfig(),
+                    ep_device=cpu_ep_device,
                     skip_build=True,
                 )
 
@@ -486,7 +907,9 @@ class TestFromOnnxDictDispatch:
         finally:
             COMPOSITE_MODEL_REGISTRY.pop(test_key, None)
 
-    def test_from_onnx_dict_without_hf_config_raises(self, tmp_path: Path):
+    def test_from_onnx_dict_without_hf_config_raises(
+        self, tmp_path: Path, cpu_ep_device: EPDeviceTarget
+    ):
         """Dict dispatch without hf_config surfaces a clear registry-miss error.
 
         Guards against silent fallback: unregistered ``(model_type, task)`` must
@@ -501,5 +924,6 @@ class TestFromOnnxDictDispatch:
             WinMLAutoModel.from_onnx(
                 {"encoder": str(enc_path), "decoder": str(dec_path)},
                 task="_unregistered_task_",
+                ep_device=cpu_ep_device,
                 skip_build=True,
             )

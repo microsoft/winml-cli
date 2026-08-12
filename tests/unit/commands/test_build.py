@@ -18,6 +18,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
+from winml.modelkit.session import EPDeviceTarget
+
 
 _DEVICE_TO_EPS = {
     "npu": ["QNNExecutionProvider"],
@@ -26,48 +28,43 @@ _DEVICE_TO_EPS = {
 }
 
 
-def _fake_resolve_check_device_ep(*, device: str = "auto", ep: str | None = None):
-    """Side effect for resolve_check_device_ep that honours the requested device.
-
-    The build command's --device path calls resolve_quant_compile_config which
-    in turn calls resolve_check_device_ep. Tests pass explicit devices like
-    "npu", "gpu", "cpu" -- echo them back with a canonical EP so the downstream
-    precision policy resolves deterministically.
-    """
-    resolved = device.lower() if device != "auto" else "npu"
-    eps = _DEVICE_TO_EPS.get(resolved, ["CPUExecutionProvider"])
-    return resolved, ["npu", "gpu", "cpu"], eps
+def _fake_resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
+    """Resolve test targets using the public ``resolve_device`` contract."""
+    device = "npu" if target.device == "auto" else target.device.lower()
+    ep = target.ep if target.ep != "auto" else _DEVICE_TO_EPS[device][0]
+    return EPDeviceTarget(ep=ep, device=device, source=target.source)
 
 
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
-    """Mock device/EP resolution to avoid hardware detection.
+    """Mock device resolution helpers and WinMLEPRegistry to avoid hardware detection.
 
-    The build command calls ``resolve_device`` / ``resolve_eps`` to auto-select
-    an EP when ``--ep`` is not specified, and ``resolve_check_device_ep`` (via
-    ``resolve_quant_compile_config``) when ``--device`` is explicit. All three
-    must be mocked to avoid slow DLL scanning and WinML SDK discovery on CI
-    runners without WinML installed. ``WinMLEPRegistry.get_instance`` is also
-    patched defensively for any downstream code path that may touch it.
+    The build command calls auto_detect_device() / get_available_devices() for I/O
+    and resolve_device() for EP auto-selection (since #540). It also touches
+    WinMLEPRegistry.instance() when --ep is not specified. All must be
+    mocked to avoid slow DLL scanning and WinML SDK discovery on CI runners
+    without WinML installed.
     """
+
     mock_registry = MagicMock()
-    mock_registry.is_ep_available.return_value = False
+    mock_registry._discovered = []
+    mock_registry._entries_for.return_value = []
 
     with (
         patch(
-            "winml.modelkit.sysinfo.resolve_device",
-            return_value=("npu", ["npu", "gpu", "cpu"]),
+            "winml.modelkit.session.auto_detect_device",
+            return_value="npu",
         ),
         patch(
-            "winml.modelkit.sysinfo.resolve_eps",
-            side_effect=lambda device: list(_DEVICE_TO_EPS.get(device, [])),
+            "winml.modelkit.sysinfo.hardware.get_available_devices",
+            return_value=["npu", "gpu", "cpu"],
         ),
         patch(
-            "winml.modelkit.sysinfo.resolve_check_device_ep",
-            side_effect=_fake_resolve_check_device_ep,
+            "winml.modelkit.session.resolve_device",
+            side_effect=_fake_resolve_device,
         ),
         patch(
-            "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",
+            "winml.modelkit.session.ep_registry.WinMLEPRegistry.instance",
             return_value=mock_registry,
         ),
     ):
@@ -768,6 +765,26 @@ class TestBuildInvocation:
         assert result.exit_code == 0, f"Build failed: {result.output}"
         assert mock_build_api.called
 
+    def test_loaded_config_gets_default_export_compatibility(
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        from winml.modelkit.commands.build import build
+
+        result = runner.invoke(
+            build,
+            ["-c", str(sample_config_file), "-m", "test-model", "-o", str(tmp_path / "out")],
+            obj={"debug": False},
+        )
+        assert result.exit_code == 0, result.output
+
+        config = mock_build_api.call_args.kwargs["config"]
+        assert config.export is not None
+        assert config.export.compatibility.transformers_attention == "eager"
+
     def test_model_id_passed(
         self,
         runner: CliRunner,
@@ -1110,6 +1127,70 @@ class TestBuildEpDevice:
         call_kwargs = mock_build_api.call_args.kwargs
         assert call_kwargs["device"] == "npu"
 
+    def test_auto_generated_config_leaves_export_policy_to_config_generation(
+        self,
+        runner: CliRunner,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        from winml.modelkit.commands.build import build
+        from winml.modelkit.config import WinMLBuildConfig
+
+        fake_cfg = WinMLBuildConfig.from_dict(
+            {
+                "loader": {"task": "image-classification"},
+                "export": {"opset_version": 17, "batch_size": 1},
+                "optim": {},
+                "quant": None,
+                "compile": None,
+            }
+        )
+        with patch(
+            "winml.modelkit.config.generate_build_config", return_value=fake_cfg
+        ) as mock_gen:
+            result = runner.invoke(
+                build,
+                ["-m", "microsoft/resnet-50", "-o", str(tmp_path), "--ep", "qnn"],
+                obj={"debug": False},
+            )
+
+            assert result.exit_code == 0, result.output
+            assert mock_gen.call_args.kwargs["device"] == "auto"
+            assert mock_gen.call_args.kwargs["ep"] == "qnn"
+            assert mock_gen.call_args.kwargs["export_policy_target"] == ("auto", "qnn")
+
+    def test_auto_generated_config_uses_portable_export_policy_when_no_target_supplied(
+        self,
+        runner: CliRunner,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        from winml.modelkit.commands.build import build
+        from winml.modelkit.config import WinMLBuildConfig
+
+        fake_cfg = WinMLBuildConfig.from_dict(
+            {
+                "loader": {"task": "image-classification"},
+                "export": {"opset_version": 17, "batch_size": 1},
+                "optim": {},
+                "quant": None,
+                "compile": None,
+            }
+        )
+        with patch(
+            "winml.modelkit.config.generate_build_config", return_value=fake_cfg
+        ) as mock_gen:
+            result = runner.invoke(
+                build,
+                ["-m", "microsoft/resnet-50", "-o", str(tmp_path)],
+                obj={"debug": False},
+            )
+
+            assert result.exit_code == 0, result.output
+            assert mock_gen.call_args.kwargs["device"] == "npu"
+            assert mock_gen.call_args.kwargs["ep"] == "QNNExecutionProvider"
+            assert mock_gen.call_args.kwargs["export_policy_target"] == ("auto", None)
+
     def test_input_specs_patches_config_file_inputs(
         self,
         runner: CliRunner,
@@ -1175,7 +1256,7 @@ class TestBuildEpAutoSelection:
     """Auto-select EP when --ep is omitted: resolve device -> first compatible EP.
 
     The selection result depends on the host's available devices/EPs at runtime,
-    so resolve_device / resolve_eps are mocked to give the test a known surface.
+    so ``resolve_device`` is mocked to return a concrete target.
     Regression: hardcoded ``[QNN, OV, VitisAI]`` walk used to pick OpenVINO on a
     GPU box if OV happened to be installed, leaving black nodes that blocked a
     subsequent build for the actual device (issue #663).
@@ -1210,8 +1291,8 @@ class TestBuildEpAutoSelection:
         from winml.modelkit.commands.build import build
 
         with patch(
-            "winml.modelkit.sysinfo.resolve_device",
-            return_value=("gpu", ["gpu", "cpu"]),
+            "winml.modelkit.session.resolve_device",
+            return_value=EPDeviceTarget(ep="DmlExecutionProvider", device="gpu"),
         ):
             result = runner.invoke(
                 build,
@@ -1241,8 +1322,8 @@ class TestBuildEpAutoSelection:
         from winml.modelkit.commands.build import build
 
         with patch(
-            "winml.modelkit.sysinfo.resolve_device",
-            return_value=("cpu", ["cpu"]),
+            "winml.modelkit.session.resolve_device",
+            return_value=EPDeviceTarget(ep="CPUExecutionProvider", device="cpu"),
         ):
             result = runner.invoke(
                 build,
@@ -1274,10 +1355,10 @@ class TestBuildEpAutoSelection:
         # resolve_device would point at gpu -> Dml, but --ep wins.
         with (
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("gpu", ["gpu", "cpu"]),
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="DmlExecutionProvider", device="gpu"),
             ),
-            patch("winml.modelkit.sysinfo.resolve_eps") as mock_resolve_eps,
+            patch("winml.modelkit.session.available_eps_for_device") as mock_resolve_eps,
         ):
             result = runner.invoke(
                 build,
@@ -1295,16 +1376,19 @@ class TestBuildEpAutoSelection:
         mock_build_api: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """resolve_check_device_ep raising (explicit device w/ no compatible EP) -> UsageError.
+        """resolve_device raising (explicit device w/ no compatible EP) -> UsageError.
 
         Uses default ``--device auto`` (no CLI flag) so the downstream
         device-patch path isn't triggered; the only resolution call is the
-        ``resolve_check_device_ep`` inside the auto-select block.
+        ``resolve_device`` inside the auto-select block. Note: the patched
+        symbol was ``resolve_check_device_ep`` prior to 3b3aaa84 which
+        replaced it with ``resolve_device``; the test was left pinning the
+        old symbol and silently stopped exercising the failure path.
         """
         from winml.modelkit.commands.build import build
 
         with patch(
-            "winml.modelkit.sysinfo.resolve_check_device_ep",
+            "winml.modelkit.session.resolve_device",
             side_effect=ValueError("simulated resolve failure"),
         ):
             result = runner.invoke(
@@ -1323,16 +1407,12 @@ class TestBuildEpAutoSelection:
         mock_build_api: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """First element of resolve_check_device_ep's available_eps is selected."""
+        """The concrete EP selected by ``resolve_device`` is forwarded."""
         from winml.modelkit.commands.build import build
 
         with patch(
-            "winml.modelkit.sysinfo.resolve_check_device_ep",
-            return_value=(
-                "gpu",
-                ["gpu", "cpu"],
-                ["DmlExecutionProvider", "OpenVINOExecutionProvider"],
-            ),
+            "winml.modelkit.session.resolve_device",
+            return_value=EPDeviceTarget(ep="DmlExecutionProvider", device="gpu"),
         ):
             result = runner.invoke(
                 build,
@@ -1971,6 +2051,33 @@ class TestBuildEpResolution:
         assert result.exit_code == 0, result.output
         assert mock_gen.call_args.kwargs["ep"] == "openvino"
 
+    def test_auto_config_uses_resolved_runtime_target_for_build_policy(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ) -> None:
+        """Auto-generated configs use runtime target while export policy keeps request."""
+        fake_cfg = MagicMock()
+        fake_cfg.compile = None
+        fake_cfg.validate.return_value = None
+        fake_cfg.loader = MagicMock()
+        fake_cfg.loader.task = "image-classification"
+        resolved_target = EPDeviceTarget(ep="DmlExecutionProvider", device="gpu")
+
+        with (
+            patch("winml.modelkit.session.resolve_device", return_value=resolved_target),
+            patch("winml.modelkit.config.generate_build_config", return_value=fake_cfg) as mock_gen,
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = _invoke(["-m", "microsoft/resnet-50", "-o", str(tmp_path / "out")])
+
+        assert result.exit_code == 0, result.output
+        kwargs = mock_gen.call_args.kwargs
+        assert kwargs["device"] == "gpu"
+        assert kwargs["ep"] == "DmlExecutionProvider"
+        assert kwargs["export_policy_target"] == ("auto", None)
+
     def test_export_overrides_forwarded_to_generate_build_config(
         self, tmp_path: Path, mock_run_single_build: MagicMock
     ):
@@ -2055,6 +2162,91 @@ class TestBuildEpResolution:
         assert mock_gen.call_count == 1
         assert mock_gen.call_args.kwargs["onnx_path"] == str(onnx_file)
 
+    def test_explicit_device_preserves_quant_for_raw_skip_optimize_config(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ) -> None:
+        from winml.modelkit.config import WinMLBuildConfig
+
+        cfg = WinMLBuildConfig.from_dict(
+            {
+                "loader": {"task": "text-generation"},
+                "export": {"opset_version": 18},
+                "optim": {},
+                "quant": {
+                    "mode": "static",
+                    "samples": 1,
+                    "task": "text-generation",
+                    "model_id": "Qwen/Qwen3-1.7B",
+                },
+                "compile": None,
+                "skip_optimize": True,
+            }
+        )
+
+        with (
+            patch("winml.modelkit.config.generate_build_config", return_value=cfg),
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = _invoke(
+                [
+                    "-m",
+                    "Qwen/Qwen3-1.7B",
+                    "-o",
+                    str(tmp_path / "out"),
+                    "--device",
+                    "npu",
+                    "--no-compile",
+                ]
+            )
+
+        assert result.exit_code == 0, result.output
+        assert mock_run_single_build.call_args.kwargs["config"].quant is not None
+
+    def test_explicit_device_populates_quant_for_raw_skip_optimize_config(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ) -> None:
+        from winml.modelkit.config import WinMLBuildConfig
+
+        cfg = WinMLBuildConfig.from_dict(
+            {
+                "loader": {"task": "text-generation"},
+                "export": {"opset_version": 18},
+                "optim": {},
+                "quant": None,
+                "compile": None,
+                "skip_optimize": True,
+            }
+        )
+
+        with (
+            patch("winml.modelkit.config.generate_build_config", return_value=cfg),
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = _invoke(
+                [
+                    "-m",
+                    "Qwen/Qwen3-1.7B",
+                    "-o",
+                    str(tmp_path / "out"),
+                    "--device",
+                    "npu",
+                    "--no-compile",
+                ]
+            )
+
+        assert result.exit_code == 0, result.output
+        patched = mock_run_single_build.call_args.kwargs["config"]
+        assert patched.skip_optimize is True
+        assert patched.quant is not None
+        assert patched.quant.task == "text-generation"
+        assert patched.quant.model_id == "Qwen/Qwen3-1.7B"
+
     def test_shape_config_rejected_for_onnx_input(
         self, tmp_path: Path, mock_run_single_build: MagicMock
     ):
@@ -2088,7 +2280,7 @@ class TestBuildOnnxPipelineRegressions:
     def test_pre_quantized_stamp_clears_quant_when_already_skip_optimize(
         self, tmp_path: Path
     ) -> None:
-        """skip_optimize is the pre-quantized invariant and must imply no quant."""
+        """Pre-quantized detection clears quant even when skip_optimize is already set."""
         from winml.modelkit.build.common import ensure_pre_quantized_stamped
         from winml.modelkit.config import WinMLBuildConfig
         from winml.modelkit.quant.config import WinMLQuantizationConfig
@@ -2098,18 +2290,18 @@ class TestBuildOnnxPipelineRegressions:
         config = WinMLBuildConfig(quant=WinMLQuantizationConfig())
         config.skip_optimize = True
 
-        ensure_pre_quantized_stamped(config, onnx_file)
+        with patch("winml.modelkit.build.common.is_quantized_onnx", return_value=True):
+            ensure_pre_quantized_stamped(config, onnx_file)
 
         assert config.skip_optimize is True
         assert config.quant is None
 
     @patch("winml.modelkit.quant.quantize_onnx")
-    def test_quantize_stage_skips_when_config_skip_optimize_is_set(
+    def test_quantize_stage_runs_when_raw_model_only_skips_optimize(
         self,
         mock_quantize: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """The quantize stage must not double-quantize pre-quantized inputs."""
         from winml.modelkit.commands.build import _run_quantize_stage
         from winml.modelkit.config import WinMLBuildConfig
         from winml.modelkit.quant.config import WinMLQuantizationConfig
@@ -2119,18 +2311,24 @@ class TestBuildOnnxPipelineRegressions:
         config = WinMLBuildConfig(quant=WinMLQuantizationConfig())
         config.skip_optimize = True
         timings: list[tuple[str, float | None]] = []
+        quantized_path = tmp_path / "quantized.onnx"
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.output_path = quantized_path
+        mock_result.errors = []
+        mock_quantize.return_value = mock_result
 
         result = _run_quantize_stage(
             config=config,
             current_path=input_path,
-            quantized_path=tmp_path / "quantized.onnx",
+            quantized_path=quantized_path,
             stage_timings=timings,
         )
 
-        assert result == input_path
-        assert config.quant is None
-        assert timings == []
-        mock_quantize.assert_not_called()
+        assert result == quantized_path
+        assert config.quant is not None
+        assert timings and timings[0][0] == "Quantize"
+        mock_quantize.assert_called_once()
 
     def test_pre_quantized_stamp_runs_before_optimize(self, tmp_path: Path) -> None:
         """_build_onnx_pipeline must stamp config before optimize/quantize stages.
@@ -2257,6 +2455,17 @@ class TestBuildComposite:
             if "task" in call.kwargs and call.kwargs["task"] is not None
         }
         assert component_tasks == set(components.values())
+        component_config_targets = {
+            call.kwargs["task"]: (
+                call.kwargs["device"],
+                call.kwargs["ep"],
+                call.kwargs["export_policy_target"],
+            )
+            for call in mock_gen_cfg.call_args_list
+            if "task" in call.kwargs and call.kwargs["task"] is not None
+        }
+        expected_target = ("npu", "QNNExecutionProvider", ("auto", None))
+        assert component_config_targets == dict.fromkeys(components.values(), expected_target)
 
     def test_composite_autogen_passes_task_none_to_resolver(
         self,

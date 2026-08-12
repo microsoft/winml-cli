@@ -31,6 +31,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from ..utils.constants import ACCELERATOR_DEVICE_TYPES
+
 
 if TYPE_CHECKING:
     from ..utils.constants import EPName
@@ -267,12 +269,14 @@ def resolve_adapter_luid(
         ORT nor the PDH fallback found a matching adapter.
     """
     kind = (device_kind or "").lower()
-    if kind not in ("npu", "gpu"):
+    if kind not in ACCELERATOR_DEVICE_TYPES:
         return None
 
-    luid = _resolve_via_ort(kind, ep_name)
+    luid, block_fallback = _resolve_via_ort(kind, ep_name)
     if luid is not None:
         return luid
+    if block_fallback:
+        return None
 
     # Fallback: PDH-only heuristic discovery.
     if kind == "npu":
@@ -280,33 +284,31 @@ def resolve_adapter_luid(
     return discover_gpu_luid()
 
 
-def _resolve_via_ort(kind: str, ep_name: EPName | None) -> str | None:
+def _resolve_via_ort(kind: str, ep_name: EPName | None) -> tuple[str | None, bool]:
     r"""Look up the adapter LUID through ORT's autoEP registry.
 
-    Returns None silently on any failure so callers can fall back. ORT-resolved
-    LUIDs are sanity-checked against :func:`enumerate_adapters` because some
-    EPs publish LUIDs that PDH doesn't expose under ``\GPU Engine`` (e.g.
-    drivers that register the adapter only for autoEP); using such a LUID
+    The second return value blocks heuristic fallback when ORT identifies
+    multiple matching adapters or its unique adapter is not monitorable via
+    PDH. ORT-resolved LUIDs are checked against :func:`enumerate_adapters`
+    because using an adapter that PDH doesn't expose under ``\GPU Engine``
     would later raise inside :func:`build_adapter_query`.
     """
     try:
         import onnxruntime as ort
     except ImportError:
-        return None
+        return None, False
 
     try:
         ep_devices = ort.get_ep_devices()
     except Exception:
         logger.debug("ort.get_ep_devices() failed", exc_info=True)
-        return None
+        return None, False
 
     target_type = getattr(ort.OrtHardwareDeviceType, "NPU" if kind == "npu" else "GPU", None)
     if target_type is None:
-        return None
+        return None, False
 
-    # Lazy PDH enumeration: only probe once, only if ORT yields a candidate.
-    # None = not yet probed; {} = enumeration failed (skip validation).
-    pdh_known: dict[str, AdapterInfo] | None = None
+    candidates: set[str] = set()
 
     for ep_dev in ep_devices:
         try:
@@ -326,26 +328,36 @@ def _resolve_via_ort(kind: str, ep_name: EPName | None) -> str | None:
         except (TypeError, ValueError):
             logger.debug("Unparseable LUID metadata: %r", decimal_luid)
             continue
-        if pdh_known is None:
-            try:
-                pdh_known = enumerate_adapters()
-            except Exception:
-                logger.debug("enumerate_adapters() failed; skipping LUID validation", exc_info=True)
-                pdh_known = {}
-        if pdh_known and formatted not in pdh_known:
-            logger.debug(
-                "ORT-resolved %s LUID %s not in PDH enumeration; skipping",
-                kind.upper(),
-                formatted,
-            )
-            continue
         logger.debug(
-            "Resolved %s LUID via ORT (ep=%s, ep_name=%s): %s",
+            "Candidate %s LUID via ORT (ep=%s, ep_name=%s): %s",
             kind.upper(),
             ep_dev.ep_name,
             ep_name,
             formatted,
         )
-        return formatted
+        candidates.add(formatted)
 
-    return None
+    if len(candidates) > 1:
+        logger.warning(
+            "Multiple %s adapters match effective EP %r; accelerator monitoring disabled",
+            kind.upper(),
+            ep_name,
+        )
+        return None, True
+    if not candidates:
+        return None, False
+
+    candidate = next(iter(candidates))
+    try:
+        pdh_known = enumerate_adapters()
+    except Exception:
+        logger.debug("enumerate_adapters() failed; adapter is not monitorable", exc_info=True)
+        return None, True
+    if candidate not in pdh_known:
+        logger.debug(
+            "ORT-resolved %s LUID %s not in PDH enumeration; adapter is not monitorable",
+            kind.upper(),
+            candidate,
+        )
+        return None, True
+    return candidate, False

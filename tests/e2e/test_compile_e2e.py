@@ -32,6 +32,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -63,6 +65,23 @@ PASSTHROUGH_EPS = ("cpu", "dml")
 def _invoke(*args: str) -> Result:
     """Run ``winml compile <args>`` through CliRunner."""
     return CliRunner().invoke(compile_cmd, list(args), obj={"debug": False})
+
+
+def _run_winml_cli_subprocess(
+    args: list[str],
+    *,
+    timeout: int = 600,
+) -> subprocess.CompletedProcess[str]:
+    """Run the real winml CLI entry point in a fresh Python process."""
+    return subprocess.run(  # noqa: S603 -- trusted args from the test body
+        [sys.executable, "-m", "winml.modelkit", *args],
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
 
 
 def _sha256(path: Path) -> str:
@@ -269,7 +288,7 @@ class TestCliSurface:
         assert "ort" in result.output.lower()
 
     def test_list_for_npu_includes_qairt(self) -> None:
-        require_ep("qnn")
+        require_ep("qnn", device="npu")
         result = _invoke("--list", "--device", "npu", "--ep", "qnn")
         assert result.exit_code == 0, result.output
         out = result.output.lower()
@@ -468,6 +487,41 @@ class TestValidate:
         assert _VALIDATE_LOG in lower, (
             f"Default validate should emit validation logs.\n{result.output}"
         )
+
+
+# ===========================================================================
+# Process exit cleanup — native ORT sessions are released before process teardown
+# ===========================================================================
+
+
+@pytest.mark.e2e
+class TestProcessExitCleanup:
+    def test_compile_validation_process_exits_cleanly_after_releasing_session(
+        self,
+        simple_matmul_onnx: Path,
+        tmp_path: Path,
+    ) -> None:
+        """Compile+validate in a subprocess exits 0 after native sessions are released."""
+        require_ep("qnn", device="npu")
+
+        out = tmp_path / "validated_process_exit.onnx"
+        proc = _run_winml_cli_subprocess(
+            [
+                "compile",
+                "-m",
+                str(simple_matmul_onnx),
+                "--ep",
+                "qnn",
+                "--device",
+                "npu",
+                "--validate",
+                "-o",
+                str(out),
+            ]
+        )
+
+        assert proc.returncode == 0, f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        assert_epcontext_artifact(out, simple_matmul_onnx, embed=False)
 
 
 # ===========================================================================
@@ -735,7 +789,8 @@ def test_good_input_compiles_and_runs(
     """Supported ``(device, ep)`` compiles to a real EPContext that ORT
     can load and run on the requested EP+device.
     """
-    require_ep(require_ep_name)
+    required_device = None if device in (None, "auto") else device
+    require_ep(require_ep_name, device=required_device)
     # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
     require_not_ep("vitisai")
 
@@ -854,17 +909,20 @@ _EP_NOT_REGISTERED_PARAMS = [(ep, EP_DEVICE_SUPPORT[ep][0]) for ep in _EPCONTEXT
 @pytest.mark.e2e
 @pytest.mark.parametrize("ep,device", _EP_NOT_REGISTERED_PARAMS)
 def test_bad_input_ep_not_registered(ep: str, device: str, simple_matmul_onnx: Path) -> None:
-    """``--ep X`` on a host without X is rejected.
+    """``--ep X`` on a host where X is unusable is rejected.
 
-    With the EP unavailable on host, ``sysinfo``'s device-resolution
-    preflight raises ``ValueError`` ("Requested EP 'X' is not available
-    on this system"), which the ``compile`` command converts to a
-    ``UsageError`` at the CLI boundary.
+    The registry raises either ``WinMLEPNotDiscovered`` when no source exists
+    or ``WinMLEPRegistrationFailed`` when discovered sources cannot load.
     """
     require_not_ep(ep)
     src_hash = _sha256(simple_matmul_onnx)
     result = _invoke("-m", str(simple_matmul_onnx), "--device", device, "--ep", ep)
-    _assert_rejected(result, "is not available on this system", src_hash, simple_matmul_onnx)
+    _assert_rejected(
+        result,
+        ("No EPEntry discovered", "No compatible source"),
+        src_hash,
+        simple_matmul_onnx,
+    )
 
 
 @pytest.mark.e2e

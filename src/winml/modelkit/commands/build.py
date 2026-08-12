@@ -39,6 +39,7 @@ from ..utils.console import (
 )
 from ..utils.logging import configure_logging
 from ..utils.model_input import ModelInputKind, classify_model_input
+from ._ep_arg import EpAtSourceParamType
 
 
 if TYPE_CHECKING:
@@ -307,12 +308,14 @@ def _validate_task_supported_for_model(
         ValueError: If the task is not supported for the model architecture.
     """
     from ..export.io import ensure_hf_models_registered
+    from ..loader import load_hf_config
     from ..loader.task import TASK_SYNONYM_EXTENSIONS, get_supported_tasks, normalize_task
 
     if hf_config is None:
         from transformers import AutoConfig
 
-        hf_config = AutoConfig.from_pretrained(
+        hf_config = load_hf_config(
+            AutoConfig,
             model_id,
             trust_remote_code=trust_remote_code,
         )
@@ -491,7 +494,7 @@ def _resolve_optimized_target(
     otherwise the optimized export is unavailable for that ``(ep, device)`` and a
     fail-fast error names it ("what you see is what you get").
     """
-    from .. import sysinfo
+    from ..session import EPDeviceTarget, resolve_device
     from ..utils.constants import normalize_ep_name
 
     resolved_device = device.lower()
@@ -500,7 +503,7 @@ def _resolve_optimized_target(
         # that EP the same way the generic path would (a missing accelerator
         # raises, surfaced as a UsageError).
         try:
-            resolved_device, _ = sysinfo.resolve_device(device, ep=ep)
+            resolved_device = resolve_device(EPDeviceTarget(ep=ep or "auto", device="auto")).device
         except ValueError as e:
             raise click.UsageError(str(e)) from e
 
@@ -605,10 +608,14 @@ def _maybe_build_genai_bundle(
 
         device_target = device.lower()
         if device_target == "auto":
-            from .. import sysinfo
+            from ..session import EPDeviceTarget, resolve_device
 
             try:
-                device_target, _ = sysinfo.resolve_device(device, ep=ep)
+                # ep is guaranteed non-None here: the normalize_ep_name(ep) ==
+                # "QNNExecutionProvider" check above returns False for a None ep.
+                device_target = resolve_device(
+                    EPDeviceTarget(ep=cast("str", ep), device="auto")
+                ).device
             except ValueError:
                 return False
         if device_target != "npu":
@@ -703,7 +710,7 @@ def _maybe_build_genai_bundle(
 # =============================================================================
 
 
-@click.command("build")
+@click.command("build", short_help="Build a WinML-optimized ONNX model from HuggingFace or ONNX.")
 @click.option(
     "-c",
     "--config",
@@ -725,17 +732,10 @@ def _maybe_build_genai_bundle(
     default=None,
     help="Output directory for all build artifacts",
 )
-@click.option(
-    "--use-cache/--no-use-cache",
-    default=False,
-    show_default=True,
-    help="Use WinML CLI global cache (~/.cache/winml/). Mutually exclusive with -o.",
-)
-@click.option(
-    "--rebuild/--no-rebuild",
-    default=False,
-    show_default=True,
-    help="Overwrite existing artifacts and rebuild",
+@cli_utils.cache_options(
+    use_cache_default=False,
+    use_cache_help="Use WinML CLI global cache (~/.cache/winml/). Mutually exclusive with -o.",
+    rebuild_help="Overwrite existing artifacts and rebuild",
 )
 @cli_utils.quant_option()
 @cli_utils.compile_option(
@@ -744,9 +744,13 @@ def _maybe_build_genai_bundle(
     "--no-compile forces skip. Default: inherit from config; when auto-generating "
     "config (no -c), compilation is off unless --compile is passed.",
 )
-@cli_utils.ep_option(
-    required=False,
-    optional_message="Falls back to compile config EP if not set.",
+@click.option(
+    "--ep",
+    "ep",
+    type=EpAtSourceParamType(),
+    default=None,
+    help="Force specific execution provider (falls back to compile config EP if not set). "
+    "The ``<ep>@<source>`` form is not yet supported on the build path — pass a bare EP name.",
 )
 @cli_utils.device_option(
     required=False,
@@ -810,7 +814,7 @@ def build(
     quant: bool,
     no_compile: bool | None,
     optimize: bool,
-    ep: EPNameOrAlias | None,
+    ep: tuple[str, str | None] | None,
     device: str,
     precision: str,
     export_type: str,
@@ -875,6 +879,21 @@ def build(
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
 
+    # --ep arrives pre-split as (ep, source) or None thanks to
+    # EpAtSourceParamType. build.py doesn't yet honor source pinning
+    # (its pipeline takes a bare EP short-name); _reject_ep_source raises
+    # at the CLI boundary if @<source> was given, else returns the bare
+    # ep short name (or None when --ep was not supplied).
+    from ._ep_arg import _reject_ep_source
+
+    # --ep is delivered by EpAtSourceParamType as a ``(ep, source) | None`` tuple
+    # at the click boundary (the parameter's declared alias type does not capture
+    # the raw click shape). _reject_ep_source collapses it back to the bare EP
+    # short-name the downstream pipeline expects.
+    ep_value = cast(
+        "EPNameOrAlias | None",
+        _reject_ep_source(ep, "winml build"),
+    )
     # Validate mutual exclusion
     if output_dir and use_cache:
         raise click.UsageError("--output-dir and --use-cache are mutually exclusive.")
@@ -906,31 +925,6 @@ def build(
         dynamic_axes=dynamic_axes,
     )
 
-    # If ep unspecified, resolve the target device and pick the highest-priority
-    # EP compatible with it. Avoids selecting an EP that does not match the host
-    # hardware -- analyzing for the wrong EP leaves black nodes that block a
-    # later build targeting the actual device (#663).
-    #
-    # resolve_check_device_ep() either returns a device with >=1 available EP
-    # (auto-mode walks the priority list, falls back to cpu which is always
-    # valid), or raises ValueError for an explicit device with no compatible EP.
-    # So the following available_eps[0] is safe whenever it returns.
-    #
-    # ``--export-type optimized`` resolves the target the same way the generic
-    # build does (explicit ``--ep``/``--device`` or the hardware probe below),
-    # then errors if the recipe has no matching target -- so the optimized bundle
-    # is built for the hardware the user is actually on.
-    if ep is None:
-        from ..sysinfo import resolve_check_device_ep
-
-        try:
-            resolved_device, _, available_eps = resolve_check_device_ep(device=device, ep=ep)
-        except ValueError as e:
-            raise click.UsageError(str(e)) from e
-        device = resolved_device
-        ep = available_eps[0]
-        logger.info("Auto-resolved device=%s, EP=%s", resolved_device, ep)
-
     try:
         # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
         # is downloaded once and treated as a local .onnx file thereafter.
@@ -941,6 +935,21 @@ def build(
                 model_input = classify_model_input(model)
                 if model_input.kind is ModelInputKind.INVALID:
                     raise click.UsageError(model_input.error or f"Invalid model input: {model}")
+
+        request_device = device
+        request_ep_value = ep_value
+        runtime_device = request_device
+        runtime_ep_value = request_ep_value
+        if runtime_ep_value is None:
+            from ..session import EPDeviceTarget, resolve_device
+
+            try:
+                resolved_target = resolve_device(EPDeviceTarget(ep="auto", device=runtime_device))
+            except ValueError as e:
+                raise click.UsageError(str(e)) from e
+            runtime_device = resolved_target.device
+            runtime_ep_value = cast("EPNameOrAlias", resolved_target.ep)
+            logger.info("Auto-resolved device=%s, EP=%s", runtime_device, runtime_ep_value)
 
         # Load or auto-generate config
         if config_file is not None:
@@ -973,6 +982,9 @@ def build(
                     ]
                 else:
                     config_or_configs = merge_export_overrides(config_or_configs, export_overrides)
+            from ..config.build import apply_export_compatibility_policy
+
+            apply_export_compatibility_policy(config_or_configs, device=device, ep=ep_value)
         else:
             if not model:
                 raise click.UsageError("-m/--model is required when -c is not provided.")
@@ -997,17 +1009,18 @@ def build(
                     )
                 config_or_configs = generate_build_config(
                     onnx_path=model,
-                    device=device,
+                    device=runtime_device,
                     precision=precision,
-                    ep=ep,
+                    ep=runtime_ep_value,
                 )
             else:
                 config_or_configs = generate_build_config(
                     model,
                     trust_remote_code=trust_remote_code,
-                    device=device,
+                    device=runtime_device,
                     precision=precision,
-                    ep=ep,
+                    ep=runtime_ep_value,
+                    export_policy_target=(request_device, request_ep_value),
                     shape_config=shape_overrides,
                     override={"export": export_overrides} if export_overrides else None,
                 )
@@ -1024,14 +1037,22 @@ def build(
         # to honor the requested policy. fp16/fp32 clear quant; npu/int8 etc set it.
         if cli_utils.is_cli_provided(ctx, "device") or cli_utils.is_cli_provided(ctx, "precision"):
             from ..compiler.configs import WinMLCompileConfig
+            from ..onnx import is_quantized_onnx
+
+            is_pre_quantized_onnx_input = (
+                model_input is not None
+                and model_input.kind is ModelInputKind.ONNX_FILE
+                and model is not None
+                and is_quantized_onnx(Path(model))
+            )
 
             def _patch_device(cfg: WinMLBuildConfig) -> None:
                 from ..config import resolve_quant_compile_config
 
                 resolved_quant, _ = resolve_quant_compile_config(
-                    device=device, precision=precision, ep=ep
+                    device=runtime_device, precision=precision, ep=runtime_ep_value
                 )
-                if cfg.skip_optimize or not quant or resolved_quant is None:
+                if not quant or resolved_quant is None or is_pre_quantized_onnx_input:
                     cfg.quant = None
                 elif cfg.quant is None:
                     # Populate calibration identifiers from the loader/model
@@ -1057,7 +1078,7 @@ def build(
                     cfg.precision = precision.lower()  # type: ignore[attr-defined]
                 if cfg.compile is not None and cfg.compile.ep_config is not None:
                     provider = cfg.compile.ep_config.provider
-                    patched = WinMLCompileConfig.for_provider(provider, device=device)
+                    patched = WinMLCompileConfig.for_provider(provider, device=runtime_device)
                     if patched is not None:
                         cfg.compile = patched
 
@@ -1126,8 +1147,8 @@ def build(
             preloaded_hf_config=preloaded_hf_config,
             output_dir=output_dir,
             use_cache=use_cache,
-            device=device,
-            ep=ep,
+            device=runtime_device,
+            ep=runtime_ep_value,
             precision=precision,
             rebuild=rebuild,
             submodel=submodel,
@@ -1174,8 +1195,8 @@ def build(
                 configs=configs,
                 output_dir=resolved_dir,
                 rebuild=rebuild,
-                ep=ep,
-                device=device,
+                ep=runtime_ep_value,
+                device=runtime_device,
                 allow_unsupported_nodes=allow_unsupported_nodes,
             )
 
@@ -1320,9 +1341,10 @@ def build(
                             model,
                             task=component_task,
                             trust_remote_code=trust_remote_code,
-                            device=device,
+                            device=runtime_device,
                             precision=precision,
-                            ep=ep,
+                            ep=runtime_ep_value,
+                            export_policy_target=(request_device, request_ep_value),
                             shape_config=shape_overrides,
                             override={"export": export_overrides} if export_overrides else None,
                         )
@@ -1383,8 +1405,8 @@ def build(
                             resolved_dir=resolved_dir,
                             rebuild=rebuild,
                             cache_key=name,
-                            ep=ep,
-                            device=device,
+                            ep=runtime_ep_value,
+                            device=runtime_device,
                             extra_kwargs=dict(extra_kwargs),
                             preloaded_hf_config=preloaded_hf_config,
                         )
@@ -1401,8 +1423,8 @@ def build(
                     resolved_dir=resolved_dir,
                     rebuild=rebuild,
                     cache_key=cache_key,
-                    ep=ep,
-                    device=device,
+                    ep=runtime_ep_value,
+                    device=runtime_device,
                     extra_kwargs=extra_kwargs,
                     preloaded_hf_config=preloaded_hf_config,
                 )
@@ -1625,8 +1647,6 @@ def _run_optimize_stage(
         show_io_first: If True, show I/O tensors at the start of the stage
             (used in ONNX mode where there is no export stage).
         skip_optimize: When True, skip the ORT graph-optimization pass.
-            Used for pre-quantized models (QDQ or QOperator format) whose
-            integer ops have no kernel on the host EP.
 
     Returns:
         Tuple of (current_path, opt_elapsed).
@@ -1657,15 +1677,17 @@ def _run_optimize_stage(
             _header_shown[0] = False
 
         # Resolve "auto" to a concrete device once so that has_rule_data_for_ep
-        # doesn't search for non-existent "*_AUTO_*.parquet" files. Use
-        # resolve_check_device_ep so an explicit device+ep is validated
-        # statically (no availability cross-check): a --no-compile build may
-        # target a device absent on this machine (cross-compile), and this call
-        # only needs a concrete device name for the rule-data lookup.
+        # doesn't search for non-existent "*_AUTO_*.parquet" files. Uses the
+        # session resolver (catalog-based, no ORT-availability requirement) so
+        # a --no-compile cross-compile build targeting a device absent on this
+        # machine still gets a concrete device name for the rule-data lookup.
         from ..analyze.utils.ep_utils import has_rule_data_for_ep
-        from ..sysinfo import resolve_check_device_ep
+        from ..session import EPDeviceTarget
+        from ..session import resolve_device as _resolve_device
 
-        _resolved_device, _, _ = resolve_check_device_ep(device=device or "auto", ep=ep)
+        _resolved_device = _resolve_device(
+            EPDeviceTarget(ep=ep or "auto", device=device or "auto")
+        ).device
 
         def _on_ep_start(ep_name: EPName, operator_counts: dict) -> None:
             nonlocal _current_ep
@@ -1778,10 +1800,6 @@ def _run_quantize_stage(
     """
     from ..quant import quantize_onnx
     from ..utils.console import StageLive
-
-    if config.skip_optimize:
-        config.quant = None
-        return current_path
 
     if config.quant is None:
         # ``generate_onnx_build_config`` and ``ensure_pre_quantized_stamped``
@@ -2159,14 +2177,6 @@ def _build_onnx_pipeline(
     # run on integer ops and the quantize stage may try to re-quantize.
     ensure_pre_quantized_stamped(config, current_path)
 
-    # Pre-quantized models (QDQ or QOperator format) cannot pass through
-    # ORT-based graph optimization on hosts that lack kernels for ops like
-    # ``ConvInteger``. The unified pipeline stamps ``config.skip_optimize``
-    # exactly once in ``generate_onnx_build_config`` -- downstream stages
-    # (here and inside ``build_onnx_model``) read the flag instead of
-    # re-running ``is_quantized_onnx`` on the same file.
-    is_pre_quantized = config.skip_optimize
-
     # ── Optimize stage (first stage for ONNX — show I/O here) ────
     current_path, _ = _run_optimize_stage(
         config=config,
@@ -2179,7 +2189,7 @@ def _build_onnx_pipeline(
         show_io_first=True,
         analyze_output_path=analyze_result_path,
         allow_unsupported_nodes=allow_unsupported_nodes,
-        skip_optimize=is_pre_quantized,
+        skip_optimize=config.skip_optimize,
     )
 
     config_path.write_text(json.dumps(config.to_dict(), indent=2))

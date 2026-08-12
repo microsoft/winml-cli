@@ -8,11 +8,13 @@ Verifies that MatMulAdd and ReshapeGemmReshape patterns do not cross-match.
 """
 
 import numpy as np
+import pytest
 
 from winml.modelkit.pattern import (
     MatMulAddPattern,
     PatternMatcher,
     ReshapeGemmReshapePattern,
+    get_pattern_input_generator,
 )
 
 from .conftest import TEST_DOMAIN_VERSIONS
@@ -81,3 +83,34 @@ class TestGemmFamilyCrossMatching:
         ]
         assert len(matmuladd_matches2) == 0
         assert len(reshape_matches2) == 1
+
+
+class TestGemmBiasConstraintDerivation:
+    """Regression tests for scalar-vs-vector Gemm bias constraint derivation."""
+
+    @pytest.mark.parametrize(
+        ("c_properties", "expected_is_value_constraint"),
+        [
+            ({"C_shape": (), "C_value": np.array(0.0, dtype=np.float32)}, True),
+            ({"C_shape": (5,), "C_value": np.zeros((5,), dtype=np.float32)}, False),
+            ({"C_shape": (1, 5), "C_value": np.zeros((1, 5), dtype=np.float32)}, False),
+            ({"C_value": None}, False),
+        ],
+    )
+    def test_c_is_value_constraint_scalar_only(
+        self,
+        c_properties: dict[str, object],
+        expected_is_value_constraint: bool,
+    ) -> None:
+        """C_is_value_constraint should be true only for scalar literal constraints."""
+        generator_class = get_pattern_input_generator("ReshapeGemmReshapePattern")
+        generator = generator_class(domain_versions=TEST_DOMAIN_VERSIONS)
+
+        properties = {
+            "A_shape": (3, 4),
+            "B_shape": (4, 5),
+            **c_properties,
+        }
+
+        derived = generator.derive_properties(properties)
+        assert derived["C_is_value_constraint"] is expected_is_value_constraint

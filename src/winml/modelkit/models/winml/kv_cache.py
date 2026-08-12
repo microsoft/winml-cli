@@ -52,6 +52,18 @@ if TYPE_CHECKING:
     import torch
     from optimum.utils import NormalizedConfig
     from transformers import PretrainedConfig
+    from transformers.cache_utils import CacheLayerMixin
+
+
+def _as_static_dim(value: Any) -> Any:
+    """Normalize a (possibly traced) shape value to Python ``int``/``list[int]``.
+
+    ``Tensor.size(dim)`` returns a 0-dim tensor while TorchScript tracing, which
+    breaks callers that type-check for ``int``.
+    """
+    if isinstance(value, (list, tuple)):
+        return [int(item) for item in value]
+    return int(value)
 
 
 # =============================================================================
@@ -87,6 +99,46 @@ class WinMLCache(StaticCache, ABC):
         #: New-token KV captured during ``update()``, keyed by layer index.
         #: Export wrappers read ``captured[i]`` to build ONNX present outputs.
         self.captured: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
+        self._trace_position: torch.Tensor | None = None
+
+    def _layer(self, idx: int) -> CacheLayerMixin:
+        """Narrow ``self.layers[idx]`` to ``CacheLayerMixin`` for type checkers.
+
+        ``Cache.layers`` is typed as a union with ``LinearAttentionCacheLayerMixin``
+        (which lacks ``keys``/``values``), but ``StaticCache`` always builds
+        ``CacheLayerMixin`` (``StaticLayer``) layers, so this cast is sound.
+        """
+        return cast("CacheLayerMixin", self.layers[idx])
+
+    def set_trace_position(self, position: torch.Tensor) -> None:
+        """Provide the position tensor when a model omits cache update kwargs."""
+        self._trace_position = position
+
+    def early_initialization(
+        self,
+        batch_size: int,
+        num_heads: int | list[int],
+        head_dim: int | list[int],
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> None:
+        """Initialize all layers, accepting traced 0-dim tensors as dimensions.
+
+        Export wrappers derive ``batch_size``/``num_heads``/``head_dim`` from
+        the past-KV graph inputs via ``Tensor.size(dim)``. Under the
+        TorchScript tracer used by ``torch.onnx.export`` that call returns a
+        0-dim tensor instead of an ``int``, so the upstream implementation
+        skips its ``isinstance(..., int)`` broadcast and then calls ``len()``
+        on the value, which fails. These dimensions are static for an exported
+        graph, so normalize them back to Python ints before delegating.
+        """
+        super().early_initialization(
+            batch_size=_as_static_dim(batch_size),
+            num_heads=_as_static_dim(num_heads),
+            head_dim=_as_static_dim(head_dim),
+            dtype=dtype,
+            device=device,
+        )
 
     # ----- Interface for WinMLEncoderDecoderModel.forward -----
 
@@ -160,8 +212,8 @@ class WinMLCache(StaticCache, ABC):
         for i in range(self.num_layers):
             # keys/values are typed Tensor | None (None only pre-init); here the
             # cache is always initialized, so narrow to Tensor.
-            cast("torch.Tensor", self.layers[i].keys).zero_()
-            cast("torch.Tensor", self.layers[i].values).zero_()
+            cast("torch.Tensor", self._layer(i).keys).zero_()
+            cast("torch.Tensor", self._layer(i).values).zero_()
 
     @classmethod
     def create(
@@ -218,14 +270,16 @@ class WinMLStaticCache(WinMLCache):
         import torch
 
         self.captured[layer_idx] = (key_states, value_states)
-        if cache_kwargs is None:
+        cache_position = cache_kwargs.get("cache_position") if cache_kwargs is not None else None
+        if cache_position is None:
+            cache_position = self._trace_position
+        if cache_position is None:
             raise ValueError("update() requires cache_kwargs with 'cache_position'")
-        cache_position = cache_kwargs["cache_position"]
 
         # keys/values are typed Tensor | None (None only pre-init); the cache is
         # always initialized before update(), so narrow to Tensor.
-        k_out = cast("torch.Tensor", self.layers[layer_idx].keys)
-        v_out = cast("torch.Tensor", self.layers[layer_idx].values)
+        k_out = cast("torch.Tensor", self._layer(layer_idx).keys)
+        v_out = cast("torch.Tensor", self._layer(layer_idx).values)
 
         bsz, n_heads, n_new, _ = key_states.shape
         bi = torch.arange(bsz, device=k_out.device).view(bsz, 1, 1).expand(bsz, n_heads, n_new)
@@ -252,6 +306,12 @@ class WinMLStaticCache(WinMLCache):
         """Buffer index == sequence position for static cache: ``[step..step+N)``."""
         import torch
 
+        end = self.step + num_new_tokens
+        if end > max_len:
+            raise ValueError(
+                f"Static KV cache capacity {max_len} exceeded: "
+                f"step {self.step} + {num_new_tokens} new token(s)."
+            )
         return torch.arange(self.step, self.step + num_new_tokens, dtype=torch.int64)
 
     def prepare_prefill_chunk(
@@ -307,15 +367,15 @@ class WinMLSlidingWindowCache(WinMLCache):
         n = key_states.size(2)
         # keys/values are typed Tensor | None (None only pre-init); the cache is
         # always initialized before update(), so narrow to Tensor.
-        cur_k = cast("torch.Tensor", self.layers[layer_idx].keys)
-        cur_v = cast("torch.Tensor", self.layers[layer_idx].values)
+        cur_k = cast("torch.Tensor", self._layer(layer_idx).keys)
+        cur_v = cast("torch.Tensor", self._layer(layer_idx).values)
         old_k = cur_k[:, :, n:, :]
         new_k = torch.cat([old_k, key_states], dim=2)
-        self.layers[layer_idx].keys = new_k
+        self._layer(layer_idx).keys = new_k
 
         old_v = cur_v[:, :, n:, :]
         new_v = torch.cat([old_v, value_states], dim=2)
-        self.layers[layer_idx].values = new_v
+        self._layer(layer_idx).values = new_v
 
         return new_k, new_v
 
@@ -366,7 +426,7 @@ class WinMLSlidingWindowCache(WinMLCache):
 
     def get_seq_length(self, layer_idx: int = 0) -> int:
         """Filled positions: ``min(step, max_cache_len)``."""
-        max_len = cast("torch.Tensor", self.layers[layer_idx].keys).shape[2]
+        max_len = cast("torch.Tensor", self._layer(layer_idx).keys).shape[2]
         return min(self.step, max_len)
 
 

@@ -2,10 +2,39 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+import logging
 import re
 from enum import Enum
 
 from .helper import CimInstance, PnpDevice
+
+
+logger = logging.getLogger(__name__)
+
+
+def get_available_devices() -> list[str]:
+    """Prioritized list of device categories present on this host (via WMI).
+
+    Priority: NPU > GPU > CPU. Always includes "cpu" as fallback.
+    Returns category strings ("npu", "gpu", "cpu"), not hardware instances —
+    use ``NPU.get_all()`` / ``GPU.get_all()`` for instance-level inventory.
+    """
+    devices: list[str] = []
+
+    try:
+        if NPU.get_all():
+            devices.append("npu")
+    except Exception:
+        logger.warning("NPU detection failed or unavailable; continuing without NPU", exc_info=True)
+
+    try:
+        if GPU.get_all():
+            devices.append("gpu")
+    except Exception:
+        logger.warning("GPU detection failed or unavailable; continuing without GPU", exc_info=True)
+
+    devices.append("cpu")  # CPU always available
+    return devices
 
 
 def get_vendor_id_device_id_from_pnp_id(pnp_id: str) -> tuple[int, int]:
@@ -19,6 +48,14 @@ def get_vendor_id_device_id_from_pnp_id(pnp_id: str) -> tuple[int, int]:
         vendor_id = int.from_bytes(id_segment[0:4].encode("ascii"), byteorder="little")
         # last four chars memcpy to a uint32_t
         device_id = int.from_bytes(id_segment[4:].encode("ascii"), byteorder="little")
+        return vendor_id, device_id
+
+    # Some NVIDIA GPUs are exposed via ACPI IDs without VEN_/DEV_ tokens
+    # (e.g., "ACPI\\NVDA200A\\0"). Parse the NVDA tag directly.
+    acpi_nvda_match = re.search(r"^ACPI\\NVDA([0-9A-Fa-f]{4})(?:\\|$)", pnp_id)
+    if acpi_nvda_match is not None:
+        vendor_id = 0x10DE
+        device_id = int(acpi_nvda_match.group(1), 16)
         return vendor_id, device_id
 
     vendor_id_str_groups = re.search(r"VEN_([0-9A-Za-z]+)", pnp_id)

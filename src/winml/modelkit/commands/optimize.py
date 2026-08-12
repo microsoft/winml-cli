@@ -27,6 +27,8 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 import click
 from rich.console import Console
+from rich.markup import escape
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn
 
 from ..onnx import load_onnx, save_onnx
 from ..utils import cli as cli_utils
@@ -151,6 +153,152 @@ def capability_options(func: F) -> F:
     return func
 
 
+def _render_check_optim(console: Console, findings: list[Any], verbose: bool) -> None:
+    """Render the applicability report produced by a ``--check-optim`` probe.
+
+    Args:
+        console: Rich console for output.
+        findings: Applicable ``CapabilityFinding`` objects in pipeline order.
+        verbose: When True, list every affected node instead of a sample.
+    """
+    if not findings:
+        console.print("\n[yellow]No registered optimizations would change this model.[/yellow]")
+        return
+
+    console.print(f"\n[bold]{len(findings)} applicable optimization(s):[/bold]\n")
+
+    sample_limit = 6
+    for finding in findings:
+        console.print(
+            f"[bold green]{finding.enable_flag}[/bold green]  [dim]({finding.category})[/dim]"
+        )
+        console.print(f"  {escape(finding.description)}")
+
+        segments: list[str] = []
+        if finding.removed_nodes:
+            segments.append(f"[red]-{len(finding.removed_nodes)}[/red]")
+        if finding.added_nodes:
+            segments.append(f"[green]+{len(finding.added_nodes)}[/green]")
+        if finding.modified_nodes:
+            segments.append(f"[yellow]~{len(finding.modified_nodes)}[/yellow]")
+        if segments:
+            console.print(f"  nodes: {' '.join(segments)}")
+
+        for kind, nodes in (
+            ("removed", finding.removed_nodes),
+            ("added", finding.added_nodes),
+            ("modified", finding.modified_nodes),
+        ):
+            if not nodes:
+                continue
+            histogram = ", ".join(
+                f"{escape(op)} ({count})" for op, count in finding.op_histogram(kind)
+            )
+            console.print(f"    {kind}: {histogram}")
+            shown = nodes if verbose else nodes[:sample_limit]
+            for node in shown:
+                console.print(f"      [dim]- {escape(node.label())}[/dim]")
+            if not verbose and len(nodes) > sample_limit:
+                console.print(f"      [dim]… and {len(nodes) - sample_limit} more (use -v)[/dim]")
+
+        const_segments: list[str] = []
+        if finding.modified_initializers:
+            const_segments.append(f"[yellow]~{len(finding.modified_initializers)}[/yellow]")
+        if finding.added_initializers:
+            const_segments.append(f"[green]+{len(finding.added_initializers)}[/green]")
+        if finding.removed_initializers:
+            const_segments.append(f"[red]-{len(finding.removed_initializers)}[/red]")
+        if const_segments:
+            console.print(f"  constants: {' '.join(const_segments)}")
+            touched = (
+                finding.modified_initializers
+                + finding.added_initializers
+                + finding.removed_initializers
+            )
+            shown_inits = touched if verbose else touched[:sample_limit]
+            for name in shown_inits:
+                console.print(f"      [dim]- {escape(name)}[/dim]")
+            if not verbose and len(touched) > sample_limit:
+                console.print(f"      [dim]… and {len(touched) - sample_limit} more (use -v)[/dim]")
+
+        console.print()
+
+    console.print(
+        "[dim]Enable any of the above with its --enable-* flag "
+        "(dependencies are auto-enabled).[/dim]"
+    )
+
+
+def _resolve_optimization_target(ep: str | None, device: str | None) -> tuple[Any, Any]:
+    """Resolve an explicit optimization EP/device request."""
+    from ..session import (
+        EPDeviceTarget,
+        WinMLEPRegistry,
+        resolve_device,
+    )
+
+    target = resolve_device(EPDeviceTarget(ep=ep or "auto", device=(device or "auto").lower()))
+    return target, WinMLEPRegistry.instance().auto_device(target)
+
+
+def _run_check_optim(
+    model: Path,
+    all_caps: dict[str, Any],
+    verbose: bool,
+    *,
+    target: Any | None = None,
+    ep_device: Any | None = None,
+) -> None:
+    """Probe which optimizations apply to the model and print a report.
+
+    No output file is written. Every boolean capability that is off by default
+    is evaluated independently against the model.
+
+    Args:
+        model: Path to the input ONNX model.
+        all_caps: The full capability registry.
+        verbose: Whether to show every affected node/constant.
+        target: Resolved EP/device target, if explicitly requested.
+        ep_device: Resolved runtime EP device used by each optimization probe.
+    """
+    from ..optim import BoolCapability, analyze_model
+
+    probe_count = sum(
+        1 for cap in all_caps.values() if isinstance(cap, BoolCapability) and not cap.default
+    )
+
+    console.print(f"[bold blue]Input:[/bold blue] {model}")
+    if target is not None:
+        console.print(f"[bold blue]Target:[/bold blue] {target.ep} on {target.device.upper()}")
+    console.print(
+        "[dim]--check-optim — analyzing applicable optimizations (no output written).[/dim]"
+    )
+    console.print("\n[bold]Loading model...[/bold]")
+    onnx_model = load_onnx(model)
+
+    console.print(
+        f"[bold]Probing {probe_count} optimization capabilities...[/bold] "
+        "[dim](this can take a while on large models)[/dim]"
+    )
+    with Progress(
+        TextColumn("[bold]Checking[/bold] [cyan]{task.description}[/cyan]"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        task_id = progress.add_task("preparing capabilities", total=probe_count)
+        findings = analyze_model(
+            onnx_model,
+            all_caps,
+            ep_device=ep_device,
+            on_probe_start=lambda name: progress.update(task_id, description=name),
+            on_probe_complete=lambda _: progress.advance(task_id),
+        )
+
+    _render_check_optim(console, findings, verbose)
+
+
 @click.command()
 @click.option(
     "--list-capabilities",
@@ -165,6 +313,13 @@ def capability_options(func: F) -> F:
     default=False,
     help="List available pattern rewrite families and exit",
 )
+@click.option(
+    "--check-optim",
+    is_flag=True,
+    default=False,
+    help="Analyze which optimizations apply to the model (and the nodes they "
+    "affect) without writing any output",
+)
 @cli_utils.model_path_option(
     # Not required when --list-capabilities/--list-rewrites is used
     required=False,
@@ -172,6 +327,19 @@ def capability_options(func: F) -> F:
 )
 @cli_utils.output_option("Output path (default: {input}_opt.onnx)")
 @cli_utils.overwrite_option()
+@cli_utils.ep_option(
+    required=False,
+    default=None,
+    include_auto=True,
+    include_cuda=True,
+    optional_message="If omitted with --device, selects a compatible EP automatically.",
+)
+@cli_utils.device_option(
+    required=False,
+    default=None,
+    include_auto=True,
+    optional_message="If both --ep and --device are omitted, preserves CPU optimization.",
+)
 @click.option(
     "--config",
     "-c",
@@ -187,9 +355,12 @@ def optimize(
     ctx: click.Context,
     list_capabilities: bool,
     list_rewrites: bool,
+    check_optim: bool,
     model: Path | None,
     output: Path | None,
     overwrite: bool,
+    ep: str | None,
+    device: str | None,
     config: Path | None,
     verbose: int,
     quiet: bool,
@@ -214,6 +385,10 @@ def optimize(
 
         # List available rewrite pattern families
         winml optimize --list-rewrites
+
+        # Check which optimizations apply to a model (and the nodes they
+        # affect) without writing any output
+        winml optimize -m model.onnx --check-optim
 
         # Pattern rewrite flags follow: --enable-{source-slug}-{target-slug}
         # Run --list-rewrites to discover all available flag names.
@@ -340,6 +515,39 @@ def optimize(
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
 
+    target = None
+    ep_device = None
+    if ep is not None or device is not None:
+        from ..session import (
+            DeviceNotFound,
+            UnknownListingPick,
+            WinMLEPNotDiscovered,
+            WinMLEPRegistrationFailed,
+        )
+
+        try:
+            target, ep_device = _resolve_optimization_target(ep, device)
+        except (
+            DeviceNotFound,
+            RuntimeError,
+            UnknownListingPick,
+            ValueError,
+            WinMLEPNotDiscovered,
+            WinMLEPRegistrationFailed,
+        ) as e:
+            raise click.UsageError(f"Could not resolve optimization target: {e}") from e
+
+    # Handle --check-optim: report which optimizations apply, write nothing.
+    if check_optim:
+        _run_check_optim(
+            model,
+            all_caps,
+            bool(verbose),
+            target=target,
+            ep_device=ep_device,
+        )
+        return
+
     # Import optimizer
     from ..optim import Optimizer
 
@@ -401,6 +609,14 @@ def optimize(
     if verbose:
         optimizer_kwargs["verbose"] = True
 
+    if ep_device is not None:
+        if target is None:
+            raise RuntimeError("Resolved optimization EP device has no target metadata.")
+        optimizer_kwargs["ep_device"] = ep_device
+        console.print(
+            f"[bold blue]Target:[/bold blue] {target.ep} on {target.device.upper()}"
+        )
+
     try:
         console.print("\n[bold]Loading model...[/bold]")
         onnx_model = load_onnx(model)
@@ -415,10 +631,22 @@ def optimize(
 
         # Report results
         optimized_nodes = len(optimized_model.graph.node)
-        reduction = (1 - optimized_nodes / original_nodes) * 100 if original_nodes else 0
+        node_change = (
+            abs(optimized_nodes - original_nodes) / original_nodes * 100 if original_nodes else 0
+        )
 
         console.print(f"\n[bold green]Success![/bold green] Model optimized: {output}")
-        node_info = f"Nodes: {original_nodes} -> {optimized_nodes} ({reduction:.1f}% reduction)"
+        if optimized_nodes < original_nodes:
+            change_label = "reduction"
+        elif optimized_nodes > original_nodes:
+            change_label = "increase"
+        else:
+            change_label = None
+        node_info = f"Nodes: {original_nodes} -> {optimized_nodes}"
+        if change_label is None:
+            node_info += " (no change)"
+        else:
+            node_info += f" ({node_change:.1f}% {change_label})"
         console.print(f"[dim]{node_info}[/dim]")
 
     except Exception as e:

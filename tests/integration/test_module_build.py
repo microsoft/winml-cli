@@ -13,15 +13,16 @@ from unittest.mock import patch
 
 import pytest
 
+from winml.modelkit.session import EPDeviceTarget
+
 
 @pytest.fixture(autouse=True)
 def mock_device_resolution() -> None:
     """Keep module-build tests independent of host EP discovery."""
     with (
-        patch("winml.modelkit.sysinfo.resolve_device", return_value=("cpu", ["cpu"])),
         patch(
-            "winml.modelkit.config.precision.resolve_eps",
-            return_value=["CPUExecutionProvider"],
+            "winml.modelkit.session.resolve_device",
+            return_value=EPDeviceTarget(ep="auto", device="cpu"),
         ),
     ):
         yield

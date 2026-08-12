@@ -4,25 +4,57 @@
 # --------------------------------------------------------------------------
 """Live hardware monitor display for performance benchmarking.
 
-Renders a live NPU/CPU utilization chart during benchmarking using
+Renders a live adapter/CPU utilization chart during benchmarking using
 plotext for chart rendering and Rich Live for terminal refresh.
 """
 
 from __future__ import annotations
 
-from typing import Any
+import time
+from typing import Any, Final
 
-from rich.console import Console
+from rich.cells import cell_len
 from rich.panel import Panel
 
 from ..session.monitor.hw_monitor import adapter_label
+from ..utils.console import SafeConsole, SafeLive
+from ..utils.constants import ACCELERATOR_DEVICE_TYPES
 
 
 # Moving window size for the x-axis (seconds)
-_CHART_WINDOW_SECONDS = 10.0
+_CHART_WINDOW_SECONDS = 15.0
 
 # Display refresh rate (frames per second)
 _REFRESH_FPS = 5
+_PANEL_HORIZONTAL_OVERHEAD = 4
+# plotext's requested canvas width excludes its y-axis labels, tick marks, and
+# border text. Keep this fixed overhead out of the Rich panel width budget.
+_PLOTEXT_HORIZONTAL_OVERHEAD = 21
+_MIN_CHART_WIDTH = 20
+_STATUS_CELL_WIDTH = 28
+
+
+class _OmittedDeviceKind:
+    """Sentinel for callers that omitted the resolved adapter kind."""
+
+
+_DEVICE_KIND_OMITTED: Final = _OmittedDeviceKind()
+
+
+def _avg_now(
+    samples: list[float] | None,
+    fallback_now: float = 0.0,
+) -> tuple[float, float]:
+    """Return ``(avg, now)`` for a samples list.
+
+    ``fallback_now`` is used for the ``now`` value when ``samples`` is empty
+    or ``None`` (e.g. when a caller has a scalar current reading but no
+    time-series to compute an average from — in that case ``avg`` mirrors
+    the scalar so the display stays honest rather than reading 0.0).
+    """
+    if not samples:
+        return (fallback_now, fallback_now)
+    return (sum(samples) / len(samples), samples[-1])
 
 
 class LiveMonitorDisplay:
@@ -37,22 +69,32 @@ class LiveMonitorDisplay:
         warmup: int,
         model_id: str,
         device: str,
-        chart_width: int = 80,
+        chart_width: int = 120,
         chart_height: int = 15,
         poll_interval_ms: int = 100,
-        device_kind: str | None = None,
+        device_kind: str | None | _OmittedDeviceKind = _DEVICE_KIND_OMITTED,
+        duration_sec: float | None = None,
+        clock: Any = None,
     ) -> None:
         self._total = total_iterations
         self._warmup = warmup
         self._model_id = model_id
         self._device = device
+        # When set, the benchmark phase runs on a wall-clock budget instead of a
+        # fixed iteration count, so progress is reported as elapsed/total time.
+        # ``clock`` is the benchmark loop's shared start reference (an object
+        # with a ``.start`` timestamp); reading it — rather than stamping a local
+        # clock on the first update() — keeps the bar aligned with the exact
+        # budget the loop stops on.
+        self._duration_sec = duration_sec
+        self._clock = clock
         # `device_kind` is the value HWMonitor resolved at start() — pass it
         # in when you want the legend to reflect what's actually polled (e.g.
         # "auto" that resolved to GPU). Falls back to the requested string
         # when the caller doesn't know the resolved kind yet.
-        if device_kind is None:
+        if isinstance(device_kind, _OmittedDeviceKind):
             requested = (device or "").lower()
-            device_kind = requested if requested in ("npu", "gpu") else None
+            device_kind = requested if requested in ACCELERATOR_DEVICE_TYPES else None
         # When no adapter is polled (CPU-only / auto resolved to nothing),
         # hide the adapter line + status cell entirely instead of drawing
         # a flat zero series labelled "Adapter".
@@ -62,15 +104,86 @@ class LiveMonitorDisplay:
         self._chart_height = chart_height
         self._poll_interval_s = poll_interval_ms / 1000.0
         self._live: Any = None
+        self._console: SafeConsole | None = None
         # Track the last rendered panel for transient=False final display
         self._last_panel: Any = None
 
-    def __enter__(self) -> LiveMonitorDisplay:
-        from rich.live import Live
+    def _panel_content_width(self) -> int | None:
+        """Return the Rich panel content width available in the current console."""
+        width = getattr(self._console, "width", None)
+        if not isinstance(width, int) or width <= _PANEL_HORIZONTAL_OVERHEAD:
+            return None
+        return width - _PANEL_HORIZONTAL_OVERHEAD
 
-        self._live = Live(
+    def _effective_chart_width(self) -> int:
+        """Clamp plotext's canvas width so its full output fits in the panel."""
+        content_width = self._panel_content_width()
+        if content_width is None:
+            return self._chart_width
+        available_chart_width = content_width - _PLOTEXT_HORIZONTAL_OVERHEAD
+        return min(self._chart_width, max(_MIN_CHART_WIDTH, available_chart_width))
+
+    def _pack_status_cells(self, cells: list[str]) -> list[str]:
+        """Pack status cells into as few panel-safe lines as possible."""
+        if not cells:
+            return []
+        max_width = self._panel_content_width()
+        separator = " | "
+        padded_line = "  " + separator.join(
+            [
+                self._pad_status_cell(cell, _STATUS_CELL_WIDTH)
+                if index < len(cells) - 1
+                else cell
+                for index, cell in enumerate(cells)
+            ]
+        )
+        if max_width is None or cell_len(padded_line) <= max_width:
+            return [padded_line]
+
+        lines: list[str] = []
+        current = f"  {cells[0]}"
+        for cell in cells[1:]:
+            candidate = f"{current}{separator}{cell}"
+            if max_width is not None and cell_len(candidate) > max_width:
+                lines.append(current)
+                current = f"  {cell}"
+            else:
+                current = candidate
+        lines.append(current)
+        return lines
+
+    @staticmethod
+    def _pad_status_cell(cell: str, width: int) -> str:
+        """Pad a status cell by terminal display width."""
+        return cell + (" " * max(width - cell_len(cell), 0))
+
+    def _resolved_device_label(self) -> str:
+        """Return the display label for the requested or resolved device."""
+        return self._adapter_label if self._show_adapter else self._device
+
+    def _uses_gpu_role_labels(self) -> bool:
+        """Whether selected-adapter and aggregate GPU labels would collide."""
+        return self._show_adapter and self._adapter_label == adapter_label("gpu")
+
+    def _selected_adapter_label(self) -> str:
+        """Return the selected-adapter label for the chart/status display."""
+        label = self._adapter_label
+        if self._uses_gpu_role_labels():
+            return f"{label} (selected)"
+        return label
+
+    def _aggregate_gpu_label(self) -> str:
+        """Return the aggregate GPU label for the chart/status display."""
+        label = adapter_label("gpu")
+        if self._uses_gpu_role_labels():
+            return f"{label} (aggregate)"
+        return label
+
+    def __enter__(self) -> LiveMonitorDisplay:
+        self._console = SafeConsole(stderr=True)
+        self._live = SafeLive(
             refresh_per_second=_REFRESH_FPS,
-            console=Console(stderr=True),
+            console=self._console,
             transient=False,  # Keep last frame visible in scrollback
         )
         self._live.__enter__()
@@ -90,13 +203,15 @@ class LiveMonitorDisplay:
         cpu_pct: float = 0.0,
         ram_mb: float = 0.0,
         cpu_samples: list[float] | None = None,
+        gpu_samples: list[float] | None = None,
+        gpu_pct: float = 0.0,
     ) -> None:
         """Update the live display with current metrics."""
         if self._live is None:
             return
 
         try:
-            chart_renderable = self._render_chart(util_samples, cpu_samples)
+            chart_renderable = self._render_chart(util_samples, cpu_samples, gpu_samples)
             status_line = self._render_status(
                 iteration,
                 latency_ms,
@@ -105,6 +220,9 @@ class LiveMonitorDisplay:
                 memory_shared_mb,
                 cpu_pct,
                 ram_mb,
+                gpu_pct=gpu_pct,
+                cpu_samples=cpu_samples,
+                gpu_samples=gpu_samples,
             )
 
             from rich.console import Group
@@ -121,16 +239,21 @@ class LiveMonitorDisplay:
             pass  # Don't let display errors interrupt the benchmark
 
     def _render_chart(
-        self, util_samples: list[float], cpu_samples: list[float] | None = None
+        self,
+        util_samples: list[float],
+        cpu_samples: list[float] | None = None,
+        gpu_samples: list[float] | None = None,
     ) -> Any:
         """Render utilization chart as a Rich renderable.
 
         Uses plotext with AnsiDecoder for flicker-free Rich Live integration.
-        Plots adapter (NPU/GPU, green) and CPU (cyan) with distinct colors.
+        Plots the selected adapter (green), CPU (cyan), and aggregate GPU
+        telemetry (yellow) with distinct colors.
         X-axis is a moving window of the last N seconds.
         Y-axis has fixed ticks: 0, 20, 40, 60, 80, 100.
         """
-        adapter = self._adapter_label
+        adapter = self._selected_adapter_label()
+        gpu_label = self._aggregate_gpu_label()
         show_adapter = self._show_adapter
         try:
             import plotext as plt
@@ -157,16 +280,16 @@ class LiveMonitorDisplay:
 
         # Compute moving window: keep last N seconds of samples
         window_samples = int(_CHART_WINDOW_SECONDS / self._poll_interval_s)
-        total_npu = len(util_samples) if util_samples else 0
+        total_adapter = len(util_samples) if util_samples else 0
 
         # Plot the adapter line only when an adapter is actually being polled.
         if show_adapter:
-            npu_window = util_samples[-window_samples:] if util_samples else [0]
-            window_start_idx = max(0, total_npu - len(npu_window))
-            npu_times = [
-                (window_start_idx + i) * self._poll_interval_s for i in range(len(npu_window))
+            adapter_window = util_samples[-window_samples:] if util_samples else [0]
+            window_start_idx = max(0, total_adapter - len(adapter_window))
+            adapter_times = [
+                (window_start_idx + i) * self._poll_interval_s for i in range(len(adapter_window))
             ]
-            plt.plot(npu_times, npu_window, marker="braille", color="green")
+            plt.plot(adapter_times, adapter_window, marker="braille", color="green")
 
         # Plot CPU in cyan (distinct from adapter)
         has_cpu = False
@@ -180,6 +303,22 @@ class LiveMonitorDisplay:
             ]
             plt.plot(cpu_times, cpu_window, marker="braille", color="cyan")
 
+        # Plot GPU in yellow (distinct from NPU green and CPU cyan)
+        has_gpu = False
+        if gpu_samples:
+            has_gpu = True
+            total_gpu = len(gpu_samples)
+            gpu_window = gpu_samples[-window_samples:]
+            gpu_start_idx = max(0, total_gpu - len(gpu_window))
+            gpu_times = [
+                (gpu_start_idx + i) * self._poll_interval_s for i in range(len(gpu_window))
+            ]
+            # plotext's palette exposes 'orange+' (ANSI bright yellow, code 11)
+            # but has no 'yellow' key — `color="yellow"` silently falls through
+            # to default (white). `orange+` matches Rich's `[bright_yellow]`
+            # legend swatch below.
+            plt.plot(gpu_times, gpu_window, marker="braille", color="orange+")
+
         # No plotext title -- we render our own Rich-colored title with legend
         plt.ylabel("Usage %")
 
@@ -189,28 +328,27 @@ class LiveMonitorDisplay:
 
         # X-axis: absolute elapsed time, sliding window. Use whichever series
         # we have to anchor the timeline so a CPU-only chart still scrolls.
-        sample_count = total_npu if show_adapter else total_cpu
+        sample_count = total_adapter if show_adapter else total_cpu
         elapsed = sample_count * self._poll_interval_s
         x_min = max(0.0, elapsed - _CHART_WINDOW_SECONDS)
         x_max = max(elapsed, _CHART_WINDOW_SECONDS)
         plt.xlim(x_min, x_max)
         plt.xlabel("Time (s)")
 
-        plt.plotsize(self._chart_width, self._chart_height)
+        plt.plotsize(self._effective_chart_width(), self._chart_height)
 
         from rich.console import Group
         from rich.text import Text
 
-        # Rich-colored title line with legend swatches.
-        if show_adapter and has_cpu:
-            title = Text.from_markup(
-                f"  Utilization ([green]\u2588\u2588[/green] {adapter} %  "
-                f"[cyan]\u2588\u2588[/cyan] CPU %)"
-            )
-        elif show_adapter:
-            title = Text.from_markup(f"  Utilization ([green]\u2588\u2588[/green] {adapter} %)")
-        else:
-            title = Text.from_markup("  Utilization ([cyan]\u2588\u2588[/cyan] CPU %)")
+        # Rich-colored title line with legend swatches
+        legend_parts = []
+        if show_adapter:
+            legend_parts.append(f"[green]\u2588\u2588[/green] {adapter} %")
+        if has_cpu:
+            legend_parts.append("[cyan]\u2588\u2588[/cyan] CPU %")
+        if has_gpu:
+            legend_parts.append(f"[bright_yellow]\u2588\u2588[/bright_yellow] {gpu_label} %")
+        title = Text.from_markup(f"  Utilization ({'  '.join(legend_parts)})")
 
         ansi_output = plt.build()
         chart_lines = [Text.from_ansi(line) for line in ansi_output.splitlines()]
@@ -225,48 +363,83 @@ class LiveMonitorDisplay:
         memory_shared_mb: float = 0.0,
         cpu_pct: float = 0.0,
         ram_mb: float = 0.0,
+        gpu_pct: float = 0.0,
+        cpu_samples: list[float] | None = None,
+        gpu_samples: list[float] | None = None,
     ) -> str:
-        """Render 3-row status below the chart."""
+        """Render 4-row status below the chart.
+
+        Row 1: progress bar + phase counter + device label.
+        Row 2: compute utilization (adapter / CPU / GPU) — unified ``now%/avg%``.
+        Row 3: memory (Sys Mem + Device Mem local/shared).
+        Row 4: inference latency + throughput.
+
+        CPU and GPU accept a samples list to compute ``avg`` — the ``cpu_pct``
+        and ``gpu_pct`` scalars remain as the ``now`` value (and as fallbacks
+        for ``avg`` when no samples were supplied).
+        """
         phase = "warmup" if iteration <= self._warmup else "benchmark"
         effective_iter = iteration - self._warmup if phase == "benchmark" else iteration
         total_bench = self._total - self._warmup
 
-        current_util = util_samples[-1] if util_samples else 0.0
-        mean_util = sum(util_samples) / len(util_samples) if util_samples else 0.0
+        if phase == "warmup":
+            # Warmup is always a fixed count, so scale the bar by the warmup
+            # total. ``self._total`` must not be used here: in duration mode it
+            # includes the unused default iteration count, which would make the
+            # warmup bar crawl (e.g. 5/10 warmup showing as ~5% instead of 50%).
+            pct = iteration / self._warmup if self._warmup > 0 else 0.0
+            progress = f"[yellow]Warmup: {iteration}/{self._warmup}[/yellow]"
+        elif self._duration_sec is not None:
+            # Duration mode: base progress on elapsed wall-clock time, since the
+            # benchmark iteration count is not known ahead of time. The start
+            # reference is the loop's shared clock, so this tracks the same
+            # budget the loop terminates on.
+            start = getattr(self._clock, "start", None)
+            elapsed = time.perf_counter() - start if start else 0.0
+            pct = min(elapsed / self._duration_sec, 1.0) if self._duration_sec > 0 else 0.0
+            shown = min(elapsed, self._duration_sec)
+            progress = f"[green]Time: {shown:.1f}/{self._duration_sec:.0f}s[/green]"
+        else:
+            pct = effective_iter / total_bench if total_bench > 0 else 0.0
+            progress = f"[green]Iter: {effective_iter}/{total_bench}[/green]"
 
-        pct = iteration / self._total if self._total > 0 else 0
         bar_len = int(pct * 20)
         bar = f"[{'=' * bar_len}{' ' * (20 - bar_len)}]"
 
-        if phase == "warmup":
-            progress = f"[yellow]Warmup: {iteration}/{self._warmup}[/yellow]"
-        else:
-            progress = f"[green]Iter: {effective_iter}/{total_bench}[/green]"
-
         throughput = 1000.0 / latency_ms if latency_ms > 0 else 0.0
+
+        adapter_avg, adapter_now = _avg_now(util_samples)
+        cpu_avg, cpu_now = _avg_now(cpu_samples, fallback_now=cpu_pct)
+        gpu_avg, gpu_now = _avg_now(gpu_samples, fallback_now=gpu_pct)
 
         # Row 1: Progress
         pct_cell = f"{bar} {pct:.0%}"
-        row1 = f"  {pct_cell:<30}|  {progress}  |  Device: {self._device}"
+        row1_lines = self._pack_status_cells(
+            [pct_cell, progress, f"Device: {self._resolved_device_label()}"]
+        )
 
-        # Row 2: Hardware (pad each cell to fixed width, spaces before divider).
-        # CPU-only mode drops the adapter cell + device-memory cell since we
-        # have no live values to populate them with.
-        cpu_cell = f"CPU: {cpu_pct:.1f}%"
-        ram_cell = f"RAM: {ram_mb:.0f} MB"
+        # Row 2: Compute (unified now/avg format across all three)
+        adapter_label_text = self._selected_adapter_label()
+        gpu_label_text = self._aggregate_gpu_label()
+        adapter_cell = f"{adapter_label_text}: {adapter_now:.1f}%/{adapter_avg:.1f}%"
+        cpu_cell = f"CPU: {cpu_now:.1f}%/{cpu_avg:.1f}%"
+        gpu_cell = f"{gpu_label_text}: {gpu_now:.1f}%/{gpu_avg:.1f}%"
+        row2_cells = [cpu_cell, gpu_cell]
         if self._show_adapter:
-            adapter_cell = f"{self._adapter_label}: {mean_util:.1f}% avg ({current_util:.1f}% now)"
-            mem_cell = f"VRAM: {memory_local_mb:.0f}/{memory_shared_mb:.0f} MB (local/shared)"
-            row2 = f"  {adapter_cell:<30}| {cpu_cell:<12}|  {ram_cell}  |  {mem_cell}"
-        else:
-            row2 = f"  {cpu_cell:<12}|  {ram_cell}"
+            row2_cells.insert(0, adapter_cell)
+        row2_lines = self._pack_status_cells(row2_cells)
 
-        # Row 3: Inference (pad each cell to fixed width, spaces before divider)
+        # Row 3: Memory
+        ram_cell = f"Sys Mem: {ram_mb:.0f} MB"
+        mem_cell = f"Device Mem: {memory_local_mb:.0f}/{memory_shared_mb:.0f} MB (local/shared)"
+        row3_lines = self._pack_status_cells([ram_cell, mem_cell])
+
+        # Row 4: Inference
         lat_cell = f"Latency: {latency_ms:.2f} ms"
         thr_cell = f"Throughput: ~{throughput:.0f} smp/s"
-        row3 = f"  {lat_cell:<24}|  {thr_cell}"
+        row4_lines = self._pack_status_cells([lat_cell, thr_cell])
 
-        return f"{row1}\n{row2}\n{row3}"
+        return "\n".join([*row1_lines, *row2_lines, *row3_lines, *row4_lines])
 
     def print_final_snapshot(
         self,

@@ -127,7 +127,14 @@ extends:
                   artifactFeeds: 'windows.ai.toolkit/Modelkit'
                 displayName: 'Authenticate pip with Azure Artifacts'
 
-              - script: python -m pip install --upgrade build twine packaging
+              # PINNED ON PURPOSE — do NOT relax to unpinned/--upgrade.
+              # An unpinned toolchain lets a third-party release break the
+              # release build on publish day. build 1.5.1 did exactly that:
+              # its isolated-env pip invocation fails inside this container
+              # with "FileNotFoundError: [WinError 2]" while resolving the
+              # user cache dir from the registry. These are the versions that
+              # produced the v0.2.0 release. Bump deliberately, never silently.
+              - script: python -m pip install build==1.5.0 twine==6.2.0 packaging==26.2
                 displayName: 'Install build tools'
 
               # Build sdist BEFORE iKey injection so the source archive

@@ -550,5 +550,5 @@ class ModelSlotManager:
 def _fmt_monotonic(t: float) -> str:
     """Convert monotonic timestamp to approximate ISO string (for display only)."""
     elapsed = time.monotonic() - t
-    approx = datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(seconds=elapsed)
+    approx = datetime.datetime.now(tz=datetime.UTC) - datetime.timedelta(seconds=elapsed)
     return approx.isoformat()

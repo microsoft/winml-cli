@@ -138,11 +138,61 @@ def _print_banner(version: str, *, _console: Console | None = None) -> None:
 _DISABLED_COMMANDS: frozenset[str] = frozenset({"run", "serve"})
 
 
+_CLICK_COMMAND_ATTRS: frozenset[str] = frozenset({"command", "group"})
+
+
+def _command_decorator(node: ast.FunctionDef) -> ast.expr | None:
+    """Return the ``@click.command`` / ``@click.group`` decorator on *node*.
+
+    Matches Click's attribute form (``@click.command`` / ``@click.group``,
+    whether called or not — ``@click.command`` vs ``@click.command("name")``)
+    and the bare ``@command`` / ``@group`` form produced by
+    ``from click import command, group``.
+
+    A decorator such as ``@typer.command`` is intentionally *not* matched:
+    the attribute form is accepted only when its owner is the ``click`` name,
+    so unrelated frameworks that happen to expose ``command``/``group`` cannot
+    produce a false positive. Returns ``None`` when the function carries no
+    Click command decorator.
+    """
+    for decorator in node.decorator_list:
+        target = decorator.func if isinstance(decorator, ast.Call) else decorator
+        if isinstance(target, ast.Attribute):
+            if (
+                target.attr in _CLICK_COMMAND_ATTRS
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "click"
+            ):
+                return decorator
+        elif isinstance(target, ast.Name) and target.id in _CLICK_COMMAND_ATTRS:
+            return decorator
+    return None
+
+
+def _short_help_kwarg(decorator: ast.expr) -> str | None:
+    """Return an explicit ``short_help="..."`` argument on *decorator*, if any."""
+    if isinstance(decorator, ast.Call):
+        for keyword in decorator.keywords:
+            if (
+                keyword.arg == "short_help"
+                and isinstance(keyword.value, ast.Constant)
+                and isinstance(keyword.value.value, str)
+            ):
+                return keyword.value.value
+    return None
+
+
 def _parse_click_help(path: Path) -> str:
     """Extract short help from a command module without importing it.
 
-    Parses the module's AST to find the first decorated function's docstring,
-    which Click uses as the command help text.
+    Parses the module's AST to find the function decorated with Click's
+    ``@click.command`` / ``@click.group`` and returns its short help: an
+    explicit ``short_help=`` decorator argument when present, otherwise the
+    first line of the function docstring (which Click uses as short help).
+
+    Only the Click command function is considered, so unrelated decorated
+    helpers in the module (e.g. a ``@contextlib.contextmanager``) never leak
+    their docstring into the command listing.
     """
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -150,11 +200,24 @@ def _parse_click_help(path: Path) -> str:
         return ""
 
     for node in ast.iter_child_nodes(tree):
-        if isinstance(node, ast.FunctionDef) and node.decorator_list:
-            docstring = ast.get_docstring(node)
-            if docstring:
-                # Return first line only (Click's short help)
-                return docstring.split("\n")[0]
+        # Only sync ``def`` is considered: Click commands are always sync, so
+        # an ``ast.AsyncFunctionDef`` is intentionally skipped.
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        decorator = _command_decorator(node)
+        if decorator is None:
+            continue
+        short_help = _short_help_kwarg(decorator)
+        if short_help:
+            return short_help.split("\n")[0].strip()
+        docstring = ast.get_docstring(node)
+        if docstring:
+            # Return first line only (Click's short help)
+            return docstring.split("\n")[0].strip()
+        # A module holds exactly one Click command by convention, so once we
+        # find it we stop — even without help text — rather than falling
+        # through to an unrelated decorated helper's docstring.
+        return ""
     return ""
 
 
