@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import onnxruntime as ort
 from filelock import FileLock
+from google.protobuf.message import DecodeError
 
 from ..core.onnx_utils import get_io_config
 from ..onnx import get_onnx_model_hash, is_compiled_onnx
@@ -57,6 +58,7 @@ logger = logging.getLogger(__name__)
 
 _EPCONTEXT_THREAD_LOCKS_GUARD = threading.Lock()
 _EPCONTEXT_THREAD_LOCKS: dict[Path, threading.Lock] = {}
+_EPCONTEXT_CACHE_MAX_GENERATIONS = 4
 
 
 def _epcontext_thread_lock(lock_path: Path) -> threading.Lock:
@@ -616,10 +618,12 @@ class WinMLSession:
             with _suppress_native_output(compile_log):
                 model_compiler.compile_to_file(str(generation_path))
         except Exception as exc:
+            self._discard_epcontext_generation(generation_path)
             logger.warning("ModelCompiler failed, using original: %s", exc)
             return self._onnx_path
 
         if not generation_path.exists():
+            self._discard_epcontext_generation(generation_path)
             return self._onnx_path
         if cache_identity is not None:
             try:
@@ -642,18 +646,94 @@ class WinMLSession:
                     self._epcontext_cache_marker_path(cache_path),
                     exc,
                 )
+            else:
+                self._prune_epcontext_cache(cache_path)
         logger.info("Compiled to EPContext: %s", generation_path)
         return generation_path
 
     @classmethod
     def _discard_epcontext_generation(cls, generation_path: Path) -> None:
         """Best-effort removal of an unpublished generation and its sidecars."""
+        paths: dict[Path, None] = {}
         try:
-            sidecars = cls._epcontext_external_sidecars(generation_path)
-        except (OSError, ValueError):
-            sidecars = ()
-        for path in (*sidecars, generation_path):
+            for sidecar in cls._epcontext_external_sidecars(generation_path):
+                paths.setdefault(sidecar, None)
+        except (OSError, ValueError, DecodeError):
+            pass
+        paths.setdefault(generation_path, None)
+        try:
+            for candidate in generation_path.parent.iterdir():
+                if candidate.name.startswith(generation_path.stem) and candidate.is_file():
+                    paths.setdefault(candidate, None)
+        except OSError:
+            logger.debug(
+                "Could not enumerate EPContext generation sidecars for %s",
+                generation_path,
+            )
+        for path in paths:
             cls._unlink_generation_file(path)
+
+    def _prune_epcontext_cache(self, current_cache_path: Path) -> None:
+        """Bound successful EPContext cache entries for this source model and device."""
+        keep_count = max(1, _EPCONTEXT_CACHE_MAX_GENERATIONS)
+        marker_suffix = ".meta.json"
+        cache_name_suffix = "_ctx.onnx"
+        marker_name_suffix = f"{cache_name_suffix}{marker_suffix}"
+        marker_prefix = f"{self._onnx_path.stem}_{self._device}_"
+        current_marker = self._epcontext_cache_marker_path(current_cache_path).resolve(strict=False)
+        entries: list[tuple[bool, int, str, Path, Path, Path | None, Path]] = []
+        for marker_path in current_cache_path.parent.iterdir():
+            try:
+                if not marker_path.is_file():
+                    continue
+                if not marker_path.name.startswith(marker_prefix) or not marker_path.name.endswith(
+                    marker_name_suffix
+                ):
+                    continue
+                cache_name = marker_path.name.removesuffix(marker_suffix)
+                if not cache_name.startswith(marker_prefix) or not cache_name.endswith(
+                    cache_name_suffix
+                ):
+                    continue
+                cache_path = marker_path.with_name(cache_name)
+                generation_path: Path | None = None
+                try:
+                    recorded = json.loads(marker_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+                    recorded = None
+                if isinstance(recorded, dict):
+                    generation_name = recorded.get("generation")
+                    if (
+                        isinstance(generation_name, str)
+                        and Path(generation_name).name == generation_name
+                    ):
+                        generation_path = marker_path.parent / generation_name
+                lock_path = cache_path.with_name(f"{cache_path.name}.lock")
+                marker_stat = marker_path.stat()
+            except OSError:
+                continue
+            is_current = marker_path.resolve(strict=False) == current_marker
+            entries.append(
+                (
+                    is_current,
+                    marker_stat.st_mtime_ns,
+                    marker_path.name,
+                    marker_path,
+                    cache_path,
+                    generation_path,
+                    lock_path,
+                )
+            )
+        entries.sort(key=lambda entry: (entry[0], entry[1], entry[2]), reverse=True)
+        for is_current, *_unused, marker_path, _cache_path, generation_path, lock_path in entries[
+            keep_count:
+        ]:
+            if is_current:
+                continue
+            if generation_path is not None:
+                self._discard_epcontext_generation(generation_path)
+            self._unlink_generation_file(marker_path)
+            self._unlink_generation_file(lock_path)
 
     @staticmethod
     def _unlink_generation_file(path: Path) -> None:
@@ -709,10 +789,47 @@ class WinMLSession:
                 "compiler_version": _optional_text(self._ep_device.device.compiler_version),
             },
             "provider_options": dict(sorted(self._provider_options.items())),
+            "provider_option_files": self._option_file_fingerprints(self._provider_options),
             "session_options": dict(sorted(self._active_session_option_entries.items())),
+            "session_option_files": self._option_file_fingerprints(
+                self._active_session_option_entries
+            ),
             "embed_context": self._embed_context,
             "ort_version": ort.__version__,
         }
+
+    def _option_file_fingerprints(self, options: dict[str, str]) -> dict[str, dict[str, object]]:
+        """Fingerprint option values that resolve to existing compiler input files."""
+        fingerprints = {}
+        for key, value in sorted(options.items()):
+            option_path = self._resolve_option_file(value)
+            if option_path is not None:
+                fingerprints[key] = self._file_fingerprint(option_path)
+        return fingerprints
+
+    def _resolve_option_file(self, value: object) -> Path | None:
+        if not isinstance(value, str) or not value:
+            return None
+        try:
+            raw_path = Path(value).expanduser()
+        except (RuntimeError, ValueError):
+            return None
+        if raw_path.is_absolute():
+            candidates = (raw_path,)
+        else:
+            candidates = (self._onnx_path.parent / raw_path, Path.cwd() / raw_path)
+        seen: set[Path] = set()
+        for candidate in candidates:
+            try:
+                resolved = candidate.resolve(strict=True)
+            except (OSError, RuntimeError, ValueError):
+                continue
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            if resolved.is_file():
+                return resolved
+        return None
 
     @staticmethod
     def _file_fingerprint(path: Path) -> dict[str, object]:
