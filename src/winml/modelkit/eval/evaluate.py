@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
     from torch import nn
 
+    from ..models.winml import HFCausalLM
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
     from ..models.winml.genai_causal_lm import WinMLGenaiCausalLM
@@ -162,14 +163,6 @@ def _validate_pytorch_runtime_config(config: WinMLEvaluationConfig) -> None:
     if incompatible:
         raise ValueError(
             f"The PyTorch runtime cannot use WinML-only configuration: {', '.join(incompatible)}."
-        )
-
-    if config.task == "text-generation":
-        raise ValueError("Text-generation evaluation is not supported with --runtime pytorch.")
-    if config.task == "mask-generation":
-        raise ValueError(
-            "Mask-generation evaluation requires composite ONNX models and is not "
-            "supported with --runtime pytorch."
         )
 
 
@@ -322,7 +315,10 @@ class EvalResult:
 
 def _load_model(
     config: WinMLEvaluationConfig,
-) -> nn.Module | WinMLPreTrainedModel | WinMLCompositeModel | WinMLGenaiCausalLM | None:
+    pytorch_model: nn.Module | None = None,
+) -> (
+    nn.Module | HFCausalLM | WinMLPreTrainedModel | WinMLCompositeModel | WinMLGenaiCausalLM | None
+):
     """Load model from ONNX path or HF model ID.
 
     For evaluators that handle their own ORT session construction from a
@@ -341,6 +337,16 @@ def _load_model(
     if loader is _ModelLoaderKind.PYTORCH:
         if config.model_id is None:
             raise ValueError("model_id is required for native Hugging Face evaluation.")
+        if pytorch_model is not None:
+            from ..loader.native import _adapt_native_hf_model
+
+            return _adapt_native_hf_model(
+                config.model_id,
+                pytorch_model,
+                task=config.task,
+                device=config.pipeline_device,
+                trust_remote_code=config.trust_remote_code,
+            )
         from ..loader import load_native_hf_model
 
         loaded = load_native_hf_model(
@@ -688,7 +694,7 @@ def evaluate(
     model: Any
     if pytorch_model is not None:
         console.print("\n[bold]Using supplied PyTorch model...[/bold]")
-        model = pytorch_model
+        model = _load_model(config, pytorch_model)
     else:
         console.print("\n[bold]Loading model...[/bold]")
         try:

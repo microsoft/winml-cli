@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from torch import nn
 
+    from ..models.winml import HFCausalLM
+
 
 @dataclass(frozen=True)
 class NativeDevice:
@@ -26,7 +28,7 @@ class NativeDevice:
 class NativeHFModel:
     """Loaded native Hugging Face model and its resolved device."""
 
-    model: "nn.Module"
+    model: "nn.Module | HFCausalLM"
     device: NativeDevice
 
 
@@ -59,9 +61,20 @@ def load_native_hf_model(
     trust_remote_code: bool = False,
 ) -> NativeHFModel:
     """Load the task-resolved Hugging Face model without ONNX export."""
+    resolved_device = resolve_native_device(device)
+    if task == "text-generation":
+        from ..models.winml import HFCausalLM
+
+        causal_model = HFCausalLM(
+            model_id,
+            resolved_device.torch_device,
+            trust_remote_code=trust_remote_code,
+            torch_dtype="auto",
+        )
+        return NativeHFModel(model=causal_model, device=resolved_device)
+
     from .hf import load_hf_model
 
-    resolved_device = resolve_native_device(device)
     model, _, _ = load_hf_model(
         model_id,
         task=task,
@@ -73,3 +86,25 @@ def load_native_hf_model(
         model=model,
         device=resolved_device,
     )
+
+
+def _adapt_native_hf_model(
+    model_id: str,
+    model: nn.Module,
+    *,
+    task: str | None,
+    device: str,
+    trust_remote_code: bool = False,
+) -> nn.Module | HFCausalLM:
+    """Prepare a caller-owned model for the selected evaluator contract."""
+    if task == "text-generation":
+        from ..models.winml import HFCausalLM
+
+        return HFCausalLM.from_model(
+            model_id,
+            model,
+            device,
+            trust_remote_code=trust_remote_code,
+        )
+
+    return model.eval()

@@ -12,6 +12,7 @@ import pytest
 import torch
 
 from winml.modelkit.loader import load_native_hf_model, resolve_native_device
+from winml.modelkit.loader.native import _adapt_native_hf_model
 
 
 class TestResolveNativeDevice:
@@ -63,3 +64,50 @@ def test_load_native_hf_model_preserves_dtype_and_task_selection() -> None:
     model.eval.assert_called_once_with()
     assert result.model is model
     assert result.device.name == "cpu"
+
+
+def test_load_native_text_generation_uses_causal_lm_adapter() -> None:
+    adapter = MagicMock()
+    with patch(
+        "winml.modelkit.models.winml.HFCausalLM",
+        return_value=adapter,
+    ) as causal_lm:
+        result = load_native_hf_model(
+            "fake/model",
+            task="text-generation",
+            device="cpu",
+            trust_remote_code=True,
+        )
+
+    causal_lm.assert_called_once_with(
+        "fake/model",
+        torch.device("cpu"),
+        trust_remote_code=True,
+        torch_dtype="auto",
+    )
+    assert result.model is adapter
+    assert result.device.name == "cpu"
+
+
+def test_adapt_native_text_generation_uses_existing_model() -> None:
+    model = MagicMock()
+    adapter = MagicMock()
+    with patch(
+        "winml.modelkit.models.winml.HFCausalLM.from_model",
+        return_value=adapter,
+    ) as from_model:
+        result = _adapt_native_hf_model(
+            "fake/model",
+            model,
+            task="text-generation",
+            device="cuda:1",
+            trust_remote_code=True,
+        )
+
+    from_model.assert_called_once_with(
+        "fake/model",
+        model,
+        "cuda:1",
+        trust_remote_code=True,
+    )
+    assert result is adapter

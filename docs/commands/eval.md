@@ -50,7 +50,7 @@ $ winml eval [options]
 
 Python callers can pass an existing model directly with `evaluate(config, pytorch_model=model)`. An explicit `config.model_id` selects the tokenizer or processor; otherwise evaluation infers it from `model.config._name_or_path` and reports an error if neither source is available.
 
-Pre-built ONNX files, composite `role=path` models, GenAI bundles, text-generation evaluation, compare mode, references, and tensor input archives remain on their existing WinML paths. `--runtime pytorch` rejects those forms, along with ONNX build, export, EP, precision, quantization, optimization, analysis, and cache-related options.
+PyTorch text-generation evaluation adapts the checkpoint to the existing causal-LM evaluator contract and reports perplexity without ONNX export. Pre-built ONNX files, composite `role=path` models, GenAI bundles, compare mode, references, and tensor input archives remain on their existing WinML paths. `--runtime pytorch` rejects those forms, along with ONNX build, export, EP, precision, quantization, optimization, analysis, and cache-related options.
 
 ## Examples
 

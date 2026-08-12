@@ -1145,6 +1145,39 @@ class TestEvalNativeHuggingFace:
         assert data["device"] == "cpu"
         assert data["dataset"]["samples"] == 2
 
+    def test_pytorch_runtime_text_generation(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        out = tmp_path / "native_text_generation.json"
+        _invoke(
+            runner,
+            [
+                "-m",
+                "hf-internal-testing/tiny-random-gpt2",
+                "--task",
+                "text-generation",
+                "--dataset",
+                str(self._dataset(tmp_path)),
+                "--column",
+                "num_tokens=8",
+                "--column",
+                "seqlen=4",
+                "--runtime",
+                "pytorch",
+                "--device",
+                "cpu",
+                "-o",
+                str(out),
+            ],
+        )
+
+        data = _assert_metrics_present(out, ["perplexity"])
+        assert data["runtime"] == "pytorch"
+        assert data["device"] == "cpu"
+        assert data["metrics"]["num_scored_positions"] > 0
+
     def test_pytorch_runtime_labeled_evaluation_cuda(
         self,
         runner: CliRunner,

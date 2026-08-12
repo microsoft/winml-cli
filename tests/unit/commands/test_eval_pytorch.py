@@ -256,39 +256,26 @@ class TestPyTorchRuntimeCli:
         assert result.exit_code == 2
         assert "use auto, cpu, or gpu" in result.output
 
-    def test_rejects_text_generation(self) -> None:
-        result = CliRunner().invoke(
-            eval,
-            [
-                "-m",
-                "fake/model",
-                "--runtime",
-                "pytorch",
-                "--task",
-                "text-generation",
-            ],
-            obj={},
-        )
+    @pytest.mark.parametrize("task", ["text-generation", "mask-generation"])
+    def test_evaluator_tasks_are_not_rejected_centrally(self, task: str) -> None:
+        captured: dict[str, WinMLEvaluationConfig] = {}
 
-        assert result.exit_code == 2
-        assert "Text-generation evaluation is not supported" in result.output
+        def fake_evaluate(config: WinMLEvaluationConfig) -> SimpleNamespace:
+            captured["config"] = config
+            return SimpleNamespace(config=config, metrics={}, to_dict=lambda: config.to_dict())
 
-    def test_rejects_mask_generation(self) -> None:
-        result = CliRunner().invoke(
-            eval,
-            [
-                "-m",
-                "fake/model",
-                "--runtime",
-                "pytorch",
-                "--task",
-                "mask-generation",
-            ],
-            obj={},
-        )
+        with (
+            patch("winml.modelkit.eval.evaluate", side_effect=fake_evaluate),
+            patch("winml.modelkit.commands.eval._write_and_display"),
+        ):
+            result = CliRunner().invoke(
+                eval,
+                ["-m", "fake/model", "--runtime", "pytorch", "--task", task],
+                obj={},
+            )
 
-        assert result.exit_code == 2
-        assert "requires composite ONNX models" in result.output
+        assert result.exit_code == 0, result.output
+        assert captured["config"].task == task
 
     def test_gpu_requires_cuda(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
@@ -355,11 +342,14 @@ class TestNativeEvaluation:
                 "winml.modelkit.eval.evaluate.get_evaluator_class",
                 return_value=FakeEvaluator,
             ),
-            patch("winml.modelkit.eval.evaluate._load_model") as load_model,
+            patch(
+                "winml.modelkit.eval.evaluate._load_model",
+                return_value=model,
+            ) as load_model,
         ):
             result = evaluate(config, pytorch_model=model)
 
-        load_model.assert_not_called()
+        load_model.assert_called_once_with(result.config, model)
         assert captured["model"] is model
         assert captured["config"] is result.config
         assert result.config.runtime == "pytorch"
@@ -367,6 +357,36 @@ class TestNativeEvaluation:
         assert result.config.device == "cpu"
         assert config.runtime == "winml"
         assert config.model_id is None
+
+    def test_public_evaluate_sets_real_supplied_module_to_eval_mode(self) -> None:
+        from torch import nn
+
+        from winml.modelkit.eval import evaluate
+
+        model = nn.Linear(2, 2)
+        model.config = SimpleNamespace(_name_or_path="inferred/model")  # type: ignore[attr-defined]
+        model.train()
+
+        class FakeEvaluator:
+            def __init__(self, config, evaluator_model) -> None:
+                assert evaluator_model is model
+                assert not evaluator_model.training
+
+            def compute(self) -> dict[str, float]:
+                return {"accuracy": 1.0}
+
+        config = WinMLEvaluationConfig(
+            task="image-classification",
+            dataset=DatasetConfig(path="fake/dataset"),
+        )
+
+        with patch(
+            "winml.modelkit.eval.evaluate.get_evaluator_class",
+            return_value=FakeEvaluator,
+        ):
+            evaluate(config, pytorch_model=model)
+
+        assert not model.training
 
     def test_supplied_model_id_overrides_model_config(self) -> None:
         from winml.modelkit.eval.evaluate import _prepare_supplied_pytorch_model
