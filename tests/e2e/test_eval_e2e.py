@@ -1093,7 +1093,130 @@ class TestEvalAdditionalOptions:
 
 
 # ===========================================================================
-# G. CLI-validation error paths (fast — no model load)
+# G. Native Hugging Face evaluation
+# ===========================================================================
+
+
+class TestEvalNativeHuggingFace:
+    """Evaluate a real small checkpoint without exporting it to ONNX."""
+
+    @staticmethod
+    def _dataset(tmp_path: Path) -> Path:
+        from datasets import Dataset
+
+        path = tmp_path / "native_text_classification"
+        Dataset.from_dict(
+            {
+                "text": ["A good result.", "A bad result."],
+                "label": [1, 0],
+            }
+        ).save_to_disk(path)
+        return path
+
+    def test_pytorch_runtime_labeled_evaluation(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        out = tmp_path / "native_cpu.json"
+        _invoke(
+            runner,
+            [
+                "-m",
+                "hf-internal-testing/tiny-random-BertForSequenceClassification",
+                "--task",
+                "text-classification",
+                "--dataset",
+                str(self._dataset(tmp_path)),
+                "--samples",
+                "2",
+                "--no-shuffle",
+                "--runtime",
+                "pytorch",
+                "--device",
+                "cpu",
+                "-o",
+                str(out),
+            ],
+        )
+
+        data = _assert_metrics_present(out, ["accuracy"])
+        assert data["runtime"] == "pytorch"
+        assert data["device"] == "cpu"
+        assert data["dataset"]["samples"] == 2
+
+    def test_pytorch_runtime_text_generation(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        out = tmp_path / "native_text_generation.json"
+        _invoke(
+            runner,
+            [
+                "-m",
+                "hf-internal-testing/tiny-random-gpt2",
+                "--task",
+                "text-generation",
+                "--dataset",
+                str(self._dataset(tmp_path)),
+                "--column",
+                "num_tokens=8",
+                "--column",
+                "seqlen=4",
+                "--runtime",
+                "pytorch",
+                "--device",
+                "cpu",
+                "-o",
+                str(out),
+            ],
+        )
+
+        data = _assert_metrics_present(out, ["perplexity"])
+        assert data["runtime"] == "pytorch"
+        assert data["device"] == "cpu"
+        assert data["metrics"]["num_scored_positions"] > 0
+
+    def test_pytorch_runtime_labeled_evaluation_cuda(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        import torch
+
+        if not torch.cuda.is_available():
+            pytest.skip("CUDA is not available")
+
+        out = tmp_path / "native_gpu.json"
+        _invoke(
+            runner,
+            [
+                "-m",
+                "hf-internal-testing/tiny-random-BertForSequenceClassification",
+                "--task",
+                "text-classification",
+                "--dataset",
+                str(self._dataset(tmp_path)),
+                "--samples",
+                "2",
+                "--no-shuffle",
+                "--runtime",
+                "pytorch",
+                "--device",
+                "gpu",
+                "-o",
+                str(out),
+            ],
+        )
+
+        data = _assert_metrics_present(out, ["accuracy"])
+        assert data["runtime"] == "pytorch"
+        assert data["device"] == "gpu"
+
+
+# ===========================================================================
+# H. CLI-validation error paths (fast — no model load)
 # ===========================================================================
 
 

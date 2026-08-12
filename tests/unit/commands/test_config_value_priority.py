@@ -310,6 +310,7 @@ def _run_perf(
         args.extend(["--config", str(config_path)])
 
     with (
+        patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
         patch(
             "winml.modelkit.commands.perf.PerfBenchmark",
             side_effect=fake_benchmark,
