@@ -346,7 +346,7 @@ class BenchmarkConfig:
     max_optim_iterations: int | None = None
     no_compile: bool = True
     rebuild: bool = False
-    ignore_cache: bool = False
+    use_cache: bool = True
     skip_build: bool = True
     allow_unsupported_nodes: bool = False
     monitor: bool = False
@@ -1051,10 +1051,6 @@ class PerfBenchmark:
         elif self.config.no_quantize:
             override = WinMLBuildConfig(quant=None)
 
-        # Cache control: --ignore-cache -> temp dir, --rebuild -> overwrite cache
-        use_cache = not self.config.ignore_cache
-        force_rebuild = self.config.rebuild or self.config.ignore_cache
-
         common_kwargs: dict[str, Any] = {
             "task": resolved_task,
             "config": override,
@@ -1063,8 +1059,10 @@ class PerfBenchmark:
             "ep": self.config.ep,
             "precision": self.config.precision,
             "provider_options": self.config.ep_options,
-            "use_cache": use_cache,
-            "force_rebuild": force_rebuild,
+            **cli_utils.cache_extra_kwargs(
+                use_cache=self.config.use_cache,
+                rebuild=self.config.rebuild,
+            ),
             "shape_config": self.config.shape_config,
             "allow_unsupported_nodes": self.config.allow_unsupported_nodes,
             "no_compile": self.config.no_compile,
@@ -1372,7 +1370,7 @@ def _perf_modules(
     precision: str = "auto",
     allow_unsupported_nodes: bool = False,
     rebuild: bool = False,
-    ignore_cache: bool = False,
+    use_cache: bool = True,
 ) -> None:
     """Run per-module build and benchmark for matching submodules.
 
@@ -1411,9 +1409,8 @@ def _perf_modules(
             the analyzer reports unsupported nodes that persist.
         rebuild: If True, overwrite cached per-module artifacts and re-run the
             build (mirrors the single-model ``--rebuild``).
-        ignore_cache: If True, build each module in a throwaway temp dir and
-            always rebuild, discarding artifacts afterward (mirrors the
-            single-model ``--ignore-cache``).
+        use_cache: If False, build each module in a throwaway temp dir and
+            always rebuild, discarding artifacts afterward.
     """
     import contextlib
     import difflib
@@ -1488,14 +1485,16 @@ def _perf_modules(
     parent_model = _instantiate_parent_model(model_type, task=parent_loader_cfg.task)
 
     # Cache control mirrors auto.py / the single-model path:
-    #   --ignore-cache -> build each module in a throwaway temp dir, always
+    #   --no-use-cache -> build each module in a throwaway temp dir, always
     #                     rebuild, discard afterward
     #   --rebuild      -> reuse the persistent model dir but overwrite artifacts
     # Each module's cache_key folds in loader.module_path (and its I/O shapes),
     # so sibling instances of the same class get distinct keys and coexist in
     # the shared model dir without colliding.
-    use_cache = not ignore_cache
-    force_rebuild = rebuild or ignore_cache
+    force_rebuild = cli_utils.cache_extra_kwargs(
+        use_cache=use_cache,
+        rebuild=rebuild,
+    )["force_rebuild"]
     task_abbrev = get_task_abbrev(parent_loader_cfg.task) if parent_loader_cfg.task else "module"
     cache_model_dir = get_model_dir(hf_model, cache_dir=get_cache_dir()) if use_cache else None
 
@@ -2144,7 +2143,7 @@ _GENAI_IGNORED_FLAGS: dict[str, str] = {
     "analyze": "--analyze/--no-analyze",
     "max_optim_iterations": "--max-optim-iterations",
     "rebuild": "--rebuild",
-    "ignore_cache": "--ignore-cache",
+    "use_cache": "--use-cache/--no-use-cache",
     "skip_build": "--skip-build",
     "allow_unsupported_nodes": "--allow-unsupported-nodes",
     "batch_size": "--batch-size",
@@ -2157,12 +2156,12 @@ _GENAI_IGNORED_FLAGS: dict[str, str] = {
 # excluded from the ignored-flags warning when a bundle is auto-built. A prebuilt
 # bundle still ignores them all.
 #
-# * Cache-behavior flags force the build path (the reuse fast-path is never taken
-#   when they are set), so they are honored whenever an auto-build runs.
+# * ``--rebuild`` forces the auto-build path and is honored whenever it runs.
+#   Model build cache controls are deferred for GenAI (issue #1275).
 # * Artifact-shaping flags only take effect when a build actually runs; a cache
 #   hit reuses a bundle keyed by the model id alone and silently drops them, so
 #   they are still reported as ignored in that case.
-_GENAI_BUILD_CONTROL_FLAGS: frozenset[str] = frozenset({"rebuild", "ignore_cache"})
+_GENAI_BUILD_CONTROL_FLAGS: frozenset[str] = frozenset({"rebuild"})
 _GENAI_BUILD_INPUT_FLAGS: frozenset[str] = frozenset({"task", "precision"})
 
 
@@ -2172,7 +2171,8 @@ def _warn_ignored_genai_flags(
     """Warn about WinML-only flags the user passed that genai ignores.
 
     When the bundle was auto-built from a model id (``autobuilt``), the
-    cache-behavior flags (rebuild/ignore-cache) are always honored by the build.
+    ``--rebuild`` is honored by the build. Model build cache controls are
+    deferred for GenAI (issue #1275).
     The artifact-shaping flags (task/precision) are honored only when a fresh
     build actually ran (``built_fresh``); on a cache hit the model-id-keyed bundle
     is reused as-is, so those flags are reported as ignored. A prebuilt bundle
@@ -2206,10 +2206,6 @@ def _autobuild_genai_bundle(
 
     * a plain run reuses a previously built bundle keyed by the model id;
     * ``--rebuild`` overwrites that cached bundle in place;
-    * ``--ignore-cache`` builds fresh in a throwaway temp dir -- both the
-      assembled bundle and its component build cache -- and leaves the managed
-      cache untouched. The temp dir is entered on *stack* so it outlives the
-      benchmark and is removed afterwards.
 
     genai bundles target the NPU HTP via QNN, so the build pins ``ep=qnn`` /
     ``device=npu`` regardless of the benchmark's ``--device`` (which still
@@ -2222,37 +2218,21 @@ def _autobuild_genai_bundle(
     a build actually ran and ``False`` when the managed-cache fast-path reused an
     existing bundle (in which case task/precision were not applied to it).
     """
-    import tempfile
-
     from ..cache import get_cache_dir, get_model_dir
     from ..loader import resolve_loader_config
     from ..models.winml import build_genai_bundle, resolve_genai_bundle
 
     p = ctx.params
 
-    if p.get("ignore_cache"):
-        # Mirror the winml runtime's use_cache=False path: build everything
-        # fresh in a throwaway temp dir and neither read from nor write to the
-        # managed cache. The assembled bundle and the component build cache both
-        # live under the temp root; the ExitStack removes it after benchmarking.
-        tmp_root = Path(
-            stack.enter_context(
-                tempfile.TemporaryDirectory(prefix="winml-genai-perf-", ignore_cleanup_errors=True)
-            )
-        )
-        bundle_dir = tmp_root / "genai-bundle"
-        build_cache_dir: Path = tmp_root / "cache"
-        force_rebuild = True
-    else:
-        cache_dir = get_cache_dir()
-        bundle_dir = get_model_dir(model, cache_dir=cache_dir) / "genai-bundle"
-        build_cache_dir = cache_dir
-        # --rebuild overwrites the cached bundle; a plain run reuses it. Checked
-        # before any model resolution so a cache hit never touches the network.
-        force_rebuild = bool(p.get("rebuild"))
-        if (bundle_dir / "genai_config.json").exists() and not force_rebuild:
-            console.print(f"[dim]Reusing cached genai bundle:[/dim] {bundle_dir}")
-            return bundle_dir, False
+    cache_dir = get_cache_dir()
+    bundle_dir = get_model_dir(model, cache_dir=cache_dir) / "genai-bundle"
+    build_cache_dir = cache_dir
+    # --rebuild overwrites the cached bundle; a plain run reuses it. Checked
+    # before any model resolution so a cache hit never touches the network.
+    force_rebuild = bool(p.get("rebuild"))
+    if (bundle_dir / "genai_config.json").exists() and not force_rebuild:
+        console.print(f"[dim]Reusing cached genai bundle:[/dim] {bundle_dir}")
+        return bundle_dir, False
 
     # Cache miss (or forced rebuild): resolve the model family so its
     # genai-bundle recipe can drive the build.
@@ -2325,9 +2305,7 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     if p.get("submodel"):
         raise click.UsageError("--submodel is not supported with --runtime winml-genai.")
 
-    # The ExitStack keeps an --ignore-cache auto-build's throwaway temp dir alive
-    # across the benchmark below, then removes it on exit. A bundle dir or a
-    # cached auto-build registers nothing, so it is a no-op.
+    # Keep any bundle-lifetime resources alive across the benchmark.
     with contextlib.ExitStack() as stack:
         # Resolve the bundle. A local directory is used as-is (it must be a real
         # genai bundle); an ``.onnx`` file is rejected; anything else is treated
@@ -2609,18 +2587,7 @@ def _validate_duration(
 @cli_utils.optimize_option(optional_message="Applied during model build.")
 @cli_utils.analyze_option(optional_message="Applied during model build.")
 @cli_utils.max_optim_iterations_option()
-@click.option(
-    "--rebuild/--no-rebuild",
-    default=False,
-    show_default=True,
-    help="Force rebuild even if cached artifacts exist",
-)
-@click.option(
-    "--ignore-cache/--no-ignore-cache",
-    default=False,
-    show_default=True,
-    help="Build from scratch in a temp folder (discard after benchmarking)",
-)
+@cli_utils.cache_options()
 @cli_utils.skip_build_option()
 @cli_utils.compile_option(
     default=True,
@@ -2710,8 +2677,8 @@ def perf(
     optimize: bool,
     analyze: bool,
     max_optim_iterations: int | None,
+    use_cache: bool,
     rebuild: bool,
-    ignore_cache: bool,
     skip_build: bool,
     no_compile: bool,
     allow_unsupported_nodes: bool,
@@ -2995,7 +2962,7 @@ def perf(
             precision=precision.lower(),
             allow_unsupported_nodes=allow_unsupported_nodes,
             rebuild=rebuild,
-            ignore_cache=ignore_cache,
+            use_cache=use_cache,
         )
         return
 
@@ -3135,7 +3102,7 @@ def perf(
         no_analyze=not analyze,
         max_optim_iterations=max_optim_iterations,
         rebuild=rebuild,
-        ignore_cache=ignore_cache,
+        use_cache=use_cache,
         skip_build=skip_build,
         no_compile=no_compile,
         allow_unsupported_nodes=allow_unsupported_nodes,
@@ -3171,17 +3138,36 @@ def perf(
             # Build-pipeline flags are forwarded to from_onnx but no-op when the
             # build is skipped (the default). Warn so the silent no-op is visible
             # — shared detection with eval via utils/cli.py.
+            from ..onnx import is_compiled_onnx
+
+            build_control_was_set = (
+                not quant or not optimize or not analyze or max_optim_iterations is not None
+            )
+            compiled_onnx = (not skip_build or build_control_was_set) and is_compiled_onnx(
+                model_path
+            )
+            build_runs = not skip_build and not compiled_onnx
             build_flags_warning = cli_utils.ignored_build_flags_warning(
-                build_runs=not skip_build,
+                build_runs=build_runs,
                 quant=quant,
                 optimize=optimize,
                 analyze=analyze,
                 max_optim_iterations=max_optim_iterations,
                 reason="pre-built ONNX inputs",
-                rebuild_hint="--no-skip-build",
+                rebuild_hint=None if compiled_onnx else "--no-skip-build",
             )
             if build_flags_warning:
                 console.print(f"[yellow]Warning:[/yellow] {build_flags_warning}")
+            cache_flags_warning = cli_utils.ignored_cache_flags_warning(
+                build_runs=build_runs,
+                use_cache=use_cache,
+                rebuild=rebuild,
+                use_cache_was_set=cli_utils.is_cli_provided(ctx, "use_cache"),
+                rebuild_was_set=cli_utils.is_cli_provided(ctx, "rebuild"),
+                reason="pre-built ONNX inputs",
+            )
+            if cache_flags_warning:
+                console.print(f"[yellow]Warning:[/yellow] {cache_flags_warning}")
             console.print(f"[dim]Benchmarking ONNX:[/dim] {model_path}")
         else:
             if precision != "auto":
