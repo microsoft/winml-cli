@@ -9,10 +9,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from ..utils.constants import EPNameOrAlias
 from ..utils.eval_utils import EvalMode
+
+
+EvalRuntime = Literal["winml", "pytorch"]
 
 
 @dataclass
@@ -130,6 +133,11 @@ class WinMLEvaluationConfig:
             from ``model_id`` (ignored for pre-built ONNX inputs).
         dataset: Dataset configuration.
         output_path: Path to write JSON results.
+        runtime: Evaluation runtime.
+
+            - ``"winml"`` (default): export Hugging Face checkpoints to ONNX
+              and evaluate with WinML.
+            - ``"pytorch"``: evaluate the original Hugging Face checkpoint.
         mode: Evaluation mode (see :data:`EvalMode`).
 
             - ``"onnx"`` (default): evaluate the ONNX candidate on the
@@ -174,11 +182,28 @@ class WinMLEvaluationConfig:
     skip_build: bool = True
     use_cache: bool = True
     rebuild: bool = False
+    runtime: EvalRuntime = "winml"
+    trust_remote_code: bool = False
     _auto_device_selected: bool = field(default=False, repr=False, compare=False, kw_only=True)
+    _pipeline_device_override: str | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        kw_only=True,
+    )
+
+    @property
+    def pipeline_device(self) -> str:
+        """Return the tensor-placement device expected by Transformers pipelines."""
+        if self._pipeline_device_override is not None:
+            return self._pipeline_device_override
+        if self.runtime == "pytorch" and self.device.lower() == "gpu":
+            return "cuda"
+        return "cpu"
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
-        result: dict = {}
+        result: dict = {"runtime": self.runtime}
         if self.model_id is not None:
             result["model_id"] = self.model_id
         if self.model_path is not None:
@@ -215,9 +240,12 @@ class WinMLEvaluationConfig:
             result["output_path"] = str(self.output_path)
         if self.mode != "onnx":
             result["mode"] = self.mode
-        result["skip_build"] = self.skip_build
-        result["use_cache"] = self.use_cache
-        result["rebuild"] = self.rebuild
+        if self.runtime == "winml":
+            result["skip_build"] = self.skip_build
+            result["use_cache"] = self.use_cache
+            result["rebuild"] = self.rebuild
+        if self.trust_remote_code:
+            result["trust_remote_code"] = True
         return result
 
     @classmethod
@@ -259,4 +287,6 @@ class WinMLEvaluationConfig:
             skip_build=data.get("skip_build", True),
             use_cache=data.get("use_cache", True),
             rebuild=data.get("rebuild", False),
+            runtime=data.get("runtime", "winml"),
+            trust_remote_code=data.get("trust_remote_code", False),
         )

@@ -22,7 +22,7 @@ from ..utils.logging import configure_logging
 
 
 if TYPE_CHECKING:
-    from ..eval import EvalResult, WinMLEvaluationConfig
+    from ..eval import EvalResult, EvalRuntime, WinMLEvaluationConfig
     from ..utils.constants import EPNameOrAlias
 
 
@@ -116,6 +116,14 @@ logger = logging.getLogger(__name__)
     ),
 )
 @click.option(
+    "--runtime",
+    type=click.Choice(["winml", "pytorch"]),
+    default="winml",
+    show_default=True,
+    help="Evaluation runtime. 'winml' exports Hugging Face checkpoints to ONNX; "
+    "'pytorch' evaluates the original checkpoint.",
+)
+@click.option(
     "--samples",
     type=int,
     default=100,
@@ -166,7 +174,9 @@ logger = logging.getLogger(__name__)
     default=None,
     help="Path to a Python script that builds the evaluation dataset.",
 )
-@cli_utils.trust_remote_code_option(optional_message="Required when --dataset-script is used.")
+@cli_utils.trust_remote_code_option(
+    optional_message="Used for native Hugging Face loading and required with --dataset-script."
+)
 @cli_utils.allow_unsupported_nodes_option()
 @click.option(
     "--schema",
@@ -235,6 +245,7 @@ def eval(
     input_specs: Path | None,
     export_config: Path | None,
     dynamic_axes: Path | None,
+    runtime: EvalRuntime,
     ep: EPNameOrAlias | None,
     samples: int,
     split: str,
@@ -302,6 +313,13 @@ def eval(
     # ── 1. Build config: defaults ← config file ← CLI ──
     cfg, config_fields = _build_eval_config(ctx, config_file, column, label_mapping_path)
 
+    if cfg.runtime not in ("winml", "pytorch"):
+        raise click.UsageError(
+            f"Invalid eval runtime {cfg.runtime!r}; expected 'winml' or 'pytorch'."
+        )
+    if cfg.runtime == "pytorch":
+        _validate_pytorch_runtime_options(ctx, cfg, config_fields)
+
     if cfg.input_data is not None and cfg.mode != "compare":
         raise click.UsageError("--input-data is only valid with --mode compare.")
 
@@ -310,12 +328,25 @@ def eval(
 
     # ── 2. Resolve in place ──
     _resolve_model(cfg, model, model_id, allow_missing_model_id=cfg.reference_path is not None)
+    if cfg.runtime == "pytorch" and cfg.model_path is not None:
+        raise click.UsageError(
+            "--runtime pytorch requires a Hugging Face model ID or local Hugging Face "
+            "checkpoint; ONNX files, composite role=path models, and GenAI bundles "
+            "are not supported."
+        )
+    if cfg.runtime == "pytorch":
+        from ..eval.evaluate import _validate_pytorch_runtime_config
+
+        try:
+            _validate_pytorch_runtime_config(cfg)
+        except ValueError as error:
+            raise click.UsageError(str(error)) from error
     _resolve_reference(cfg)
     _apply_export_overrides(cfg, shape_config_path, input_specs, export_config, dynamic_axes)
     _resolve_device(cfg)
     _resolve_genai_ep(ctx, cfg)
     _resolve_label_mapping(cfg)
-    _run_dataset_script(cfg, trust_remote_code)
+    _run_dataset_script(cfg, cfg.trust_remote_code)
 
     # Refuse to clobber an existing report unless the user opted in — fail fast
     # before the (expensive) evaluation runs.
@@ -442,6 +473,8 @@ def _model_build_bypass(cfg: WinMLEvaluationConfig) -> _ModelBuildBypass | None:
     from ..eval.evaluate import _ModelLoaderKind, _select_model_loader
 
     loader = _select_model_loader(cfg)
+    if loader is _ModelLoaderKind.PYTORCH:
+        return _ModelBuildBypass("PyTorch runtime evaluation")
     if loader is _ModelLoaderKind.GENAI:
         return _ModelBuildBypass(
             reason="GenAI bundles",
@@ -512,6 +545,71 @@ def _resolve_model_loader_task(cfg: WinMLEvaluationConfig) -> None:
     cfg.task = _infer_task(cfg)
 
 
+_PYTORCH_RUNTIME_INCOMPATIBLE_OPTIONS: dict[str, str] = {
+    "mode": "--mode",
+    "input_data": "--input-data",
+    "reference": "--reference",
+    "ep": "--ep",
+    "precision": "--precision",
+    "quant": "--quant/--no-quant",
+    "optimize": "--optimize/--no-optimize",
+    "analyze": "--analyze/--no-analyze",
+    "max_optim_iterations": "--max-optim-iterations",
+    "shape_config_path": "--shape-config",
+    "input_specs": "--input-specs",
+    "export_config": "--export-config",
+    "dynamic_axes": "--dynamic-axes",
+    "allow_unsupported_nodes": "--allow-unsupported-nodes",
+    "skip_build": "--skip-build/--no-skip-build",
+    "use_cache": "--use-cache/--no-use-cache",
+    "rebuild": "--rebuild/--no-rebuild",
+}
+
+_PYTORCH_RUNTIME_INCOMPATIBLE_CONFIG_FIELDS = {
+    "mode",
+    "input_data",
+    "reference_path",
+    "ep",
+    "precision",
+    "quant",
+    "optimize",
+    "analyze",
+    "max_optim_iterations",
+    "shape_config",
+    "export_overrides",
+    "allow_unsupported_nodes",
+    "skip_build",
+    "use_cache",
+    "rebuild",
+}
+
+
+def _validate_pytorch_runtime_options(
+    ctx: click.Context,
+    cfg: WinMLEvaluationConfig,
+    config_fields: set[str],
+) -> None:
+    """Reject options whose semantics require ONNX export or ONNX Runtime."""
+    if cfg.device.lower() not in ("auto", "cpu", "gpu"):
+        raise click.UsageError(
+            f"--device {cfg.device} is not supported with --runtime pytorch; use auto, cpu, or gpu."
+        )
+    incompatible = [
+        flag
+        for param_name, flag in _PYTORCH_RUNTIME_INCOMPATIBLE_OPTIONS.items()
+        if cli_utils.is_cli_provided(ctx, param_name)
+    ]
+    incompatible.extend(
+        f"eval.{field}"
+        for field in sorted(config_fields & _PYTORCH_RUNTIME_INCOMPATIBLE_CONFIG_FIELDS)
+    )
+    if incompatible:
+        raise click.UsageError(
+            "--runtime pytorch cannot be combined with incompatible options: "
+            f"{', '.join(incompatible)}."
+        )
+
+
 def _resolve_model(
     cfg: WinMLEvaluationConfig,
     model: tuple[str, ...],
@@ -520,6 +618,8 @@ def _resolve_model(
     allow_missing_model_id: bool = False,
 ) -> None:
     """Resolve ``-m`` / ``--model-id`` into ``cfg.model_path`` / ``cfg.model_id``."""
+    if not model and model_id is None and (cfg.model_path is not None or cfg.model_id is not None):
+        return
     model_path, resolved_id = _resolve_model_path(
         model=model, model_id=model_id, allow_missing_model_id=allow_missing_model_id
     )
@@ -620,6 +720,17 @@ def _apply_export_overrides(
 
 def _resolve_device(cfg: WinMLEvaluationConfig) -> None:
     """Resolve ``'auto'`` → concrete device string on *cfg* in place."""
+    if cfg.runtime == "pytorch":
+        from ..loader import resolve_native_device
+
+        try:
+            resolved = resolve_native_device(cfg.device)
+        except ValueError as error:
+            raise click.UsageError(str(error)) from error
+        cfg._auto_device_selected = cfg.device.lower() == "auto"
+        cfg.device = resolved.name
+        return
+
     if cfg.device and cfg.device.lower() != "auto":
         return
 
@@ -888,6 +999,7 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
     # Info section
     console.print()
     console.print(f"[dim]Task:[/dim]       {cfg.task}")
+    console.print(f"[dim]Runtime:[/dim]    {cfg.runtime}")
     console.print(f"[dim]Device:[/dim]     {cfg.device}")
     if cfg.input_data:
         console.print(f"[dim]Input data:[/dim] {cfg.input_data}")

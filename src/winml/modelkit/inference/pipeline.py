@@ -22,12 +22,8 @@ import inspect
 import logging
 import warnings
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-
-if TYPE_CHECKING:
-    from ..models.winml.base import WinMLPreTrainedModel
-    from ..models.winml.composite_model import WinMLCompositeModel
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +31,8 @@ logger = logging.getLogger(__name__)
 # Mapped to their HF pipeline equivalent before calling ``pipeline()``.
 _HF_PIPELINE_TASK_MAP: dict[str, str] = {
     "image-to-text": "image-text-to-text",
+    "next-sentence-prediction": "text-classification",
+    "sequence-classification": "text-classification",
     "sentence-similarity": "feature-extraction",
 }
 
@@ -70,9 +68,10 @@ class _ExtractiveQuestionAnsweringPipeline:
 
     task = "question-answering"
 
-    def __init__(self, model: Any, tokenizer: Any) -> None:
+    def __init__(self, model: Any, tokenizer: Any, device: str = "cpu") -> None:
         self.model = model
         self.tokenizer = tokenizer
+        self.device = device
         self._preprocess_params: dict[str, Any] = {}
 
     def preprocess(self, inputs: Any, **kwargs: Any) -> Any:
@@ -372,6 +371,7 @@ class _ExtractiveQuestionAnsweringPipeline:
                 model_inputs[name] = batch
             if not model_inputs:
                 raise ValueError("Tokenizer outputs do not match the model's declared inputs.")
+            model_inputs = {name: tensor.to(self.device) for name, tensor in model_inputs.items()}
             outputs = self.model(**model_inputs)
             start_logits = getattr(outputs, "start_logits", None)
             end_logits = getattr(outputs, "end_logits", None)
@@ -484,6 +484,8 @@ class _ExtractiveQuestionAnsweringPipeline:
 def _create_extractive_question_answering_pipeline(
     model: Any,
     model_id: str | None,
+    device: str = "cpu",
+    trust_remote_code: bool = False,
 ) -> _ExtractiveQuestionAnsweringPipeline:
     """Create the extractive QA pipeline removed from Transformers 5."""
     from transformers import AutoTokenizer
@@ -491,13 +493,16 @@ def _create_extractive_question_answering_pipeline(
     tokenizer_source = model_id or getattr(getattr(model, "config", None), "_name_or_path", None)
     if not tokenizer_source:
         raise ValueError("model_id is required to load a question-answering tokenizer.")
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_source, use_fast=True)
+    tokenizer_kwargs = {"use_fast": True}
+    if trust_remote_code:
+        tokenizer_kwargs["trust_remote_code"] = True
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_source, **tokenizer_kwargs)
     if not getattr(tokenizer, "is_fast", False):
         raise ValueError(
             "Extractive question answering requires a fast tokenizer with offset mappings. "
             "Use a model that provides a fast tokenizer implementation."
         )
-    return _ExtractiveQuestionAnsweringPipeline(model, tokenizer)
+    return _ExtractiveQuestionAnsweringPipeline(model, tokenizer, device=device)
 
 
 _COMPAT_PIPELINE_FACTORIES = {
@@ -523,8 +528,11 @@ def _pipeline_component_kwargs(task: str, model_id: str | None) -> dict[str, str
 
 def create_pipeline(
     task: str,
-    model: WinMLPreTrainedModel | WinMLCompositeModel,
+    model: Any,
     model_id: str | None = None,
+    *,
+    device: str = "cpu",
+    trust_remote_code: bool = False,
 ) -> Any:
     """Create an HF pipeline for a WinML model.
 
@@ -533,9 +541,11 @@ def create_pipeline(
 
     Args:
         task: HF task name (e.g. "image-classification")
-        model: Loaded WinMLPreTrainedModel instance
+        model: Loaded WinML or native Hugging Face model instance.
         model_id: HF model ID for loading processors (tokenizer, image processor).
                   If None, pipeline will attempt auto-detection.
+        device: Device used by the Transformers pipeline for input tensors.
+        trust_remote_code: Whether custom Hugging Face component code may execute.
 
     Returns:
         A configured task callable ready for inference.
@@ -545,14 +555,21 @@ def create_pipeline(
     hf_task = _HF_PIPELINE_TASK_MAP.get(task, task)
     compatibility_factory = _COMPAT_PIPELINE_FACTORIES.get(hf_task)
     if compatibility_factory is not None:
-        pipe = compatibility_factory(model, model_id)
+        pipe = compatibility_factory(
+            model,
+            model_id,
+            device=device,
+            trust_remote_code=trust_remote_code,
+        )
     else:
         kwargs: dict[str, Any] = {
             # "device" is for HF pipeline tensor placement, not ORT EP.
             # WinMLSession handles device delegation internally.
-            "device": "cpu",
+            "device": device,
             **_pipeline_component_kwargs(hf_task, model_id),
         }
+        if trust_remote_code:
+            kwargs["trust_remote_code"] = True
 
         # transformers.pipeline has 60+ Literal overloads — runtime task strings can't
         # be statically matched. The string-task fallback handles unknown tasks safely.
