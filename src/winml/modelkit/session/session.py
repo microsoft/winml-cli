@@ -818,6 +818,7 @@ class WinMLSession:
             raw_path = Path(value).expanduser()
         except (RuntimeError, ValueError):
             return None
+        candidates: tuple[Path, ...]
         if raw_path.is_absolute():
             candidates = (raw_path,)
         else:
