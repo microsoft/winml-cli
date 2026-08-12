@@ -389,7 +389,7 @@ def _iter_findings(
         base_nodes: dict[tuple[Any, ...], tuple[bytes, NodeRef]] = {}
         _collect_nodes(base_out.graph, (), base_nodes)
         base_inits = _collect_initializers(base_out)
-        prepared_probe_model = current
+        prepared_probe_model: ModelProto
         analysis_prepared = False
         try:
             try:
