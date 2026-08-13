@@ -680,7 +680,7 @@ class TestPerfModuleQuantCompileToggles:
 
 
 class TestPerfModuleCache:
-    """--rebuild / --ignore-cache control the per-module build cache the same
+    """--rebuild / --use-cache control the per-module build cache the same
     way they do for the single-model path (mirrors auto.py).
 
     Regression guard: per-module builds previously always used a throwaway
@@ -782,8 +782,8 @@ class TestPerfModuleCache:
         assert kwargs["rebuild"] is True
         assert (tmp_path / "cache") in kwargs["output_dir"].parents
 
-    def test_ignore_cache_uses_temp_dir_and_rebuilds(self, tmp_path: Path) -> None:
-        kwargs = self._run_build_kwargs(tmp_path, ["--ignore-cache"])
+    def test_no_cache_uses_temp_dir_and_rebuilds(self, tmp_path: Path) -> None:
+        kwargs = self._run_build_kwargs(tmp_path, ["--no-use-cache"])
         # Throwaway temp dir (outside the pinned cache root) + forced rebuild.
         assert kwargs["rebuild"] is True
         assert (tmp_path / "cache") not in kwargs["output_dir"].parents

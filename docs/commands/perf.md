@@ -17,7 +17,7 @@ $ winml perf [options]
 | Flag | Short | Type | Default | Description |
 |---|---|---|---|---|
 | `--model` | `-m` | `TEXT` | — | HuggingFace model ID or path to a local `.onnx` file. Required. With `--runtime winml-genai`, also accepts a prebuilt genai **bundle directory**, or a HuggingFace model ID that is auto-built into a bundle on demand. |
-| `--runtime` | | `winml\|winml-genai` | `winml` | Inference runtime. `winml` benchmarks single-shot ONNX inference; `winml-genai` benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec). With `winml-genai`, a model ID that is not a bundle directory is auto-built into one (cached under `~/.cache/winml/`, targeting the NPU HTP via QNN) before benchmarking. Cache handling matches the `winml` runtime: `--rebuild` overwrites the cached bundle, and `--ignore-cache` builds a throwaway bundle in a temp folder and leaves the cache untouched. |
+| `--runtime` | | `winml\|winml-genai` | `winml` | Inference runtime. `winml` benchmarks single-shot ONNX inference; `winml-genai` benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec). With `winml-genai`, a model ID that is not a bundle directory is auto-built into one (cached under `~/.cache/winml/`, targeting the NPU HTP via QNN) before benchmarking. GenAI cache controls are tracked in issue #1275. |
 | `--task` | | `TEXT` | auto-detected | Explicit task override (e.g., `image-classification`). Inferred from the model if omitted. |
 | `--iterations` | | `INTEGER` | `100` | Number of timed inference iterations used to compute statistics. |
 | `--warmup` | | `INTEGER` | `10` | Number of warm-up iterations run before timing begins; excluded from statistics. |
@@ -33,8 +33,8 @@ $ winml perf [options]
 | `--export-config` | | `PATH` | — | JSON ONNX export config overrides to apply when `perf` builds a Hugging Face model before benchmarking. Ignored for pre-exported ONNX files and in `--module` mode. |
 | `--dynamic-axes` | | `PATH` | — | JSON dynamic axes mapping for Hugging Face ONNX export, for example `{"input_ids": {"0": "batch", "1": "sequence"}}`. Ignored for pre-exported ONNX files and in `--module` mode. |
 | `--quantize/--no-quantize` | | flag | `true` | Run quantization during model build (use `--no-quantize` to skip it). Useful for measuring the fp32 baseline. |
+| `--use-cache/--no-use-cache` | | flag | `true` | Reuse persistent model build artifacts. `--no-use-cache` performs a fresh build in a temporary folder and discards it after benchmarking. |
 | `--rebuild/--no-rebuild` | | flag | `false` | Force model rebuild even if a cached artifact already exists. |
-| `--ignore-cache/--no-ignore-cache` | | flag | `false` | Build from scratch in a temporary folder and discard the artifact after benchmarking. Implies `--rebuild`. |
 | `--module` | | `TEXT` | — | PyTorch module class name for per-module benchmarking (e.g., `BertAttention`). Builds and times each matching instance separately. See [Load and export](../concepts/load-and-export.md). |
 | `--monitor/--no-monitor` | | flag | `false` | Show a live NPU/CPU utilization chart while the benchmark runs and include hardware metrics in the JSON report. |
 | `--op-tracing` | | `basic\|detail` | — | Enable operator-level profiling. QNN detail tracing requires an EPContext model; a raw ONNX input is detected and compiled automatically with the required profiling options. |

@@ -24,10 +24,12 @@ is derived from the concrete graph diff.
 from __future__ import annotations
 
 import logging
+from array import array
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from google.protobuf.internal import api_implementation
 from onnx import AttributeProto, GraphProto, ModelProto, NodeProto, TensorProto
 
 
@@ -38,6 +40,7 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+_PROTOBUF_IMPLEMENTATION = api_implementation.Type()
 
 
 # =============================================================================
@@ -206,41 +209,75 @@ def _diff_nodes(
     return removed, added, modified
 
 
-def _initializer_key(init: TensorProto) -> bytes:
-    """Serialize an initializer for diffing, ignoring external-data location.
+def _initializers_equal(base: TensorProto, probe: TensorProto) -> bool:
+    """Compare initializer content while ignoring storage-location metadata.
 
     An external-data ``TensorProto`` keeps its file path/offset/length in
     ``external_data`` (with ``data_location = EXTERNAL``) instead of inline
     ``raw_data``. Those location fields change whenever a pipe re-saves the
     model — relocated offsets, a different sidecar path — even when the tensor
     itself is unchanged, which would otherwise surface as a spurious "modified"
-    initializer. Stripping them keeps the diff keyed on tensor identity/content
-    rather than on where the bytes happen to live.
+    initializer. Some ONNX processing also explicitly serializes
+    ``data_location = DEFAULT`` on inline tensors, which is semantically
+    identical to leaving the optional field unset. Stripping both location
+    fields keeps the diff keyed on tensor identity/content rather than storage
+    metadata.
+
+    The common equality fast path is important for large models: protobuf
+    comparison reads payloads in place, while serializing every initializer
+    would allocate and copy all model weights for every capability probe.
     """
-    if init.data_location == TensorProto.EXTERNAL or len(init.external_data):
-        normalized = TensorProto()
-        normalized.CopyFrom(init)
-        normalized.ClearField("external_data")
-        normalized.ClearField("data_location")
-        return normalized.SerializeToString()
-    return init.SerializeToString()
+    protobuf_equal = base == probe
+    if protobuf_equal and _PROTOBUF_IMPLEMENTATION == "upb":
+        return True
+
+    float_field_types = {"float_data": "f", "double_data": "d"}
+    for field_name, typecode in float_field_types.items():
+        if array(typecode, getattr(base, field_name)).tobytes() != array(
+            typecode, getattr(probe, field_name)
+        ).tobytes():
+            return False
+
+    if protobuf_equal:
+        return True
+
+    ignored_fields = {"data_location", "external_data", *float_field_types}
+    for descriptor in TensorProto.DESCRIPTOR.fields:
+        if descriptor.name in ignored_fields:
+            continue
+
+        base_value = getattr(base, descriptor.name)
+        probe_value = getattr(probe, descriptor.name)
+        if descriptor.message_type is not None:
+            if descriptor.has_presence and (
+                base.HasField(descriptor.name) != probe.HasField(descriptor.name)
+            ):
+                return False
+            if base_value != probe_value:
+                return False
+        elif base_value != probe_value:
+            return False
+
+    return True
 
 
-def _collect_initializers(model: ModelProto) -> dict[str, bytes]:
-    """Return ``{initializer_name: signature_bytes}`` for the top-level graph."""
-    return {init.name: _initializer_key(init) for init in model.graph.initializer}
+def _collect_initializers(model: ModelProto) -> dict[str, TensorProto]:
+    """Return initializer references keyed by name for the top-level graph."""
+    return {init.name: init for init in model.graph.initializer}
 
 
 def _diff_initializers(
-    base: dict[str, bytes],
-    probe: dict[str, bytes],
+    base: dict[str, TensorProto],
+    probe: dict[str, TensorProto],
 ) -> tuple[list[str], list[str], list[str]]:
     """Diff two initializer tables into (removed, added, modified) name lists."""
     base_names = set(base)
     probe_names = set(probe)
     removed = sorted(base_names - probe_names)
     added = sorted(probe_names - base_names)
-    modified = sorted(n for n in (base_names & probe_names) if base[n] != probe[n])
+    modified = sorted(
+        n for n in (base_names & probe_names) if not _initializers_equal(base[n], probe[n])
+    )
     return removed, added, modified
 
 
@@ -283,8 +320,10 @@ def _run_pipe(pipe: Any, model: ModelProto, config: Any) -> ModelProto:
 def _iter_findings(
     model: ModelProto,
     capabilities: dict[str, CapabilityDef],
+    *,
     on_probe_start: Callable[[str], None] | None = None,
     on_probe_complete: Callable[[str], None] | None = None,
+    **optimizer_kwargs: Any,
 ) -> Iterator[tuple[CapabilityFinding, ModelProto]]:
     """Yield ``(finding, produced_model)`` for every applicable optimization.
 
@@ -319,6 +358,7 @@ def _iter_findings(
 
     # Baseline kwargs = every capability at its default value.
     default_kwargs = {cap.python_name: cap.default for cap in capabilities.values()}
+    default_kwargs.update(optimizer_kwargs)
     kebab_defaults = {name: cap.default for name, cap in capabilities.items()}
 
     # Mandatory pre-stage — mirrors Optimizer.optimize(). The clone is required:
@@ -353,70 +393,112 @@ def _iter_findings(
         base_nodes: dict[tuple[Any, ...], tuple[bytes, NodeRef]] = {}
         _collect_nodes(base_out.graph, (), base_nodes)
         base_inits = _collect_initializers(base_out)
-
-        for cap_name, cap in probe_caps:
-            if on_probe_start is not None:
-                on_probe_start(cap_name)
+        prepared_probe_model: ModelProto
+        analysis_prepared = False
+        try:
             try:
-                # Enable only this capability (plus its dependencies) on top of
-                # the all-defaults configuration.
-                kebab = dict(kebab_defaults)
-                kebab[cap_name] = True
-                kebab = auto_enable_dependencies(kebab, capabilities)
-                probe_kwargs = {
-                    capabilities[name].python_name: value
-                    for name, value in kebab.items()
-                    if name in capabilities
-                }
-
-                probe_config = pipe.build_config(**probe_kwargs)
-                should_process = getattr(pipe, "should_process", None)
-                if callable(should_process) and not should_process(probe_config):
-                    # Pipe would not run for this capability — nothing to apply.
-                    continue
-
-                # NB: this deliberately calls pipe.process directly rather than
-                # reusing _run_pipe. The probe must distinguish "pipe opts out"
-                # (handled above by continuing without emitting a finding) from
-                # "pipe ran but changed nothing", and it must isolate a failing
-                # capability in try/except so one bad probe cannot abort the scan.
-                try:
-                    probe_out = pipe.process(_clone(current), probe_config)
-                except Exception as exc:
-                    logger.warning(
-                        "Could not evaluate capability '%s' on pipe '%s': %s",
-                        cap_name,
-                        pipe.name,
-                        exc,
-                    )
-                    continue
-
-                probe_nodes: dict[tuple[Any, ...], tuple[bytes, NodeRef]] = {}
-                _collect_nodes(probe_out.graph, (), probe_nodes)
-                removed, added, modified = _diff_nodes(base_nodes, probe_nodes)
-
-                probe_inits = _collect_initializers(probe_out)
-                rem_init, add_init, mod_init = _diff_initializers(base_inits, probe_inits)
-
-                finding = CapabilityFinding(
-                    name=cap.name,
-                    python_name=cap.python_name,
-                    enable_flag=f"--enable-{cap.name}",
-                    category=cap.category.value,
-                    description=cap.description,
-                    pipe_name=pipe.name,
-                    removed_nodes=removed,
-                    added_nodes=added,
-                    modified_nodes=modified,
-                    removed_initializers=rem_init,
-                    added_initializers=add_init,
-                    modified_initializers=mod_init,
+                prepared_probe_model = pipe.prepare_analysis_model(current)
+                analysis_prepared = True
+            except Exception as exc:
+                logger.warning(
+                    "Could not prepare accelerated analysis for pipe '%s': %s. "
+                    "Falling back to isolated capability probes.",
+                    pipe.name,
+                    exc,
                 )
 
-                if finding.applicable:
-                    yield finding, probe_out
-            finally:
-                complete_probe(cap_name)
+            for cap_name, cap in probe_caps:
+                if on_probe_start is not None:
+                    on_probe_start(cap_name)
+                try:
+                    ep_device = optimizer_kwargs.get("ep_device")
+                    if ep_device is not None and cap.ep_constraint is not None:
+                        from ..utils.constants import normalize_ep_name
+
+                        target_ep = normalize_ep_name(ep_device.device.ep_name)
+                        if not any(
+                            normalize_ep_name(name) == target_ep for name in cap.ep_constraint
+                        ):
+                            logger.debug(
+                                "Skipping capability '%s': target EP %s is not in %s",
+                                cap.name,
+                                target_ep,
+                                cap.ep_constraint,
+                            )
+                            continue
+
+                    # Enable only this capability (plus its dependencies) on top of
+                    # the all-defaults configuration.
+                    kebab = dict(kebab_defaults)
+                    kebab[cap_name] = True
+                    kebab = auto_enable_dependencies(kebab, capabilities)
+                    probe_kwargs = {
+                        capabilities[name].python_name: value
+                        for name, value in kebab.items()
+                        if name in capabilities
+                    }
+                    probe_kwargs.update(optimizer_kwargs)
+
+                    probe_config = pipe.build_config(**probe_kwargs)
+                    should_process = getattr(pipe, "should_process", None)
+                    if callable(should_process) and not should_process(probe_config):
+                        # Pipe would not run for this capability — nothing to apply.
+                        continue
+
+                    try:
+                        if analysis_prepared:
+                            probe_input = (
+                                _clone(prepared_probe_model)
+                                if pipe.requires_analysis_clone()
+                                else prepared_probe_model
+                            )
+                            probe_out = pipe.process_analysis(probe_input, probe_config)
+                        else:
+                            probe_out = pipe.process(_clone(current), probe_config)
+                    except Exception as exc:
+                        logger.warning(
+                            "Could not evaluate capability '%s' on pipe '%s': %s",
+                            cap_name,
+                            pipe.name,
+                            exc,
+                        )
+                        continue
+
+                    probe_nodes: dict[tuple[Any, ...], tuple[bytes, NodeRef]] = {}
+                    _collect_nodes(probe_out.graph, (), probe_nodes)
+                    removed, added, modified = _diff_nodes(base_nodes, probe_nodes)
+
+                    probe_inits = _collect_initializers(probe_out)
+                    rem_init, add_init, mod_init = _diff_initializers(base_inits, probe_inits)
+
+                    finding = CapabilityFinding(
+                        name=cap.name,
+                        python_name=cap.python_name,
+                        enable_flag=f"--enable-{cap.name}",
+                        category=cap.category.value,
+                        description=cap.description,
+                        pipe_name=pipe.name,
+                        removed_nodes=removed,
+                        added_nodes=added,
+                        modified_nodes=modified,
+                        removed_initializers=rem_init,
+                        added_initializers=add_init,
+                        modified_initializers=mod_init,
+                    )
+
+                    if finding.applicable:
+                        yield finding, probe_out
+                finally:
+                    complete_probe(cap_name)
+        finally:
+            try:
+                pipe.finish_analysis()
+            except Exception as exc:
+                logger.warning(
+                    "Could not finish analysis cleanup for pipe '%s': %s",
+                    pipe.name,
+                    exc,
+                )
 
         # Advance the pipeline exactly as the real optimizer would.
         current = base_out
@@ -428,6 +510,7 @@ def analyze_model(
     *,
     on_probe_start: Callable[[str], None] | None = None,
     on_probe_complete: Callable[[str], None] | None = None,
+    **optimizer_kwargs: Any,
 ) -> list[CapabilityFinding]:
     """Probe every applicable optimization capability against ``model``.
 
@@ -440,6 +523,8 @@ def analyze_model(
         model: The input ONNX model (never modified).
         capabilities: The full capability registry (kebab-case keyed), e.g.
             from ``optim.pipes.get_all_capabilities()``.
+        **optimizer_kwargs: Pipeline context forwarded to every pipe configuration,
+            such as a resolved ``ep_device``.
         on_probe_start: Optional callback invoked with the capability name
             before each probe begins.
         on_probe_complete: Optional callback invoked with the capability name
@@ -456,6 +541,7 @@ def analyze_model(
             capabilities,
             on_probe_start=on_probe_start,
             on_probe_complete=on_probe_complete,
+            **optimizer_kwargs,
         )
     ]
 
@@ -463,6 +549,7 @@ def analyze_model(
 def iter_optimization_outputs(
     model: ModelProto,
     capabilities: dict[str, CapabilityDef],
+    **optimizer_kwargs: Any,
 ) -> Iterator[tuple[CapabilityFinding, ModelProto]]:
     """Yield each applicable optimization together with the model it produces.
 
@@ -476,10 +563,11 @@ def iter_optimization_outputs(
     Args:
         model: The input ONNX model (never modified).
         capabilities: The full capability registry (kebab-case keyed).
+        **optimizer_kwargs: Pipeline context forwarded to every pipe configuration.
 
     Yields:
         ``(finding, produced_model)`` pairs in pipeline order, one per applicable
         optimization. The pairs are produced lazily; materialize the iterator if
         the produced models must outlive iteration.
     """
-    yield from _iter_findings(model, capabilities)
+    yield from _iter_findings(model, capabilities, **optimizer_kwargs)

@@ -566,10 +566,7 @@ class TestSessionDevice:
             effective_hardware_ep="OpenVINOExecutionProvider",
         )
 
-        assert (
-            GenaiPerfBenchmark(cfg, session=session)._monitor_ep()
-            == "OpenVINOExecutionProvider"
-        )
+        assert GenaiPerfBenchmark(cfg, session=session)._monitor_ep() == "OpenVINOExecutionProvider"
 
     def test_accelerator_monitor_requires_unique_effective_ep(self, monkeypatch) -> None:
         captured: dict = {}
@@ -1203,43 +1200,6 @@ class TestCliDispatch:
         assert result.exit_code == 0, result.output
         assert build_calls["build"]["force_rebuild"] is True
 
-    def test_ignore_cache_builds_in_tempdir(
-        self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
-    ) -> None:
-        # --ignore-cache mirrors the winml runtime: build fresh in a throwaway
-        # temp dir and never touch the managed cache. Both the assembled bundle
-        # and its component build cache land outside WINML_CACHE_DIR, and the
-        # managed bundle dir is never written.
-        import winml.modelkit.loader as loader_mod
-        import winml.modelkit.models.winml as winml_models
-        from winml.modelkit.cache import get_model_dir
-
-        monkeypatch.setenv("WINML_CACHE_DIR", str(tmp_path))
-        monkeypatch.setattr(
-            loader_mod, "resolve_loader_config", _fake_resolve_loader_config("qwen3")
-        )
-        monkeypatch.setattr(winml_models, "resolve_genai_bundle", lambda _mt: object())
-        build_calls: dict = {}
-        monkeypatch.setattr(
-            winml_models, "build_genai_bundle", _fake_build_genai_bundle(build_calls)
-        )
-
-        result = runner.invoke(
-            perf, ["-m", "Qwen/Qwen3-0.6B", "--runtime", "winml-genai", "--ignore-cache"]
-        )
-
-        assert result.exit_code == 0, result.output
-        build = build_calls["build"]
-        # Forced fresh build, isolated from the managed cache on both axes.
-        assert build["force_rebuild"] is True
-        assert not build["output_dir"].is_relative_to(tmp_path)
-        assert not Path(build["cache_dir"]).is_relative_to(tmp_path)
-        # The managed bundle dir is never populated.
-        managed = get_model_dir("Qwen/Qwen3-0.6B", cache_dir=tmp_path) / "genai-bundle"
-        assert not (managed / "genai_config.json").exists()
-        # The benchmark ran against the temp bundle that was built.
-        assert capture_run["config"].bundle_dir == build["output_dir"]
-
     def test_autobuild_honored_flags_not_warned_as_ignored(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
     ) -> None:
@@ -1291,7 +1251,7 @@ class TestCliDispatch:
         # On a cache hit the model-id-keyed bundle is reused as-is, so the
         # artifact-shaping flags (--precision/--task) were NOT applied to it and
         # must be reported as ignored -- unlike a fresh build, which honors them.
-        # (--rebuild/--ignore-cache always force a build, so they never reach here.)
+        # (--rebuild always forces a build, so it never reaches here.)
         import winml.modelkit.models.winml as winml_models
         from winml.modelkit.cache import get_model_dir
 

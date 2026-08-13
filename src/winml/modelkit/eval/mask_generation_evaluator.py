@@ -192,7 +192,7 @@ class WinMLMaskGenerationEvaluator(WinMLEvaluator):
         # contract and CodeQL's ``py/missing-call-to-init`` rule.  The
         # base ``prepare_pipeline`` is overridden here to return ``None``,
         # so it is safe to call from ``WinMLEvaluator.__init__``.
-        super().__init__(config, model)  # type: ignore[arg-type]
+        super().__init__(config, model)
 
     # ------------------------------------------------------------------
     # WinMLEvaluator overrides

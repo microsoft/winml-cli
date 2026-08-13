@@ -1221,6 +1221,8 @@ class PatternMatcher:
         onnx_model: ModelProto,
         raise_on_invalid_model: bool = True,
         model_path: str | Path | None = None,
+        *,
+        skip_shape_inference: bool = False,
     ) -> None:
         """Initialize the pattern matcher with an ONNX model.
 
@@ -1235,11 +1237,14 @@ class PatternMatcher:
                 proto will be lazily resolved from sidecar files (subject to the
                 size limits in the runtime-checker query helper) so that
                 value-based pattern constraints can still be evaluated.
+            skip_shape_inference: Use existing graph shape/type information
+                instead of rerunning inference. The caller must provide an
+                already-inferred model.
         """
         # Run shape inference to populate value_info with type information
         # This is critical for type inference and shape lookups
 
-        self.model = infer_onnx_shapes(onnx_model)
+        self.model = onnx_model if skip_shape_inference else infer_onnx_shapes(onnx_model)
         self.graph = self.model.graph
         self.model_path = Path(model_path) if model_path is not None else None
 

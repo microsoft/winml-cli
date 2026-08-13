@@ -55,8 +55,10 @@ def _make_evaluator(model=None, max_length=None):
         ),
     )
 
-    with patch("datasets.load_dataset", return_value=mock_ds), \
-         patch("transformers.AutoTokenizer.from_pretrained", return_value=_make_tokenizer()):
+    with (
+        patch("datasets.load_dataset", return_value=mock_ds),
+        patch("transformers.AutoTokenizer.from_pretrained", return_value=_make_tokenizer()),
+    ):
         return WinMLFillMaskEvaluator(config, model)
 
 
@@ -67,6 +69,37 @@ class TestLifecycle:
     def test_tokenizer_loaded_in_init(self) -> None:
         evaluator = _make_evaluator()
         assert evaluator._tokenizer.mask_token_id == 103
+
+    def test_tokenizer_forwards_trust_remote_code(self) -> None:
+        from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
+
+        config = WinMLEvaluationConfig(
+            model_id="test/mock-bert",
+            task="fill-mask",
+            trust_remote_code=True,
+            dataset=DatasetConfig(path="Salesforce/wikitext"),
+        )
+        model = MagicMock()
+        model.config.label2id = None
+        model.io_config = {}
+        mock_ds = MagicMock()
+        mock_ds.__len__ = lambda self: 5
+        mock_ds.shuffle.return_value = mock_ds
+        mock_ds.select.return_value = mock_ds
+
+        with (
+            patch("datasets.load_dataset", return_value=mock_ds),
+            patch(
+                "transformers.AutoTokenizer.from_pretrained",
+                return_value=_make_tokenizer(),
+            ) as load_tokenizer,
+        ):
+            WinMLFillMaskEvaluator(config, model)
+
+        load_tokenizer.assert_called_once_with(
+            "test/mock-bert",
+            trust_remote_code=True,
+        )
 
     def test_align_labels_is_noop(self) -> None:
         evaluator = _make_evaluator()
@@ -95,7 +128,8 @@ class TestLogits:
     def test_dict_with_logits_key(self) -> None:
         logits = torch.randn(1, 5, 50)
         assert torch.equal(
-            _make_evaluator()._logits({"logits": logits, "aux": None}), logits,
+            _make_evaluator()._logits({"logits": logits, "aux": None}),
+            logits,
         )
 
     def test_dict_without_logits_key_raises(self) -> None:

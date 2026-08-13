@@ -28,7 +28,10 @@ class TestPreparePipeline:
         evaluator.model = MagicMock()
         sentinel = MagicMock()
 
-        with patch("transformers.pipeline", return_value=sentinel) as mock_pipeline:
+        with patch(
+            "winml.modelkit.inference.pipeline.create_pipeline",
+            return_value=sentinel,
+        ) as mock_pipeline:
             assert evaluator.prepare_pipeline() is sentinel
 
         assert "framework" not in mock_pipeline.call_args.kwargs
@@ -216,6 +219,28 @@ class TestResolveTask:
             ),
         ):
             assert _resolve_task(config) == "image-classification"
+
+    def test_infer_threads_trust_remote_code(self):
+        from winml.modelkit.eval.evaluate import _resolve_task
+
+        fake_resolution = MagicMock(task="image-classification")
+        config = WinMLEvaluationConfig(
+            model_id="custom/model",
+            trust_remote_code=True,
+        )
+        with (
+            patch(
+                "winml.modelkit.loader.load_hf_config",
+                return_value=MagicMock(),
+            ) as load_config,
+            patch(
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=fake_resolution,
+            ),
+        ):
+            assert _resolve_task(config) == "image-classification"
+
+        assert load_config.call_args.kwargs["trust_remote_code"] is True
 
     def test_explicit_feature_extraction_preserved_verbatim(self):
         """Explicit --task is surfaced verbatim (explicit means explicit).
@@ -1649,6 +1674,7 @@ class TestLoadModel:
             model_path="model.onnx",
             task="image-classification",
             device="cpu",
+            trust_remote_code=True,
         )
 
         with (
@@ -1659,10 +1685,11 @@ class TestLoadModel:
             patch(
                 "winml.modelkit.loader.load_hf_config",
                 return_value=mock_hf_config,
-            ),
+            ) as load_hf_config,
         ):
             result = eval_mod._load_model(config)
 
+        assert load_hf_config.call_args.kwargs["trust_remote_code"] is True
         mock_auto.from_onnx.assert_called_once()
         assert mock_auto.from_onnx.call_args.kwargs["use_cache"] is True
         assert mock_auto.from_onnx.call_args.kwargs["force_rebuild"] is False

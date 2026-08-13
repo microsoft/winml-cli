@@ -288,6 +288,34 @@ class TestRewritePipePassthrough:
         result = RewritePipe().process(model, config)
         assert result is model
 
+    def test_analysis_process_reuses_prepared_shape_information(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        model, _, _ = _build_self_matching_model("Gelu1Pattern")
+        prepared = RewritePipe().prepare_analysis_model(model)
+        group = next(g for g in REWRITE_GROUPS if "gemm" in g.pattern_id.lower())
+        config = RewritePipe.build_config(**{group.flag_name.replace("-", "_"): True})
+
+        def fail_if_repeated(_: onnx.ModelProto) -> onnx.ModelProto:
+            raise AssertionError("shape inference repeated during analysis probe")
+
+        monkeypatch.setattr("winml.modelkit.pattern.base.infer_onnx_shapes", fail_if_repeated)
+        result = RewritePipe().process_analysis(prepared, config)
+
+        assert result is prepared
+
+    def test_analysis_process_reuses_cached_matches(self) -> None:
+        model, _, _ = _build_self_matching_model("Gelu1Pattern")
+        pipe = RewritePipe()
+        prepared = pipe.prepare_analysis_model(model)
+        config = RewritePipe.build_config(gelu1_singlegelu=True)
+
+        result = pipe.process_analysis(prepared, config)
+
+        matcher = PatternMatcher(result)
+        matcher.register_pattern(get_pattern_input_generator("Gelu1Pattern").pattern)
+        assert matcher.match() == []
+
 
 # ---------------------------------------------------------------------------
 # GELU rewrite tests
