@@ -1910,6 +1910,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="How it works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#genai-metric-definitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GenAI metric definitions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2603,6 +2620,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="How it works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#genai-metric-definitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GenAI metric definitions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2829,7 +2863,7 @@
 <td></td>
 <td>flag</td>
 <td><code>false</code></td>
-<td>Show a live NPU/CPU utilization chart while the benchmark runs and include hardware metrics in the JSON report.</td>
+<td>Show a live NPU/CPU utilization chart while the benchmark runs and include hardware metrics in the JSON report. With <code>--runtime winml-genai</code>, the monitor wraps the genai load + generation benchmark.</td>
 </tr>
 <tr>
 <td><code>--op-tracing</code></td>
@@ -2877,6 +2911,66 @@
 </table>
 <h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
 <p><code>winml perf</code> loads the model through <code>WinMLAutoModel</code> — accepting both HuggingFace IDs and local ONNX files — then generates random input tensors from the model's I/O configuration. It runs the specified number of warm-up iterations (excluded from statistics) followed by the timed iterations, collecting per-sample latency. The final report includes mean, min, max, P50, P90, P95, P99, standard deviation, and throughput in samples per second. When <code>--monitor</code> is active, a hardware polling loop runs in parallel and records NPU / GPU utilization, CPU usage, and device memory alongside the timing data.</p>
+<p>Both runtime reports include <code>schema_version: 2</code> and a <code>benchmark_info.runtime</code> discriminator (<code>winml</code> or <code>winml-genai</code>). Shared metadata such as <code>model_id</code>, <code>running_model_path</code>, <code>device</code>, <code>ep</code>, <code>iterations</code>, <code>warmup</code>, and <code>timestamp</code> uses the same field names where the concepts overlap; GenAI also keeps <code>bundle_dir</code> because the runnable artifact is a bundle directory.</p>
+<p>When <code>--memory</code> is enabled, both <code>winml</code> and <code>winml-genai</code> reports use the same <code>memory</code> field names for shared concepts: RSS baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta; VRAM local/shared baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta.</p>
+<p>With <code>--runtime winml-genai</code>, <code>winml perf</code> benchmarks the onnxruntime-genai decoder pipeline rather than a single <code>session.run()</code>. The JSON report uses a phase-based schema: <code>load</code> contains startup spans, <code>requests</code> contains one warmup or timed generation sample per request, <code>aggregate</code> summarizes timed requests only, <code>memory</code> contains optional RAM/VRAM deltas, and <code>hw_monitor</code> contains optional monitor output. The optional <code>memory</code> and <code>hw_monitor</code> top-level names match the classic <code>winml</code> perf report; GenAI keeps <code>load</code>/<code>requests</code>/<code>aggregate</code> instead of classic <code>latency_ms</code>/<code>throughput</code> because generation has distinct prompt, first-token, and decode phases.</p>
+<h3 id="genai-metric-definitions">GenAI metric definitions<a class="headerlink" href="#genai-metric-definitions" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Core metric</th>
+<th>JSON field(s)</th>
+<th>Definition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Model Load Time</td>
+<td><code>load.session_load_duration_ms</code>, <code>load.native_load_duration_ms</code></td>
+<td><code>session_load_duration_ms</code> is the outer <code>GenaiSession.load()</code> wall-clock span. <code>native_load_duration_ms</code> is the onnxruntime-genai <code>og.Config</code> + <code>og.Model</code> + <code>og.Tokenizer</code> span.</td>
+</tr>
+<tr>
+<td>Weight Upload Time</td>
+<td><code>load.weight_upload_duration_ms</code>, <code>load.weight_upload_estimate_duration_ms</code></td>
+<td>Exact upload telemetry is <code>null</code> today because onnxruntime-genai does not expose it. The estimate is <code>model_create_duration_ms</code> and is labeled by <code>weight_upload_estimate_source</code>.</td>
+</tr>
+<tr>
+<td>Cold Start Time</td>
+<td><code>aggregate.cold_start_ttft_duration_ms</code>, <code>aggregate.cold_start_total_duration_ms</code></td>
+<td>Load plus the first request's TTFT, or load plus the first request's total request duration.</td>
+</tr>
+<tr>
+<td>Warm Start Time / Latency</td>
+<td><code>aggregate.request_duration_ms</code></td>
+<td>Timed-request full duration after warmups: template + tokenization + generator creation + model compute + sequence fetch + detokenization.</td>
+</tr>
+<tr>
+<td>TTFT</td>
+<td><code>requests[].model_ttft_duration_ms</code>, <code>requests[].request_ttft_duration_ms</code>, <code>aggregate.*ttft*</code></td>
+<td>Model TTFT is prefill + first-token compute. Request TTFT also includes template, tokenization, and generator creation.</td>
+</tr>
+<tr>
+<td>Prefill TPS</td>
+<td><code>requests[].prefill_tokens_per_second</code>, <code>aggregate.prefill_tokens_per_second</code></td>
+<td>Prompt tokens divided by <code>prefill_duration_ms</code>.</td>
+</tr>
+<tr>
+<td>Decode TPS</td>
+<td><code>requests[].steady_state_decode_tokens_per_second</code>, <code>aggregate.steady_state_decode_tokens_per_second</code></td>
+<td>Tokens after the first divided by the sum of per-token decode durations after the first.</td>
+</tr>
+<tr>
+<td>RAM Usage</td>
+<td><code>memory.rss_*</code></td>
+<td>Classic-compatible RSS fields such as <code>rss_baseline_mb</code>, <code>rss_after_compile_mb</code>, <code>rss_after_inference_mb</code>, <code>rss_model_load_delta_mb</code>, <code>rss_inference_delta_mb</code>, and <code>rss_total_delta_mb</code>. <code>rss_checkpoint_peak_mb</code> is the maximum of the sampled checkpoints, not a continuously sampled peak. Requires <code>--memory</code>.</td>
+</tr>
+<tr>
+<td>VRAM Usage</td>
+<td><code>memory.vram_*</code></td>
+<td>Adapter memory fields are emitted only when the effective GenAI route proves a specific accelerator adapter. Fields include baseline, after-compile, after-inference, load/inference/total deltas, and <code>vram_*_checkpoint_peak_mb</code> checkpoint maxima. Requires <code>--memory</code>.</td>
+</tr>
+</tbody>
+</table>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
 <p>Basic benchmark on the best available device:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50

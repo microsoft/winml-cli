@@ -2773,8 +2773,11 @@ and token generation on the NPU with <code>winml perf</code>:</p>
 <p><code>--device npu</code> selects the QNN execution provider: <code>winml perf</code> registers the WinML
 QNN EP and the bundle's <code>context</code> and <code>iterator</code> stages run on the NPU HTP, while the
 CPU companions handle the embedding lookup and vocab projection. The command reports
-time-to-first-token (prefill) and decode throughput, and writes a results JSON under
-<code>~/.cache/winml/perf/</code>.</p>
+canonical GenAI phases: session/native load, best-effort weight-upload estimate,
+cold-start TTFT/total, request/model TTFT, prefill throughput, steady-state decode
+throughput, full request latency, optional RAM/VRAM deltas, and a results JSON under
+<code>~/.cache/winml/perf/</code>. Exact weight-upload telemetry is currently <code>null</code> because
+onnxruntime-genai does not expose it; the estimate is labeled in JSON.</p>
 <div class="admonition tip">
 <p class="admonition-title">One command from a model id (auto-build)</p>
 <p><code>winml perf --runtime winml-genai</code> also accepts a HuggingFace <strong>model id</strong> directly.
