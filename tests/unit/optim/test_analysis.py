@@ -74,6 +74,38 @@ def _benign_model() -> ModelProto:
     return _finalize(helper.make_graph([node], "benign", [x], [z], initializer=[small]))
 
 
+def _sibling_slice_model() -> ModelProto:
+    """Two contiguous sibling Slices that can be replaced by one Split."""
+    x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 6, 2])
+    left_out = helper.make_tensor_value_info("left_out", TensorProto.FLOAT, [1, 2, 2])
+    right_out = helper.make_tensor_value_info("right_out", TensorProto.FLOAT, [1, 4, 2])
+    left = helper.make_tensor_value_info("left", TensorProto.FLOAT, [1, 2, 2])
+    right = helper.make_tensor_value_info("right", TensorProto.FLOAT, [1, 4, 2])
+    nodes = [
+        helper.make_node("Slice", ["x", "left_starts", "left_ends", "axis", "steps"], ["left"]),
+        helper.make_node("Slice", ["x", "right_starts", "right_ends", "axis", "steps"], ["right"]),
+        helper.make_node("Relu", ["left"], ["left_out"]),
+        helper.make_node("Relu", ["right"], ["right_out"]),
+    ]
+    initializers = [
+        numpy_helper.from_array(np.asarray([0], dtype=np.int64), "left_starts"),
+        numpy_helper.from_array(np.asarray([2], dtype=np.int64), "left_ends"),
+        numpy_helper.from_array(np.asarray([2], dtype=np.int64), "right_starts"),
+        numpy_helper.from_array(np.asarray([6], dtype=np.int64), "right_ends"),
+        numpy_helper.from_array(np.asarray([1], dtype=np.int64), "axis"),
+        numpy_helper.from_array(np.asarray([1], dtype=np.int64), "steps"),
+    ]
+    graph = helper.make_graph(
+        nodes,
+        "sibling_slice",
+        [x],
+        [left_out, right_out],
+        initializer=initializers,
+        value_info=[left, right],
+    )
+    return _finalize(graph)
+
+
 # =============================================================================
 # NODE / INITIALIZER DIFF HELPERS
 # =============================================================================
@@ -457,3 +489,20 @@ class TestIterOptimizationOutputs:
         iter_names = {finding.name for finding, _ in iter_optimization_outputs(model, caps)}
         analyze_names = {finding.name for finding in analyze_model(_matmul_add_model(), caps)}
         assert iter_names == analyze_names
+
+    def test_reports_algebraic_sibling_slice_to_split(self) -> None:
+        pairs = list(iter_optimization_outputs(_sibling_slice_model(), get_all_capabilities()))
+        matches = [
+            (finding, produced)
+            for finding, produced in pairs
+            if finding.name == "gather-slice-to-split-fusion"
+            and finding.pipe_name == "algebraic_rewrite"
+        ]
+
+        assert len(matches) == 1
+        finding, produced = matches[0]
+
+        assert finding.enable_flag == "--enable-gather-slice-to-split-fusion"
+        assert any(ref.op_type == "Slice" for ref in finding.removed_nodes)
+        assert any(ref.op_type == "Split" for ref in finding.added_nodes)
+        assert [node.op_type for node in produced.graph.node] == ["Split", "Relu", "Relu"]

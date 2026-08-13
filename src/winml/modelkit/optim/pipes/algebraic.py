@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 import numpy as np
 import onnx
 
-from ..capabilities import algebraic
+from ..capabilities import algebraic, misc
 from .base import BasePipe, PipeConfig, caps_dict
 
 
@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
 ALGEBRAIC_CAPABILITIES: dict[str, Any] = caps_dict(
     algebraic.STATIC_SPLIT_TO_SLICE,
+    misc.GATHER_SLICE_TO_SPLIT_FUSION,
     algebraic.CONV_CHANNEL_AFFINE_FOLDING,
     algebraic.EXP_POSITIVE_SCALE_FOLDING,
 )

@@ -94,10 +94,12 @@ class TestAlgebraicRegistration:
         capabilities = get_all_capabilities()
         names = {
             "static-split-to-slice",
+            "gather-slice-to-split-fusion",
             "conv-channel-affine-folding",
             "exp-positive-scale-folding",
         }
         assert names <= capabilities.keys()
+        assert names <= AlgebraicRewritePipe.capabilities.keys()
         assert all(capabilities[name].default is False for name in names)
         assert all(
             capabilities[name].cli_flags() == (f"--enable-{name}", f"--disable-{name}")
@@ -106,10 +108,12 @@ class TestAlgebraicRegistration:
 
         config = AlgebraicRewritePipe.build_config(
             static_split_to_slice=True,
+            gather_slice_to_split_fusion=True,
             conv_channel_affine_folding=False,
             exp_positive_scale_folding=True,
         )
         assert config.static_split_to_slice is True
+        assert config.sibling_slice_to_split is True
         assert config.conv_channel_affine_folding is False
         assert config.exp_positive_scale_folding is True
         assert AlgebraicRewritePipe.should_process(config)
@@ -118,6 +122,7 @@ class TestAlgebraicRegistration:
         result = CliRunner().invoke(optimize, ["--list-capabilities"])
         assert result.exit_code == 0
         assert "--enable-static-split-to-slice" in result.output
+        assert "--enable-gather-slice-to-split-fusion" in result.output
         assert "--enable-conv-channel-affine-folding" in result.output
         assert "--enable-exp-positive-scale-folding" in result.output
 
