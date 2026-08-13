@@ -115,8 +115,8 @@ def vitisai_stage_session_options(log_id: str) -> dict:
             {
                 "vitisai": {
                     "target": "waic_target_vaiml_cpp_me",
-                    "xmc_runner_config": 1,
-                    "no_linear_slice": 1,
+                    "xmc_runner_config": "1",
+                    "no_linear_slice": "1",
                 }
             }
         ],

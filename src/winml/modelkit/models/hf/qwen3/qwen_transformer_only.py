@@ -329,7 +329,7 @@ class QwenTransformerOnlyGenIOConfig(OnnxConfig):  # type: ignore[misc]  # optim
 
 
 QWEN_TRANSFORMER_ONLY_CONFIG = WinMLBuildConfig(
-    export=WinMLExportConfig(dynamo=False, opset_version=18),
+    export=WinMLExportConfig(dynamo=False, opset_version=21),
     # Pure graph (no post-export RMSNorm fusion / matmul-add fusion): the default
     # WinMLOptimizationConfig() leaves every fusion flag off.
     optim=WinMLOptimizationConfig(),
