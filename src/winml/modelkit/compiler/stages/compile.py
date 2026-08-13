@@ -133,21 +133,21 @@ class CompileStage(BaseStage):
                 if context.validate:
                     self._validate_model(session, context)
                 self._collect_model_info(session, context)
+
+            if ep_config.enable_ep_context:
+                if running_model_path == model_path:
+                    context.add_warning(f"No EPContext produced for {model_path.name}")
+                    return
+                self._finalize_output(
+                    context,
+                    model_path,
+                    output_dir,
+                    device=ep_device.device.device_type.lower(),
+                    src_ctx_path=running_model_path,
+                )
         finally:
             context.session = None
             winml_session.reset()
-
-        if ep_config.enable_ep_context:
-            if running_model_path == model_path:
-                context.add_warning(f"No EPContext produced for {model_path.name}")
-                return
-            self._finalize_output(
-                context,
-                model_path,
-                output_dir,
-                device=ep_device.device.device_type.lower(),
-                src_ctx_path=running_model_path,
-            )
 
     def _compile_shared_context(self, context: CompileContext) -> None:
         """Compile through shared SessionOptions for multi-model and ORT-session flows."""

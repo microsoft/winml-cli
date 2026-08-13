@@ -183,6 +183,7 @@ def compile(
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
     config_provider_options: dict[str, str] = {}
+    config_provider_option_file_keys: set[str] = set()
     if config_file is not None:
         try:
             build_cfg, raw_cfg = cli_utils.load_build_config(config_file)
@@ -197,6 +198,8 @@ def compile(
         # EP provider options (e.g. QNN htp_arch/soc_model/vtcm_mb) for the compile session.
         if "provider_options" in cc:
             config_provider_options = dict(cc["provider_options"])
+        if "provider_option_file_keys" in cc:
+            config_provider_option_file_keys = set(cc["provider_option_file_keys"])
         if not cli_utils.is_cli_provided(ctx, "device"):
             if configured_target is not None:
                 device = configured_target.device
@@ -309,6 +312,8 @@ def compile(
     # for duplicate keys.
     if config_provider_options:
         config.ep_config.provider_options.update(config_provider_options)
+    if config_provider_option_file_keys:
+        config.ep_config.provider_option_file_keys.update(config_provider_option_file_keys)
     if cli_provider_options:
         config.ep_config.provider_options.update(cli_provider_options)
 

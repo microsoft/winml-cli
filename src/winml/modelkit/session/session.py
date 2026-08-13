@@ -461,12 +461,14 @@ class WinMLSession:
         )
 
         # Snapshots preserved across perf()/reset()/compile() entry/exit (see perf()).
+        self._provider_option_file_keys: frozenset[str] = frozenset(
+            ep_config.provider_option_file_keys if ep_config is not None else ()
+        )
         self._provider_options: dict[str, str] = self._canonicalize_option_files(
-            _build_provider_options(ep_device, ep_config, ep_monitor)
+            _build_provider_options(ep_device, ep_config, ep_monitor),
+            self._provider_option_file_keys,
         )
-        self._active_session_option_entries: dict[str, str] = self._canonicalize_option_files(
-            dict(initial_session_option_entries)
-        )
+        self._active_session_option_entries: dict[str, str] = dict(initial_session_option_entries)
         self._markerless_epcontext_generations: dict[Path, Path | None] = {}
         # Convenience: the canonical EP name from the chosen handle.
         self._ep: str = ep_device.device.ep_name
@@ -625,7 +627,6 @@ class WinMLSession:
         self._state = SessionState.COMPILED
         if prepared_model.markerless and model_path != self._onnx_path:
             self._markerless_epcontext_generations[model_path] = prepared_model.lock_path
-            self._cleanup_markerless_epcontext_generations()
 
     def _compile_epcontext_with_stable_source(self, compile_log: Path) -> _PreparedEPContextModel:
         """Prepare an EPContext whose marker matches a stable source snapshot."""
@@ -676,6 +677,8 @@ class WinMLSession:
                 try:
                     final_identity = self._epcontext_cache_identity()
                 except (OSError, ValueError):
+                    if prepared.markerless and prepared.path != self._onnx_path:
+                        self._discard_epcontext_generation(prepared.path)
                     continue
                 if final_identity == locked_identity:
                     if prepared.path != self._onnx_path:
@@ -793,7 +796,7 @@ class WinMLSession:
         marker_name_suffix = f"{cache_name_suffix}{marker_suffix}"
         marker_prefix = f"{self._onnx_path.stem}_{self._device}_"
         current_marker = self._epcontext_cache_marker_path(current_cache_path).resolve(strict=False)
-        entries: list[tuple[bool, int, str, Path, Path, Path | None, Path]] = []
+        entries: list[tuple[bool, int, str, Path, Path, Path | None, bytes]] = []
         for marker_path in current_cache_path.parent.iterdir():
             try:
                 if not marker_path.is_file():
@@ -808,18 +811,11 @@ class WinMLSession:
                 ):
                     continue
                 cache_path = marker_path.with_name(cache_name)
-                generation_path: Path | None = None
-                try:
-                    recorded = json.loads(marker_path.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-                    recorded = None
-                if isinstance(recorded, dict):
-                    generation_name = recorded.get("generation")
-                    if (
-                        isinstance(generation_name, str)
-                        and Path(generation_name).name == generation_name
-                    ):
-                        generation_path = marker_path.parent / generation_name
+                marker_contents = marker_path.read_bytes()
+                generation_path = self._epcontext_marker_generation(
+                    marker_path,
+                    marker_contents,
+                )
                 lock_path = cache_path.with_name(f"{cache_path.name}.lock")
                 marker_stat = marker_path.stat()
             except OSError:
@@ -831,27 +827,58 @@ class WinMLSession:
                     marker_stat.st_mtime_ns,
                     marker_path.name,
                     marker_path,
-                    cache_path,
-                    generation_path,
                     lock_path,
+                    generation_path,
+                    marker_contents,
                 )
             )
         entries.sort(key=lambda entry: (entry[0], entry[1], entry[2]), reverse=True)
-        for is_current, *_unused, marker_path, _cache_path, generation_path, lock_path in entries[
-            keep_count:
-        ]:
+        for (
+            is_current,
+            *_unused,
+            marker_path,
+            lock_path,
+            generation_path,
+            marker_contents,
+        ) in entries[keep_count:]:
             if is_current:
                 continue
             lease = _EPContextCacheLease.acquire(lock_path, blocking=False)
             if lease is None:
                 continue
             try:
-                if generation_path is not None:
-                    self._discard_epcontext_generation(generation_path)
+                try:
+                    locked_contents = marker_path.read_bytes()
+                except OSError:
+                    continue
+                locked_generation = self._epcontext_marker_generation(
+                    marker_path,
+                    locked_contents,
+                )
+                if locked_contents != marker_contents:
+                    if generation_path is not None and generation_path != locked_generation:
+                        self._discard_epcontext_generation(generation_path)
+                    continue
+                if locked_generation is not None:
+                    self._discard_epcontext_generation(locked_generation)
                 self._unlink_generation_file(marker_path)
             finally:
                 lease.release()
             self._unlink_generation_file(lock_path)
+
+    @staticmethod
+    def _epcontext_marker_generation(marker_path: Path, contents: bytes) -> Path | None:
+        """Return a marker's validated sibling generation path."""
+        try:
+            recorded = json.loads(contents)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return None
+        if not isinstance(recorded, dict):
+            return None
+        generation_name = recorded.get("generation")
+        if not isinstance(generation_name, str) or Path(generation_name).name != generation_name:
+            return None
+        return marker_path.parent / generation_name
 
     def _cleanup_markerless_epcontext_generations(self) -> None:
         """Best-effort cleanup for non-reusable EPContext generations owned by this session."""
@@ -929,31 +956,48 @@ class WinMLSession:
                 "compiler_version": _optional_text(self._ep_device.device.compiler_version),
             },
             "provider_options": dict(sorted(self._provider_options.items())),
-            "provider_option_files": self._option_file_fingerprints(self._provider_options),
-            "session_options": dict(sorted(self._active_session_option_entries.items())),
-            "session_option_files": self._option_file_fingerprints(
-                self._active_session_option_entries
+            "provider_option_files": self._option_file_fingerprints(
+                self._provider_options,
+                self._provider_option_file_keys,
             ),
+            "session_options": dict(sorted(self._active_session_option_entries.items())),
+            "session_option_files": {},
             "embed_context": self._embed_context,
             "ort_version": ort.__version__,
         }
 
-    def _option_file_fingerprints(self, options: dict[str, str]) -> dict[str, dict[str, object]]:
-        """Fingerprint option values that resolve to existing compiler input files."""
+    def _option_file_fingerprints(
+        self,
+        options: dict[str, str],
+        file_keys: frozenset[str],
+    ) -> dict[str, dict[str, object]]:
+        """Fingerprint provider options explicitly declared as file-backed."""
         fingerprints = {}
-        for key, value in sorted(options.items()):
+        for key in sorted(file_keys):
+            value = options.get(key)
+            if value is None:
+                continue
             option_path = self._resolve_option_file(value)
-            if option_path is not None:
-                fingerprints[key] = self._file_fingerprint(option_path)
+            if option_path is None:
+                raise ValueError(f"file-backed provider option {key!r} does not resolve to a file")
+            fingerprints[key] = self._file_fingerprint(option_path)
         return fingerprints
 
-    def _canonicalize_option_files(self, options: dict[str, str]) -> dict[str, str]:
-        """Resolve existing file-valued options once before hashing and ORT binding."""
+    def _canonicalize_option_files(
+        self,
+        options: dict[str, str],
+        file_keys: frozenset[str],
+    ) -> dict[str, str]:
+        """Resolve only provider options explicitly declared as file-backed."""
         canonicalized = dict(options)
-        for key, value in options.items():
+        for key in file_keys:
+            value = options.get(key)
+            if value is None:
+                raise ValueError(f"file-backed provider option {key!r} is not configured")
             option_path = self._resolve_option_file(value)
-            if option_path is not None:
-                canonicalized[key] = str(option_path)
+            if option_path is None:
+                raise ValueError(f"file-backed provider option {key!r} does not resolve to a file")
+            canonicalized[key] = str(option_path)
         return canonicalized
 
     def _resolve_option_file(self, value: object) -> Path | None:
@@ -1195,8 +1239,13 @@ class WinMLSession:
 
         Clears compiled session and error state.
         """
+        self._reset_runtime_state(cleanup_markerless=True)
+
+    def _reset_runtime_state(self, *, cleanup_markerless: bool) -> None:
+        """Release the native session and optionally its private EPContext artifacts."""
         self._session = None
-        self._cleanup_markerless_epcontext_generations()
+        if cleanup_markerless:
+            self._cleanup_markerless_epcontext_generations()
         self._running_model_path = None
         self._state = SessionState.INITIALIZED
         self._last_error = None
@@ -1439,17 +1488,16 @@ class WinMLSession:
         effective_monitor.set_onnx_model_path(self._onnx_path)
         effective_monitor.set_onnx_op_types(self._build_op_type_map(self._onnx_path))
 
-        desired_sess_entries = self._canonicalize_option_files(
-            _overlay_options(
-                saved_sess_entries,
-                dict(monitor.get_session_options()) if monitor is not None else None,
-            )
+        desired_sess_entries = _overlay_options(
+            saved_sess_entries,
+            dict(monitor.get_session_options()) if monitor is not None else None,
         )
         new_prov = self._canonicalize_option_files(
             _overlay_options(
                 saved_prov,
                 dict(monitor.get_provider_options()) if monitor is not None else None,
-            )
+            ),
+            self._provider_option_file_keys,
         )
 
         # Rebuild InferenceSession only when monitor-contributed provider/session
@@ -1463,7 +1511,7 @@ class WinMLSession:
         )
         if had_baseline_session and _session_rebuilt:
             logger.info("auto-resetting compiled session to apply monitor session/provider options")
-            self.reset()
+            self._reset_runtime_state(cleanup_markerless=False)
 
         stats = PerfStats(warmup=warmup)
         restore_baseline = _session_rebuilt or getattr(
@@ -1569,10 +1617,10 @@ class WinMLSession:
                 if exc_info[1] is None:
                     monitor_error = error
 
-            # C-2: for monitors that require session teardown, reset() BEFORE
-            # monitor.__exit__ so the flushed data is available in __exit__.
+            # C-2: for monitors that require session teardown, release the
+            # native session BEFORE monitor.__exit__ so flushed data is available.
             if getattr(effective_monitor, "requires_session_teardown", False):
-                self.reset()
+                self._reset_runtime_state(cleanup_markerless=False)
 
             # Call monitor.__exit__ — propagate exc_info so monitor sees the
             # exception (exception transparency contract).

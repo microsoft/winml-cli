@@ -439,6 +439,57 @@ class TestCompileStageProcess:
         fake_winml_session.reset.assert_called_once()
         assert context.session is None
 
+    def test_process_finalizes_markerless_context_before_reset(self, tmp_path):
+        """Session-owned EPContext artifacts remain present until publication."""
+        from unittest.mock import MagicMock, patch
+
+        from winml.modelkit.compiler import CompileContext, CompileStage
+        from winml.modelkit.session import EPDeviceTarget
+
+        model_path = tmp_path / "model.onnx"
+        create_simple_model(model_path)
+        markerless_path = tmp_path / "model_npu_ctx_private.onnx"
+        markerless_path.write_bytes(b"markerless context")
+        events: list[str] = []
+        fake_winml_session = MagicMock()
+        fake_winml_session._session = None
+        fake_winml_session.running_model_path = markerless_path
+
+        def _reset() -> None:
+            events.append("reset")
+            markerless_path.unlink()
+
+        def _finalize(*_args, src_ctx_path: Path, **_kwargs) -> None:
+            assert src_ctx_path.is_file()
+            events.append("finalize")
+
+        fake_winml_session.reset.side_effect = _reset
+        ep_device = MagicMock()
+        ep_device.device.device_type = "NPU"
+        context = CompileContext(
+            model_path=model_path,
+            config={
+                "execution_provider": "qnn",
+                "enable_ep_context": True,
+                "validate": False,
+                "ep_device": EPDeviceTarget(ep="qnn", device="npu").to_dict(),
+            },
+        )
+
+        with (
+            patch.dict(
+                "winml.modelkit.compiler.stages.compile.COMPILER_SESSION_MAPPING",
+                {"ort": MagicMock(return_value=fake_winml_session)},
+                clear=False,
+            ),
+            patch("winml.modelkit.compiler.stages.compile.WinMLEPRegistry.instance") as registry,
+            patch.object(CompileStage, "_finalize_output", side_effect=_finalize),
+        ):
+            registry.return_value.auto_device.return_value = ep_device
+            CompileStage().process(context)
+
+        assert events == ["finalize", "reset"]
+
     def test_process_reconstructs_explicit_serialized_device(self, tmp_path):
         from unittest.mock import MagicMock, patch
 

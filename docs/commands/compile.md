@@ -43,6 +43,11 @@ eliminating graph partitioning at load time. An optional post-compilation
 validation pass runs a forward pass through the
 target EP; skip it with `--no-validate` when the target hardware is absent.
 
+If a provider option names a compiler input file, list its key in
+`compile.provider_option_file_keys` in the JSON config. The CLI canonicalizes
+that option path and fingerprints its contents for EPContext cache identity;
+other provider-option strings are always passed through unchanged.
+
 ## Examples
 
 ```bash
