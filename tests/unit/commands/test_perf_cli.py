@@ -1742,6 +1742,15 @@ class TestPerfUnifiedPipeline:
 
         assert result.to_dict()["benchmark_info"]["ep_options"] is None
 
+    def test_to_dict_includes_schema_version_and_runtime(self) -> None:
+        """Classic perf reports the same schema markers as GenAI perf."""
+        config = BenchmarkConfig(model_id="m")
+        result = BenchmarkResult(config=config)
+        d = result.to_dict()
+
+        assert d["schema_version"] == 2
+        assert d["benchmark_info"]["runtime"] == "winml"
+
     def test_iterations_reports_configured_count_without_duration(self) -> None:
         """Without --duration, benchmark_info.iterations is the configured value."""
         config = BenchmarkConfig(model_id="m", iterations=100)
@@ -1923,6 +1932,89 @@ class TestEffectiveBatchSize:
         info = result.to_dict()["benchmark_info"]
         assert info["batch_size"] == 8
         assert info["effective_batch_size"] == 1
+
+
+class TestClassicMemoryProfile:
+    def test_memory_profile_includes_additive_peak_and_compile_fields(self, monkeypatch) -> None:
+        """Classic perf emits the same additive memory fields as GenAI."""
+        config = BenchmarkConfig(model_id="m", memory=True, warmup=0)
+        benchmark = PerfBenchmark(config)
+        single = MagicMock()
+        single.io_config = {
+            "input_names": ["pixel_values"],
+            "input_shapes": [[1, 3, 224, 224]],
+            "input_types": ["float32"],
+            "output_names": ["logits"],
+            "output_shapes": [[1, 1000]],
+        }
+        single.device = "npu"
+        single.ep_name = "QNNExecutionProvider"
+        single.task = "image-classification"
+        single.running_model_path = "model.onnx"
+        single._session.compile.return_value = None
+        benchmark._model = single
+        benchmark._ep_device = MagicMock()
+
+        stats = MagicMock()
+        stats.mean_ms = 10.0
+        stats.min_ms = 9.0
+        stats.max_ms = 11.0
+        stats.p50_ms = 10.0
+        stats.p90_ms = 10.5
+        stats.p95_ms = 10.8
+        stats.p99_ms = 11.0
+        stats.samples_ms = [10.0]
+        stats.all_samples_ms = [10.0]
+
+        rss_values = iter([100.0, 150.0, 180.0])
+        vram_values = iter([(10.0, 20.0), (30.0, 50.0), (40.0, 70.0)])
+
+        monkeypatch.setattr(benchmark, "_resolve_adapter_luid", lambda: "luid")
+        monkeypatch.setattr(benchmark, "_run_benchmark", lambda: stats)
+        monkeypatch.setattr(
+            benchmark,
+            "_generate_inputs",
+            lambda: setattr(
+                benchmark,
+                "_inputs",
+                {"pixel_values": MagicMock(shape=(1, 3, 224, 224))},
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.session.monitor.memory_tracker.get_rss_mb",
+            lambda: next(rss_values),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.session.monitor.memory_tracker.get_vram_mb",
+            lambda _adapter_luid: next(vram_values),
+        )
+        monkeypatch.setattr("winml.modelkit.commands.perf._print_model_info", lambda *_, **__: None)
+
+        result = benchmark._run_single()
+
+        assert result.memory_profile == {
+            "rss_baseline_mb": 100.0,
+            "rss_after_compile_mb": 150.0,
+            "rss_after_inference_mb": 180.0,
+            "rss_peak_mb": 180.0,
+            "rss_model_load_delta_mb": 50.0,
+            "rss_inference_delta_mb": 30.0,
+            "rss_total_delta_mb": 80.0,
+            "vram_local_baseline_mb": 10.0,
+            "vram_shared_baseline_mb": 20.0,
+            "vram_local_after_compile_mb": 30.0,
+            "vram_shared_after_compile_mb": 50.0,
+            "vram_local_after_inference_mb": 40.0,
+            "vram_shared_after_inference_mb": 70.0,
+            "vram_local_peak_mb": 40.0,
+            "vram_shared_peak_mb": 70.0,
+            "vram_local_model_load_delta_mb": 20.0,
+            "vram_shared_model_load_delta_mb": 30.0,
+            "vram_local_inference_delta_mb": 10.0,
+            "vram_shared_inference_delta_mb": 20.0,
+            "vram_local_total_delta_mb": 30.0,
+            "vram_shared_total_delta_mb": 50.0,
+        }
 
 
 # =============================================================================

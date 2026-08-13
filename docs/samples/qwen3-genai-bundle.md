@@ -113,8 +113,11 @@ winml perf -m out/qwen3-bundle --runtime winml-genai --device npu --compile \
 `--device npu` selects the QNN execution provider: `winml perf` registers the WinML
 QNN EP and the bundle's `context` and `iterator` stages run on the NPU HTP, while the
 CPU companions handle the embedding lookup and vocab projection. The command reports
-time-to-first-token (prefill) and decode throughput, and writes a results JSON under
-`~/.cache/winml/perf/`.
+canonical GenAI phases: session/native load, best-effort weight-upload estimate,
+cold-start TTFT/total, request/model TTFT, prefill throughput, steady-state decode
+throughput, full request latency, optional RAM/VRAM deltas, and a results JSON under
+`~/.cache/winml/perf/`. Exact weight-upload telemetry is currently `null` because
+onnxruntime-genai does not expose it; the estimate is labeled in JSON.
 
 !!! tip "One command from a model id (auto-build)"
     `winml perf --runtime winml-genai` also accepts a HuggingFace **model id** directly.
