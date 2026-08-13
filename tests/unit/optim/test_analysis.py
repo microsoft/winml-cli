@@ -724,13 +724,13 @@ class TestIterOptimizationOutputs:
             (finding, produced)
             for finding, produced in pairs
             if finding.name == "gather-slice-to-split-fusion"
-            and finding.pipe_name == "algebraic_rewrite"
         ]
 
         assert len(matches) == 1
         finding, produced = matches[0]
 
         assert finding.enable_flag == "--enable-gather-slice-to-split-fusion"
+        assert finding.pipe_name == "ort_graph+algebraic_rewrite"
         assert any(ref.op_type == "Slice" for ref in finding.removed_nodes)
         assert any(ref.op_type == "Split" for ref in finding.added_nodes)
         assert [node.op_type for node in produced.graph.node] == ["Split", "Relu", "Relu"]
