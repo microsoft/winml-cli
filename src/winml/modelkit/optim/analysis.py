@@ -15,7 +15,9 @@ Approach (universal, architecture-agnostic — CARDINAL RULE #1):
     only that capability enabled (plus auto-enabled dependencies), and the
     resulting graph is diffed against the baseline. A non-empty diff means the
     capability is applicable; the diff itself names the affected nodes and
-    constants.
+    constants. When one capability is intentionally owned by multiple pipes, it
+    is probed once across the full pipeline so the report matches the single
+    public ``--enable-*`` flag.
 
 No operator names, tensor names, or architectures are hardcoded — every result
 is derived from the concrete graph diff.
@@ -233,9 +235,10 @@ def _initializers_equal(base: TensorProto, probe: TensorProto) -> bool:
 
     float_field_types = {"float_data": "f", "double_data": "d"}
     for field_name, typecode in float_field_types.items():
-        if array(typecode, getattr(base, field_name)).tobytes() != array(
-            typecode, getattr(probe, field_name)
-        ).tobytes():
+        if (
+            array(typecode, getattr(base, field_name)).tobytes()
+            != array(typecode, getattr(probe, field_name)).tobytes()
+        ):
             return False
 
     if protobuf_equal:
@@ -317,6 +320,19 @@ def _run_pipe(pipe: Any, model: ModelProto, config: Any) -> ModelProto:
     return result
 
 
+def _run_pipeline(
+    pipe_classes: list[type[Any]],
+    model: ModelProto,
+    kwargs: dict[str, Any],
+) -> ModelProto:
+    """Run the capability-driven pipe sequence from ``model`` with ``kwargs``."""
+    current = model
+    for pipe_class in pipe_classes:
+        pipe = pipe_class()
+        current = _run_pipe(pipe, current, pipe.build_config(**kwargs))
+    return current
+
+
 def _iter_findings(
     model: ModelProto,
     capabilities: dict[str, CapabilityDef],
@@ -344,14 +360,30 @@ def _iter_findings(
     from .pipes import PIPES
     from .registry import BoolCapability, auto_enable_dependencies
 
-    remaining_probes = Counter(
+    pipe_probe_counts = Counter(
         name
         for pipe_class in PIPES
         for name, cap in pipe_class.capabilities.items()
         if isinstance(cap, BoolCapability) and not cap.default
     )
+    remaining_probes = Counter(dict.fromkeys(pipe_probe_counts, 1))
+    shared_cap_names = {
+        name for name, count in pipe_probe_counts.items() if count > 1 and name in capabilities
+    }
+    shared_cap_owners = {
+        name: [
+            pipe_class.name
+            for pipe_class in PIPES
+            if name in pipe_class.capabilities
+            and isinstance(pipe_class.capabilities[name], BoolCapability)
+            and not pipe_class.capabilities[name].default
+        ]
+        for name in shared_cap_names
+    }
 
     def complete_probe(cap_name: str) -> None:
+        if remaining_probes[cap_name] <= 0:
+            return
         remaining_probes[cap_name] -= 1
         if remaining_probes[cap_name] == 0 and on_probe_complete is not None:
             on_probe_complete(cap_name)
@@ -366,6 +398,14 @@ def _iter_findings(
     # limit it round-trips through save_onnx with external data), and this
     # function must never modify the caller's input model.
     current = infer_shapes(_clone(model))
+    pipeline_input = current
+    full_base_out: ModelProto | None = None
+
+    def full_pipeline_baseline() -> ModelProto:
+        nonlocal full_base_out
+        if full_base_out is None:
+            full_base_out = _run_pipeline(PIPES, pipeline_input, default_kwargs)
+        return full_base_out
 
     for pipe_class in PIPES:
         pipe = pipe_class()
@@ -408,6 +448,87 @@ def _iter_findings(
                 )
 
             for cap_name, cap in probe_caps:
+                if cap_name in shared_cap_names:
+                    owners = shared_cap_owners[cap_name]
+                    if owners and owners[0] == pipe.name:
+                        if on_probe_start is not None:
+                            on_probe_start(cap_name)
+                        try:
+                            ep_device = optimizer_kwargs.get("ep_device")
+                            if ep_device is not None and cap.ep_constraint is not None:
+                                from ..utils.constants import normalize_ep_name
+
+                                target_ep = normalize_ep_name(ep_device.device.ep_name)
+                                if not any(
+                                    normalize_ep_name(name) == target_ep
+                                    for name in cap.ep_constraint
+                                ):
+                                    logger.debug(
+                                        "Skipping capability '%s': target EP %s is not in %s",
+                                        cap.name,
+                                        target_ep,
+                                        cap.ep_constraint,
+                                    )
+                                    continue
+
+                            kebab = dict(kebab_defaults)
+                            kebab[cap_name] = True
+                            kebab = auto_enable_dependencies(kebab, capabilities)
+                            probe_kwargs = {
+                                capabilities[name].python_name: value
+                                for name, value in kebab.items()
+                                if name in capabilities
+                            }
+                            probe_kwargs.update(optimizer_kwargs)
+
+                            try:
+                                shared_base_out = full_pipeline_baseline()
+                                probe_out = _run_pipeline(PIPES, pipeline_input, probe_kwargs)
+                            except Exception as exc:
+                                logger.warning(
+                                    "Could not evaluate shared capability '%s': %s",
+                                    cap_name,
+                                    exc,
+                                )
+                                continue
+
+                            shared_base_nodes: dict[tuple[Any, ...], tuple[bytes, NodeRef]] = {}
+                            shared_probe_nodes: dict[tuple[Any, ...], tuple[bytes, NodeRef]] = {}
+                            _collect_nodes(shared_base_out.graph, (), shared_base_nodes)
+                            _collect_nodes(probe_out.graph, (), shared_probe_nodes)
+                            removed, added, modified = _diff_nodes(
+                                shared_base_nodes,
+                                shared_probe_nodes,
+                            )
+
+                            shared_base_inits = _collect_initializers(shared_base_out)
+                            probe_inits = _collect_initializers(probe_out)
+                            rem_init, add_init, mod_init = _diff_initializers(
+                                shared_base_inits,
+                                probe_inits,
+                            )
+
+                            finding = CapabilityFinding(
+                                name=cap.name,
+                                python_name=cap.python_name,
+                                enable_flag=f"--enable-{cap.name}",
+                                category=cap.category.value,
+                                description=cap.description,
+                                pipe_name="+".join(owners),
+                                removed_nodes=removed,
+                                added_nodes=added,
+                                modified_nodes=modified,
+                                removed_initializers=rem_init,
+                                added_initializers=add_init,
+                                modified_initializers=mod_init,
+                            )
+
+                            if finding.applicable:
+                                yield finding, probe_out
+                        finally:
+                            complete_probe(cap_name)
+                    continue
+
                 if on_probe_start is not None:
                     on_probe_start(cap_name)
                 try:

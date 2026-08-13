@@ -16,6 +16,7 @@ import os
 import subprocess
 import sys
 from array import array
+from typing import ClassVar
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -81,6 +82,38 @@ def _benign_model() -> ModelProto:
     small = numpy_helper.from_array(np.ones(4, dtype=np.float32), "SMALL")
     node = helper.make_node("Add", ["x", "SMALL"], ["z"], name="addsmall")
     return _finalize(helper.make_graph([node], "benign", [x], [z], initializer=[small]))
+
+
+def _sibling_slice_model() -> ModelProto:
+    """Two contiguous sibling Slices that can be replaced by one Split."""
+    x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 6, 2])
+    left_out = helper.make_tensor_value_info("left_out", TensorProto.FLOAT, [1, 2, 2])
+    right_out = helper.make_tensor_value_info("right_out", TensorProto.FLOAT, [1, 4, 2])
+    left = helper.make_tensor_value_info("left", TensorProto.FLOAT, [1, 2, 2])
+    right = helper.make_tensor_value_info("right", TensorProto.FLOAT, [1, 4, 2])
+    nodes = [
+        helper.make_node("Slice", ["x", "left_starts", "left_ends", "axis", "steps"], ["left"]),
+        helper.make_node("Slice", ["x", "right_starts", "right_ends", "axis", "steps"], ["right"]),
+        helper.make_node("Relu", ["left"], ["left_out"]),
+        helper.make_node("Relu", ["right"], ["right_out"]),
+    ]
+    initializers = [
+        numpy_helper.from_array(np.asarray([0], dtype=np.int64), "left_starts"),
+        numpy_helper.from_array(np.asarray([2], dtype=np.int64), "left_ends"),
+        numpy_helper.from_array(np.asarray([2], dtype=np.int64), "right_starts"),
+        numpy_helper.from_array(np.asarray([6], dtype=np.int64), "right_ends"),
+        numpy_helper.from_array(np.asarray([1], dtype=np.int64), "axis"),
+        numpy_helper.from_array(np.asarray([1], dtype=np.int64), "steps"),
+    ]
+    graph = helper.make_graph(
+        nodes,
+        "sibling_slice",
+        [x],
+        [left_out, right_out],
+        initializer=initializers,
+        value_info=[left, right],
+    )
+    return _finalize(graph)
 
 
 # =============================================================================
@@ -298,9 +331,7 @@ assert not _initializers_equal(base, probe)
             env=env,
         )
 
-    def test_upb_equality_does_not_copy_float_fields(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_upb_equality_does_not_copy_float_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
         base_init = TensorProto(
             name="W",
             data_type=TensorProto.FLOAT,
@@ -310,9 +341,7 @@ assert not _initializers_equal(base, probe)
         probe_init = TensorProto()
         probe_init.CopyFrom(base_init)
 
-        monkeypatch.setattr(
-            "winml.modelkit.optim.analysis._PROTOBUF_IMPLEMENTATION", "upb"
-        )
+        monkeypatch.setattr("winml.modelkit.optim.analysis._PROTOBUF_IMPLEMENTATION", "upb")
 
         def fail_array(*_args, **_kwargs):
             raise AssertionError("upb equality fast path copied typed fields")
@@ -321,9 +350,7 @@ assert not _initializers_equal(base, probe)
 
         assert _initializers_equal(base_init, probe_init)
 
-    def test_cpp_equality_still_compares_float_bits(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_cpp_equality_still_compares_float_bits(self, monkeypatch: pytest.MonkeyPatch) -> None:
         base_init = TensorProto(
             name="W",
             data_type=TensorProto.FLOAT,
@@ -335,9 +362,7 @@ assert not _initializers_equal(base, probe)
         array_calls = 0
         real_array = array
 
-        monkeypatch.setattr(
-            "winml.modelkit.optim.analysis._PROTOBUF_IMPLEMENTATION", "cpp"
-        )
+        monkeypatch.setattr("winml.modelkit.optim.analysis._PROTOBUF_IMPLEMENTATION", "cpp")
 
         def track_array(*args, **kwargs):
             nonlocal array_calls
@@ -693,6 +718,116 @@ class TestIterOptimizationOutputs:
         iter_names = {finding.name for finding, _ in iter_optimization_outputs(model, caps)}
         analyze_names = {finding.name for finding in analyze_model(_matmul_add_model(), caps)}
         assert iter_names == analyze_names
+
+    def test_reports_algebraic_sibling_slice_to_split(self) -> None:
+        pairs = list(iter_optimization_outputs(_sibling_slice_model(), get_all_capabilities()))
+        matches = [
+            (finding, produced)
+            for finding, produced in pairs
+            if finding.name == "gather-slice-to-split-fusion"
+        ]
+
+        assert len(matches) == 1
+        finding, produced = matches[0]
+
+        assert finding.enable_flag == "--enable-gather-slice-to-split-fusion"
+        assert finding.pipe_name == "ort_graph+algebraic_rewrite"
+        assert any(ref.op_type == "Slice" for ref in finding.removed_nodes)
+        assert any(ref.op_type == "Split" for ref in finding.added_nodes)
+        assert [node.op_type for node in produced.graph.node] == ["Split", "Relu", "Relu"]
+
+    def test_shared_capability_probe_does_not_advance_pipeline_cursor(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        shared_cap = BoolCapability(
+            name="shared-route",
+            ort_name=None,
+            description="Shared route",
+            category=CapabilityCategory.MISC,
+        )
+        observer_cap = BoolCapability(
+            name="observer-probe",
+            ort_name=None,
+            description="Observer probe",
+            category=CapabilityCategory.MISC,
+        )
+        cap_registry = {
+            shared_cap.name: shared_cap,
+            observer_cap.name: observer_cap,
+        }
+
+        def append_identity(model: ModelProto, prefix: str) -> None:
+            suffix = sum(
+                output.startswith(prefix) for node in model.graph.node for output in node.output
+            )
+            model.graph.node.append(helper.make_node("Identity", ["z"], [f"{prefix}{suffix}"]))
+
+        class FirstSharedPipe:
+            name = "first-shared"
+            capabilities: ClassVar[dict[str, BoolCapability]] = {shared_cap.name: shared_cap}
+
+            @classmethod
+            def build_config(cls, **kwargs):
+                return kwargs
+
+            @staticmethod
+            def process(model, config):
+                if config.get("shared_route"):
+                    append_identity(model, "first_shared_")
+                return model
+
+            def prepare_analysis_model(self, model):
+                return model
+
+            def process_analysis(self, model, config):
+                return self.process(model, config)
+
+            @classmethod
+            def requires_analysis_clone(cls):
+                return True
+
+            def finish_analysis(self):
+                pass
+
+        class SecondSharedPipe(FirstSharedPipe):
+            name = "second-shared"
+
+            @staticmethod
+            def process(model, config):
+                append_identity(model, "default_marker_")
+                if config.get("shared_route"):
+                    append_identity(model, "second_shared_")
+                return model
+
+        class ObserverPipe(FirstSharedPipe):
+            name = "observer"
+            capabilities: ClassVar[dict[str, BoolCapability]] = {observer_cap.name: observer_cap}
+
+            @staticmethod
+            def process(model, config):
+                if config.get("observer_probe"):
+                    append_identity(model, "observer_")
+                return model
+
+        monkeypatch.setattr(
+            "winml.modelkit.optim.pipes.PIPES",
+            [FirstSharedPipe, SecondSharedPipe, ObserverPipe],
+        )
+        monkeypatch.setattr("winml.modelkit.onnx.infer_shapes", lambda model: model)
+
+        pairs = list(iter_optimization_outputs(_benign_model(), cap_registry))
+        observer_produced = next(
+            produced for finding, produced in pairs if finding.name == "observer-probe"
+        )
+
+        default_markers = [
+            output
+            for node in observer_produced.graph.node
+            for output in node.output
+            if output.startswith("default_marker_")
+        ]
+        assert default_markers == ["default_marker_0"]
 
     def test_closing_iterator_cleans_up_prepared_pipe(
         self, monkeypatch: pytest.MonkeyPatch
