@@ -460,6 +460,7 @@ class GenaiSession:
         self._compile_timeout = compile_timeout
         # Resolved at load() time.
         self._context_length: int | None = None
+        self._is_decoder_pipeline = False
 
         # og.* handles — None until load() is called.
         self._model: Any = None
@@ -524,6 +525,7 @@ class GenaiSession:
         og = self._import_og()
 
         cfg = self._read_genai_config()
+        self._is_decoder_pipeline = cfg.get("model", {}).get("type") == "decoder-pipeline"
 
         # Apply the ``ep`` override (if any) to obtain the *effective* config that
         # actually drives routing.  Precedence is explicit arg > bundle config:
@@ -899,17 +901,23 @@ class GenaiSession:
     def _new_generator(self, cfg: GenerationConfig, prompt_len: int) -> Any:
         """Build an ``og.Generator`` with search options from *cfg*.
 
-        ``max_length`` is set to ``prompt_len + cfg.max_new_tokens``, capped at
-        the bundle's ``context_length``.  This avoids pre-allocating KV cache
-        for the full context window (which can be 128K+ for DML bundles) when
-        only a small generation is requested.
+        Static decoder pipelines use the bundle's full ``context_length``;
+        their fixed-size KV-cache stages may expand the internal sequence to
+        the configured search limit during prompt processing.  Other model
+        types use ``prompt_len + cfg.max_new_tokens``, capped at the context
+        length, to avoid unnecessarily large dynamic allocations.  The
+        generation loops enforce ``max_new_tokens`` as the output-token limit.
 
         The prompt is **not** appended — callers decide whether to time
         ``append_tokens`` separately (see :meth:`generate_timed`).
         """
         og = self._import_og()
         assert self._context_length is not None, "_new_generator called before load()"
-        max_length = min(prompt_len + cfg.max_new_tokens, self._context_length)
+        max_length = (
+            self._context_length
+            if self._is_decoder_pipeline
+            else min(prompt_len + cfg.max_new_tokens, self._context_length)
+        )
         params = og.GeneratorParams(self._model)
         params.set_search_options(
             max_length=max_length,
