@@ -503,6 +503,92 @@ def _build_traversed_shadowed_output_initializer_model() -> ModelProto:
     return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
 
 
+def _build_loop_state_input_shadowing_output_initializer_model() -> ModelProto:
+    """Build a Loop whose local state input shadows a top-level output initializer."""
+    trip_count = helper.make_tensor_value_info("trip_count", TensorProto.INT64, [])
+    condition = helper.make_tensor_value_info("condition", TensorProto.BOOL, [])
+    loop_state = helper.make_tensor_value_info("loop_state", TensorProto.FLOAT, [1])
+    same = helper.make_tensor_value_info("same", TensorProto.FLOAT, [1])
+    loop_output = helper.make_tensor_value_info("loop_output", TensorProto.FLOAT, [1])
+    initializer = numpy_helper.from_array(np.array([9.0], dtype=np.float32), "same")
+
+    iteration = helper.make_tensor_value_info("iteration", TensorProto.INT64, [])
+    body_condition = helper.make_tensor_value_info("body_condition", TensorProto.BOOL, [])
+    body_state = helper.make_tensor_value_info("same", TensorProto.FLOAT, [1])
+    body_condition_out = helper.make_tensor_value_info("body_condition_out", TensorProto.BOOL, [])
+    body_state_out = helper.make_tensor_value_info("body_state_out", TensorProto.FLOAT, [1])
+    body_initializer = numpy_helper.from_array(np.array([1.0], dtype=np.float32), "body_state_out")
+    body = helper.make_graph(
+        [
+            helper.make_node(
+                "Identity", ["body_condition"], ["body_condition_out"], name="body_condition"
+            )
+        ],
+        "body",
+        [iteration, body_condition, body_state],
+        [body_condition_out, body_state_out],
+        [body_initializer],
+    )
+    loop = helper.make_node(
+        "Loop",
+        ["trip_count", "condition", "loop_state"],
+        ["loop_output"],
+        name="loop",
+        body=body,
+    )
+    graph = helper.make_graph(
+        [loop],
+        "loop_state_input_shadowing",
+        [trip_count, condition, loop_state],
+        [same, loop_output],
+        [initializer],
+    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
+def _build_loop_value_info_shadowing_output_initializer_model() -> ModelProto:
+    """Build a Loop whose local value_info shadows a top-level output initializer."""
+    trip_count = helper.make_tensor_value_info("trip_count", TensorProto.INT64, [])
+    condition = helper.make_tensor_value_info("condition", TensorProto.BOOL, [])
+    loop_state = helper.make_tensor_value_info("loop_state", TensorProto.FLOAT, [1])
+    same = helper.make_tensor_value_info("same", TensorProto.FLOAT, [1])
+    loop_output = helper.make_tensor_value_info("loop_output", TensorProto.FLOAT, [1])
+    initializer = numpy_helper.from_array(np.array([9.0], dtype=np.float32), "same")
+
+    iteration = helper.make_tensor_value_info("iteration", TensorProto.INT64, [])
+    body_condition = helper.make_tensor_value_info("body_condition", TensorProto.BOOL, [])
+    body_state = helper.make_tensor_value_info("body_state", TensorProto.FLOAT, [1])
+    body_condition_out = helper.make_tensor_value_info("body_condition_out", TensorProto.BOOL, [])
+    body_state_out = helper.make_tensor_value_info("body_state_out", TensorProto.FLOAT, [1])
+    body = helper.make_graph(
+        [
+            helper.make_node(
+                "Identity", ["body_condition"], ["body_condition_out"], name="body_condition"
+            ),
+            helper.make_node("Identity", ["body_state"], ["body_state_out"], name="body_state"),
+        ],
+        "body",
+        [iteration, body_condition, body_state],
+        [body_condition_out, body_state_out],
+    )
+    body.value_info.append(helper.make_tensor_value_info("same", TensorProto.FLOAT, [1]))
+    loop = helper.make_node(
+        "Loop",
+        ["trip_count", "condition", "loop_state"],
+        ["loop_output"],
+        name="loop",
+        body=body,
+    )
+    graph = helper.make_graph(
+        [loop],
+        "loop_value_info_shadowing",
+        [trip_count, condition, loop_state],
+        [same, loop_output],
+        [initializer],
+    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
 def _build_nested_output_initializer_with_top_level_io_name_collision_model() -> ModelProto:
     """Build a nested direct initializer output matching an unrelated top-level input."""
     trip_count = helper.make_tensor_value_info("trip_count", TensorProto.INT64, [])
@@ -1241,6 +1327,28 @@ class TestConvertToFP16:
     def test_traversed_shadowed_output_initializer_references_are_rejected(self) -> None:
         """Traversed nested refs with the same name hit ORT's global I/O name mapping."""
         model = _build_traversed_shadowed_output_initializer_model()
+        original = model.SerializeToString()
+
+        with np.testing.assert_raises_regex(RuntimeError, "scope-aware"):
+            convert_to_fp16(model, keep_io_types=True, op_block_list=[])
+        assert model.SerializeToString() == original
+
+    def test_nested_input_shadowing_initializer_output_is_rejected_before_mutation(
+        self,
+    ) -> None:
+        """Traversed nested input declarations can hit ORT's global I/O name mapping."""
+        model = _build_loop_state_input_shadowing_output_initializer_model()
+        original = model.SerializeToString()
+
+        with np.testing.assert_raises_regex(RuntimeError, "scope-aware"):
+            convert_to_fp16(model, keep_io_types=True, op_block_list=[])
+        assert model.SerializeToString() == original
+
+    def test_nested_value_info_shadowing_initializer_output_is_rejected_before_mutation(
+        self,
+    ) -> None:
+        """Traversed nested value_info declarations can hit ORT's global I/O name mapping."""
+        model = _build_loop_value_info_shadowing_output_initializer_model()
         original = model.SerializeToString()
 
         with np.testing.assert_raises_regex(RuntimeError, "scope-aware"):

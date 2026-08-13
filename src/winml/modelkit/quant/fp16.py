@@ -298,6 +298,20 @@ def _graph_node_references_name(graph: GraphProto, name: str) -> bool:
     )
 
 
+def _graph_keep_io_mapping_declares_name(graph: GraphProto, name: str) -> bool:
+    """Whether graph-level declarations can be hit by ORT's global keep-I/O map."""
+    return any(value.name == name for value in getattr(graph, "input", [])) or any(
+        value.name == name for value in getattr(graph, "value_info", [])
+    )
+
+
+def _graph_keep_io_mapping_references_name(graph: GraphProto, name: str) -> bool:
+    """Whether ORT's global keep-I/O map may rewrite this graph's local name."""
+    return _graph_node_references_name(graph, name) or _graph_keep_io_mapping_declares_name(
+        graph, name
+    )
+
+
 def _iter_ort_child_graphs(graph: GraphProto, blocked_ops: set[str]) -> list[GraphProto]:
     """Return child graphs ORT traverses from this graph."""
     from onnx import AttributeProto
@@ -341,8 +355,8 @@ def _descendant_has_free_consumer(graph: GraphProto, name: str, blocked_ops: set
 
 
 def _descendant_has_node_reference(graph: GraphProto, name: str, blocked_ops: set[str]) -> bool:
-    """Whether any ORT-traversed descendant node mentions a name globally mapped by ORT."""
-    if _graph_node_references_name(graph, name):
+    """Whether any ORT-traversed descendant mentions a name globally mapped by ORT."""
+    if _graph_keep_io_mapping_references_name(graph, name):
         return True
     return any(
         _descendant_has_node_reference(child, name, blocked_ops)
@@ -358,8 +372,12 @@ def _descendant_has_shadowed_node_reference(
     shadowed: bool = False,
 ) -> bool:
     """Whether a traversed descendant uses a local name ORT would globally rewrite."""
-    shadowed = shadowed or _graph_defines_name(graph, name)
-    if shadowed and _graph_node_references_name(graph, name):
+    shadowed = (
+        shadowed
+        or _graph_defines_name(graph, name)
+        or _graph_keep_io_mapping_declares_name(graph, name)
+    )
+    if shadowed and _graph_keep_io_mapping_references_name(graph, name):
         return True
     return any(
         _descendant_has_shadowed_node_reference(child, name, blocked_ops, shadowed=shadowed)
