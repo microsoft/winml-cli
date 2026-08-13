@@ -276,7 +276,9 @@ class TestOptimizeInvocation:
 _ANALYZE_MODEL = "winml.modelkit.optim.analyze_model"
 
 
-def _make_finding(name: str = "clamp-constant-values") -> MagicMock:
+def _make_finding(
+    name: str = "clamp-constant-values", node_domain: str = ""
+) -> MagicMock:
     """Build a stand-in CapabilityFinding for renderer tests."""
     from winml.modelkit.optim import CapabilityFinding, NodeRef
 
@@ -288,7 +290,7 @@ def _make_finding(name: str = "clamp-constant-values") -> MagicMock:
         description="clamp things",
         pipe_name="surgery",
         modified_initializers=["BIG"],
-        removed_nodes=[NodeRef("MatMul", "mm", ("mm",))],
+        removed_nodes=[NodeRef("MatMul", "mm", ("mm",), node_domain)],
     )
 
 
@@ -334,6 +336,24 @@ class TestCheckOptim:
         assert result.exit_code == 0, result.output
         assert "--enable-matmul-add-fusion" in result.output
         assert "1 applicable optimization" in result.output
+
+    def test_check_optim_shows_custom_operator_domain(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        model_file = tmp_path / "model.onnx"
+        model_file.touch()
+
+        with (
+            patch(_LOAD_ONNX, return_value=_make_mock_model()),
+            patch(
+                _ANALYZE_MODEL,
+                return_value=[_make_finding(node_domain="com.microsoft")],
+            ),
+        ):
+            result = runner.invoke(optimize, ["-m", str(model_file), "--check-optim"])
+
+        assert result.exit_code == 0, result.output
+        assert "com.microsoft::MatMul" in result.output
 
     def test_check_optim_no_findings_message(self, runner: CliRunner, tmp_path: Path) -> None:
         model_file = tmp_path / "model.onnx"

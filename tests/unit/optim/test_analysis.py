@@ -137,6 +137,29 @@ class TestNodeDiff:
         removed, added, modified = _diff_nodes(table_a, table_b)
         assert not removed and not added and not modified
 
+    def test_collected_node_preserves_custom_domain(self) -> None:
+        graph = helper.make_graph(
+            [
+                helper.make_node(
+                    "Gelu",
+                    ["x"],
+                    ["y"],
+                    name="gelu",
+                    domain="com.microsoft",
+                )
+            ],
+            "custom_domain",
+            [helper.make_tensor_value_info("x", TensorProto.FLOAT, [1])],
+            [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1])],
+        )
+        table: dict = {}
+
+        _collect_nodes(graph, (), table)
+
+        ref = next(iter(table.values()))[1]
+        assert ref.domain == "com.microsoft"
+        assert ref.qualified_op_type() == "com.microsoft::Gelu"
+
     def test_subgraph_nodes_are_collected(self) -> None:
         """Nodes inside a control-flow subgraph are included in the table."""
         then_graph = helper.make_graph(
@@ -504,6 +527,32 @@ class TestCapabilityFinding:
     def test_node_ref_label_uses_name_then_output(self) -> None:
         assert NodeRef("MatMul", "mm", ("mm_out",)).label() == "MatMul 'mm'"
         assert NodeRef("Add", "", ("y",)).label() == "Add 'y'"
+
+    def test_node_ref_label_qualifies_custom_domains(self) -> None:
+        assert (
+            NodeRef("Gelu", "gelu", ("y",), "com.microsoft").label()
+            == "com.microsoft::Gelu 'gelu'"
+        )
+        assert NodeRef("Add", "add", ("y",), "ai.onnx").label() == "Add 'add'"
+
+    def test_op_histogram_distinguishes_custom_domains(self) -> None:
+        finding = CapabilityFinding(
+            name="x",
+            python_name="x",
+            enable_flag="--enable-x",
+            category="misc",
+            description="",
+            pipe_name="p",
+            added_nodes=[
+                NodeRef("Gelu", "standard", ("a",)),
+                NodeRef("Gelu", "contrib", ("b",), "com.microsoft"),
+            ],
+        )
+
+        assert finding.op_histogram("added") == [
+            ("Gelu", 1),
+            ("com.microsoft::Gelu", 1),
+        ]
 
 
 # =============================================================================
