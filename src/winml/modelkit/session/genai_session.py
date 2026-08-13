@@ -225,32 +225,42 @@ class GenerationTiming:
     measurements taken immediately around the library calls.  The segmentation
     mirrors onnxruntime-genai's official ``benchmark_e2e.py``:
 
+    * ``generator_create_s`` — cost of constructing ``og.Generator`` and search
+      parameters for one request.
     * ``prefill_s`` — cost of ``Generator.append_tokens`` (the prompt forward
       pass, a.k.a. prompt processing).
     * ``first_token_s`` — cost of the first ``Generator.generate_next_token``.
     * ``decode_s`` — cost of each subsequent ``generate_next_token`` (one entry
       per generated token after the first).
 
-    Detokenization is intentionally excluded — only model-compute boundaries
-    are timed, so the numbers reflect the pipeline rather than tokenizer/string
-    overhead.
+    Host sequence fetch and detokenization are measured separately from
+    model-compute boundaries, so callers can report either request-level or
+    pure model-compute latency.
 
     Attributes:
         input_tokens: Number of prompt tokens fed to ``append_tokens``.
         generated_tokens: Number of tokens produced (including the first).
+        generator_create_s: Generator construction time, in seconds.
         prefill_s: Prompt-processing time in seconds.
         first_token_s: Time to produce the first token, in seconds.
         decode_s: Per-token times for the steady-state decode phase (tokens
             after the first), in seconds.
+        sequence_fetch_s: Time spent fetching the generated token sequence from
+            the native generator after model compute, in seconds.
+        detokenization_s: Time spent decoding output token IDs to text, in
+            seconds.
         response_text: Decoded model output text (empty string when not
             captured).
     """
 
     input_tokens: int = 0
     generated_tokens: int = 0
+    generator_create_s: float = 0.0
     prefill_s: float = 0.0
     first_token_s: float = 0.0
     decode_s: list[float] = field(default_factory=list)
+    sequence_fetch_s: float = 0.0
+    detokenization_s: float = 0.0
     response_text: str = ""
 
     @property
@@ -425,6 +435,7 @@ class GenaiSession:
         # og.* handles — None until load() is called.
         self._model: Any = None
         self._tokenizer: Any = None
+        self._load_timings_ms: dict[str, float] = {}
 
         if not self._bundle_dir.exists():
             raise FileNotFoundError(f"Bundle directory not found: {self._bundle_dir}")
@@ -482,22 +493,13 @@ class GenaiSession:
         if self._model is not None:
             return
 
+        session_load_start = time.perf_counter()
         og = self._import_og()
 
-        cfg = self._read_genai_config()
-
-        # Apply the ``ep`` override (if any) to obtain the *effective* config that
-        # actually drives routing.  Precedence is explicit arg > bundle config:
-        # when no override is set this is the bundle config verbatim.
-        effective_cfg, overridden = self._apply_ep_override(cfg)
-
-        # Record whether the override actually applied so :attr:`effective_ep`
-        # (and the perf report) never claim an EP that matched no stage.  Warn
-        # when a requested override is a no-op so ``--ep qnn`` on a flat/all-CPU
-        # bundle is visibly reported as "config" rather than silently ignored.
-        self._override_effective = self._override_took_effect(effective_cfg)
-        self._effective_device = self._resolve_effective_device(effective_cfg)
-        self._effective_hardware_ep = self._hardware_ep_from_config(effective_cfg)
+        # Resolve effective routing before any native load work.  Perf uses the
+        # same helper ahead of load() so monitor and memory adapter selection do
+        # not guess from requested CLI values.
+        effective_cfg, overridden = self._resolve_effective_config()
         if self._ep_override is not None and not self._override_effective:
             logger.warning(
                 "EP override %r was requested but did not take effect (flat/empty "
@@ -512,8 +514,11 @@ class GenaiSession:
         # triggers it — all without a hardcoded EP short-name → behavior map.
         plugin_eps = self._bundle_plugin_eps(effective_cfg)
         logger.info("Plugin EPs detected in effective genai_config: %s", plugin_eps)
+        ep_registration_ms = 0.0
         if plugin_eps:
+            ep_registration_start = time.perf_counter()
             self._register_eps(og, plugin_eps)
+            ep_registration_ms = (time.perf_counter() - ep_registration_start) * 1000.0
 
         if self._verbose:
             og.set_log_options(enabled=True, model_input_values=True, model_output_shapes=True)
@@ -528,25 +533,46 @@ class GenaiSession:
         # override-only pass (no compilation) merely rewrites JSON + mirrors
         # files, touches no native accelerator state, and stays in-process.
         load_dir = self._bundle_dir
+        bundle_prepare_ms = 0.0
         if self._compile:
+            bundle_prepare_start = time.perf_counter()
             load_dir = self._prepare_derived_bundle_isolated(effective_cfg, overridden=overridden)
+            bundle_prepare_ms = (time.perf_counter() - bundle_prepare_start) * 1000.0
         elif overridden:
+            bundle_prepare_start = time.perf_counter()
             load_dir = self._prepare_derived_bundle(effective_cfg, overridden=overridden)
+            bundle_prepare_ms = (time.perf_counter() - bundle_prepare_start) * 1000.0
 
+        native_load_start = time.perf_counter()
         try:
             config = og.Config(str(load_dir))
+            after_config = time.perf_counter()
             # Per-stage EP routing lives in the (possibly overridden) genai_config
             # that og.Config loads from ``load_dir``.  Do NOT call
             # clear_providers/append_provider — those only touch the top-level
             # provider and cannot override per-stage session_options.
             self._model = og.Model(config)
+            after_model = time.perf_counter()
             self._tokenizer = og.Tokenizer(self._model)
+            after_tokenizer = time.perf_counter()
         except Exception as exc:
             self._model = None
             self._tokenizer = None
+            self._load_timings_ms = {}
             raise GenaiLoadError(f"Failed to load genai bundle from {load_dir}: {exc}") from exc
 
         self._context_length = self._context_length_override or self._read_context_length()
+        load_end = time.perf_counter()
+        native_load_ms = (after_tokenizer - native_load_start) * 1000.0
+        self._load_timings_ms = {
+            "session_load_duration_ms": (load_end - session_load_start) * 1000.0,
+            "ep_registration_duration_ms": ep_registration_ms,
+            "bundle_prepare_duration_ms": bundle_prepare_ms,
+            "native_load_duration_ms": native_load_ms,
+            "config_create_duration_ms": (after_config - native_load_start) * 1000.0,
+            "model_create_duration_ms": (after_model - after_config) * 1000.0,
+            "tokenizer_create_duration_ms": (after_tokenizer - after_model) * 1000.0,
+        }
         logger.info(
             "GenaiSession loaded: ep=%s context_length=%d",
             self._ep_override or "config",
@@ -561,9 +587,16 @@ class GenaiSession:
         self._model = None
         self._tokenizer = None
         self._context_length = None
+        self._load_timings_ms = {}
         self._effective_device = None
         self._effective_hardware_ep = None
         logger.info("GenaiSession unloaded: bundle=%s", self._bundle_dir)
+
+    def resolve_effective_route(self) -> None:
+        """Populate effective routing metadata without loading native GenAI handles."""
+        if self._model is not None:
+            return
+        self._resolve_effective_config()
 
     def __enter__(self) -> GenaiSession:
         self.load()
@@ -646,9 +679,10 @@ class GenaiSession:
 
         Unlike :meth:`generate_streaming` (which yields decoded text), this
         drives the same ``og.Generator`` loop but records wall-clock spans
-        around the library calls and returns a :class:`GenerationTiming`.  It
-        does **not** decode tokens — only model-compute boundaries are timed,
-        so tokenizer / string overhead is excluded.
+        around the library calls and returns a :class:`GenerationTiming`.
+        Generator construction, host sequence fetch, and detokenization are
+        timed separately from model-compute spans so callers can report either
+        request-level or pure model-compute latency.
 
         The segmentation matches onnxruntime-genai's official
         ``benchmark_e2e.py``: ``append_tokens`` is the prefill (prompt
@@ -673,14 +707,16 @@ class GenaiSession:
         self._ensure_loaded()
         cfg = config or GenerationConfig()
         tokens = self._encode_prompt(prompt)
+        generator_create_start = clock()
         generator = self._new_generator(cfg, len(tokens))
+        generator_create_end = clock()
 
-        # marks[0]  = before prefill
+        # marks[0]  = before prefill (after generator creation)
         # marks[1]  = after prefill (append_tokens)
         # marks[2+k]= after the (k+1)-th generated token
         marks: list[float] = []
         generated = 0
-        marks.append(clock())
+        marks.append(generator_create_end)
         generator.append_tokens(tokens)
         marks.append(clock())
         while not generator.is_done():
@@ -693,19 +729,26 @@ class GenaiSession:
         if generated == 0:
             raise GenaiSessionError("genai: generation produced no tokens (empty bundle output?)")
 
-        # Fetch all output tokens *after* the timing loop so that
-        # get_sequence() (which may trigger host/device copies on hardware EPs)
-        # does not pollute per-token decode measurements.
+        # Fetch and decode *after* the timing loop, as separate spans, so host
+        # copies/string work do not pollute per-token model-compute measurements.
+        sequence_fetch_start = marks[-1]
         full_sequence = generator.get_sequence(0)
+        sequence_fetch_end = clock()
         output_token_ids = list(full_sequence[len(tokens) :])
+        detokenization_start = sequence_fetch_end
+        response_text = str(self._tokenizer.decode(output_token_ids))
+        detokenization_end = clock()
 
         timing = GenerationTiming(
             input_tokens=len(tokens),
             generated_tokens=generated,
+            generator_create_s=generator_create_end - generator_create_start,
             prefill_s=marks[1] - marks[0],
             first_token_s=marks[2] - marks[1],
             decode_s=[marks[i + 1] - marks[i] for i in range(2, 1 + generated)],
-            response_text=str(self._tokenizer.decode(output_token_ids)),
+            sequence_fetch_s=sequence_fetch_end - sequence_fetch_start,
+            detokenization_s=detokenization_end - detokenization_start,
+            response_text=response_text,
         )
         logger.info(
             "generate_timed: input_tokens=%d generated_tokens=%d "
@@ -848,6 +891,11 @@ class GenaiSession:
         return self._context_length
 
     @property
+    def load_timings_ms(self) -> dict[str, float]:
+        """Best-effort wall-clock breakdown for the most recent native load."""
+        return dict(self._load_timings_ms)
+
+    @property
     def effective_device(self) -> str | None:
         """Uniquely resolved hardware device, or ``None`` when routing is ambiguous.
 
@@ -870,6 +918,15 @@ class GenaiSession:
     def _ensure_loaded(self) -> None:
         if self._model is None:
             self.load()
+
+    def _resolve_effective_config(self) -> tuple[dict[str, Any], bool]:
+        """Apply overrides and cache the route that will drive native loading."""
+        cfg = self._read_genai_config()
+        effective_cfg, overridden = self._apply_ep_override(cfg)
+        self._override_effective = self._override_took_effect(effective_cfg)
+        self._effective_device = self._resolve_effective_device(effective_cfg)
+        self._effective_hardware_ep = self._hardware_ep_from_config(effective_cfg)
+        return effective_cfg, overridden
 
     def _encode_prompt(self, prompt: str | list[int]) -> list[int]:
         """Return prompt token IDs, encoding via the bundle tokenizer if needed."""

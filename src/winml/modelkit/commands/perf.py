@@ -426,7 +426,9 @@ class BenchmarkResult:
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result: dict[str, Any] = {
+            "schema_version": 2,
             "benchmark_info": {
+                "runtime": "winml",
                 "model_id": self.config.model_id,
                 "running_model_path": self.running_model_path,
                 "task": self.actual_task,
@@ -961,11 +963,24 @@ class PerfBenchmark:
                 "rss_baseline_mb": round(rss_baseline, 2),
                 "rss_after_compile_mb": round(rss_after_compile, 2),
                 "rss_after_inference_mb": round(rss_after_inference, 2),
+                "rss_checkpoint_peak_mb": round(
+                    max(rss_baseline, rss_after_compile, rss_after_inference), 2
+                ),
                 "rss_model_load_delta_mb": round(rss_after_compile - rss_baseline, 2),
                 "rss_inference_delta_mb": round(rss_after_inference - rss_after_compile, 2),
                 "rss_total_delta_mb": round(rss_after_inference - rss_baseline, 2),
+                "vram_local_baseline_mb": round(vram_local_baseline, 2),
+                "vram_shared_baseline_mb": round(vram_shared_baseline, 2),
+                "vram_local_after_compile_mb": round(vram_local_compile, 2),
+                "vram_shared_after_compile_mb": round(vram_shared_compile, 2),
                 "vram_local_after_inference_mb": round(vram_local_infer, 2),
                 "vram_shared_after_inference_mb": round(vram_shared_infer, 2),
+                "vram_local_checkpoint_peak_mb": round(
+                    max(vram_local_baseline, vram_local_compile, vram_local_infer), 2
+                ),
+                "vram_shared_checkpoint_peak_mb": round(
+                    max(vram_shared_baseline, vram_shared_compile, vram_shared_infer), 2
+                ),
                 "vram_local_model_load_delta_mb": round(
                     vram_local_compile - vram_local_baseline, 2
                 ),
@@ -2148,7 +2163,6 @@ _GENAI_IGNORED_FLAGS: dict[str, str] = {
     "allow_unsupported_nodes": "--allow-unsupported-nodes",
     "batch_size": "--batch-size",
     "duration": "--duration",
-    "memory": "--memory",
     "op_tracing": "--op-tracing",
 }
 
@@ -2379,6 +2393,7 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
 
         config = GenaiPerfConfig(
             bundle_dir=bundle_dir,
+            model_id=model,
             ep=ep,
             device=device,
             prompt=prompt,
@@ -2389,6 +2404,7 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
             compile=not p["no_compile"],
             compile_timeout=p["compile_timeout"],
             monitor=bool(p.get("monitor")),
+            memory=bool(p.get("memory")),
             output_path=output,
         )
         run_genai_perf(config, console=console, json_mode=json_mode)
