@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
     from onnx import (
         AttributeProto,
+        FunctionProto,
         GraphProto,
         ModelProto,
         NodeProto,
@@ -65,10 +66,11 @@ def _ort_inference_preflight_model(model: ModelProto) -> ModelProto:
     from onnx import ModelProto as ONNXModelProto
     from onnx import shape_inference
 
-    if not isinstance(model, ONNXModelProto):
+    candidate: object = model
+    if not isinstance(candidate, ONNXModelProto):
         return model
     try:
-        return cast("ModelProto", shape_inference.infer_shapes(deepcopy(model)))
+        return shape_inference.infer_shapes(deepcopy(model))
     except EncodeError:
         return model
 
@@ -964,7 +966,7 @@ def _node_input_is_proven_non_float(
     parameter = (
         _schema_parameter_at_index(schema.inputs, input_index) if schema is not None else None
     )
-    if parameter is not None and parameter.type_str:
+    if schema is not None and parameter is not None and parameter.type_str:
         for other_index, input_name in enumerate(node.input):
             if other_index == input_index or not input_name:
                 continue
@@ -1463,8 +1465,10 @@ def _type_proto_is_concrete(value_type: TypeProto) -> bool:
     from onnx import TensorProto
 
     type_kind = value_type.WhichOneof("value")
-    if type_kind in {"tensor_type", "sparse_tensor_type"}:
-        return getattr(value_type, type_kind).elem_type != TensorProto.UNDEFINED
+    if type_kind == "tensor_type":
+        return value_type.tensor_type.elem_type != TensorProto.UNDEFINED
+    if type_kind == "sparse_tensor_type":
+        return value_type.sparse_tensor_type.elem_type != TensorProto.UNDEFINED
     if type_kind == "sequence_type":
         return _type_proto_is_concrete(value_type.sequence_type.elem_type)
     if type_kind == "optional_type":
@@ -1483,8 +1487,10 @@ def _type_proto_contains_float_tensor(value_type: TypeProto) -> bool:
     from onnx import TensorProto
 
     type_kind = value_type.WhichOneof("value")
-    if type_kind in {"tensor_type", "sparse_tensor_type"}:
-        return getattr(value_type, type_kind).elem_type == TensorProto.FLOAT
+    if type_kind == "tensor_type":
+        return value_type.tensor_type.elem_type == TensorProto.FLOAT
+    if type_kind == "sparse_tensor_type":
+        return value_type.sparse_tensor_type.elem_type == TensorProto.FLOAT
     if type_kind == "sequence_type":
         return _type_proto_contains_float_tensor(value_type.sequence_type.elem_type)
     if type_kind == "optional_type":
@@ -1636,7 +1642,7 @@ def _reject_scope_unsafe_value_info_lookups(
 
     def binding_converts_to_fp16(graph: GraphProto, name: str) -> bool:
         owner_id = _lexical_binding_owner_id(graph, name, parents, generated_top_names)
-        owner = owners_by_id.get(owner_id)
+        owner = owners_by_id.get(owner_id) if owner_id is not None else None
         if owner is None or any(
             sparse.values.name == name for sparse in getattr(owner, "sparse_initializer", [])
         ):
@@ -2567,7 +2573,7 @@ def _local_function_executed_attributes(
     ]
 
 
-def _function_contains_concrete_float(function) -> bool:
+def _function_contains_concrete_float(function: FunctionProto) -> bool:
     """Whether an unvisited function body stores a concrete FLOAT value."""
     from onnx import AttributeProto as ONNXAttributeProto
     from onnx import TensorProto
@@ -2772,7 +2778,7 @@ def _reject_blocked_subgraph_converted_captures(
             for child in children:
                 for name in _graph_free_references(child):
                     owner_id = _lexical_binding_owner_id(graph, name, parents, set())
-                    owner = owners_by_id.get(owner_id)
+                    owner = owners_by_id.get(owner_id) if owner_id is not None else None
                     if owner is None or not _binding_converts_to_fp16(
                         model,
                         owner,
