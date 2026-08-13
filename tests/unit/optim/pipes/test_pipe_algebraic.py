@@ -2260,20 +2260,15 @@ class TestExpPositiveScaleFolding:
             value_info=[_info("exp", [1]), _info("scaled", [1])],
         )
         values = {"x": np.asarray([np.log(np.float32(1.0e-20))], dtype=np.float32)}
+        original = model.SerializeToString()
 
         transformed = AlgebraicRewritePipe().process(
             model,
             AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
         )
 
-        assert [node.op_type for node in transformed.graph.node] == ["Add", "Exp", "Mul"]
-        _assert_valid_with_inferred_shapes(transformed)
-        np.testing.assert_allclose(
-            _run(model, values),
-            _run(transformed, values),
-            rtol=2e-6,
-            atol=2e-6,
-        )
+        assert transformed.SerializeToString() == original
+        np.testing.assert_array_equal(_run(model, values), _run(transformed, values))
 
     def test_public_optimizer_preserves_serial_exp_mul_float_boundaries(self) -> None:
         model = _model(
@@ -2294,9 +2289,202 @@ class TestExpPositiveScaleFolding:
 
         transformed = optimize_onnx(model, exp_positive_scale_folding=True)
 
-        assert [node.op_type for node in transformed.graph.node] == ["Add", "Exp", "Mul"]
+        assert [node.op_type for node in transformed.graph.node] == ["Exp", "Mul", "Mul"]
         _assert_valid_with_inferred_shapes(transformed)
         np.testing.assert_array_equal(_run(model, values), _run(transformed, values))
+
+    def test_user_prefix_names_do_not_block_single_exp_scale_folding(self) -> None:
+        model = _model(
+            [
+                onnx.helper.make_node("Add", ["x", "algebraic_exp_adjusted_user"], ["biased"]),
+                onnx.helper.make_node("Exp", ["biased"], ["exp"]),
+                onnx.helper.make_node("Mul", ["exp", "scale"], ["y"]),
+            ],
+            [_info("x", [1])],
+            [_info("y", [1])],
+            [
+                _tensor("algebraic_exp_adjusted_user", np.asarray(0.5, dtype=np.float32)),
+                _tensor("scale", np.asarray(1.5, dtype=np.float32)),
+            ],
+            value_info=[_info("biased", [1]), _info("exp", [1])],
+        )
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        assert [node.op_type for node in transformed.graph.node] == ["Add", "Exp"]
+
+    def test_serial_exp_mul_boundary_survives_user_renaming_between_runs(self) -> None:
+        model = _model(
+            [
+                onnx.helper.make_node("Exp", ["x"], ["exp"]),
+                onnx.helper.make_node("Mul", ["exp", "scale_a"], ["scaled"]),
+                onnx.helper.make_node("Mul", ["scaled", "scale_b"], ["y"]),
+            ],
+            [_info("x", [1])],
+            [_info("y", [1])],
+            [
+                _tensor("scale_a", np.asarray(1.0e-30, dtype=np.float32)),
+                _tensor("scale_b", np.asarray(1.0e30, dtype=np.float32)),
+            ],
+            value_info=[_info("exp", [1]), _info("scaled", [1])],
+        )
+        values = {"x": np.asarray([np.log(np.float32(1.0e-20))], dtype=np.float32)}
+        transformed = optimize_onnx(model, exp_positive_scale_folding=True)
+        renamed_tensors: dict[str, str] = {}
+        for index, node in enumerate(transformed.graph.node):
+            node.name = f"user_node_{index}"
+            for output_index, output in enumerate(node.output):
+                if output.startswith("algebraic_"):
+                    renamed_tensors[output] = f"user_tensor_{index}_{output_index}"
+                    node.output[output_index] = renamed_tensors[output]
+            for input_index, input_name in enumerate(node.input):
+                if input_name.startswith("algebraic_"):
+                    node.input[input_index] = renamed_tensors.setdefault(
+                        input_name,
+                        f"user_tensor_input_{index}_{input_index}",
+                    )
+        for initializer in transformed.graph.initializer:
+            if initializer.name.startswith("algebraic_"):
+                initializer.name = renamed_tensors.setdefault(
+                    initializer.name,
+                    f"user_initializer_{initializer.name}",
+                )
+        for value in (*transformed.graph.value_info, *transformed.graph.output):
+            if value.name.startswith("algebraic_"):
+                value.name = renamed_tensors.setdefault(value.name, f"user_value_{value.name}")
+        renamed = optimize_onnx(transformed, exp_positive_scale_folding=True)
+
+        assert [node.op_type for node in renamed.graph.node] == ["Exp", "Mul", "Mul"]
+        np.testing.assert_array_equal(_run(model, values), _run(renamed, values))
+
+    def test_public_optimizer_preserves_serial_exp_mul_boundary_through_view(self) -> None:
+        model = _model(
+            [
+                onnx.helper.make_node("Exp", ["x"], ["exp"]),
+                onnx.helper.make_node("Mul", ["exp", "scale_a"], ["scaled"]),
+                onnx.helper.make_node("Reshape", ["scaled", "shape"], ["viewed"]),
+                onnx.helper.make_node("Mul", ["viewed", "scale_b"], ["y"]),
+            ],
+            [_info("x", [1])],
+            [_info("y", [1])],
+            [
+                _tensor("shape", np.asarray([1], dtype=np.int64)),
+                _tensor("scale_a", np.asarray(1.0e-30, dtype=np.float32)),
+                _tensor("scale_b", np.asarray(1.0e30, dtype=np.float32)),
+            ],
+            value_info=[_info("exp", [1]), _info("scaled", [1]), _info("viewed", [1])],
+        )
+        values = {"x": np.asarray([np.log(np.float32(1.0e-20))], dtype=np.float32)}
+
+        transformed = optimize_onnx(model, exp_positive_scale_folding=True)
+
+        assert sum(node.op_type == "Mul" for node in transformed.graph.node) == 2
+        _assert_valid_with_inferred_shapes(transformed)
+        np.testing.assert_array_equal(_run(model, values), _run(transformed, values))
+
+    def test_public_optimizer_preserves_serial_exp_mul_boundary_through_flatten(self) -> None:
+        model = _model(
+            [
+                onnx.helper.make_node("Exp", ["x"], ["exp"]),
+                onnx.helper.make_node("Mul", ["exp", "scale_a"], ["scaled"]),
+                onnx.helper.make_node("Flatten", ["scaled"], ["flattened"]),
+                onnx.helper.make_node("Mul", ["flattened", "scale_b"], ["y"]),
+            ],
+            [_info("x", [1, 1])],
+            [_info("flattened", [1, 1]), _info("y", [1, 1])],
+            [
+                _tensor("scale_a", np.asarray(0.005727309, dtype=np.float32)),
+                _tensor("scale_b", np.asarray(3.3510647e28, dtype=np.float32)),
+            ],
+            value_info=[_info("exp", [1, 1]), _info("scaled", [1, 1])],
+        )
+        values = {"x": np.asarray([[-96.411636]], dtype=np.float32)}
+
+        transformed = optimize_onnx(model, exp_positive_scale_folding=True)
+
+        assert sum(node.op_type == "Mul" for node in transformed.graph.node) == 2
+        _assert_valid_with_inferred_shapes(transformed)
+        for expected, actual in zip(_run(model, values), _run(transformed, values), strict=True):
+            np.testing.assert_array_equal(actual, expected)
+
+    def test_public_optimizer_preserves_serial_exp_mul_boundary_through_identity(self) -> None:
+        model = _model(
+            [
+                onnx.helper.make_node("Exp", ["x"], ["exp"]),
+                onnx.helper.make_node("Mul", ["exp", "scale_a"], ["scaled"]),
+                onnx.helper.make_node("Identity", ["scaled"], ["passed"]),
+                onnx.helper.make_node("Mul", ["passed", "scale_b"], ["y"]),
+            ],
+            [_info("x", [1])],
+            [_info("passed", [1]), _info("y", [1])],
+            [
+                _tensor("scale_a", np.asarray(0.005727309, dtype=np.float32)),
+                _tensor("scale_b", np.asarray(3.3510647e28, dtype=np.float32)),
+            ],
+            value_info=[_info("exp", [1]), _info("scaled", [1])],
+        )
+        values = {"x": np.asarray([-96.411636], dtype=np.float32)}
+
+        transformed = optimize_onnx(model, exp_positive_scale_folding=True)
+
+        assert sum(node.op_type == "Mul" for node in transformed.graph.node) == 2
+        _assert_valid_with_inferred_shapes(transformed)
+        for expected, actual in zip(_run(model, values), _run(transformed, values), strict=True):
+            np.testing.assert_array_equal(actual, expected)
+
+    def test_public_optimizer_preserves_serial_exp_mul_boundary_when_intermediate_observed(
+        self,
+    ) -> None:
+        model = _model(
+            [
+                onnx.helper.make_node("Exp", ["x"], ["exp"]),
+                onnx.helper.make_node("Mul", ["exp", "scale_a"], ["scaled"]),
+                onnx.helper.make_node("Mul", ["scaled", "scale_b"], ["y"]),
+            ],
+            [_info("x", [1])],
+            [_info("scaled", [1]), _info("y", [1])],
+            [
+                _tensor("scale_a", np.asarray(0.005727309, dtype=np.float32)),
+                _tensor("scale_b", np.asarray(3.3510647e28, dtype=np.float32)),
+            ],
+            value_info=[_info("exp", [1])],
+        )
+        values = {"x": np.asarray([-96.411636], dtype=np.float32)}
+
+        transformed = optimize_onnx(model, exp_positive_scale_folding=True)
+
+        assert sum(node.op_type == "Mul" for node in transformed.graph.node) == 2
+        _assert_valid_with_inferred_shapes(transformed)
+        for expected, actual in zip(_run(model, values), _run(transformed, values), strict=True):
+            np.testing.assert_array_equal(actual, expected)
+
+    def test_public_optimizer_preserves_serial_exp_mul_boundary_on_branch(self) -> None:
+        model = _model(
+            [
+                onnx.helper.make_node("Exp", ["x"], ["exp"]),
+                onnx.helper.make_node("Mul", ["exp", "scale_a"], ["scaled"]),
+                onnx.helper.make_node("Mul", ["scaled", "scale_b"], ["y"]),
+                onnx.helper.make_node("Identity", ["scaled"], ["tap"]),
+            ],
+            [_info("x", [1])],
+            [_info("y", [1]), _info("tap", [1])],
+            [
+                _tensor("scale_a", np.asarray(0.005727309, dtype=np.float32)),
+                _tensor("scale_b", np.asarray(3.3510647e28, dtype=np.float32)),
+            ],
+            value_info=[_info("exp", [1]), _info("scaled", [1])],
+        )
+        values = {"x": np.asarray([-96.411636], dtype=np.float32)}
+
+        transformed = optimize_onnx(model, exp_positive_scale_folding=True)
+
+        assert sum(node.op_type == "Mul" for node in transformed.graph.node) == 2
+        _assert_valid_with_inferred_shapes(transformed)
+        for expected, actual in zip(_run(model, values), _run(transformed, values), strict=True):
+            np.testing.assert_array_equal(actual, expected)
 
     def test_public_optimizer_preserves_serial_exp_mul_after_marked_bias_view(self) -> None:
         model = _model(
@@ -2326,7 +2514,7 @@ class TestExpPositiveScaleFolding:
 
         transformed = optimize_onnx(model, exp_positive_scale_folding=True)
 
-        assert any(node.op_type == "Mul" for node in transformed.graph.node)
+        assert sum(node.op_type == "Mul" for node in transformed.graph.node) == 2
         _assert_valid_with_inferred_shapes(transformed)
         np.testing.assert_array_equal(_run(model, values), _run(transformed, values))
 
@@ -2373,7 +2561,7 @@ class TestExpPositiveScaleFolding:
         )
 
         assert build_count <= 6
-        assert [node.op_type for node in transformed.graph.node] == ["Add", "Exp", *["Mul"] * 5]
+        assert [node.op_type for node in transformed.graph.node] == ["Add", "Exp", *["Mul"] * 6]
         _assert_valid_with_inferred_shapes(transformed)
         np.testing.assert_allclose(
             _run(model, values),
@@ -2987,6 +3175,32 @@ class TestExpPositiveScaleFolding:
         )
 
         _assert_byte_identical(exp_scale_model, transformed)
+
+    def test_unloaded_external_constant_value_is_unchanged(self) -> None:
+        external_scale = _tensor("external_scale_payload", np.asarray(1.5, dtype=np.float32))
+        external_scale.ClearField("raw_data")
+        external_scale.data_location = onnx.TensorProto.EXTERNAL
+        location = external_scale.external_data.add()
+        location.key = "location"
+        location.value = "missing-constant-scale.bin"
+        model = _model(
+            [
+                onnx.helper.make_node("Exp", ["x"], ["exponential"]),
+                onnx.helper.make_node("Constant", [], ["scale"], value=external_scale),
+                onnx.helper.make_node("Mul", ["exponential", "scale"], ["y"]),
+            ],
+            [_info("x", [1])],
+            [_info("y", [1])],
+            [],
+            value_info=[_info("exponential", [1])],
+        )
+
+        transformed = AlgebraicRewritePipe().process(
+            model,
+            AlgebraicRewritePipeConfig(exp_positive_scale_folding=True),
+        )
+
+        _assert_byte_identical(model, transformed)
 
     @pytest.mark.parametrize("duplicate_name", ["biased", "exponential", "y"])
     def test_duplicate_tensor_definition_is_unchanged(

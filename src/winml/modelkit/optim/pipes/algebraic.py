@@ -29,12 +29,7 @@ ALGEBRAIC_CAPABILITIES: dict[str, Any] = caps_dict(
 )
 MAX_AFFINE_ROUTE_DEPTH = 64
 MAX_NUMPY_ELEMENTS = np.iinfo(np.intp).max
-EXP_FOLDING_GENERATED_PREFIXES = (
-    "algebraic_exp_log_bias",
-    "algebraic_exp_log_scale",
-    "algebraic_exp_log_add",
-    "algebraic_exp_adjusted",
-)
+ORDER_PRESERVING_VIEW_OPS = frozenset({"Flatten", "Identity", "Reshape", "Squeeze", "Unsqueeze"})
 
 
 @dataclass
@@ -259,9 +254,11 @@ def _constant_array(index: _GraphIndex, name: str) -> np.ndarray | None:
         return None
     value = _attribute(producer, "value")
     if value is not None:
+        if value.data_location == onnx.TensorProto.EXTERNAL and not value.raw_data:
+            return None
         try:
             return np.asarray(onnx.numpy_helper.to_array(value))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, RuntimeError, onnx.checker.ValidationError):
             return None
     for attribute_name, dtype in (
         ("value_float", np.float32),
@@ -804,9 +801,11 @@ def _order_preserving_view_output(
         or not _is_standard_onnx_node(node)
         or not node.input
         or node.input[0] != input_name
-        or node.op_type not in {"Reshape", "Squeeze", "Unsqueeze"}
+        or node.op_type not in ORDER_PRESERVING_VIEW_OPS
     ):
         return None
+    if node.op_type == "Identity":
+        return output_name
     input_shape = _static_shape(index, input_name)
     output_shape = _static_shape(index, output_name)
     if (
@@ -816,6 +815,18 @@ def _order_preserving_view_output(
         or not _same_shape_element_count(input_shape, output_shape)
     ):
         return None
+
+    if node.op_type == "Flatten":
+        axis = _attribute(node, "axis", 1)
+        if not isinstance(axis, int):
+            return None
+        rank = len(input_shape)
+        normalized_axis = axis + rank if axis < 0 else axis
+        if normalized_axis < 0 or normalized_axis > rank:
+            return None
+        outer_size = _shape_element_count(input_shape[:normalized_axis])
+        inner_size = _shape_element_count(input_shape[normalized_axis:])
+        return output_name if output_shape == (outer_size, inner_size) else None
 
     if node.op_type == "Reshape":
         target_shape = _constant_ints(index, node.input[1]) if len(node.input) == 2 else None
@@ -859,14 +870,29 @@ def _constant_input(
     return constants[0] if len(constants) == 1 else None
 
 
-def _is_generated_exp_folding_name(name: str) -> bool:
-    return any(name.startswith(prefix) for prefix in EXP_FOLDING_GENERATED_PREFIXES)
-
-
-def _has_generated_exp_folding_marker(node: onnx.NodeProto) -> bool:
-    return bool(node.name and _is_generated_exp_folding_name(node.name)) or any(
-        _is_generated_exp_folding_name(input_name) for input_name in node.input if input_name
-    )
+def _feeds_standard_mul_through_order_preserving_views(
+    index: _GraphIndex,
+    tensor_name: str,
+) -> bool:
+    pending = [(tensor_name, 0)]
+    visited = {tensor_name}
+    while pending:
+        current_name, depth = pending.pop()
+        consumers = index.consumers.get(current_name, [])
+        if depth >= MAX_AFFINE_ROUTE_DEPTH and consumers:
+            return True
+        for consumer in consumers:
+            if not _is_standard_onnx_node(consumer):
+                continue
+            if consumer.op_type == "Mul":
+                return True
+            if consumer.op_type in ORDER_PRESERVING_VIEW_OPS:
+                view_output = _order_preserving_view_output(index, consumer, current_name)
+                if view_output is None or view_output in visited:
+                    return True
+                visited.add(view_output)
+                pending.append((view_output, depth + 1))
+    return False
 
 
 def _post_exp_scale(
@@ -907,6 +933,8 @@ def _post_exp_scale(
     mul_output = _node_output(next_node)
     if scale_operand is None or mul_output is None:
         return None
+    if _feeds_standard_mul_through_order_preserving_views(index, mul_output):
+        return None
     scale = scale_operand[1]
     if (
         not np.issubdtype(scale.dtype, np.floating)
@@ -926,8 +954,6 @@ def _exp_scale_candidate(
     add: onnx.NodeProto,
 ) -> _ExpScaleCandidate | None:
     if not _is_standard_onnx_node(add) or add.op_type != "Add":
-        return None
-    if _has_generated_exp_folding_marker(add):
         return None
     add_output = _node_output(add)
     bias_operand = _constant_input(index, add)
@@ -1006,8 +1032,6 @@ def _exp_scale_insert_candidate(
     current_name = exp.input[0]
     visited = {current_name}
     producer = index.producers.get(current_name)
-    if producer is not None and _has_generated_exp_folding_marker(producer):
-        return None
     while producer is not None and producer.op_type in {"Reshape", "Squeeze", "Unsqueeze"}:
         if (
             not producer.input
@@ -1019,8 +1043,6 @@ def _exp_scale_insert_candidate(
             return None
         visited.add(current_name)
         producer = index.producers.get(current_name)
-        if producer is not None and _has_generated_exp_folding_marker(producer):
-            return None
 
     post_exp = _post_exp_scale(index, exp)
     if post_exp is None:
