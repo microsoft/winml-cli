@@ -65,8 +65,8 @@ With `--runtime winml-genai`, `winml perf` benchmarks the onnxruntime-genai deco
 | TTFT | `requests[].model_ttft_duration_ms`, `requests[].request_ttft_duration_ms`, `aggregate.*ttft*` | Model TTFT is prefill + first-token compute. Request TTFT also includes template, tokenization, and generator creation. |
 | Prefill TPS | `requests[].prefill_tokens_per_second`, `aggregate.prefill_tokens_per_second` | Prompt tokens divided by `prefill_duration_ms`. |
 | Decode TPS | `requests[].steady_state_decode_tokens_per_second`, `aggregate.steady_state_decode_tokens_per_second` | Tokens after the first divided by the sum of per-token decode durations after the first. |
-| RAM Usage | `memory.rss_*` | Classic-compatible RSS fields such as `rss_baseline_mb`, `rss_after_compile_mb`, `rss_after_inference_mb`, `rss_model_load_delta_mb`, `rss_inference_delta_mb`, and `rss_total_delta_mb`. GenAI also emits `rss_peak_mb`. Requires `--memory`. |
-| VRAM Usage | `memory.vram_*` | Classic-compatible adapter memory fields such as `vram_local_after_inference_mb`, `vram_shared_after_inference_mb`, load/inference/total deltas, plus GenAI extras for baseline, after-compile, and peak. Requires `--memory`. |
+| RAM Usage | `memory.rss_*` | Classic-compatible RSS fields such as `rss_baseline_mb`, `rss_after_compile_mb`, `rss_after_inference_mb`, `rss_model_load_delta_mb`, `rss_inference_delta_mb`, and `rss_total_delta_mb`. `rss_checkpoint_peak_mb` is the maximum of the sampled checkpoints, not a continuously sampled peak. Requires `--memory`. |
+| VRAM Usage | `memory.vram_*` | Adapter memory fields are emitted only when the effective GenAI route proves a specific accelerator adapter. Fields include baseline, after-compile, after-inference, load/inference/total deltas, and `vram_*_checkpoint_peak_mb` checkpoint maxima. Requires `--memory`. |
 
 ## Examples
 

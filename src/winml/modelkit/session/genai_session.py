@@ -496,20 +496,10 @@ class GenaiSession:
         session_load_start = time.perf_counter()
         og = self._import_og()
 
-        cfg = self._read_genai_config()
-
-        # Apply the ``ep`` override (if any) to obtain the *effective* config that
-        # actually drives routing.  Precedence is explicit arg > bundle config:
-        # when no override is set this is the bundle config verbatim.
-        effective_cfg, overridden = self._apply_ep_override(cfg)
-
-        # Record whether the override actually applied so :attr:`effective_ep`
-        # (and the perf report) never claim an EP that matched no stage.  Warn
-        # when a requested override is a no-op so ``--ep qnn`` on a flat/all-CPU
-        # bundle is visibly reported as "config" rather than silently ignored.
-        self._override_effective = self._override_took_effect(effective_cfg)
-        self._effective_device = self._resolve_effective_device(effective_cfg)
-        self._effective_hardware_ep = self._hardware_ep_from_config(effective_cfg)
+        # Resolve effective routing before any native load work.  Perf uses the
+        # same helper ahead of load() so monitor and memory adapter selection do
+        # not guess from requested CLI values.
+        effective_cfg, overridden = self._resolve_effective_config()
         if self._ep_override is not None and not self._override_effective:
             logger.warning(
                 "EP override %r was requested but did not take effect (flat/empty "
@@ -601,6 +591,12 @@ class GenaiSession:
         self._effective_device = None
         self._effective_hardware_ep = None
         logger.info("GenaiSession unloaded: bundle=%s", self._bundle_dir)
+
+    def resolve_effective_route(self) -> None:
+        """Populate effective routing metadata without loading native GenAI handles."""
+        if self._model is not None:
+            return
+        self._resolve_effective_config()
 
     def __enter__(self) -> GenaiSession:
         self.load()
@@ -922,6 +918,15 @@ class GenaiSession:
     def _ensure_loaded(self) -> None:
         if self._model is None:
             self.load()
+
+    def _resolve_effective_config(self) -> tuple[dict[str, Any], bool]:
+        """Apply overrides and cache the route that will drive native loading."""
+        cfg = self._read_genai_config()
+        effective_cfg, overridden = self._apply_ep_override(cfg)
+        self._override_effective = self._override_took_effect(effective_cfg)
+        self._effective_device = self._resolve_effective_device(effective_cfg)
+        self._effective_hardware_ep = self._hardware_ep_from_config(effective_cfg)
+        return effective_cfg, overridden
 
     def _encode_prompt(self, prompt: str | list[int]) -> list[int]:
         """Return prompt token IDs, encoding via the bundle tokenizer if needed."""

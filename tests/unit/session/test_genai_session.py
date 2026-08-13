@@ -1128,6 +1128,31 @@ class TestEffectiveHardwareEp:
         assert GenaiSession._hardware_ep_from_config(cfg) is None
 
 
+class TestResolveEffectiveRoute:
+    def test_resolves_config_route_without_loading_native_handles(
+        self, bundle_dir_dml_pipeline: Path
+    ) -> None:
+        session = GenaiSession(bundle_dir_dml_pipeline)
+
+        session.resolve_effective_route()
+
+        assert session.effective_ep is None
+        assert session.effective_device == "gpu"
+        assert session.effective_hardware_ep == "DmlExecutionProvider"
+        assert session.context_length is None
+
+    def test_noop_override_stays_unresolved_for_cpu_config(
+        self, bundle_dir_cpu_pipeline: Path
+    ) -> None:
+        session = GenaiSession(bundle_dir_cpu_pipeline, ep="qnn", device="npu")
+
+        session.resolve_effective_route()
+
+        assert session.effective_ep is None
+        assert session.effective_device == "cpu"
+        assert session.effective_hardware_ep is None
+
+
 # ---------------------------------------------------------------------------
 # Tests: generate / generate_streaming
 # ---------------------------------------------------------------------------

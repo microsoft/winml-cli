@@ -963,7 +963,9 @@ class PerfBenchmark:
                 "rss_baseline_mb": round(rss_baseline, 2),
                 "rss_after_compile_mb": round(rss_after_compile, 2),
                 "rss_after_inference_mb": round(rss_after_inference, 2),
-                "rss_peak_mb": round(max(rss_baseline, rss_after_compile, rss_after_inference), 2),
+                "rss_checkpoint_peak_mb": round(
+                    max(rss_baseline, rss_after_compile, rss_after_inference), 2
+                ),
                 "rss_model_load_delta_mb": round(rss_after_compile - rss_baseline, 2),
                 "rss_inference_delta_mb": round(rss_after_inference - rss_after_compile, 2),
                 "rss_total_delta_mb": round(rss_after_inference - rss_baseline, 2),
@@ -973,10 +975,10 @@ class PerfBenchmark:
                 "vram_shared_after_compile_mb": round(vram_shared_compile, 2),
                 "vram_local_after_inference_mb": round(vram_local_infer, 2),
                 "vram_shared_after_inference_mb": round(vram_shared_infer, 2),
-                "vram_local_peak_mb": round(
+                "vram_local_checkpoint_peak_mb": round(
                     max(vram_local_baseline, vram_local_compile, vram_local_infer), 2
                 ),
-                "vram_shared_peak_mb": round(
+                "vram_shared_checkpoint_peak_mb": round(
                     max(vram_shared_baseline, vram_shared_compile, vram_shared_infer), 2
                 ),
                 "vram_local_model_load_delta_mb": round(

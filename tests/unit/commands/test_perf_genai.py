@@ -13,6 +13,7 @@ itself is unit-tested in ``tests/unit/session/test_genai_session.py``.)
 from __future__ import annotations
 
 import json
+from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -105,6 +106,9 @@ class _FakeSession:
 
     def load(self) -> None:
         self.loaded = True
+
+    def resolve_effective_route(self) -> None:
+        pass
 
     def encode(self, text: str) -> list[int]:
         self.encoded_text = text
@@ -427,24 +431,66 @@ class TestMetricMath:
             "rss_baseline_mb": 100.0,
             "rss_after_compile_mb": 150.0,
             "rss_after_inference_mb": 180.0,
-            "rss_peak_mb": 180.0,
+            "rss_checkpoint_peak_mb": 180.0,
             "rss_model_load_delta_mb": 50.0,
             "rss_inference_delta_mb": 30.0,
             "rss_total_delta_mb": 80.0,
-            "vram_local_baseline_mb": 0.0,
-            "vram_shared_baseline_mb": 0.0,
-            "vram_local_after_compile_mb": 0.0,
-            "vram_shared_after_compile_mb": 0.0,
-            "vram_local_after_inference_mb": 0.0,
-            "vram_shared_after_inference_mb": 0.0,
-            "vram_local_peak_mb": 0.0,
-            "vram_shared_peak_mb": 0.0,
-            "vram_local_model_load_delta_mb": 0.0,
-            "vram_shared_model_load_delta_mb": 0.0,
-            "vram_local_inference_delta_mb": 0.0,
-            "vram_shared_inference_delta_mb": 0.0,
-            "vram_local_total_delta_mb": 0.0,
-            "vram_shared_total_delta_mb": 0.0,
+        }
+
+    def test_memory_profile_includes_vram_only_for_proven_adapter(self, monkeypatch) -> None:
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("x"),
+            warmup=0,
+            iterations=1,
+            max_new_tokens=2,
+            memory=True,
+        )
+        session = _FakeSession(
+            [_timing(0.4, 0.6, [0.5])],
+            effective_device="gpu",
+            effective_hardware_ep="DmlExecutionProvider",
+        )
+        rss_values = iter([100.0, 150.0, 180.0])
+        vram_values = iter([(10.0, 20.0), (30.0, 50.0), (40.0, 70.0)])
+
+        monkeypatch.setattr(perf_genai, "_get_rss_mb", lambda: next(rss_values), raising=False)
+        monkeypatch.setattr(
+            perf_genai,
+            "_get_vram_mb",
+            lambda _adapter_luid: next(vram_values),
+            raising=False,
+        )
+        monkeypatch.setattr(
+            perf_genai,
+            "_resolve_adapter_luid",
+            lambda device, ep: "luid" if (device, ep) == ("gpu", "DmlExecutionProvider") else None,
+            raising=False,
+        )
+
+        result = GenaiPerfBenchmark(cfg, session=session).run()
+
+        assert result.memory_profile == {
+            "rss_baseline_mb": 100.0,
+            "rss_after_compile_mb": 150.0,
+            "rss_after_inference_mb": 180.0,
+            "rss_checkpoint_peak_mb": 180.0,
+            "rss_model_load_delta_mb": 50.0,
+            "rss_inference_delta_mb": 30.0,
+            "rss_total_delta_mb": 80.0,
+            "vram_local_baseline_mb": 10.0,
+            "vram_shared_baseline_mb": 20.0,
+            "vram_local_after_compile_mb": 30.0,
+            "vram_shared_after_compile_mb": 50.0,
+            "vram_local_after_inference_mb": 40.0,
+            "vram_shared_after_inference_mb": 70.0,
+            "vram_local_checkpoint_peak_mb": 40.0,
+            "vram_shared_checkpoint_peak_mb": 70.0,
+            "vram_local_model_load_delta_mb": 20.0,
+            "vram_shared_model_load_delta_mb": 30.0,
+            "vram_local_inference_delta_mb": 10.0,
+            "vram_shared_inference_delta_mb": 20.0,
+            "vram_local_total_delta_mb": 30.0,
+            "vram_shared_total_delta_mb": 50.0,
         }
 
 
@@ -733,7 +779,9 @@ class TestSessionDevice:
         GenaiPerfBenchmark(cfg)._build_session()
         assert captured == {"ep": "openvino", "device": "npu"}
 
-    def test_build_hw_monitor_uses_auto_for_config_device(self, monkeypatch) -> None:
+    def test_build_hw_monitor_uses_cpu_when_effective_adapter_is_unproven(
+        self, monkeypatch
+    ) -> None:
         captured: dict = {}
 
         class FakeMonitor:
@@ -753,9 +801,9 @@ class TestSessionDevice:
         monitor = GenaiPerfBenchmark(cfg, session=_FakeSession([]))._build_hw_monitor()
 
         assert isinstance(monitor, FakeMonitor)
-        assert captured == {"poll_interval_ms": 200, "device": "auto", "ep_name": None}
+        assert captured == {"poll_interval_ms": 200, "device": "cpu", "ep_name": None}
 
-    def test_build_hw_monitor_normalizes_requested_ep(self, monkeypatch) -> None:
+    def test_build_hw_monitor_uses_effective_route_not_requested_values(self, monkeypatch) -> None:
         captured: dict = {}
 
         class FakeMonitor:
@@ -770,15 +818,20 @@ class TestSessionDevice:
             "winml.modelkit.session.monitor.hw_monitor.HWMonitor",
             FakeMonitor,
         )
-        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="gpu", ep="dml")
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="npu", ep="qnn")
+        session = _FakeSession(
+            [],
+            effective_device="gpu",
+            effective_hardware_ep="DmlExecutionProvider",
+        )
 
-        monitor = GenaiPerfBenchmark(cfg, session=_FakeSession([]))._build_hw_monitor()
+        monitor = GenaiPerfBenchmark(cfg, session=session)._build_hw_monitor()
 
         assert isinstance(monitor, FakeMonitor)
         assert captured == {
             "poll_interval_ms": 200,
             "device": "gpu",
-            "ep_name": perf_genai.normalize_ep_name("dml"),
+            "ep_name": "DmlExecutionProvider",
         }
 
 
@@ -819,6 +872,23 @@ class TestReporting:
         session = _FakeSession([_timing(0.4, 0.6, [0.4, 0.4, 0.4])])
         result = GenaiPerfBenchmark(cfg, session=session).run()
         display_genai_report(result, Console())
+
+    def test_display_genai_report_prefers_adapter_block_over_gpu_aggregate(self) -> None:
+        result = self._result()
+        result.hw_monitor = {
+            "device_kind": "gpu",
+            "adapter": {"mean_pct": 91.2, "peak_pct": 98.8, "sample_count": 5},
+            "gpu": {"mean_pct": 1.1, "peak_pct": 2.2, "sample_count": 11},
+            "cpu": {"mean_pct": 12.3, "peak_pct": 34.5, "sample_count": 5},
+            "ram": {"used_mb": 1024.0, "peak_mb": 2048.0},
+        }
+        console = Console(file=StringIO(), width=200, force_terminal=False, record=True)
+
+        display_genai_report(result, console)
+
+        out = console.export_text()
+        assert "GPU: 91.2% avg, 98.8% peak" in out
+        assert "GPU: 1.1% avg, 2.2% peak" not in out
 
     def test_genai_output_path_uses_bundle_name(self) -> None:
         path = genai_output_path(Path("/some/dir/my-bundle"))
