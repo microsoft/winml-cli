@@ -31,7 +31,7 @@ from winml.modelkit.commands._perf_genai import (
     run_genai_perf,
     write_genai_report,
 )
-from winml.modelkit.commands.perf import perf
+from winml.modelkit.commands.perf import _resolve_runtime, perf
 from winml.modelkit.session import (
     GenaiNotInstalledError,
     GenaiSessionError,
@@ -802,13 +802,13 @@ class TestCliDispatch:
         assert cfg.ep == "dml"
         assert cfg.device == "config"
 
-    def test_default_device_is_config(
+    def test_auto_runtime_default_dispatches_genai_bundle(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
     ) -> None:
-        # Omitting --device is genai's "respect the bundle" default: no EP
-        # override, device recorded as "config".
+        # Omitting --runtime detects the bundle marker and routes to genai.
+        # Omitting --device then respects the bundle's own routing.
         bundle = _make_bundle(tmp_path)
-        result = runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai"])
+        result = runner.invoke(perf, ["-m", str(bundle)])
         assert result.exit_code == 0, result.output
         cfg = capture_run["config"]
         assert cfg.device == "config"
@@ -829,8 +829,8 @@ class TestCliDispatch:
         assert cfg.ep is None
 
     def test_onnx_runtime_rejects_device_config(self, runner: CliRunner, tmp_path: Path) -> None:
-        # "config" is a winml-genai-only sentinel; the default (winml) runtime
-        # rejects it with a clear message rather than a generic device error.
+        # "config" is a winml-genai-only sentinel; auto resolves an ONNX path to
+        # winml and rejects it with a clear message rather than a generic error.
         result = runner.invoke(perf, ["-m", str(tmp_path / "model.onnx"), "--device", "config"])
         assert result.exit_code != 0
         assert "winml-genai" in result.output
@@ -1308,10 +1308,34 @@ class TestCliDispatch:
         assert "recipe" in result.output.lower()
         assert "config" not in capture_run
 
-    def test_winml_runtime_unaffected(
-        self, runner: CliRunner, tmp_path: Path, capture_run: dict
-    ) -> None:
-        # Default runtime must not route through the genai path.
+    def test_runtime_help_shows_auto_default(self, runner: CliRunner, capture_run: dict) -> None:
         result = runner.invoke(perf, ["--help"])
         assert result.exit_code == 0
+        assert "[auto|winml|winml-genai]" in result.output
+        assert "default: auto" in result.output
         assert "config" not in capture_run
+
+
+class TestAutoRuntime:
+    def test_selects_genai_for_bundle_folder(self, tmp_path: Path) -> None:
+        bundle = _make_bundle(tmp_path)
+        assert _resolve_runtime("auto", str(bundle)) == "winml-genai"
+
+    @pytest.mark.parametrize("model_kind", ["plain-folder", "onnx-file", "model-id"])
+    def test_selects_winml_without_bundle_marker(self, tmp_path: Path, model_kind: str) -> None:
+        if model_kind == "plain-folder":
+            model = tmp_path / "model"
+            model.mkdir()
+            value = str(model)
+        elif model_kind == "onnx-file":
+            model = tmp_path / "model.onnx"
+            model.write_bytes(b"onnx")
+            value = str(model)
+        else:
+            value = "organization/model"
+
+        assert _resolve_runtime("auto", value) == "winml"
+
+    @pytest.mark.parametrize("runtime", ["winml", "winml-genai"])
+    def test_preserves_explicit_runtime(self, runtime: str) -> None:
+        assert _resolve_runtime(runtime, "organization/model") == runtime

@@ -70,10 +70,22 @@ _HW_POLL_INTERVAL_MS = 200
 
 # Inference runtimes selectable via ``--runtime`` (closed set; mirrors the
 # ``--compiler`` / ``COMPILER_NAMES`` convention in utils.constants):
-#   "winml"       -> single-shot ONNX inference (default)
+#   "auto"        -> select from the local model folder contents (default)
+#   "winml"       -> single-shot ONNX inference
 #   "winml-genai" -> onnxruntime-genai decoder-pipeline generation
-RuntimeName = Literal["winml", "winml-genai"]
+RuntimeName = Literal["auto", "winml", "winml-genai"]
 RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
+
+
+def _resolve_runtime(runtime: RuntimeName, model: str) -> RuntimeName:
+    """Resolve ``auto`` from a local model folder, preserving explicit choices."""
+    if runtime != "auto":
+        return runtime
+
+    model_path = Path(model)
+    if model_path.is_dir() and (model_path / "genai_config.json").is_file():
+        return "winml-genai"
+    return "winml"
 
 
 def _detail_fallback_guidance(reason: TraceFallbackReason | None) -> str:
@@ -2442,9 +2454,10 @@ def _validate_duration(
 @click.option(
     "--runtime",
     type=click.Choice(list(RUNTIME_NAMES)),
-    default="winml",
+    default="auto",
     show_default=True,
-    help="Inference runtime. 'winml' benchmarks single-shot ONNX inference; "
+    help="'auto' selects winml-genai for folders containing genai_config.json, "
+    "otherwise winml. 'winml' benchmarks single-shot ONNX inference; "
     "'winml-genai' benchmarks an onnxruntime-genai bundle folder "
     "(LLM generation: TTFT + decode tokens/sec).",
 )
@@ -2752,6 +2765,7 @@ def perf(
     except Exception as e:
         raise click.ClickException(f"Failed to resolve Hub-hosted ONNX path {model!r}: {e}") from e
     model = hf_model
+    runtime = _resolve_runtime(runtime, model)
     # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
     # op-tracing section the flag is meaningless, so reject it explicitly
     # rather than silently ignoring a user's intent.
