@@ -51,12 +51,37 @@
       {
         "name": "last_hidden_state"
       }
-    ]
+    ],
+    "compatibility": {
+      "transformers_attention": "eager"
+    }
   },
   "optim": {
     "clamp_constant_values": true
   },
-  "quant": null,
+  "quant": {
+    "mode": "fp16",
+    "samples": 10,
+    "calibration_method": "minmax",
+    "weight_type": "uint8",
+    "activation_type": "uint8",
+    "per_channel": false,
+    "symmetric": false,
+    "weight_symmetric": null,
+    "activation_symmetric": null,
+    "save_calibration": false,
+    "distribution": "uniform",
+    "seed": null,
+    "calibration_load_path": null,
+    "calibration_save_path": null,
+    "op_types_to_quantize": null,
+    "nodes_to_exclude": null,
+    "task": "sentence-similarity",
+    "model_id": "intfloat/multilingual-e5-small",
+    "model_type": "bert",
+    "fp16_keep_io_types": true,
+    "fp16_op_block_list": null
+  },
   "compile": null,
   "loader": {
     "task": "sentence-similarity",
