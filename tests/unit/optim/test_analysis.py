@@ -16,6 +16,7 @@ import os
 import subprocess
 import sys
 from array import array
+from typing import ClassVar
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -734,6 +735,99 @@ class TestIterOptimizationOutputs:
         assert any(ref.op_type == "Slice" for ref in finding.removed_nodes)
         assert any(ref.op_type == "Split" for ref in finding.added_nodes)
         assert [node.op_type for node in produced.graph.node] == ["Split", "Relu", "Relu"]
+
+    def test_shared_capability_probe_does_not_advance_pipeline_cursor(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        shared_cap = BoolCapability(
+            name="shared-route",
+            ort_name=None,
+            description="Shared route",
+            category=CapabilityCategory.MISC,
+        )
+        observer_cap = BoolCapability(
+            name="observer-probe",
+            ort_name=None,
+            description="Observer probe",
+            category=CapabilityCategory.MISC,
+        )
+        cap_registry = {
+            shared_cap.name: shared_cap,
+            observer_cap.name: observer_cap,
+        }
+
+        def append_identity(model: ModelProto, prefix: str) -> None:
+            suffix = sum(
+                output.startswith(prefix) for node in model.graph.node for output in node.output
+            )
+            model.graph.node.append(helper.make_node("Identity", ["z"], [f"{prefix}{suffix}"]))
+
+        class FirstSharedPipe:
+            name = "first-shared"
+            capabilities: ClassVar[dict[str, BoolCapability]] = {shared_cap.name: shared_cap}
+
+            @classmethod
+            def build_config(cls, **kwargs):
+                return kwargs
+
+            @staticmethod
+            def process(model, config):
+                if config.get("shared_route"):
+                    append_identity(model, "first_shared_")
+                return model
+
+            def prepare_analysis_model(self, model):
+                return model
+
+            def process_analysis(self, model, config):
+                return self.process(model, config)
+
+            @classmethod
+            def requires_analysis_clone(cls):
+                return True
+
+            def finish_analysis(self):
+                pass
+
+        class SecondSharedPipe(FirstSharedPipe):
+            name = "second-shared"
+
+            @staticmethod
+            def process(model, config):
+                append_identity(model, "default_marker_")
+                if config.get("shared_route"):
+                    append_identity(model, "second_shared_")
+                return model
+
+        class ObserverPipe(FirstSharedPipe):
+            name = "observer"
+            capabilities: ClassVar[dict[str, BoolCapability]] = {observer_cap.name: observer_cap}
+
+            @staticmethod
+            def process(model, config):
+                if config.get("observer_probe"):
+                    append_identity(model, "observer_")
+                return model
+
+        monkeypatch.setattr(
+            "winml.modelkit.optim.pipes.PIPES",
+            [FirstSharedPipe, SecondSharedPipe, ObserverPipe],
+        )
+        monkeypatch.setattr("winml.modelkit.onnx.infer_shapes", lambda model: model)
+
+        pairs = list(iter_optimization_outputs(_benign_model(), cap_registry))
+        observer_produced = next(
+            produced for finding, produced in pairs if finding.name == "observer-probe"
+        )
+
+        default_markers = [
+            output
+            for node in observer_produced.graph.node
+            for output in node.output
+            if output.startswith("default_marker_")
+        ]
+        assert default_markers == ["default_marker_0"]
 
     def test_closing_iterator_cleans_up_prepared_pipe(
         self, monkeypatch: pytest.MonkeyPatch

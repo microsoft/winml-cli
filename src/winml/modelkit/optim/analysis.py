@@ -482,7 +482,7 @@ def _iter_findings(
                             probe_kwargs.update(optimizer_kwargs)
 
                             try:
-                                base_out = full_pipeline_baseline()
+                                shared_base_out = full_pipeline_baseline()
                                 probe_out = _run_pipeline(PIPES, pipeline_input, probe_kwargs)
                             except Exception as exc:
                                 logger.warning(
@@ -494,14 +494,14 @@ def _iter_findings(
 
                             shared_base_nodes: dict[tuple[Any, ...], tuple[bytes, NodeRef]] = {}
                             shared_probe_nodes: dict[tuple[Any, ...], tuple[bytes, NodeRef]] = {}
-                            _collect_nodes(base_out.graph, (), shared_base_nodes)
+                            _collect_nodes(shared_base_out.graph, (), shared_base_nodes)
                             _collect_nodes(probe_out.graph, (), shared_probe_nodes)
                             removed, added, modified = _diff_nodes(
                                 shared_base_nodes,
                                 shared_probe_nodes,
                             )
 
-                            shared_base_inits = _collect_initializers(base_out)
+                            shared_base_inits = _collect_initializers(shared_base_out)
                             probe_inits = _collect_initializers(probe_out)
                             rem_init, add_init, mod_init = _diff_initializers(
                                 shared_base_inits,
