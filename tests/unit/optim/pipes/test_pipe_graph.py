@@ -417,9 +417,68 @@ class TestORTGraphPipeBasic:
         config = ORTGraphPipeConfig(enabled=["gelu_fusion"])
 
         result = pipe.process(sample_model, config)
-
         assert isinstance(result, onnx.ModelProto)
         assert result.graph is not None
+
+    def test_analysis_reuses_cached_input_file(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import numpy as np
+
+        from winml.modelkit.onnx import save_onnx as save_model
+
+        size = 512
+        model = onnx.helper.make_model(
+            onnx.helper.make_graph(
+                [onnx.helper.make_node("Add", ["x", "W"], ["y"])],
+                "external_data",
+                [onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [size])],
+                [onnx.helper.make_tensor_value_info("y", onnx.TensorProto.FLOAT, [size])],
+                initializer=[
+                    onnx.numpy_helper.from_array(np.ones(size, dtype=np.float32), name="W")
+                ],
+            ),
+            opset_imports=[onnx.helper.make_opsetid("", 17)],
+        )
+        model.ir_version = 8
+
+        def save_external(model: onnx.ModelProto, path) -> None:
+            save_model(model, path, threshold_size=0)
+
+        monkeypatch.setattr("winml.modelkit.optim.pipes.graph.save_onnx", save_external)
+        config = ORTGraphPipeConfig(enabled=["gelu_fusion"])
+        normal_input = onnx.ModelProto()
+        normal_input.CopyFrom(model)
+        expected = ORTGraphPipe().process(normal_input, config)
+
+        pipe = ORTGraphPipe()
+        prepared = pipe.prepare_analysis_model(model)
+        cached_input = pipe._analysis_input_file
+        assert cached_input is not None and cached_input.exists()
+        assert cached_input.with_name(f"{cached_input.name}.data").exists()
+
+        def fail_if_resaved(*_args, **_kwargs) -> None:
+            raise AssertionError("analysis input was saved more than once")
+        monkeypatch.setattr("winml.modelkit.optim.pipes.graph.save_onnx", fail_if_resaved)
+        monkeypatch.setattr("winml.modelkit.optim.pipes.graph.save_onnx", fail_if_resaved)
+        try:
+            result = pipe.process_analysis(prepared, config)
+            assert isinstance(result, onnx.ModelProto)
+        finally:
+            pipe.finish_analysis()
+
+        assert not cached_input.exists()
+        assert list(expected.graph.node) == list(result.graph.node)
+        assert len(expected.graph.initializer) == len(result.graph.initializer)
+        for expected_init, result_init in zip(
+            expected.graph.initializer,
+            result.graph.initializer,
+            strict=True,
+        ):
+            np.testing.assert_array_equal(
+                onnx.numpy_helper.to_array(expected_init),
+                onnx.numpy_helper.to_array(result_init),
+            )
 
     def test_process_preserves_model_structure(self, sample_model: onnx.ModelProto) -> None:
         """Process should preserve basic model structure."""

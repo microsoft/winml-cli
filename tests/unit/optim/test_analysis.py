@@ -12,9 +12,14 @@ Follows the Cardinal Rules:
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+from array import array
 from unittest.mock import MagicMock
 
 import numpy as np
+import pytest
 from onnx import GraphProto, ModelProto, TensorProto, helper, numpy_helper
 
 from winml.modelkit.optim import (
@@ -31,6 +36,7 @@ from winml.modelkit.optim.analysis import (
     _collect_nodes,
     _diff_initializers,
     _diff_nodes,
+    _initializers_equal,
 )
 from winml.modelkit.optim.registry import CapabilityCategory
 
@@ -223,6 +229,146 @@ class TestInitializerDiff:
         assert removed == []
         assert added == []
         assert modified == ["BIG"]
+
+    def test_explicit_default_data_location_is_not_a_modification(self) -> None:
+        base = _benign_model()
+        probe = _clone(base)
+        probe.graph.initializer[0].data_location = TensorProto.DEFAULT
+
+        assert (
+            base.graph.initializer[0].SerializeToString()
+            != probe.graph.initializer[0].SerializeToString()
+        )
+        removed, added, modified = _diff_initializers(
+            _collect_initializers(base), _collect_initializers(probe)
+        )
+        assert removed == []
+        assert added == []
+        assert modified == []
+
+    @pytest.mark.parametrize(
+        ("data_type", "field_name"),
+        [
+            (TensorProto.FLOAT, "float_data"),
+            (TensorProto.DOUBLE, "double_data"),
+        ],
+    )
+    def test_repeated_float_signed_zero_change_is_detected(
+        self,
+        data_type: int,
+        field_name: str,
+    ) -> None:
+        base_init = TensorProto(name="W", data_type=data_type, dims=[1])
+        probe_init = TensorProto(name="W", data_type=data_type, dims=[1])
+        getattr(base_init, field_name).append(-0.0)
+        getattr(probe_init, field_name).append(0.0)
+
+        _, _, modified = _diff_initializers(
+            {"W": base_init},
+            {"W": probe_init},
+        )
+
+        assert modified == ["W"]
+
+    def test_signed_zero_change_with_pure_python_protobuf(self) -> None:
+        code = """
+from google.protobuf.internal import api_implementation
+from onnx import TensorProto
+from winml.modelkit.optim.analysis import _initializers_equal
+
+assert api_implementation.Type() == "python"
+base = TensorProto(
+    name="W", data_type=TensorProto.FLOAT, dims=[1], float_data=[-0.0]
+)
+probe = TensorProto(
+    name="W", data_type=TensorProto.FLOAT, dims=[1], float_data=[0.0]
+)
+assert not _initializers_equal(base, probe)
+"""
+        env = {
+            **os.environ,
+            "PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION": "python",
+        }
+
+        subprocess.run(  # noqa: S603 -- fixed interpreter and inline test code
+            [sys.executable, "-c", code],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    def test_upb_equality_does_not_copy_float_fields(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        base_init = TensorProto(
+            name="W",
+            data_type=TensorProto.FLOAT,
+            dims=[1],
+            float_data=[1.0],
+        )
+        probe_init = TensorProto()
+        probe_init.CopyFrom(base_init)
+
+        monkeypatch.setattr(
+            "winml.modelkit.optim.analysis._PROTOBUF_IMPLEMENTATION", "upb"
+        )
+
+        def fail_array(*_args, **_kwargs):
+            raise AssertionError("upb equality fast path copied typed fields")
+
+        monkeypatch.setattr("winml.modelkit.optim.analysis.array", fail_array)
+
+        assert _initializers_equal(base_init, probe_init)
+
+    def test_cpp_equality_still_compares_float_bits(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        base_init = TensorProto(
+            name="W",
+            data_type=TensorProto.FLOAT,
+            dims=[1],
+            float_data=[1.0],
+        )
+        probe_init = TensorProto()
+        probe_init.CopyFrom(base_init)
+        array_calls = 0
+        real_array = array
+
+        monkeypatch.setattr(
+            "winml.modelkit.optim.analysis._PROTOBUF_IMPLEMENTATION", "cpp"
+        )
+
+        def track_array(*args, **kwargs):
+            nonlocal array_calls
+            array_calls += 1
+            return real_array(*args, **kwargs)
+
+        monkeypatch.setattr("winml.modelkit.optim.analysis.array", track_array)
+
+        assert _initializers_equal(base_init, probe_init)
+        assert array_calls > 0
+
+    def test_repeated_integer_change_is_detected(self) -> None:
+        base_init = TensorProto(
+            name="W",
+            data_type=TensorProto.INT64,
+            dims=[1],
+            int64_data=[1],
+        )
+        probe_init = TensorProto(
+            name="W",
+            data_type=TensorProto.INT64,
+            dims=[1],
+            int64_data=[2],
+        )
+
+        _, _, modified = _diff_initializers(
+            {"W": base_init},
+            {"W": probe_init},
+        )
+
+        assert modified == ["W"]
 
 
 class TestExternalDataInitializerDiff:
@@ -421,6 +567,29 @@ class TestAnalyzeModel:
         after_value = numpy_helper.to_array(model.graph.initializer[0])
         np.testing.assert_array_equal(before_value, after_value)
 
+    def test_preparation_failure_falls_back_and_cleans_up(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from winml.modelkit.optim.pipes import SurgeryPipe
+
+        cleanup_calls: list[None] = []
+        monkeypatch.setattr("winml.modelkit.optim.pipes.PIPES", [SurgeryPipe])
+        monkeypatch.setattr(
+            SurgeryPipe,
+            "prepare_analysis_model",
+            lambda _self, _model: (_ for _ in ()).throw(RuntimeError("prepare failed")),
+        )
+        monkeypatch.setattr(
+            SurgeryPipe,
+            "finish_analysis",
+            lambda _self: cleanup_calls.append(None),
+        )
+
+        findings = analyze_model(_extreme_constant_model(), SurgeryPipe.capabilities)
+
+        assert "clamp-constant-values" in {finding.name for finding in findings}
+        assert cleanup_calls == [None]
+
     def test_target_context_forwarded_and_ep_constraints_filtered(
         self, monkeypatch, caplog
     ) -> None:
@@ -524,3 +693,24 @@ class TestIterOptimizationOutputs:
         iter_names = {finding.name for finding, _ in iter_optimization_outputs(model, caps)}
         analyze_names = {finding.name for finding in analyze_model(_matmul_add_model(), caps)}
         assert iter_names == analyze_names
+
+    def test_closing_iterator_cleans_up_prepared_pipe(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from winml.modelkit.optim.pipes import SurgeryPipe
+
+        cleanup_calls: list[None] = []
+        monkeypatch.setattr("winml.modelkit.optim.pipes.PIPES", [SurgeryPipe])
+        monkeypatch.setattr(
+            SurgeryPipe,
+            "finish_analysis",
+            lambda _self: cleanup_calls.append(None),
+        )
+
+        outputs = iter_optimization_outputs(_extreme_constant_model(), SurgeryPipe.capabilities)
+        finding, _ = next(outputs)
+        assert finding.name == "clamp-constant-values"
+
+        outputs.close()
+
+        assert cleanup_calls == [None]

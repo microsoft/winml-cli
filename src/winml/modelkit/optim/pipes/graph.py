@@ -316,6 +316,10 @@ class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
     # Reference module-level capabilities
     capabilities: ClassVar[dict[str, Any]] = GRAPH_CAPABILITIES
 
+    def __init__(self) -> None:
+        self._analysis_temp_dir: tempfile.TemporaryDirectory[str] | None = None
+        self._analysis_input_file: Path | None = None
+
     @classmethod
     def build_config(cls, **kwargs: Any) -> ORTGraphPipeConfig:
         """Build graph pipe config from kwargs.
@@ -523,7 +527,68 @@ class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
         Raises:
             OptimizationError: If ORT optimization fails
         """
-        # Import onnxruntime here to avoid import errors if not installed
+        # Skip processing if optimization level is 0
+        if not self.should_process(config):
+            return model
+
+        # Create a temporary input file for optimization.
+        input_file = None
+
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
+                input_file = Path(f.name)
+                save_onnx(model, input_file)
+            return self._process_path(input_file, model, config)
+        finally:
+            if input_file is not None:
+                input_file.unlink(missing_ok=True)
+                data_sidecar = input_file.parent / f"{input_file.name}.data"
+                data_sidecar.unlink(missing_ok=True)
+
+    def prepare_analysis_model(self, model: onnx.ModelProto) -> onnx.ModelProto:
+        """Save the unchanged ORT input once for all capability probes."""
+        self.finish_analysis()
+        self._analysis_temp_dir = tempfile.TemporaryDirectory(prefix="winmlcli_ort_analysis_")
+        self._analysis_input_file = Path(self._analysis_temp_dir.name) / "input.onnx"
+
+        model_copy = model.__class__()
+        model_copy.CopyFrom(model)
+        try:
+            save_onnx(model_copy, self._analysis_input_file)
+        except Exception:
+            self.finish_analysis()
+            raise
+        return model
+
+    def process_analysis(
+        self,
+        model: onnx.ModelProto,
+        config: ORTGraphPipeConfig,
+    ) -> onnx.ModelProto:
+        """Optimize from the input file shared by all analysis probes."""
+        if self._analysis_input_file is None:
+            return self.process(model, config)
+        return self._process_path(self._analysis_input_file, model, config)
+
+    @classmethod
+    def requires_analysis_clone(cls) -> bool:
+        """Analysis probes read the shared input file and do not mutate the model."""
+        return False
+
+    def finish_analysis(self) -> None:
+        """Remove the cached analysis input model and sidecar."""
+        if self._analysis_temp_dir is not None:
+            self._analysis_temp_dir.cleanup()
+        self._analysis_temp_dir = None
+        self._analysis_input_file = None
+
+    def _process_path(
+        self,
+        input_file: Path,
+        model: onnx.ModelProto,
+        config: ORTGraphPipeConfig,
+    ) -> onnx.ModelProto:
+        """Run ORT optimization from an existing model file."""
         try:
             import onnxruntime as ort
         except ImportError as e:
@@ -533,22 +598,14 @@ class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
                 cause=e,
             ) from e
 
-        # Skip processing if optimization level is 0
-        if not self.should_process(config):
-            return model
-
-        # Create temporary files for optimization
-        input_file = None
         output_file = None
-
         try:
-            # Create input temporary file
-            with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
-                input_file = Path(f.name)
-                save_onnx(model, input_file)
-
             # Create output temporary file
-            with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
+            with tempfile.NamedTemporaryFile(
+                suffix=".onnx",
+                dir=input_file.parent,
+                delete=False,
+            ) as f:
                 output_file = Path(f.name)
 
             # Configure session options
@@ -647,9 +704,7 @@ class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
                 ) from e
 
         finally:
-            # Clean up temporary files and their external data sidecars
-            for tmp in (input_file, output_file):
-                if tmp is not None:
-                    tmp.unlink(missing_ok=True)
-                    data_sidecar = tmp.parent / f"{tmp.name}.data"
-                    data_sidecar.unlink(missing_ok=True)
+            if output_file is not None:
+                output_file.unlink(missing_ok=True)
+                data_sidecar = output_file.parent / f"{output_file.name}.data"
+                data_sidecar.unlink(missing_ok=True)
