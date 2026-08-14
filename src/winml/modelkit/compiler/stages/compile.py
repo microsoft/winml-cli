@@ -6,13 +6,17 @@
 
 from __future__ import annotations
 
+import hashlib
+import os
 import shutil
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, cast
 
 import numpy as np
+from filelock import FileLock
 from onnx import AttributeProto
 
 from ...onnx import load_onnx, save_onnx
@@ -31,6 +35,7 @@ from .base import BaseStage
 
 if TYPE_CHECKING:
     import onnxruntime as ort
+    from onnx import ModelProto
 
     from ...utils.constants import EPAlias
     from ..context import CompileContext
@@ -41,6 +46,16 @@ COMPILER_SESSION_MAPPING: dict[str, type[WinMLSession]] = {
     "ort": WinMLSession,
     "qairt": WinMLQairtSession,
 }
+
+_FINALIZE_THREAD_LOCKS_GUARD = threading.Lock()
+_FINALIZE_THREAD_LOCKS: dict[Path, threading.Lock] = {}
+
+
+def _finalize_thread_lock(lock_path: Path) -> threading.Lock:
+    """Return the process-local lock paired with one public output path."""
+    resolved = lock_path.resolve(strict=False)
+    with _FINALIZE_THREAD_LOCKS_GUARD:
+        return _FINALIZE_THREAD_LOCKS.setdefault(resolved, threading.Lock())
 
 
 class CompileStage(BaseStage):
@@ -109,6 +124,7 @@ class CompileStage(BaseStage):
         )
         try:
             winml_session.compile()
+            running_model_path = winml_session.running_model_path
 
             session = winml_session._session
             context.session = session
@@ -117,17 +133,21 @@ class CompileStage(BaseStage):
                 if context.validate:
                     self._validate_model(session, context)
                 self._collect_model_info(session, context)
+
+            if ep_config.enable_ep_context:
+                if running_model_path == model_path:
+                    context.add_warning(f"No EPContext produced for {model_path.name}")
+                    return
+                self._finalize_output(
+                    context,
+                    model_path,
+                    output_dir,
+                    device=ep_device.device.device_type.lower(),
+                    src_ctx_path=running_model_path,
+                )
         finally:
             context.session = None
             winml_session.reset()
-
-        if ep_config.enable_ep_context:
-            self._finalize_output(
-                context,
-                model_path,
-                output_dir,
-                device=ep_device.device.device_type.lower(),
-            )
 
     def _compile_shared_context(self, context: CompileContext) -> None:
         """Compile through shared SessionOptions for multi-model and ORT-session flows."""
@@ -306,6 +326,7 @@ class CompileStage(BaseStage):
         output_dir: Path,
         *,
         device: str | None = None,
+        src_ctx_path: Path | None = None,
     ) -> None:
         """Find EPContext files and copy to output directory.
 
@@ -343,11 +364,11 @@ class CompileStage(BaseStage):
             ]
         )
 
-        src_ctx_path = None
-        for pattern in ctx_patterns:
-            if pattern.exists():
-                src_ctx_path = pattern
-                break
+        if src_ctx_path is None:
+            for pattern in ctx_patterns:
+                if pattern.exists():
+                    src_ctx_path = pattern
+                    break
 
         if src_ctx_path is None:
             context.add_warning("EPContext model not found in work directory")
@@ -362,7 +383,23 @@ class CompileStage(BaseStage):
         else:
             final_ctx_path = output_dir / f"{original_stem}_{output_suffix}_ctx.onnx"
 
-        # Ensure output directory exists
+        publish_lock = final_ctx_path.with_name(f"{final_ctx_path.name}.publish.lock")
+        with _finalize_thread_lock(publish_lock), FileLock(publish_lock):
+            self._publish_finalized_output(
+                context,
+                src_ctx_path,
+                final_ctx_path,
+                output_dir,
+            )
+
+    def _publish_finalized_output(
+        self,
+        context: CompileContext,
+        src_ctx_path: Path,
+        final_ctx_path: Path,
+        output_dir: Path,
+    ) -> None:
+        """Publish a self-consistent EPContext bundle while holding its output lock."""
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Validate every external context reference before publishing the final
@@ -396,7 +433,7 @@ class CompileStage(BaseStage):
 
         source_root = src_ctx_path.parent.resolve()
         output_root = output_dir.resolve()
-        binary_exports: list[tuple[Path, Path, bytes, list[AttributeProto]]] = []
+        binary_exports: list[tuple[Path, Path, Path, bytes, list[AttributeProto]]] = []
         sources_by_final_binary: dict[Path, Path] = {}
         for raw_ref, cache_attrs in external_refs.items():
             try:
@@ -428,51 +465,57 @@ class CompileStage(BaseStage):
                 suffix = relative_ref.name[len(src_ctx_path.stem) :]
                 final_relative_ref = relative_ref.with_name(f"{final_ctx_path.stem}{suffix}")
 
-            final_binary = (output_root / final_relative_ref).resolve()
+            stable_binary = (output_root / final_relative_ref).resolve()
             try:
-                final_binary.relative_to(output_root)
+                stable_binary.relative_to(output_root)
             except ValueError as exc:
                 raise ValueError(f"unsafe EPContext binary reference: {cache_ref!r}") from exc
 
-            existing_source = sources_by_final_binary.get(final_binary)
+            existing_source = sources_by_final_binary.get(stable_binary)
             if existing_source is not None and existing_source != source_binary:
                 raise ValueError(
                     "Distinct EPContext binaries map to the same output path: "
-                    f"{existing_source}, {source_binary} -> {final_binary}"
+                    f"{existing_source}, {source_binary} -> {stable_binary}"
                 )
-            sources_by_final_binary[final_binary] = source_binary
+            sources_by_final_binary[stable_binary] = source_binary
+            content_token = self._file_sha256(source_binary)[:16]
+            unique_relative_ref = final_relative_ref.with_name(
+                f"{final_relative_ref.stem}.{content_token}{final_relative_ref.suffix}"
+            )
+            unique_binary = (output_root / unique_relative_ref).resolve()
+            try:
+                unique_binary.relative_to(output_root)
+            except ValueError as exc:
+                raise ValueError(f"unsafe EPContext binary reference: {cache_ref!r}") from exc
             binary_exports.append(
                 (
                     source_binary,
-                    final_binary,
-                    final_relative_ref.as_posix().encode("utf-8"),
+                    unique_binary,
+                    stable_binary,
+                    unique_relative_ref.as_posix().encode("utf-8"),
                     cache_attrs,
                 )
             )
 
-        cache_refs_updated = False
         first_final_binary: Path | None = None
-        for source_binary, final_binary, final_ref_bytes, cache_attrs in binary_exports:
-            final_binary.parent.mkdir(parents=True, exist_ok=True)
-            if source_binary != final_binary:
-                shutil.copy2(source_binary, final_binary)
-                context.log(f"Copied binary to: {final_binary}")
+        for (
+            source_binary,
+            unique_binary,
+            stable_binary,
+            final_ref_bytes,
+            cache_attrs,
+        ) in binary_exports:
+            self._atomic_copy(source_binary, unique_binary)
+            self._atomic_copy(source_binary, stable_binary)
+            context.log(f"Published binary generation: {unique_binary}")
             if first_final_binary is None:
-                first_final_binary = final_binary
+                first_final_binary = unique_binary
 
             for cache_attr in cache_attrs:
-                if cache_attr.s != final_ref_bytes:
-                    cache_attr.s = final_ref_bytes
-                    cache_refs_updated = True
+                cache_attr.s = final_ref_bytes
 
-        if cache_refs_updated:
-            save_onnx(model, final_ctx_path)
-            context.log("Updated external EPContext binary references")
-        elif src_ctx_path != final_ctx_path:
-            shutil.copy2(src_ctx_path, final_ctx_path)
-            context.log(f"Copied EPContext to: {final_ctx_path}")
-        else:
-            context.log(f"EPContext already at: {final_ctx_path}")
+        self._atomic_save_onnx(model, final_ctx_path)
+        context.log(f"Published EPContext: {final_ctx_path}")
 
         context.output_path = final_ctx_path
         context.context_binary_path = first_final_binary
@@ -483,8 +526,48 @@ class CompileStage(BaseStage):
             src_schematic = src_ctx_path.parent / schematic_name
             final_schematic = output_dir / schematic_name
             if src_schematic.is_file() and src_schematic != final_schematic:
-                shutil.copy2(src_schematic, final_schematic)
+                self._atomic_copy(src_schematic, final_schematic)
                 context.log(f"Copied schematic to: {final_schematic}")
+
+    @staticmethod
+    def _file_sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as source_file:
+            for chunk in iter(lambda: source_file.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    @staticmethod
+    def _atomic_copy(source: Path, destination: Path) -> None:
+        """Copy one file through a same-directory temporary and atomic replace."""
+        if source.resolve() == destination.resolve(strict=False):
+            return
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary_name = tempfile.mkstemp(
+            prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
+        )
+        os.close(fd)
+        temporary_path = Path(temporary_name)
+        try:
+            shutil.copy2(source, temporary_path)
+            temporary_path.replace(destination)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+
+    @staticmethod
+    def _atomic_save_onnx(model: ModelProto, destination: Path) -> None:
+        """Save an ONNX model beside its destination and atomically replace it."""
+        fd, temporary_name = tempfile.mkstemp(
+            prefix=f".{destination.stem}.", suffix=destination.suffix, dir=destination.parent
+        )
+        os.close(fd)
+        temporary_path = Path(temporary_name)
+        temporary_path.unlink(missing_ok=True)
+        try:
+            save_onnx(model, temporary_path)
+            temporary_path.replace(destination)
+        finally:
+            temporary_path.unlink(missing_ok=True)
 
     def _collect_model_info(self, session: ort.InferenceSession, context: CompileContext) -> None:
         """Collect model input/output information."""

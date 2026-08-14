@@ -287,7 +287,7 @@ def test_auto_reset_preserves_unclassified_stderr(monkeypatch, capfd):
     assert "useful error" in stderr
 
 
-def test_requires_teardown_reset_preserves_warning_stderr(monkeypatch, capfd):
+def test_requires_teardown_preserves_warning_stderr(monkeypatch, capfd):
     """Library perf teardown leaves stderr untouched; CLI owns warning filtering."""
     from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
 
@@ -309,16 +309,21 @@ def test_requires_teardown_reset_preserves_warning_stderr(monkeypatch, capfd):
 
     session, _cpu_dev, _cpu_ep = _make_cpu_session(get_minimal_onnx_model_path())
     session.compile()
+    cleanup_modes: list[bool] = []
+    original_reset = session._reset_runtime_state
 
-    def noisy_reset() -> None:
+    def noisy_reset(*, cleanup_markerless: bool) -> None:
         os.write(2, b"2026 [W:custom-native:, file.cc:1 ResetWarn] reset warning\n")
+        cleanup_modes.append(cleanup_markerless)
+        original_reset(cleanup_markerless=cleanup_markerless)
 
-    monkeypatch.setattr(session, "reset", noisy_reset)
+    monkeypatch.setattr(session, "_reset_runtime_state", noisy_reset)
 
     with session.perf(monitor=_TeardownMonitor()):
         pass
 
     assert "reset warning" in capfd.readouterr().err
+    assert cleanup_modes == [False]
 
 
 def test_no_auto_reset_when_monitor_empty():

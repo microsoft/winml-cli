@@ -41,6 +41,10 @@ class TestEPConfig:
         assert config.enable_ep_context is False
         assert config.embed_context is True
 
+    def test_file_backed_provider_options_are_explicit(self) -> None:
+        """EP configs expose architecture-agnostic file dependency metadata."""
+        assert "provider_option_file_keys" in EPConfig.__dataclass_fields__
+
 
 class TestCompileConfig:
     """Test WinMLCompileConfig dataclass."""
@@ -104,6 +108,21 @@ class TestCompileConfig:
         config = WinMLCompileConfig.for_vitisai()
         assert config.ep_config.provider == "vitisai"
         assert config.ep_config.enable_ep_context is True
+
+    def test_for_vitisai_declares_discovered_xclbin_as_file_backed(
+        self,
+        tmp_path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The discovered compiler input participates in EPContext identity."""
+        xclbin = tmp_path / "voe-4.0-win_amd64" / "xclbins" / "phoenix" / "4x4.xclbin"
+        xclbin.parent.mkdir(parents=True)
+        xclbin.write_bytes(b"xclbin")
+        monkeypatch.setenv("RYZEN_AI_INSTALLATION_PATH", str(tmp_path))
+
+        config = WinMLCompileConfig.for_vitisai()
+
+        assert config.ep_config.provider_option_file_keys == {"xclbin"}
 
     def test_for_migraphx(self):
         """Test MIGraphX factory method."""
@@ -172,6 +191,22 @@ class TestCompileConfig:
         assert restored.ep_config.provider == original.ep_config.provider
         assert restored.ep_config.enable_ep_context == original.ep_config.enable_ep_context
         assert restored.validate == original.validate
+
+    def test_roundtrip_preserves_provider_option_file_keys(self) -> None:
+        """Explicit file-backed option keys survive config serialization."""
+        original = WinMLCompileConfig(
+            ep_config=EPConfig(
+                provider="qnn",
+                provider_options={"compiler_input": "inputs.bin"},
+                provider_option_file_keys={"compiler_input"},
+            )
+        )
+
+        serialized = original.to_dict()
+
+        assert serialized.get("provider_option_file_keys") == ["compiler_input"]
+        restored = WinMLCompileConfig.from_dict(serialized)
+        assert restored.ep_config.provider_option_file_keys == {"compiler_input"}
 
     def test_roundtrip_preserves_ep_device(self) -> None:
         """Round-trip retains the resolved EP/device/source binding."""
