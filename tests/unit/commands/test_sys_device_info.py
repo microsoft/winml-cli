@@ -26,7 +26,12 @@ from unittest.mock import MagicMock, patch
 import click
 import pytest
 
-from winml.modelkit.commands.sys import _gather, _gather_device_info, _get_memory_info
+from winml.modelkit.commands.sys import (
+    _gather,
+    _gather_device_info,
+    _get_memory_info,
+    _get_nvidia_memory_by_name,
+)
 
 
 def _fake_ep_info(
@@ -192,34 +197,73 @@ class TestDeviceInfoEnrichment:
         assert result[0]["details"]["driver"] == "32.0.100"
         assert "architecture" not in result[0]["details"]
 
-    def test_gpu_includes_dedicated_memory(self) -> None:
-        """GPU inventory exposes the dedicated-memory capacity already detected by sysinfo."""
-        gpu_item = MagicMock(
-            driver_version="32.0.15.9000",
-            manufacturer="NVIDIA",
-            vram_mib=8192,
-        )
+    def test_nvidia_gpu_uses_nvidia_smi_memory(self) -> None:
+        """NVIDIA capacity comes from nvidia-smi, not 32-bit WMI AdapterRAM."""
+        gpu_item = MagicMock(driver_version="32.0.15.9000", manufacturer="NVIDIA")
         gpu_item.name = "NVIDIA Test GPU"
 
         with (
             patch("winml.modelkit.sysinfo.NPU.get_all", return_value=[]),
             patch("winml.modelkit.sysinfo.GPU.get_all", return_value=[gpu_item]),
             patch("winml.modelkit.sysinfo.CPU.get_all", return_value=[]),
+            patch(
+                "winml.modelkit.commands.sys._get_nvidia_memory_by_name",
+                return_value={"nvidia test gpu": [24 * 1024]},
+            ),
         ):
             result = _gather_device_info()
 
-        assert result == [
-            {
-                "priority": 1,
-                "type": "GPU",
-                "name": "NVIDIA Test GPU",
-                "details": {
-                    "driver": "32.0.15.9000",
-                    "manufacturer": "NVIDIA",
-                    "dedicated_memory_mib": 8192,
-                },
-            }
-        ]
+        assert result[0]["details"]["dedicated_memory_mib"] == 24 * 1024
+
+    def test_gpu_memory_is_unknown_without_matching_nvidia_smi_device(self) -> None:
+        """A mismatched nvidia-smi row never falls back to 32-bit WMI memory."""
+        gpu_item = MagicMock(driver_version="32.0.15.9000", manufacturer="NVIDIA")
+        gpu_item.name = "NVIDIA Test GPU"
+
+        with (
+            patch("winml.modelkit.sysinfo.NPU.get_all", return_value=[]),
+            patch("winml.modelkit.sysinfo.GPU.get_all", return_value=[gpu_item]),
+            patch("winml.modelkit.sysinfo.CPU.get_all", return_value=[]),
+            patch(
+                "winml.modelkit.commands.sys._get_nvidia_memory_by_name",
+                return_value={"different gpu": [24 * 1024]},
+            ),
+        ):
+            result = _gather_device_info()
+
+        assert result[0]["details"]["dedicated_memory_mib"] is None
+
+    def test_non_nvidia_gpu_does_not_query_nvidia_smi(self) -> None:
+        """Other vendors stay unknown until a trustworthy 64-bit source is added."""
+        gpu_item = MagicMock(driver_version="32.0.100.0000", manufacturer="Intel")
+        gpu_item.name = "Intel Test GPU"
+
+        with (
+            patch("winml.modelkit.sysinfo.NPU.get_all", return_value=[]),
+            patch("winml.modelkit.sysinfo.GPU.get_all", return_value=[gpu_item]),
+            patch("winml.modelkit.sysinfo.CPU.get_all", return_value=[]),
+            patch("winml.modelkit.commands.sys._get_nvidia_memory_by_name") as query,
+        ):
+            result = _gather_device_info()
+
+        query.assert_not_called()
+        assert result[0]["details"]["dedicated_memory_mib"] is None
+
+
+class TestNvidiaGpuMemory:
+    """nvidia-smi is the trusted NVIDIA dedicated-memory source."""
+
+    @patch("shutil.which", return_value="C:/Windows/System32/nvidia-smi.exe")
+    @patch("subprocess.run")
+    def test_parses_multiple_gpu_capacities(self, run: MagicMock, _which: MagicMock) -> None:
+        run.return_value = MagicMock(
+            stdout="NVIDIA RTX 4090, 24564\nNVIDIA RTX 4090, 24564\n"
+        )
+        assert _get_nvidia_memory_by_name() == {"nvidia rtx 4090": [24564, 24564]}
+
+    @patch("shutil.which", return_value=None)
+    def test_missing_nvidia_smi_returns_empty(self, _which: MagicMock) -> None:
+        assert _get_nvidia_memory_by_name() == {}
 
 
 class TestMemoryInfo:

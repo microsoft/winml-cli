@@ -215,6 +215,46 @@ def _get_memory_info() -> dict[str, int | None]:
     return {"physical_total_mib": total_mib or None}
 
 
+def _get_nvidia_memory_by_name() -> dict[str, list[int]]:
+    """Return dedicated memory reported by nvidia-smi, grouped by GPU name."""
+    import csv
+    import shutil
+    import subprocess
+
+    executable = shutil.which("nvidia-smi")
+    if executable is None:
+        return {}
+    try:
+        completed = subprocess.run(  # noqa: S603
+            [
+                executable,
+                "--query-gpu=name,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        logger.debug("nvidia-smi memory query failed", exc_info=True)
+        return {}
+
+    memory_by_name: dict[str, list[int]] = {}
+    for row in csv.reader(completed.stdout.splitlines()):
+        if len(row) != 2:
+            continue
+        name = row[0].strip().casefold()
+        try:
+            memory_mib = int(float(row[1].strip()))
+        except ValueError:
+            continue
+        if name and memory_mib > 0:
+            memory_by_name.setdefault(name, []).append(memory_mib)
+    return memory_by_name
+
+
 def _get_library_versions() -> dict[str, str | None]:
     """Gather versions of key ML libraries."""
     libraries: dict[str, str | None] = {}
@@ -345,7 +385,7 @@ def _gather_system_info(verbose: bool = False) -> dict[str, Any]:
     Returns:
         Dictionary containing all system information
     """
-    info = {
+    info: dict[str, Any] = {
         "schema_version": _SYS_JSON_SCHEMA_VERSION,
         "python": _get_python_info(),
         "platform": _get_platform_info(),
@@ -574,6 +614,18 @@ def _gather_device_info(
 
     result: list[dict[str, Any]] = []
     priority = 1
+    gpu_items = next(
+        (
+            items
+            for label, items in ordered_results
+            if label == "GPU" and not isinstance(items, Exception)
+        ),
+        (),
+    )
+    has_nvidia_gpu = any(
+        "nvidia" in f"{item.name} {item.manufacturer}".casefold() for item in gpu_items
+    )
+    nvidia_memory_by_name = _get_nvidia_memory_by_name() if has_nvidia_gpu else {}
     for device_label, items in ordered_results:
         if isinstance(items, Exception):
             logger.warning("Failed to get %s details: %s", device_label, items)
@@ -603,7 +655,11 @@ def _gather_device_info(
                     "manufacturer": item.manufacturer,
                 }
                 if device_label == "GPU":
-                    entry["details"]["dedicated_memory_mib"] = item.vram_mib or None
+                    capacities = nvidia_memory_by_name.get(item.name.strip().casefold(), [])
+                    entry["details"]["dedicated_memory_mib"] = (
+                        capacities.pop(0) if capacities else None
+                    )
+                    # TODO: Add trustworthy 64-bit capacity sources for non-NVIDIA GPUs.
             elif device_label == "CPU":
                 entry["details"] = {
                     "cores": item.core_count,
