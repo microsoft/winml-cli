@@ -2782,6 +2782,10 @@ inline with <code>--embed</code>) that encodes the hardware-optimized execution 
 eliminating graph partitioning at load time. An optional post-compilation
 validation pass runs a forward pass through the
 target EP; skip it with <code>--no-validate</code> when the target hardware is absent.</p>
+<p>If a provider option names a compiler input file, list its key in
+<code>compile.provider_option_file_keys</code> in the JSON config. The CLI canonicalizes
+that option path and fingerprints its contents for EPContext cache identity;
+other provider-option strings are always passed through unchanged.</p>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Compile with auto device detection (default compiler)</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>resnet50_qdq.onnx

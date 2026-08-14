@@ -3114,6 +3114,12 @@ stages based on the target device and precision.</p>
 <td>EP-specific options.</td>
 </tr>
 <tr>
+<td><code>ep_config.provider_option_file_keys</code></td>
+<td><code>list[str]</code></td>
+<td><code>[]</code></td>
+<td>Keys in <code>provider_options</code> whose values are input files. Declared paths are canonicalized and content-fingerprinted for EPContext cache identity.</td>
+</tr>
+<tr>
 <td><code>ep_config.qnn_sdk_root</code></td>
 <td><code>str \| null</code></td>
 <td><code>null</code></td>
