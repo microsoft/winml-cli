@@ -86,12 +86,7 @@ class WinMLKeypointDetectionEvaluator(WinMLEvaluator):
         The processor size is forced to the exported ONNX input shape so the
         preprocessed crops match the static model input.
         """
-        from transformers import AutoImageProcessor
-
-        processor = AutoImageProcessor.from_pretrained(
-            self.config.model_id,
-            trust_remote_code=self.config.trust_remote_code,
-        )
+        processor = self._load_image_processor()
 
         io_config = getattr(self.model, "io_config", None) or {}
         input_shapes = io_config.get("input_shapes", [])
@@ -100,6 +95,52 @@ class WinMLKeypointDetectionEvaluator(WinMLEvaluator):
             processor.size = {"height": h, "width": w}
 
         return processor
+
+    def _load_image_processor(self) -> Any:
+        """Resolve image processor with a narrow vitpose-family metadata fallback."""
+        from transformers import AutoImageProcessor, VitPoseImageProcessor
+
+        model_id = self.config.model_id
+        if model_id is None:
+            raise ValueError("model_id is required for keypoint-detection evaluator")
+
+        try:
+            return AutoImageProcessor.from_pretrained(
+                model_id,
+                trust_remote_code=self.config.trust_remote_code,
+            )
+        except ValueError as e:
+            if not self._should_fallback_to_vitpose_image_processor(e):
+                raise
+
+            logger.info(
+                "AutoImageProcessor resolution failed for vitpose metadata; "
+                "retrying with VitPoseImageProcessor"
+            )
+            return VitPoseImageProcessor.from_pretrained(
+                model_id,
+                trust_remote_code=self.config.trust_remote_code,
+            )
+
+    def _should_fallback_to_vitpose_image_processor(self, error: ValueError) -> bool:
+        """Fallback only for known unrecognized-processor failures in vitpose family."""
+        return "Unrecognized image processor" in str(error) and self._is_vitpose_family()
+
+    def _is_vitpose_family(self) -> bool:
+        """Check model metadata for vitpose family without model-id branching."""
+        hf_config = getattr(self.model, "config", None)
+
+        model_type = getattr(hf_config, "model_type", None)
+        if isinstance(model_type, str) and model_type.lower() == "vitpose":
+            return True
+
+        architectures = getattr(hf_config, "architectures", None)
+        if isinstance(architectures, list | tuple):
+            for architecture in architectures:
+                if isinstance(architecture, str) and "vitpose" in architecture.lower():
+                    return True
+
+        return False
 
     def compute(self) -> dict[str, Any]:
         """Run keypoint evaluation over all samples and return COCO AP/AR."""
