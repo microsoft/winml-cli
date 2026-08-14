@@ -174,7 +174,7 @@ class TestOptimizationOutputSupport:
             category="rewrite",
             description="Replace static Split with Slice.",
             pipe_name="algebraic",
-            removed_nodes=[NodeRef("Split", "split", ("a", "b"))],
+            removed_nodes=[NodeRef("Split", "split", ("a", "b"), "ai.onnx")],
             added_nodes=[NodeRef("Slice", "slice_0", ("a",), "com.microsoft")],
             modified_initializers=["starts"],
             operators=[
