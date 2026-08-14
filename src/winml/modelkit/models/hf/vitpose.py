@@ -33,7 +33,18 @@ declares mask-generation the same way.
 
 from __future__ import annotations
 
+from optimum.exporters.onnx.model_configs import VitPoseOnnxConfig
+from optimum.utils.input_generators import DummyVisionInputGenerator
 from transformers import VitPoseForPoseEstimation
+
+from ...export import register_onnx_overwrite
+
+
+@register_onnx_overwrite("vitpose", "keypoint-detection", library_name="transformers")
+class VitPoseIOConfig(VitPoseOnnxConfig):  # type: ignore[misc]  # optimum base is untyped
+    """Generate image inputs without reloading a processor from the model ID."""
+
+    DUMMY_INPUT_GENERATOR_CLASSES = (DummyVisionInputGenerator,)
 
 
 # (model_type, task) -> HuggingFace model class
