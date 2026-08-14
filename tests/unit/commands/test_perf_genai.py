@@ -21,6 +21,7 @@ from click.testing import CliRunner
 from rich.console import Console
 
 from winml.modelkit.commands import _perf_genai as perf_genai
+from winml.modelkit.commands import perf as perf_module
 from winml.modelkit.commands._perf_genai import (
     GenaiBenchmarkResult,
     GenaiPerfBenchmark,
@@ -813,6 +814,21 @@ class TestCliDispatch:
         cfg = capture_run["config"]
         assert cfg.device == "config"
         assert cfg.ep is None
+
+    def test_auto_runtime_dispatches_normalized_bundle_path(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
+    ) -> None:
+        bundle = _make_bundle(tmp_path)
+        monkeypatch.setattr(
+            perf_module.cli_utils,
+            "normalize_model_arg",
+            lambda _model: str(bundle),
+        )
+
+        result = runner.invoke(perf, ["-m", "~/bundle"])
+
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].bundle_dir == bundle
 
     def test_explicit_device_config_respects_bundle(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict

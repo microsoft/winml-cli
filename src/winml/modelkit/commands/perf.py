@@ -2288,7 +2288,9 @@ def _autobuild_genai_bundle(
     return bundle_dir, True
 
 
-def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool) -> None:
+def _run_genai_runtime(
+    ctx: click.Context, *, model: str, console: Console, json_mode: bool
+) -> None:
     """Validate folder input and dispatch to the winml-genai benchmark path.
 
     The genai imports are function-local so ``winml perf --help`` does not pay
@@ -2304,8 +2306,6 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     )
 
     p = ctx.params
-    model: str = p["model"]
-
     # --module walks a live nn.Module graph; meaningless for a prebuilt bundle.
     if p.get("module_class"):
         raise click.UsageError("--module is not supported with --runtime winml-genai.")
@@ -2825,7 +2825,7 @@ def perf(
                 "--input-data is not supported with --runtime winml-genai; "
                 "genai benchmarking is driven by --prompt."
             )
-        _run_genai_runtime(ctx, console=console, json_mode=json_mode)
+        _run_genai_runtime(ctx, model=model, console=console, json_mode=json_mode)
         return
 
     # --duration replaces the fixed iteration count with a wall-clock budget.
