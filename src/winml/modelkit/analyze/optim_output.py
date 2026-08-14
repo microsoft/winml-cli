@@ -127,11 +127,14 @@ class OptimizationOutputSupport:
     @staticmethod
     def _node_ref_dict(ref: NodeRef) -> dict[str, object]:
         """Return the stable JSON representation of one graph-delta node."""
-        return {
+        data: dict[str, object] = {
             "op_type": ref.op_type,
             "name": ref.name,
             "outputs": list(ref.outputs),
         }
+        if ref.domain and ref.domain != "ai.onnx":
+            data["domain"] = ref.domain
+        return data
 
     def to_dict(self) -> dict[str, object]:
         """Return actionable graph-delta and target-support evidence."""
@@ -239,7 +242,7 @@ def _check_one(
         support, reason = _lookup_support(ref, support_by_output)
         result.operators.append(
             ProducedOperatorSupport(
-                op_type=ref.op_type,
+                op_type=ref.qualified_op_type(),
                 label=ref.label(),
                 change=change,
                 support=support,

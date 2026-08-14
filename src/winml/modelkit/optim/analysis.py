@@ -58,11 +58,19 @@ class NodeRef:
         op_type: The node's operator type (e.g. ``"MatMul"``).
         name: The node's name (may be empty — ONNX names are optional).
         outputs: The node's output tensor names.
+        domain: The node's operator domain. Empty means the default ONNX domain.
     """
 
     op_type: str
     name: str
     outputs: tuple[str, ...]
+    domain: str = ""
+
+    def qualified_op_type(self) -> str:
+        """Return the operator type, qualified when it uses a custom domain."""
+        if self.domain and self.domain != "ai.onnx":
+            return f"{self.domain}::{self.op_type}"
+        return self.op_type
 
     def label(self) -> str:
         """Return a human-readable identifier for this node.
@@ -71,7 +79,7 @@ class NodeRef:
         since output names are unique within a graph.
         """
         ident = self.name or (self.outputs[0] if self.outputs else "?")
-        return f"{self.op_type} '{ident}'"
+        return f"{self.qualified_op_type()} '{ident}'"
 
 
 @dataclass
@@ -138,7 +146,7 @@ class CapabilityFinding:
             "added": self.added_nodes,
             "modified": self.modified_nodes,
         }[kind]
-        return Counter(n.op_type for n in nodes).most_common()
+        return Counter(n.qualified_op_type() for n in nodes).most_common()
 
 
 # =============================================================================
@@ -165,7 +173,7 @@ def _node_identity(node: NodeProto) -> tuple[Any, ...]:
     """
     if len(node.output) > 0:
         return tuple(node.output)
-    return ("\0no-output", node.op_type, node.name, tuple(node.input))
+    return ("\0no-output", node.domain, node.op_type, node.name, tuple(node.input))
 
 
 def _collect_nodes(
@@ -188,7 +196,7 @@ def _collect_nodes(
             key = (cur_scope, _node_identity(node))
             table[key] = (
                 node.SerializeToString(),
-                NodeRef(node.op_type, node.name, tuple(node.output)),
+                NodeRef(node.op_type, node.name, tuple(node.output), node.domain),
             )
             for attr in node.attribute:
                 if attr.type == AttributeProto.GRAPH:
