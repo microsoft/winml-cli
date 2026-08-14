@@ -84,6 +84,38 @@ $ winml sys --format compact
 $ winml sys --format json > env.json
 ```
 
+The full JSON report includes a schema version, installed physical memory, and
+device-specific details such as dedicated GPU memory when available:
+
+```json
+{
+  "schema_version": 1,
+  "platform": {
+    "system": "Windows",
+    "release": "11",
+    "machine": "ARM64"
+  },
+  "memory": {
+    "physical_total_mib": 16384
+  },
+  "devices": [
+    {
+      "priority": 1,
+      "type": "GPU",
+      "name": "Example GPU",
+      "details": {
+        "driver": "32.0.0.0",
+        "manufacturer": "Example Vendor",
+        "dedicated_memory_mib": 8192
+      }
+    }
+  ]
+}
+```
+
+Memory capacities use MiB. A value can be `null` when the host does not expose
+the corresponding capacity.
+
 ```bash
 # Only list devices — skip everything else
 $ winml sys --list-device

@@ -26,7 +26,7 @@ from unittest.mock import MagicMock, patch
 import click
 import pytest
 
-from winml.modelkit.commands.sys import _gather, _gather_device_info
+from winml.modelkit.commands.sys import _gather, _gather_device_info, _get_memory_info
 
 
 def _fake_ep_info(
@@ -191,6 +191,48 @@ class TestDeviceInfoEnrichment:
         assert len(result) == 1
         assert result[0]["details"]["driver"] == "32.0.100"
         assert "architecture" not in result[0]["details"]
+
+    def test_gpu_includes_dedicated_memory(self) -> None:
+        """GPU inventory exposes the dedicated-memory capacity already detected by sysinfo."""
+        gpu_item = MagicMock(
+            driver_version="32.0.15.9000",
+            manufacturer="NVIDIA",
+            vram_mib=8192,
+        )
+        gpu_item.name = "NVIDIA Test GPU"
+
+        with (
+            patch("winml.modelkit.sysinfo.NPU.get_all", return_value=[]),
+            patch("winml.modelkit.sysinfo.GPU.get_all", return_value=[gpu_item]),
+            patch("winml.modelkit.sysinfo.CPU.get_all", return_value=[]),
+        ):
+            result = _gather_device_info()
+
+        assert result == [
+            {
+                "priority": 1,
+                "type": "GPU",
+                "name": "NVIDIA Test GPU",
+                "details": {
+                    "driver": "32.0.15.9000",
+                    "manufacturer": "NVIDIA",
+                    "dedicated_memory_mib": 8192,
+                },
+            }
+        ]
+
+
+class TestMemoryInfo:
+    """System memory metadata is fast, explicit, and best-effort."""
+
+    def test_physical_total_is_reported_in_mib(self) -> None:
+        memory = MagicMock(total=24 * 1024 * 1024 * 1024)
+        with patch("psutil.virtual_memory", return_value=memory):
+            assert _get_memory_info() == {"physical_total_mib": 24 * 1024}
+
+    def test_probe_failure_returns_unknown(self) -> None:
+        with patch("psutil.virtual_memory", side_effect=RuntimeError("unavailable")):
+            assert _get_memory_info() == {"physical_total_mib": None}
 
 
 class TestGatherDeviceSectionEnrichment:

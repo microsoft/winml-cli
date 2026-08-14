@@ -60,6 +60,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_SYS_JSON_SCHEMA_VERSION = 1
+
 # Rich is imported lazily — Console/Table/Panel only matter at render time,
 # and pulling them at module scope adds ~50 ms to every `winml sys`
 # invocation (including --format json/compact, which never render anything
@@ -201,6 +203,18 @@ def _get_platform_info() -> dict[str, Any]:
     }
 
 
+def _get_memory_info() -> dict[str, int | None]:
+    """Gather installed physical memory without making ``sys`` fail."""
+    try:
+        import psutil
+
+        total_mib = round(psutil.virtual_memory().total / (1024 * 1024))
+    except Exception as exc:
+        logger.warning("Failed to get physical memory details: %s", exc)
+        total_mib = 0
+    return {"physical_total_mib": total_mib or None}
+
+
 def _get_library_versions() -> dict[str, str | None]:
     """Gather versions of key ML libraries."""
     libraries: dict[str, str | None] = {}
@@ -332,8 +346,10 @@ def _gather_system_info(verbose: bool = False) -> dict[str, Any]:
         Dictionary containing all system information
     """
     info = {
+        "schema_version": _SYS_JSON_SCHEMA_VERSION,
         "python": _get_python_info(),
         "platform": _get_platform_info(),
+        "memory": _get_memory_info(),
         "libraries": _get_library_versions(),
         "torch": _get_torch_info(verbose=verbose),
         "backends": {
@@ -586,6 +602,8 @@ def _gather_device_info(
                     "driver": item.driver_version,
                     "manufacturer": item.manufacturer,
                 }
+                if device_label == "GPU":
+                    entry["details"]["dedicated_memory_mib"] = item.vram_mib or None
             elif device_label == "CPU":
                 entry["details"] = {
                     "cores": item.core_count,
