@@ -538,6 +538,7 @@ def generate_random_inputs(
     symbolic_shapes = io_config.get("input_symbolic_shapes") or [
         [None] * len(s) for s in io_config["input_shapes"]
     ]
+    value_ranges = io_config.get("input_value_ranges") or {}
     overrides = shape_config or {}
 
     specs: dict[str, dict[str, Any]] = {}
@@ -566,6 +567,8 @@ def generate_random_inputs(
             "dtype": gen_dtype,
             "shape": list(resolved_shape),
         }
+        if name in value_ranges:
+            specs[name]["range"] = value_ranges[name]
 
     return generate_dummy_inputs_from_specs(specs)
 
