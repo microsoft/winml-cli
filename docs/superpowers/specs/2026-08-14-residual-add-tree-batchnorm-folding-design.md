@@ -21,6 +21,9 @@ its output tensor name. It is architecture-agnostic and fails closed unless the
 entire candidate can be proven safe and all replacement constants can be
 computed before mutation.
 
+The evidence model has four eligible residual BatchNormalization nodes, and
+real-model acceptance requires all four to be removed.
+
 ## Context
 
 The current rule is generated from
@@ -413,12 +416,19 @@ Use:
 - PyTorch reference outputs:
   `D:\AI\isv_models\keen_hominy\0805\model_example_outputs_pytorch.npz`
 
+The observed source graph contains 232 total nodes and four
+BatchNormalization nodes. Two BatchNormalization nodes consume a single Add
+whose leaves are two Conv nodes. The other two consume nested two-Add trees
+whose leaves are three Conv nodes. All four are eligible residual candidates
+under this design.
+
 Run baseline and optimized CPU inference with identical inputs and enable only
 the approved capability beyond defaults. The implementation evidence must
 record:
 
-- total graph node count before and after;
-- BatchNormalization node count before and after;
+- total graph node count before and after, with no prescribed final count
+  because default ORT constant folding also runs;
+- BatchNormalization node count before and after, which must be `4 -> 0`;
 - exact ordered output signature before and after, including names, element
   types, ranks, and dimensions;
 - per-output maximum absolute and relative error for optimized versus baseline;
@@ -429,9 +439,8 @@ record:
 Optimized-versus-baseline replay must satisfy the dtype-specific test
 tolerances. Optimized-versus-PyTorch error must not regress beyond those same
 absolute and relative tolerances compared with baseline-versus-PyTorch error.
-The optimized graph must preserve the output signature exactly and remove at
-least one BatchNormalization through the residual owner on this evidence
-model.
+The optimized graph must preserve the output signature exactly and remove all
+four eligible residual BatchNormalization nodes.
 
 NPU latency, throughput, compilation success, and performance improvement are
 explicitly not acceptance gates for this change.
@@ -473,8 +482,9 @@ The future implementation is accepted when all of the following are true:
 6. Successful generated graphs pass ONNX checking and numerical equivalence at
    the documented dtype-specific tolerances.
 7. The real-model evidence records all required counts, signature data, and
-   replay errors; preserves the signature; passes ONNX checking; and removes at
-   least one residual BatchNormalization.
+   replay errors; preserves the signature; passes ONNX checking; and reduces
+   BatchNormalization count from four to zero by removing all four eligible
+   residual nodes. The final total node count is recorded but is not prescribed.
 8. Existing fixed-pattern tests and affected optimizer tests continue to pass.
 9. The change contains no model-specific logic, unrelated refactor, production
    implementation outside the approved scope, or NPU acceptance dependency.
