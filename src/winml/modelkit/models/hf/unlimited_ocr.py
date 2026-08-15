@@ -49,7 +49,7 @@ _VISION_IMAGE_SIZE = 1024
 # =============================================================================
 
 
-class UnlimitedOCRVisionTowerWrapper(nn.Module):  # type: ignore[misc]  # torch base is untyped
+class UnlimitedOCRVisionTowerWrapper(nn.Module):
     """Export-only wrapper exposing the SAM -> CLIP -> projector sub-graph.
 
     The full ``UnlimitedOCRModel.forward`` performs data-dependent tiling and
