@@ -16,8 +16,6 @@ from __future__ import annotations
 
 from transformers import PretrainedConfig
 
-# Import triggers ONNX config registration
-import winml.modelkit.models  # noqa: F401
 from winml.modelkit.export import generate_dummy_inputs
 from winml.modelkit.models.hf.unlimited_ocr import (
     MODEL_CLASS_MAPPING,
