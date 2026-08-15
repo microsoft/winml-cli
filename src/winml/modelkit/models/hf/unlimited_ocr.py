@@ -27,7 +27,7 @@ engine itself. The generative decoder remains unexported by design.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol, cast
 
 import torch
 from optimum.exporters.onnx import OnnxConfig
@@ -49,7 +49,7 @@ _VISION_IMAGE_SIZE = 1024
 # =============================================================================
 
 
-class UnlimitedOCRVisionTowerWrapper(nn.Module):
+class UnlimitedOCRVisionTowerWrapper(nn.Module):  # type: ignore[misc]  # torch base is untyped
     """Export-only wrapper exposing the SAM -> CLIP -> projector sub-graph.
 
     The full ``UnlimitedOCRModel.forward`` performs data-dependent tiling and
@@ -64,9 +64,9 @@ class UnlimitedOCRVisionTowerWrapper(nn.Module):
 
     def __init__(self, base: nn.Module) -> None:
         super().__init__()
-        self.sam_model = base.sam_model
-        self.vision_model = base.vision_model
-        self.projector = base.projector
+        self.sam_model = cast("_SamModelProtocol", base.sam_model)
+        self.vision_model = cast("_VisionModelProtocol", base.vision_model)
+        self.projector = cast("_ProjectorProtocol", base.projector)
 
     @classmethod
     def from_pretrained(
@@ -95,13 +95,25 @@ class UnlimitedOCRVisionTowerWrapper(nn.Module):
         return self.projector(fused)
 
 
+class _SamModelProtocol(Protocol):
+    def __call__(self, pixel_values: torch.Tensor) -> torch.Tensor: ...
+
+
+class _VisionModelProtocol(Protocol):
+    def __call__(self, pixel_values: torch.Tensor, sam_feat: torch.Tensor) -> torch.Tensor: ...
+
+
+class _ProjectorProtocol(Protocol):
+    def __call__(self, fused: torch.Tensor) -> torch.Tensor: ...
+
+
 # =============================================================================
 # ONNX export config
 # =============================================================================
 
 
 @register_onnx_overwrite("unlimited-ocr", "feature-extraction", library_name="transformers")
-class UnlimitedOCRVisionIOConfig(OnnxConfig):
+class UnlimitedOCRVisionIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """From-scratch ONNX config for the Unlimited-OCR vision tower.
 
     Input geometry is pinned to 1024x1024 (the SAM encoder's fixed input
@@ -127,7 +139,9 @@ class UnlimitedOCRVisionIOConfig(OnnxConfig):
             "image_embeds": {0: "batch_size"},
         }
 
-    def generate_dummy_inputs(self, framework: str = "pt", **kwargs: Any):  # type: ignore[override]
+    def generate_dummy_inputs(
+        self, framework: str = "pt", **kwargs: Any
+    ) -> dict[str, torch.Tensor]:
         """Emit a fixed ``[1, 3, 1024, 1024]`` ``pixel_values`` tensor.
 
         The vision tower has no data-dependent control flow, so a zero tensor
