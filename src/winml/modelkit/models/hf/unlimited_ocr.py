@@ -27,7 +27,8 @@ engine itself. The generative decoder remains unexported by design.
 
 from __future__ import annotations
 
-from typing import Any, Protocol, cast
+from collections.abc import Callable
+from typing import Any, cast
 
 import torch
 from optimum.exporters.onnx import OnnxConfig
@@ -64,9 +65,9 @@ class UnlimitedOCRVisionTowerWrapper(nn.Module):
 
     def __init__(self, base: nn.Module) -> None:
         super().__init__()
-        self.sam_model = cast("_SamModelProtocol", base.sam_model)
-        self.vision_model = cast("_VisionModelProtocol", base.vision_model)
-        self.projector = cast("_ProjectorProtocol", base.projector)
+        self.sam_model = cast("_SamModelCallable", base.sam_model)
+        self.vision_model = cast("_VisionModelCallable", base.vision_model)
+        self.projector = cast("_ProjectorCallable", base.projector)
 
     @classmethod
     def from_pretrained(
@@ -95,16 +96,9 @@ class UnlimitedOCRVisionTowerWrapper(nn.Module):
         return self.projector(fused)
 
 
-class _SamModelProtocol(Protocol):
-    def __call__(self, pixel_values: torch.Tensor) -> torch.Tensor: ...
-
-
-class _VisionModelProtocol(Protocol):
-    def __call__(self, pixel_values: torch.Tensor, sam_feat: torch.Tensor) -> torch.Tensor: ...
-
-
-class _ProjectorProtocol(Protocol):
-    def __call__(self, fused: torch.Tensor) -> torch.Tensor: ...
+_SamModelCallable = Callable[[torch.Tensor], torch.Tensor]
+_VisionModelCallable = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+_ProjectorCallable = Callable[[torch.Tensor], torch.Tensor]
 
 
 # =============================================================================
