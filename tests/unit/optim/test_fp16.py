@@ -15,9 +15,13 @@ Following Cardinal Rules:
 
 from __future__ import annotations
 
+import shutil
+
 import numpy as np
+import onnx
 from onnx import ModelProto, TensorProto, helper, numpy_helper
 
+import winml.modelkit.onnx
 from winml.modelkit.quant.fp16 import convert_to_fp16
 
 
@@ -62,6 +66,56 @@ class TestConvertToFP16:
 
         has_fp16 = any(init.data_type == TensorProto.FLOAT16 for init in result.graph.initializer)
         assert has_fp16, "Expected at least one FP16 initializer after conversion"
+
+    def test_path_conversion_uses_external_data_safe_shape_inference(self, tmp_path) -> None:
+        model_path = tmp_path / "model.onnx"
+        onnx.save_model(
+            _build_simple_fp32_model(),
+            model_path,
+            save_as_external_data=True,
+            all_tensors_to_one_file=True,
+            location="model.onnx.data",
+            size_threshold=0,
+        )
+
+        result = convert_to_fp16(model_path)
+
+        assert any(init.data_type == TensorProto.FLOAT16 for init in result.graph.initializer)
+
+    def test_already_fp16_external_data_path_is_relocatable(self, tmp_path) -> None:
+        source_dir = tmp_path / "source"
+        source_dir.mkdir()
+        source_path = source_dir / "source.onnx"
+        expected_weight = np.arange(1024, dtype=np.float16).reshape(1, 1024)
+        x = helper.make_tensor_value_info("x", TensorProto.FLOAT16, [1, 1024])
+        out = helper.make_tensor_value_info("out", TensorProto.FLOAT16, [1, 1024])
+        weight = numpy_helper.from_array(expected_weight, "weight")
+        graph = helper.make_graph(
+            [helper.make_node("Add", ["x", "weight"], ["out"])],
+            "external_fp16",
+            [x],
+            [out],
+            [weight],
+        )
+        onnx.save_model(
+            helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]),
+            source_path,
+            save_as_external_data=True,
+            all_tensors_to_one_file=True,
+            location="source.onnx.data",
+            size_threshold=0,
+        )
+
+        converted = convert_to_fp16(source_path)
+        destination_path = tmp_path / "destination" / "model.onnx"
+        winml.modelkit.onnx.save_onnx(converted, destination_path, threshold_size=0)
+
+        shutil.rmtree(source_dir)
+        onnx.checker.check_model(destination_path)
+        relocated = onnx.load(destination_path)
+        np.testing.assert_array_equal(
+            numpy_helper.to_array(relocated.graph.initializer[0]), expected_weight
+        )
 
     def test_default_keeps_io_types(self) -> None:
         """Default keep_io_types=True preserves FP32 model I/O."""
