@@ -44,6 +44,10 @@ from ...export import register_onnx_overwrite
 _VISION_NUM_CHANNELS = 3
 _VISION_IMAGE_SIZE = 1024
 
+_SamModelCallable = Callable[[torch.Tensor], torch.Tensor]
+_VisionModelCallable = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+_ProjectorCallable = Callable[[torch.Tensor], torch.Tensor]
+
 
 # =============================================================================
 # Vision-tower sub-graph wrapper
@@ -65,9 +69,10 @@ class UnlimitedOCRVisionTowerWrapper(nn.Module):
 
     def __init__(self, base: nn.Module) -> None:
         super().__init__()
-        self.sam_model = cast("_SamModelCallable", base.sam_model)
-        self.vision_model = cast("_VisionModelCallable", base.vision_model)
-        self.projector = cast("_ProjectorCallable", base.projector)
+        remote_base = cast("Any", base)
+        self.sam_model: _SamModelCallable = remote_base.sam_model
+        self.vision_model: _VisionModelCallable = remote_base.vision_model
+        self.projector: _ProjectorCallable = remote_base.projector
 
     @classmethod
     def from_pretrained(
@@ -90,15 +95,8 @@ class UnlimitedOCRVisionTowerWrapper(nn.Module):
         """Return image embeddings ``[batch, 256, 1280]`` for the LM to consume."""
         sam_feat = self.sam_model(pixel_values)
         clip_feat = self.vision_model(pixel_values, sam_feat)
-        fused = torch.cat(
-            (clip_feat[:, 1:], sam_feat.flatten(2).permute(0, 2, 1)), dim=-1
-        )
+        fused = torch.cat((clip_feat[:, 1:], sam_feat.flatten(2).permute(0, 2, 1)), dim=-1)
         return self.projector(fused)
-
-
-_SamModelCallable = Callable[[torch.Tensor], torch.Tensor]
-_VisionModelCallable = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
-_ProjectorCallable = Callable[[torch.Tensor], torch.Tensor]
 
 
 # =============================================================================
