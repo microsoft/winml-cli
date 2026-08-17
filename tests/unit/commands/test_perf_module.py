@@ -544,6 +544,7 @@ class TestPerfModuleMonitor:
             device="cpu",
             ep_name=fake_session.ep_name,
             adapter_luid=None,
+            adapter_device=None,
         )
         # And the collected HW metrics still land in the JSON report.
         report = json.loads(out_path.read_text(encoding="utf-8"))

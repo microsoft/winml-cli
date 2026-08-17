@@ -1150,8 +1150,20 @@ class TestPollerDeviceRouting:
         assert poller.device_kind == "gpu"
         assert poller.adapter_luid == bound_luid
 
-    def test_hw_monitor_auto_classifies_bound_adapter_luid(self):
-        """An exact LUID must remain authoritative when device is auto."""
+    @pytest.mark.parametrize(
+        ("adapter_device", "query_builder", "other_query_builder"),
+        [
+            ("npu", "build_npu_query", "build_gpu_query"),
+            ("gpu", "build_gpu_query", "build_npu_query"),
+        ],
+    )
+    def test_hw_monitor_auto_uses_bound_adapter_device(
+        self,
+        adapter_device,
+        query_builder,
+        other_query_builder,
+    ):
+        """An exact binding must not be reclassified from PDH engine types."""
         from winml.modelkit.session import HWMonitor
 
         fake_query = type(
@@ -1168,30 +1180,41 @@ class TestPollerDeviceRouting:
             },
         )()
         bound_luid = "0x00000000_0x00018393"
-        adapter_info = type("AdapterInfo", (), {"is_npu": False})()
 
         with (
+            patch("winml.modelkit.session.monitor._pdh.enumerate_adapters") as enumerate_adapters,
             patch(
-                "winml.modelkit.session.monitor._pdh.enumerate_adapters",
-                return_value={bound_luid: adapter_info},
+                "winml.modelkit.session.monitor._pdh.discover_gpu_luids",
+                return_value=[],
             ),
             patch("winml.modelkit.session.monitor._pdh.resolve_adapter_luid") as resolver,
             patch(
-                "winml.modelkit.session.monitor._pdh.build_gpu_query",
+                f"winml.modelkit.session.monitor._pdh.{query_builder}",
                 return_value=fake_query,
-            ) as build_gpu,
+            ) as build_query,
+            patch(f"winml.modelkit.session.monitor._pdh.{other_query_builder}") as other_query,
             HWMonitor(
                 poll_interval_ms=50,
                 device="auto",
                 adapter_luid=bound_luid,
+                adapter_device=adapter_device,
             ) as monitor,
         ):
             pass
 
         resolver.assert_not_called()
-        build_gpu.assert_called_once_with(bound_luid)
-        assert monitor._pdh.device_kind == "gpu"
+        enumerate_adapters.assert_not_called()
+        build_query.assert_called_once_with(bound_luid)
+        other_query.assert_not_called()
+        assert monitor._pdh.device_kind == adapter_device
         assert monitor._pdh.adapter_luid == bound_luid
+
+    def test_hw_monitor_auto_bound_luid_requires_adapter_device(self):
+        """Auto cannot safely infer a bound adapter's device kind from PDH."""
+        from winml.modelkit.session import HWMonitor
+
+        with pytest.raises(ValueError, match="adapter_device is required"):
+            HWMonitor(device="auto", adapter_luid="0x00000000_0x00018393")
 
     def test_auto_prefers_npu_then_gpu(self):
         """device='auto' must probe NPU first, then GPU."""

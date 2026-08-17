@@ -603,6 +603,7 @@ class TestOpTracingHardwareMonitor:
         )
         benchmark._ep_device = SimpleNamespace(
             device=SimpleNamespace(
+                device_type="NPU",
                 ort_handle=SimpleNamespace(
                     device=SimpleNamespace(metadata={"LUID": "99219"})
                 )
@@ -635,6 +636,7 @@ class TestOpTracingHardwareMonitor:
             device="npu",
             ep_name="QNNExecutionProvider",
             adapter_luid="0x00000000_0x00018393",
+            adapter_device="npu",
         )
         simple_loop.assert_not_called()
         monitored_loop.assert_called_once()

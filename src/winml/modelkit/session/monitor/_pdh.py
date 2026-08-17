@@ -461,10 +461,29 @@ class PdhPoller:
         device: str = "auto",
         ep_name: EPName | None = None,
         adapter_luid: str | None = None,
+        adapter_device: str | None = None,
     ) -> None:
         device_norm = (device or "auto").lower()
         if device_norm not in _DEVICE_KINDS:
             raise ValueError(f"Unknown device {device!r}; expected one of {_DEVICE_KINDS}")
+        adapter_device_norm = adapter_device.lower() if adapter_device is not None else None
+        if adapter_device_norm is not None and adapter_device_norm not in ACCELERATOR_DEVICE_TYPES:
+            raise ValueError(
+                f"Unknown adapter device {adapter_device!r}; "
+                f"expected one of {ACCELERATOR_DEVICE_TYPES}"
+            )
+        if adapter_device_norm is not None and adapter_luid is None:
+            raise ValueError("adapter_device requires adapter_luid")
+        if adapter_luid is not None and device_norm == "auto" and adapter_device_norm is None:
+            raise ValueError("adapter_device is required with adapter_luid when device='auto'")
+        if (
+            adapter_device_norm is not None
+            and device_norm in ACCELERATOR_DEVICE_TYPES
+            and adapter_device_norm != device_norm
+        ):
+            raise ValueError(
+                f"adapter_device {adapter_device!r} does not match device {device!r}"
+            )
         self._poll_interval_s = poll_interval_ms / 1000.0
         self._requested_device = device_norm
         # Full ORT EP name (e.g. "QNNExecutionProvider") to disambiguate when
@@ -473,6 +492,7 @@ class PdhPoller:
         # A concrete session binding is authoritative when available and avoids
         # ambiguity when one EP advertises multiple adapters of the same kind.
         self._adapter_luid_hint = adapter_luid
+        self._adapter_device_hint = adapter_device_norm
         self._device_kind: str | None = None  # resolved at start(): "npu" | "gpu" | None
         self._query: PdhQuery | None = None
         self._adapter_luid: str | None = None
@@ -509,6 +529,7 @@ class PdhPoller:
                 self._requested_device,
                 self._ep_name,
                 self._adapter_luid_hint,
+                self._adapter_device_hint,
             )
 
             # Try to build the per-adapter query. If the resolved LUID is
@@ -668,12 +689,13 @@ class PdhPoller:
         requested: str,
         ep_name: EPName | None = None,
         adapter_luid: str | None = None,
+        adapter_device: str | None = None,
     ) -> tuple[str | None, str | None]:
         """Return (luid, kind) for the requested device.
 
-        A concrete ``adapter_luid`` from the bound session takes precedence.
-        Otherwise, uses :func:`resolve_adapter_luid` and falls back to PDH
-        fingerprinting when ORT data is unavailable.
+        A concrete ``adapter_luid`` and ``adapter_device`` from the bound
+        session take precedence. Otherwise, uses :func:`resolve_adapter_luid`
+        and falls back to PDH fingerprinting when ORT data is unavailable.
 
         ``kind`` is ``"npu"`` or ``"gpu"`` when an adapter is found; both
         elements are ``None`` when the requested device is ``"cpu"`` or no
@@ -682,16 +704,10 @@ class PdhPoller:
         if requested == "cpu":
             return None, None
         if adapter_luid is not None:
-            if requested in ACCELERATOR_DEVICE_TYPES:
-                return adapter_luid, requested
-            try:
-                adapter_info = enumerate_adapters().get(adapter_luid)
-            except RuntimeError:
-                logger.debug("Failed to classify bound adapter LUID", exc_info=True)
-                return None, None
-            if adapter_info is None:
-                return None, None
-            return adapter_luid, ("npu" if adapter_info.is_npu else "gpu")
+            device_kind = adapter_device or requested
+            if device_kind in ACCELERATOR_DEVICE_TYPES:
+                return adapter_luid, device_kind
+            return None, None
         if requested == "npu":
             luid = resolve_adapter_luid("npu", ep_name=ep_name)
             return luid, ("npu" if luid else None)
