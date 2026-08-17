@@ -41,6 +41,7 @@ Public API:
 from __future__ import annotations
 
 import atexit
+import contextlib
 import dataclasses
 import functools
 import logging
@@ -49,6 +50,7 @@ import platform
 import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
@@ -59,6 +61,20 @@ from packaging.version import InvalidVersion, Version
 
 
 logger = logging.getLogger(__name__)
+_EP_INSTALL_STATUS_ENABLED: ContextVar[bool] = ContextVar(
+    "_EP_INSTALL_STATUS_ENABLED",
+    default=True,
+)
+
+
+@contextlib.contextmanager
+def _suppress_ep_install_status() -> Iterator[None]:
+    """Temporarily hide EP installation notices and download progress."""
+    token = _EP_INSTALL_STATUS_ENABLED.set(False)
+    try:
+        yield
+    finally:
+        _EP_INSTALL_STATUS_ENABLED.reset(token)
 
 
 # Canonical EPSource origin tags accepted by ``--ep <name>@<source>`` and
@@ -891,6 +907,8 @@ def _make_progress_bar() -> Any:
 
     Format: ``Downloading... ████████████░░░░░░ 62%``
     """
+    if not _EP_INSTALL_STATUS_ENABLED.get():
+        return _NoopBar()
     if sys.stderr is None or not hasattr(sys.stderr, "write"):
         logger.debug("stderr is unavailable; using no-op progress bar.")
         return _NoopBar()
@@ -968,6 +986,8 @@ def _safe_console_print(console: Any, *args: Any, **kwargs: Any) -> None:
     mirroring :class:`_SafeProgressBar` — failures are logged at debug and
     otherwise ignored.
     """
+    if not _EP_INSTALL_STATUS_ENABLED.get():
+        return
     try:
         console.print(*args, **kwargs)
     except Exception as e:

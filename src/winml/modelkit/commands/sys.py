@@ -44,6 +44,7 @@ from ..ep_path import (
     NuGetSource,
     PyPISource,
     WinMLCatalogSource,
+    _suppress_ep_install_status,
 )
 from ..session import WinMLEPRegistry
 from ..sysinfo import OS
@@ -671,9 +672,7 @@ def _output_device_text(devices: list[dict[str, Any]]) -> None:
     console.print("\n[bold blue]Available Devices (priority order)[/bold blue]")
     for dev in devices:
         name = escape(dev["name"])
-        console.print(
-            f"  [bold]#{dev['priority']}[/bold]  [cyan]{dev['type']:5s}[/cyan] {name}"
-        )
+        console.print(f"  [bold]#{dev['priority']}[/bold]  [cyan]{dev['type']:5s}[/cyan] {name}")
         details = dev.get("details", {})
         if "error" in details:
             console.print(f"             [red]Error: {escape(details['error'])}[/red]")
@@ -827,8 +826,7 @@ def isolated_ep_register(
             "",
         )
         raise WinMLEPRegistrationFailed(
-            f"isolated register of {dll_path} exited {proc.returncode}: "
-            f"{stderr_tail[-500:]}",
+            f"isolated register of {dll_path} exited {proc.returncode}: {stderr_tail[-500:]}",
             dll_path=dll_path,
             raw_error=last_line,
         )
@@ -918,9 +916,7 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
 
     ep_records: dict[
         str,
-        list[
-            tuple[EPEntry, dict[str, Any] | None, WinMLEPRegistrationFailed | None, bool | None]
-        ],
+        list[tuple[EPEntry, dict[str, Any] | None, WinMLEPRegistrationFailed | None, bool | None]],
     ] = {}
     for entry in all_entries:
         row = next(fs_iter) if not entry.is_built_in() else _process(entry)
@@ -1267,26 +1263,28 @@ def sysinfo(
     configure_logging(verbosity=verbose, quiet=quiet)
 
     fmt = output_format.lower()
-    if list_device or list_ep:
-        # Explicit-section mode: raise on per-section error so the
-        # user knows their pin didn't produce a result.
-        info = _gather(
-            devices=list_device,
-            eps=list_ep,
-            verbose=bool(verbose),
-            tolerant=False,
-        )
-    else:
-        # Default mode: always include system info; sections only
-        # for non-compact formats (compact is a sysinfo overview by
-        # convention); tolerant so a broken section doesn't blank
-        # the whole report.
-        include_sections = fmt != "compact"
-        info = _gather(
-            system=True,
-            devices=include_sections,
-            eps=include_sections,
-            verbose=bool(verbose),
-            tolerant=True,
-        )
+    status_context = _suppress_ep_install_status() if fmt == "json" else contextlib.nullcontext()
+    with status_context:
+        if list_device or list_ep:
+            # Explicit-section mode: raise on per-section error so the
+            # user knows their pin didn't produce a result.
+            info = _gather(
+                devices=list_device,
+                eps=list_ep,
+                verbose=bool(verbose),
+                tolerant=False,
+            )
+        else:
+            # Default mode: always include system info; sections only
+            # for non-compact formats (compact is a sysinfo overview by
+            # convention); tolerant so a broken section doesn't blank
+            # the whole report.
+            include_sections = fmt != "compact"
+            info = _gather(
+                system=True,
+                devices=include_sections,
+                eps=include_sections,
+                verbose=bool(verbose),
+                tolerant=True,
+            )
     _RENDERERS[fmt](info, bool(verbose))
