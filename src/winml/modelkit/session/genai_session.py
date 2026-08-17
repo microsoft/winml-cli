@@ -1665,8 +1665,8 @@ class GenaiSession:
         # the compiler so a teardown-crash salvage accepts only files this run
         # actually produced (see :meth:`_compile_stage`).
         pre_compile_mtimes: dict[str, int] = {}
-        for src, ctx in zip(srcs, ctx_outs, strict=True):
-            for p in self._epcontext_candidate_paths(src, ctx):
+        for src, ctx_out in zip(srcs, ctx_outs, strict=True):
+            for p in self._epcontext_candidate_paths(src, ctx_out):
                 if p.exists():
                     pre_compile_mtimes[str(p)] = p.stat().st_mtime_ns
 
