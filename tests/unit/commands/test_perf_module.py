@@ -182,7 +182,7 @@ class TestPerfModuleParameterForwarding:
         fake_loader_cfg.task = "fill-mask"
         resolved_target = EPDeviceTarget(
             ep="QNNExecutionProvider",
-            device="npu",
+            device="gpu",
             source="pypi",
         )
         resolved_ep_device = MagicMock(name="resolved_ep_device")
@@ -244,13 +244,14 @@ class TestPerfModuleParameterForwarding:
         assert result.exit_code == 0, result.output
 
         gen_kwargs = mock_gen.call_args.kwargs
-        assert gen_kwargs["device"] == "npu"
+        assert gen_kwargs["device"] == "gpu"
         assert gen_kwargs["ep"] == "QNNExecutionProvider"
+        assert gen_kwargs["export_policy_target"] == ("npu", "qnn")
         assert gen_kwargs["precision"] == "auto"
 
         build_kwargs = mock_build.call_args.kwargs
         assert build_kwargs["ep"] == "QNNExecutionProvider"
-        assert build_kwargs["device"] == "npu"
+        assert build_kwargs["device"] == "gpu"
 
         fake_registry.auto_device.assert_called_once_with(resolved_target)
         session_kwargs = mock_session_cls.call_args.kwargs
@@ -357,6 +358,70 @@ class TestPerfModuleParameterForwarding:
         report = json.loads(out_path.read_text(encoding="utf-8"))
         instance = report["instances"][0]
         assert instance["running_model_path"] == str(running_model_path)
+
+    def test_module_path_defaults_to_portable_policy_when_no_target_supplied(
+        self, tmp_path: Path
+    ) -> None:
+        fake_cfg = MagicMock()
+        fake_cfg.loader.model_type = "bert"
+        fake_cfg.loader.module_path = "encoder.layer.0"
+
+        fake_build_result = MagicMock()
+        fake_build_result.final_onnx_path = tmp_path / "model.onnx"
+
+        fake_session = MagicMock()
+        fake_session.perf.side_effect = RuntimeError("test-skip-benchmark")
+        fake_loader_cfg = MagicMock()
+        fake_loader_cfg.task = "fill-mask"
+
+        with (
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=[fake_cfg],
+            ) as mock_gen,
+            patch(
+                "winml.modelkit.loader.resolve_loader_config",
+                return_value=(fake_loader_cfg, MagicMock(), MagicMock(), MagicMock()),
+            ),
+            patch(
+                "winml.modelkit.commands.build._instantiate_parent_model",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "winml.modelkit.build.build_hf_model",
+                return_value=fake_build_result,
+            ),
+            patch(
+                "winml.modelkit.session.WinMLSession",
+                return_value=fake_session,
+            ),
+            patch(
+                "winml.modelkit.commands.perf.generate_random_inputs",
+                return_value={},
+            ),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                main,
+                [
+                    "perf",
+                    "-m",
+                    "fake/model",
+                    "--module",
+                    "BertLayer",
+                    "--iterations",
+                    "1",
+                    "--warmup",
+                    "0",
+                    "-o",
+                    str(tmp_path / "out.json"),
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        assert result.exit_code == 0, result.output
+        assert mock_gen.call_args.kwargs["device"] == "cpu"
+        assert mock_gen.call_args.kwargs["ep"] == "auto"
+        assert mock_gen.call_args.kwargs["export_policy_target"] == ("auto", None)
 
 
 class TestPerfModuleMonitor:
@@ -499,7 +564,7 @@ class TestPerfModuleMonitor:
         fake_display.__enter__.return_value = fake_display
 
         with patch(
-            "winml.modelkit.commands.perf.LiveMonitorDisplay",
+            "winml.modelkit.commands._live_chart.LiveMonitorDisplay",
             return_value=fake_display,
         ) as mock_display:
             _run_monitored_loop(
@@ -615,7 +680,7 @@ class TestPerfModuleQuantCompileToggles:
 
 
 class TestPerfModuleCache:
-    """--rebuild / --ignore-cache control the per-module build cache the same
+    """--rebuild / --use-cache control the per-module build cache the same
     way they do for the single-model path (mirrors auto.py).
 
     Regression guard: per-module builds previously always used a throwaway
@@ -717,8 +782,8 @@ class TestPerfModuleCache:
         assert kwargs["rebuild"] is True
         assert (tmp_path / "cache") in kwargs["output_dir"].parents
 
-    def test_ignore_cache_uses_temp_dir_and_rebuilds(self, tmp_path: Path) -> None:
-        kwargs = self._run_build_kwargs(tmp_path, ["--ignore-cache"])
+    def test_no_cache_uses_temp_dir_and_rebuilds(self, tmp_path: Path) -> None:
+        kwargs = self._run_build_kwargs(tmp_path, ["--no-use-cache"])
         # Throwaway temp dir (outside the pinned cache root) + forced rebuild.
         assert kwargs["rebuild"] is True
         assert (tmp_path / "cache") not in kwargs["output_dir"].parents

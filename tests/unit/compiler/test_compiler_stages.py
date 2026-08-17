@@ -393,6 +393,7 @@ class TestCompileStageProcess:
 
         inference_session.assert_called_once()
         assert context.shared_session_options is session_options
+        assert context.session is None
 
     def test_process_preserves_trtrtx_provider_options(self, tmp_path):
         from unittest.mock import MagicMock, patch
@@ -409,6 +410,7 @@ class TestCompileStageProcess:
 
         fake_winml_session = MagicMock()
         fake_winml_session._session = fake_session
+        fake_winml_session.running_model_path = tmp_path / "model_trtrtx_ctx.onnx"
 
         context = CompileContext(
             model_path=model_path,
@@ -421,16 +423,72 @@ class TestCompileStageProcess:
         )
 
         mock_session_cls = MagicMock(return_value=fake_winml_session)
-        with patch.dict(
-            "winml.modelkit.compiler.stages.compile.COMPILER_SESSION_MAPPING",
-            {"ort": mock_session_cls},
-            clear=False,
+        with (
+            patch.dict(
+                "winml.modelkit.compiler.stages.compile.COMPILER_SESSION_MAPPING",
+                {"ort": mock_session_cls},
+                clear=False,
+            ),
+            patch.object(CompileStage, "_finalize_output"),
         ):
             stage = CompileStage()
             stage.process(context)
 
         passed_ep_config = mock_session_cls.call_args.kwargs["ep_config"]
         assert passed_ep_config.provider_options == {"device_type": "GPU", "precision": "fp16"}
+        fake_winml_session.reset.assert_called_once()
+        assert context.session is None
+
+    def test_process_finalizes_markerless_context_before_reset(self, tmp_path):
+        """Session-owned EPContext artifacts remain present until publication."""
+        from unittest.mock import MagicMock, patch
+
+        from winml.modelkit.compiler import CompileContext, CompileStage
+        from winml.modelkit.session import EPDeviceTarget
+
+        model_path = tmp_path / "model.onnx"
+        create_simple_model(model_path)
+        markerless_path = tmp_path / "model_npu_ctx_private.onnx"
+        markerless_path.write_bytes(b"markerless context")
+        events: list[str] = []
+        fake_winml_session = MagicMock()
+        fake_winml_session._session = None
+        fake_winml_session.running_model_path = markerless_path
+
+        def _reset() -> None:
+            events.append("reset")
+            markerless_path.unlink()
+
+        def _finalize(*_args, src_ctx_path: Path, **_kwargs) -> None:
+            assert src_ctx_path.is_file()
+            events.append("finalize")
+
+        fake_winml_session.reset.side_effect = _reset
+        ep_device = MagicMock()
+        ep_device.device.device_type = "NPU"
+        context = CompileContext(
+            model_path=model_path,
+            config={
+                "execution_provider": "qnn",
+                "enable_ep_context": True,
+                "validate": False,
+                "ep_device": EPDeviceTarget(ep="qnn", device="npu").to_dict(),
+            },
+        )
+
+        with (
+            patch.dict(
+                "winml.modelkit.compiler.stages.compile.COMPILER_SESSION_MAPPING",
+                {"ort": MagicMock(return_value=fake_winml_session)},
+                clear=False,
+            ),
+            patch("winml.modelkit.compiler.stages.compile.WinMLEPRegistry.instance") as registry,
+            patch.object(CompileStage, "_finalize_output", side_effect=_finalize),
+        ):
+            registry.return_value.auto_device.return_value = ep_device
+            CompileStage().process(context)
+
+        assert events == ["finalize", "reset"]
 
     def test_process_reconstructs_explicit_serialized_device(self, tmp_path):
         from unittest.mock import MagicMock, patch
@@ -448,6 +506,8 @@ class TestCompileStageProcess:
 
         fake_winml_session = MagicMock()
         fake_winml_session._session = fake_session
+        identity_ctx_path = tmp_path / "model_1234567890abcdef_ctx.onnx"
+        fake_winml_session.running_model_path = identity_ctx_path
 
         context = CompileContext(
             model_path=model_path,
@@ -489,6 +549,53 @@ class TestCompileStageProcess:
 
         mock_resolve_device.assert_called_once_with(EPDeviceTarget(ep="qnn", device="gpu"))
         assert mock_finalize_output.call_args.kwargs["device"] == "gpu"
+        assert mock_finalize_output.call_args.kwargs["src_ctx_path"] == identity_ctx_path
+
+    def test_single_model_compile_fallback_does_not_publish_stale_context(self, tmp_path):
+        """A raw running path wins over stale identity artifacts in the same directory."""
+        from unittest.mock import MagicMock, patch
+
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        model_path = tmp_path / "model.onnx"
+        create_simple_model(model_path)
+        stale_context = tmp_path / "model_npu_staleidentity_ctx.onnx"
+        create_epcontext_onnx(stale_context, "embedded", embed_mode=1)
+        fake_session = MagicMock()
+        fake_session.get_providers.return_value = ["QNNExecutionProvider"]
+        fake_session.get_inputs.return_value = []
+        fake_session.get_outputs.return_value = []
+        fake_winml_session = MagicMock()
+        fake_winml_session._session = fake_session
+        fake_winml_session.running_model_path = model_path
+        context = CompileContext(
+            model_path=model_path,
+            config={
+                "execution_provider": "qnn",
+                "device": "npu",
+                "enable_ep_context": True,
+                "validate": False,
+            },
+        )
+        stage = CompileStage()
+        ep_device = MagicMock()
+        ep_device.device.device_type = "NPU"
+
+        with (
+            patch.dict(
+                "winml.modelkit.compiler.stages.compile.COMPILER_SESSION_MAPPING",
+                {"ort": MagicMock(return_value=fake_winml_session)},
+                clear=False,
+            ),
+            patch("winml.modelkit.compiler.stages.compile.WinMLEPRegistry.instance") as registry,
+            patch.object(stage, "_finalize_output") as finalize_output,
+        ):
+            registry.return_value.auto_device.return_value = ep_device
+            stage.process(context)
+
+        finalize_output.assert_not_called()
+        assert context.output_path is None
+        assert context.warnings == [f"No EPContext produced for {model_path.name}"]
 
     def test_multi_model_sequence_shares_options_and_closes_context(self, tmp_path):
         """First, intermediate, and final models share one EP context in sequence."""
@@ -681,6 +788,64 @@ class TestCompileStageFinalizeOutput:
                         assert b"mymodel_qnn_ctx" in attr.s, f"Expected updated name, got {attr.s}"
                         break
 
+    def test_finalize_output_preserves_previous_referenced_binary_generation(self, tmp_path):
+        """A later publication cannot overwrite a binary used by an older ONNX."""
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        work_dir = tmp_path / "work"
+        output_dir = tmp_path / "output"
+        work_dir.mkdir()
+        output_dir.mkdir()
+        original_model_path = tmp_path / "mymodel.onnx"
+        create_simple_model(original_model_path)
+        context = CompileContext(
+            model_path=original_model_path,
+            config={"execution_provider": "qnn", "output_path": str(output_dir)},
+            work_dir=work_dir,
+        )
+        stage = CompileStage()
+
+        first_ctx = work_dir / "first_identity_ctx.onnx"
+        create_epcontext_onnx(first_ctx, "first_identity_ctx_qnn.bin", embed_mode=0)
+        (work_dir / "first_identity_ctx_qnn.bin").write_bytes(b"first binary")
+        stage._finalize_output(
+            context,
+            work_dir / "model_to_compile.onnx",
+            output_dir,
+            src_ctx_path=first_ctx,
+        )
+        first_published_model = onnx.load(str(context.output_path), load_external_data=False)
+        first_ref = next(
+            attr.s.decode("utf-8")
+            for node in first_published_model.graph.node
+            for attr in node.attribute
+            if node.op_type == "EPContext" and attr.name == "ep_cache_context"
+        )
+        first_published_binary = output_dir / first_ref
+        assert first_published_binary.read_bytes() == b"first binary"
+
+        second_ctx = work_dir / "second_identity_ctx.onnx"
+        create_epcontext_onnx(second_ctx, "second_identity_ctx_qnn.bin", embed_mode=0)
+        (work_dir / "second_identity_ctx_qnn.bin").write_bytes(b"second binary")
+        stage._finalize_output(
+            context,
+            work_dir / "model_to_compile.onnx",
+            output_dir,
+            src_ctx_path=second_ctx,
+        )
+        second_published_model = onnx.load(str(context.output_path), load_external_data=False)
+        second_ref = next(
+            attr.s.decode("utf-8")
+            for node in second_published_model.graph.node
+            for attr in node.attribute
+            if node.op_type == "EPContext" and attr.name == "ep_cache_context"
+        )
+
+        assert second_ref != first_ref
+        assert first_published_binary.read_bytes() == b"first binary"
+        assert (output_dir / second_ref).read_bytes() == b"second binary"
+        assert (output_dir / "mymodel_qnn_ctx_qnn.bin").read_bytes() == b"second binary"
+
     def test_updates_matching_cache_reference_with_malformed_main_context(self, tmp_path):
         """Binary renames follow the referenced file, not malformed main metadata."""
         from winml.modelkit.compiler import CompileContext, CompileStage
@@ -780,9 +945,17 @@ class TestCompileStageFinalizeOutput:
             for attr in node.attribute
             if node.op_type == "EPContext" and attr.name == "ep_cache_context"
         }
-        assert cache_refs == {
-            "mymodel_qnn_ctx.bin",
-            "mymodel_qnn_ctx_partition_1.bin",
+        assert len(cache_refs) == 2
+        assert any(
+            ref.startswith("mymodel_qnn_ctx.") and ref.endswith(".bin") for ref in cache_refs
+        )
+        assert any(
+            ref.startswith("mymodel_qnn_ctx_partition_1.") and ref.endswith(".bin")
+            for ref in cache_refs
+        )
+        assert {((output_dir / ref).read_bytes()) for ref in cache_refs} == {
+            b"main binary",
+            b"secondary binary",
         }
         assert (output_dir / "mymodel_qnn_ctx.bin").read_bytes() == b"main binary"
         assert (output_dir / "mymodel_qnn_ctx_partition_1.bin").read_bytes() == b"secondary binary"
@@ -1334,3 +1507,37 @@ class TestCompilerPipeline:
 
         assert result.success is True
         assert "passthrough" in result.warnings[0].lower()
+
+    def test_final_compile_releases_shared_session_options(self, tmp_path):
+        """The last compile in a run must not retain native ORT SessionOptions."""
+        from unittest.mock import MagicMock
+
+        from winml.modelkit.compiler import Compiler
+
+        model_path = tmp_path / "model.onnx"
+        create_simple_model(model_path)
+        shared_options = object()
+
+        class _Stage:
+            name = "fake"
+
+            @classmethod
+            def should_run(cls, _context):
+                return True
+
+            def process(self, context):
+                context.shared_session_options = shared_options
+                return context
+
+        old_stages = Compiler._stages
+        Compiler._stages = [_Stage]
+        try:
+            config = MagicMock()
+            config.to_dict.return_value = {"execution_provider": "qnn"}
+            config.verbose = False
+            compiler = Compiler()
+            compiler.compile(model_path, config=config)
+        finally:
+            Compiler._stages = old_stages
+
+        assert compiler.shared_session_options is None

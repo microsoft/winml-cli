@@ -13,6 +13,7 @@ belong in tests/sysinfo/test_device.py.
 from __future__ import annotations
 
 import logging
+from unittest.mock import patch
 
 import pytest
 
@@ -25,6 +26,8 @@ from winml.modelkit.config.precision import (
     resolve_precision,
     resolve_quant_types,
 )
+from winml.modelkit.ep_path import EPCatalog
+from winml.modelkit.session.ep_registry import WinMLEPRegistry
 
 
 # =============================================================================
@@ -293,6 +296,126 @@ class TestEpOverride:
         """An explicit device must be supported by the selected catalog EP."""
         with pytest.raises(ValueError, match="does not support device"):
             resolve_precision(device="gpu", ep="vitisai")
+
+
+# =============================================================================
+# TestInternalQuantEpAutoPrecision - EPs that quantize inside the EP
+# =============================================================================
+
+
+class TestInternalQuantEpAutoPrecision:
+    """Auto-precision must not hand a winml QDQ graph to an internal-quant EP.
+
+    VitisAI quantizes to XINT8 itself. Feeding it the NPU default (``w8a16``)
+    makes it partition the QuantizeLinear/DequantizeLinear nodes back to CPU and
+    then abort inside xir, which kills the process instead of failing the build.
+    """
+
+    @pytest.mark.parametrize("ep", ["vitisai", "VitisAIExecutionProvider"])
+    def test_auto_skips_quantization_without_inventing_a_precision(self, ep: str) -> None:
+        """``--precision auto`` requests the ``--no-quant`` behavior, not fp32.
+
+        ``precision`` stays ``"auto"`` because winml makes no precision choice
+        here — the EP does. Claiming a concrete precision would misreport intent.
+        """
+        policy = resolve_precision(device="npu", precision="auto", ep=ep)
+
+        assert policy.skip_quantization is True
+        assert policy.precision == "auto"
+        assert policy.weight_type is None
+        assert policy.activation_type is None
+
+    def test_auto_warns_that_this_ep_differs(self, caplog: pytest.LogCaptureFixture) -> None:
+        """End users must be told the behavior deviates from other EPs."""
+        with caplog.at_level(logging.WARNING, logger="winml.modelkit.config.precision"):
+            resolve_precision(device="npu", precision="auto", ep="vitisai")
+
+        warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+        assert warnings, "expected a user-visible warning"
+        message = warnings[0]
+        assert "quantizes internally" in message
+        assert "--no-quant" in message
+        assert "differently" in message
+
+    def test_other_npu_eps_keep_the_quantized_default(self) -> None:
+        """QNN (no internal quantization) still gets the NPU ``w8a16`` default."""
+        policy = resolve_precision(device="npu", precision="auto", ep="qnn")
+
+        assert policy.skip_quantization is False
+        assert policy.precision == "w8a16"
+        assert policy.weight_type == "uint8"
+        assert policy.activation_type == "uint16"
+
+    def test_explicit_precision_still_wins(self) -> None:
+        """The fallback only applies to ``auto`` — an explicit request is honored."""
+        policy = resolve_precision(device="npu", precision="w8a16", ep="vitisai")
+
+        assert policy.skip_quantization is False
+        assert policy.precision == "w8a16"
+        assert policy.weight_type == "uint8"
+        assert policy.activation_type == "uint16"
+
+    def test_concrete_device_with_omitted_ep_on_an_amd_only_host(self) -> None:
+        """``--device npu`` with no ``--ep`` must still see the deduced EP.
+
+        ``_resolve_policy_target`` short-circuits for a pinned device and hands
+        ``ep=None`` to this function, so the decision has to deduce the EP the
+        device will actually resolve to. On an AMD-only host that is VitisAI, and
+        without the deduction the build would fall through to ``w8a16`` and hand
+        VitisAI a QDQ graph it cannot consume.
+        """
+        available = frozenset({"VitisAIExecutionProvider", "CPUExecutionProvider"})
+        with (
+            patch.object(WinMLEPRegistry, "available_eps", return_value=available),
+            patch.object(EPCatalog, "is_compatible", return_value=True),
+        ):
+            policy = resolve_precision(device="npu", precision="auto", ep=None)
+
+        assert policy.skip_quantization is True
+        assert policy.precision == "auto"
+        assert policy.weight_type is None
+        assert policy.activation_type is None
+        assert policy.compile_provider == "vitisai"
+
+    def test_concrete_device_with_omitted_ep_on_a_qnn_host(self) -> None:
+        """The same path keeps ``w8a16`` when the deduced NPU EP is not internal-quant."""
+        available = frozenset({"QNNExecutionProvider", "CPUExecutionProvider"})
+        with (
+            patch.object(WinMLEPRegistry, "available_eps", return_value=available),
+            patch.object(EPCatalog, "is_compatible", return_value=True),
+        ):
+            policy = resolve_precision(device="npu", precision="auto", ep=None)
+
+        assert policy.skip_quantization is False
+        assert policy.precision == "w8a16"
+        assert policy.compile_provider == "qnn"
+
+    def test_quant_compile_config_skips_quant_for_deduced_internal_quant_ep(self) -> None:
+        """The build-facing wrapper must produce no quant config on that same path."""
+        from winml.modelkit.config.build import resolve_quant_compile_config
+
+        available = frozenset({"VitisAIExecutionProvider", "CPUExecutionProvider"})
+        with (
+            patch.object(WinMLEPRegistry, "available_eps", return_value=available),
+            patch.object(EPCatalog, "is_compatible", return_value=True),
+        ):
+            quant_config, compile_config = resolve_quant_compile_config(device="npu")
+
+        assert quant_config is None, "VitisAI must get no winml quantization stage"
+        assert compile_config is not None
+
+    def test_every_internal_quant_ep_is_covered(self) -> None:
+        """Guard the policy table: each listed EP resolves to a skip-quant auto."""
+        from winml.modelkit.session import short_ep_name
+        from winml.modelkit.utils.constants import EPS_WITH_INTERNAL_QUANT
+
+        assert EPS_WITH_INTERNAL_QUANT, "policy table must not be empty"
+        for ep_name in EPS_WITH_INTERNAL_QUANT:
+            policy = resolve_precision(precision="auto", ep=ep_name)
+            assert policy.skip_quantization is True, ep_name
+            assert policy.weight_type is None, ep_name
+            assert policy.activation_type is None, ep_name
+            assert policy.compile_provider == short_ep_name(ep_name)
 
 
 # =============================================================================

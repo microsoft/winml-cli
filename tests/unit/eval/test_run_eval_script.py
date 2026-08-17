@@ -57,6 +57,38 @@ def run_eval():
     return _load_run_eval()
 
 
+@pytest.fixture(autouse=True)
+def _deterministic_ep_deduction(run_eval):
+    """Pin the device->EP deduction so these tests do not depend on the host.
+
+    ``_should_skip_winml_quant`` deduces the EP from the device when ``--ep`` is
+    omitted, so without this the expectations below would flip on an AMD box
+    (where ``npu`` resolves to VitisAI). Default to QNN — not an internal-quant
+    EP — which keeps the historical NPU behavior; tests that exercise the
+    deduction patch it themselves.
+    """
+    run_eval._deduce_ep_for_device.cache_clear()
+    def resolve_target(ep, device):
+        from winml.modelkit.session import default_device_for_ep, expand_ep_name
+
+        resolved_device = device if device and device != "auto" else None
+        if resolved_device is None and ep and ep != "auto":
+            resolved_device = default_device_for_ep(expand_ep_name(ep))
+        resolved_device = resolved_device or "cpu"
+        resolved_ep = ep if ep and ep != "auto" else run_eval._effective_ep(None, resolved_device)
+        return resolved_ep or "CPUExecutionProvider", resolved_device
+
+    with (
+        patch(
+            "winml.modelkit.session.default_ep_for_device",
+            return_value="QNNExecutionProvider",
+        ),
+        patch.object(run_eval, "_resolve_eval_target", side_effect=resolve_target),
+    ):
+        yield
+    run_eval._deduce_ep_for_device.cache_clear()
+
+
 class TestShouldSkipWinmlQuant:
     """Membership test for ``_should_skip_winml_quant``.
 
@@ -77,6 +109,208 @@ class TestShouldSkipWinmlQuant:
     )
     def test_other_eps_do_not_skip(self, run_eval, ep):
         assert run_eval._should_skip_winml_quant(ep) is False
+
+
+class TestKillProcessTree:
+    def test_access_denied_child_does_not_escape(self, run_eval):
+        import psutil
+
+        child = MagicMock()
+        child.kill.side_effect = psutil.AccessDenied(pid=456)
+        parent = MagicMock()
+        parent.children.return_value = [child]
+
+        with (
+            patch.object(psutil, "Process", return_value=parent),
+            patch.object(psutil, "wait_procs") as wait_procs,
+        ):
+            run_eval._kill_process_tree(123)
+
+        parent.kill.assert_called_once_with()
+        wait_procs.assert_called_once_with([child, parent], timeout=5)
+
+    def test_children_race_falls_back_to_platform_kill(self, run_eval):
+        import psutil
+
+        parent = MagicMock()
+        parent.children.side_effect = psutil.NoSuchProcess(pid=123)
+
+        with (
+            patch.object(psutil, "Process", return_value=parent),
+            patch.object(run_eval.platform, "system", return_value="Windows"),
+            patch.object(run_eval.subprocess, "run") as subprocess_run,
+        ):
+            run_eval._kill_process_tree(123)
+
+        subprocess_run.assert_called_once_with(
+            ["taskkill", "/F", "/T", "/PID", "123"],
+            capture_output=True,
+        )
+
+
+def test_curated_target_models_preserve_existing_priorities(run_eval):
+    testsets_dir = (
+        Path(__file__).resolve().parents[3]
+        / "scripts"
+        / "e2e_eval"
+        / "testsets"
+    )
+    curated = json.loads((testsets_dir / "models_curated.json").read_text(encoding="utf-8"))
+    target_entries = curated[-43:]
+    target_keys = {(entry["hf_id"], entry["task"]) for entry in target_entries}
+    expected_p2 = {
+        ("Helsinki-NLP/opus-mt-en-ru", "translation"),
+        ("Helsinki-NLP/opus-mt-fr-en", "translation"),
+        ("cross-encoder/ms-marco-MiniLM-L4-v2", "text-classification"),
+        ("cross-encoder/ms-marco-MiniLM-L6-v2", "text-classification"),
+        ("facebook/bart-large-mnli", "text-classification"),
+        ("mixedbread-ai/mxbai-rerank-xsmall-v1", "text-classification"),
+    }
+
+    entries = run_eval.load_registry(testsets_dir / "models_all.json")
+    generated = [entry for entry in entries if (entry.hf_id, entry.task) in target_keys]
+
+    assert len(target_entries) == 43
+    assert len(generated) == 43
+    assert {entry["group"] for entry in target_entries} == {"Top200"}
+    assert {
+        (entry["hf_id"], entry["task"])
+        for entry in target_entries
+        if entry["priority"] == "P2"
+    } == expected_p2
+    assert sum(entry["priority"] == "P3" for entry in target_entries) == 37
+    assert {
+        (entry.hf_id, entry.task) for entry in generated if entry.priority == "P2"
+    } == expected_p2
+    assert sum(entry.priority == "P3" for entry in generated) == 37
+    assert {entry.group for entry in generated} == {"Top200"}
+    assert "Cross EP" not in json.dumps(curated)
+    assert "Cross EP" not in (testsets_dir / "models_all.json").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("ep,device", [("auto", "npu"), ("qnn", "auto")])
+def test_recipe_copy_rejects_automatic_destination(run_eval, ep, device):
+    with pytest.raises(
+        ValueError,
+        match="--copy-recipes-from requires explicit --ep and --device",
+    ):
+        run_eval._validate_recipe_copy_target(ep, device)
+
+
+def test_recipe_copy_accepts_concrete_destination(run_eval):
+    run_eval._validate_recipe_copy_target("qnn", "npu")
+
+
+class TestDeducedEpForPinnedDevice:
+    """``--device npu`` with ``--ep`` omitted must still see the effective EP.
+
+    The harness forwards its own ``--precision`` to ``winml config``/``build``,
+    which suppresses the product-side auto-precision policy. So when only the
+    device is pinned, the harness has to deduce the EP itself — otherwise a run
+    on an AMD-only host expands quantized jobs and forces ``w8a16`` onto VitisAI.
+    """
+
+    @staticmethod
+    def _with_deduced_ep(run_eval, ep_name):
+        """Patch the device->EP deduction and reset its cache first."""
+        run_eval._deduce_ep_for_device.cache_clear()
+        return patch(
+            "winml.modelkit.session.default_ep_for_device",
+            return_value=ep_name,
+        )
+
+    @staticmethod
+    def _entry(run_eval):
+        return run_eval.ModelEntry(
+            hf_id="acme/model",
+            task="image-classification",
+            model_type="vit",
+            priority="P0",
+            group="Benchmark",
+        )
+
+    def test_skips_quant_when_device_deduces_to_vitisai(self, run_eval):
+        with self._with_deduced_ep(run_eval, "VitisAIExecutionProvider"):
+            assert run_eval._should_skip_winml_quant(None, "npu") is True
+        run_eval._deduce_ep_for_device.cache_clear()
+
+    def test_keeps_quant_when_device_deduces_to_qnn(self, run_eval):
+        with self._with_deduced_ep(run_eval, "QNNExecutionProvider"):
+            assert run_eval._should_skip_winml_quant(None, "npu") is False
+        run_eval._deduce_ep_for_device.cache_clear()
+
+    def test_resolve_precision_drops_w8a16_for_deduced_vitisai(self, run_eval):
+        with self._with_deduced_ep(run_eval, "VitisAIExecutionProvider"):
+            assert run_eval._resolve_precision("npu", None) is None
+        run_eval._deduce_ep_for_device.cache_clear()
+
+    def test_build_jobs_drops_quantized_fanout_for_deduced_vitisai(self, run_eval):
+        """No ``--ep``: the NPU quantized fan-out collapses to one unquantized job."""
+        with self._with_deduced_ep(run_eval, "VitisAIExecutionProvider"):
+            jobs = run_eval._build_jobs([self._entry(run_eval)], None, "npu", ep=None)
+        run_eval._deduce_ep_for_device.cache_clear()
+
+        assert len(jobs) == 1
+        assert jobs[0].fallback_precision is None
+
+    def test_build_jobs_still_expands_for_deduced_qnn(self, run_eval):
+        """The same path keeps the w8a8 + w8a16 fan-out on a QNN host."""
+        with self._with_deduced_ep(run_eval, "QNNExecutionProvider"):
+            jobs = run_eval._build_jobs([self._entry(run_eval)], None, "npu", ep=None)
+        run_eval._deduce_ep_for_device.cache_clear()
+
+        assert [j.fallback_precision for j in jobs] == list(run_eval._NPU_FALLBACK_PRECISIONS)
+
+    def test_auto_device_defers_to_the_product(self, run_eval):
+        """``--device auto`` must not deduce.
+
+        The product resolves that itself and applies its own auto-precision
+        policy; the harness forces no precision, so there is nothing to gate.
+        """
+        run_eval._deduce_ep_for_device.cache_clear()
+        assert run_eval._deduce_ep_for_device("auto") is None
+        assert run_eval._should_skip_winml_quant(None, "auto") is False
+
+
+class TestBuildJobsTargetResolution:
+    @staticmethod
+    def _entry(run_eval):
+        return run_eval.ModelEntry(
+            hf_id="acme/model",
+            task="image-classification",
+            model_type="vit",
+            priority="P0",
+            group="Benchmark",
+        )
+
+    @pytest.mark.parametrize(
+        ("ep", "device", "resolved_ep", "resolved_device"),
+        [
+            (None, "cpu", "CPUExecutionProvider", "cpu"),
+            ("qnn", "auto", "QNNExecutionProvider", "npu"),
+        ],
+    )
+    def test_resolves_single_auto_axis_before_recipe_lookup(
+        self, run_eval, ep, device, resolved_ep, resolved_device
+    ):
+        with (
+            patch.object(
+                run_eval,
+                "_resolve_eval_target",
+                return_value=(resolved_ep, resolved_device),
+            ) as resolve,
+            patch.object(run_eval, "discover_recipe_variants", return_value=[]) as discover,
+        ):
+            run_eval._build_jobs([self._entry(run_eval)], Path("recipes"), device, ep=ep)
+
+        resolve.assert_called_once_with(ep, device)
+        discover.assert_called_once_with(
+            Path("recipes"),
+            "acme/model",
+            "image-classification",
+            ep=resolved_ep,
+            device=resolved_device,
+        )
 
 
 class TestResolvePrecision:
@@ -104,9 +338,10 @@ class TestResolvePrecision:
         captured = capsys.readouterr()
         # Warning must mention the dropped value and the EP so the override
         # is visible in the log when an explicit per-model precision is set
-        # for an EP that runs on the unquantized variant.
+        # for an EP that runs on the unquantized variant. The EP is reported in
+        # its canonical form, which also covers the deduced-EP case.
         assert "w8a8" in captured.out
-        assert "vitisai" in captured.out
+        assert "vitisai" in captured.out.lower()
 
 
 class TestResolveOpTracing:
@@ -251,12 +486,14 @@ class TestCompositeOnnxRegistry:
         assert result["success"] is True
         assert result["stage"] == "prebuilt"
         assert result["onnx_paths"] == entry.composite_onnx
+        # Nothing is built, so the caller's resolved precision is reported as-is.
+        assert result["precision"] is None
         mock_subprocess.assert_not_called()
 
 
 class TestRunBuildNoQuantInjection:
     """``_run_build`` must append ``--no-quant`` to both winml config and
-    winml build invocations when the EP is in ``_EPS_SKIP_WINML_QUANT``.
+    winml build invocations when the EP quantizes internally (``EPS_WITH_INTERNAL_QUANT``).
     """
 
     @staticmethod
@@ -439,6 +676,212 @@ class TestRunBuildPrecisionForwarding:
     def test_precision_omitted_from_build_when_none(self, run_eval, tmp_path):
         build_call = next(a for a in self._invoke(run_eval, None, tmp_path) if "build" in a)
         assert "--precision" not in build_call, build_call
+
+
+class TestPrecisionFromBuildConfig:
+    """``_precision_from_build_config`` reads back what ``winml config`` resolved."""
+
+    def _write(self, tmp_path, cfg):
+        path = tmp_path / "build_config.json"
+        path.write_text(json.dumps(cfg), encoding="utf-8")
+        return path
+
+    def test_missing_quant_section_is_none(self, run_eval, tmp_path):
+        # Nothing was requested, so nothing is claimed: the config is reported
+        # verbatim rather than inferred as fp32 (the graph's own dtype is not
+        # something the config states).
+        assert run_eval._precision_from_build_config(self._write(tmp_path, {})) is None
+        assert (
+            run_eval._precision_from_build_config(self._write(tmp_path, {"quant": None})) is None
+        )
+
+    @pytest.mark.parametrize(
+        ("weight_type", "activation_type", "expected"),
+        [
+            ("uint8", "uint16", "w8a16"),
+            ("uint8", "uint8", "w8a8"),
+            ("int8", "int16", "w8a16"),
+        ],
+    )
+    def test_qdq_types_map_to_precision(
+        self, run_eval, tmp_path, weight_type, activation_type, expected
+    ):
+        cfg = {
+            "quant": {
+                "mode": "qdq",
+                "weight_type": weight_type,
+                "activation_type": activation_type,
+            }
+        }
+        assert run_eval._precision_from_build_config(self._write(tmp_path, cfg)) == expected
+
+    def test_fp16_mode(self, run_eval, tmp_path):
+        cfg = {"quant": {"mode": "fp16", "weight_type": None, "activation_type": None}}
+        assert run_eval._precision_from_build_config(self._write(tmp_path, cfg)) == "fp16"
+
+    def test_rtn_mode_uses_bits(self, run_eval, tmp_path):
+        cfg = {"quant": {"mode": "rtn", "rtn_bits": 4}}
+        assert run_eval._precision_from_build_config(self._write(tmp_path, cfg)) == "int4"
+
+    def test_unrecognised_quant_shape_is_none(self, run_eval, tmp_path):
+        cfg = {"quant": {"mode": "qdq", "weight_type": "float8", "activation_type": None}}
+        assert run_eval._precision_from_build_config(self._write(tmp_path, cfg)) is None
+
+    def test_unreadable_config_is_none(self, run_eval, tmp_path):
+        missing = tmp_path / "nope.json"
+        assert run_eval._precision_from_build_config(missing) is None
+        broken = tmp_path / "broken.json"
+        broken.write_text("{not json", encoding="utf-8")
+        assert run_eval._precision_from_build_config(broken) is None
+
+
+class TestRunBuildReportsEffectivePrecision:
+    """``_run_build`` reports the precision the build actually applied.
+
+    A fallback job may pin no precision (CPU/GPU, or ``--device auto``), yet
+    ``winml config`` still resolves ``auto`` to a device default -- w8a16 on NPU.
+    Returning None there let the recorded result claim "no precision", which the
+    downstream reports render as an unquantized run.
+    """
+
+    @staticmethod
+    def _make_entry():
+        entry = MagicMock()
+        entry.hf_id = "google-bert/bert-base-uncased"
+        entry.task = "text-classification"
+        entry.perf_args = []
+        return entry
+
+    def _invoke(self, run_eval, tmp_path, precision, quant):
+        def fake_subprocess(args, _timeout):
+            if "config" in args:
+                (tmp_path / "build_config.json").write_text(
+                    json.dumps({"quant": quant}), encoding="utf-8"
+                )
+                stdout = ""
+            else:
+                stdout = "Build cache: model.onnx"
+            return {
+                "exit_code": 0,
+                "stdout": stdout,
+                "stderr": "",
+                "elapsed": 0.1,
+                "command": " ".join(args),
+            }
+
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=fake_subprocess),
+            patch.object(run_eval, "_extract_onnx_path", return_value=str(tmp_path / "model.onnx")),
+        ):
+            return run_eval._run_build(
+                self._make_entry(), "npu", precision, 300, tmp_path, ep="qnn"
+            )
+
+    def test_pinned_precision_is_reported(self, run_eval, tmp_path):
+        quant = {"mode": "qdq", "weight_type": "uint8", "activation_type": "uint8"}
+        result = self._invoke(run_eval, tmp_path, "w8a8", quant)
+        assert result["precision"] == "w8a8"
+
+    def test_auto_resolved_precision_is_read_from_config(self, run_eval, tmp_path):
+        quant = {"mode": "qdq", "weight_type": "uint8", "activation_type": "uint16"}
+        result = self._invoke(run_eval, tmp_path, None, quant)
+        assert result["precision"] == "w8a16"
+
+    def test_unquantized_config_reports_nothing(self, run_eval, tmp_path):
+        result = self._invoke(run_eval, tmp_path, None, None)
+        assert result["precision"] is None
+
+
+class TestBuildForJobPrecision:
+    """``_build_for_job`` reports the precision the build applied, not the declared one.
+
+    A skip-quant EP (VitisAI) is built with ``--no-quant`` and ``_resolve_precision``
+    drops even an explicit per-model precision, so the job must not report that
+    ignored value -- stamping it would publish an unquantized artifact under a
+    quantized label.
+    """
+
+    def test_skip_quant_ep_drops_explicit_entry_precision(self, run_eval, tmp_path):
+        entry = _entry("some/model", "text-classification")
+        entry.precision = "w8a16"
+        job = run_eval.EvalJob(entry, None)
+        assert job.precision == "w8a16"  # declared: still drives the dir slug
+
+        args = argparse.Namespace(ep="vitisai", device="npu", timeout=300)
+        captured: list[list[str]] = []
+
+        def fake_subprocess(cmd, _timeout):
+            captured.append(list(cmd))
+            if "config" in cmd:
+                # --no-quant makes winml config emit a config with no quant stage.
+                (tmp_path / "build_config.json").write_text(
+                    json.dumps({"quant": None}), encoding="utf-8"
+                )
+                stdout = ""
+            else:
+                stdout = "Build cache: model.onnx"
+            return {
+                "exit_code": 0,
+                "stdout": stdout,
+                "stderr": "",
+                "elapsed": 0.1,
+                "command": " ".join(cmd),
+            }
+
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=fake_subprocess),
+            patch.object(run_eval, "_extract_onnx_path", return_value=str(tmp_path / "m.onnx")),
+        ):
+            build_result, _meta, _trust = run_eval._build_for_job(job, args, tmp_path)
+
+        assert all("--no-quant" in cmd for cmd in captured)
+        assert all("--precision" not in cmd for cmd in captured)
+        assert build_result["precision"] is None
+
+
+class TestMergeBackfillResult:
+    """``_merge_backfill_result`` splices accuracy into an existing result.
+
+    The backfill rebuilds the model, so the rebuild's precision is authoritative
+    for the merged result -- including when it is None.
+    """
+
+    @staticmethod
+    def _existing(**extra):
+        return {
+            "model": "some/model",
+            "perf": {"passed": True, "elapsed": 3.5},
+            "accuracy": None,
+            "eval_types_run": ["perf"],
+            **extra,
+        }
+
+    def test_stale_precision_cleared_when_rebuild_reports_none(self, run_eval):
+        # A perf-only result written before this fix (VitisAI + declared w8a16)
+        # must not keep claiming that precision once the rebuild -- which runs
+        # with --no-quant -- reports none.
+        existing = self._existing(precision="w8a16")
+        merged = run_eval._merge_backfill_result(existing, {"metrics": {}}, None)
+        assert "precision" not in merged
+
+    def test_rebuild_precision_replaces_recorded_value(self, run_eval):
+        existing = self._existing(precision="w8a16")
+        merged = run_eval._merge_backfill_result(existing, {"metrics": {}}, "w8a8")
+        assert merged["precision"] == "w8a8"
+
+    def test_perf_preserved_and_accuracy_spliced(self, run_eval):
+        existing = self._existing()
+        accuracy = {"metrics": {"top1_accuracy": 1.0}}
+        merged = run_eval._merge_backfill_result(existing, accuracy, "fp16")
+        assert merged["perf"] == existing["perf"]
+        assert merged["accuracy"] is accuracy
+        assert merged["eval_types_run"] == ["perf", "accuracy"]
+        assert existing["accuracy"] is None  # input not mutated
+
+    def test_accuracy_eval_type_not_duplicated(self, run_eval):
+        existing = self._existing(eval_types_run=["perf", "accuracy"])
+        merged = run_eval._merge_backfill_result(existing, {"metrics": {}}, None)
+        assert merged["eval_types_run"] == ["perf", "accuracy"]
 
 
 class TestFeedVersionForCombo:
@@ -908,6 +1351,30 @@ class TestBuildJobs:
         assert jobs[0].variant is None
         assert jobs[0].precision is None
 
+    def test_npu_skip_quant_ep_drops_quantized_recipe_variants(self, run_eval, tmp_path):
+        # A skip-quant EP is evaluated on the unquantized model, so an authored
+        # quantized recipe (which bakes its own quant section that --no-quant
+        # cannot override) must not be scheduled even on NPU.
+        self._make_single_recipe(
+            tmp_path, "microsoft_resnet-50", "image-classification", ["fp16", "w8a16"]
+        )
+        entry = _entry()
+        jobs = run_eval._build_jobs([entry], tmp_path, "npu", ep="vitisai")
+        assert [j.precision for j in jobs] == ["fp16"]
+        assert jobs[0].variant is not None
+
+    def test_npu_skip_quant_ep_recipe_only_quantized_falls_back(self, run_eval, tmp_path):
+        # Dropping every quantized variant leaves nothing to build, so the model
+        # goes through the single unquantized winml-config fallback.
+        self._make_single_recipe(
+            tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"]
+        )
+        entry = _entry()
+        jobs = run_eval._build_jobs([entry], tmp_path, "npu", ep="vitisai")
+        assert len(jobs) == 1
+        assert jobs[0].variant is None
+        assert jobs[0].precision is None
+
     def test_non_npu_no_recipe_single_fallback(self, run_eval, tmp_path):
         entry = _entry("some/model", "text-classification")
         jobs = run_eval._build_jobs([entry], tmp_path, "cpu")
@@ -1045,6 +1512,17 @@ class TestRunRecipeBuild:
             result = run_eval._run_recipe_build(_entry(), variant, 300, tmp_path / "o")
         assert result["success"] is False
         assert result["stage"] == "build"
+
+    def test_reports_variant_precision(self, run_eval, tmp_path):
+        # The authored recipe is the source of truth for its precision, so the
+        # build reports it for the recorded result (same contract as _run_build).
+        variant = self._variant(run_eval, tmp_path, composite=False)
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=self._fake_subprocess([])),
+            patch.object(run_eval, "_extract_onnx_path", side_effect=lambda *a: "m.onnx"),
+        ):
+            result = run_eval._run_recipe_build(_entry(), variant, 300, tmp_path / "o")
+        assert result["precision"] == variant.precision == "fp16"
 
 
 class TestRunWinmlEvalRecipePath:

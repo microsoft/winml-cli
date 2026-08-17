@@ -6,6 +6,7 @@
 """Tests for ``ActionGroup`` — the Click ``Group`` subclass that
 auto-instruments every registered subcommand with WinML CLI telemetry."""
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import click
@@ -291,6 +292,29 @@ def test_action_records_scrubbed_model_id(enabled_telemetry, model_arg, expected
     runner.invoke(cli, ["perf", "-m", model_arg])
     action_record = mock_logger.emit.call_args_list[1].args[0]
     assert dict(action_record.attributes)["model_id"] == expected_model_id
+
+
+def test_action_accepts_path_typed_model(enabled_telemetry, tmp_path):
+    @click.group(cls=ActionGroup)
+    def cli():
+        pass
+
+    @cli.command()
+    @click.option("-m", "--model", type=click.Path(exists=True, path_type=Path))
+    def analyze(model):
+        (tmp_path / "analysis.json").write_text("{}")
+
+    model_path = tmp_path / "model.onnx"
+    model_path.write_bytes(b"")
+    telemetry = Telemetry.get_or_init()
+    mock_logger = _with_mock_logger(telemetry)
+
+    result = CliRunner().invoke(cli, ["analyze", "-m", str(model_path)])
+
+    assert (tmp_path / "analysis.json").exists()
+    assert result.exit_code == 0
+    action_record = mock_logger.emit.call_args_list[1].args[0]
+    assert dict(action_record.attributes)["model_id"] == "<local:.onnx>"
 
 
 def test_action_prefers_model_id_param(enabled_telemetry):

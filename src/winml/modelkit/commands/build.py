@@ -785,7 +785,7 @@ def _maybe_build_genai_bundle(
 # =============================================================================
 
 
-@click.command("build")
+@click.command("build", short_help="Build a WinML-optimized ONNX model from HuggingFace or ONNX.")
 @click.option(
     "-c",
     "--config",
@@ -807,17 +807,10 @@ def _maybe_build_genai_bundle(
     default=None,
     help="Output directory for all build artifacts",
 )
-@click.option(
-    "--use-cache/--no-use-cache",
-    default=False,
-    show_default=True,
-    help="Use WinML CLI global cache (~/.cache/winml/). Mutually exclusive with -o.",
-)
-@click.option(
-    "--rebuild/--no-rebuild",
-    default=False,
-    show_default=True,
-    help="Overwrite existing artifacts and rebuild",
+@cli_utils.cache_options(
+    use_cache_default=False,
+    use_cache_help="Use WinML CLI global cache (~/.cache/winml/). Mutually exclusive with -o.",
+    rebuild_help="Overwrite existing artifacts and rebuild",
 )
 @cli_utils.quant_option()
 @cli_utils.compile_option(
@@ -976,7 +969,6 @@ def build(
         "EPNameOrAlias | None",
         _reject_ep_source(ep, "winml build"),
     )
-
     # Validate mutual exclusion
     if output_dir and use_cache:
         raise click.UsageError("--output-dir and --use-cache are mutually exclusive.")
@@ -1008,20 +1000,6 @@ def build(
         dynamic_axes=dynamic_axes,
     )
 
-    # Resolve an omitted EP and the requested device as one target. Forwarding
-    # both concrete axes keeps analyzer/build output aligned with the target
-    # selected by the catalog-backed resolver.
-    if ep_value is None:
-        from ..session import EPDeviceTarget, resolve_device
-
-        try:
-            resolved_target = resolve_device(EPDeviceTarget(ep="auto", device=device))
-        except ValueError as e:
-            raise click.UsageError(str(e)) from e
-        device = resolved_target.device
-        ep_value = cast("EPNameOrAlias", resolved_target.ep)
-        logger.info("Auto-resolved device=%s, EP=%s", device, ep_value)
-
     try:
         # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
         # is downloaded once and treated as a local .onnx file thereafter.
@@ -1032,6 +1010,21 @@ def build(
                 model_input = classify_model_input(model)
                 if model_input.kind is ModelInputKind.INVALID:
                     raise click.UsageError(model_input.error or f"Invalid model input: {model}")
+
+        request_device = device
+        request_ep_value = ep_value
+        runtime_device = request_device
+        runtime_ep_value = request_ep_value
+        if runtime_ep_value is None:
+            from ..session import EPDeviceTarget, resolve_device
+
+            try:
+                resolved_target = resolve_device(EPDeviceTarget(ep="auto", device=runtime_device))
+            except ValueError as e:
+                raise click.UsageError(str(e)) from e
+            runtime_device = resolved_target.device
+            runtime_ep_value = cast("EPNameOrAlias", resolved_target.ep)
+            logger.info("Auto-resolved device=%s, EP=%s", runtime_device, runtime_ep_value)
 
         # Load or auto-generate config
         if config_file is not None:
@@ -1064,6 +1057,9 @@ def build(
                     ]
                 else:
                     config_or_configs = merge_export_overrides(config_or_configs, export_overrides)
+            from ..config.build import apply_export_compatibility_policy
+
+            apply_export_compatibility_policy(config_or_configs, device=device, ep=ep_value)
         else:
             if not model:
                 raise click.UsageError("-m/--model is required when -c is not provided.")
@@ -1088,17 +1084,18 @@ def build(
                     )
                 config_or_configs = generate_build_config(
                     onnx_path=model,
-                    device=device,
+                    device=runtime_device,
                     precision=precision,
-                    ep=ep_value,
+                    ep=runtime_ep_value,
                 )
             else:
                 config_or_configs = generate_build_config(
                     model,
                     trust_remote_code=trust_remote_code,
-                    device=device,
+                    device=runtime_device,
                     precision=precision,
-                    ep=ep_value,
+                    ep=runtime_ep_value,
+                    export_policy_target=(request_device, request_ep_value),
                     shape_config=shape_overrides,
                     override={"export": export_overrides} if export_overrides else None,
                 )
@@ -1115,14 +1112,22 @@ def build(
         # to honor the requested policy. fp16/fp32 clear quant; npu/int8 etc set it.
         if cli_utils.is_cli_provided(ctx, "device") or cli_utils.is_cli_provided(ctx, "precision"):
             from ..compiler.configs import WinMLCompileConfig
+            from ..onnx import is_quantized_onnx
+
+            is_pre_quantized_onnx_input = (
+                model_input is not None
+                and model_input.kind is ModelInputKind.ONNX_FILE
+                and model is not None
+                and is_quantized_onnx(Path(model))
+            )
 
             def _patch_device(cfg: WinMLBuildConfig) -> None:
                 from ..config import resolve_quant_compile_config
 
                 resolved_quant, _ = resolve_quant_compile_config(
-                    device=device, precision=precision, ep=ep_value
+                    device=runtime_device, precision=precision, ep=runtime_ep_value
                 )
-                if cfg.skip_optimize or not quant or resolved_quant is None:
+                if not quant or resolved_quant is None or is_pre_quantized_onnx_input:
                     cfg.quant = None
                 elif cfg.quant is None:
                     # Populate calibration identifiers from the loader/model
@@ -1148,7 +1153,7 @@ def build(
                     cfg.precision = precision.lower()  # type: ignore[attr-defined]
                 if cfg.compile is not None and cfg.compile.ep_config is not None:
                     provider = cfg.compile.ep_config.provider
-                    patched = WinMLCompileConfig.for_provider(provider, device=device)
+                    patched = WinMLCompileConfig.for_provider(provider, device=runtime_device)
                     if patched is not None:
                         cfg.compile = patched
 
@@ -1217,8 +1222,8 @@ def build(
             preloaded_hf_config=preloaded_hf_config,
             output_dir=output_dir,
             use_cache=use_cache,
-            device=device,
-            ep=ep_value,
+            device=runtime_device,
+            ep=runtime_ep_value,
             precision=precision,
             rebuild=rebuild,
             submodel=submodel,
@@ -1265,8 +1270,8 @@ def build(
                 configs=configs,
                 output_dir=resolved_dir,
                 rebuild=rebuild,
-                ep=ep_value,
-                device=device,
+                ep=runtime_ep_value,
+                device=runtime_device,
                 allow_unsupported_nodes=allow_unsupported_nodes,
             )
 
@@ -1411,9 +1416,10 @@ def build(
                             model,
                             task=component_task,
                             trust_remote_code=trust_remote_code,
-                            device=device,
+                            device=runtime_device,
                             precision=precision,
-                            ep=ep_value,
+                            ep=runtime_ep_value,
+                            export_policy_target=(request_device, request_ep_value),
                             shape_config=shape_overrides,
                             override={"export": export_overrides} if export_overrides else None,
                         )
@@ -1474,8 +1480,8 @@ def build(
                             resolved_dir=resolved_dir,
                             rebuild=rebuild,
                             cache_key=name,
-                            ep=ep_value,
-                            device=device,
+                            ep=runtime_ep_value,
+                            device=runtime_device,
                             extra_kwargs=dict(extra_kwargs),
                             preloaded_hf_config=preloaded_hf_config,
                         )
@@ -1492,8 +1498,8 @@ def build(
                     resolved_dir=resolved_dir,
                     rebuild=rebuild,
                     cache_key=cache_key,
-                    ep=ep_value,
-                    device=device,
+                    ep=runtime_ep_value,
+                    device=runtime_device,
                     extra_kwargs=extra_kwargs,
                     preloaded_hf_config=preloaded_hf_config,
                 )
@@ -1716,8 +1722,6 @@ def _run_optimize_stage(
         show_io_first: If True, show I/O tensors at the start of the stage
             (used in ONNX mode where there is no export stage).
         skip_optimize: When True, skip the ORT graph-optimization pass.
-            Used for pre-quantized models (QDQ or QOperator format) whose
-            integer ops have no kernel on the host EP.
 
     Returns:
         Tuple of (current_path, opt_elapsed).
@@ -1871,10 +1875,6 @@ def _run_quantize_stage(
     """
     from ..quant import quantize_onnx
     from ..utils.console import StageLive
-
-    if config.skip_optimize:
-        config.quant = None
-        return current_path
 
     if config.quant is None:
         # ``generate_onnx_build_config`` and ``ensure_pre_quantized_stamped``
@@ -2252,14 +2252,6 @@ def _build_onnx_pipeline(
     # run on integer ops and the quantize stage may try to re-quantize.
     ensure_pre_quantized_stamped(config, current_path)
 
-    # Pre-quantized models (QDQ or QOperator format) cannot pass through
-    # ORT-based graph optimization on hosts that lack kernels for ops like
-    # ``ConvInteger``. The unified pipeline stamps ``config.skip_optimize``
-    # exactly once in ``generate_onnx_build_config`` -- downstream stages
-    # (here and inside ``build_onnx_model``) read the flag instead of
-    # re-running ``is_quantized_onnx`` on the same file.
-    is_pre_quantized = config.skip_optimize
-
     # ── Optimize stage (first stage for ONNX — show I/O here) ────
     current_path, _ = _run_optimize_stage(
         config=config,
@@ -2272,7 +2264,7 @@ def _build_onnx_pipeline(
         show_io_first=True,
         analyze_output_path=analyze_result_path,
         allow_unsupported_nodes=allow_unsupported_nodes,
-        skip_optimize=is_pre_quantized,
+        skip_optimize=config.skip_optimize,
     )
 
     config_path.write_text(json.dumps(config.to_dict(), indent=2))

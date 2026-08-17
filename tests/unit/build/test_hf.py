@@ -9,8 +9,11 @@ Tests build_hf_model() and BuildResult independently of CLI and WinMLAutoModel.
 
 from __future__ import annotations
 
+import gc
 import json
+import weakref
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -223,6 +226,47 @@ class TestBuildHfModel:
         assert result.config_path == tmp_path / "winml_build_config.json"
         assert result.reused is False
         assert result.elapsed >= 0
+
+    def test_releases_loaded_model_before_build_stages(
+        self, tmp_path: Path, sample_config_no_quant_compile
+    ) -> None:
+        model_ref: dict[str, weakref.ReferenceType[object]] = {}
+
+        class _Model:
+            pass
+
+        def load_model(*_args: object, **_kwargs: object) -> object:
+            model = _Model()
+            model_ref["model"] = weakref.ref(model)
+            return model
+
+        def export_model(*_args: object, **kwargs: object) -> None:
+            Path(kwargs["output_path"]).write_text("mock")
+
+        def run_stages(**kwargs: object) -> SimpleNamespace:
+            gc.collect()
+            assert model_ref["model"]() is None
+            Path(kwargs["final_path"]).write_text("mock")
+            return SimpleNamespace(
+                stages_completed=[],
+                stages_skipped=["optimize", "quantize", "compile"],
+                stage_timings={},
+                analyze_iterations=0,
+                analyze_unsupported_nodes=0,
+                analyze_details=None,
+                quant_result=None,
+            )
+
+        with (
+            patch("winml.modelkit.build.hf._load_model", new=load_model),
+            patch("winml.modelkit.build.hf.export_onnx", new=export_model),
+            patch("winml.modelkit.build.hf.run_build_stages", new=run_stages),
+        ):
+            build_hf_model(
+                config=sample_config_no_quant_compile,
+                output_dir=tmp_path,
+                model_id="test",
+            )
 
     def test_persists_config(self, tmp_path: Path, sample_config, mock_pipeline) -> None:
         build_hf_model(config=sample_config, output_dir=tmp_path, model_id="test")
@@ -880,7 +924,7 @@ class TestBuildHfPreQuantized:
         mock_pipeline["optimize"].assert_not_called()
 
     def test_skip_optimize_kwarg(self, tmp_path: Path, sample_config, mock_pipeline) -> None:
-        """skip_optimize=True forces optimize+quantize skip."""
+        """skip_optimize=True skips optimize but still quantizes raw exports."""
         mock_pipeline["is_quantized_onnx"].return_value = False
 
         output_dir = tmp_path / "output"
@@ -891,9 +935,9 @@ class TestBuildHfPreQuantized:
             skip_optimize=True,
         )
         assert "optimize" in result.stages_skipped
-        assert "quantize" in result.stages_skipped
+        assert "quantize" in result.stages_completed
         mock_pipeline["optimize"].assert_not_called()
-        mock_pipeline["quantize"].assert_not_called()
+        mock_pipeline["quantize"].assert_called_once()
 
 
 # =============================================================================

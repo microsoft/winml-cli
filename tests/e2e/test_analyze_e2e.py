@@ -173,7 +173,6 @@ class TestAnalyzeCliSurface:
             "--output",
             "--information",
             "--no-information",
-            "--htp-metadata",
             "--run-unknown-op",
             "--no-run-unknown-op",
             "--save-node",
@@ -207,20 +206,6 @@ class TestAnalyzeCliSurface:
         result = _invoke(["-m", str(onnx_model_path), "--save-node", "supported"])
         assert result.exit_code == 2
         assert "Invalid value for '--save-node'" in result.output
-
-    def test_nonexistent_htp_metadata_exits_two(
-        self, onnx_model_path: Path, tmp_path: Path
-    ) -> None:
-        result = _invoke(
-            [
-                "-m",
-                str(onnx_model_path),
-                "--htp-metadata",
-                str(tmp_path / "missing.json"),
-            ]
-        )
-        assert result.exit_code == 2
-        assert "does not exist" in result.output
 
     def test_nonexistent_config_file_exits_two(self, onnx_model_path: Path, tmp_path: Path) -> None:
         result = _invoke(

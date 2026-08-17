@@ -77,8 +77,7 @@ class ONNXSaveError(OSError):
 def _is_disk_full_error(error: OSError) -> bool:
     """Return ``True`` when *error* represents an out-of-disk-space condition."""
     return (
-        error.errno == errno.ENOSPC
-        or getattr(error, "winerror", None) == _WINDOWS_ERROR_DISK_FULL
+        error.errno == errno.ENOSPC or getattr(error, "winerror", None) == _WINDOWS_ERROR_DISK_FULL
     )
 
 
@@ -108,9 +107,7 @@ def _raise_save_error(error: OSError, path: Path) -> NoReturn:
         )
     else:
         message = f"Failed to write ONNX model to {path}: {error}"
-    raise ONNXSaveError(
-        message, path=path, disk_full=disk_full, errno_code=error.errno
-    ) from error
+    raise ONNXSaveError(message, path=path, disk_full=disk_full, errno_code=error.errno) from error
 
 
 def load_onnx(

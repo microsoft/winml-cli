@@ -55,6 +55,7 @@ stages based on the target device and precision.
 | `do_constant_folding` | `bool` | `true` | Fold constants during export. |
 | `verbose` | `bool` | `false` | Verbose export logging. |
 | `dynamo` | `bool` | `false` | Use PyTorch's TorchDynamo ONNX exporter; the default `false` selects the legacy TorchScript exporter. |
+| `compatibility` | `dict \| null` | omitted | Resolved export compatibility knobs. Currently supports `transformers_attention: "eager"` to request eager Transformers attention during ONNX export. |
 | `enable_hierarchy_tags` | `bool` | `true` | Add module hierarchy tags to ONNX nodes. |
 | `clean_onnx` | `bool` | `false` | Strip hierarchy tags after export. |
 | `hierarchy_tag_format` | `"full" \| "module_only"` | `"full"` | Tag detail level. |
@@ -121,6 +122,7 @@ Set to `null` to skip compilation.
 | `ep_config.embed_context` | `bool` | `false` | Embed binary in ONNX (true) or external .bin (false). |
 | `ep_config.compiler` | `str` | `"ort"` | Compiler backend: `ort` or `qairt`. |
 | `ep_config.provider_options` | `dict` | `{}` | EP-specific options. |
+| `ep_config.provider_option_file_keys` | `list[str]` | `[]` | Keys in `provider_options` whose values are input files. Declared paths are canonicalized and content-fingerprinted for EPContext cache identity. |
 | `ep_config.qnn_sdk_root` | `str \| null` | `null` | QNN SDK path for QAIRT compiler backend. |
 | `validate` | `bool` | `true` | Validate compiled model. |
 | `verbose` | `bool` | `false` | Verbose compilation logging. |

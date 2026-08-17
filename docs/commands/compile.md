@@ -23,6 +23,7 @@ $ winml compile [options]
 | `--output-dir` | | path | same dir as input | Directory to write compiled output artifacts. |
 | `--device` | `-d` | choice | `auto` | Target device: `auto`, `npu`, `gpu`, or `cpu`. |
 | `--ep` | | `TEXT` | — | Force a specific execution provider, overriding device-to-provider mapping. Accepts full names (e.g., `QNNExecutionProvider`) or aliases (`qnn`, `dml`, `openvino`, `vitisai`, `migraphx`, `cpu`, `nvtensorrtrtx`). |
+| `--ep-options` | | `KEY=VALUE` | — | Execution-provider option for the compilation session. Repeat for multiple options; later duplicate keys win. Explicit CLI values override matching `compile.provider_options` keys from `--config`. |
 | `--validate` / `--no-validate` | | flag | `--validate` | Run a post-compilation validation pass on the target hardware. Enabled by default; pass `--no-validate` to skip when the target hardware or driver is unavailable. |
 | `--compiler` | | choice | `ort` | Compiler backend: `ort` (ONNX Runtime) or `qairt` (Qualcomm AI Runtime Tools). |
 | `--qnn-sdk-root` | | path | `None` | Path to the QNN SDK root directory. |
@@ -41,6 +42,11 @@ inline with `--embed`) that encodes the hardware-optimized execution plan,
 eliminating graph partitioning at load time. An optional post-compilation
 validation pass runs a forward pass through the
 target EP; skip it with `--no-validate` when the target hardware is absent.
+
+If a provider option names a compiler input file, list its key in
+`compile.provider_option_file_keys` in the JSON config. The CLI canonicalizes
+that option path and fingerprints its contents for EPContext cache identity;
+other provider-option strings are always passed through unchanged.
 
 ## Examples
 
@@ -71,6 +77,13 @@ winml compile --list --device npu
 ```bash
 # Compile a pre-quantized BERT model for NPU with context embedded inline
 winml compile -m bert-base-uncased_qdq.onnx --embed
+```
+
+```bash
+# Pass provider-specific options to the compilation session
+winml compile -m model.onnx --ep qnn \
+  --ep-options htp_performance_mode=burst \
+  --ep-options soc_model=57
 ```
 
 ```bash

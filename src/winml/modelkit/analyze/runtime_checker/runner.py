@@ -11,6 +11,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from ...utils.native_stderr import suppress_native_stderr
+
 
 class _OutputCapturingWrapper:
     """Picklable wrapper that optionally captures stdout/stderr from a function.
@@ -287,9 +289,12 @@ class ResilientRunner:
         attempts = 0
         while True:
             attempts += 1
-            future = self.executor.submit(
-                _OutputCapturingWrapper(fn, capture=self.capture_output), *args
-            )
+            # Native libraries may write startup warnings while the spawned worker
+            # imports modules, before _OutputCapturingWrapper can redirect stderr.
+            with suppress_native_stderr():
+                future = self.executor.submit(
+                    _OutputCapturingWrapper(fn, capture=self.capture_output), *args
+                )
             try:
                 return future.result(timeout=self.timeout_sec)
             except Exception as e:

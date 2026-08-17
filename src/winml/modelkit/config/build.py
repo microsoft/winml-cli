@@ -58,6 +58,7 @@ from ..export.config import (
     WinMLExportConfig,
     _resolve_export_config_from_specs,
 )
+from ..export.policy import export_policy_targets_for_request, resolve_export_compatibility
 from ..loader.config import WinMLLoaderConfig, resolve_loader_config
 from ..optim.config import WinMLOptimizationConfig
 from ..quant.config import WinMLQuantizationConfig
@@ -71,13 +72,15 @@ from ..utils.config_utils import merge_config
 
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     import torch
     from torch import nn
 
     from ..eval.config import WinMLEvaluationConfig  # noqa: TC004
-    from ..utils.constants import EPName, EPNameOrAlias
+    from ..utils.constants import EPNameOrAlias
+
+ExportPolicyTargetRequest = tuple[str | None, str | None]
 
 __all__ = [
     "WinMLBuildConfig",
@@ -138,13 +141,7 @@ class WinMLBuildConfig:
     compile: WinMLCompileConfig | None = field(default_factory=WinMLCompileConfig)
     eval: WinMLEvaluationConfig | None = None
     auto: bool = True
-    # Stamped True by generate_*_build_config (or by the build_*_model
-    # entry-point defensive fallback) when the input ONNX is already
-    # quantized (QDQ or QOperator format). When True, the optimize stage
-    # is bypassed for downstream pipelines (no ORT graph optimization,
-    # no autoconf analyze loop). This is the SINGLE source of truth for
-    # "is this model pre-quantized?" — downstream stages must read this
-    # flag instead of calling ``is_quantized_onnx`` again.
+    # Skip ORT optimization. Pre-quantized inputs also clear ``quant``.
     skip_optimize: bool = False
 
     def __post_init__(self) -> None:
@@ -347,7 +344,7 @@ def _resolve_policy_target(device: str, ep: str | None) -> tuple[str, str | None
     available_eps = registry.available_eps()
     detection_error: RuntimeError | None = None
     for spec in EP_DEVICE_SPECS:
-        policy_devices = EP_SUPPORTED_DEVICES.get(cast("EPName", spec.ep), ())
+        policy_devices = EP_SUPPORTED_DEVICES[spec.ep]
         if (
             spec.device != detected_device
             or detected_device not in policy_devices
@@ -416,7 +413,11 @@ def _apply_target_policy(
 
     # Mutate quant in place so calibration identity fields stamped by
     # _assemble_config survive policy resolution.
-    if policy.weight_type is not None and policy.activation_type is not None:
+    if policy.skip_quantization:
+        # Same operation --no-quant performs. Checked first: the policy carries
+        # no precision choice in this case, so the branches below do not apply.
+        config.quant = None
+    elif policy.weight_type is not None and policy.activation_type is not None:
         if config.quant is None:
             config.quant = WinMLQuantizationConfig()
         config.quant.mode = "static"
@@ -451,6 +452,34 @@ def _apply_target_policy(
             cast("EPNameOrAlias | None", provider),
             device=resolved_device,
         )
+
+
+def _is_explicit_export_policy_target(*, device: str | None, ep: str | None) -> bool:
+    """Return whether the request named a specific EP/device export target."""
+    return (ep is not None and ep.lower() != "auto") or (
+        device is not None and device.lower() != "auto"
+    )
+
+
+def apply_export_compatibility_policy(
+    config: WinMLBuildConfig | Sequence[WinMLBuildConfig],
+    *,
+    device: str | None = "auto",
+    ep: str | None = None,
+) -> None:
+    """Populate export compatibility when the config has an export stage."""
+    export_policy_targets = export_policy_targets_for_request(
+        ep=ep,
+        device=device,
+        target_was_explicit=_is_explicit_export_policy_target(device=device, ep=ep),
+    )
+    configs = (config,) if isinstance(config, WinMLBuildConfig) else config
+    for cfg in configs:
+        if cfg.export is None:
+            continue
+        if cfg.export.compatibility:
+            continue
+        cfg.export.compatibility = resolve_export_compatibility(export_policy_targets)
 
 
 def resolve_quant_compile_config(
@@ -506,7 +535,10 @@ def resolve_quant_compile_config(
 
     # Quant config (weight_type and activation_type are always both-None or both-set)
     quant_config: WinMLQuantizationConfig | None = None
-    if policy.weight_type is not None and policy.activation_type is not None:
+    if policy.skip_quantization:
+        # Same operation --no-quant performs: no quantization stage at all.
+        quant_config = None
+    elif policy.weight_type is not None and policy.activation_type is not None:
         quant_config = WinMLQuantizationConfig()
         quant_config.weight_type = policy.weight_type
         quant_config.activation_type = policy.activation_type
@@ -597,8 +629,6 @@ def generate_onnx_build_config(
 
         if is_quantized_onnx(onnx_path_resolved):
             # Skip optimize+quantize, compile with resolved policy.
-            # ``skip_optimize`` is the single source of truth — downstream
-            # pipelines must read this flag and not re-detect.
             config.quant = None
             config.skip_optimize = True
             config.compile = resolved_compile
@@ -795,6 +825,7 @@ def generate_hf_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    export_policy_target: ExportPolicyTargetRequest | None = None,
     policy_overrides_config: bool = False,
     no_compile: bool = False,
 ) -> WinMLBuildConfig: ...
@@ -815,6 +846,7 @@ def generate_hf_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    export_policy_target: ExportPolicyTargetRequest | None = None,
     policy_overrides_config: bool = False,
     no_compile: bool = False,
 ) -> list[WinMLBuildConfig]: ...
@@ -839,6 +871,7 @@ def generate_hf_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    export_policy_target: ExportPolicyTargetRequest | None = None,
     policy_overrides_config: bool = False,
     no_compile: bool = False,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]: ...
@@ -858,6 +891,7 @@ def generate_hf_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    export_policy_target: ExportPolicyTargetRequest | None = None,
     policy_overrides_config: bool = False,
     no_compile: bool = False,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
@@ -898,6 +932,9 @@ def generate_hf_build_config(
             "int16", or "w{x}a{y}" e.g. "w8a16").
         trust_remote_code: Allow running custom code from model repository.
         ep: Explicit execution provider override.
+        export_policy_target: Optional ``(device, ep)`` request used only for
+            export compatibility resolution. When omitted, the build target is
+            used for both quant/compile policy and export compatibility.
         policy_overrides_config: Apply device/precision/EP policy after
             ``override``. CLI callers set this only when a target option was
             explicitly supplied; otherwise sparse config values remain higher
@@ -1071,6 +1108,11 @@ def generate_hf_build_config(
     if no_compile:
         parent_config.compile = None
 
+    # Apply export compatibility policy so parent_config.export.compatibility is populated
+    # (used for serialization/cache-key participation and inheritance by submodules).
+    policy_device, policy_ep = export_policy_target or (device, ep)
+    apply_export_compatibility_policy(parent_config, device=policy_device, ep=policy_ep)
+
     # =========================================================================
     # STEP 5: Specialize for submodules if requested
     # =========================================================================
@@ -1131,6 +1173,7 @@ def generate_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    export_policy_target: ExportPolicyTargetRequest | None = None,
     onnx_path: str | Path | None = None,
 ) -> WinMLBuildConfig: ...
 
@@ -1150,6 +1193,7 @@ def generate_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    export_policy_target: ExportPolicyTargetRequest | None = None,
     onnx_path: str | Path | None = None,
 ) -> list[WinMLBuildConfig]: ...
 
@@ -1168,6 +1212,7 @@ def generate_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    export_policy_target: ExportPolicyTargetRequest | None = None,
     onnx_path: str | Path | None = None,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Generate WinMLBuildConfig by orchestrating existing modules.
@@ -1192,6 +1237,8 @@ def generate_build_config(
             "int16", or "w{x}a{y}" e.g. "w8a16").
         trust_remote_code: Allow running custom code from model repository.
         ep: Explicit execution provider override.
+        export_policy_target: Optional ``(device, ep)`` request used only for
+            export compatibility resolution on HuggingFace exports.
         onnx_path: Path to a pre-exported ONNX file (Scenario D).
 
     Returns:
@@ -1224,6 +1271,7 @@ def generate_build_config(
         precision=precision,
         trust_remote_code=trust_remote_code,
         ep=ep,
+        export_policy_target=export_policy_target,
         policy_overrides_config=True,
     )
 
@@ -1297,6 +1345,11 @@ def _build_submodule_config(
                 parent_config.export.dynamo
                 if parent_config.export is not None
                 else WinMLExportConfig().dynamo
+            ),
+            compatibility=(
+                copy.deepcopy(parent_config.export.compatibility)
+                if parent_config.export is not None
+                else WinMLExportConfig().compatibility
             ),
             # opset_version and batch_size use dataclass defaults from WinMLExportConfig
         ),
@@ -1383,6 +1436,11 @@ def _merge_export_config(
             if override.hierarchy_tag_format != defaults.hierarchy_tag_format
             else base.hierarchy_tag_format
         ),
+        compatibility=(
+            copy.deepcopy(override.compatibility)
+            if override.compatibility
+            else copy.deepcopy(base.compatibility)
+        ),
     )
 
 
@@ -1449,6 +1507,7 @@ def _assemble_config(
         optim=optim_config,
         quant=quant_config,
         compile=compile_config,
+        skip_optimize=registered.skip_optimize if registered else False,
     )
 
 

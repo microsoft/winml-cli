@@ -4,7 +4,7 @@ requires = [ "setuptools>=61", "wheel" ]
 
 [project]
 name = "winml-cli"
-version = "0.2.0"
+version = "0.3.0"
 description = "Accelerate Model Deployment on WinML"
 readme = "README.md"
 keywords = [ "onnx", "winml" ]
@@ -37,6 +37,7 @@ dependencies = [
   "diffusers>=0.36",
   "evaluate>=0.4.6",
   "fastapi>=0.135.3",
+  "filelock>=3.20",
   "hf_xet>=1.1.10",
   "httpx>=0.24.0",
   "jsonschema>=4.23",
@@ -84,25 +85,6 @@ dependencies = [
   "windowsml==2.0.300 ; sys_platform == 'win32'",
 ]
 
-optional-dependencies.dev = [
-  "ipykernel>=6.30.1",
-  "ipywidgets>=8.1.7",
-  "jupyter>=1.1.1",
-  "markdown-it-py>=3",
-  "matplotlib>=3.10",
-  "mkdocs-jupyter>=0.25",
-  "mkdocs-material>=9.5",
-  "mypy>=1.18",
-  "nbconvert>=7.16",
-  "pymdown-extensions>=10.7",
-  "pytest>=8.4",
-  "pytest-cov>=7",
-  "pytest-timeout>=2.3",
-  "ruff>=0.15",
-  "seaborn>=0.13",
-  "timm>=1.0.20",
-  "types-colorama>=0.4.15.20250801",
-]
 optional-dependencies.audio = [ "soundfile>=0.13" ]
 optional-dependencies.openvino = [ "openvino>=2023" ]
 optional-dependencies.qnn = [
@@ -152,14 +134,40 @@ override-dependencies = [
   "onnxruntime ; sys_platform == 'unobtainium'",
 ]
 
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+]
+torchvision = [
+  { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+]
+
 [dependency-groups]
 dev = [
+  "ipykernel>=6.30.1",
+  "ipywidgets>=8.1.7",
   "jupyter>=1.1.1",
+  "markdown-it-py>=3",
+  "matplotlib>=3.10",
+  "mkdocs-jupyter>=0.25",
+  "mkdocs-material>=9.5",
+  "mypy>=1.18",
+  "nbconvert>=7.16",
   "pandas-stubs>=3.0.0.260204",
   "pre-commit>=4.5.1",
+  "pymdown-extensions>=10.7",
+  "pytest>=8.4",
   "pytest-cov>=7",
   "pytest-timeout>=2.4.0",
+  "ruff>=0.15",
   "scipy-stubs>=1.17.1.5",
+  "seaborn>=0.13",
+  "types-colorama>=0.4.15.20250801",
   "types-jsonschema>=4.26.0.20260518",
   "types-protobuf>=7.34.1.20260518",
   "types-psutil>=7.2.2.20260518",
@@ -186,6 +194,7 @@ include = [ "winml", "winml.*" ]
   "runtime_checker/need_rerun_errors.json",
 ]
 "winml.modelkit.export" = [
+  "compatibility_rules.json",
   "htp/htp_metadata_schema.json",
 ]
 "winml.modelkit.pattern" = [

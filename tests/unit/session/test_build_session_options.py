@@ -10,6 +10,7 @@ rather than a :class:`EPDeviceTarget`. No internal registry call, no
 handle filtering — the caller pre-selected the device.
 """
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -127,6 +128,22 @@ def test_build_session_options_monitor_plumbs_session_options(qnn_npu: WinMLEPDe
     fake_so.add_provider_for_devices.assert_called_once()
     args, _ = fake_so.add_provider_for_devices.call_args
     assert args[1]["profiling_level"] == "detailed"
+
+
+def test_build_session_options_info_log_omits_provider_option_values(
+    qnn_npu: WinMLEPDevice, caplog: pytest.LogCaptureFixture
+) -> None:
+    """INFO diagnostics identify option keys without exposing their values."""
+    fake_so = MagicMock()
+    options = {"remote_auth_token": "secret-value"}
+    with (
+        caplog.at_level(logging.INFO, logger="winml.modelkit.session.session"),
+        patch("winml.modelkit.session.session.ort.SessionOptions", return_value=fake_so),
+    ):
+        _build_session_options(qnn_npu, provider_options=options)
+
+    assert "remote_auth_token" in caplog.text
+    assert "secret-value" not in caplog.text
 
 
 def test_ort_session_options_same_key_overwrites() -> None:

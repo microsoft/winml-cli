@@ -9,7 +9,7 @@
     "elapsed": 59.2,
     "command": "python.exe run_pytorch_baseline.py --model finbert --task text-classification --device cpu --num-samples 1000 --dataset finbert_dataset --split val"
   },
-  "cardiffnlp/twitter-roberta-base-sentiment-latest|text-classification|tweet_eval|sentiment||1000": {
+  "cardiffnlp/twitter-roberta-base-sentiment-latest|text-classification|cardiffnlp/tweet_eval|sentiment||1000": {
     "status": "PASS",
     "metric": {
       "metric": "accuracy",
@@ -17,7 +17,7 @@
       "num_samples": 1000
     },
     "elapsed": 91.5,
-    "command": "python.exe run_pytorch_baseline.py --model twitter-roberta-base-sentiment-latest --task text-classification --device cpu --num-samples 1000 --dataset tweet_eval --dataset-config sentiment --columns-mapping {\"input_column\": \"text\"}"
+    "command": "python.exe run_pytorch_baseline.py --model twitter-roberta-base-sentiment-latest --task text-classification --device cpu --num-samples 1000 --dataset cardiffnlp/tweet_eval --dataset-config sentiment --columns-mapping {\"input_column\": \"text\"}"
   },
   "distilbert/distilbert-base-uncased-finetuned-sst-2-english|text-classification|nyu-mll/glue|sst2||1000": {
     "status": "PASS",
@@ -959,7 +959,7 @@
     "elapsed": 52.0,
     "command": "python.exe run_pytorch_baseline.py --model finbert --task text-classification --device cpu --num-samples 100 --dataset finbert_dataset --split val --winml-metric-key accuracy"
   },
-  "cardiffnlp/twitter-roberta-base-sentiment-latest|text-classification|tweet_eval|sentiment||100": {
+  "cardiffnlp/twitter-roberta-base-sentiment-latest|text-classification|cardiffnlp/tweet_eval|sentiment||100": {
     "status": "PASS",
     "metric": {
       "metric": "accuracy",
@@ -967,7 +967,7 @@
       "num_samples": 100
     },
     "elapsed": 54.9,
-    "command": "python.exe run_pytorch_baseline.py --model twitter-roberta-base-sentiment-latest --task text-classification --device cpu --num-samples 100 --dataset tweet_eval --dataset-config sentiment --columns-mapping {\"input_column\": \"text\"} --winml-metric-key accuracy"
+    "command": "python.exe run_pytorch_baseline.py --model twitter-roberta-base-sentiment-latest --task text-classification --device cpu --num-samples 100 --dataset cardiffnlp/tweet_eval --dataset-config sentiment --columns-mapping {\"input_column\": \"text\"} --winml-metric-key accuracy"
   },
   "distilbert/distilbert-base-uncased-finetuned-sst-2-english|text-classification|nyu-mll/glue|sst2||100": {
     "status": "PASS",

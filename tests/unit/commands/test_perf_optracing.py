@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from winml.modelkit.commands.perf import _resolve_ep_monitor, perf
+from winml.modelkit.session.monitor.op_metrics import TraceFallbackReason
 
 
 def _invoke_perf(args: list[str]):
@@ -345,6 +346,288 @@ class TestOpTracingIterationsSmartDefault:
         assert captured.get("iterations") == 100
 
 
+class TestDetailOpTracingAutoCompile:
+    """Raw ONNX detail tracing automatically enables EPContext compilation."""
+
+    @staticmethod
+    def _capture_config(tmp_path: Path, *extra_args: str):
+        model_path = tmp_path / "model.onnx"
+        model_path.write_bytes(b"raw onnx")
+        captured: dict = {}
+        runner = CliRunner()
+
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+            patch(
+                "winml.modelkit.commands.perf.BenchmarkConfig",
+                side_effect=lambda **kw: (captured.update(kw), _ConfigStub(**kw))[1],
+            ),
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_bench,
+        ):
+            mock_bench.return_value.run.side_effect = RuntimeError("stop")
+            result = runner.invoke(
+                perf,
+                [
+                    "-m",
+                    str(model_path),
+                    "--ep",
+                    "qnn",
+                    "--device",
+                    "npu",
+                    "--op-tracing",
+                    "detail",
+                    "-o",
+                    str(tmp_path / "result.json"),
+                    *extra_args,
+                ],
+                obj={},
+            )
+        return result, captured
+
+    def test_raw_onnx_enables_compile_pipeline(self, tmp_path: Path) -> None:
+        result, captured = self._capture_config(tmp_path)
+
+        assert result.exit_code != 0
+        assert captured, (result.output, result.exception)
+        assert captured["no_compile"] is False
+        assert captured["skip_build"] is False
+        assert captured["compile_ep_options"]["profiling_level"] == "optrace"
+        assert captured["compile_ep_options"]["profiling_file_path"].endswith(
+            "result_compile_optrace.csv"
+        )
+        assert "Raw ONNX detected" in result.output
+
+    @pytest.mark.parametrize(
+        ("flag", "message"),
+        [
+            ("--no-compile", "--no-compile prevents automatic compilation"),
+            ("--skip-build", "--skip-build prevents automatic compilation"),
+        ],
+    )
+    def test_explicit_compile_opt_out_is_rejected(
+        self, tmp_path: Path, flag: str, message: str
+    ) -> None:
+        result, captured = self._capture_config(tmp_path, flag)
+
+        assert result.exit_code == 2
+        assert message in result.output
+        assert captured == {}
+
+    def test_basic_tracing_does_not_auto_compile(self, tmp_path: Path) -> None:
+        model_path = tmp_path / "model.onnx"
+        model_path.write_bytes(b"raw onnx")
+        captured: dict = {}
+        runner = CliRunner()
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf.BenchmarkConfig",
+                side_effect=lambda **kw: (captured.update(kw), _ConfigStub(**kw))[1],
+            ),
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_bench,
+        ):
+            mock_bench.return_value.run.side_effect = RuntimeError("stop")
+            runner.invoke(
+                perf,
+                [
+                    "-m",
+                    str(model_path),
+                    "--op-tracing",
+                    "basic",
+                    "-o",
+                    str(tmp_path / "result.json"),
+                ],
+                obj={},
+            )
+
+        assert captured["no_compile"] is True
+        assert captured["skip_build"] is True
+        assert captured["compile_ep_options"] is None
+
+    def test_unsupported_ep_does_not_auto_compile(self, tmp_path: Path) -> None:
+        model_path = tmp_path / "model.onnx"
+        model_path.write_bytes(b"raw onnx")
+        captured: dict = {}
+        runner = CliRunner()
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf.BenchmarkConfig",
+                side_effect=lambda **kw: (captured.update(kw), _ConfigStub(**kw))[1],
+            ),
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_bench,
+        ):
+            mock_bench.return_value.run.side_effect = RuntimeError("stop")
+            result = runner.invoke(
+                perf,
+                [
+                    "-m",
+                    str(model_path),
+                    "--ep",
+                    "openvino",
+                    "--device",
+                    "npu",
+                    "--op-tracing",
+                    "detail",
+                    "-o",
+                    str(tmp_path / "result.json"),
+                ],
+                obj={},
+            )
+
+        assert result.exit_code != 0
+        assert captured["no_compile"] is True
+        assert captured["skip_build"] is True
+        assert captured["compile_ep_options"] is None
+        assert "Raw ONNX detected" not in result.output
+
+    def test_auto_device_without_qnn_does_not_auto_compile(self, tmp_path: Path) -> None:
+        model_path = tmp_path / "model.onnx"
+        model_path.write_bytes(b"raw onnx")
+        captured: dict = {}
+        runner = CliRunner()
+
+        with (
+            patch(
+                "winml.modelkit.session.monitor.qnn_monitor.QNNMonitor.is_available",
+                return_value=False,
+            ),
+            patch(
+                "winml.modelkit.commands.perf.BenchmarkConfig",
+                side_effect=lambda **kw: (captured.update(kw), _ConfigStub(**kw))[1],
+            ),
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_bench,
+        ):
+            mock_bench.return_value.run.side_effect = RuntimeError("stop")
+            result = runner.invoke(
+                perf,
+                [
+                    "-m",
+                    str(model_path),
+                    "--op-tracing",
+                    "detail",
+                    "-o",
+                    str(tmp_path / "result.json"),
+                ],
+                obj={},
+            )
+
+        assert result.exit_code != 0
+        assert captured["no_compile"] is True
+        assert captured["skip_build"] is True
+        assert captured["compile_ep_options"] is None
+        assert "Raw ONNX detected" not in result.output
+
+
+class TestOpTracingHardwareMonitor:
+    """--op-tracing must not implicitly enable system hardware monitoring."""
+
+    def test_op_tracing_without_monitor_uses_only_ep_monitor(self):
+        from winml.modelkit.commands.perf import BenchmarkConfig, PerfBenchmark
+
+        config = BenchmarkConfig(
+            model_id="fake/model",
+            device="npu",
+            ep="qnn",
+            iterations=1,
+            warmup=0,
+            monitor=False,
+            op_tracing="detail",
+        )
+        benchmark = PerfBenchmark(config)
+        benchmark._inputs = {}
+
+        ep_monitor = MagicMock()
+        ep_monitor.result = None
+        ep_monitor.to_dict.return_value = {"ep": "qnn"}
+        ctx = MagicMock()
+        ctx.monitor = ep_monitor
+        ctx.stats = MagicMock()
+        session = MagicMock()
+        session.perf.return_value.__enter__.return_value = ctx
+        benchmark._model = SimpleNamespace(
+            _session=session,
+            ep_name="QNNExecutionProvider",
+            device="npu",
+        )
+
+        hw_monitor = MagicMock()
+        with (
+            patch(
+                "winml.modelkit.commands.perf._open_ep_monitor_or_exit",
+                return_value=ep_monitor,
+            ),
+            patch(
+                "winml.modelkit.session.monitor.hw_monitor.HWMonitor",
+                hw_monitor,
+            ),
+            patch("winml.modelkit.commands.perf._run_simple_loop") as simple_loop,
+            patch("winml.modelkit.commands.perf._run_monitored_loop") as monitored_loop,
+        ):
+            result = benchmark._run_benchmark_monitored()
+
+        assert result is ctx.stats
+        hw_monitor.is_available.assert_not_called()
+        hw_monitor.assert_not_called()
+        simple_loop.assert_called_once()
+        monitored_loop.assert_not_called()
+        session.perf.assert_called_once_with(warmup=0, monitor=ep_monitor)
+
+    def test_op_tracing_with_monitor_enables_hardware_monitor(self):
+        from winml.modelkit.commands.perf import BenchmarkConfig, PerfBenchmark
+
+        config = BenchmarkConfig(
+            model_id="fake/model",
+            device="npu",
+            ep="qnn",
+            iterations=1,
+            warmup=0,
+            monitor=True,
+            op_tracing="detail",
+        )
+        benchmark = PerfBenchmark(config)
+        benchmark._inputs = {}
+
+        ep_monitor = MagicMock()
+        ep_monitor.result = None
+        ep_monitor.to_dict.return_value = {"ep": "qnn"}
+        ctx = MagicMock()
+        ctx.monitor = ep_monitor
+        ctx.stats = MagicMock()
+        session = MagicMock()
+        session.perf.return_value.__enter__.return_value = ctx
+        benchmark._model = SimpleNamespace(
+            _session=session,
+            ep_name="QNNExecutionProvider",
+            device="npu",
+        )
+
+        hw = MagicMock()
+        hw.__enter__.return_value = hw
+        hw.to_dict.return_value = {"monitor": "HWMonitor"}
+        hw_monitor = MagicMock(return_value=hw)
+        hw_monitor.is_available.return_value = True
+        with (
+            patch(
+                "winml.modelkit.commands.perf._open_ep_monitor_or_exit",
+                return_value=ep_monitor,
+            ),
+            patch(
+                "winml.modelkit.session.monitor.hw_monitor.HWMonitor",
+                hw_monitor,
+            ),
+            patch("winml.modelkit.commands.perf._run_simple_loop") as simple_loop,
+            patch("winml.modelkit.commands.perf._run_monitored_loop") as monitored_loop,
+        ):
+            result = benchmark._run_benchmark_monitored()
+
+        assert result is ctx.stats
+        hw_monitor.is_available.assert_called_once_with()
+        hw_monitor.assert_called_once()
+        simple_loop.assert_not_called()
+        monitored_loop.assert_called_once()
+
+
 class _ConfigStub:
     """Lightweight stand-in for BenchmarkConfig used by capture tests."""
 
@@ -641,6 +924,7 @@ class TestCliOpTracingDispatch:
             device="npu",
             tracing_level="detail",
             status="basic_fallback",
+            fallback_reason=TraceFallbackReason.SCHEMATIC_MISSING,
         )
         mock_ctx = MagicMock()
         mock_ctx.monitor.result = trace
@@ -667,7 +951,36 @@ class TestCliOpTracingDispatch:
             )
 
         assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}: {result.output}"
-        assert "degraded" in result.output.lower() or "notice" in result.output.lower()
+        assert "schematic" in result.output.lower()
+        assert "raw onnx" in result.output.lower()
+        assert "qnn_sdk_root" not in result.output.lower()
+
+    @pytest.mark.parametrize(
+        ("reason", "expected"),
+        [
+            (TraceFallbackReason.QNN_LOG_MISSING, "optrace log"),
+            (TraceFallbackReason.SCHEMATIC_MISSING, "raw ONNX"),
+            (TraceFallbackReason.SDK_MISSING, "QNN_SDK_ROOT"),
+            (TraceFallbackReason.VIEWER_FAILED, "viewer"),
+            (TraceFallbackReason.QHAS_OUTPUT_MISSING, "output was not found"),
+            (TraceFallbackReason.QHAS_PARSE_FAILED, "could not be parsed"),
+            (None, "post-processing was unavailable"),
+        ],
+    )
+    def test_detail_fallback_guidance_is_reason_specific(
+        self, reason: TraceFallbackReason | None, expected: str
+    ) -> None:
+        from winml.modelkit.commands.perf import _detail_fallback_guidance
+
+        assert expected in _detail_fallback_guidance(reason)
+
+    def test_detail_fallback_guidance_distinguishes_schematic_publish_failure(self) -> None:
+        from winml.modelkit.commands.perf import _detail_fallback_guidance
+
+        guidance = _detail_fallback_guidance(TraceFallbackReason.SCHEMATIC_PUBLISH_FAILED)
+
+        assert "copy" in guidance.lower() or "publish" in guidance.lower()
+        assert "raw ONNX" not in guidance
 
     def test_basic_fallback_status_rejects_raw_running_model(self, tmp_path: Path):
         """Detail tracing cannot degrade successfully when ORT ran the raw model."""

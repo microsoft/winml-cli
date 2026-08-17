@@ -16,6 +16,7 @@ Usage:
 
 from __future__ import annotations
 
+import importlib
 import logging
 from typing import TYPE_CHECKING
 
@@ -26,9 +27,11 @@ if TYPE_CHECKING:
 import click
 from rich.console import Console
 
+from .._env import env_flag_enabled
 from ..utils import cli as cli_utils
-from ..utils.logging import configure_logging
+from ..utils.logging import configure_logging, suppress_huggingface_warning_logs
 from ..utils.model_input import ModelInputKind, classify_model_input
+from ..utils.native_stderr import suppress_native_stderr
 
 
 logger = logging.getLogger(__name__)
@@ -288,50 +291,70 @@ def inspect(
     if not quiet and not json_mode:
         _stderr_console.print(f"[dim]Inspecting [bold]{target}[/bold] …[/dim]")
 
-    from ..inspect import InspectError, ModelNotFoundError, NetworkError
-    from ..inspect.formatter import output_json, output_table
-
+    suppress_third_party_stderr = not verbose and not env_flag_enabled("WINMLCLI_SHOW_ALL_WARNINGS")
     configure_logging(verbosity=verbose, quiet=quiet)
+    with suppress_huggingface_warning_logs(verbosity=verbose, quiet=quiet):
+        with suppress_native_stderr(enabled=suppress_third_party_stderr):
+            from ..inspect import InspectError, ModelNotFoundError, NetworkError
+            from ..inspect.formatter import output_json, output_table
 
-    try:
-        if quiet or json_mode:
-            result = _inspect_model_v2(
-                model_id=model,
-                task_override=task,
-                model_type_override=model_type,
-                model_class_override=model_class,
-                include_hierarchy=hierarchy,
-            )
-        else:
-            with _stderr_console.status(
-                f"[bold cyan]Resolving {target}…[/bold cyan]",
-                spinner="dots",
-            ):
+            _load_inspect_model_v2_dependencies()
+
+        try:
+            if quiet or json_mode:
                 result = _inspect_model_v2(
                     model_id=model,
                     task_override=task,
                     model_type_override=model_type,
                     model_class_override=model_class,
                     include_hierarchy=hierarchy,
+                    suppress_native_stderr_output=False,
                 )
+            else:
+                with _stderr_console.status(
+                    f"[bold cyan]Resolving {target}…[/bold cyan]",
+                    spinner="dots",
+                ):
+                    result = _inspect_model_v2(
+                        model_id=model,
+                        task_override=task,
+                        model_type_override=model_type,
+                        model_class_override=model_class,
+                        include_hierarchy=hierarchy,
+                        suppress_native_stderr_output=False,
+                    )
 
-        if output_format == "json":
-            click.echo(output_json(result, verbose=bool(verbose)))
-        else:
-            output_table(console, result, verbose=bool(verbose))
+            if output_format == "json":
+                click.echo(output_json(result, verbose=bool(verbose)))
+            else:
+                output_table(console, result, verbose=bool(verbose))
 
-    except ModelNotFoundError as e:
-        raise click.ClickException(f"Model not found: {e}") from e
+        except ModelNotFoundError as e:
+            raise click.ClickException(f"Model not found: {e}") from e
 
-    except NetworkError as e:
-        raise click.ClickException(f"Network error: {e}") from e
+        except NetworkError as e:
+            raise click.ClickException(f"Network error: {e}") from e
 
-    except InspectError as e:
-        raise click.ClickException(f"Inspection error: {e}") from e
+        except InspectError as e:
+            raise click.ClickException(f"Inspection error: {e}") from e
 
-    except (ValueError, RuntimeError, OSError) as e:
-        logger.exception("Failed to inspect model")
-        raise click.ClickException(f"Failed to inspect model: {e}") from e
+        except (ValueError, RuntimeError, OSError) as e:
+            logger.exception("Failed to inspect model")
+            raise click.ClickException(f"Failed to inspect model: {e}") from e
+
+
+def _load_inspect_model_v2_dependencies() -> None:
+    """Preload inspect dependencies that can trigger native startup diagnostics."""
+    from transformers import AutoConfig as _AutoConfig  # noqa: F401
+
+    for module_name in (
+        "..export",
+        "..inspect",
+        "..inspect.formatter",
+        "..loader",
+        "..models",
+    ):
+        importlib.import_module(module_name, package=__package__)
 
 
 def _inspect_model_v2(
@@ -340,6 +363,7 @@ def _inspect_model_v2(
     model_type_override: str | None = None,
     model_class_override: str | None = None,
     include_hierarchy: bool = False,
+    suppress_native_stderr_output: bool = True,
 ) -> InspectResult:
     """Inspect v2 core — calls shared loader/export modules directly.
 
@@ -353,6 +377,9 @@ def _inspect_model_v2(
     Returns:
         InspectResult dataclass
     """
+    with suppress_native_stderr(enabled=suppress_native_stderr_output):
+        _load_inspect_model_v2_dependencies()
+
     import functools
 
     from transformers import AutoConfig

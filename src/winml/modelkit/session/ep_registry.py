@@ -272,7 +272,7 @@ class WinMLEPDevice:
     @property
     def ep_short_name(self) -> str:
         """Short EP alias (``"qnn"`` / ``"openvino"`` / ``"cpu"`` / ...)."""
-        return short_ep_name(self.device.ep_name)
+        return short_ep_name(self.ep.source.ep_name)
 
 
 class WinMLEPRegistry:
@@ -444,6 +444,9 @@ class WinMLEPRegistry:
             # which the caller renders to the console.
             with _suppress_dll_load_dialogs():
                 ort.register_execution_provider_library(arg0, str(entry.dll_path))
+                logger.info(
+                    "Registered EP %r from %r (arg0=%r)", entry.ep_name, entry.dll_path, arg0
+                )
         except Exception as exc:
             raise WinMLEPRegistrationFailed(
                 f"ort.register_execution_provider_library({arg0!r}, "

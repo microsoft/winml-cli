@@ -189,8 +189,6 @@ class TestEvalPerTask:
     def test_text_classification(self, runner: CliRunner, tmp_path: Path) -> None:
         # Model aligned with CLI default dataset (nyu-mll/glue/mrpc).
         # HF evaluate.evaluator("text-classification") returns `accuracy`.
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         out = tmp_path / "result.json"
         _invoke(
             runner,
@@ -213,8 +211,6 @@ class TestEvalPerTask:
             _assert_in_range(data["metrics"], "accuracy", 0.6, 1.0)
 
     def test_token_classification(self, runner: CliRunner, tmp_path: Path) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         out = tmp_path / "result.json"
         _invoke(
             runner,
@@ -264,8 +260,6 @@ class TestEvalPerTask:
             assert -1.0 <= v <= 1.0, f"{k}={v} outside [-1, 1]"
 
     def test_image_segmentation(self, runner: CliRunner, tmp_path: Path) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         out = tmp_path / "result.json"
         _invoke(
             runner,
@@ -398,8 +392,6 @@ class TestEvalPerTask:
 
     def test_image_to_text_fp16(self, runner: CliRunner, tmp_path: Path) -> None:
         # Only test that exercises non-auto --precision.
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         require_not_ep("migraphx")
         out = tmp_path / "result.json"
         _invoke(
@@ -492,8 +484,6 @@ class TestEvalPerTask:
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         out = tmp_path / "result.json"
         _invoke(
             runner,
@@ -575,8 +565,6 @@ class TestEvalModelInputForms:
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         hf_id = "openai/clip-vit-base-patch32"
         task = "zero-shot-image-classification"
 
@@ -634,8 +622,6 @@ class TestEvalOutput:
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         out = tmp_path / "nested" / "subdir" / "result.json"
         _invoke(
             runner,
@@ -758,8 +744,6 @@ class TestEvalAdditionalOptions:
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         out = tmp_path / "result.json"
         _invoke(
             runner,
@@ -792,8 +776,6 @@ class TestEvalAdditionalOptions:
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         from pathlib import Path as _Path
 
         label_map = _Path(ADE20K_LABEL_MAP)
@@ -829,8 +811,6 @@ class TestEvalAdditionalOptions:
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         # `eval` section provides task + samples.
         cfg = tmp_path / "cfg.json"
         cfg.write_text(
@@ -866,8 +846,6 @@ class TestEvalAdditionalOptions:
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         # CLI wins over config file.
         cfg = tmp_path / "cfg.json"
         cfg.write_text(
@@ -905,8 +883,6 @@ class TestEvalAdditionalOptions:
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         # No --task flag; CLI infers from HF model.
         out = tmp_path / "result.json"
         _invoke(
@@ -980,8 +956,6 @@ class TestEvalAdditionalOptions:
         tmp_path: Path,
         tiny_textcls_script: Path,
     ) -> None:
-        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
-        require_not_ep("vitisai")
         # --dataset-script + --column + --trust-remote-code (happy path).
         ds_path = tmp_path / "tiny_textcls"
         out = tmp_path / "result.json"
@@ -1119,7 +1093,130 @@ class TestEvalAdditionalOptions:
 
 
 # ===========================================================================
-# G. CLI-validation error paths (fast — no model load)
+# G. Native Hugging Face evaluation
+# ===========================================================================
+
+
+class TestEvalNativeHuggingFace:
+    """Evaluate a real small checkpoint without exporting it to ONNX."""
+
+    @staticmethod
+    def _dataset(tmp_path: Path) -> Path:
+        from datasets import Dataset
+
+        path = tmp_path / "native_text_classification"
+        Dataset.from_dict(
+            {
+                "text": ["A good result.", "A bad result."],
+                "label": [1, 0],
+            }
+        ).save_to_disk(path)
+        return path
+
+    def test_pytorch_runtime_labeled_evaluation(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        out = tmp_path / "native_cpu.json"
+        _invoke(
+            runner,
+            [
+                "-m",
+                "hf-internal-testing/tiny-random-BertForSequenceClassification",
+                "--task",
+                "text-classification",
+                "--dataset",
+                str(self._dataset(tmp_path)),
+                "--samples",
+                "2",
+                "--no-shuffle",
+                "--runtime",
+                "pytorch",
+                "--device",
+                "cpu",
+                "-o",
+                str(out),
+            ],
+        )
+
+        data = _assert_metrics_present(out, ["accuracy"])
+        assert data["runtime"] == "pytorch"
+        assert data["device"] == "cpu"
+        assert data["dataset"]["samples"] == 2
+
+    def test_pytorch_runtime_text_generation(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        out = tmp_path / "native_text_generation.json"
+        _invoke(
+            runner,
+            [
+                "-m",
+                "hf-internal-testing/tiny-random-gpt2",
+                "--task",
+                "text-generation",
+                "--dataset",
+                str(self._dataset(tmp_path)),
+                "--column",
+                "num_tokens=8",
+                "--column",
+                "seqlen=4",
+                "--runtime",
+                "pytorch",
+                "--device",
+                "cpu",
+                "-o",
+                str(out),
+            ],
+        )
+
+        data = _assert_metrics_present(out, ["perplexity"])
+        assert data["runtime"] == "pytorch"
+        assert data["device"] == "cpu"
+        assert data["metrics"]["num_scored_positions"] > 0
+
+    def test_pytorch_runtime_labeled_evaluation_cuda(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        import torch
+
+        if not torch.cuda.is_available():
+            pytest.skip("CUDA is not available")
+
+        out = tmp_path / "native_gpu.json"
+        _invoke(
+            runner,
+            [
+                "-m",
+                "hf-internal-testing/tiny-random-BertForSequenceClassification",
+                "--task",
+                "text-classification",
+                "--dataset",
+                str(self._dataset(tmp_path)),
+                "--samples",
+                "2",
+                "--no-shuffle",
+                "--runtime",
+                "pytorch",
+                "--device",
+                "gpu",
+                "-o",
+                str(out),
+            ],
+        )
+
+        data = _assert_metrics_present(out, ["accuracy"])
+        assert data["runtime"] == "pytorch"
+        assert data["device"] == "gpu"
+
+
+# ===========================================================================
+# H. CLI-validation error paths (fast — no model load)
 # ===========================================================================
 
 

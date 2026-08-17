@@ -14,6 +14,7 @@ __all__ = [
     "ALL_EP_NAMES",
     "COMPILER_NAMES",
     "DEVICE_PRIORITY",
+    "EPS_WITH_INTERNAL_QUANT",
     "EP_ALIASES",
     "EP_ALIAS_NAMES",
     "EP_NAMES",
@@ -214,6 +215,20 @@ EP_SUPPORTED_DEVICES: dict[EPName, tuple[DeviceType, ...]] = {
     "CPUExecutionProvider": ("cpu",),
     "VitisAIExecutionProvider": ("npu",),
 }
+
+# EPs that run their own internal quantization pipeline and must therefore NOT
+# be handed a winml-produced QDQ graph.
+#
+# VitisAI quantizes to XINT8 inside the EP. Given a winml ``w8a16`` QDQ graph it
+# partitions the QuantizeLinear/DequantizeLinear nodes back to CPU and then
+# aborts inside xir with ``Check failed: attrs_.count(key) > 0 Attrs doesn't
+# contain attribute data``. That abort is a native fail-fast, so the whole
+# process dies (``0xC0000409``) instead of the build reporting an error.
+#
+# Consumed by ``config.precision.resolve_precision`` (auto-precision falls back
+# to the unquantized track for these EPs) and by ``scripts/e2e_eval/run_eval.py``
+# (which additionally drops authored quantized recipe variants).
+EPS_WITH_INTERNAL_QUANT: frozenset[EPName] = frozenset({"VitisAIExecutionProvider"})
 
 
 _COMPAT_CONSTANTS = frozenset(

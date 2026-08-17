@@ -14,7 +14,7 @@ import importlib
 from typing import TYPE_CHECKING, Any
 
 from .base_evaluator import WinMLEvaluator
-from .config import DatasetConfig, WinMLEvaluationConfig
+from .config import DatasetConfig, EvalRuntime, WinMLEvaluationConfig
 from .evaluate import EvalResult, evaluate, get_evaluator_class
 
 
@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from .question_answering_evaluator import WinMLQuestionAnsweringEvaluator
     from .tensor_similarity_evaluator import TensorSimilarityEvaluator
     from .text_classification_evaluator import WinMLTextClassificationEvaluator
+    from .text_generation_evaluator import WinMLTextGenerationEvaluator
     from .token_classification_evaluator import WinMLTokenClassificationEvaluator
     from .zero_shot_classification_evaluator import WinMLZeroShotClassificationEvaluator
     from .zero_shot_image_classification_evaluator import WinMLZeroShotImageClassificationEvaluator
@@ -46,55 +47,50 @@ if TYPE_CHECKING:
 
 _LAZY_ATTRS: dict[str, str] = {
     # Evaluators
-    "WinMLDepthEstimationEvaluator":
-        ".depth_estimation_evaluator:WinMLDepthEstimationEvaluator",
-    "WinMLFeatureExtractionEvaluator":
-        ".feature_extraction_evaluator:WinMLFeatureExtractionEvaluator",
-    "WinMLFillMaskEvaluator":
-        ".fill_mask_evaluator:WinMLFillMaskEvaluator",
-    "WinMLImageFeatureExtractionEvaluator":
-        ".image_feature_extraction_evaluator:WinMLImageFeatureExtractionEvaluator",
-    "WinMLImageSegmentationEvaluator":
-        ".image_segmentation_evaluator:WinMLImageSegmentationEvaluator",
-    "WinMLImageToTextEvaluator":
-        ".image_to_text_evaluator:WinMLImageToTextEvaluator",
-    "WinMLKeypointDetectionEvaluator":
-        ".keypoint_detection_evaluator:WinMLKeypointDetectionEvaluator",
-    "WinMLObjectDetectionEvaluator":
-        ".object_detection_evaluator:WinMLObjectDetectionEvaluator",
-    "WinMLQuestionAnsweringEvaluator":
-        ".question_answering_evaluator:WinMLQuestionAnsweringEvaluator",
-    "WinMLTextClassificationEvaluator":
-        ".text_classification_evaluator:WinMLTextClassificationEvaluator",
-    "WinMLTokenClassificationEvaluator":
-        ".token_classification_evaluator:WinMLTokenClassificationEvaluator",
-    "WinMLZeroShotClassificationEvaluator":
-        ".zero_shot_classification_evaluator:WinMLZeroShotClassificationEvaluator",
-    "WinMLZeroShotImageClassificationEvaluator":
-        ".zero_shot_image_classification_evaluator:WinMLZeroShotImageClassificationEvaluator",
-    "TensorSimilarityEvaluator":
-        ".tensor_similarity_evaluator:TensorSimilarityEvaluator",
+    "WinMLDepthEstimationEvaluator": ".depth_estimation_evaluator:WinMLDepthEstimationEvaluator",
+    "WinMLFeatureExtractionEvaluator": (
+        ".feature_extraction_evaluator:WinMLFeatureExtractionEvaluator"
+    ),
+    "WinMLFillMaskEvaluator": ".fill_mask_evaluator:WinMLFillMaskEvaluator",
+    "WinMLImageFeatureExtractionEvaluator": (
+        ".image_feature_extraction_evaluator:WinMLImageFeatureExtractionEvaluator"
+    ),
+    "WinMLImageSegmentationEvaluator": (
+        ".image_segmentation_evaluator:WinMLImageSegmentationEvaluator"
+    ),
+    "WinMLImageToTextEvaluator": ".image_to_text_evaluator:WinMLImageToTextEvaluator",
+    "WinMLKeypointDetectionEvaluator": (
+        ".keypoint_detection_evaluator:WinMLKeypointDetectionEvaluator"
+    ),
+    "WinMLObjectDetectionEvaluator": ".object_detection_evaluator:WinMLObjectDetectionEvaluator",
+    "WinMLQuestionAnsweringEvaluator": (
+        ".question_answering_evaluator:WinMLQuestionAnsweringEvaluator"
+    ),
+    "WinMLTextClassificationEvaluator": (
+        ".text_classification_evaluator:WinMLTextClassificationEvaluator"
+    ),
+    "WinMLTextGenerationEvaluator": ".text_generation_evaluator:WinMLTextGenerationEvaluator",
+    "WinMLTokenClassificationEvaluator": (
+        ".token_classification_evaluator:WinMLTokenClassificationEvaluator"
+    ),
+    "WinMLZeroShotClassificationEvaluator": (
+        ".zero_shot_classification_evaluator:WinMLZeroShotClassificationEvaluator"
+    ),
+    "WinMLZeroShotImageClassificationEvaluator": (
+        ".zero_shot_image_classification_evaluator:WinMLZeroShotImageClassificationEvaluator"
+    ),
+    "TensorSimilarityEvaluator": ".tensor_similarity_evaluator:TensorSimilarityEvaluator",
     # Metrics (defer numpy / scipy / torch / torchmetrics until first use)
-    "ClassificationMetric":
-        ".metrics.classification:ClassificationMetric",
-    "DepthMetric":
-        ".metrics.depth:DepthMetric",
-    "KeypointAPMetric":
-        ".metrics.keypoint:KeypointAPMetric",
-    "IGNORE_INDEX":
-        ".metrics.mean_iou:IGNORE_INDEX",
-    "KNNAccuracyMetric":
-        ".metrics.knn_accuracy:KNNAccuracyMetric",
-    "MAPMetric":
-        ".metrics.mean_average_precision:MAPMetric",
-    "MeanIoUMetric":
-        ".metrics.mean_iou:MeanIoUMetric",
-    "PseudoPerplexityMetric":
-        ".metrics.pseudo_perplexity:PseudoPerplexityMetric",
-    "SpearmanCorrelationMetric":
-        ".metrics.spearman_correlation:SpearmanCorrelationMetric",
-    "TopKAccuracyMetric":
-        ".metrics.top_k_accuracy:TopKAccuracyMetric",
+    "ClassificationMetric": ".metrics.classification:ClassificationMetric",
+    "DepthMetric": ".metrics.depth:DepthMetric",
+    "KeypointAPMetric": ".metrics.keypoint:KeypointAPMetric",
+    "IGNORE_INDEX": ".metrics.mean_iou:IGNORE_INDEX",
+    "KNNAccuracyMetric": ".metrics.knn_accuracy:KNNAccuracyMetric",
+    "MAPMetric": ".metrics.mean_average_precision:MAPMetric",
+    "MeanIoUMetric": ".metrics.mean_iou:MeanIoUMetric",
+    "PseudoPerplexityMetric": ".metrics.pseudo_perplexity:PseudoPerplexityMetric",
+    "SpearmanCorrelationMetric": ".metrics.spearman_correlation:SpearmanCorrelationMetric",
+    "TopKAccuracyMetric": ".metrics.top_k_accuracy:TopKAccuracyMetric",
 }
 
 
@@ -121,6 +117,7 @@ __all__ = [
     "DatasetConfig",
     "DepthMetric",
     "EvalResult",
+    "EvalRuntime",
     "KNNAccuracyMetric",
     "KeypointAPMetric",
     "MAPMetric",
@@ -141,6 +138,7 @@ __all__ = [
     "WinMLObjectDetectionEvaluator",
     "WinMLQuestionAnsweringEvaluator",
     "WinMLTextClassificationEvaluator",
+    "WinMLTextGenerationEvaluator",
     "WinMLTokenClassificationEvaluator",
     "WinMLZeroShotClassificationEvaluator",
     "WinMLZeroShotImageClassificationEvaluator",

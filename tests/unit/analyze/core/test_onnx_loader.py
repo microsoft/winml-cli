@@ -194,7 +194,9 @@ class TestONNXLoaderExtractMetadata:
         loader = ONNXLoader(model_path=temp_onnx_file)
         loader.load()
 
-        pattern_count_dict = {"SUBGRAPH/GELU_Erf": 5}
+        pattern_count_dict = {
+            "QNNExecutionProvider": {"SUBGRAPH/GELU_Erf": 5}
+        }
         metadata = loader.extract_metadata(detected_pattern_count=pattern_count_dict)
 
         assert metadata.model_path == str(temp_onnx_file)

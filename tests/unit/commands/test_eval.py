@@ -14,7 +14,8 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from winml.modelkit.commands.eval import _resolve_model_path
+from winml.modelkit.commands.eval import _resolve_model_path, _resolve_reference
+from winml.modelkit.eval import WinMLEvaluationConfig
 
 
 # ---------------------------------------------------------------------------
@@ -101,10 +102,36 @@ class TestSinglePlain:
         with pytest.raises(click.UsageError, match="--model-id is required"):
             _resolve_model_path(model=(str(onnx_file),), model_id=None)
 
+    def test_plain_onnx_without_model_id_allowed_for_compare(self, onnx_file):
+        """allow_missing_model_id (two-ONNX compare) accepts a bare ONNX path."""
+        path, mid = _resolve_model_path(
+            model=(str(onnx_file),), model_id=None, allow_missing_model_id=True
+        )
+        assert path == str(onnx_file)
+        assert mid is None
+
     def test_plain_onnx_missing_file_raises(self, tmp_path):
         missing = tmp_path / "does-not-exist.onnx"
         with pytest.raises(click.BadParameter, match="ONNX file not found"):
             _resolve_model_path(model=(str(missing),), model_id="some/id")
+
+    def test_genai_bundle_dir_routes_to_model_path(self, tmp_path):
+        """A directory holding genai_config.json is a genai bundle -> model_path."""
+        bundle = tmp_path / "qwen-bundle"
+        bundle.mkdir()
+        (bundle / "genai_config.json").write_text("{}")
+        path, mid = _resolve_model_path(model=(str(bundle),), model_id=None)
+        assert path == str(bundle)
+        assert mid is None
+
+    def test_plain_hf_checkpoint_dir_is_not_a_bundle(self, tmp_path):
+        """A local HF checkpoint dir (no genai_config.json) still flows as model_id."""
+        ckpt = tmp_path / "saved-hf-model"
+        ckpt.mkdir()
+        (ckpt / "config.json").write_text("{}")
+        path, mid = _resolve_model_path(model=(str(ckpt),), model_id=None)
+        assert path is None
+        assert mid == str(ckpt)
 
     def test_hub_onnx_ref_is_resolved(self, tmp_path):
         """Hub-style ONNX refs (``<org>/<repo>/<path>.onnx``) must be
@@ -317,6 +344,82 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+class TestResolveGenaiEp:
+    """``_resolve_genai_ep`` turns an explicit ``--device`` into an EP override
+    for a genai bundle, while the default (``auto``) respects bundle routing."""
+
+    @staticmethod
+    def _bundle(tmp_path):
+        (tmp_path / "genai_config.json").write_text("{}")
+        return str(tmp_path)
+
+    @staticmethod
+    def _ctx(source):
+        class _Ctx:
+            def get_parameter_source(self, _name):
+                return source
+
+        return _Ctx()
+
+    @staticmethod
+    def _cfg(**kw):
+        import types
+
+        kw.setdefault("ep", None)
+        kw.setdefault("device", "npu")
+        kw.setdefault("model_path", None)
+        return types.SimpleNamespace(**kw)
+
+    def test_explicit_device_forces_ep_override(self, tmp_path):
+        from winml.modelkit.commands.eval import _resolve_genai_ep
+
+        cfg = self._cfg(device="npu", model_path=self._bundle(tmp_path))
+        ctx = self._ctx(click.core.ParameterSource.COMMANDLINE)
+        with patch(
+            "winml.modelkit.commands._perf_genai.resolve_genai_ep",
+            return_value="qnn",
+        ) as resolve:
+            _resolve_genai_ep(ctx, cfg)
+        resolve.assert_called_once_with("npu")
+        assert cfg.ep == "qnn"
+
+    def test_default_device_respects_bundle_routing(self, tmp_path):
+        from winml.modelkit.commands.eval import _resolve_genai_ep
+
+        cfg = self._cfg(device="npu", model_path=self._bundle(tmp_path))
+        ctx = self._ctx(click.core.ParameterSource.DEFAULT)
+        with patch(
+            "winml.modelkit.commands._perf_genai.resolve_genai_ep",
+        ) as resolve:
+            _resolve_genai_ep(ctx, cfg)
+        resolve.assert_not_called()
+        assert cfg.ep is None
+
+    def test_explicit_ep_wins_untouched(self, tmp_path):
+        from winml.modelkit.commands.eval import _resolve_genai_ep
+
+        cfg = self._cfg(ep="cpu", device="npu", model_path=self._bundle(tmp_path))
+        ctx = self._ctx(click.core.ParameterSource.COMMANDLINE)
+        with patch(
+            "winml.modelkit.commands._perf_genai.resolve_genai_ep",
+        ) as resolve:
+            _resolve_genai_ep(ctx, cfg)
+        resolve.assert_not_called()
+        assert cfg.ep == "cpu"
+
+    def test_non_bundle_model_left_alone(self, tmp_path):
+        from winml.modelkit.commands.eval import _resolve_genai_ep
+
+        cfg = self._cfg(device="npu", model_path=str(tmp_path))  # no genai_config.json
+        ctx = self._ctx(click.core.ParameterSource.COMMANDLINE)
+        with patch(
+            "winml.modelkit.commands._perf_genai.resolve_genai_ep",
+        ) as resolve:
+            _resolve_genai_ep(ctx, cfg)
+        resolve.assert_not_called()
+        assert cfg.ep is None
+
+
 class TestEvalHelp:
     def test_model_help_mentions_onnx_model_id_and_role_path(self, runner: CliRunner):
         from winml.modelkit.commands.eval import eval as eval_cmd
@@ -326,6 +429,117 @@ class TestEvalHelp:
         assert result.exit_code == 0, result.output
         assert "requires --model-id" in result.output
         assert "role=path" in result.output
+
+    def test_help_mentions_input_data(self, runner: CliRunner):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(eval_cmd, ["--help"])
+
+        assert result.exit_code == 0, result.output
+        assert "--input-data" in result.output
+
+    def test_help_mentions_reference(self, runner: CliRunner):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(eval_cmd, ["--help"])
+
+        assert result.exit_code == 0, result.output
+        assert "--reference" in result.output
+
+    def test_help_mentions_cache_controls(self, runner: CliRunner):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(eval_cmd, ["--help"])
+
+        assert result.exit_code == 0, result.output
+        assert "--use-cache / --no-use-cache" in result.output
+        assert "--rebuild / --no-rebuild" in result.output
+
+
+class TestResolveReference:
+    def test_none_is_noop(self):
+        cfg = WinMLEvaluationConfig(model_path="m.onnx", mode="compare")
+        _resolve_reference(cfg)
+        assert cfg.reference_path is None
+
+    def test_happy_path(self, onnx_file, onnx_vision):
+        cfg = WinMLEvaluationConfig(
+            model_path=str(onnx_file),
+            reference_path=str(onnx_vision),
+            mode="compare",
+        )
+        _resolve_reference(cfg)
+        assert cfg.reference_path == str(onnx_vision)
+
+    def test_requires_onnx_candidate(self):
+        cfg = WinMLEvaluationConfig(
+            model_path=None,
+            reference_path="ref.onnx",
+            mode="compare",
+        )
+        with pytest.raises(click.UsageError, match="single ONNX file"):
+            _resolve_reference(cfg)
+
+    def test_composite_candidate_rejected(self, onnx_vision):
+        cfg = WinMLEvaluationConfig(
+            model_path={"encoder": "a.onnx"},
+            reference_path=str(onnx_vision),
+            mode="compare",
+        )
+        with pytest.raises(click.UsageError, match="single ONNX file"):
+            _resolve_reference(cfg)
+
+    def test_non_onnx_suffix_raises(self, onnx_file, tmp_path):
+        bad = tmp_path / "ref.txt"
+        bad.write_bytes(b"")
+        cfg = WinMLEvaluationConfig(
+            model_path=str(onnx_file),
+            reference_path=str(bad),
+            mode="compare",
+        )
+        with pytest.raises(click.BadParameter, match=r"must be an \.onnx file"):
+            _resolve_reference(cfg)
+
+    def test_missing_file_raises(self, onnx_file, tmp_path):
+        missing = tmp_path / "missing.onnx"
+        cfg = WinMLEvaluationConfig(
+            model_path=str(onnx_file),
+            reference_path=str(missing),
+            mode="compare",
+        )
+        with pytest.raises(click.BadParameter, match="not found"):
+            _resolve_reference(cfg)
+
+
+class TestReferenceModeGuard:
+    def test_reference_requires_compare_mode(self, runner: CliRunner, onnx_file):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(
+            eval_cmd,
+            ["-m", str(onnx_file), "--reference", str(onnx_file)],
+            obj={"debug": False},
+        )
+        assert result.exit_code != 0
+        assert "--reference is only valid with --mode compare" in result.output
+
+
+class TestInputDataModeGuard:
+    def test_input_data_requires_compare_mode(self, runner: CliRunner, onnx_file, tmp_path):
+        import numpy as np
+
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        npz = tmp_path / "inputs.npz"
+        np.savez(npz, x=np.zeros((1, 4), dtype=np.float32))
+
+        result = runner.invoke(
+            eval_cmd,
+            ["-m", str(onnx_file), "--input-data", str(npz)],
+            obj={"debug": False},
+        )
+        assert result.exit_code != 0
+        assert "--input-data is only valid with --mode compare" in result.output
 
 
 @pytest.fixture
@@ -408,6 +622,121 @@ class TestEvalConfigPrecedence:
 
         # config > dataclass defaults (task default is None)
         assert cfg.task == "image-classification"
+
+    @pytest.mark.parametrize(
+        ("cache_args", "use_cache", "rebuild"),
+        [
+            ([], True, False),
+            (["--no-use-cache"], False, False),
+            (["--rebuild"], True, True),
+        ],
+    )
+    def test_cache_controls_propagate_to_config(
+        self,
+        runner: CliRunner,
+        cache_args: list[str],
+        use_cache: bool,
+        rebuild: bool,
+    ):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        captured_cfg = {}
+
+        def _fake_evaluate(cfg):
+            captured_cfg["cfg"] = cfg
+            return object()
+
+        with (
+            patch("winml.modelkit.eval.evaluate", side_effect=_fake_evaluate),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
+            patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
+        ):
+            result = runner.invoke(
+                eval_cmd,
+                ["-m", "microsoft/resnet-50", *cache_args],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        cfg = captured_cfg["cfg"]
+        assert cfg.use_cache is use_cache
+        assert cfg.rebuild is rebuild
+
+    def test_config_file_cache_controls_override_defaults(self, runner: CliRunner, tmp_path):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        config_path = tmp_path / "eval_config.json"
+        config_path.write_text(
+            json.dumps({"eval": {"use_cache": False, "rebuild": True}}),
+            encoding="utf-8",
+        )
+        captured_cfg = {}
+
+        def _fake_evaluate(cfg):
+            captured_cfg["cfg"] = cfg
+            return object()
+
+        with (
+            patch("winml.modelkit.eval.evaluate", side_effect=_fake_evaluate),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
+            patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
+        ):
+            result = runner.invoke(
+                eval_cmd,
+                ["--config", str(config_path), "-m", "microsoft/resnet-50"],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        cfg = captured_cfg["cfg"]
+        assert cfg.use_cache is False
+        assert cfg.rebuild is True
+
+    def test_cli_cache_controls_override_config_file(self, runner: CliRunner, tmp_path):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        config_path = tmp_path / "eval_config.json"
+        config_path.write_text(
+            json.dumps({"eval": {"use_cache": False, "rebuild": True}}),
+            encoding="utf-8",
+        )
+        captured_cfg = {}
+
+        def _fake_evaluate(cfg):
+            captured_cfg["cfg"] = cfg
+            return object()
+
+        with (
+            patch("winml.modelkit.eval.evaluate", side_effect=_fake_evaluate),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
+            patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
+        ):
+            result = runner.invoke(
+                eval_cmd,
+                [
+                    "--config",
+                    str(config_path),
+                    "-m",
+                    "microsoft/resnet-50",
+                    "--use-cache",
+                    "--no-rebuild",
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        cfg = captured_cfg["cfg"]
+        assert cfg.use_cache is True
+        assert cfg.rebuild is False
+
+    @pytest.mark.parametrize("field_name", ["use_cache", "rebuild"])
+    def test_cache_click_default_matches_config_default(self, field_name: str):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+        from winml.modelkit.eval import WinMLEvaluationConfig
+
+        parameter = next(param for param in eval_cmd.params if param.name == field_name)
+
+        assert parameter.default == getattr(WinMLEvaluationConfig(), field_name)
 
     def test_cli_default_device_propagates_when_not_explicitly_passed(
         self,
@@ -749,13 +1078,13 @@ class TestPerTaskDefaultDataset:
         )
         assert cfg.dataset.split == "test"  # the default's split wins
 
-    def test_user_column_ignored_when_default_dataset_used(
+    def test_user_column_merged_when_default_dataset_used(
         self,
         runner: CliRunner,
     ):
-        """``--column`` overrides are ignored when the default dataset fills
-        in. The default owns ``columns_mapping`` wholesale. To customize
-        columns, the user must also pass ``--dataset``.
+        """``--column`` overrides are preserved when the default dataset fills
+        in: the default only supplies columns the user did not provide, so an
+        explicit ``--column`` wins while the remaining defaults fill in.
         """
         cfg = self._run_and_capture(
             runner,
@@ -768,10 +1097,38 @@ class TestPerTaskDefaultDataset:
                 "input_column=my_text",
             ],
         )
-        # Default's columns_mapping wins wholesale; user's --column dropped.
+        # User's --column wins for input_column; the default supplies the rest.
         assert cfg.dataset.columns_mapping == {
-            "input_column": "sentence1",
+            "input_column": "my_text",
             "second_input_column": "sentence2",
+        }
+
+    def test_scoring_columns_preserved_for_text_generation_default(
+        self,
+        runner: CliRunner,
+    ):
+        """The text-generation scoring parameters (num_tokens / seqlen) survive
+        default-dataset injection, so they are usable without repeating
+        ``--dataset``. The default only fills the missing ``input_column``.
+        """
+        cfg = self._run_and_capture(
+            runner,
+            [
+                "-m",
+                "some/model",
+                "--task",
+                "text-generation",
+                "--column",
+                "num_tokens=1024",
+                "--column",
+                "seqlen=512",
+            ],
+        )
+        assert cfg.dataset.path == "Salesforce/wikitext"
+        assert cfg.dataset.columns_mapping == {
+            "input_column": "text",
+            "num_tokens": "1024",
+            "seqlen": "512",
         }
 
     def test_user_streaming_ignored_when_default_dataset_used(
@@ -919,6 +1276,264 @@ class TestPrebuiltOnnxIgnoredBuildFlags:
         )
 
 
+class TestIgnoredCacheFlags:
+    @staticmethod
+    def _run(runner: CliRunner, args: list[str]):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        with (
+            patch("winml.modelkit.eval.evaluate", return_value=object()),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
+            patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
+        ):
+            return runner.invoke(eval_cmd, args, obj={"debug": False})
+
+    @pytest.mark.parametrize("cache_flag", ["--use-cache", "--no-use-cache", "--rebuild"])
+    def test_prebuilt_onnx_warns_for_explicit_cache_control(
+        self,
+        cache_flag: str,
+        runner: CliRunner,
+        onnx_file,
+        caplog,
+    ):
+        import logging as _logging
+
+        with caplog.at_level(_logging.WARNING, logger="winml.modelkit.commands.eval"):
+            result = self._run(
+                runner,
+                ["-m", str(onnx_file), "--model-id", "some/model", cache_flag],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert any(
+            f"{cache_flag} ignored for pre-built ONNX inputs" in record.getMessage()
+            for record in caplog.records
+        )
+
+    def test_defaults_do_not_warn(self, runner: CliRunner, onnx_file, caplog):
+        import logging as _logging
+
+        with caplog.at_level(_logging.WARNING, logger="winml.modelkit.commands.eval"):
+            result = self._run(
+                runner,
+                ["-m", str(onnx_file), "--model-id", "some/model"],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert not any(
+            "--use-cache ignored" in record.getMessage()
+            or "--no-use-cache ignored" in record.getMessage()
+            or "--rebuild ignored" in record.getMessage()
+            for record in caplog.records
+        )
+
+    def test_config_values_name_their_source(
+        self,
+        runner: CliRunner,
+        onnx_file,
+        tmp_path,
+        caplog,
+    ):
+        import logging as _logging
+
+        config_path = tmp_path / "eval_config.json"
+        config_path.write_text(
+            json.dumps({"eval": {"use_cache": False, "rebuild": True}}),
+            encoding="utf-8",
+        )
+
+        with caplog.at_level(_logging.WARNING, logger="winml.modelkit.commands.eval"):
+            result = self._run(
+                runner,
+                [
+                    "--config",
+                    str(config_path),
+                    "-m",
+                    str(onnx_file),
+                    "--model-id",
+                    "some/model",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        messages = [record.getMessage() for record in caplog.records]
+        assert any("use_cache=false from --config" in message for message in messages)
+        assert any("rebuild=true from --config" in message for message in messages)
+        assert not any("--no-use-cache ignored" in message for message in messages)
+
+    def test_two_onnx_comparison_warns_even_with_build_enabled(
+        self,
+        runner: CliRunner,
+        onnx_file,
+        caplog,
+    ):
+        import logging as _logging
+
+        with caplog.at_level(_logging.WARNING, logger="winml.modelkit.commands.eval"):
+            result = self._run(
+                runner,
+                [
+                    "-m",
+                    str(onnx_file),
+                    "--mode",
+                    "compare",
+                    "--reference",
+                    str(onnx_file),
+                    "--no-skip-build",
+                    "--rebuild",
+                    "--no-optimize",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert any(
+            "--rebuild ignored for two-ONNX comparisons" in record.getMessage()
+            for record in caplog.records
+        )
+        assert any(
+            "--no-optimize ignored for two-ONNX comparisons" in record.getMessage()
+            for record in caplog.records
+        )
+
+    def test_genai_bundle_warns_with_runtime_cache_wording(
+        self,
+        runner: CliRunner,
+        tmp_path,
+        caplog,
+    ):
+        import logging as _logging
+
+        bundle = tmp_path / "genai-model"
+        bundle.mkdir()
+        (bundle / "genai_config.json").write_text("{}", encoding="utf-8")
+
+        with caplog.at_level(_logging.WARNING, logger="winml.modelkit.commands.eval"):
+            result = self._run(
+                runner,
+                [
+                    "-m",
+                    str(bundle),
+                    "--task",
+                    "text-generation",
+                    "--no-skip-build",
+                    "--no-use-cache",
+                    "--rebuild",
+                    "--no-quant",
+                    "--no-optimize",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        messages = [record.getMessage() for record in caplog.records]
+        assert any(
+            "--no-use-cache, --rebuild ignored for GenAI bundles" in message
+            and "do not govern the GenAI runtime _compiled/ cache" in message
+            for message in messages
+        )
+        assert any(
+            "--no-quant, --no-optimize ignored for GenAI bundles" in message
+            and "no model build pipeline runs" in message
+            for message in messages
+        )
+
+    def test_inferred_genai_task_warns_with_runtime_cache_wording(
+        self,
+        runner: CliRunner,
+        tmp_path,
+        caplog,
+    ):
+        import importlib
+        import logging as _logging
+
+        eval_module = importlib.import_module("winml.modelkit.eval.evaluate")
+        bundle = tmp_path / "genai-model"
+        bundle.mkdir()
+        (bundle / "genai_config.json").write_text("{}", encoding="utf-8")
+
+        with (
+            patch.object(eval_module, "_infer_task", return_value="text-generation"),
+            caplog.at_level(_logging.WARNING, logger="winml.modelkit.commands.eval"),
+        ):
+            result = self._run(
+                runner,
+                [
+                    "-m",
+                    str(bundle),
+                    "--model-id",
+                    "some/model",
+                    "--no-use-cache",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert any(
+            "--no-use-cache ignored for GenAI bundles" in record.getMessage()
+            and "do not govern the GenAI runtime _compiled/ cache" in record.getMessage()
+            for record in caplog.records
+        )
+
+    def test_evaluator_managed_composite_warns_even_with_build_enabled(
+        self,
+        runner: CliRunner,
+        onnx_file,
+        caplog,
+    ):
+        import logging as _logging
+
+        with caplog.at_level(_logging.WARNING, logger="winml.modelkit.commands.eval"):
+            result = self._run(
+                runner,
+                [
+                    "-m",
+                    f"encoder={onnx_file}",
+                    "--model-id",
+                    "some/model",
+                    "--task",
+                    "mask-generation",
+                    "--no-skip-build",
+                    "--rebuild",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert any(
+            "--rebuild ignored for evaluator-managed composite inputs" in record.getMessage()
+            for record in caplog.records
+        )
+
+    def test_inferred_evaluator_managed_task_warns(
+        self,
+        runner: CliRunner,
+        onnx_file,
+        caplog,
+    ):
+        import importlib
+        import logging as _logging
+
+        eval_module = importlib.import_module("winml.modelkit.eval.evaluate")
+        with (
+            patch.object(eval_module, "_infer_task", return_value="mask-generation"),
+            caplog.at_level(_logging.WARNING, logger="winml.modelkit.commands.eval"),
+        ):
+            result = self._run(
+                runner,
+                [
+                    "-m",
+                    f"encoder={onnx_file}",
+                    "--model-id",
+                    "some/model",
+                    "--no-skip-build",
+                    "--rebuild",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert any(
+            "--rebuild ignored for evaluator-managed composite inputs" in record.getMessage()
+            for record in caplog.records
+        )
+
+
 # ---------------------------------------------------------------------------
 # --format json
 # ---------------------------------------------------------------------------
@@ -1023,6 +1638,49 @@ class TestEvalFormatJson:
 
         result = runner.invoke(eval_cmd, ["-m", "test", "--format", "xml"])
         assert result.exit_code != 0
+
+
+class TestDisplayEvalReportHeader:
+    """The report header/detail lines render a readable model name for every input shape."""
+
+    def _render(self, config) -> str:
+        from rich.console import Console
+
+        from winml.modelkit.commands.eval import display_eval_report
+        from winml.modelkit.eval.evaluate import EvalResult
+
+        console = Console(record=True, width=200)
+        display_eval_report(EvalResult(config=config, metrics={}, num_samples=1), console)
+        return console.export_text()
+
+    def test_composite_model_path_dict_renders_readable_not_dict_repr(self):
+        from winml.modelkit.eval import WinMLEvaluationConfig
+
+        text = self._render(
+            WinMLEvaluationConfig(
+                model_path={"encoder": "enc.onnx", "decoder": "dec.onnx"},
+                task="image-to-text",
+            )
+        )
+        # Header joins the sub-model paths; detail lines list them per role ...
+        assert "enc.onnx" in text
+        assert "dec.onnx" in text
+        assert "ONNX (encoder):" in text
+        # ... and never leak a raw Python dict repr.
+        assert "{'encoder'" not in text
+
+    def test_two_onnx_compare_shows_candidate_path_without_model_id(self):
+        from winml.modelkit.eval import WinMLEvaluationConfig
+
+        text = self._render(
+            WinMLEvaluationConfig(
+                model_path="cand.onnx",
+                reference_path="ref.onnx",
+                mode="compare",
+            )
+        )
+        assert "Evaluation: cand.onnx" in text
+        assert "ref.onnx" in text
 
 
 # ---------------------------------------------------------------------------

@@ -38,7 +38,15 @@ from typing import Any, Final, NamedTuple, cast
 
 import onnxruntime as ort
 
-from ..utils.constants import DEVICE_PRIORITY, EP_ALIASES, EP_NAMES, normalize_ep_name
+from ..ep_path import VALID_SOURCE_TAGS
+from ..utils.constants import (
+    DEVICE_PRIORITY,
+    EP_ALIASES,
+    EP_NAMES,
+    EP_SUPPORTED_DEVICES,
+    EPName,
+    normalize_ep_name,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -236,23 +244,13 @@ def ep_short_or_none(ep_full: str) -> str | None:
 # These three closed sets are the canonical authority used by
 # EPDeviceTarget.__post_init__ for construction-time validation.
 # - VALID_DEVICES: the 3 device categories ORT enumerates.
-# - VALID_SOURCE_TAGS: the canonical EPSource origin tags. See
-#   docs/design/session/3_design_classes.md §4.
+# - VALID_SOURCE_TAGS: the canonical EPSource origin tags, imported from
+#   ep_path.py so lightweight CLI parsers can validate source-qualified EPs
+#   without importing this ORT-bound module.
 # - known_ep_short_names(): derived from EP_ALIASES (no hardcoded list,
 #   per CLAUDE.md cardinal rule #1).
 
 VALID_DEVICES: Final[frozenset[str]] = frozenset(DEVICE_PRIORITY)
-
-VALID_SOURCE_TAGS: Final[frozenset[str]] = frozenset(
-    {
-        "bundled",
-        "pypi",
-        "nuget",
-        "msix",
-        "winml-catalog",
-        "directory",
-    }
-)
 
 
 def known_ep_short_names() -> frozenset[str]:
@@ -355,9 +353,10 @@ class EPDeviceSpec:
     Many EPDeviceTargets map to one EPDeviceSpec.
     """
 
-    ep: str
+    ep: EPName
     device: str
     default_provider_options: Mapping[str, str] = field(default_factory=dict)
+    provider_option_hints: Mapping[str, str] = field(default_factory=dict)
 
 
 EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
@@ -381,6 +380,7 @@ EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
             "htp_performance_mode": "burst",
             "htp_graph_finalization_optimization_mode": "3",
         },
+        provider_option_hints={"backend_path": "QnnHtp.dll"},
     ),
     EPDeviceSpec(ep="OpenVINOExecutionProvider", device="npu"),
     EPDeviceSpec(ep="VitisAIExecutionProvider", device="npu"),
@@ -390,8 +390,16 @@ EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
     EPDeviceSpec(ep="NvTensorRTRTXExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="OpenVINOExecutionProvider", device="cpu"),
     # ---- QNN secondary (Snapdragon boxes without vendor-optimal alternatives) ----
-    EPDeviceSpec(ep="QNNExecutionProvider", device="gpu"),  # TODO: measure
-    EPDeviceSpec(ep="QNNExecutionProvider", device="cpu"),
+    EPDeviceSpec(
+        ep="QNNExecutionProvider",
+        device="gpu",
+        provider_option_hints={"backend_path": "QnnGpu.dll"},
+    ),  # TODO: measure
+    EPDeviceSpec(
+        ep="QNNExecutionProvider",
+        device="cpu",
+        provider_option_hints={"backend_path": "QnnCpu.dll"},
+    ),
     # ---- Built-in fallbacks (last per registry design intent) ----
     EPDeviceSpec(ep="DmlExecutionProvider", device="gpu"),  # cross-vendor GPU fallback
     EPDeviceSpec(ep="CPUExecutionProvider", device="cpu"),  # always-available CPU fallback
@@ -438,9 +446,20 @@ def default_device_for_ep(ep: str) -> str | None:
     return next((s.device for s in EP_DEVICE_SPECS if s.ep == ep), None)
 
 
+def _is_policy_supported_spec(spec: EPDeviceSpec) -> bool:
+    """Return whether the shared EP/device policy accepts this catalog row."""
+    return spec.device in EP_SUPPORTED_DEVICES[spec.ep]
+
+
 def _devices_for_ep(ep: str) -> tuple[str, ...]:
     """Catalog-supported devices for *ep*, preserving declaration order."""
-    return tuple(dict.fromkeys(spec.device for spec in EP_DEVICE_SPECS if spec.ep == ep))
+    return tuple(
+        dict.fromkeys(
+            spec.device
+            for spec in EP_DEVICE_SPECS
+            if spec.ep == ep and _is_policy_supported_spec(spec)
+        )
+    )
 
 
 def default_ep_for_device(device: str) -> str | None:
@@ -482,6 +501,7 @@ def default_ep_for_device(device: str) -> str | None:
                 s.ep
                 for s in EP_DEVICE_SPECS
                 if s.device == device
+                and _is_policy_supported_spec(s)
                 and s.ep in eps  # L0: discovered
                 and EP_CATALOG.is_compatible(s.ep)  # L2: vendor-compatible
             ),
@@ -536,7 +556,11 @@ def available_eps_for_device(device: str) -> list[str]:
 
     d = device.lower()
     eps = WinMLEPRegistry.instance().available_eps()
-    return [s.ep for s in EP_DEVICE_SPECS if s.device == d and s.ep in eps]
+    return [
+        s.ep
+        for s in EP_DEVICE_SPECS
+        if s.device == d and _is_policy_supported_spec(s) and s.ep in eps
+    ]
 
 
 def ep_to_device(ep: str) -> str:
@@ -593,6 +617,7 @@ def auto_detect_device() -> str:
             for spec in EP_DEVICE_SPECS:
                 if (
                     spec.device != dev
+                    or not _is_policy_supported_spec(spec)
                     or spec.ep not in available_eps
                     or not EP_CATALOG.is_compatible(spec.ep)
                 ):
@@ -667,7 +692,7 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
         available_eps = registry.available_eps()
         vendor_detection_failed = False
         for spec in EP_DEVICE_SPECS:
-            if spec.ep not in available_eps:
+            if spec.ep not in available_eps or not _is_policy_supported_spec(spec):
                 continue
             if vendor_detection_failed:
                 if spec.device != "cpu":
@@ -739,7 +764,11 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
         selected_ep: str | None = None
         vendor_detection_failed = False
         for spec in EP_DEVICE_SPECS:
-            if spec.device != device or spec.ep not in available_eps:
+            if (
+                spec.device != device
+                or spec.ep not in available_eps
+                or not _is_policy_supported_spec(spec)
+            ):
                 continue
             try:
                 if not EP_CATALOG.is_compatible(spec.ep):
@@ -774,6 +803,17 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
 
     # --- Final validation + return --------------------------------------
     ep_full = expand_ep_name(ep)
+    # Reject an EP/device pair the shared policy table does not allow. The
+    # ``auto`` branches above only ever select policy-supported specs, so this
+    # can only trip when the caller pinned BOTH axes (e.g. ``--ep vitisai
+    # --device cpu``). Without it the mismatch surfaces much later as a
+    # ``DeviceNotFound`` from deep inside the compile stage.
+    supported_devices = EP_SUPPORTED_DEVICES.get(cast("EPName", ep_full))
+    if supported_devices is not None and device not in supported_devices:
+        raise ValueError(
+            f"EP '{target.ep}' does not support device '{device}'. "
+            f"Supported: {', '.join(supported_devices)}."
+        )
     resolved = EPDeviceTarget(ep=ep_full, device=device, source=target.source)
     logger.info(
         "resolve_device: %s/%s%s -> %s/%s%s",

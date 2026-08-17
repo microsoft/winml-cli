@@ -19,6 +19,13 @@ from .config import (
     WinMLExportConfig,
     resolve_export_config,
 )
+from .policy import (
+    ExportCompatibilityConfig,
+    ExportCompatibilityRule,
+    ExportPolicyTarget,
+    export_policy_targets_for_request,
+    resolve_export_compatibility,
+)
 
 
 # Static type re-exports for the names exposed by ``__getattr__`` below.
@@ -40,15 +47,20 @@ if TYPE_CHECKING:
 __version__ = "2.1.0"
 
 __all__ = [
+    "ExportCompatibilityConfig",
+    "ExportCompatibilityRule",
+    "ExportPolicyTarget",
     "InputTensorSpec",
     "MaxLengthTextInputGenerator",
     "ONNXConfigNotFoundError",
     "OutputTensorSpec",
     "WinMLExportConfig",
     "export_onnx",
+    "export_policy_targets_for_request",
     "export_pytorch",
     "generate_dummy_inputs",
     "register_onnx_overwrite",
+    "resolve_export_compatibility",
     "resolve_export_config",
     "resolve_io_specs",
 ]

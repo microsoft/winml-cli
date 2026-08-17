@@ -176,7 +176,13 @@ import onnx
 from onnx import ModelProto, numpy_helper
 from onnx.defs import OpSchema
 
-from ..onnx import ONNXDomain, SupportedONNXType, check_onnx_model, infer_onnx_shapes
+from ..onnx import (
+    ONNXDomain,
+    SupportedONNXType,
+    check_onnx_model,
+    infer_onnx_shapes,
+    infer_shapes,
+)
 from ..onnx.external_data import try_load_external_initializer_array
 from .match import InputInfo, PatternMatchResult, SkeletonMatchResult
 from .op_input_gen import InputShapeConstraint
@@ -925,7 +931,8 @@ class Pattern(ABC):
                 output_dtypes[output_idx]
             ).tensor_proto_type
 
-            output_tensor = helper.make_tensor_value_info(output_name, elem_type, None)
+            # Keep shape present for ONNX checker while leaving dimensions unknown.
+            output_tensor = helper.make_tensor_value_info(output_name, elem_type, [None])
             graph_outputs.append(output_tensor)
 
         # Create graph
@@ -951,12 +958,7 @@ class Pattern(ABC):
         # Set IR version to 11 for compatibility with older onnxruntime versions
         model.ir_version = 11
 
-        try:
-            model = infer_onnx_shapes(model)
-        except Exception:
-            pass
-
-        return model
+        return infer_shapes(model)
 
     def _infer_type_mapping(self, skeleton_match_result: "SkeletonMatchResult") -> dict[str, str]:
         """Infer type parameter mapping from actual tensor types in the model.
@@ -1219,6 +1221,8 @@ class PatternMatcher:
         onnx_model: ModelProto,
         raise_on_invalid_model: bool = True,
         model_path: str | Path | None = None,
+        *,
+        skip_shape_inference: bool = False,
     ) -> None:
         """Initialize the pattern matcher with an ONNX model.
 
@@ -1233,11 +1237,14 @@ class PatternMatcher:
                 proto will be lazily resolved from sidecar files (subject to the
                 size limits in the runtime-checker query helper) so that
                 value-based pattern constraints can still be evaluated.
+            skip_shape_inference: Use existing graph shape/type information
+                instead of rerunning inference. The caller must provide an
+                already-inferred model.
         """
         # Run shape inference to populate value_info with type information
         # This is critical for type inference and shape lookups
 
-        self.model = infer_onnx_shapes(onnx_model)
+        self.model = onnx_model if skip_shape_inference else infer_onnx_shapes(onnx_model)
         self.graph = self.model.graph
         self.model_path = Path(model_path) if model_path is not None else None
 

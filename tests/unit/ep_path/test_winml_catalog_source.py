@@ -15,12 +15,13 @@ The ONLY mocked surface is the ``windowsml`` Python package itself
 Also covers:
     - The default EP source list includes the 5 ``WinMLCatalogSource`` rows
       with the canonical EP names from the design doc.
-    - ``atexit`` cleanup is registered exactly once across many
-      ``_get_catalog()`` calls.
+    - ``_get_catalog()`` disarms the native catalog handle at process exit
+      without calling into native release during interpreter shutdown.
 """
 
 from __future__ import annotations
 
+import atexit
 import logging
 import os
 import sys
@@ -53,6 +54,24 @@ class _FakeReadyState:
         self.name = name
 
 
+class _FakeReadyOp:
+    """Mimic the async op handle returned by ``ensure_ready_async``."""
+
+    def __init__(self) -> None:
+        self.get_status_calls = 0
+        self.cancel_calls = 0
+        self.close_calls = 0
+
+    def get_status(self) -> None:
+        self.get_status_calls += 1
+
+    def cancel(self) -> None:
+        self.cancel_calls += 1
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
 class _FakeProvider:
     """Mimic a ``windowsml`` execution-provider row."""
 
@@ -63,18 +82,37 @@ class _FakeProvider:
         library_path: str,
         *,
         ensure_ready_raises: Exception | None = None,
+        becomes_ready: bool = True,
+        version: str = "",
+        package_family_name: str = "",
     ) -> None:
         self.name = name
         self.ready_state = _FakeReadyState(ready_state)
         self.library_path = library_path
         self.ensure_ready_calls = 0
         self._ensure_ready_raises = ensure_ready_raises
+        self._becomes_ready = becomes_ready
+        self.version = version
+        self.package_family_name = package_family_name
 
-    def ensure_ready(self) -> None:
+    def ensure_ready_async(
+        self,
+        on_complete: Any = None,
+        on_progress: Any = None,
+    ) -> _FakeReadyOp:
+        # The cold download path: drive a progress callback, (optionally) flip
+        # to Ready, then signal completion — mirroring the real windowsml
+        # async contract that ``_ensure_provider_ready`` consumes.
         self.ensure_ready_calls += 1
         if self._ensure_ready_raises is not None:
             raise self._ensure_ready_raises
-        self.ready_state = _FakeReadyState("Ready")
+        if on_progress is not None:
+            on_progress(1.0)
+        if self._becomes_ready:
+            self.ready_state = _FakeReadyState("Ready")
+        if on_complete is not None:
+            on_complete()
+        return _FakeReadyOp()
 
 
 class _FakeCatalog:
@@ -89,6 +127,7 @@ class _FakeCatalog:
         self._providers = providers
         self._find_raises = find_raises
         self.closed = False
+        self._handle: object | None = object()
 
     def find_all_providers(self) -> list[_FakeProvider]:
         if self._find_raises is not None:
@@ -348,14 +387,24 @@ class TestWithFakeCatalog:
         tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        # Provider whose ensure_ready() is called but doesn't become Ready.
+        # Provider whose download completes but never flips to Ready.
         class _StuckProvider:
             name = "VitisAI"
             ready_state = _FakeReadyState("NotReady")
             library_path = str(tmp_path / "v.dll")
+            version = ""
+            package_family_name = ""
 
-            def ensure_ready(self) -> None:
-                pass  # intentionally does NOT update ready_state
+            def ensure_ready_async(
+                self, on_complete: Any = None, on_progress: Any = None
+            ) -> _FakeReadyOp:
+                # Completes the async op but intentionally does NOT update
+                # ready_state, so the caller must warn-and-skip.
+                if on_progress is not None:
+                    on_progress(1.0)
+                if on_complete is not None:
+                    on_complete()
+                return _FakeReadyOp()
 
         catalog = _FakeCatalog([_StuckProvider()])  # type: ignore[list-item]
         _install_windowsml_module(monkeypatch, catalog)
@@ -437,7 +486,7 @@ class TestWithFakeCatalog:
 
 
 # ---------------------------------------------------------------------------
-# Readiness and lifecycle expectations (new synchronous API).
+# Readiness and lifecycle expectations (async progress-driven download API).
 # ---------------------------------------------------------------------------
 
 
@@ -542,27 +591,26 @@ def test_is_ready(value: Any, expected: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# atexit cleanup.
+# catalog lifecycle.
 # ---------------------------------------------------------------------------
 
 
-class TestAtexitCleanup:
-    """The catalog is registered for cleanup exactly once."""
+class TestCatalogLifecycle:
+    """The catalog singleton avoids process-exit native release calls."""
 
-    def test_atexit_registered_once_across_multiple_calls(
+    def test_get_catalog_registers_atexit_handle_disarm_without_close(
         self,
         reset_catalog_singleton: None,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
     ) -> None:
-        # Track atexit.register calls within ep_path.
         registered: list[Any] = []
 
         def fake_register(func: Any, *args: Any, **kwargs: Any) -> Any:
             registered.append((func, args, kwargs))
             return func
 
-        monkeypatch.setattr(_ep.atexit, "register", fake_register)
+        monkeypatch.setattr(atexit, "register", fake_register)
 
         # Install a working fake module.
         dll = tmp_path / "x.dll"
@@ -586,22 +634,12 @@ class TestAtexitCleanup:
         assert c1 is not None
         assert c2 is c1
         assert c3 is c1
-        # Exactly one atexit registration.
-        cleanup_callbacks = [r for r in registered if r[0] is _ep._release_winml_catalog]
-        assert len(cleanup_callbacks) == 1
-        # The catalog object itself is what gets registered for cleanup.
-        assert cleanup_callbacks[0][1][0] is catalog
+        assert len(registered) == 1
 
-    def test_release_catalog_swallows_exceptions(self, caplog: pytest.LogCaptureFixture) -> None:
-        # Cleanup must not propagate exceptions during interpreter shutdown.
-        class _BoomCatalog:
-            def close(self) -> None:
-                raise RuntimeError("cleanup failure")
+        cleanup, args, kwargs = registered[0]
+        assert args == (catalog,)
+        assert kwargs == {}
+        cleanup(*args, **kwargs)
 
-        # Should not raise.
-        _ep._release_winml_catalog(_BoomCatalog())
-
-    def test_release_catalog_calls_close(self) -> None:
-        catalog = _FakeCatalog([])
-        _ep._release_winml_catalog(catalog)
-        assert catalog.closed is True
+        assert catalog._handle is None
+        assert catalog.closed is False

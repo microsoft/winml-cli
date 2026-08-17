@@ -12,6 +12,20 @@ from rich.console import Console
 from rich.panel import Panel
 
 from winml.modelkit.commands._pre_bench import print_pre_bench_block
+from winml.modelkit.utils.console import SafeConsole
+
+
+class _FailingConsoleFile:
+    encoding = "utf-8"
+
+    def write(self, _text: str) -> int:
+        raise OSError(1, "Incorrect function")
+
+    def flush(self) -> None:
+        pass
+
+    def isatty(self) -> bool:
+        return True
 
 
 _PLUGIN_DLL = (
@@ -70,6 +84,27 @@ def test_hf_block_shows_model_id():
     assert "image-classification" in out
     assert "17" in out  # opset
     assert "convnext.onnx" in out
+
+
+def test_hf_block_ignores_windows_console_write_oserror():
+    console = SafeConsole(file=_FailingConsoleFile(), width=120, force_terminal=False)
+
+    print_pre_bench_block(
+        console,
+        model_id="facebook/convnext-base-224",
+        task="image-classification",
+        opset=17,
+        inputs=[("pixel_values", "float32", (1, 3, 224, 224))],
+        outputs=[("logits", "float32", (1, 1000))],
+        cached_onnx_path=r"C:\Users\u\.cache\winml\artifacts\convnext.onnx",
+        onnx_file=None,
+        device="npu",
+        hardware_name="NPU Compute Accelerator Device",
+        ep="qnn",
+        ep_source="pypi",
+        ep_version="2.29.0",
+        ep_dll_path=r"C:\Users\u\onnxruntime_providers_qnn.dll",
+    )
 
 
 def test_hf_block_shows_inputs_and_outputs():

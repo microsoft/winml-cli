@@ -17,14 +17,14 @@ $ winml perf [options]
 | Flag | Short | Type | Default | Description |
 |---|---|---|---|---|
 | `--model` | `-m` | `TEXT` | — | HuggingFace model ID or path to a local `.onnx` file. Required. With `--runtime winml-genai`, also accepts a prebuilt genai **bundle directory**, or a HuggingFace model ID that is auto-built into a bundle on demand. |
-| `--runtime` | | `winml\|winml-genai` | `winml` | Inference runtime. `winml` benchmarks single-shot ONNX inference; `winml-genai` benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec). With `winml-genai`, a model ID that is not a bundle directory is auto-built into one (cached under `~/.cache/winml/`, targeting the NPU HTP via QNN) before benchmarking. Cache handling matches the `winml` runtime: `--rebuild` overwrites the cached bundle, and `--ignore-cache` builds a throwaway bundle in a temp folder and leaves the cache untouched. |
+| `--runtime` | | `winml\|winml-genai` | `winml` | Inference runtime. `winml` benchmarks single-shot ONNX inference; `winml-genai` benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec). With `winml-genai`, a model ID that is not a bundle directory is auto-built into one (cached under `~/.cache/winml/`, targeting the NPU HTP via QNN) before benchmarking. GenAI cache controls are tracked in issue #1275. |
 | `--task` | | `TEXT` | auto-detected | Explicit task override (e.g., `image-classification`). Inferred from the model if omitted. |
 | `--iterations` | | `INTEGER` | `100` | Number of timed inference iterations used to compute statistics. |
 | `--warmup` | | `INTEGER` | `10` | Number of warm-up iterations run before timing begins; excluded from statistics. |
 | `--device` | `-d` | `auto\|cpu\|gpu\|npu` | `auto` | Device to run the benchmark on. `auto` selects the highest-priority available device. |
 | `--precision` | | `TEXT` | `auto` | Precision mode applied during model build: `auto`, `fp32`, `fp16`, `int8`, `int16`, or compound forms such as `w8a16`. |
 | `--ep` | | `TEXT` | — | Force a specific execution provider (e.g., `qnn`, `dml`, `vitisai`, `openvino`, `cpu`). Overrides the device-to-provider mapping. |
-| `--ep-options` | | `KEY=VALUE` (multiple) | — | Runtime EP provider option forwarded to the inference session (e.g., `--ep-options htp_performance_mode=burst`). Repeatable. Applies to both HuggingFace model IDs and ONNX file inputs. Unlike build-time options set via `--config`, these tune the runtime session, not the compiled graph. |
+| `--ep-options` | | `KEY=VALUE` (multiple) | — | Runtime EP provider option forwarded to the inference session (e.g., `--ep-options htp_performance_mode=burst`). Repeatable. Applies to both HuggingFace model IDs and ONNX file inputs. When detail op-tracing automatically compiles a raw ONNX model, these options are also applied to that compilation. |
 | `--output` | `-o` | `PATH` | `~/.cache/winml/perf/<slug>/<timestamp>.json` | Output JSON file path for the benchmark report. |
 | `--batch-size` | | `INTEGER` | `1` | Batch size used when generating synthetic input tensors. Ignored when `--input-data` is set. |
 | `--input-data` | | `PATH` | — | Path to a `.npz` file of real input tensors to benchmark with instead of randomly generated inputs. The archive's keys must match the model's inputs exactly; dtypes are cast to the model's expected dtype (with a warning) to mirror normal inference. Not supported with `--module`, `--runtime winml-genai`, or composite (dual-encoder) models. |
@@ -33,11 +33,12 @@ $ winml perf [options]
 | `--export-config` | | `PATH` | — | JSON ONNX export config overrides to apply when `perf` builds a Hugging Face model before benchmarking. Ignored for pre-exported ONNX files and in `--module` mode. |
 | `--dynamic-axes` | | `PATH` | — | JSON dynamic axes mapping for Hugging Face ONNX export, for example `{"input_ids": {"0": "batch", "1": "sequence"}}`. Ignored for pre-exported ONNX files and in `--module` mode. |
 | `--quantize/--no-quantize` | | flag | `true` | Run quantization during model build (use `--no-quantize` to skip it). Useful for measuring the fp32 baseline. |
+| `--use-cache/--no-use-cache` | | flag | `true` | Reuse persistent model build artifacts. `--no-use-cache` performs a fresh build in a temporary folder and discards it after benchmarking. |
 | `--rebuild/--no-rebuild` | | flag | `false` | Force model rebuild even if a cached artifact already exists. |
-| `--ignore-cache/--no-ignore-cache` | | flag | `false` | Build from scratch in a temporary folder and discard the artifact after benchmarking. Implies `--rebuild`. |
 | `--module` | | `TEXT` | — | PyTorch module class name for per-module benchmarking (e.g., `BertAttention`). Builds and times each matching instance separately. See [Load and export](../concepts/load-and-export.md). |
-| `--monitor/--no-monitor` | | flag | `false` | Show a live NPU/CPU utilization chart while the benchmark runs and include hardware metrics in the JSON report. |
-| `--compile` / `--no-compile` | | flag | `false` | Compile the model to EPContext binaries during build. For `--runtime winml-genai` on the NPU, `--compile` pre-compiles each QNN stage (in an isolated subprocess) before generation. |
+| `--monitor/--no-monitor` | | flag | `false` | Show a live NPU/CPU utilization chart while the benchmark runs and include hardware metrics in the JSON report. With `--runtime winml-genai`, the monitor wraps the genai load + generation benchmark. |
+| `--op-tracing` | | `basic\|detail` | — | Enable operator-level profiling. QNN detail tracing requires an EPContext model; a raw ONNX input is detected and compiled automatically with the required profiling options. |
+| `--compile` / `--no-compile` | | flag | `false` | Compile the model to EPContext binaries during build. QNN detail op-tracing enables this automatically for a raw ONNX input unless `--no-compile` or `--skip-build` was explicitly specified. For `--runtime winml-genai` on the NPU, `--compile` pre-compiles each QNN stage (in an isolated subprocess) before generation. |
 | `--compile-timeout` | | `INTEGER` | `300` | *(winml-genai)* Max seconds to compile each EPContext stage before falling back to the original ONNX. Requires `--compile`. |
 | `--prompt` | | `TEXT` | `Explain the theory of relativity in simple terms.` | *(winml-genai)* Prompt text to generate from. Wrapped in the bundle's chat template unless `--no-apply-template`. |
 | `--apply-template/--no-apply-template` | | flag | `true` | *(winml-genai)* Wrap `--prompt` in the bundle's chat template before timing. |
@@ -46,6 +47,26 @@ $ winml perf [options]
 ## How it works
 
 `winml perf` loads the model through `WinMLAutoModel` — accepting both HuggingFace IDs and local ONNX files — then generates random input tensors from the model's I/O configuration. It runs the specified number of warm-up iterations (excluded from statistics) followed by the timed iterations, collecting per-sample latency. The final report includes mean, min, max, P50, P90, P95, P99, standard deviation, and throughput in samples per second. When `--monitor` is active, a hardware polling loop runs in parallel and records NPU / GPU utilization, CPU usage, and device memory alongside the timing data.
+
+Both runtime reports include `schema_version: 2` and a `benchmark_info.runtime` discriminator (`winml` or `winml-genai`). Shared metadata such as `model_id`, `running_model_path`, `device`, `ep`, `iterations`, `warmup`, and `timestamp` uses the same field names where the concepts overlap; GenAI also keeps `bundle_dir` because the runnable artifact is a bundle directory.
+
+When `--memory` is enabled, both `winml` and `winml-genai` reports use the same `memory` field names for shared concepts: RSS baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta; VRAM local/shared baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta.
+
+With `--runtime winml-genai`, `winml perf` benchmarks the onnxruntime-genai decoder pipeline rather than a single `session.run()`. The JSON report uses a phase-based schema: `load` contains startup spans, `requests` contains one warmup or timed generation sample per request, `aggregate` summarizes timed requests only, `memory` contains optional RAM/VRAM deltas, and `hw_monitor` contains optional monitor output. The optional `memory` and `hw_monitor` top-level names match the classic `winml` perf report; GenAI keeps `load`/`requests`/`aggregate` instead of classic `latency_ms`/`throughput` because generation has distinct prompt, first-token, and decode phases.
+
+### GenAI metric definitions
+
+| Core metric | JSON field(s) | Definition |
+|---|---|---|
+| Model Load Time | `load.session_load_duration_ms`, `load.native_load_duration_ms` | `session_load_duration_ms` is the outer `GenaiSession.load()` wall-clock span. `native_load_duration_ms` is the onnxruntime-genai `og.Config` + `og.Model` + `og.Tokenizer` span. |
+| Weight Upload Time | `load.weight_upload_duration_ms`, `load.weight_upload_estimate_duration_ms` | Exact upload telemetry is `null` today because onnxruntime-genai does not expose it. The estimate is `model_create_duration_ms` and is labeled by `weight_upload_estimate_source`. |
+| Cold Start Time | `aggregate.cold_start_ttft_duration_ms`, `aggregate.cold_start_total_duration_ms` | Load plus the first request's TTFT, or load plus the first request's total request duration. |
+| Warm Start Time / Latency | `aggregate.request_duration_ms` | Timed-request full duration after warmups: template + tokenization + generator creation + model compute + sequence fetch + detokenization. |
+| TTFT | `requests[].model_ttft_duration_ms`, `requests[].request_ttft_duration_ms`, `aggregate.*ttft*` | Model TTFT is prefill + first-token compute. Request TTFT also includes template, tokenization, and generator creation. |
+| Prefill TPS | `requests[].prefill_tokens_per_second`, `aggregate.prefill_tokens_per_second` | Prompt tokens divided by `prefill_duration_ms`. |
+| Decode TPS | `requests[].steady_state_decode_tokens_per_second`, `aggregate.steady_state_decode_tokens_per_second` | Tokens after the first divided by the sum of per-token decode durations after the first. |
+| RAM Usage | `memory.rss_*` | Classic-compatible RSS fields such as `rss_baseline_mb`, `rss_after_compile_mb`, `rss_after_inference_mb`, `rss_model_load_delta_mb`, `rss_inference_delta_mb`, and `rss_total_delta_mb`. `rss_checkpoint_peak_mb` is the maximum of the sampled checkpoints, not a continuously sampled peak. Requires `--memory`. |
+| VRAM Usage | `memory.vram_*` | Adapter memory fields are emitted only when the effective GenAI route proves a specific accelerator adapter. Fields include baseline, after-compile, after-inference, load/inference/total deltas, and `vram_*_checkpoint_peak_mb` checkpoint maxima. Requires `--memory`. |
 
 ## Examples
 
@@ -135,6 +156,7 @@ and logs a warning.
 ## Common pitfalls
 
 - **Warm-up too low on NPU.** The first several inferences on an NPU EP can be significantly slower due to kernel compilation and caching. The default of 10 warm-up iterations is usually enough for vision models, but transformer models with many operators may need `--warmup 30` or higher to reach steady-state latency.
+- **Hidden third-party diagnostics.** Normal `winml perf` output suppresses noisy native warning-level diagnostics and Hugging Face download/progress chatter so benchmark results stay readable. Use `-v`/`-vv` or set `WINMLCLI_SHOW_ALL_WARNINGS=1` to show those warnings when debugging provider or Hub issues.
 - **`--input-data` keys must match; dtypes are cast.** The `.npz` keys must equal the model's input names — a missing or unexpected key is a hard error (typo protection). Array dtypes are cast to the model's expected dtype with a warning (matching normal inference), so you don't have to hand-match widths. `.npy` files are not supported — save named arrays as `.npz`. When `--input-data` is set, `--batch-size` and `--shape-config` are ignored (the tensors define their own shapes). It is also rejected for `--module` mode, `--runtime winml-genai`, and composite (dual-encoder) models such as CLIP/SigLIP, where each sub-model has its own inputs that a single `.npz` cannot address.
 - **Real data only binds if the export kept axes dynamic.** When `-m` is a HuggingFace model ID, `perf` exports it with default shapes (because `--shape-config`/`--batch-size` are ignored under `--input-data`). If that export baked in static shapes, ORT will reject differently-shaped `--input-data`. Use `--dynamic-axes`/symbolic `--input-specs` for the Hugging Face build, or point `-m` at an ONNX file that already has dynamic axes.
 - **`--shape-config` is ignored when real or module inputs own the shape.** It is ignored in `--module` mode and when `--input-data` is set. The command prints a warning in both situations.

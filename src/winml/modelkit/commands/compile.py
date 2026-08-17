@@ -91,6 +91,10 @@ console = Console()
     help="Force specific EP, optionally pinned to a source (e.g. 'openvino@pypi'). "
     "Overrides device-to-provider mapping.",
 )
+@cli_utils.ep_options_option(
+    optional_message="Applied to the compilation session; overrides matching "
+    "compile.provider_options keys from --config.",
+)
 @click.option(
     "--validate/--no-validate",
     default=True,
@@ -134,6 +138,7 @@ def compile(
     overwrite: bool,
     device: str | None,
     ep: tuple[str, str | None] | None,
+    ep_options: tuple[str, ...],
     validate: bool,
     verbose: int,
     quiet: bool,
@@ -173,10 +178,12 @@ def compile(
     # the raw tuple into user-visible output (T-01 regression pin).
     ep_part, source_part = ep if ep else (None, None)
     ep_name: str | None = ep_part
+    cli_provider_options = cli_utils.parse_ep_options(ep_options)
 
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
     config_provider_options: dict[str, str] = {}
+    config_provider_option_file_keys: set[str] = set()
     if config_file is not None:
         try:
             build_cfg, raw_cfg = cli_utils.load_build_config(config_file)
@@ -191,6 +198,8 @@ def compile(
         # EP provider options (e.g. QNN htp_arch/soc_model/vtcm_mb) for the compile session.
         if "provider_options" in cc:
             config_provider_options = dict(cc["provider_options"])
+        if "provider_option_file_keys" in cc:
+            config_provider_option_file_keys = set(cc["provider_option_file_keys"])
         if not cli_utils.is_cli_provided(ctx, "device"):
             if configured_target is not None:
                 device = configured_target.device
@@ -299,9 +308,14 @@ def compile(
     config.ep_config.compiler = compiler
     config.ep_config.qnn_sdk_root = qnn_sdk_root
     config.ep_config.embed_context = embed
-    # EP provider options supplied via --config (compile.provider_options).
+    # Merge config and CLI provider options, with explicit CLI values winning
+    # for duplicate keys.
     if config_provider_options:
         config.ep_config.provider_options.update(config_provider_options)
+    if config_provider_option_file_keys:
+        config.ep_config.provider_option_file_keys.update(config_provider_option_file_keys)
+    if cli_provider_options:
+        config.ep_config.provider_options.update(cli_provider_options)
 
     # Show info — device and provider come directly from the resolved EPDeviceTarget.
     console.print(f"[bold blue]Input:[/bold blue] {', '.join(str(m) for m in models)}")

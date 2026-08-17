@@ -121,3 +121,23 @@ class BasePipe(ABC, Generic[ConfigT]):
             True if pipe should process, False to skip
         """
         return True
+
+    def prepare_analysis_model(self, model: onnx.ModelProto) -> onnx.ModelProto:
+        """Prepare a model once before probing this pipe's capabilities.
+
+        The default implementation is a no-op. Pipes with expensive preparation
+        shared by every capability probe can override it.
+        """
+        return model
+
+    def process_analysis(self, model: onnx.ModelProto, config: ConfigT) -> onnx.ModelProto:
+        """Process one capability probe using an analysis-prepared model."""
+        return self.process(model, config)
+
+    @classmethod
+    def requires_analysis_clone(cls) -> bool:
+        """Return whether each analysis probe needs an independent model copy."""
+        return True
+
+    def finish_analysis(self) -> None:
+        """Release resources allocated by :meth:`prepare_analysis_model`."""
