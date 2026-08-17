@@ -1110,6 +1110,46 @@ class TestPollerDeviceRouting:
         assert poller.device_kind == "gpu"
         assert poller.adapter_luid == "0x00000000_0xDEADBEEF"
 
+    def test_bound_adapter_luid_bypasses_ambiguous_ep_discovery(self):
+        """A concrete session binding must win over multi-adapter EP discovery."""
+        from winml.modelkit.session.monitor._pdh import PdhPoller
+
+        fake_query = type(
+            "Q",
+            (),
+            {
+                "open": lambda self: None,
+                "add_counter": lambda self, *a, **k: True,
+                "prime": lambda self: None,
+                "collect": lambda self, **k: {},
+                "_collect_once": lambda self: {},
+                "close": lambda self: None,
+                "counter_names": [],
+            },
+        )()
+        bound_luid = "0x00000000_0x00018393"
+
+        with (
+            patch("winml.modelkit.session.monitor._pdh.resolve_adapter_luid") as resolver,
+            patch(
+                "winml.modelkit.session.monitor._pdh.build_gpu_query",
+                return_value=fake_query,
+            ) as build_gpu,
+        ):
+            poller = PdhPoller(
+                poll_interval_ms=50,
+                device="gpu",
+                ep_name="DmlExecutionProvider",
+                adapter_luid=bound_luid,
+            )
+            poller.start()
+            poller.stop()
+
+        resolver.assert_not_called()
+        build_gpu.assert_called_once_with(bound_luid)
+        assert poller.device_kind == "gpu"
+        assert poller.adapter_luid == bound_luid
+
     def test_auto_prefers_npu_then_gpu(self):
         """device='auto' must probe NPU first, then GPU."""
         from winml.modelkit.session.monitor._pdh import PdhPoller

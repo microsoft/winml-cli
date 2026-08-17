@@ -539,6 +539,12 @@ class TestPerfModuleMonitor:
             device="cpu",
             duration_sec=None,
         )
+        fake_hw_cls.assert_called_once_with(
+            poll_interval_ms=200,
+            device="cpu",
+            ep_name=fake_session.ep_name,
+            adapter_luid=None,
+        )
         # And the collected HW metrics still land in the JSON report.
         report = json.loads(out_path.read_text(encoding="utf-8"))
         assert report["instances"][0]["hw_monitor"]["monitor"] == "HWMonitor"

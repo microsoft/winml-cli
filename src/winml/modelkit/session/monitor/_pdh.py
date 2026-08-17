@@ -460,6 +460,7 @@ class PdhPoller:
         poll_interval_ms: int = 200,
         device: str = "auto",
         ep_name: EPName | None = None,
+        adapter_luid: str | None = None,
     ) -> None:
         device_norm = (device or "auto").lower()
         if device_norm not in _DEVICE_KINDS:
@@ -469,6 +470,9 @@ class PdhPoller:
         # Full ORT EP name (e.g. "QNNExecutionProvider") to disambiguate when
         # multiple EPs cover the same device type during LUID resolution.
         self._ep_name = ep_name
+        # A concrete session binding is authoritative when available and avoids
+        # ambiguity when one EP advertises multiple adapters of the same kind.
+        self._adapter_luid_hint = adapter_luid
         self._device_kind: str | None = None  # resolved at start(): "npu" | "gpu" | None
         self._query: PdhQuery | None = None
         self._adapter_luid: str | None = None
@@ -502,7 +506,9 @@ class PdhPoller:
         """
         try:
             self._adapter_luid, self._device_kind = self._resolve_adapter(
-                self._requested_device, self._ep_name
+                self._requested_device,
+                self._ep_name,
+                self._adapter_luid_hint,
             )
 
             # Try to build the per-adapter query. If the resolved LUID is
@@ -659,13 +665,14 @@ class PdhPoller:
 
     @staticmethod
     def _resolve_adapter(
-        requested: str, ep_name: EPName | None = None
+        requested: str,
+        ep_name: EPName | None = None,
+        adapter_luid: str | None = None,
     ) -> tuple[str | None, str | None]:
         """Return (luid, kind) for the requested device.
 
-        Uses :func:`resolve_adapter_luid` so that — when ORT's autoEP API
-        publishes ``OrtHardwareDevice.metadata["LUID"]`` — the monitor tracks
-        the same adapter the inference session binds to. Falls back to PDH
+        A concrete ``adapter_luid`` from the bound session takes precedence.
+        Otherwise, uses :func:`resolve_adapter_luid` and falls back to PDH
         fingerprinting when ORT data is unavailable.
 
         ``kind`` is ``"npu"`` or ``"gpu"`` when an adapter is found; both
@@ -674,6 +681,8 @@ class PdhPoller:
         """
         if requested == "cpu":
             return None, None
+        if adapter_luid is not None and requested in ACCELERATOR_DEVICE_TYPES:
+            return adapter_luid, requested
         if requested == "npu":
             luid = resolve_adapter_luid("npu", ep_name=ep_name)
             return luid, ("npu" if luid else None)

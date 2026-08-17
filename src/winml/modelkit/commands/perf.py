@@ -304,6 +304,16 @@ def _pre_bench_kwargs_from_ep_device(
     }
 
 
+def _get_ep_device_luid(ep_device: WinMLEPDevice | None) -> str | None:
+    """Return the LUID published by a concrete EP-device binding."""
+    if ep_device is None:
+        return None
+
+    from ..sysinfo import get_ep_device_luid
+
+    return get_ep_device_luid(ep_device.device.ort_handle)
+
+
 def _open_ep_monitor_or_exit(
     *,
     op_tracing: str | None,
@@ -1164,6 +1174,10 @@ class PerfBenchmark:
         if device == "cpu":
             return None
 
+        bound_luid = _get_ep_device_luid(self._ep_device)
+        if bound_luid is not None:
+            return bound_luid
+
         try:
             from ..sysinfo.pdh_adapters import resolve_adapter_luid
 
@@ -1258,6 +1272,11 @@ class PerfBenchmark:
         # Full ORT EP name; HWMonitor resolves the adapter LUID from it.
         ep_name = cast("EPName | None", self._single.ep_name)
         monitor_device = self._single.device or self.config.device or "auto"
+        adapter_luid = (
+            _get_ep_device_luid(self._ep_device)
+            if monitor_device in ACCELERATOR_DEVICE_TYPES
+            else None
+        )
 
         session = self._single._session
         if hw_available:
@@ -1265,6 +1284,7 @@ class PerfBenchmark:
                 poll_interval_ms=_HW_POLL_INTERVAL_MS,
                 device=monitor_device,
                 ep_name=ep_name,
+                adapter_luid=adapter_luid,
             )
             with (
                 _native_warning_filtered_perf(
@@ -1619,6 +1639,11 @@ def _perf_modules(
                             poll_interval_ms=_HW_POLL_INTERVAL_MS,
                             device=resolved_device,
                             ep_name=cast("EPName | None", session.ep_name),
+                            adapter_luid=(
+                                _get_ep_device_luid(resolved_ep_device)
+                                if resolved_device in ACCELERATOR_DEVICE_TYPES
+                                else None
+                            ),
                         )
 
                 if hw_ctx:

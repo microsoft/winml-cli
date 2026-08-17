@@ -601,6 +601,13 @@ class TestOpTracingHardwareMonitor:
             ep_name="QNNExecutionProvider",
             device="npu",
         )
+        benchmark._ep_device = SimpleNamespace(
+            device=SimpleNamespace(
+                ort_handle=SimpleNamespace(
+                    device=SimpleNamespace(metadata={"LUID": "99219"})
+                )
+            )
+        )
 
         hw = MagicMock()
         hw.__enter__.return_value = hw
@@ -623,7 +630,12 @@ class TestOpTracingHardwareMonitor:
 
         assert result is ctx.stats
         hw_monitor.is_available.assert_called_once_with()
-        hw_monitor.assert_called_once()
+        hw_monitor.assert_called_once_with(
+            poll_interval_ms=200,
+            device="npu",
+            ep_name="QNNExecutionProvider",
+            adapter_luid="0x00000000_0x00018393",
+        )
         simple_loop.assert_not_called()
         monitored_loop.assert_called_once()
 
