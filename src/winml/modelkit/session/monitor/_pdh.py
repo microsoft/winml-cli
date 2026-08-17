@@ -681,8 +681,17 @@ class PdhPoller:
         """
         if requested == "cpu":
             return None, None
-        if adapter_luid is not None and requested in ACCELERATOR_DEVICE_TYPES:
-            return adapter_luid, requested
+        if adapter_luid is not None:
+            if requested in ACCELERATOR_DEVICE_TYPES:
+                return adapter_luid, requested
+            try:
+                adapter_info = enumerate_adapters().get(adapter_luid)
+            except RuntimeError:
+                logger.debug("Failed to classify bound adapter LUID", exc_info=True)
+                return None, None
+            if adapter_info is None:
+                return None, None
+            return adapter_luid, ("npu" if adapter_info.is_npu else "gpu")
         if requested == "npu":
             luid = resolve_adapter_luid("npu", ep_name=ep_name)
             return luid, ("npu" if luid else None)
