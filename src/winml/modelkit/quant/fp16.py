@@ -13,13 +13,11 @@ from __future__ import annotations
 import logging
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
+import onnx
 from google.protobuf.message import EncodeError
 
-
-if TYPE_CHECKING:
-    import onnx
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +47,6 @@ def convert_to_fp16(
     Returns:
         The converted model (same object as input due to ORT in-place mutation).
     """
-    import onnx
-    from onnx import TensorProto
     from onnxruntime.transformers.float16 import convert_float_to_float16
 
     model_path = Path(model) if isinstance(model, str | Path) else None
@@ -60,11 +56,13 @@ def convert_to_fp16(
         inspection_model = cast("onnx.ModelProto", model)
 
     # Skip if model is already FP16 (check floating-point initializer dtypes)
-    fp32_types = {TensorProto.FLOAT, TensorProto.DOUBLE, TensorProto.BFLOAT16}
+    fp32_types = {onnx.TensorProto.FLOAT, onnx.TensorProto.DOUBLE, onnx.TensorProto.BFLOAT16}
     initializers = inspection_model.graph.initializer
     if initializers:
-        float_inits = [t for t in initializers if t.data_type in fp32_types | {TensorProto.FLOAT16}]
-        if float_inits and all(t.data_type == TensorProto.FLOAT16 for t in float_inits):
+        float_inits = [
+            t for t in initializers if t.data_type in fp32_types | {onnx.TensorProto.FLOAT16}
+        ]
+        if float_inits and all(t.data_type == onnx.TensorProto.FLOAT16 for t in float_inits):
             logger.info("Model is already FP16 — skipping conversion.")
             if model_path is not None:
                 onnx.load_external_data_for_model(inspection_model, str(model_path.parent))
