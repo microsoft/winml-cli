@@ -171,7 +171,7 @@ def _compile_shared_stages_worker(
     # One Compiler instance threads a shared SessionOptions across all models so
     # the EP context (and its weights) is shared; the last model flushes it.
     compiler = Compiler(n_total_models=len(srcs))
-    for src, dst in zip(srcs, dsts):
+    for src, dst in zip(srcs, dsts, strict=True):
         result = compiler.compile(model_path=src, output_path=dst, config=config)
         if not result.success:
             raise RuntimeError(f"Compilation failed for {src}: {result.errors}")
@@ -231,8 +231,10 @@ class GenerationConfig:
     """Search / sampling parameters for a single generation call.
 
     All parameters are forwarded to ``og.GeneratorParams.set_search_options``.
-    ``max_length`` is computed as ``len(prompt) + max_new_tokens``, capped at
-    the bundle's ``context_length``, so only the needed KV cache is allocated.
+    Static decoder pipelines use the bundle's full ``context_length`` because
+    their KV-cache stages have fixed shapes. Other model types compute
+    ``max_length`` as ``len(prompt) + max_new_tokens``, capped at
+    ``context_length``, so only the needed dynamic KV cache is allocated.
 
     Attributes:
         max_new_tokens: Soft cap on the number of new tokens to generate.
@@ -1522,10 +1524,12 @@ class GenaiSession:
         # is all-or-nothing, so a single stale member recompiles the whole group.
         if all(
             self._epcontext_is_fresh(src, ctx, ep_alias, ep_opts)
-            for src, ctx in zip(srcs, ctx_outs)
+            for src, ctx in zip(srcs, ctx_outs, strict=True)
         ):
             logger.info("Stages %s: reusing cached shared EPContext", stage_keys)
-            for (stage_key, onnx_filename, _ea, _eo), ctx in zip(group, ctx_outs):
+            for (stage_key, onnx_filename, _ea, _eo), ctx in zip(
+                group, ctx_outs, strict=True
+            ):
                 self._patch_stage_filename(modified_cfg, stage_key, ctx.name)
                 compiled_stage_filenames.add(onnx_filename)
             return True
@@ -1535,7 +1539,7 @@ class GenaiSession:
         )
         success = self._compile_stages_shared(srcs, ctx_outs, group)
         if success:
-            for (stage_key, onnx_filename, ea, eo), ctx in zip(group, ctx_outs):
+            for (stage_key, onnx_filename, ea, eo), ctx in zip(group, ctx_outs, strict=True):
                 self._write_compile_marker(ctx, ea, eo)
                 self._patch_stage_filename(modified_cfg, stage_key, ctx.name)
                 compiled_stage_filenames.add(onnx_filename)
@@ -1582,7 +1586,7 @@ class GenaiSession:
         # the compiler so a teardown-crash salvage accepts only files this run
         # actually produced (see :meth:`_compile_stage`).
         pre_compile_mtimes: dict[str, int] = {}
-        for src, ctx in zip(srcs, ctx_outs):
+        for src, ctx in zip(srcs, ctx_outs, strict=True):
             for p in self._epcontext_candidate_paths(src, ctx):
                 if p.exists():
                     pre_compile_mtimes[str(p)] = p.stat().st_mtime_ns
@@ -1618,7 +1622,7 @@ class GenaiSession:
             # salvage each stage before treating the group as failed.
             if all(
                 self._salvage_epcontext(src, ctx_out, pre_compile_mtimes)
-                for src, ctx_out in zip(srcs, ctx_outs)
+                for src, ctx_out in zip(srcs, ctx_outs, strict=True)
             ):
                 logger.warning(
                     "Shared compile subprocess exited %d, but valid EPContexts were "

@@ -557,8 +557,8 @@ class TestBuildQwen3TransformerOnlyStages:
         assert itr_opts is not None
         vitisai_opts = ctx_opts["provider_options"][0]["vitisai"]
         assert vitisai_opts["target"] == "waic_target_vaiml_cpp_me"
-        assert vitisai_opts["xmc_runner_config"] == 1
-        assert vitisai_opts["no_linear_slice"] == 1
+        assert vitisai_opts["xmc_runner_config"] == "1"
+        assert vitisai_opts["no_linear_slice"] == "1"
         assert itr_opts["log_id"] == "onnxruntime-genai.iterator"
 
 
