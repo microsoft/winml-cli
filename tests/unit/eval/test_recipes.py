@@ -259,3 +259,37 @@ class TestDiscoverAgainstRealRecipes:
         for v in variants:
             assert v.is_composite is True
             assert v.roles == ["encoder", "decoder"]
+
+    def test_unlimited_ocr_feature_extraction_has_six_precision_tuples(
+        self, recipes, recipes_dir
+    ):
+        if not recipes_dir.is_dir():
+            pytest.skip("examples/recipes not present")
+
+        expected = {
+            ("cpu", "cpu"): {
+                "feature-extraction_fp16_config.json",
+                "feature-extraction_fp32_config.json",
+            },
+            ("dml", "gpu"): {
+                "feature-extraction_fp16_config.json",
+                "feature-extraction_fp32_config.json",
+            },
+            ("openvino", "cpu"): {
+                "feature-extraction_fp16_config.json",
+                "feature-extraction_fp32_config.json",
+            },
+        }
+
+        for (ep, device), expected_names in expected.items():
+            variants = recipes.discover_recipe_variants(
+                recipes_dir,
+                "baidu/Unlimited-OCR",
+                "feature-extraction",
+                ep=ep,
+                device=device,
+            )
+
+            assert [variant.precision for variant in variants] == ["fp16", "fp32"]
+            found_names = {variant.components[0].path.name for variant in variants}
+            assert found_names == expected_names
