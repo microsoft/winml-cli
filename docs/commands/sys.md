@@ -84,8 +84,7 @@ $ winml sys --format compact
 $ winml sys --format json > env.json
 ```
 
-The full JSON report includes a schema version, installed physical memory, and
-dedicated NVIDIA GPU memory when `nvidia-smi` is available:
+The full JSON report includes a schema version and installed physical memory:
 
 ```json
 {
@@ -97,26 +96,12 @@ dedicated NVIDIA GPU memory when `nvidia-smi` is available:
   },
   "memory": {
     "physical_total_mib": 16384
-  },
-  "devices": [
-    {
-      "priority": 1,
-      "type": "GPU",
-      "name": "Example GPU",
-      "details": {
-        "driver": "32.0.0.0",
-        "manufacturer": "Example Vendor",
-        "dedicated_memory_mib": 8192
-      }
-    }
-  ]
+  }
 }
 ```
 
-Memory capacities use MiB. A value can be `null` when the host does not expose
-the corresponding capacity. NVIDIA GPU capacity comes from `nvidia-smi`; the
-32-bit `Win32_VideoController.AdapterRAM` value is not used. Other GPU vendors
-currently report `null` for `dedicated_memory_mib`.
+Memory capacity uses MiB. The value can be `null` when the host does not expose
+the physical memory total.
 
 ```bash
 # Only list devices — skip everything else
