@@ -67,7 +67,14 @@ class TestBoxFormat:
             trust_remote_code=True,
         )
 
-    def test_vitpose_alias_mismatch_uses_gated_fallback(self):
+    @pytest.mark.parametrize(
+        ("model_type", "architectures"),
+        [
+            ("vitpose", []),
+            ("custom", ["ViTPoseForPoseEstimation"]),
+        ],
+    )
+    def test_vitpose_alias_mismatch_uses_gated_fallback(self, model_type, architectures):
         ev = _make_evaluator()
         ev.config = WinMLEvaluationConfig(
             model_id="nielsr/vitpose-base-simple",
@@ -77,8 +84,8 @@ class TestBoxFormat:
         ev.model = MagicMock(
             io_config={},
             config=SimpleNamespace(
-                model_type="vitpose",
-                architectures=["ViTPoseForPoseEstimation"],
+                model_type=model_type,
+                architectures=architectures,
             ),
         )
         fallback_processor = MagicMock()
@@ -105,6 +112,36 @@ class TestBoxFormat:
             "nielsr/vitpose-base-simple",
             trust_remote_code=True,
         )
+
+    def test_known_error_for_non_vitpose_model_is_not_swallowed(self):
+        ev = _make_evaluator()
+        ev.config = WinMLEvaluationConfig(
+            model_id="microsoft/resnet-50",
+            task="keypoint-detection",
+            trust_remote_code=False,
+        )
+        ev.model = MagicMock(
+            io_config={},
+            config=SimpleNamespace(
+                model_type="resnet", architectures=["ResNetForImageClassification"]
+            ),
+        )
+
+        with (
+            patch(
+                "transformers.AutoImageProcessor.from_pretrained",
+                side_effect=ValueError("Unrecognized image processor for resnet"),
+            ) as load_auto,
+            patch("transformers.VitPoseImageProcessor.from_pretrained") as load_vitpose,
+            pytest.raises(ValueError, match="Unrecognized image processor"),
+        ):
+            ev.prepare_pipeline()
+
+        load_auto.assert_called_once_with(
+            "microsoft/resnet-50",
+            trust_remote_code=False,
+        )
+        load_vitpose.assert_not_called()
 
     def test_non_vitpose_success_keeps_strict_auto_path(self):
         ev = _make_evaluator()
