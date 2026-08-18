@@ -184,11 +184,14 @@ _ARCHITECTURE_SUFFIX_TASKS: dict[str, str] = {
 
 
 def _infer_task_from_architecture_suffix(config: PretrainedConfig) -> str | None:
-    """Infer task from architecture head suffix when Optimum has no mapping."""
-    for arch_name in getattr(config, "architectures", None) or []:
-        for suffix, task in _ARCHITECTURE_SUFFIX_TASKS.items():
-            if arch_name.endswith(suffix):
-                return task
+    """Infer task from the primary architecture suffix when Optimum has no mapping."""
+    architectures = getattr(config, "architectures", None)
+    if not architectures:
+        return None
+    arch_name = architectures[0]
+    for suffix, task in _ARCHITECTURE_SUFFIX_TASKS.items():
+        if arch_name.endswith(suffix):
+            return task
     return None
 
 
