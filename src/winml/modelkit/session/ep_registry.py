@@ -40,6 +40,29 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def resolve_builtin_cpu() -> WinMLEPDevice:
+    """Resolve ORT's built-in CPU device without optional EP discovery."""
+    entry = EPEntry(
+        ep_name="CPUExecutionProvider",
+        dll_path=Path(),
+        source=BuiltinSource(eps=("CPUExecutionProvider",)),
+    )
+    handles = _dedup_ort_devices(
+        [
+            device
+            for device in _ort_get_ep_devices_or_fail(entry)
+            if device.ep_name == entry.ep_name
+        ]
+    )
+    if not handles:
+        raise WinMLEPRegistrationFailed(
+            "Built-in EP 'CPUExecutionProvider' exposed no devices via ort.get_ep_devices()."
+        )
+    devices = tuple(WinMLDevice(handle) for handle in handles)
+    winml_ep = WinMLEP(source=entry, devices=devices, arg0=entry.ep_name)
+    return winml_ep.ep_devices()[0]
+
+
 @contextlib.contextmanager
 def _suppress_dll_load_dialogs() -> Iterator[None]:
     """Suppress Windows Error Reporting popups triggered by failed DLL loads.

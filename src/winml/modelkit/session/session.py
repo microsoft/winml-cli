@@ -432,7 +432,12 @@ class WinMLSession:
             target = resolve_device(
                 EPDeviceTarget(ep=ep or "auto", device=(device or "auto").lower())
             )
-            ep_device = WinMLEPRegistry.instance().auto_device(target)
+            if target.ep == "CPUExecutionProvider" and target.device == "cpu":
+                from .ep_registry import resolve_builtin_cpu
+
+                ep_device = resolve_builtin_cpu()
+            else:
+                ep_device = WinMLEPRegistry.instance().auto_device(target)
             _ergonomic_lazy = True
 
         if provider_options is not None:

@@ -44,7 +44,7 @@ class FP16Pass(BaseQuantPass):
         use_external_data: bool = True,
     ) -> QuantizeResult:
         """Convert *model_path* to FP16 and write the result to *output_path*."""
-        from ...onnx import load_onnx, save_onnx
+        from ...onnx import save_onnx
         from ..config import QuantizeResult
         from ..fp16 import convert_to_fp16
 
@@ -59,9 +59,8 @@ class FP16Pass(BaseQuantPass):
         warnings: list[str] = []
 
         logger.info("Running FP16-only conversion (no quantization)...")
-        model = load_onnx(model_path, validate=False)
         model = convert_to_fp16(
-            model,
+            model_path,
             keep_io_types=self._config.fp16_keep_io_types,
             op_block_list=self._config.fp16_op_block_list,
         )

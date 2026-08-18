@@ -169,6 +169,23 @@ class TestWinMLSessionInstantiation:
         session = WinMLSession(onnx_path=simple_matmul_onnx, device="cpu", ep="cpu")
         assert session.ep_name is None
 
+    def test_explicit_cpu_bypasses_optional_provider_registry(
+        self,
+        simple_matmul_onnx: Path,
+        cpu_ep_device: EPDeviceTarget,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from winml.modelkit.session import ep_registry
+
+        registry = MagicMock()
+        monkeypatch.setattr(ep_registry.WinMLEPRegistry, "instance", registry)
+        monkeypatch.setattr(ep_registry, "resolve_builtin_cpu", lambda: cpu_ep_device)
+
+        session = WinMLSession(onnx_path=simple_matmul_onnx, device="cpu", ep="cpu")
+
+        assert session.device == "cpu"
+        registry.assert_not_called()
+
     def test_ep_name_after_compile(
         self,
         simple_matmul_onnx: Path,
