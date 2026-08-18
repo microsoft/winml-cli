@@ -6,15 +6,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 from transformers.modeling_outputs import SequenceClassifierOutput
 
 from .base import WinMLPreTrainedModel
-
-
-if TYPE_CHECKING:
-    import torch
 
 
 class WinMLModelForTabularClassification(WinMLPreTrainedModel):
@@ -24,4 +20,4 @@ class WinMLModelForTabularClassification(WinMLPreTrainedModel):
         """Run inference and expose the classifier logits."""
         outputs = self._run_inference(self._format_inputs(**kwargs))
         logits = outputs.get("logits", next(iter(outputs.values())))
-        return SequenceClassifierOutput(logits=cast("torch.FloatTensor", logits))
+        return SequenceClassifierOutput(logits=cast("Any", logits))
