@@ -104,7 +104,10 @@ def test_resolve_task_upgrades_pixel_values_feature_extraction_to_image() -> Non
     architecture takes pixel_values surfaces as image-feature-extraction."""
     cfg = _FakeConfig("faketype")
     with (
-        patch(_INFER, return_value="feature-extraction") as m,
+        patch(
+            _INFER,
+            return_value=("feature-extraction", TaskSource.TASKS_MANAGER),
+        ) as m,
         patch(_RESOLVE_CLASS, return_value=_fake_arch_class("pixel_values")),
     ):
         r = resolve_task(cfg)
@@ -160,7 +163,10 @@ def test_resolve_task_does_not_short_circuit_for_ambiguous_model_type() -> None:
     model_type alone, so resolve_task must fall through to architecture-aware
     detection instead of short-circuiting to the first key (feature-extraction)."""
     cfg = _FakeConfig("bart", architectures=["BartForSequenceClassification"])
-    with patch(_INFER, return_value="text-classification") as m:
+    with patch(
+        _INFER,
+        return_value=("text-classification", TaskSource.TASKS_MANAGER),
+    ) as m:
         r = resolve_task(cfg)
     assert r.task == "text-classification"
     assert r.source == TaskSource.TASKS_MANAGER
@@ -209,7 +215,10 @@ def test_resolve_task_no_override_for_single_entry_without_sentinel() -> None:
     fine-tuned classification checkpoint therefore keeps image-classification rather than
     being forced to image-segmentation."""
     cfg = _FakeConfig("segformer")
-    with patch(_INFER, return_value="image-classification") as m:
+    with patch(
+        _INFER,
+        return_value=("image-classification", TaskSource.TASKS_MANAGER),
+    ) as m:
         r = resolve_task(cfg)
     assert (r.task, r.source) == ("image-classification", TaskSource.TASKS_MANAGER)
     m.assert_called_once()
@@ -222,7 +231,10 @@ def test_resolve_task_case1_surfaces_modality_aware_task() -> None:
     (config.architectures), not the resolved/Auto class."""
     cfg = _FakeConfig("faketype")
     with (
-        patch(_INFER, return_value="feature-extraction"),
+        patch(
+            _INFER,
+            return_value=("feature-extraction", TaskSource.TASKS_MANAGER),
+        ),
         patch(_RESOLVE_CLASS, return_value=_fake_arch_class("pixel_values")),
     ):
         r = resolve_task(cfg)
