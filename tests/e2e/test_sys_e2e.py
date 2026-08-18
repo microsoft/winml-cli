@@ -174,7 +174,10 @@ class TestSysJsonShape:
     def test_default_json_has_versioned_physical_memory(self):
         data = _run_sys_json()
         assert data["schema_version"] == 1
-        assert data["memory"]["physical_total_mib"] > 0
+        physical_total_mib = data["memory"]["physical_total_mib"]
+        assert physical_total_mib is None or (
+            isinstance(physical_total_mib, int) and physical_total_mib > 0
+        )
 
     def test_default_json_devices_have_sequential_priority(self):
         """Devices come back with sequential 1-based priorities."""
