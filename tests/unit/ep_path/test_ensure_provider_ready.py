@@ -119,6 +119,37 @@ def test_ensure_provider_ready_warns_before_download(
     assert "FakeEP" in err
 
 
+def test_ensure_provider_ready_suppresses_status_and_progress(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Structured-output callers can hide all installation status."""
+    fake_tqdm = MagicMock()
+    tqdm_mod = types.ModuleType("tqdm")
+    tqdm_mod.tqdm = fake_tqdm  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "tqdm", tqdm_mod)
+
+    op = MagicMock()
+
+    def fake_ensure_async(on_complete=None, on_progress=None):
+        on_progress(0.5)
+        on_complete()
+        return op
+
+    provider = MagicMock()
+    provider.name = "FakeEP"
+    provider.version = "1.0.0"
+    provider.package_family_name = "FakeEP_123"
+    provider.ensure_ready_async.side_effect = fake_ensure_async
+
+    with ep_path._suppress_ep_install_status():
+        ep_path._ensure_provider_ready(provider)
+
+    assert capsys.readouterr().err == ""
+    fake_tqdm.assert_not_called()
+    op.get_status.assert_called_once_with()
+    op.close.assert_called_once_with()
+
+
 def test_ensure_provider_ready_forces_bar_to_100_on_success_without_progress(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
