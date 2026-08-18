@@ -57,11 +57,16 @@ class WinMLTabularClassificationEvaluator(WinMLEvaluator):
             if logits is None:
                 raise ValueError("Tabular model output does not contain logits.")
             values = np.asarray(logits.detach().cpu(), dtype=np.float32).reshape(-1)
-            if values.size != 1:
+            if values.size == 1:
+                prediction = int(values[0] >= 0.0)
+            elif values.size == 2:
+                prediction = int(np.argmax(values))
+            else:
                 raise ValueError(
-                    f"Binary tabular classifier must emit one logit per sample, got {values.size}."
+                    "Binary tabular classifier must emit one logit or two class logits per "
+                    f"sample, got {values.size}."
                 )
-            predictions.append(str(int(values[0] >= 0.0)))
+            predictions.append(str(prediction))
             references.append(str(label))
 
         metric = ClassificationMetric()

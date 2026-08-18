@@ -262,6 +262,24 @@ class TestCreatePipeline:
 
         assert isinstance(result, ImageClassificationPipeline)
 
+    @pytest.mark.parametrize(
+        ("logits", "expected_label"),
+        [([-2.0], "0"), ([2.0], "1"), ([2.0, -1.0], "0")],
+    )
+    def test_constructs_tensor_native_tabular_pipeline(
+        self,
+        logits: list[float],
+        expected_label: str,
+    ) -> None:
+        model = MagicMock(return_value=SimpleNamespace(logits=torch.tensor([logits])))
+
+        pipe = create_pipeline("tabular-classification", model, "test-model")
+        result = pipe([1, 1, 1, 150, 2, 0, 0])
+
+        assert result[0]["label"] == expected_label
+        assert 0.5 < result[0]["score"] <= 1.0
+        assert model.call_args.kwargs["features"].shape == (1, 7)
+
     def test_constructs_removed_question_answering_pipeline(self) -> None:
         model = _make_model_with_shapes([[1, 16]])
         tokenizer = MagicMock()

@@ -1,19 +1,15 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
 
 import pytest
+import torch
 
 from winml.modelkit.eval import WinMLEvaluationConfig, get_evaluator_class
 from winml.modelkit.eval.tabular_classification_evaluator import (
     WinMLTabularClassificationEvaluator,
 )
 from winml.modelkit.utils.eval_utils import TASK_SCHEMAS
-
-
-if TYPE_CHECKING:
-    import torch
 
 
 class _FakeModel:
@@ -57,3 +53,13 @@ def test_compute_rejects_non_binary_labels() -> None:
 
     with pytest.raises(ValueError, match="0 or 1"):
         evaluator.compute()
+
+
+def test_compute_accepts_two_class_logits() -> None:
+    evaluator = _make_evaluator()
+    evaluator.model = lambda **_kwargs: SimpleNamespace(logits=torch.tensor([[0.1, 0.9]]))
+    evaluator.data = [{"features": [0.25, 2.0], "label": 1}]
+
+    result = evaluator.compute()
+
+    assert result["accuracy"] == 1.0

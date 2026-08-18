@@ -1552,7 +1552,32 @@ class TestLoadModel:
         assert call_args.kwargs["config"] is None
         assert call_args.kwargs["use_cache"] is True
         assert call_args.kwargs["force_rebuild"] is False
+        assert call_args.kwargs["trust_remote_code"] is False
         assert result is mock_model
+
+    def test_load_model_forwards_trust_remote_code(self):
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+        mock_auto = MagicMock()
+        mock_auto.from_pretrained.return_value = MagicMock()
+        config = WinMLEvaluationConfig(
+            model_id="test/remote-model",
+            task="tabular-classification",
+            device="cpu",
+            trust_remote_code=True,
+        )
+
+        with patch.dict(
+            "sys.modules",
+            {"winml.modelkit.models": MagicMock(WinMLAutoModel=mock_auto)},
+        ):
+            eval_mod._load_model(config)
+
+        assert mock_auto.from_pretrained.call_args.kwargs["trust_remote_code"] is True
 
     def test_auto_target_retries_cpu_after_ort_runtime_failure(self, caplog):
         """An unusable auto-selected accelerator retries with the CPU EP."""

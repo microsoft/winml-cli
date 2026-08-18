@@ -450,6 +450,7 @@ def _load_model(
             device=config.device,
             ep=config.ep,
             precision=config.precision,
+            trust_remote_code=config.trust_remote_code,
             allow_unsupported_nodes=config.allow_unsupported_nodes,
             config=build_override,
             shape_config=config.shape_config,
