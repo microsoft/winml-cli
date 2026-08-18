@@ -58,6 +58,19 @@ class _DocumentEncoding(dict):
         assert feature_index == 0
         return self._word_ids
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, _DocumentEncoding):
+            return False
+        return (
+            self.keys() == other.keys()
+            and all(torch.equal(value, other[key]) for key, value in self.items())
+            and self._sequence_ids == other._sequence_ids
+            and self._word_ids == other._word_ids
+        )
+
+    def __ne__(self, other: object) -> bool:
+        return not self == other
+
 
 class _DocumentTokenizer:
     model_max_length = 512
@@ -185,6 +198,24 @@ class TestCompute:
 
 
 class TestDocumentHelpers:
+    def test_document_encoding_equality_includes_alignment_metadata(self):
+        encoding = _DocumentEncoding()
+        same = _DocumentEncoding()
+        different = _DocumentEncoding()
+        different._word_ids[4] = 7
+
+        assert encoding == same
+        assert same == encoding
+        assert encoding != different
+        assert different != encoding
+
+    def test_document_encoding_is_not_equal_to_plain_dict(self):
+        encoding = _DocumentEncoding()
+        plain = dict(encoding)
+
+        assert encoding != plain
+        assert plain != encoding
+
     def test_normalizes_absolute_boxes_and_clamps(self):
         boxes = _normalize_boxes(
             [[-10, 20, 110, 220], [80, 180, 20, 40]],

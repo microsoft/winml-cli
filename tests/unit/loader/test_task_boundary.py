@@ -24,6 +24,8 @@ from winml.modelkit.loader import to_optimum_task
         ("image-feature-extraction", "feature-extraction"),
         # WinML extension: routed to its Optimum-canonical target.
         ("next-sentence-prediction", "text-classification"),
+        # Document QA retains its surfaced task while sharing the extractive-QA exporter.
+        ("document-question-answering", "question-answering"),
         # WinML extension preserved as-is (Optimum would mis-map it otherwise).
         ("mask-generation", "mask-generation"),
         # Already-canonical task passes through unchanged.
