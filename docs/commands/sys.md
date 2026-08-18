@@ -84,6 +84,26 @@ $ winml sys --format compact
 $ winml sys --format json > env.json
 ```
 
+The full JSON report includes a schema version and installed physical memory:
+
+```json
+{
+  "schema_version": 1,
+  "platform": {
+    "system": "Windows",
+    "release": "11",
+    "machine": "ARM64"
+  },
+  "memory": {
+    "physical_total_mib": 16384
+  }
+}
+```
+
+Memory capacity uses MiB. If the host does not expose the physical memory total,
+the field is `null` and `winml sys` emits a warning while preserving the rest of
+the system report.
+
 ```bash
 # Only list devices — skip everything else
 $ winml sys --list-device

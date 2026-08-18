@@ -61,6 +61,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_SYS_JSON_SCHEMA_VERSION = 1
+
 # Rich is imported lazily — Console/Table/Panel only matter at render time,
 # and pulling them at module scope adds ~50 ms to every `winml sys`
 # invocation (including --format json/compact, which never render anything
@@ -202,6 +204,20 @@ def _get_platform_info() -> dict[str, Any]:
     }
 
 
+def _get_memory_info() -> dict[str, int | None]:
+    """Gather installed physical memory without making ``sys`` fail."""
+    try:
+        import psutil
+
+        total_mib = round(psutil.virtual_memory().total / (1024 * 1024))
+        if total_mib <= 0:
+            raise ValueError("physical memory total must be greater than zero")
+    except Exception as exc:
+        logger.warning("Failed to get physical memory details: %s", exc)
+        return {"physical_total_mib": None}
+    return {"physical_total_mib": total_mib}
+
+
 def _get_library_versions() -> dict[str, str | None]:
     """Gather versions of key ML libraries."""
     libraries: dict[str, str | None] = {}
@@ -332,9 +348,11 @@ def _gather_system_info(verbose: bool = False) -> dict[str, Any]:
     Returns:
         Dictionary containing all system information
     """
-    info = {
+    info: dict[str, Any] = {
+        "schema_version": _SYS_JSON_SCHEMA_VERSION,
         "python": _get_python_info(),
         "platform": _get_platform_info(),
+        "memory": _get_memory_info(),
         "libraries": _get_library_versions(),
         "torch": _get_torch_info(verbose=verbose),
         "backends": {

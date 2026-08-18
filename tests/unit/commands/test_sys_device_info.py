@@ -20,13 +20,18 @@ the parent's registry.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import click
 import pytest
 
-from winml.modelkit.commands.sys import _gather, _gather_device_info
+from winml.modelkit.commands.sys import (
+    _gather,
+    _gather_device_info,
+    _get_memory_info,
+)
 
 
 def _fake_ep_info(
@@ -191,6 +196,37 @@ class TestDeviceInfoEnrichment:
         assert len(result) == 1
         assert result[0]["details"]["driver"] == "32.0.100"
         assert "architecture" not in result[0]["details"]
+
+class TestMemoryInfo:
+    """System memory metadata is fast, explicit, and best-effort."""
+
+    def test_physical_total_is_reported_in_mib(self) -> None:
+        memory = MagicMock(total=24 * 1024 * 1024 * 1024)
+        with patch("psutil.virtual_memory", return_value=memory):
+            assert _get_memory_info() == {"physical_total_mib": 24 * 1024}
+
+    def test_probe_failure_returns_unknown_and_warns(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with (
+            patch("psutil.virtual_memory", side_effect=RuntimeError("unavailable")),
+            caplog.at_level(logging.WARNING, logger="winml.modelkit.commands.sys"),
+        ):
+            assert _get_memory_info() == {"physical_total_mib": None}
+
+        assert "Failed to get physical memory details: unavailable" in caplog.text
+
+    def test_non_positive_total_returns_unknown_and_warns(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        memory = MagicMock(total=0)
+        with (
+            patch("psutil.virtual_memory", return_value=memory),
+            caplog.at_level(logging.WARNING, logger="winml.modelkit.commands.sys"),
+        ):
+            assert _get_memory_info() == {"physical_total_mib": None}
+
+        assert "physical memory total must be greater than zero" in caplog.text
 
 
 class TestGatherDeviceSectionEnrichment:

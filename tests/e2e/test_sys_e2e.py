@@ -150,8 +150,10 @@ class TestSysJsonShape:
     """Validate the JSON output shape that downstream scripts depend on."""
 
     REQUIRED_TOP_KEYS: ClassVar[set[str]] = {
+        "schema_version",
         "python",
         "platform",
+        "memory",
         "libraries",
         "torch",
         "backends",
@@ -168,6 +170,14 @@ class TestSysJsonShape:
     def test_default_json_python_version_is_well_formed(self):
         data = _run_sys_json()
         assert re.match(r"^\d+\.\d+\.\d+", data["python"]["version"])
+
+    def test_default_json_has_versioned_physical_memory(self):
+        data = _run_sys_json()
+        assert data["schema_version"] == 1
+        physical_total_mib = data["memory"]["physical_total_mib"]
+        assert physical_total_mib is None or (
+            isinstance(physical_total_mib, int) and physical_total_mib > 0
+        )
 
     def test_default_json_devices_have_sequential_priority(self):
         """Devices come back with sequential 1-based priorities."""
