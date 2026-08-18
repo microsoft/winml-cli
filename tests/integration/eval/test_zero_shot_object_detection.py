@@ -58,6 +58,7 @@ def test_pinned_coco_selection_reproduces_all_category_image_ids() -> None:
             revision=_COCO_REVISION,
             split="val",
             samples=32,
+            max_queries=None,
             shuffle=False,
             streaming=True,
         ),
@@ -78,5 +79,9 @@ def test_pinned_coco_selection_reproduces_all_category_image_ids() -> None:
         "selected": 24,
         "category_count": 80,
         "categories_covered": 80,
+        "query_requested": 80,
+        "query_available": 80,
+        "query_used": 80,
+        "query_truncated": 0,
     }
     assert len(evaluator._vocabulary) == 80

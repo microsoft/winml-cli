@@ -20,8 +20,11 @@ from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 from winml.modelkit.eval.zero_shot_object_detection_evaluator import (
     QueryChunk,
     WinMLZeroShotObjectDetectionEvaluator,
+    _apply_query_budget,
     _extract_category_vocabulary,
+    _filter_annotation_to_vocabulary,
     _make_query_chunks,
+    _normalize_max_queries,
     _query_capacity,
     _remap_grounded_output,
     _select_category_covering_rows,
@@ -65,6 +68,7 @@ class TestRegistrationAndSchema:
         assert default["path"] == "detection-datasets/coco"
         assert default["split"] == "val"
         assert default["revision"] == "cf0b22332314a937e9dc8a1957b21725430bb41d"
+        assert default["max_queries"] == 16
         assert default["columns_mapping"]["box_format"] == "xywh"
         assert default["columns_mapping"]["prompt_template"] == "a photo of a {}"
 
@@ -73,6 +77,7 @@ class TestRegistrationAndSchema:
         params = {item.name: item for item in schema.params}
         assert "authoritative category names" in params["category_key"].description
         assert params["prompt_template"].default == "a photo of a {}"
+        assert params["max_queries"].default == "16"
 
     def test_prepare_pipeline_requires_model_id(self):
         evaluator = object.__new__(WinMLZeroShotObjectDetectionEvaluator)
@@ -169,6 +174,29 @@ class TestCapacityChunkingAndMapping:
             QueryChunk(("bird", "bird"), (12, 12)),
         ]
 
+    def test_query_budget_truncates_deterministically_by_authoritative_order(self):
+        vocabulary = [(2, "cat"), (4, "dog"), (9, "bird")]
+        used, accounting = _apply_query_budget(vocabulary, 2)
+        assert used == [(2, "cat"), (4, "dog")]
+        assert accounting == {
+            "query_requested": 2,
+            "query_available": 3,
+            "query_used": 2,
+            "query_truncated": 1,
+        }
+
+    def test_query_budget_none_keeps_full_vocabulary(self):
+        vocabulary = [(2, "cat"), (4, "dog")]
+        used, accounting = _apply_query_budget(vocabulary, None)
+        assert used == vocabulary
+        assert accounting["query_requested"] == 2
+        assert accounting["query_truncated"] == 0
+
+    @pytest.mark.parametrize("invalid", [0, -1, "3", True])
+    def test_max_queries_rejects_invalid_values(self, invalid):
+        with pytest.raises(DatasetValidationError, match="max_queries"):
+            _normalize_max_queries(invalid)
+
     def test_competing_slot_logits_preserve_replicated_real_query_detections(self):
         from transformers import Owlv2ImageProcessor
 
@@ -210,6 +238,18 @@ class TestSelection:
         assert selected == [0]
         assert covered == {0}
 
+    def test_out_of_cap_annotation_entries_are_filtered_not_crashing(self):
+        annotation = {
+            "bbox": [[0.0, 0.0, 1.0, 1.0], [1.0, 1.0, 2.0, 2.0]],
+            "category": [0, 2],
+            "area": [1.0, 4.0],
+        }
+        filtered, categories = _filter_annotation_to_vocabulary(annotation, "category", {0})
+        assert categories == [0]
+        assert filtered["category"] == [0]
+        assert filtered["bbox"] == [[0.0, 0.0, 1.0, 1.0]]
+        assert filtered["area"] == [1.0]
+
 
 def _compute_evaluator(*, model_side_effect=None, empty_annotations=False):
     evaluator = object.__new__(WinMLZeroShotObjectDetectionEvaluator)
@@ -228,6 +268,10 @@ def _compute_evaluator(*, model_side_effect=None, empty_annotations=False):
         "selected": 2,
         "category_count": 3,
         "categories_covered": 3,
+        "query_requested": 3,
+        "query_available": 3,
+        "query_used": 3,
+        "query_truncated": 0,
     }
     from PIL import Image as PILImage
 
@@ -306,6 +350,10 @@ class TestComputeAndAccounting:
             "selected": 2,
             "category_count": 3,
             "categories_covered": 3,
+            "query_requested": 3,
+            "query_available": 3,
+            "query_used": 3,
+            "query_truncated": 0,
             "decoded": 2,
             "skipped": 0,
             "processed": 2,
@@ -443,3 +491,13 @@ def test_dataset_config_roundtrip_preserves_explicit_label_mapping():
     )
     restored = WinMLEvaluationConfig.from_dict(config.to_dict())
     assert restored.dataset.label_mapping == {"cat": 4}
+
+
+def test_dataset_config_roundtrip_preserves_max_queries_override():
+    config = WinMLEvaluationConfig(
+        model_id="test/model",
+        task="zero-shot-object-detection",
+        dataset=DatasetConfig(path="test/data", max_queries=3),
+    )
+    restored = WinMLEvaluationConfig.from_dict(config.to_dict())
+    assert restored.dataset.max_queries == 3

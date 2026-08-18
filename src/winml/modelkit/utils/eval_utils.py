@@ -180,6 +180,12 @@ _ZERO_SHOT_OBJECT_DETECTION_SCHEMA = TaskSchema(
             remap_hint="<template with one {} field>",
         ),
         SchemaItem(
+            "max_queries",
+            "maximum category queries to evaluate (null = full vocabulary)",
+            default="16",
+            remap_hint="<integer >= 1 or null>",
+        ),
+        SchemaItem(
             "box_format",
             "ground-truth bounding box layout",
             default="xywh",

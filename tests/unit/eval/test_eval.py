@@ -98,6 +98,19 @@ class TestEvaluationConfig:
         assert ds.revision is None
         assert "revision" not in ds.to_dict()
 
+    def test_dataset_config_max_queries_default_and_override_roundtrip(self):
+        default_ds = DatasetConfig(path="some-dataset")
+        assert default_ds.max_queries == 16
+        assert default_ds.to_dict()["max_queries"] == 16
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="zero-shot-object-detection",
+            dataset=DatasetConfig(path="test/data", max_queries=3),
+        )
+        restored = WinMLEvaluationConfig.from_dict(config.to_dict())
+        assert restored.dataset.max_queries == 3
+
     def test_input_data_default_is_none(self):
         """input_data defaults to None and is omitted from to_dict."""
         config = WinMLEvaluationConfig(model_id="test/model")

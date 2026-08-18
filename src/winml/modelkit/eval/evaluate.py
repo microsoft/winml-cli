@@ -215,6 +215,7 @@ _DEFAULT_DATASETS: dict[str, dict] = {
         "split": "val",
         "revision": "cf0b22332314a937e9dc8a1957b21725430bb41d",
         "streaming": True,
+        "max_queries": 16,
         "columns_mapping": {
             "input_column": "image",
             "annotation_column": "objects",

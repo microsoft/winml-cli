@@ -95,6 +95,66 @@ def _extract_category_vocabulary(
     return list(enumerate(names))
 
 
+def _normalize_max_queries(max_queries: Any) -> int | None:
+    """Validate configured query budget (or allow explicit unbounded mode)."""
+    if max_queries is None:
+        return None
+    if isinstance(max_queries, bool) or not isinstance(max_queries, int):
+        raise DatasetValidationError("max_queries must be an integer >= 1 or null")
+    if max_queries < 1:
+        raise DatasetValidationError("max_queries must be >= 1")
+    return max_queries
+
+
+def _apply_query_budget(
+    vocabulary: list[tuple[int, str]],
+    max_queries: Any,
+) -> tuple[list[tuple[int, str]], dict[str, int]]:
+    """Apply deterministic query budget to authoritative vocabulary."""
+    if not vocabulary:
+        raise DatasetValidationError("category vocabulary must not be empty")
+    available = len(vocabulary)
+    normalized = _normalize_max_queries(max_queries)
+    requested = available if normalized is None else normalized
+    used = min(requested, available)
+    used_vocabulary = vocabulary[:used]
+    return (
+        used_vocabulary,
+        {
+            "query_requested": requested,
+            "query_available": available,
+            "query_used": used,
+            "query_truncated": available - used,
+        },
+    )
+
+
+def _filter_annotation_to_vocabulary(
+    annotation: dict[str, Any],
+    category_key: str,
+    selected_category_ids: set[int],
+) -> tuple[dict[str, Any], list[int]]:
+    """Drop per-instance annotation entries outside the selected query vocabulary."""
+    raw_categories = [int(value) for value in annotation[category_key]]
+    keep_indices = [
+        index
+        for index, category in enumerate(raw_categories)
+        if category in selected_category_ids
+    ]
+    if len(keep_indices) == len(raw_categories):
+        return annotation, raw_categories
+
+    filtered: dict[str, Any] = {}
+    for key, value in annotation.items():
+        if isinstance(value, list) and len(value) == len(raw_categories):
+            filtered[key] = [value[index] for index in keep_indices]
+        else:
+            filtered[key] = value
+    filtered_categories = [raw_categories[index] for index in keep_indices]
+    filtered[category_key] = filtered_categories
+    return filtered, filtered_categories
+
+
 def _query_capacity(io_config: dict[str, Any]) -> int | None:
     """Return the static text-query capacity, or ``None`` for a dynamic axis."""
     names = io_config.get("input_names", [])
@@ -258,11 +318,15 @@ class WinMLZeroShotObjectDetectionEvaluator(WinMLEvaluator):
     def align_labels(self, dataset: Dataset, ds_config: DatasetConfig) -> Dataset:
         """Keep dataset IDs unchanged and capture their authoritative vocabulary."""
         self._validate_schema(dataset)
-        self._vocabulary = _extract_category_vocabulary(
+        full_vocabulary = _extract_category_vocabulary(
             dataset.features,
             self._annotation_col,
             self._category_key,
             ds_config.label_mapping,
+        )
+        self._vocabulary, self._query_accounting = _apply_query_budget(
+            full_vocabulary,
+            ds_config.max_queries,
         )
         return dataset
 
@@ -292,11 +356,16 @@ class WinMLZeroShotObjectDetectionEvaluator(WinMLEvaluator):
             ) from error
 
         self._validate_schema(source)
-        self._vocabulary = _extract_category_vocabulary(
+        full_vocabulary = _extract_category_vocabulary(
             source.features,
             self._annotation_col,
             self._category_key,
             ds.label_mapping,
+        )
+        all_category_ids = {category_id for category_id, _ in full_vocabulary}
+        self._vocabulary, self._query_accounting = _apply_query_budget(
+            full_vocabulary,
+            ds.max_queries,
         )
         category_ids = {category_id for category_id, _ in self._vocabulary}
         original_features = source.features
@@ -309,18 +378,26 @@ class WinMLZeroShotObjectDetectionEvaluator(WinMLEvaluator):
         for source_index, sample in enumerate(annotation_source):
             annotations = sample[self._annotation_col]
             categories = [int(value) for value in annotations[self._category_key]]
-            unknown = set(categories) - category_ids
+            unknown = set(categories) - all_category_ids
             if unknown:
                 raise DatasetValidationError(
                     f"annotation has unknown category IDs {sorted(unknown)}"
                 )
+            categories = [category for category in categories if category in category_ids]
             image_id = int(sample.get(self._image_id_col, source_index))
             rows.append((source_index, image_id, categories))
 
         selected_indices, covered = _select_category_covering_rows(rows, category_ids, ds.samples)
         selected_index_set = set(selected_indices)
         selected_by_index = {
-            source_index: sample
+            source_index: {
+                **sample,
+                self._annotation_col: _filter_annotation_to_vocabulary(
+                    sample[self._annotation_col],
+                    self._category_key,
+                    category_ids,
+                )[0],
+            }
             for source_index, sample in enumerate(source)
             if source_index in selected_index_set
         }
@@ -332,6 +409,7 @@ class WinMLZeroShotObjectDetectionEvaluator(WinMLEvaluator):
             "selected": len(selected),
             "category_count": len(category_ids),
             "categories_covered": len(covered),
+            **self._query_accounting,
         }
         return Dataset.from_list(selected, features=original_features)
 
