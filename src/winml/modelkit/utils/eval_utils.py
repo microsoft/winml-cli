@@ -183,6 +183,74 @@ _QUESTION_ANSWERING_SCHEMA = TaskSchema(
             remap_hint="<your_answers_column>",
         ),
     ),
+    params=(
+        SchemaItem(
+            "document_mode",
+            "use OCR words and normalized bounding boxes",
+            default="false",
+            remap_hint="<true|false>",
+        ),
+        SchemaItem(
+            "words_column",
+            "precomputed OCR words (preferred when paired with boxes_column)",
+            default="words",
+            remap_hint="<your_words_column>",
+        ),
+        SchemaItem(
+            "boxes_column",
+            "precomputed OCR boxes in xyxy format",
+            default="boxes",
+            remap_hint="<your_boxes_column>",
+        ),
+        SchemaItem(
+            "image_column",
+            "document image used when precomputed OCR is unavailable",
+            default="image",
+            remap_hint="<your_image_column>",
+        ),
+        SchemaItem(
+            "ocr_engine",
+            "OCR engine for image-only rows",
+            default="tesseract",
+            remap_hint="<tesseract>",
+        ),
+        SchemaItem(
+            "box_coords",
+            "precomputed box coordinate system",
+            default="auto",
+            remap_hint="<auto|absolute|normalized>",
+        ),
+        SchemaItem(
+            "max_windows",
+            "maximum tokenizer overflow windows per question",
+            default="1",
+            remap_hint="<int>",
+        ),
+        SchemaItem(
+            "sample_index",
+            "zero-based dataset row selected before document evaluation",
+            default="0",
+            remap_hint="<int>",
+        ),
+        SchemaItem(
+            "doc_stride",
+            "overlap between tokenizer document windows",
+            default="128",
+            remap_hint="<int>",
+        ),
+        SchemaItem(
+            "max_answer_words",
+            "maximum contiguous OCR words in an answer",
+            default="64",
+            remap_hint="<int>",
+        ),
+        SchemaItem(
+            "top_k",
+            "number of answer spans retained per question",
+            default="1",
+            remap_hint="<int>",
+        ),
+    ),
 )
 
 _FEATURE_EXTRACTION_SCHEMA = TaskSchema(
