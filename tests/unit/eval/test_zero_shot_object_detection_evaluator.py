@@ -74,6 +74,42 @@ class TestRegistrationAndSchema:
         assert "authoritative category names" in params["category_key"].description
         assert params["prompt_template"].default == "a photo of a {}"
 
+    def test_prepare_pipeline_requires_model_id(self):
+        evaluator = object.__new__(WinMLZeroShotObjectDetectionEvaluator)
+        evaluator.config = WinMLEvaluationConfig(
+            model_id=None,
+            task="zero-shot-object-detection",
+        )
+        evaluator.model = MagicMock()
+
+        with (
+            patch("winml.modelkit.eval.base_evaluator.WinMLEvaluator.prepare_pipeline"),
+            pytest.raises(ValueError, match="requires --model-id"),
+        ):
+            evaluator.prepare_pipeline()
+
+    def test_prepare_pipeline_threads_trust_remote_code(self):
+        evaluator = object.__new__(WinMLZeroShotObjectDetectionEvaluator)
+        evaluator.config = WinMLEvaluationConfig(
+            model_id="google/owlv2-base-patch16-finetuned",
+            task="zero-shot-object-detection",
+            trust_remote_code=True,
+        )
+        evaluator.model = MagicMock()
+        pipe = SimpleNamespace(tokenizer=MagicMock(), image_processor=MagicMock())
+
+        with (
+            patch(
+                "winml.modelkit.eval.base_evaluator.WinMLEvaluator.prepare_pipeline",
+                return_value=pipe,
+            ),
+            patch("transformers.AutoProcessor.from_pretrained") as mock_from_pretrained,
+        ):
+            mock_from_pretrained.return_value = SimpleNamespace()
+            evaluator.prepare_pipeline()
+
+        assert mock_from_pretrained.call_args.kwargs["trust_remote_code"] is True
+
 
 class TestVocabularyAndPrompt:
     def test_extracts_classlabel_names_without_model_label_map(self):
@@ -110,7 +146,7 @@ class TestVocabularyAndPrompt:
 
     def test_default_contract_renders_category_name_only(self):
         chunks = _make_query_chunks([(17, "cat")], "a photo of a {}", 1)
-        assert chunks == [QueryChunk(("a photo of a cat",), (17,), 1)]
+        assert chunks == [QueryChunk(("a photo of a cat",), (17,))]
 
 
 class TestCapacityChunkingAndMapping:
@@ -128,9 +164,9 @@ class TestCapacityChunkingAndMapping:
     def test_multi_query_capacity_replicates_each_category_without_padding(self):
         chunks = _make_query_chunks([(4, "cat"), (9, "dog"), (12, "bird")], "{}", 2)
         assert chunks == [
-            QueryChunk(("cat", "cat"), (4, 4), 1),
-            QueryChunk(("dog", "dog"), (9, 9), 1),
-            QueryChunk(("bird", "bird"), (12, 12), 1),
+            QueryChunk(("cat", "cat"), (4, 4)),
+            QueryChunk(("dog", "dog"), (9, 9)),
+            QueryChunk(("bird", "bird"), (12, 12)),
         ]
 
     def test_competing_slot_logits_preserve_replicated_real_query_detections(self):

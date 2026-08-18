@@ -39,7 +39,6 @@ class QueryChunk:
 
     prompts: tuple[str, ...]
     category_ids: tuple[int, ...]
-    real_size: int
 
 
 def _validate_prompt_template(template: str) -> str:
@@ -145,7 +144,6 @@ def _make_query_chunks(
         QueryChunk(
             prompts=(template.format(name),) * width,
             category_ids=(category_id,) * width,
-            real_size=1,
         )
         for category_id, name in vocabulary
     ]
@@ -243,7 +241,15 @@ class WinMLZeroShotObjectDetectionEvaluator(WinMLEvaluator):
         from transformers import AutoProcessor
 
         pipe = super().prepare_pipeline()
-        processor = AutoProcessor.from_pretrained(self.config.model_id)
+        if self.config.model_id is None:
+            raise ValueError(
+                "zero-shot object detection evaluation requires --model-id "
+                "to load processor metadata"
+            )
+        processor = AutoProcessor.from_pretrained(
+            self.config.model_id,
+            trust_remote_code=self.config.trust_remote_code,
+        )
         processor.tokenizer = pipe.tokenizer
         processor.image_processor = pipe.image_processor
         self._processor = processor
