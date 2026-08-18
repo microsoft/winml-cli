@@ -25,7 +25,7 @@ def normalized_levenshtein_similarity(prediction: str, reference: str) -> float:
         return 1.0
     denominator = max(len(prediction), len(reference))
     similarity = 1.0 - Levenshtein.distance(prediction, reference) / denominator
-    return similarity if similarity >= 0.5 else 0.0
+    return similarity if similarity > 0.5 else 0.0
 
 
 class ANLSMetric:

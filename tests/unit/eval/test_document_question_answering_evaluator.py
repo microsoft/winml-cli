@@ -130,6 +130,20 @@ def test_anls_normalization_references_threshold_and_accounting():
     assert metric.compute() == {"anls": 1.0, "n_samples": 1, "skipped_samples": 1}
 
 
+@pytest.mark.parametrize(
+    ("prediction", "reference", "expected"),
+    [
+        ("abc", "ab", pytest.approx(2 / 3)),
+        ("ab", "a", 0.0),
+        ("abcd", "a", 0.0),
+    ],
+)
+def test_anls_uses_strict_normalized_distance_threshold(
+    prediction, reference, expected
+):
+    assert normalized_levenshtein_similarity(prediction, reference) == expected
+
+
 def test_compute_uses_declared_inputs_and_bounded_single_window():
     from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
