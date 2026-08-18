@@ -509,6 +509,7 @@ def _resolve_export_config_from_specs(
         output_tensors = [OutputTensorSpec(name=name) for name in io_specs["output_names"]]
 
     return WinMLExportConfig(
+        batch_size=batch_size,
         input_tensors=input_tensors,
         output_tensors=output_tensors,
     )
@@ -520,6 +521,7 @@ def resolve_export_config(
     task: str | None = None,
     model_class: str | None = None,
     model_type: str | None = None,
+    batch_size: int = 1,
     shape_config: dict | None = None,
     library_name: str = "transformers",
     trust_remote_code: bool = False,
@@ -535,6 +537,7 @@ def resolve_export_config(
         task: Task name (auto-detected if None).
         model_class: Explicit model class name.
         model_type: Explicit model type override.
+        batch_size: Batch size for generated input specifications.
         shape_config: Shape overrides (sequence_length, height, width).
         library_name: Source library (default: "transformers").
         trust_remote_code: Whether to trust remote code.
@@ -562,7 +565,7 @@ def resolve_export_config(
         hf_config=hf_config,
         library_name=library_name,
         model_id=model_id,
-        batch_size=WinMLExportConfig().batch_size,
+        batch_size=batch_size,
         **(shape_config or {}),
     )
 
