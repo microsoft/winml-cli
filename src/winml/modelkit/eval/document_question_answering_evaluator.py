@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from .base_evaluator import WinMLEvaluator
 
@@ -162,7 +162,7 @@ class WinMLDocumentQuestionAnsweringEvaluator(WinMLEvaluator):
         return SimpleNamespace(tokenizer=tokenizer, device=self.config.pipeline_device)
 
     def _tokenizer(self) -> PreTrainedTokenizerBase:
-        return self.pipe.tokenizer
+        return cast("PreTrainedTokenizerBase", self.pipe.tokenizer)
 
     def compute(self) -> dict[str, Any]:
         """Run bounded document preprocessing, inference, decoding, and ANLS."""

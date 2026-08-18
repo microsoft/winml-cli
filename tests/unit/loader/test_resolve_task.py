@@ -13,6 +13,7 @@ from transformers import AutoConfig
 
 from winml.modelkit.loader.resolution import (
     TaskSource,
+    _infer_task_from_architecture,
     _infer_task_from_architecture_suffix,
     resolve_task,
 )
@@ -45,6 +46,25 @@ def test_layoutlm_qa_uses_suffix_task_and_registered_class_mapping():
     assert r.optimum_task == "question-answering"
     assert r.model_class.__name__ == "LayoutLMForQuestionAnswering"
     assert r.source == TaskSource.ARCHITECTURE_SUFFIX
+
+
+def test_supported_qa_architecture_keeps_tasks_manager_provenance():
+    r = resolve_task(_cfg("bert", ["BertForQuestionAnswering"]))
+    assert r.task == "question-answering"
+    assert r.source == TaskSource.TASKS_MANAGER
+
+
+@pytest.mark.parametrize(
+    "model_type,architecture,expected_task",
+    [
+        ("bert", "BertForSequenceClassification", "text-classification"),
+        ("layoutlm", "LayoutLMForQuestionAnswering", "question-answering"),
+    ],
+)
+def test_architecture_inference_keeps_string_contract_and_suffix_fallback(
+    model_type, architecture, expected_task
+):
+    assert _infer_task_from_architecture(_cfg(model_type, [architecture])) == expected_task
 
 
 def test_layoutlm_non_qa_architecture_keeps_tasks_manager_routing():

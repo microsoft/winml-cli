@@ -228,6 +228,7 @@ def test_resolve_task_case1_surfaces_modality_aware_task() -> None:
         r = resolve_task(cfg)
     assert r.task == "image-feature-extraction"
     assert r.optimum_task == "feature-extraction"
+    assert r.source == TaskSource.TASKS_MANAGER
 
 
 # =============================================================================

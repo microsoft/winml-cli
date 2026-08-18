@@ -433,21 +433,32 @@ def resolve_composite_load_task(
 _SEQ2SEQ_GENERATION_TASK = "text2text-generation"
 
 
-def _infer_task_from_architecture(config: PretrainedConfig) -> tuple[str, TaskSource]:
-    """Infer the Optimum task and provenance from ``config.architectures[0]``.
+def _infer_task_from_architecture(config: PretrainedConfig) -> str:
+    """Infer the Optimum task from ``config.architectures[0]``.
 
-    Includes the encoder-decoder fill-mask -> text2text-generation correction.
+    Includes the encoder-decoder fill-mask -> text2text-generation correction and
+    uses the architecture suffix only when Optimum has no mapping.
     """
     model_class = _resolve_model_class_from_config(config)
     try:
         task = _detect_task_from_model_class(model_class)
-        source = TaskSource.TASKS_MANAGER
     except ValueError:
-        task = _infer_task_from_architecture_suffix(config)
-        if task is None:
+        suffix_task = _infer_task_from_architecture_suffix(config)
+        if suffix_task is None:
             raise
-        source = TaskSource.ARCHITECTURE_SUFFIX
-    return _upgrade_fill_mask_for_seq2seq(task, config), source
+        task = suffix_task
+    return _upgrade_fill_mask_for_seq2seq(task, config)
+
+
+def _architecture_task_source(config: PretrainedConfig, task: str) -> TaskSource:
+    """Return suffix provenance only when Optimum cannot infer the architecture task."""
+    try:
+        model_class = _resolve_model_class_from_config(config)
+        _detect_task_from_model_class(model_class)
+    except ValueError:
+        if _infer_task_from_architecture_suffix(config) == task:
+            return TaskSource.ARCHITECTURE_SUFFIX
+    return TaskSource.TASKS_MANAGER
 
 
 def _composite_components_for_task(model_type: str, task: str) -> CompositeComponents | None:
@@ -553,7 +564,7 @@ def resolve_task(
             # Task inferred from the architecture: surface it modality-aware, consistent
             # with the detection path (Stage 3), so e.g. a ViT backbone is
             # image-feature-extraction rather than the modality-blind feature-extraction.
-            opt_task, _ = _infer_task_from_architecture(config)
+            opt_task = _infer_task_from_architecture(config)
             surfaced = _resolve_task_modality(config, opt_task)
         # A WinML build variant (model_type_override) may name a custom wrapper
         # registered in MODEL_CLASS_MAPPING rather than a transformers class —
@@ -649,7 +660,8 @@ def resolve_task(
     # 1c. TasksManager (reads config.architectures), then generic suffix fallback
     if opt_task is None:
         try:
-            opt_task, source = _infer_task_from_architecture(config)
+            opt_task = _infer_task_from_architecture(config)
+            source = _architecture_task_source(config, opt_task)
         except ValueError:
             opt_task = None
 
