@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from transformers.modeling_outputs import SequenceClassifierOutput
 
@@ -14,18 +14,14 @@ from .base import WinMLPreTrainedModel
 
 
 if TYPE_CHECKING:
-    import numpy as np
     import torch
 
 
 class WinMLModelForTabularClassification(WinMLPreTrainedModel):
     """Run a tabular classifier whose ONNX input is named ``features``."""
 
-    def forward(  # type: ignore[override]
-        self,
-        features: torch.Tensor | np.ndarray,
-    ) -> SequenceClassifierOutput:
+    def forward(self, **kwargs: Any) -> SequenceClassifierOutput:
         """Run inference and expose the classifier logits."""
-        outputs = self._run_inference(self._format_inputs(features=features))
+        outputs = self._run_inference(self._format_inputs(**kwargs))
         logits = outputs.get("logits", next(iter(outputs.values())))
         return SequenceClassifierOutput(logits=cast("torch.FloatTensor", logits))

@@ -4,6 +4,7 @@
 # --------------------------------------------------------------------------
 from __future__ import annotations
 
+import inspect
 from typing import ClassVar
 
 import torch
@@ -13,6 +14,9 @@ from winml.modelkit.models.hf import MODEL_CLASS_MAPPING
 from winml.modelkit.models.hf.transformer import (
     TabularTransformerWrapper,
     _ensure_legacy_remote_model_compat,
+)
+from winml.modelkit.models.winml.tabular_classification import (
+    WinMLModelForTabularClassification,
 )
 
 
@@ -42,6 +46,17 @@ def test_transformer_model_class_mapping_registers_tabular_wrapper() -> None:
     )
     assert MODEL_CLASS_MAPPING[("transformer", "text-classification")] is TabularTransformerWrapper
     assert MODEL_CLASS_MAPPING[("transformer", None)] is TabularTransformerWrapper
+
+
+def test_runtime_wrapper_forward_matches_generic_base_signature() -> None:
+    parameters = list(
+        inspect.signature(WinMLModelForTabularClassification.forward).parameters.values()
+    )
+
+    assert [parameter.kind for parameter in parameters] == [
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        inspect.Parameter.VAR_KEYWORD,
+    ]
 
 
 def test_tabular_wrapper_exposes_tensor_logits() -> None:
