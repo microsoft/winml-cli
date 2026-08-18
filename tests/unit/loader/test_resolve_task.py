@@ -57,7 +57,7 @@ def test_architecture_suffix_fallback_resolves_layoutlm_question_answering():
     assert r.task == "question-answering"
     assert r.optimum_task == "question-answering"
     assert r.model_class.__name__ == "AutoModelForQuestionAnswering"
-    assert r.source == TaskSource.TASKS_MANAGER
+    assert r.source == TaskSource.ARCHITECTURE_SUFFIX
 
 
 def test_architecture_suffix_fallback_only_uses_primary_architecture():
