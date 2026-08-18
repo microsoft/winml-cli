@@ -48,7 +48,12 @@ from .convnext import ConvNextIOConfig as _ConvNextIOConfig  # triggers registra
 from .depth_anything import DepthAnythingIOConfig as _DepthAnythingIOConfig  # triggers registration
 from .depth_pro import DepthProIOConfig as _DepthProIOConfig  # triggers registration
 from .detr import DETR_CONFIG
-from .layoutlm import LayoutLMQAIOConfig as _LayoutLMQAIOConfig  # triggers registration
+from .layoutlm import ARCHITECTURE_TASK_MAPPING as _LAYOUTLM_ARCHITECTURE_TASK_MAPPING
+from .layoutlm import MODEL_CLASS_MAPPING as _LAYOUTLM_CLASS_MAPPING
+from .layoutlm import (
+    LayoutLMDocumentQAOnnxConfig as _LayoutLMDocumentQAOnnxConfig,  # triggers registration
+)
+from .layoutlm import LayoutLMQAOnnxConfig as _LayoutLMQAOnnxConfig  # triggers registration
 from .layoutlmv3 import LAYOUTLMV3_CONFIG
 from .layoutlmv3 import LayoutLMv3IOConfig as _LayoutLMv3IOConfig  # triggers registration
 from .marian import MARIAN_CONFIG
@@ -132,6 +137,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
         _BART_CLASS_MAPPING,
         _BLIP_CLASS_MAPPING,
         _CLIP_CLASS_MAPPING,
+        _LAYOUTLM_CLASS_MAPPING,
         _MARIAN_CLASS_MAPPING,
         _MU2_CLASS_MAPPING,
         _QWEN_CLASS_MAPPING,
@@ -148,6 +154,13 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
         _WAV2VEC2_CLASS_MAPPING,
     )
     for _key, _model_cls in _sub_mapping.items()
+}
+
+# Registry for architecture heads that Optimum cannot map to their pipeline
+# task. Keys include model_type so identically named custom classes cannot
+# collide across model families.
+ARCHITECTURE_TASK_MAPPING: dict[tuple[str, str], str] = {
+    **_LAYOUTLM_ARCHITECTURE_TASK_MAPPING,
 }
 
 # Registry: model_type -> WinMLBuildConfig
@@ -179,6 +192,7 @@ MODEL_BUILD_CONFIGS = {
 }
 
 __all__ = [
+    "ARCHITECTURE_TASK_MAPPING",
     "MODEL_BUILD_CONFIGS",
     "MODEL_CLASS_MAPPING",
 ]
