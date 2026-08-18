@@ -100,8 +100,9 @@ The full JSON report includes a schema version and installed physical memory:
 }
 ```
 
-Memory capacity uses MiB. The value can be `null` when the host does not expose
-the physical memory total.
+Memory capacity uses MiB. If the host does not expose the physical memory total,
+the field is `null` and `winml sys` emits a warning while preserving the rest of
+the system report.
 
 ```bash
 # Only list devices — skip everything else

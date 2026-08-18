@@ -209,10 +209,12 @@ def _get_memory_info() -> dict[str, int | None]:
         import psutil
 
         total_mib = round(psutil.virtual_memory().total / (1024 * 1024))
+        if total_mib <= 0:
+            raise ValueError("physical memory total must be greater than zero")
     except Exception as exc:
         logger.warning("Failed to get physical memory details: %s", exc)
-        total_mib = 0
-    return {"physical_total_mib": total_mib or None}
+        return {"physical_total_mib": None}
+    return {"physical_total_mib": total_mib}
 
 
 def _get_library_versions() -> dict[str, str | None]:

@@ -20,6 +20,7 @@ the parent's registry.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -204,9 +205,28 @@ class TestMemoryInfo:
         with patch("psutil.virtual_memory", return_value=memory):
             assert _get_memory_info() == {"physical_total_mib": 24 * 1024}
 
-    def test_probe_failure_returns_unknown(self) -> None:
-        with patch("psutil.virtual_memory", side_effect=RuntimeError("unavailable")):
+    def test_probe_failure_returns_unknown_and_warns(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with (
+            patch("psutil.virtual_memory", side_effect=RuntimeError("unavailable")),
+            caplog.at_level(logging.WARNING, logger="winml.modelkit.commands.sys"),
+        ):
             assert _get_memory_info() == {"physical_total_mib": None}
+
+        assert "Failed to get physical memory details: unavailable" in caplog.text
+
+    def test_non_positive_total_returns_unknown_and_warns(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        memory = MagicMock(total=0)
+        with (
+            patch("psutil.virtual_memory", return_value=memory),
+            caplog.at_level(logging.WARNING, logger="winml.modelkit.commands.sys"),
+        ):
+            assert _get_memory_info() == {"physical_total_mib": None}
+
+        assert "physical memory total must be greater than zero" in caplog.text
 
 
 class TestGatherDeviceSectionEnrichment:
