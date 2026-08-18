@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from .metrics.top_k_accuracy import TopKAccuracyMetric
     from .object_detection_evaluator import WinMLObjectDetectionEvaluator
     from .question_answering_evaluator import WinMLQuestionAnsweringEvaluator
+    from .tabular_classification_evaluator import WinMLTabularClassificationEvaluator
     from .tensor_similarity_evaluator import TensorSimilarityEvaluator
     from .text_classification_evaluator import WinMLTextClassificationEvaluator
     from .text_generation_evaluator import WinMLTextGenerationEvaluator
@@ -80,6 +81,9 @@ _LAZY_ATTRS: dict[str, str] = {
         ".zero_shot_image_classification_evaluator:WinMLZeroShotImageClassificationEvaluator"
     ),
     "TensorSimilarityEvaluator": ".tensor_similarity_evaluator:TensorSimilarityEvaluator",
+    "WinMLTabularClassificationEvaluator": (
+        ".tabular_classification_evaluator:WinMLTabularClassificationEvaluator"
+    ),
     # Metrics (defer numpy / scipy / torch / torchmetrics until first use)
     "ClassificationMetric": ".metrics.classification:ClassificationMetric",
     "DepthMetric": ".metrics.depth:DepthMetric",
@@ -137,6 +141,7 @@ __all__ = [
     "WinMLKeypointDetectionEvaluator",
     "WinMLObjectDetectionEvaluator",
     "WinMLQuestionAnsweringEvaluator",
+    "WinMLTabularClassificationEvaluator",
     "WinMLTextClassificationEvaluator",
     "WinMLTextGenerationEvaluator",
     "WinMLTokenClassificationEvaluator",

@@ -10,7 +10,10 @@ import torch
 
 from winml.modelkit.loader.task import TASK_SYNONYM_EXTENSIONS, to_optimum_task
 from winml.modelkit.models.hf import MODEL_CLASS_MAPPING
-from winml.modelkit.models.hf.transformer import TabularTransformerWrapper
+from winml.modelkit.models.hf.transformer import (
+    TabularTransformerWrapper,
+    _ensure_legacy_remote_model_compat,
+)
 
 
 class _Config:
@@ -53,3 +56,33 @@ def test_tabular_wrapper_exposes_tensor_logits() -> None:
     expected = remote.head(remote.transformer(hidden).squeeze(1))
     torch.testing.assert_close(logits, expected)
     assert logits.shape == (1, 1)
+
+
+def test_tabular_wrapper_restores_mha_fastpath_after_export(monkeypatch) -> None:
+    wrapper = TabularTransformerWrapper(_RemoteTabularModel())
+    monkeypatch.setattr(torch.onnx, "is_in_onnx_export", lambda: True)
+    torch.backends.mha.set_fastpath_enabled(True)
+
+    wrapper(torch.zeros((1, 7)))
+
+    assert torch.backends.mha.get_fastpath_enabled() is True
+
+
+def test_loader_shims_legacy_remote_model_class() -> None:
+    class LegacyRemoteModel(_RemoteTabularModel):
+        pass
+
+    probe = LegacyRemoteModel()
+
+    class FakeAutoModel:
+        @staticmethod
+        def from_config(*_args, **_kwargs):
+            return probe
+
+    _ensure_legacy_remote_model_compat(
+        FakeAutoModel,
+        _Config(),
+        trust_remote_code=True,
+    )
+
+    assert LegacyRemoteModel.all_tied_weights_keys == {}

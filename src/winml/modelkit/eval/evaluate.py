@@ -71,6 +71,8 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
         "winml.modelkit.eval.text_classification_evaluator:WinMLTextClassificationEvaluator",
     "next-sentence-prediction":
         "winml.modelkit.eval.text_classification_evaluator:WinMLTextClassificationEvaluator",
+    "tabular-classification":
+        "winml.modelkit.eval.tabular_classification_evaluator:WinMLTabularClassificationEvaluator",
     "token-classification":
         "winml.modelkit.eval.token_classification_evaluator:WinMLTokenClassificationEvaluator",
     "object-detection":

@@ -129,12 +129,18 @@ class TensorSimilarityEvaluator:
         if self.config.model_id is None:
             raise ValueError("model_id is required to load the HF reference model.")
 
-        hf_config = load_hf_config(AutoConfig, self.config.model_id)
+        hf_config = load_hf_config(
+            AutoConfig,
+            self.config.model_id,
+            trust_remote_code=self.config.trust_remote_code,
+        )
         cls = resolve_task(hf_config, task=self.config.task).model_class
         logger.info("Loading HF reference %s on CPU/fp32", cls.__name__)
         # cls is a HF model class which exposes from_pretrained; not in `type`.
         return cls.from_pretrained(  # type: ignore[attr-defined]
-            self.config.model_id, dtype=torch.float32
+            self.config.model_id,
+            dtype=torch.float32,
+            trust_remote_code=self.config.trust_remote_code,
         ).eval()
 
     def prepare_data(self) -> Any:
@@ -238,6 +244,9 @@ class TensorSimilarityEvaluator:
             for k, v in sample.items()
         }
         output = model(**inputs)
+        if isinstance(output, torch.Tensor):
+            output_name = getattr(model, "main_output_name", "output")
+            return {output_name: output.detach().cpu().numpy()}
         return {
             name: tensor.detach().cpu().numpy()
             for name, tensor in output.items()

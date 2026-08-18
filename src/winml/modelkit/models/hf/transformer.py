@@ -25,6 +25,22 @@ from optimum.utils.input_generators import DummyInputGenerator
 from ...export import register_onnx_overwrite
 
 
+def _ensure_legacy_remote_model_compat(
+    auto_model: Any,
+    config: Any,
+    *,
+    trust_remote_code: bool,
+) -> None:
+    model_class = type(
+        auto_model.from_config(
+            config,
+            trust_remote_code=trust_remote_code,
+        )
+    )
+    if not hasattr(model_class, "all_tied_weights_keys"):
+        model_class.all_tied_weights_keys = {}
+
+
 class TabularInputGenerator(DummyInputGenerator):  # type: ignore[misc]
     """Generate floating tabular feature tensors."""
 
@@ -61,6 +77,8 @@ class TabularInputGenerator(DummyInputGenerator):  # type: ignore[misc]
 class TabularTransformerWrapper(nn.Module):
     """Tensor-in/tensor-out wrapper around the remote tabular model."""
 
+    main_output_name = "logits"
+
     def __init__(self, model: nn.Module) -> None:
         super().__init__()
         self.config = model.config
@@ -75,9 +93,23 @@ class TabularTransformerWrapper(nn.Module):
     @classmethod
     def from_pretrained(cls, model_name_or_path: str, **kwargs: Any) -> TabularTransformerWrapper:
         """Load the remote model and wrap its tensorizable submodules."""
-        from transformers import AutoModel
+        from transformers import AutoConfig, AutoModel
 
-        model = AutoModel.from_pretrained(model_name_or_path, **kwargs)
+        config = kwargs.pop("config", None)
+        if config is None:
+            config = AutoConfig.from_pretrained(
+                model_name_or_path,
+                trust_remote_code=kwargs.get("trust_remote_code", False),
+                revision=kwargs.get("revision"),
+            )
+
+        _ensure_legacy_remote_model_compat(
+            AutoModel,
+            config,
+            trust_remote_code=kwargs.get("trust_remote_code", False),
+        )
+
+        model = AutoModel.from_pretrained(model_name_or_path, config=config, **kwargs)
         wrapper = cls(model)
         wrapper.eval()
         return wrapper
@@ -91,7 +123,15 @@ class TabularTransformerWrapper(nn.Module):
         )
         x = self.input_proj(x)
         x = x.unsqueeze(1)
-        x = self.transformer(x)
+        if torch.onnx.is_in_onnx_export():
+            fastpath_enabled = torch.backends.mha.get_fastpath_enabled()
+            torch.backends.mha.set_fastpath_enabled(False)
+            try:
+                x = self.transformer(x)
+            finally:
+                torch.backends.mha.set_fastpath_enabled(fastpath_enabled)
+        else:
+            x = self.transformer(x)
         x = x.squeeze(1)
         return cast("torch.Tensor", self.head(x))
 

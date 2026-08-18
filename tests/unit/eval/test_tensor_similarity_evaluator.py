@@ -13,6 +13,7 @@ and end-to-end ``compute()`` is covered by ``tests/e2e/test_eval_e2e.py``.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import ClassVar
 
 import numpy as np
@@ -75,6 +76,21 @@ class TestInferenceModel:
         assert set(out) == {"last_hidden_state"}
         assert isinstance(out["last_hidden_state"], np.ndarray)
         assert out["last_hidden_state"].shape == (1, 2, 3)
+
+    def test_names_raw_tensor_from_model_contract(self):
+        class RawTensorModel:
+            main_output_name = "logits"
+
+            def __call__(self, **_inputs):
+                return torch.ones((1, 1))
+
+        out = TensorSimilarityEvaluator._inference_model(
+            RawTensorModel(),
+            {"features": torch.zeros((1, 7))},
+        )
+
+        assert set(out) == {"logits"}
+        assert out["logits"].shape == (1, 1)
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +166,44 @@ class TestInputDataCompare:
         # prepare_data must NOT mutate the config -- the real sample count is
         # surfaced via EvalResult.num_samples, not written back here.
         assert evaluator.config.dataset.samples == 100
+
+
+def test_reference_loader_propagates_trust_remote_code(monkeypatch) -> None:
+    import winml.modelkit.loader as loader_module
+    import winml.modelkit.loader.resolution as resolution_module
+
+    calls: dict[str, object] = {}
+
+    class FakeReferenceModel:
+        @classmethod
+        def from_pretrained(cls, model_id, **kwargs):
+            calls["model_id"] = model_id
+            calls["model_kwargs"] = kwargs
+            return SimpleNamespace(eval=lambda: "reference")
+
+    def fake_load_hf_config(_auto_config, model_id, **kwargs):
+        calls["config_model_id"] = model_id
+        calls["config_kwargs"] = kwargs
+        return SimpleNamespace()
+
+    monkeypatch.setattr(loader_module, "load_hf_config", fake_load_hf_config)
+    monkeypatch.setattr(
+        resolution_module,
+        "resolve_task",
+        lambda *_args, **_kwargs: SimpleNamespace(model_class=FakeReferenceModel),
+    )
+
+    evaluator = object.__new__(TensorSimilarityEvaluator)
+    evaluator.config = WinMLEvaluationConfig(
+        model_id="test/remote-model",
+        task="tabular-classification",
+        mode="compare",
+        trust_remote_code=True,
+    )
+
+    assert evaluator._load_reference_model() == "reference"
+    assert calls["config_kwargs"] == {"trust_remote_code": True}
+    assert calls["model_kwargs"]["trust_remote_code"] is True  # type: ignore[index]
 
 
 # ---------------------------------------------------------------------------
