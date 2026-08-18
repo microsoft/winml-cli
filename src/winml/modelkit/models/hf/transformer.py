@@ -95,9 +95,12 @@ class TabularTransformerWrapper(nn.Module):
         """Load the remote model and wrap its tensorizable submodules."""
         from transformers import AutoConfig, AutoModel
 
+        from ...loader import load_hf_config
+
         config = kwargs.pop("config", None)
         if config is None:
-            config = AutoConfig.from_pretrained(
+            config = load_hf_config(
+                AutoConfig,
                 model_name_or_path,
                 trust_remote_code=kwargs.get("trust_remote_code", False),
                 revision=kwargs.get("revision"),
