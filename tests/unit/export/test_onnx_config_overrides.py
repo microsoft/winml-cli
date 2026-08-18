@@ -155,6 +155,8 @@ class TestLayoutLMQuestionAnsweringOverride:
             / f"question-answering_{precision}_config.json"
         )
         recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
+        assert recipe["export"]["compatibility"] == {"transformers_attention": "eager"}
+        assert recipe["loader"]["task"] == "document-question-answering"
         bbox_config = next(
             tensor for tensor in recipe["export"]["input_tensors"] if tensor["name"] == "bbox"
         )

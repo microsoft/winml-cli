@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, cast
 
 from .task import (
     HF_TASK_DEFAULTS,
+    TASK_SYNONYM_EXTENSIONS,
     get_default_task_for_model_id,
     get_supported_tasks,
     normalize_task,
@@ -132,35 +133,6 @@ def _resolve_model_class_from_config(config: PretrainedConfig) -> type:
         ) from e
 
 
-def _resolve_architecture_mapping(
-    config: PretrainedConfig, model_type_normalized: str
-) -> tuple[str, type] | None:
-    """Resolve an unambiguous registered task from the checkpoint architecture.
-
-    Per-architecture ``MODEL_CLASS_MAPPING`` entries normally override the loader
-    class after task detection. They also provide stronger task evidence when the
-    concrete class in ``config.architectures`` exactly matches a registered class.
-    This corrects incomplete upstream task inference without a model-ID default.
-    """
-    try:
-        architecture_class = _resolve_model_class_from_config(config)
-    except ValueError:
-        return None
-
-    from ..models.hf import MODEL_CLASS_MAPPING
-
-    matches = {
-        task
-        for (model_type, task), model_class in MODEL_CLASS_MAPPING.items()
-        if model_type == model_type_normalized
-        and task is not None
-        and model_class is architecture_class
-    }
-    if len(matches) != 1:
-        return None
-    return matches.pop(), architecture_class
-
-
 def _detect_task_from_model_class(model_class: type) -> str:
     """Detect task from a model class via TasksManager.
 
@@ -205,6 +177,23 @@ def _upgrade_fill_mask_for_seq2seq(task: str, config: PretrainedConfig) -> str:
 _FEATURE_MODALITY_BY_MAIN_INPUT: dict[str, str] = {
     "pixel_values": "image-feature-extraction",
 }
+
+
+_ARCHITECTURE_SUFFIX_TASKS: dict[str, str] = {
+    "ForQuestionAnswering": "question-answering",
+}
+
+
+def _infer_task_from_architecture_suffix(config: PretrainedConfig) -> str | None:
+    """Infer a task from the primary architecture suffix when Optimum has no mapping."""
+    architectures = getattr(config, "architectures", None)
+    if not architectures:
+        return None
+    architecture_name = architectures[0]
+    for suffix, task in _ARCHITECTURE_SUFFIX_TASKS.items():
+        if architecture_name.endswith(suffix):
+            return task
+    return None
 
 
 def _resolve_task_modality(config: PretrainedConfig, task: str) -> str:
@@ -280,8 +269,8 @@ class TaskSource(str, Enum):
     USER_CLASS = "user-class"  # user passed --model-class; task inferred
     MODEL_ID_DEFAULT = "model-id-default"  # MODEL_TASK_MAPPING model-id default
     SENTINEL_DEFAULT = "sentinel-default"  # (model_type, None) sentinel
-    ARCHITECTURE_MAPPING = "architecture-mapping"  # exact registered architecture class
     TASKS_MANAGER = "tasks-manager"  # Optimum inference (incl. fill-mask upgrade)
+    ARCHITECTURE_SUFFIX = "architecture-suffix"  # class-name suffix fallback
     WRAPPED_LIBRARY = "wrapped-library"  # no architectures -> first supported task
     PIPELINE_TAG = "pipeline-tag"  # Hub pipeline_tag fallback
     HF_TASK_DEFAULT = "hf-task-default"  # last-resort default
@@ -444,15 +433,21 @@ def resolve_composite_load_task(
 _SEQ2SEQ_GENERATION_TASK = "text2text-generation"
 
 
-def _infer_task_from_architecture(config: PretrainedConfig) -> str:
-    """Optimum task inferred from ``config.architectures[0]``.
+def _infer_task_from_architecture(config: PretrainedConfig) -> tuple[str, TaskSource]:
+    """Infer the Optimum task and provenance from ``config.architectures[0]``.
 
     Includes the encoder-decoder fill-mask -> text2text-generation correction.
     """
-    return _upgrade_fill_mask_for_seq2seq(
-        _detect_task_from_model_class(_resolve_model_class_from_config(config)),
-        config,
-    )
+    model_class = _resolve_model_class_from_config(config)
+    try:
+        task = _detect_task_from_model_class(model_class)
+        source = TaskSource.TASKS_MANAGER
+    except ValueError:
+        task = _infer_task_from_architecture_suffix(config)
+        if task is None:
+            raise
+        source = TaskSource.ARCHITECTURE_SUFFIX
+    return _upgrade_fill_mask_for_seq2seq(task, config), source
 
 
 def _composite_components_for_task(model_type: str, task: str) -> CompositeComponents | None:
@@ -549,12 +544,16 @@ def resolve_task(
             # is preserved. Consistent with the inferred branch below and USER_TASK —
             # adding --model-class must not collapse the modality.
             opt_task = normalize_task(task)
-            surfaced = _resolve_task_modality(config, opt_task)
+            surfaced = (
+                task
+                if task in TASK_SYNONYM_EXTENSIONS
+                else _resolve_task_modality(config, opt_task)
+            )
         else:
             # Task inferred from the architecture: surface it modality-aware, consistent
             # with the detection path (Stage 3), so e.g. a ViT backbone is
             # image-feature-extraction rather than the modality-blind feature-extraction.
-            opt_task = _infer_task_from_architecture(config)
+            opt_task, _ = _infer_task_from_architecture(config)
             surfaced = _resolve_task_modality(config, opt_task)
         # A WinML build variant (model_type_override) may name a custom wrapper
         # registered in MODEL_CLASS_MAPPING rather than a transformers class —
@@ -632,14 +631,7 @@ def resolve_task(
             else TaskSource.SENTINEL_DEFAULT
         )
 
-    # 1b. exact architecture class -> registered task/class mapping
-    if opt_task is None and model_type_norm:
-        architecture_mapping = _resolve_architecture_mapping(config, model_type_norm)
-        if architecture_mapping is not None:
-            opt_task, resolved = architecture_mapping
-            source = TaskSource.ARCHITECTURE_MAPPING
-
-    # 1c. no architectures -> first ONNX-exportable task
+    # 1b. no architectures -> first ONNX-exportable task
     #     (merges the old timm wrapped-library stage AND the --model-type fallback)
     if opt_task is None and not getattr(config, "architectures", None) and model_type:
         # Populate Optimum's ONNX export-config registry before querying it;
@@ -654,11 +646,10 @@ def resolve_task(
             # lookup failure here — e.g. a wrapped library whose classes aren't registered
             # under framework="pt" — can't escape as a raw KeyError.
 
-    # 1d. TasksManager (reads config.architectures)
+    # 1c. TasksManager (reads config.architectures), then generic suffix fallback
     if opt_task is None:
         try:
-            opt_task = _infer_task_from_architecture(config)
-            source = TaskSource.TASKS_MANAGER
+            opt_task, source = _infer_task_from_architecture(config)
         except ValueError:
             opt_task = None
 

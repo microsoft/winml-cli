@@ -4,7 +4,7 @@
 # --------------------------------------------------------------------------
 """Tests for normalize_task and get_task_abbrev utility functions."""
 
-from winml.modelkit.loader import get_task_abbrev, normalize_task
+from winml.modelkit.loader import get_task_abbrev, normalize_task, to_optimum_task
 
 
 class TestNormalizeTask:
@@ -32,6 +32,10 @@ class TestNormalizeTask:
         """Unknown task names are returned unchanged (passthrough)."""
         assert normalize_task("my-custom-task") == "my-custom-task"
         assert normalize_task("nonexistent-task") == "nonexistent-task"
+
+    def test_document_qa_maps_to_canonical_export_task(self):
+        assert normalize_task("document-question-answering") == "question-answering"
+        assert to_optimum_task("document-question-answering") == "question-answering"
 
 
 class TestGetTaskAbbrev:
