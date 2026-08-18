@@ -263,7 +263,7 @@ class TestNuGetSource:
         monkeypatch.setattr(
             _ep,
             "_get_detected_vendors",
-            lambda: frozenset({"Intel(R) Corporation"}),
+            lambda *_device_types: frozenset({"Intel(R) Corporation"}),
         )
         ov_src = NuGetSource(
             distribution="Intel.ML.OnnxRuntime.EP.OpenVINO",

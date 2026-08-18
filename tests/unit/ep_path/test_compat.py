@@ -6,7 +6,7 @@
 
 Covers:
     - ``EP_CATALOG`` vendor requirement contents.
-    - ``_get_detected_vendors()`` aggregation across GPU/NPU.
+    - ``_get_detected_vendors()`` aggregation across CPU/GPU/NPU.
     - ``EP_CATALOG.is_compatible()`` matching rules.
     - ``is_compatible()`` method on every EPSource subclass.
 """
@@ -93,7 +93,7 @@ class TestEpIsCompatible:
     ) -> None:
         monkeypatch.setattr(
             "winml.modelkit.ep_path._get_detected_vendors",
-            lambda: frozenset(),
+            lambda *_device_types: frozenset(),
         )
         assert EP_CATALOG.is_compatible("CPUExecutionProvider") is True
         assert EP_CATALOG.is_compatible("DmlExecutionProvider") is True
@@ -107,7 +107,7 @@ class TestEpIsCompatible:
         # is not silently hidden in `--list-ep`.
         monkeypatch.setattr(
             "winml.modelkit.ep_path._get_detected_vendors",
-            lambda: frozenset(),
+            lambda *_device_types: frozenset(),
         )
         assert EP_CATALOG.is_compatible("FutureEpNotInTable") is True
 
@@ -116,9 +116,30 @@ class TestEpIsCompatible:
     ) -> None:
         monkeypatch.setattr(
             "winml.modelkit.ep_path._get_detected_vendors",
-            lambda: frozenset({"Qualcomm Technologies, Inc."}),
+            lambda *_device_types: frozenset({"Qualcomm Technologies, Inc."}),
         )
         assert EP_CATALOG.is_compatible("QNNExecutionProvider") is True
+
+    def test_custom_catalog_falls_back_to_all_device_classes(
+        self, reset_vendor_cache: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from winml.modelkit.ep_path import EPCatalog
+
+        catalog = EPCatalog(
+            [
+                EPCatalog.Row(
+                    name="CustomExecutionProvider",
+                    dll_name="custom.dll",
+                    vendor_requirements=frozenset({"Example Vendor"}),
+                )
+            ]
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.ep_path._get_detected_vendors",
+            lambda *_device_types: frozenset({"Example Vendor CPU"}),
+        )
+
+        assert catalog.is_compatible("CustomExecutionProvider") is True
         assert EP_CATALOG.is_compatible("OpenVINOExecutionProvider") is False
         assert EP_CATALOG.is_compatible("NvTensorRTRTXExecutionProvider") is False
 
@@ -129,7 +150,7 @@ class TestEpIsCompatible:
         # — substring lowercase match accepts any.
         monkeypatch.setattr(
             "winml.modelkit.ep_path._get_detected_vendors",
-            lambda: frozenset({"intel(r) corporation"}),
+            lambda *_device_types: frozenset({"intel(r) corporation"}),
         )
         assert EP_CATALOG.is_compatible("OpenVINOExecutionProvider") is True
 
@@ -138,7 +159,7 @@ class TestEpIsCompatible:
     ) -> None:
         monkeypatch.setattr(
             "winml.modelkit.ep_path._get_detected_vendors",
-            lambda: frozenset({"AMD Radeon Graphics"}),
+            lambda *_device_types: frozenset({"AMD Radeon Graphics"}),
         )
         assert EP_CATALOG.is_compatible("VitisAIExecutionProvider") is True
         assert EP_CATALOG.is_compatible("MIGraphXExecutionProvider") is True
@@ -148,7 +169,7 @@ class TestEpIsCompatible:
     ) -> None:
         monkeypatch.setattr(
             "winml.modelkit.ep_path._get_detected_vendors",
-            lambda: frozenset(),
+            lambda *_device_types: frozenset(),
         )
         assert EP_CATALOG.is_compatible("QNNExecutionProvider") is False
         assert EP_CATALOG.is_compatible("OpenVINOExecutionProvider") is False
@@ -163,7 +184,9 @@ class TestEpIsCompatible:
         # Substring matching handles this.
         monkeypatch.setattr(
             "winml.modelkit.ep_path._get_detected_vendors",
-            lambda: frozenset({"Snapdragon(R) X Elite - Qualcomm(R) Hexagon(TM) NPU"}),
+            lambda *_device_types: frozenset(
+                {"Snapdragon(R) X Elite - Qualcomm(R) Hexagon(TM) NPU"}
+            ),
         )
         assert EP_CATALOG.is_compatible("QNNExecutionProvider") is True
 
@@ -174,11 +197,14 @@ class TestEpIsCompatible:
 
 
 class TestGetDetectedVendors:
-    """``_get_detected_vendors`` aggregates GPU.manufacturer/name + NPU.manufacturer/name."""
+    """``_get_detected_vendors`` aggregates requested hardware classes."""
 
-    def test_aggregates_gpu_and_npu(
+    def test_aggregates_cpu_gpu_and_npu(
         self, reset_vendor_cache: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        cpu = MagicMock()
+        cpu.manufacturer = "GenuineIntel"
+        cpu.name = "Intel Core Ultra"
         gpu = MagicMock()
         gpu.manufacturer = "NVIDIA Corporation"
         gpu.name = "NVIDIA RTX 4090"
@@ -186,14 +212,53 @@ class TestGetDetectedVendors:
         npu.manufacturer = "Intel Corporation"
         npu.name = "Intel AI Boost"
 
+        monkeypatch.setattr("winml.modelkit.sysinfo.hardware.CPU.get_all", lambda: [cpu])
         monkeypatch.setattr("winml.modelkit.sysinfo.hardware.GPU.get_all", lambda: [gpu])
         monkeypatch.setattr("winml.modelkit.sysinfo.hardware.NPU.get_all", lambda: [npu])
 
         result = _get_detected_vendors()
+        assert "GenuineIntel" in result
+        assert "Intel Core Ultra" in result
         assert "NVIDIA Corporation" in result
         assert "NVIDIA RTX 4090" in result
         assert "Intel Corporation" in result
         assert "Intel AI Boost" in result
+
+    def test_compatibility_uses_only_ep_supported_device_classes(
+        self, reset_vendor_cache: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cpu = MagicMock(manufacturer="GenuineIntel", name="Intel Core i9")
+        gpu = MagicMock(manufacturer="NVIDIA", name="NVIDIA RTX 4080")
+        get_cpus = MagicMock(return_value=[cpu])
+        get_gpus = MagicMock(return_value=[gpu])
+        get_npus = MagicMock(return_value=[])
+
+        monkeypatch.setattr("winml.modelkit.sysinfo.hardware.CPU.get_all", get_cpus)
+        monkeypatch.setattr("winml.modelkit.sysinfo.hardware.GPU.get_all", get_gpus)
+        monkeypatch.setattr("winml.modelkit.sysinfo.hardware.NPU.get_all", get_npus)
+
+        assert EP_CATALOG.is_compatible("OpenVINOExecutionProvider") is True
+        assert EP_CATALOG.is_compatible("OpenVINOExecutionProvider", "cpu") is True
+        assert EP_CATALOG.is_compatible("OpenVINOExecutionProvider", "gpu") is False
+        assert EP_CATALOG.is_compatible("OpenVINOExecutionProvider", "npu") is False
+        assert EP_CATALOG.is_compatible("NvTensorRTRTXExecutionProvider") is True
+        assert EP_CATALOG.is_compatible("QNNExecutionProvider") is False
+        assert get_cpus.call_count == 1
+        assert get_gpus.call_count == 1
+        assert get_npus.call_count == 1
+
+    def test_cpu_vendor_does_not_enable_accelerator_only_eps(
+        self, reset_vendor_cache: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cpu = MagicMock(manufacturer="AuthenticAMD", name="AMD Ryzen")
+        gpu = MagicMock(manufacturer="NVIDIA", name="NVIDIA RTX 4080")
+
+        monkeypatch.setattr("winml.modelkit.sysinfo.hardware.CPU.get_all", lambda: [cpu])
+        monkeypatch.setattr("winml.modelkit.sysinfo.hardware.GPU.get_all", lambda: [gpu])
+        monkeypatch.setattr("winml.modelkit.sysinfo.hardware.NPU.get_all", list)
+
+        assert EP_CATALOG.is_compatible("MIGraphXExecutionProvider") is False
+        assert EP_CATALOG.is_compatible("VitisAIExecutionProvider") is False
 
     def test_handles_missing_attribute(
         self, reset_vendor_cache: None, monkeypatch: pytest.MonkeyPatch
@@ -203,34 +268,40 @@ class TestGetDetectedVendors:
         gpu = MagicMock(spec=["manufacturer"])
         gpu.manufacturer = "AMD"
 
+        monkeypatch.setattr("winml.modelkit.sysinfo.hardware.CPU.get_all", list)
         monkeypatch.setattr("winml.modelkit.sysinfo.hardware.GPU.get_all", lambda: [gpu])
         monkeypatch.setattr("winml.modelkit.sysinfo.hardware.NPU.get_all", list)
 
         result = _get_detected_vendors()
         assert result == frozenset({"AMD"})
 
+    @pytest.mark.parametrize("hardware_class", ["CPU", "GPU", "NPU"])
     def test_get_all_failure_raises(
-        self, reset_vendor_cache: None, monkeypatch: pytest.MonkeyPatch
+        self,
+        reset_vendor_cache: None,
+        monkeypatch: pytest.MonkeyPatch,
+        hardware_class: str,
     ) -> None:
-        # If GPU.get_all raises (WMI failure), the whole detection fails with RuntimeError.
+        # If any requested class fails, detection fails instead of caching partial results.
         # (Old behavior was to swallow the error and continue; new behavior is to raise
         # so functools.cache doesn't pin a false "no hardware" result.)
-        npu = MagicMock()
-        npu.manufacturer = "Qualcomm"
-        npu.name = "Qualcomm Hexagon"
-
         def raise_wmi() -> list:
             raise RuntimeError("WMI down")
 
-        monkeypatch.setattr("winml.modelkit.sysinfo.hardware.GPU.get_all", raise_wmi)
-        monkeypatch.setattr("winml.modelkit.sysinfo.hardware.NPU.get_all", lambda: [npu])
+        for class_name in ("CPU", "GPU", "NPU"):
+            implementation = raise_wmi if class_name == hardware_class else list
+            monkeypatch.setattr(
+                f"winml.modelkit.sysinfo.hardware.{class_name}.get_all",
+                implementation,
+            )
 
-        with pytest.raises(RuntimeError, match=r"GPU\.get_all"):
+        with pytest.raises(RuntimeError, match=rf"{hardware_class}\.get_all"):
             _get_detected_vendors()
 
     def test_no_hardware_returns_empty(
         self, reset_vendor_cache: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        monkeypatch.setattr("winml.modelkit.sysinfo.hardware.CPU.get_all", list)
         monkeypatch.setattr("winml.modelkit.sysinfo.hardware.GPU.get_all", list)
         monkeypatch.setattr("winml.modelkit.sysinfo.hardware.NPU.get_all", list)
         assert _get_detected_vendors() == frozenset()
@@ -249,7 +320,7 @@ class TestSourceIsCompatible:
     ) -> None:
         monkeypatch.setattr(
             "winml.modelkit.ep_path._get_detected_vendors",
-            lambda: frozenset({"Qualcomm Inc"}),
+            lambda *_device_types: frozenset({"Qualcomm Inc"}),
         )
         src = PyPISource(
             distribution="onnxruntime-qnn",
@@ -264,7 +335,7 @@ class TestSourceIsCompatible:
         # OpenVINO PyPI on a Snapdragon-only box.
         monkeypatch.setattr(
             "winml.modelkit.ep_path._get_detected_vendors",
-            lambda: frozenset({"Qualcomm Inc"}),
+            lambda *_device_types: frozenset({"Qualcomm Inc"}),
         )
         src = PyPISource(
             distribution="onnxruntime-ep-openvino",
@@ -278,7 +349,7 @@ class TestSourceIsCompatible:
     ) -> None:
         monkeypatch.setattr(
             "winml.modelkit.ep_path._get_detected_vendors",
-            lambda: frozenset({"AMD"}),
+            lambda *_device_types: frozenset({"AMD"}),
         )
         src = DirectorySource(
             root=Path("ignored"),
@@ -291,7 +362,7 @@ class TestSourceIsCompatible:
     ) -> None:
         monkeypatch.setattr(
             "winml.modelkit.ep_path._get_detected_vendors",
-            lambda: frozenset({"NVIDIA Corp"}),
+            lambda *_device_types: frozenset({"NVIDIA Corp"}),
         )
         src = WinMLCatalogSource(
             catalog_name="NvTensorRTRTXExecutionProvider",
@@ -304,7 +375,7 @@ class TestSourceIsCompatible:
     ) -> None:
         monkeypatch.setattr(
             "winml.modelkit.ep_path._get_detected_vendors",
-            lambda: frozenset({"Qualcomm"}),
+            lambda *_device_types: frozenset({"Qualcomm"}),
         )
         src = MSIXPackageSource(
             family_name_prefix="...OpenVINO.EP._...",
@@ -321,7 +392,7 @@ class TestSourceIsCompatible:
         # EP — but the contract should be strict.)
         monkeypatch.setattr(
             "winml.modelkit.ep_path._get_detected_vendors",
-            lambda: frozenset({"AMD"}),
+            lambda *_device_types: frozenset({"AMD"}),
         )
         # AMD-only box: VitisAI ok, but QNN and OpenVINO not.
         src = DirectorySource(
@@ -387,7 +458,7 @@ class TestIterEps:
         # actual driver (not a hardcoded path through self.eps).
         monkeypatch.setattr(
             "winml.modelkit.ep_path._get_detected_vendors",
-            lambda: frozenset({"AMD"}),
+            lambda *_device_types: frozenset({"AMD"}),
         )
         ok_src = DirectorySource(
             root=Path("ignored"),

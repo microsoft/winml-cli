@@ -44,6 +44,7 @@ from ..utils.constants import (
     EP_ALIASES,
     EP_NAMES,
     EP_SUPPORTED_DEVICES,
+    DeviceType,
     EPName,
     normalize_ep_name,
 )
@@ -354,7 +355,7 @@ class EPDeviceSpec:
     """
 
     ep: EPName
-    device: str
+    device: DeviceType
     default_provider_options: Mapping[str, str] = field(default_factory=dict)
     provider_option_hints: Mapping[str, str] = field(default_factory=dict)
 
@@ -503,7 +504,7 @@ def default_ep_for_device(device: str) -> str | None:
                 if s.device == device
                 and _is_policy_supported_spec(s)
                 and s.ep in eps  # L0: discovered
-                and EP_CATALOG.is_compatible(s.ep)  # L2: vendor-compatible
+                and EP_CATALOG.is_compatible(s.ep, s.device)  # L2: vendor-compatible
             ),
             None,
         )
@@ -619,7 +620,7 @@ def auto_detect_device() -> str:
                     spec.device != dev
                     or not _is_policy_supported_spec(spec)
                     or spec.ep not in available_eps
-                    or not EP_CATALOG.is_compatible(spec.ep)
+                    or not EP_CATALOG.is_compatible(spec.ep, spec.device)
                 ):
                     continue
                 try:
@@ -699,7 +700,7 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
                     continue
             else:
                 try:
-                    if not EP_CATALOG.is_compatible(spec.ep):
+                    if not EP_CATALOG.is_compatible(spec.ep, spec.device):
                         continue
                 except RuntimeError as e:
                     logger.warning(
@@ -771,7 +772,7 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
             ):
                 continue
             try:
-                if not EP_CATALOG.is_compatible(spec.ep):
+                if not EP_CATALOG.is_compatible(spec.ep, spec.device):
                     continue
             except RuntimeError as e:
                 if not vendor_detection_failed:

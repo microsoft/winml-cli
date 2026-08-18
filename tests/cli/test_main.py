@@ -324,7 +324,7 @@ class TestSysListEpEndToEnd:
         monkeypatch.setattr(
             _ep,
             "_get_detected_vendors",
-            lambda: frozenset({"Qualcomm Inc"}),
+            lambda *_device_types: frozenset({"Qualcomm Inc"}),
         )
 
     def test_json_shape_has_all_required_fields(self, runner: CliRunner) -> None:
