@@ -13,6 +13,7 @@ from optimum.utils import NormalizedTextConfig
 from optimum.utils.input_generators import DummyBboxInputGenerator, DummyVisionInputGenerator
 
 from ...export import MaxLengthTextInputGenerator, register_onnx_overwrite
+from .roberta import _adjust_position_embeddings
 
 
 if TYPE_CHECKING:
@@ -29,8 +30,18 @@ class ZeroTokenTypeLayoutLMTextInputGenerator(MaxLengthTextInputGenerator):
         int_dtype: str = "int64",
         float_dtype: str = "fp32",
     ) -> torch.Tensor:
-        """Generate LayoutLM text inputs, replacing token_type_ids with zeros."""
-        tensor = cast(
+        """Generate LayoutLM text inputs within the configured token-type range."""
+        if input_name == "token_type_ids":
+            return cast(
+                "torch.Tensor",
+                self.random_int_tensor(
+                    [self.batch_size, self.sequence_length],
+                    max_value=self.normalized_config.type_vocab_size,
+                    framework=framework,
+                    dtype=int_dtype,
+                ),
+            )
+        return cast(
             "torch.Tensor",
             super().generate(
                 input_name,
@@ -39,9 +50,6 @@ class ZeroTokenTypeLayoutLMTextInputGenerator(MaxLengthTextInputGenerator):
                 float_dtype=float_dtype,
             ),
         )
-        if input_name == "token_type_ids":
-            return tensor.new_zeros(tensor.shape)
-        return tensor
 
 
 @register_onnx_overwrite("layoutlm", "question-answering", library_name="transformers")
@@ -59,6 +67,7 @@ class LayoutLMQAIOConfig(LayoutLMOnnxConfig):  # type: ignore[misc]  # optimum b
     # recipe's `value_range` instead.
     NORMALIZED_CONFIG_CLASS = NormalizedTextConfig.with_args(
         sequence_length="max_position_embeddings",
+        type_vocab_size="type_vocab_size",
         allow_new=True,
     )
     DUMMY_INPUT_GENERATOR_CLASSES: tuple[type[Any], ...] = (
@@ -66,3 +75,7 @@ class LayoutLMQAIOConfig(LayoutLMOnnxConfig):  # type: ignore[misc]  # optimum b
         DummyVisionInputGenerator,
         DummyBboxInputGenerator,
     )
+
+    def __init__(self, config: Any, task: str, **kwargs: Any) -> None:
+        _adjust_position_embeddings(config)
+        super().__init__(config, task, **kwargs)

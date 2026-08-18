@@ -138,20 +138,25 @@ class TestBertSequenceLengthOverride:
 class TestLayoutLMQuestionAnsweringOverride:
     """LayoutLM QA export must include bbox and safe token_type_ids."""
 
-    def test_layoutlm_qa_dummy_inputs_include_bbox_and_zero_token_types(self) -> None:
-        """Dummy inputs must keep bbox while forcing token_type_ids to zero."""
+    @staticmethod
+    def _config(*, max_position_embeddings: int = 32, pad_token_id: int = 0):
         from transformers import LayoutLMConfig
 
-        layoutlm_config = LayoutLMConfig(
+        return LayoutLMConfig(
             vocab_size=100,
             hidden_size=64,
             num_hidden_layers=2,
             num_attention_heads=2,
             intermediate_size=128,
-            max_position_embeddings=32,
+            max_position_embeddings=max_position_embeddings,
             max_2d_position_embeddings=1024,
+            pad_token_id=pad_token_id,
             type_vocab_size=1,
         )
+
+    def test_layoutlm_qa_dummy_inputs_include_bbox_and_zero_token_types(self) -> None:
+        """Dummy inputs must keep bbox while forcing token_type_ids to zero."""
+        layoutlm_config = self._config()
 
         inputs = generate_dummy_inputs("layoutlm", "question-answering", layoutlm_config)
 
@@ -163,18 +168,7 @@ class TestLayoutLMQuestionAnsweringOverride:
 
     def test_layoutlm_qa_io_specs_include_span_outputs(self) -> None:
         """LayoutLM QA specs expose document bbox input and span logits outputs."""
-        from transformers import LayoutLMConfig
-
-        layoutlm_config = LayoutLMConfig(
-            vocab_size=100,
-            hidden_size=64,
-            num_hidden_layers=2,
-            num_attention_heads=2,
-            intermediate_size=128,
-            max_position_embeddings=32,
-            max_2d_position_embeddings=1024,
-            type_vocab_size=1,
-        )
+        layoutlm_config = self._config()
 
         specs = resolve_io_specs("layoutlm", "question-answering", layoutlm_config)
 
@@ -186,6 +180,36 @@ class TestLayoutLMQuestionAnsweringOverride:
         ]
         assert specs["input_shapes"] == [(1, 32), (1, 32, 4), (1, 32), (1, 32)]
         assert specs["output_names"] == ["start_logits", "end_logits"]
+        assert specs["value_ranges"]["token_type_ids"] == (0, 1)
+
+    def test_layoutlm_qa_uses_usable_roberta_style_sequence_length(self) -> None:
+        """A 514-position, pad-offset config has capacity for 512 input tokens."""
+        layoutlm_config = self._config(max_position_embeddings=514, pad_token_id=1)
+
+        specs = resolve_io_specs("layoutlm", "question-answering", layoutlm_config)
+
+        assert specs["input_shapes"] == [(1, 512), (1, 512, 4), (1, 512), (1, 512)]
+
+    def test_layoutlm_qa_keeps_bert_style_sequence_length(self) -> None:
+        """A zero-offset LayoutLM config keeps its full position capacity."""
+        layoutlm_config = self._config(max_position_embeddings=512, pad_token_id=0)
+
+        specs = resolve_io_specs("layoutlm", "question-answering", layoutlm_config)
+
+        assert specs["input_shapes"] == [(1, 512), (1, 512, 4), (1, 512), (1, 512)]
+
+    def test_layoutlm_qa_preserves_explicit_sequence_length(self) -> None:
+        """An explicit content budget remains authoritative for every coupled input."""
+        layoutlm_config = self._config(max_position_embeddings=514, pad_token_id=1)
+
+        specs = resolve_io_specs(
+            "layoutlm",
+            "question-answering",
+            layoutlm_config,
+            sequence_length=128,
+        )
+
+        assert specs["input_shapes"] == [(1, 128), (1, 128, 4), (1, 128), (1, 128)]
 
 
 class TestLayoutLMv3QuestionAnsweringOverride:
