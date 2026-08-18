@@ -11,7 +11,11 @@ Offline / config-only: every case builds its config with
 import pytest
 from transformers import AutoConfig
 
-from winml.modelkit.loader.resolution import TaskSource, resolve_task
+from winml.modelkit.loader.resolution import (
+    TaskSource,
+    _infer_task_from_architecture_suffix,
+    resolve_task,
+)
 from winml.modelkit.loader.task import to_optimum_task
 
 
@@ -54,6 +58,14 @@ def test_architecture_suffix_fallback_resolves_layoutlm_question_answering():
     assert r.optimum_task == "question-answering"
     assert r.model_class.__name__ == "AutoModelForQuestionAnswering"
     assert r.source == TaskSource.TASKS_MANAGER
+
+
+def test_architecture_suffix_fallback_only_uses_primary_architecture():
+    config = _cfg(
+        "layoutlm",
+        ["LayoutLMForSequenceClassification", "LayoutLMForQuestionAnswering"],
+    )
+    assert _infer_task_from_architecture_suffix(config) is None
 
 
 def test_user_task_preserved_verbatim_no_modality_upgrade():
@@ -181,9 +193,7 @@ def test_user_class_explicit_feature_extraction_is_modality_aware():
     surface image-feature-extraction (-> ImageDataset), not the modality-blind
     feature-extraction (-> TextDataset). optimum_task still collapses for the Optimum
     class lookup."""
-    r = resolve_task(
-        _cfg("vit", ["ViTModel"]), model_class="ViTModel", task="feature-extraction"
-    )
+    r = resolve_task(_cfg("vit", ["ViTModel"]), model_class="ViTModel", task="feature-extraction")
     assert r.source == TaskSource.USER_CLASS
     assert r.task == "image-feature-extraction"
     assert r.optimum_task == "feature-extraction"
