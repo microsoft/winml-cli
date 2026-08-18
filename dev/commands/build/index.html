@@ -1822,10 +1822,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#genai-bundles-for-decoder-llms-npu-qnn" class="md-nav__link">
+  <a href="#genai-bundles-for-decoder-llms-npu" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Genai bundles for decoder LLMs (NPU + QNN)
+        Genai bundles for decoder LLMs (NPU)
       
     </span>
   </a>
@@ -2617,10 +2617,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#genai-bundles-for-decoder-llms-npu-qnn" class="md-nav__link">
+  <a href="#genai-bundles-for-decoder-llms-npu" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Genai bundles for decoder LLMs (NPU + QNN)
+        Genai bundles for decoder LLMs (NPU)
       
     </span>
   </a>
@@ -2873,7 +2873,7 @@ single-pass build. Individual stages can be suppressed with <code>--no-quant</co
 <p class="admonition-title">Reproducible CI/CD builds</p>
 <p>The config file is a portable, self-contained pipeline specification. Check it into source control and invoke <code>winml build -c config.json</code> in CI to produce identical artifacts without manual flag management. Set <code>"auto": false</code> in the config to disable the autoconf discovery loop for fully deterministic output.</p>
 </div>
-<h2 id="genai-bundles-for-decoder-llms-npu-qnn">Genai bundles for decoder LLMs (NPU + QNN)<a class="headerlink" href="#genai-bundles-for-decoder-llms-npu-qnn" title="Permanent link">&para;</a></h2>
+<h2 id="genai-bundles-for-decoder-llms-npu">Genai bundles for decoder LLMs (NPU)<a class="headerlink" href="#genai-bundles-for-decoder-llms-npu" title="Permanent link">&para;</a></h2>
 <p>For a registered decoder-LLM family (currently <strong>Qwen3</strong>), <code>--export-type
 optimized</code> switches <code>winml build</code> from the stock per-model ONNX output to a
 complete <a href="https://github.com/microsoft/onnxruntime-genai">onnxruntime-genai</a>
@@ -2922,8 +2922,14 @@ build does — an explicit value is honored, otherwise the host is probed — an
 then builds the recipe for that resolved target. On an NPU host the command
 above needs no flags; on a host without the accelerator the resolved target has
 no recipe and the build fails fast (naming the <code>ep</code>/<code>device</code>) instead of
-silently producing a generic model. Pin <code>--ep qnn --device npu</code> to build the
-bundle anywhere (e.g. CI), since an explicit target skips host detection. An
+silently producing a generic model. Pin the NPU provider explicitly when needed:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Qualcomm Snapdragon NPU</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>-o<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--export-type<span class="w"> </span>optimized<span class="w"> </span>--ep<span class="w"> </span>qnn<span class="w"> </span>--device<span class="w"> </span>npu
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1"># AMD Ryzen AI NPU</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>-o<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--export-type<span class="w"> </span>optimized<span class="w"> </span>--ep<span class="w"> </span>vitisai<span class="w"> </span>--device<span class="w"> </span>npu
+</span></code></pre></div>
+<p>An explicit target skips host detection, which is useful for reproducible CI. An
 unregistered family, a pre-exported <code>.onnx</code> input, or module mode also fail fast.
 <code>--output-dir</code> is required (the bundle is a directory) and <code>--use-cache</code> is not
 supported. Use <code>--precision</code> to override the transformer precision; the CPU
@@ -2934,48 +2940,48 @@ companions always use their bundle-standard precisions.</p>
 <code>--ep qnn</code> on an NPU target still routes to its optimized bundle. The NPU
 target may be explicit (<code>--device npu</code>) or resolved from <code>auto</code> — whether
 <code>--device auto</code> is typed or <code>--device</code> is left off entirely:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>-o<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--ep<span class="w"> </span>qnn
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="c1"># or let device auto-detection pick the NPU (--device may be omitted):</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>-o<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--ep<span class="w"> </span>qnn
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>-o<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--ep<span class="w"> </span>qnn
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="c1"># or let device auto-detection pick the NPU (--device may be omitted):</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>-o<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--ep<span class="w"> </span>qnn
 </span></code></pre></div>
 <p><code>--export-type generic</code> always forces the stock composite build, even for a
 registered family on the NPU.</p>
 </div>
 <p>See <a href="../../samples/qwen3-genai-bundle/">Qwen3 — Genai Bundle</a> for the full walkthrough.</p>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Full pipeline: HF model → export → optimize → quantize → compile</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>config.json<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>-o<span class="w"> </span>output/
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Full pipeline: HF model → export → optimize → quantize → compile</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>config.json<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>-o<span class="w"> </span>output/
 </span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>winml build
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>  Config:     config.json
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>  Model:      microsoft/resnet-50
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>  Output:     output/
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>  export       done  (28.3s)
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>  optimize     done  (4.1s)
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>  quantize     done  (6.8s)
-</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>  compile      done  (14.2s)
-</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>
-</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>  Build complete in 53.4s
-</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>  Final artifact: output/resnet50_ctx.onnx
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>winml build
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>  Config:     config.json
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>  Model:      microsoft/resnet-50
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>  Output:     output/
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>  export       done  (28.3s)
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>  optimize     done  (4.1s)
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>  quantize     done  (6.8s)
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>  compile      done  (14.2s)
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>  Build complete in 53.4s
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>  Final artifact: output/resnet50_ctx.onnx
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Start from a pre-exported ONNX file (skips export stage)</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>config.json<span class="w"> </span>-m<span class="w"> </span>resnet50.onnx<span class="w"> </span>-o<span class="w"> </span>output/
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Start from a pre-exported ONNX file (skips export stage)</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>config.json<span class="w"> </span>-m<span class="w"> </span>resnet50.onnx<span class="w"> </span>-o<span class="w"> </span>output/
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Export and optimize only — skip quantization and compilation for quick testing</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>config.json<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>-o<span class="w"> </span>output/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--no-quant<span class="w"> </span>--no-compile
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Export and optimize only — skip quantization and compilation for quick testing</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>config.json<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>-o<span class="w"> </span>output/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span>--no-quant<span class="w"> </span>--no-compile
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Force a clean rebuild, overwriting any cached artifacts</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>config.json<span class="w"> </span>-m<span class="w"> </span>facebook/convnext-tiny-224<span class="w"> </span>-o<span class="w"> </span>output/<span class="w"> </span>--rebuild
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Force a clean rebuild, overwriting any cached artifacts</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>config.json<span class="w"> </span>-m<span class="w"> </span>facebook/convnext-tiny-224<span class="w"> </span>-o<span class="w"> </span>output/<span class="w"> </span>--rebuild
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Use the global cache and cap optimizer iterations for faster turnaround</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>config.json<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span>--use-cache<span class="w"> </span>--max-optim-iterations<span class="w"> </span><span class="m">1</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Use the global cache and cap optimizer iterations for faster turnaround</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>config.json<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">  </span>--use-cache<span class="w"> </span>--max-optim-iterations<span class="w"> </span><span class="m">1</span>
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Build with a dynamic batch axis during Hugging Face export</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>-o<span class="w"> </span>output/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">  </span>--dynamic-axes<span class="w"> </span>dynamic_axes.json
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Build with a dynamic batch axis during Hugging Face export</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>-o<span class="w"> </span>output/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span>--dynamic-axes<span class="w"> </span>dynamic_axes.json
 </span></code></pre></div>
 <h2 id="common-pitfalls">Common pitfalls<a class="headerlink" href="#common-pitfalls" title="Permanent link">&para;</a></h2>
 <ul>
