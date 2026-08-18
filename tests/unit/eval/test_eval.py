@@ -1094,6 +1094,56 @@ class TestEvalCli:
                 "label_column": "lbl",
             }
 
+    def test_cli_max_queries_maps_to_dataset_config(self):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        runner = CliRunner()
+        with patch("winml.modelkit.eval.evaluate") as mock_evaluate:
+            mock_evaluate.return_value = EvalResult(
+                config=WinMLEvaluationConfig(),
+                metrics={},
+            )
+            result = runner.invoke(
+                eval_cmd,
+                [
+                    "-m",
+                    "test/model",
+                    "--task",
+                    "zero-shot-object-detection",
+                    "--dataset",
+                    "detection-datasets/coco",
+                    "--max-queries",
+                    "3",
+                ],
+                catch_exceptions=False,
+            )
+
+            assert result.exit_code == 0, result.output
+            config = mock_evaluate.call_args[0][0]
+            assert config.dataset.max_queries == 3
+
+    @pytest.mark.parametrize("invalid_value", ["0", "-1", "not-an-int"])
+    def test_cli_max_queries_rejects_invalid_values(self, invalid_value: str):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        runner = CliRunner()
+        result = runner.invoke(
+            eval_cmd,
+            [
+                "-m",
+                "test/model",
+                "--task",
+                "zero-shot-object-detection",
+                "--dataset",
+                "detection-datasets/coco",
+                "--max-queries",
+                invalid_value,
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "--max-queries" in result.output
+
     def test_cli_onnx_model_path(self, tmp_path):
         from winml.modelkit.commands.eval import eval as eval_cmd
 

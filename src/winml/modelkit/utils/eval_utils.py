@@ -181,9 +181,8 @@ _ZERO_SHOT_OBJECT_DETECTION_SCHEMA = TaskSchema(
         ),
         SchemaItem(
             "max_queries",
-            "maximum category queries to evaluate (null = full vocabulary)",
+            "maximum category queries to evaluate (set via --max-queries; null = full vocabulary)",
             default="16",
-            remap_hint="<integer >= 1 or null>",
         ),
         SchemaItem(
             "box_format",
