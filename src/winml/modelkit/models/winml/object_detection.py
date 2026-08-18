@@ -55,15 +55,20 @@ class WinMLModelForObjectDetection(WinMLPreTrainedModel):
         self,
         pixel_values: torch.Tensor | np.ndarray,
         pixel_mask: torch.Tensor | np.ndarray | None = None,
+        input_ids: torch.Tensor | np.ndarray | None = None,
+        attention_mask: torch.Tensor | np.ndarray | None = None,
         **kwargs: Any,
     ) -> ObjectDetectionOutput:
         """Run object detection inference."""
         inputs: dict[str, Any] = {"pixel_values": pixel_values}
+        accepted_inputs = set(self.io_config.get("input_names", []))
         # Only include pixel_mask if the ONNX model accepts it
-        if pixel_mask is not None:
-            accepted_inputs = set(self.io_config.get("input_names", []))
-            if "pixel_mask" in accepted_inputs:
-                inputs["pixel_mask"] = pixel_mask
+        if pixel_mask is not None and "pixel_mask" in accepted_inputs:
+            inputs["pixel_mask"] = pixel_mask
+        if input_ids is not None and "input_ids" in accepted_inputs:
+            inputs["input_ids"] = input_ids
+        if attention_mask is not None and "attention_mask" in accepted_inputs:
+            inputs["attention_mask"] = attention_mask
 
         formatted = self._format_inputs(**inputs)
         outputs = self._run_inference(formatted)
