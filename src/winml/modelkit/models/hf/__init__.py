@@ -55,6 +55,8 @@ from .marian import MARIAN_CONFIG
 from .marian import MODEL_CLASS_MAPPING as _MARIAN_CLASS_MAPPING
 from .marian import MarianDecoderIOConfig as _MarianDecoderIOConfig  # triggers registration
 from .marian import MarianEncoderIOConfig as _MarianEncoderIOConfig  # triggers registration
+from .mgp_str import MODEL_CLASS_MAPPING as _MGP_STR_CLASS_MAPPING
+from .mgp_str import MgpstrImageToTextIOConfig as _MgpstrImageToTextIOConfig
 from .mu2 import MODEL_CLASS_MAPPING as _MU2_CLASS_MAPPING
 from .mu2 import MU2_CONFIG
 from .mu2 import Mu2DecoderIOConfig as _Mu2DecoderIOConfig  # triggers registration
@@ -133,6 +135,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
         _BLIP_CLASS_MAPPING,
         _CLIP_CLASS_MAPPING,
         _MARIAN_CLASS_MAPPING,
+        _MGP_STR_CLASS_MAPPING,
         _MU2_CLASS_MAPPING,
         _QWEN_CLASS_MAPPING,
         _QWEN_TO_CLASS_MAPPING,

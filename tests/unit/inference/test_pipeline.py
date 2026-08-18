@@ -189,6 +189,64 @@ class TestPipelineComponentKwargs:
 
 
 class TestCreatePipeline:
+    def test_creates_mgpstr_pipeline_with_device_and_trust(self) -> None:
+        model = MagicMock()
+        model.config.model_type = "mgp-str"
+        model.io_config = {"input_shapes": [[1, 3, 32, 128]]}
+        specialized = MagicMock()
+        specialized.image_processor.size = {"height": 32, "width": 128}
+
+        with patch(
+            "winml.modelkit.models.winml.image_to_text.MgpstrImageToTextPipeline",
+            return_value=specialized,
+        ) as factory:
+            result = create_pipeline(
+                "image-to-text",
+                model,
+                "org/model",
+                device="cuda",
+                trust_remote_code=True,
+            )
+
+        assert result is specialized
+        factory.assert_called_once_with(
+            model,
+            "org/model",
+            device="cuda",
+            trust_remote_code=True,
+        )
+
+    def test_non_mgp_image_to_text_keeps_generic_pipeline(self) -> None:
+        model = MagicMock()
+        model.config.model_type = "vision-encoder-decoder"
+        pipe = MagicMock()
+        pipe.tokenizer = None
+        pipe.image_processor = None
+
+        with (
+            patch(
+                "winml.modelkit.inference.pipeline._pipeline_component_kwargs",
+                return_value={"processor": "org/model"},
+            ),
+            patch("transformers.pipeline", return_value=pipe) as pipeline,
+        ):
+            result = create_pipeline(
+                "image-to-text",
+                model,
+                "org/model",
+                device="cuda",
+                trust_remote_code=True,
+            )
+
+        assert result is pipe
+        pipeline.assert_called_once_with(
+            "image-text-to-text",
+            model=model,
+            device="cuda",
+            processor="org/model",
+            trust_remote_code=True,
+        )
+
     def test_threads_trust_remote_code_to_pipeline(self) -> None:
         model = MagicMock()
         pipe = MagicMock()
