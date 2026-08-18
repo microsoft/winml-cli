@@ -178,8 +178,8 @@ _FEATURE_MODALITY_BY_MAIN_INPUT: dict[str, str] = {
 }
 
 
-_ARCHITECTURE_SUFFIX_TASKS: dict[str, str] = {
-    "ForQuestionAnswering": "question-answering",
+_ARCHITECTURE_SUFFIX_TASKS: dict[str, tuple[str, ...]] = {
+    "ForQuestionAnswering": ("document-question-answering", "question-answering"),
 }
 
 
@@ -189,9 +189,21 @@ def _infer_task_from_architecture_suffix(config: PretrainedConfig) -> str | None
     if not architectures:
         return None
     arch_name = architectures[0]
-    for suffix, task in _ARCHITECTURE_SUFFIX_TASKS.items():
+    for suffix, tasks in _ARCHITECTURE_SUFFIX_TASKS.items():
         if arch_name.endswith(suffix):
-            return task
+            from transformers.models.auto.modeling_auto import (
+                MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING_NAMES,
+                MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES,
+            )
+
+            model_type = getattr(config, "model_type", None)
+            if (
+                "document-question-answering" in tasks
+                and model_type in MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING_NAMES
+                and model_type not in MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES
+            ):
+                return "document-question-answering"
+            return tasks[-1]
     return None
 
 

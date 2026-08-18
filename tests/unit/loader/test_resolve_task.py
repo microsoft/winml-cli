@@ -52,12 +52,22 @@ def test_seq2seq_fill_mask_is_upgraded_and_source_is_tasks_manager():
     assert r.composite == {"encoder": "feature-extraction", "decoder": "text2text-generation"}
 
 
-def test_architecture_suffix_fallback_resolves_layoutlm_question_answering():
-    r = resolve_task(_cfg("layoutlm", ["LayoutLMForQuestionAnswering"]))
-    assert r.task == "question-answering"
+def test_architecture_suffix_fallback_resolves_layoutlm_document_question_answering():
+    config = _cfg("layoutlm", ["LayoutLMForQuestionAnswering"])
+
+    r = resolve_task(config)
+
+    assert r.task == "document-question-answering"
     assert r.optimum_task == "question-answering"
-    assert r.model_class.__name__ == "AutoModelForQuestionAnswering"
+    assert r.model_class.__name__ == "LayoutLMForQuestionAnswering"
+    assert r.model_class.config_class is type(config)
     assert r.source == TaskSource.ARCHITECTURE_SUFFIX
+
+
+def test_architecture_suffix_fallback_keeps_ordinary_question_answering():
+    config = _cfg("bert", ["BertForQuestionAnswering"])
+
+    assert _infer_task_from_architecture_suffix(config) == "question-answering"
 
 
 def test_architecture_suffix_fallback_only_uses_primary_architecture():
