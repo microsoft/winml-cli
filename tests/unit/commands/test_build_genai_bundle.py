@@ -35,7 +35,7 @@ from click.testing import CliRunner
 from winml.modelkit.session import EPDeviceTarget
 
 
-_BUNDLE_TARGET = "winml.modelkit.models.winml.build_genai_bundle"
+_BUNDLE_TARGET = "winml.modelkit.commands.build._build_genai_bundle_isolated"
 _RUN_SINGLE_TARGET = "winml.modelkit.commands.build._run_single_build"
 _COMPOSITE_TARGET = "winml.modelkit.loader.resolution.resolve_composite_components"
 _GENERATE_TARGET = "winml.modelkit.config.generate_build_config"
@@ -167,7 +167,7 @@ def test_registered_family_npu_qnn_routes_to_bundle(tmp_path: Path):
     assert kwargs["device"] == "npu"
     assert kwargs["force_rebuild"] is False
     assert kwargs["precision"] is None
-    assert callable(kwargs["emit"])
+    assert "emit" not in kwargs
 
 
 def test_explicit_config_file_is_rejected_for_bundle(tmp_path: Path):
@@ -799,3 +799,59 @@ def test_optimized_requires_model():
             rebuild=False,
             submodel=None,
         )
+
+
+def test_build_genai_bundle_worker_reports_completed_config(tmp_path: Path) -> None:
+    from winml.modelkit.commands.build import _build_genai_bundle_worker
+    from winml.modelkit.models import winml as winml_models
+
+    config_path = tmp_path / "genai_config.json"
+    config_path.write_text("{}", encoding="utf-8")
+    result_conn = MagicMock()
+
+    with patch.object(winml_models, "build_genai_bundle", return_value=config_path) as build:
+        _build_genai_bundle_worker(
+            result_conn,
+            "Qwen/Qwen3-0.6B",
+            str(tmp_path),
+            object(),
+            {"ep": "vitisai", "device": "npu"},
+        )
+
+    build.assert_called_once()
+    assert build.call_args.kwargs["emit"] is print
+    result_conn.send.assert_called_once_with(("ok", str(config_path)))
+    result_conn.close.assert_called_once()
+
+
+def test_isolated_build_salvages_config_after_native_teardown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from winml.modelkit.commands.build import _build_genai_bundle_isolated
+
+    config_path = tmp_path / "genai_config.json"
+    config_path.write_text("{}", encoding="utf-8")
+
+    recv_conn = MagicMock()
+    recv_conn.poll.return_value = True
+    recv_conn.recv.return_value = ("ok", str(config_path))
+    send_conn = MagicMock()
+    proc = MagicMock(exitcode=-1073741819)
+    ctx = MagicMock()
+    ctx.Pipe.return_value = (recv_conn, send_conn)
+    ctx.Process.return_value = proc
+    monkeypatch.setattr("multiprocessing.get_context", lambda _method: ctx)
+
+    result = _build_genai_bundle_isolated(
+        "Qwen/Qwen3-0.6B",
+        tmp_path,
+        object(),
+        ep="vitisai",
+        device="npu",
+    )
+
+    assert result == config_path
+    proc.start.assert_called_once()
+    proc.join.assert_called_once()
+    send_conn.close.assert_called_once()
+    recv_conn.close.assert_called_once()

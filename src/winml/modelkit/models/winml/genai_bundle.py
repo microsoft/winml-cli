@@ -258,7 +258,7 @@ def build_genai_bundle(
         output_dir: Destination bundle directory.
         recipe: Bundle recipe (component specs + assembler).
         ep: Short bundle execution-provider token routing the transformer
-            stages (e.g. ``"qnn"`` for the NPU HTP, ``"cpu"`` for CPU).  Also
+            stages (e.g. ``"qnn"`` or ``"vitisai"`` for an NPU). Also
             normalized to the full ORT name for the transformer build.
         device: Device for the transformer build (companions always use CPU).
         precision: Transformer precision override; falls back to the recipe.

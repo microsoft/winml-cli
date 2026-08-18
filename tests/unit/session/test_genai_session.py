@@ -1366,8 +1366,15 @@ class TestGenerateTimed:
             session.generate_timed([1, 2, 3], clock=clock)
             assert session.is_loaded
 
-    def test_uses_context_length_as_max_length(self, bundle_dir: Path, mock_og: MagicMock) -> None:
-        """max_length = min(prompt_len + max_new_tokens, context_length)."""
+    def test_dynamic_model_caps_max_length_at_context_length(
+        self, bundle_dir: Path, mock_og: MagicMock
+    ) -> None:
+        """A non-pipeline model caps its dynamic allocation at context_length."""
+        config_path = bundle_dir / "genai_config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["model"]["type"] = "decoder-only"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+
         clock = _clock_from([0.0, 0.2, 1.2, 2.7, 3.2, 3.3, 3.4])
         with _patch_og(mock_og), GenaiSession(bundle_dir, context_length=128) as session:
             session.generate_timed([1, 2, 3], clock=clock)
@@ -1376,17 +1383,33 @@ class TestGenerateTimed:
         # prompt_len=3 + max_new_tokens=128 = 131, capped at context_length=128
         assert params.set_search_options.call_args.kwargs["max_length"] == 128
 
-    def test_max_length_is_prompt_plus_max_new_tokens(
+    def test_decoder_pipeline_uses_full_context_length(
         self, bundle_dir: Path, mock_og: MagicMock
     ) -> None:
-        """When context_length is large, max_length = prompt_len + max_new_tokens."""
+        """A static decoder pipeline uses its full configured context length."""
         clock = _clock_from([0.0, 0.2, 1.2, 2.7, 3.2, 3.3, 3.4])
         cfg = GenerationConfig(max_new_tokens=64)
         with _patch_og(mock_og), GenaiSession(bundle_dir, context_length=131072) as session:
             session.generate_timed([1, 2, 3, 4, 5], cfg, clock=clock)
 
         params = mock_og.GeneratorParams.return_value
-        # prompt_len=5 + max_new_tokens=64 = 69, well under context_length
+        assert params.set_search_options.call_args.kwargs["max_length"] == 131072
+
+    def test_dynamic_model_max_length_is_prompt_plus_max_new_tokens(
+        self, bundle_dir: Path, mock_og: MagicMock
+    ) -> None:
+        """A non-pipeline model keeps the bounded dynamic-allocation behavior."""
+        config_path = bundle_dir / "genai_config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["model"]["type"] = "decoder-only"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+
+        clock = _clock_from([0.0, 0.2, 1.2, 2.7, 3.2, 3.3, 3.4])
+        cfg = GenerationConfig(max_new_tokens=64)
+        with _patch_og(mock_og), GenaiSession(bundle_dir, context_length=131072) as session:
+            session.generate_timed([1, 2, 3, 4, 5], cfg, clock=clock)
+
+        params = mock_og.GeneratorParams.return_value
         assert params.set_search_options.call_args.kwargs["max_length"] == 69
 
 
