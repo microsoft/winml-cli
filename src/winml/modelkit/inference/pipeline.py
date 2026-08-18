@@ -516,9 +516,10 @@ class _ClassificationVisualQuestionAnsweringPipeline:
 
     task = "visual-question-answering"
 
-    def __init__(self, model: Any, processor: Any) -> None:
+    def __init__(self, model: Any, processor: Any, device: str = "cpu") -> None:
         self.model = model
         self.processor = processor
+        self.device = device
         self.tokenizer = getattr(processor, "tokenizer", None)
         self.image_processor = getattr(processor, "image_processor", None)
         self._preprocess_params: dict[str, Any] = {}
@@ -619,6 +620,8 @@ class _ClassificationVisualQuestionAnsweringPipeline:
 def _create_classification_visual_question_answering_pipeline(
     model: Any,
     model_id: str | None,
+    device: str = "cpu",
+    trust_remote_code: bool = False,
 ) -> _ClassificationVisualQuestionAnsweringPipeline:
     """Create the Transformers-5 compatibility pipeline for classification VQA."""
     from transformers import AutoProcessor
@@ -626,8 +629,11 @@ def _create_classification_visual_question_answering_pipeline(
     processor_source = model_id or getattr(getattr(model, "config", None), "_name_or_path", None)
     if not processor_source:
         raise ValueError("model_id is required to load a visual-question-answering processor.")
-    processor = AutoProcessor.from_pretrained(processor_source)
-    return _ClassificationVisualQuestionAnsweringPipeline(model, processor)
+    processor = AutoProcessor.from_pretrained(
+        processor_source,
+        trust_remote_code=trust_remote_code,
+    )
+    return _ClassificationVisualQuestionAnsweringPipeline(model, processor, device=device)
 
 
 _COMPAT_PIPELINE_FACTORIES = {

@@ -221,7 +221,7 @@ _DEFAULT_DATASETS: dict[str, dict] = {
         },
     },
     "visual-question-answering": {
-        "path": "lmms-lab/VQAv2",
+        "path": "lmms-lab-encoder/VQAv2",
         "revision": "32665d35052eb4a6d4414851c3c829a72754915a",
         "split": "validation",
         "streaming": True,

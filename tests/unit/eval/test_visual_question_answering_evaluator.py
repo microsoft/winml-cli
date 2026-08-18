@@ -116,7 +116,7 @@ def test_default_dataset_is_pinned_deterministic_streaming() -> None:
     from winml.modelkit.eval.evaluate import _DEFAULT_DATASETS
 
     default = _DEFAULT_DATASETS["visual-question-answering"]
-    assert default["path"] == "lmms-lab/VQAv2"
+    assert default["path"] == "lmms-lab-encoder/VQAv2"
     assert default["revision"] == "32665d35052eb4a6d4414851c3c829a72754915a"
     assert default["split"] == "validation"
     assert default["streaming"] is True

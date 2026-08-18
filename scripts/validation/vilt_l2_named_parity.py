@@ -19,7 +19,6 @@ from transformers import AutoModelForVisualQuestionAnswering, AutoProcessor
 
 
 EXPECTED_INPUTS = ["input_ids", "attention_mask", "token_type_ids", "pixel_values"]
-DEFAULT_MODEL_ID = "dandelin/vilt-b32-finetuned-vqa"
 DEFAULT_REVISION = "d0a1f6ab88522427a7ae76ceb6e1e1e7b68a1d08"
 DEFAULT_QUESTION = "What is the person doing?"
 
@@ -107,7 +106,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--model",
-        default=DEFAULT_MODEL_ID,
+        required=True,
         help="HF model id or local snapshot path",
     )
     parser.add_argument("--revision", default=DEFAULT_REVISION, help="Pinned HF model revision")
