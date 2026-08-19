@@ -26,7 +26,7 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import torch
 import torch.nn as nn
@@ -47,7 +47,6 @@ from .step_data import HIERARCHY_SOURCE_ONNX_METADATA, HIERARCHY_SOURCE_TRACE
 
 if TYPE_CHECKING:
     import onnx
-    from transformers import PretrainedConfig
 
     from ..config import WinMLExportConfig
 
@@ -715,6 +714,7 @@ class HTPExporter:
 
         from ..io import ONNXConfigNotFoundError, _get_onnx_config
 
+        assert model_config is not None
         try:
             # Pass an explicit empty model_kwargs so patchers that inject extra
             # forward arguments can populate it. Some patchers (e.g. ViTPose MoE,
@@ -723,7 +723,7 @@ class HTPExporter:
             return _get_onnx_config(
                 model_type,
                 task,
-                cast("PretrainedConfig", model_config),
+                model_config,
             ).patch_model_for_export(model, model_kwargs={})
         except ONNXConfigNotFoundError:
             logger.debug(

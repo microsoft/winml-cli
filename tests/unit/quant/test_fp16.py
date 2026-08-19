@@ -6,10 +6,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import onnx
 import onnxruntime as ort
 import pytest
-from onnx import StringStringEntryProto, TensorProto, checker, helper
+from onnx import StringStringEntryProto, TensorProto, checker, helper, save
 
 from winml.modelkit.quant.fp16 import convert_to_fp16
 
@@ -54,7 +53,7 @@ def test_repeated_unnamed_blocked_nodes_produce_valid_model(tmp_path: Path) -> N
 
     checker.check_model(converted)
     output_path = tmp_path / "converted.onnx"
-    onnx.save(converted, output_path)
+    save(converted, output_path)
     ort.InferenceSession(output_path, providers=["CPUExecutionProvider"])
 
 
@@ -187,5 +186,5 @@ def test_explicit_float_precision_boundary_remains_valid(tmp_path: Path) -> None
         for initializer in converted.graph.initializer
     )
     output_path = tmp_path / "precision_boundary.onnx"
-    onnx.save(converted, output_path)
+    save(converted, output_path)
     ort.InferenceSession(output_path, providers=["CPUExecutionProvider"])
