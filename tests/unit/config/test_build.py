@@ -463,6 +463,19 @@ class TestExportCompatibilityBuildConfig:
 
         assert default_config.generate_cache_key() != eager_config.generate_cache_key()
 
+    def test_trim_split_grouped_conv_round_trips_and_changes_cache_key(self) -> None:
+        default_config = WinMLBuildConfig()
+        enabled_config = WinMLBuildConfig(
+            optim=WinMLOptimizationConfig(trim_split_grouped_conv=True)
+        )
+
+        serialized = enabled_config.to_dict()
+        restored = WinMLBuildConfig.from_dict(serialized)
+
+        assert serialized["optim"] == {"trim_split_grouped_conv": True}
+        assert restored.optim["trim_split_grouped_conv"] is True
+        assert default_config.generate_cache_key() != enabled_config.generate_cache_key()
+
     def test_registered_export_merge_preserves_override_compatibility(self) -> None:
         from winml.modelkit.config.build import _merge_export_config
 

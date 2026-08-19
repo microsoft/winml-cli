@@ -54,3 +54,14 @@ UNTIE_CONSTANT_BATCHED_MATMUL = BoolCapability(
     category=CapabilityCategory.SURGERY,
     default=False,
 )
+
+TRIM_SPLIT_GROUPED_CONV = BoolCapability(
+    name="trim-split-grouped-conv",
+    ort_name=None,
+    description=(
+        "Trim unreachable grouped Conv kernel taps and split the groups into "
+        "two quantization-aware branches"
+    ),
+    category=CapabilityCategory.SURGERY,
+    default=False,
+)
