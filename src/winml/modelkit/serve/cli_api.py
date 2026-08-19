@@ -27,16 +27,19 @@ import json
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .. import __version__
 from ..cli import main as winml_cli
+
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +136,24 @@ class HealthResponse(BaseModel):
 # FastAPI app
 # ---------------------------------------------------------------------------
 
+def _add_same_origin_middleware(app: FastAPI) -> None:
+    """Reject browser requests from origins other than the server itself."""
+
+    @app.middleware("http")
+    async def require_same_origin(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        origin = request.headers.get("origin")
+        server_origin = str(request.base_url).removesuffix("/")
+        if origin is not None and origin != server_origin:
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Cross-origin requests are not allowed"},
+            )
+        return await call_next(request)
+
+
 app = FastAPI(
     title="WinML CLI API",
     description=(
@@ -143,15 +164,7 @@ app = FastAPI(
     ),
     version=__version__,
 )
-
-# Permissive CORS for local dev server; no credentials to protect.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+_add_same_origin_middleware(app)
 
 _static_dir = Path(__file__).parent / "static"
 if _static_dir.exists():
