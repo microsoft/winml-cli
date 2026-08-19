@@ -1738,6 +1738,29 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
 # ---------------------------------------------------------------------------
 
 
+def _load_perf_result(proc: dict, output_path: Path) -> dict | None:
+    """Load the structured JSON report written by ``winml perf --output``."""
+    if proc["exit_code"] != 0:
+        return None
+
+    try:
+        result = json.loads(output_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        message = f"Failed to load structured winml perf output: {e}"
+        proc["stderr"] = "\n".join(filter(None, [proc.get("stderr", ""), message]))
+        proc["exit_code"] = 1
+        proc["error_summary"] = "invalid structured perf output"
+        return None
+
+    if not isinstance(result, dict):
+        message = "Structured winml perf output must be a JSON object"
+        proc["stderr"] = "\n".join(filter(None, [proc.get("stderr", ""), message]))
+        proc["exit_code"] = 1
+        proc["error_summary"] = "invalid structured perf output"
+        return None
+    return result
+
+
 def _resolve_op_tracing(
     cli_op_tracing: str | None, entry: ModelEntry, ep: str | None, device: str
 ) -> str | None:
@@ -1802,6 +1825,28 @@ def _copy_op_trace(proc: dict, model_dir: Path, label: str = "") -> None:
         safe_print(f"    op-tracing: failed to copy {src} -> {dest}: {e}")
 
 
+def _run_structured_perf(
+    args: list[str],
+    timeout: int,
+    model_dir: Path | None,
+    copy_op_trace: bool = False,
+    op_trace_label: str = "",
+) -> dict:
+    """Run perf and load its JSON report without parsing console output."""
+    if model_dir is not None:
+        model_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="winml-perf-", dir=model_dir) as temp_dir:
+        output_path = Path(temp_dir) / "result.json"
+        proc = _run_subprocess(
+            [*args, "--output", str(output_path), "--overwrite"],
+            timeout,
+        )
+        proc["result"] = _load_perf_result(proc, output_path)
+        if copy_op_trace and model_dir is not None:
+            _copy_op_trace(proc, model_dir, op_trace_label)
+        return proc
+
+
 def run_model(
     entry: ModelEntry,
     device: str,
@@ -1814,8 +1859,9 @@ def run_model(
     """Execute winml perf for one or more ONNX models. Returns merged result dict.
 
     When onnx_paths is provided, benchmarks each pre-built ONNX directly.
-    Single model is the {"": path} case. Results are merged (worst exit
-    code, concatenated stdout/stderr, summed elapsed).
+    Single model is the {"": path} case. Results are merged (structured perf
+    reports under ``result``, worst exit code, concatenated stdout/stderr,
+    summed elapsed). Multi-model structured results are keyed by sub-model label.
 
     When op_tracing is set, ``--op-tracing <level>`` is passed to winml perf. The
     op-trace path is parsed from perf's output and the file is copied into
@@ -1850,14 +1896,14 @@ def run_model(
             args += ["--op-tracing", op_tracing]
         args += entry.perf_args
 
-        proc = _run_subprocess(args, timeout)
-        if trace:
-            _copy_op_trace(proc, model_dir)
+        proc = _run_structured_perf(args, timeout, model_dir, copy_op_trace=trace)
         proc["device"] = device
         proc["timestamp"] = _utc_now()
         proc["error_summary"] = (
             ""
             if proc["exit_code"] == 0
+            else proc.get("error_summary", "")
+            if proc.get("error_summary")
             else f"timeout ({timeout}s)"
             if proc["timeout"]
             else f"exit code {proc['exit_code']}"
@@ -1871,6 +1917,7 @@ def run_model(
     worst_exit = 0
     any_timeout = False
     commands: list[str] = []
+    perf_results: dict[str, dict] = {}
 
     for label, path in onnx_paths.items():
         if label:
@@ -1884,9 +1931,16 @@ def run_model(
             args += ["--op-tracing", op_tracing]
         args += entry.perf_args
 
-        proc = _run_subprocess(args, timeout)
-        if trace:
-            _copy_op_trace(proc, model_dir, label)
+        proc = _run_structured_perf(
+            args,
+            timeout,
+            model_dir,
+            copy_op_trace=trace,
+            op_trace_label=label,
+        )
+        perf_result = proc["result"]
+        if perf_result is not None:
+            perf_results[label] = perf_result
         if label:
             all_stdout.append(f"=== {label} ===\n{proc['stdout']}")
             all_stderr.append(f"=== {label} ===\n{proc['stderr']}")
@@ -1909,6 +1963,11 @@ def run_model(
         "command": commands[0] if len(commands) == 1 else " | ".join(commands),
         "device": device,
         "timestamp": _utc_now(),
+        "result": (
+            perf_results[""]
+            if len(onnx_paths) == 1 and "" in perf_results
+            else perf_results or None
+        ),
         "error_summary": (
             ""
             if worst_exit == 0

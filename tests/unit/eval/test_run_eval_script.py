@@ -1197,10 +1197,120 @@ def _entry(hf_id="microsoft/resnet-50", task="image-classification"):
     entry = MagicMock()
     entry.hf_id = hf_id
     entry.task = task
+    entry.model_type = "vision"
+    entry.group = "core"
+    entry.priority = "P0"
     entry.precision = None
     entry.perf_args = []
     entry.eval_args = []
     return entry
+
+
+class TestRunModelStructuredPerfResult:
+    def test_single_model_uses_and_loads_json_output(self, run_eval, tmp_path):
+        perf_result = {"latency_ms": {"mean": 1.25}, "throughput_per_second": 800.0}
+
+        def fake_run(args, timeout):
+            output_path = Path(args[args.index("--output") + 1])
+            output_path.write_text(json.dumps(perf_result), encoding="utf-8")
+            assert args[-1] == "--overwrite"
+            assert timeout == 300
+            return {
+                "stdout": "Performance Benchmark Results",
+                "stderr": "",
+                "exit_code": 0,
+                "elapsed": 1.0,
+                "timeout": False,
+                "command": "winml perf",
+            }
+
+        with patch.object(run_eval, "_run_subprocess", side_effect=fake_run):
+            proc = run_eval.run_model(
+                _entry(),
+                "cpu",
+                300,
+                {"": "model.onnx"},
+                model_dir=tmp_path,
+            )
+
+        assert proc["result"] == perf_result
+
+    def test_composite_model_preserves_results_by_label(self, run_eval, tmp_path):
+        perf_results = iter(
+            [
+                {"latency_ms": {"mean": 1.0}},
+                {"latency_ms": {"mean": 2.0}},
+            ]
+        )
+
+        def fake_run(args, timeout):
+            output_path = Path(args[args.index("--output") + 1])
+            output_path.write_text(json.dumps(next(perf_results)), encoding="utf-8")
+            return {
+                "stdout": "Performance Benchmark Results",
+                "stderr": "",
+                "exit_code": 0,
+                "elapsed": 1.0,
+                "timeout": False,
+                "command": "winml perf",
+            }
+
+        with patch.object(run_eval, "_run_subprocess", side_effect=fake_run):
+            proc = run_eval.run_model(
+                _entry(),
+                "cpu",
+                300,
+                {"encoder": "encoder.onnx", "decoder": "decoder.onnx"},
+                model_dir=tmp_path,
+            )
+
+        assert proc["result"] == {
+            "encoder": {"latency_ms": {"mean": 1.0}},
+            "decoder": {"latency_ms": {"mean": 2.0}},
+        }
+
+    def test_missing_structured_output_fails_perf(self, run_eval, tmp_path):
+        proc_result = {
+            "stdout": "Performance Benchmark Results",
+            "stderr": "",
+            "exit_code": 0,
+            "elapsed": 1.0,
+            "timeout": False,
+            "command": "winml perf",
+        }
+
+        with patch.object(run_eval, "_run_subprocess", return_value=proc_result):
+            proc = run_eval.run_model(
+                _entry(),
+                "cpu",
+                300,
+                {"": "model.onnx"},
+                model_dir=tmp_path,
+            )
+
+        assert proc["exit_code"] == 1
+        assert proc["result"] is None
+        assert proc["error_summary"] == "exit code 1"
+        assert "Failed to load structured winml perf output" in proc["stderr"]
+
+    def test_eval_result_contains_structured_perf_result(self, run_eval):
+        perf_result = {"latency_ms": {"mean": 1.25}}
+        result = run_eval.build_eval_result(
+            _entry(),
+            {
+                "stdout": json.dumps(perf_result),
+                "stderr": "",
+                "exit_code": 0,
+                "elapsed": 1.0,
+                "timeout": False,
+                "command": "winml perf --output result.json",
+                "result": perf_result,
+            },
+            "cpu",
+            ["perf"],
+        )
+
+        assert result["perf"]["result"] == perf_result
 
 
 class TestModelResultDirPrecision:
