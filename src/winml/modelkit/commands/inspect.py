@@ -149,6 +149,7 @@ def _list_tasks_for_model(model_type: str) -> list[str]:
     default=None,
     help="Override model class (e.g., BertForMaskedLM) — can be used without --model",
 )
+@cli_utils.trust_remote_code_option()
 @cli_utils.verbosity_options()
 @cli_utils.no_color_option()
 @click.pass_context
@@ -163,6 +164,7 @@ def inspect(
     list_tasks: bool,
     model_type: str | None,
     model_class: str | None,
+    trust_remote_code: bool,
 ) -> None:
     r"""Inspect input model's WinML CLI configuration.
 
@@ -201,7 +203,11 @@ def inspect(
             from ..loader import load_hf_config
 
             try:
-                hf_config = load_hf_config(AutoConfig, model, trust_remote_code=False)
+                hf_config = load_hf_config(
+                    AutoConfig,
+                    model,
+                    trust_remote_code=trust_remote_code,
+                )
             except Exception as e:
                 raise click.ClickException(
                     f"Could not resolve model type for '{model}': {e}"
@@ -308,6 +314,7 @@ def inspect(
                     model_type_override=model_type,
                     model_class_override=model_class,
                     include_hierarchy=hierarchy,
+                    trust_remote_code=trust_remote_code,
                     suppress_native_stderr_output=False,
                 )
             else:
@@ -321,6 +328,7 @@ def inspect(
                         model_type_override=model_type,
                         model_class_override=model_class,
                         include_hierarchy=hierarchy,
+                        trust_remote_code=trust_remote_code,
                         suppress_native_stderr_output=False,
                     )
 
@@ -363,6 +371,7 @@ def _inspect_model_v2(
     model_type_override: str | None = None,
     model_class_override: str | None = None,
     include_hierarchy: bool = False,
+    trust_remote_code: bool = False,
     suppress_native_stderr_output: bool = True,
 ) -> InspectResult:
     """Inspect v2 core — calls shared loader/export modules directly.
@@ -379,8 +388,6 @@ def _inspect_model_v2(
     """
     with suppress_native_stderr(enabled=suppress_native_stderr_output):
         _load_inspect_model_v2_dependencies()
-
-    import functools
 
     from transformers import AutoConfig
 
@@ -418,7 +425,11 @@ def _inspect_model_v2(
     parent_hf_config = None
     if model_id and not model_type_override:
         try:
-            parent_hf_config = load_hf_config(AutoConfig, model_id, trust_remote_code=False)
+            parent_hf_config = load_hf_config(
+                AutoConfig,
+                model_id,
+                trust_remote_code=trust_remote_code,
+            )
         except Exception:
             pass  # resolve_loader_config will handle the error properly
 
@@ -433,6 +444,7 @@ def _inspect_model_v2(
             task=task_override,
             model_type=model_type_override,
             model_class=model_class_override,
+            trust_remote_code=trust_remote_code,
             hf_config=parent_hf_config,
         )
     except RepositoryNotFoundError as e:
@@ -516,26 +528,15 @@ def _inspect_model_v2(
     else:
         # Path 2: resolve_io_specs (shared with config command)
         try:
-            import optimum.exporters.onnx.model_configs  # noqa: F401
-            from optimum.exporters.tasks import TasksManager
+            from ..export.io import _get_onnx_config
 
-            # TasksManager expects Optimum-canonical task names
-            from ..loader import resolve_optimum_library, to_optimum_task
-
-            onnx_config_cls = TasksManager.get_exporter_config_constructor(
-                exporter="onnx",
-                model_type=model_type,
-                task=to_optimum_task(task),
-                library_name=resolve_optimum_library(model_type),
-            )
-            if onnx_config_cls:
-                config_name = (
-                    onnx_config_cls.func.__name__
-                    if isinstance(onnx_config_cls, functools.partial)
-                    else onnx_config_cls.__name__
+            onnx_config = _get_onnx_config(model_type, task, hf_config)
+            if onnx_config:
+                onnx_config_class = type(onnx_config).__name__
+                onnx_config_source = (
+                    "WinML metadata" if type(onnx_config).__module__.startswith("winml.")
+                    else "TasksManager"
                 )
-                onnx_config_class = config_name
-                onnx_config_source = "TasksManager"
                 exporter_level = SupportLevel.DEFAULT
 
                 if hf_config is not None:
@@ -574,7 +575,10 @@ def _inspect_model_v2(
         try:
             from ..inspect.hierarchy import extract_hierarchy
 
-            hierarchy_info = extract_hierarchy(model_id)
+            hierarchy_info = extract_hierarchy(
+                model_id,
+                trust_remote_code=trust_remote_code,
+            )
         except Exception as e:
             logger.debug("Hierarchy extraction failed for %s: %s", model_id, e)
 

@@ -100,6 +100,7 @@ class TestInspectCliInterface:
             "-t",
             "--hierarchy",
             "-H",
+            "--trust-remote-code",
         ]:
             assert flag in result.output, f"Missing flag {flag} in help output"
 
@@ -254,6 +255,22 @@ class TestInspectFlagCombinations:
             # inspect_model(model, include_hierarchy=..., task_override=...)
             _, call_kwargs = mock_api.call_args
             assert call_kwargs["include_hierarchy"] is True
+
+    def test_trust_remote_code_passed_to_api(
+        self,
+        runner: CliRunner,
+        mock_inspect_result: MagicMock,
+    ) -> None:
+        from winml.modelkit.commands.inspect import inspect
+
+        with (
+            patch(_INSPECT_MODEL, return_value=mock_inspect_result) as mock_api,
+            patch(_OUTPUT_TABLE),
+        ):
+            result = runner.invoke(inspect, ["-m", "test", "--trust-remote-code"], obj={})
+
+        assert result.exit_code == 0, result.output
+        assert mock_api.call_args.kwargs["trust_remote_code"] is True
 
     def test_verbose_flag_default_false(
         self,

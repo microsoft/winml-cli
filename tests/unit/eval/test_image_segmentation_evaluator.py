@@ -37,6 +37,31 @@ class MockModel:
         return {"input_shapes": [[1, 3, 224, 224]]}
 
 
+class MockBinaryModel:
+    def __init__(self, logits: np.ndarray) -> None:
+        self.config = MockConfig(num_labels=2)
+        self.config.architectures = ["RemoteBinarySegmenter"]
+        self.config.auto_map = {
+            "AutoModelForImageSegmentation": "modeling.RemoteBinarySegmenter"
+        }
+        self._logits = logits
+
+    @property
+    def io_config(self):
+        return {
+            "input_names": ["x"],
+            "input_shapes": [[1, 3, 2, 2]],
+            "output_names": ["logits"],
+            "output_shapes": [[1, 1, 2, 2]],
+        }
+
+    def __call__(self, **kwargs):
+        from winml.modelkit.models import ImageSegmentationOutput
+
+        assert kwargs["pixel_values"].shape == (1, 3, 2, 2)
+        return ImageSegmentationOutput(logits=self._logits)
+
+
 def make_evaluator(label2id=None, columns_mapping=None, num_labels=5):
     """Create evaluator without triggering __init__ data loading."""
     ev = object.__new__(WinMLImageSegmentationEvaluator)
@@ -92,7 +117,7 @@ class TestValidateSchema:
     def test_missing_image_column_raises(self):
         ev = make_evaluator()
         ds = Dataset.from_dict({"text": ["hello"], "annotation": ["a"]})
-        with pytest.raises(DatasetValidationError, match="missing 'image' column"):
+        with pytest.raises(DatasetValidationError, match="missing image column 'image'"):
             ev._validate_schema(ds)
 
     def test_missing_annotation_column_raises(self):
@@ -407,6 +432,62 @@ class TestPreparePipeline:
             pipe = ev.prepare_pipeline()
 
         assert pipe.image_processor.size == {"height": 224, "width": 224}
+
+
+class TestBinaryForegroundEvaluation:
+    def test_contract_requires_matching_remote_metadata_and_binary_io(self):
+        logits = np.ones((1, 1, 2, 2), dtype=np.float32)
+        model = MockBinaryModel(logits)
+
+        assert WinMLImageSegmentationEvaluator._uses_binary_foreground_contract(model)
+        model.config.architectures = ["DifferentModel"]
+        assert not WinMLImageSegmentationEvaluator._uses_binary_foreground_contract(model)
+
+    def test_binary_compute_preprocesses_thresholds_resizes_and_accounts(self):
+        logits = np.array([[[[10.0, -10.0], [-10.0, 10.0]]]], dtype=np.float32)
+        evaluator = make_evaluator()
+        evaluator.model = MockBinaryModel(logits)
+        evaluator._binary_foreground = True
+        evaluator.data = [
+            {
+                "image": create_dummy_image(4, 4),
+                "annotation": create_annotation_image(
+                    np.array(
+                        [
+                            [255, 255, 0, 0],
+                            [255, 255, 0, 0],
+                            [0, 0, 255, 255],
+                            [0, 0, 255, 255],
+                        ]
+                    )
+                ),
+            }
+        ]
+
+        result = evaluator._compute_binary_foreground()
+
+        assert result == {
+            "mIoU": 1.0,
+            "dice": 1.0,
+            "num_samples": 1,
+            "num_skipped": 0,
+            "requested_samples": 1,
+            "processed_samples": 1,
+        }
+
+    def test_binary_compute_fails_closed_when_all_targets_are_empty(self):
+        evaluator = make_evaluator()
+        evaluator.model = MockBinaryModel(np.zeros((1, 1, 2, 2), dtype=np.float32))
+        evaluator._binary_foreground = True
+        evaluator.data = [
+            {
+                "image": create_dummy_image(2, 2),
+                "annotation": create_annotation_image(np.zeros((2, 2), dtype=np.uint8)),
+            }
+        ]
+
+        with pytest.raises(DatasetValidationError, match="processed no non-empty masks"):
+            evaluator._compute_binary_foreground()
 
     def test_no_override_without_input_shapes(self):
         """When io_config has no input_shapes, size should remain unchanged."""

@@ -17,7 +17,7 @@ from optimum.exporters.onnx.model_patcher import ModelPatcher, PatchingSpec
 from optimum.utils import NormalizedConfig
 from optimum.utils.input_generators import DummyVisionInputGenerator
 
-from ...export import register_onnx_overwrite
+from ...export.io import register_metadata_onnx_config
 
 
 def _pair(value: int | tuple[int, int]) -> tuple[int, int]:
@@ -126,6 +126,22 @@ def _exportable_deform_conv2d(
     return result
 
 
+def _select_final_foreground_output(output: Any) -> torch.Tensor:
+    """Select and validate the final full-resolution foreground logit map."""
+    while isinstance(output, (list, tuple)):
+        if not output:
+            raise ValueError("BiRefNet returned an empty output sequence")
+        output = output[-1]
+    if not isinstance(output, torch.Tensor):
+        raise TypeError(f"BiRefNet final output must be a tensor, got {type(output).__name__}")
+    if output.ndim != 4 or output.shape[1] != 1:
+        raise ValueError(
+            "BiRefNet final output must have shape [batch, 1, height, width], "
+            f"got {tuple(output.shape)}"
+        )
+    return output
+
+
 class _BiRefNetModelPatcher(ModelPatcher):  # type: ignore[misc]
     """Patch the remote module's imported deformable-convolution function."""
 
@@ -136,13 +152,25 @@ class _BiRefNetModelPatcher(ModelPatcher):  # type: ignore[misc]
             raise ValueError(
                 "BiRefNet remote module does not expose the expected deform_conv2d function"
             )
+
+        original_forward = model.forward
+
+        def final_foreground_forward(*args: Any, **forward_kwargs: Any) -> torch.Tensor:
+            return _select_final_foreground_output(original_forward(*args, **forward_kwargs))
+
         config.PATCHING_SPECS = [
             PatchingSpec(
                 o=remote_module,
                 name="deform_conv2d",
                 custom_op=_exportable_deform_conv2d,
                 orig_op=original,
-            )
+            ),
+            PatchingSpec(
+                o=model,
+                name="forward",
+                custom_op=final_foreground_forward,
+                orig_op=original_forward,
+            ),
         ]
         super().__init__(config, model, **kwargs)
 
@@ -195,10 +223,10 @@ class _BiRefNetVisionInputGenerator(DummyVisionInputGenerator):  # type: ignore[
         )
 
 
-@register_onnx_overwrite(
-    "SegformerForSemanticSegmentation",
+@register_metadata_onnx_config(
+    "BiRefNet",
     "image-segmentation",
-    library_name="transformers",
+    "AutoModelForImageSegmentation",
 )
 class BiRefNetIOConfig(OnnxConfig):  # type: ignore[misc]
     """ONNX contract for custom-code BiRefNet image segmentation models.

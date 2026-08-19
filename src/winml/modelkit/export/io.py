@@ -45,6 +45,8 @@ from .value_range import intercept_value_ranges
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import torch
     from optimum.exporters.onnx import OnnxConfig
     from optimum.utils import NormalizedTextConfig
@@ -65,6 +67,62 @@ class ONNXConfigNotFoundError(ValueError):
 # combined mypy run ([has-type] at every @register_onnx_overwrite site). Declaring
 # the type breaks that ordering dependency.
 register_onnx_overwrite: Any = TasksManager.create_register("onnx", overwrite_existing=True)
+
+
+_METADATA_ONNX_CONFIGS: list[tuple[str, str, str, type[OnnxConfig]]] = []
+
+
+def register_metadata_onnx_config(
+    architecture: str,
+    task: str,
+    auto_model_class: str,
+) -> Callable[[type[OnnxConfig]], type[OnnxConfig]]:
+    """Register an ONNX config selected by trusted remote-model metadata.
+
+    This registry is intentionally separate from Optimum's model-type table.
+    Some custom checkpoints publish a misleading or shared ``model_type``;
+    selecting them by the concrete architecture and matching task-specific
+    ``auto_map`` entry avoids changing unrelated checkpoints with that value.
+    """
+
+    def decorator(config_class: type[OnnxConfig]) -> type[OnnxConfig]:
+        _METADATA_ONNX_CONFIGS.append(
+            (architecture, to_optimum_task(task), auto_model_class, config_class)
+        )
+        return config_class
+
+    return decorator
+
+
+def _get_metadata_onnx_config_constructor(
+    hf_config: PretrainedConfig,
+    task: str,
+) -> type[OnnxConfig] | None:
+    architectures = set(getattr(hf_config, "architectures", None) or [])
+    auto_map = getattr(hf_config, "auto_map", None)
+    if not architectures or not isinstance(auto_map, dict):
+        return None
+
+    matches: list[type[OnnxConfig]] = []
+    for architecture, registered_task, auto_model_class, config_class in (
+        _METADATA_ONNX_CONFIGS
+    ):
+        if registered_task != task or architecture not in architectures:
+            continue
+        remote_reference = auto_map.get(auto_model_class)
+        if not isinstance(remote_reference, str):
+            continue
+        if remote_reference.rsplit(".", 1)[-1] != architecture:
+            continue
+        matches.append(config_class)
+
+    if len(matches) > 1:
+        names = sorted(config_class.__name__ for config_class in matches)
+        raise ONNXConfigNotFoundError(
+            "Custom-code metadata matches multiple ONNX configs: "
+            + ", ".join(names)
+        )
+    return matches[0] if matches else None
 
 
 def ensure_hf_models_registered() -> None:
@@ -174,6 +232,9 @@ def _get_onnx_config(
     ensure_hf_models_registered()
 
     normalized_task = to_optimum_task(task)
+    metadata_constructor = _get_metadata_onnx_config_constructor(hf_config, normalized_task)
+    if metadata_constructor is not None:
+        return metadata_constructor(hf_config, task=normalized_task)
 
     # Route model_types whose Optimum OnnxConfig is registered under another
     # library (e.g. timm via "timm_wrapper" -> "timm") so the lookup succeeds

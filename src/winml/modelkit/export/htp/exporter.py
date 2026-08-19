@@ -26,7 +26,7 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import torch
 import torch.nn as nn
@@ -47,6 +47,7 @@ from .step_data import HIERARCHY_SOURCE_ONNX_METADATA, HIERARCHY_SOURCE_TRACE
 
 if TYPE_CHECKING:
     import onnx
+    from transformers import PretrainedConfig
 
     from ..config import WinMLExportConfig
 
@@ -678,7 +679,6 @@ class HTPExporter:
         """
         try:
             import optimum.exporters.onnx.model_configs  # noqa: F401
-            from optimum.exporters.tasks import TasksManager
         except ImportError:
             logger.debug("Optimum not available; skipping model patcher.")
             return contextlib.nullcontext()
@@ -707,22 +707,19 @@ class HTPExporter:
             logger.debug("No task provided; skipping Optimum patcher.")
             return contextlib.nullcontext()
 
-        # TasksManager expects Optimum-canonical task names
-        from ...loader import to_optimum_task
+        from ..io import ONNXConfigNotFoundError, _get_onnx_config
 
         try:
-            cfg_cls = TasksManager.get_exporter_config_constructor(
-                "onnx",
-                model_type=model_type,
-                task=to_optimum_task(task),
-                library_name="transformers",
-            )
             # Pass an explicit empty model_kwargs so patchers that inject extra
             # forward arguments can populate it. Some patchers (e.g. ViTPose MoE,
             # which sets a constant dataset_index) assume a mutable dict and crash
             # on the None default from patch_model_for_export.
-            return cfg_cls(model_config).patch_model_for_export(model, model_kwargs={})
-        except KeyError:
+            return _get_onnx_config(
+                model_type,
+                task,
+                cast("PretrainedConfig", model_config),
+            ).patch_model_for_export(model, model_kwargs={})
+        except ONNXConfigNotFoundError:
             logger.debug(
                 "Model type '%s' (task='%s') not in Optimum registry; "
                 "exporting without Optimum patcher.",

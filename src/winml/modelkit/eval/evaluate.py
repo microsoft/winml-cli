@@ -450,6 +450,7 @@ def _load_model(
             precision=config.precision,
             allow_unsupported_nodes=config.allow_unsupported_nodes,
             config=build_override,
+            trust_remote_code=config.trust_remote_code,
             shape_config=config.shape_config,
             **cache_kwargs,
             **pipeline_kwargs,

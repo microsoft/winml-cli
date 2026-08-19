@@ -94,7 +94,8 @@ class TestGetOptimumPatcherModelKwargs:
         fake_onnx_config = MagicMock()
         fake_onnx_config.patch_model_for_export.return_value = MagicMock()
 
-        def fake_ctor(config: object):
+        def fake_ctor(config: object, task: str | None = None):
+            del task
             captured["config"] = config
             return fake_onnx_config
 

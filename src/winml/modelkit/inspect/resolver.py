@@ -309,58 +309,69 @@ def resolve_exporter(
             opset_version=export_config.opset_version,
         )
 
-    # Check if TasksManager supports this model_type
+    # Resolve through the shared export path so metadata-scoped custom models
+    # and ordinary TasksManager registrations follow the same selection rules.
     try:
-        # Import model_configs to trigger registration of ONNX configs via decorators
-        import optimum.exporters.onnx.model_configs  # noqa: F401
-        from optimum.exporters.tasks import TasksManager
+        if hf_config is not None:
+            from ..export.io import _get_onnx_config
 
-        # TasksManager expects Optimum-canonical task names
-        from ..loader import to_optimum_task
-
-        # TasksManager uses underscores (sam2_video), not hyphens (sam2-video)
-        # Use original model_type for TasksManager lookup
-        onnx_config_cls = TasksManager.get_exporter_config_constructor(
-            exporter="onnx",
-            model_type=model_type,
-            task=to_optimum_task(task),
-            library_name=resolve_optimum_library(model_type),
-        )
-        if onnx_config_cls:
-            # Handle functools.partial returned by TasksManager
-            import functools
-
-            if isinstance(onnx_config_cls, functools.partial):
-                config_name = onnx_config_cls.func.__name__
-            else:
-                config_name = onnx_config_cls.__name__
+            onnx_config = _get_onnx_config(model_type, task, hf_config)
+            config_name = type(onnx_config).__name__
 
             # Extract tensor specs via resolve_io_specs (shared with config command)
             input_tensors = []
             output_tensors = []
 
-            if hf_config is not None:
-                try:
-                    from ..export.io import resolve_io_specs
+            try:
+                from ..export.io import resolve_io_specs
 
-                    io_specs = resolve_io_specs(
-                        model_type=model_type,
-                        task=task,
-                        hf_config=hf_config,
-                        model_id=model_id,
-                    )
-                    input_tensors, output_tensors = build_tensor_infos_from_io_specs(io_specs)
-                except Exception as e:
-                    logger.debug("resolve_io_specs failed for %s/%s: %s", model_type, task, e)
+                io_specs = resolve_io_specs(
+                    model_type=model_type,
+                    task=task,
+                    hf_config=hf_config,
+                    model_id=model_id,
+                )
+                input_tensors, output_tensors = build_tensor_infos_from_io_specs(io_specs)
+            except Exception as e:
+                logger.debug("resolve_io_specs failed for %s/%s: %s", model_type, task, e)
 
             return ExporterInfo(
                 onnx_config_class=config_name,
-                onnx_config_source="TasksManager",
+                onnx_config_source=(
+                    "WinML metadata" if type(onnx_config).__module__.startswith("winml.")
+                    else "TasksManager"
+                ),
                 support_level=SupportLevel.DEFAULT,
                 input_tensors=input_tensors,
                 output_tensors=output_tensors,
                 opset_version=17,
             )
+        import optimum.exporters.onnx.model_configs  # noqa: F401
+        from optimum.exporters.tasks import TasksManager
+
+        from ..loader import to_optimum_task
+
+        constructor = TasksManager.get_exporter_config_constructor(
+            exporter="onnx",
+            model_type=model_type,
+            task=to_optimum_task(task),
+            library_name=resolve_optimum_library(model_type),
+        )
+        import functools
+
+        config_name = (
+            constructor.func.__name__
+            if isinstance(constructor, functools.partial)
+            else constructor.__name__
+        )
+        return ExporterInfo(
+            onnx_config_class=config_name,
+            onnx_config_source="TasksManager",
+            support_level=SupportLevel.DEFAULT,
+            input_tensors=[],
+            output_tensors=[],
+            opset_version=17,
+        )
     except Exception as e:
         logger.debug("TasksManager lookup failed for %s/%s: %s", model_type, task, e)
 
