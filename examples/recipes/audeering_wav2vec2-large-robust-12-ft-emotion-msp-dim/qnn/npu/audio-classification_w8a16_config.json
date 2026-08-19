@@ -1,0 +1,69 @@
+{
+  "export": {
+    "opset_version": 17,
+    "batch_size": 1,
+    "export_params": true,
+    "do_constant_folding": true,
+    "verbose": false,
+    "dynamo": false,
+    "enable_hierarchy_tags": false,
+    "clean_onnx": false,
+    "hierarchy_tag_format": "full",
+    "input_tensors": [
+      {
+        "name": "input_values",
+        "dtype": "float32",
+        "shape": [
+          1,
+          16000
+        ],
+        "value_range": [
+          -1,
+          1
+        ]
+      }
+    ],
+    "output_tensors": [
+      {
+        "name": "hidden_states"
+      },
+      {
+        "name": "logits"
+      }
+    ]
+  },
+  "optim": {
+    "trim_split_grouped_conv": true
+  },
+  "quant": {
+    "mode": "static",
+    "samples": 10,
+    "calibration_method": "minmax",
+    "weight_type": "uint8",
+    "activation_type": "uint16",
+    "per_channel": false,
+    "symmetric": false,
+    "save_calibration": false,
+    "distribution": "uniform",
+    "task": "audio-classification",
+    "model_id": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim"
+  },
+  "compile": {
+    "execution_provider": "qnn",
+    "provider_options": {
+      "device_type": "NPU",
+      "htp_performance_mode": "burst",
+      "htp_graph_finalization_optimization_mode": "3"
+    },
+    "enable_ep_context": true,
+    "embed_context": false,
+    "compiler": "ort",
+    "device": "npu",
+    "validate": true
+  },
+  "loader": {
+    "task": "audio-classification",
+    "model_class": "EmotionModel",
+    "model_type": "wav2vec2_emotion_regression"
+  }
+}
