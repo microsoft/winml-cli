@@ -330,7 +330,12 @@ class TestDocumentCompute:
             }
         )
 
-        result = evaluator.compute()
+        with patch.object(
+            WinMLQuestionAnsweringEvaluator,
+            "_require_tesseract_runtime",
+            side_effect=AssertionError("precomputed data must not require native OCR"),
+        ):
+            result = evaluator.compute()
 
         assert result == {
             "anls": 1.0,
@@ -407,6 +412,7 @@ class TestDocumentCompute:
         )
         pytesseract = SimpleNamespace(
             image_to_data=image_to_data,
+            get_tesseract_version=MagicMock(return_value="5.5.3"),
             Output=SimpleNamespace(DICT="dict"),
             TesseractNotFoundError=RuntimeError,
         )
@@ -418,22 +424,66 @@ class TestDocumentCompute:
         assert words == ["ITC", "Limited"]
         assert boxes == [[100, 100, 250, 300], [300, 100, 500, 300]]
         assert source == "tesseract"
+        assert evaluator._last_ocr_version == "5.5.3"
 
-    def test_missing_native_tesseract_has_actionable_error(self):
+    def test_missing_native_tesseract_fails_during_data_validation(self):
         evaluator, _, _ = self._make_document_evaluator({})
         evaluator.config.dataset.columns_mapping = {"document_mode": "true"}
         not_found = type("TesseractNotFoundError", (Exception,), {})
         pytesseract = SimpleNamespace(
-            image_to_data=MagicMock(side_effect=not_found()),
-            Output=SimpleNamespace(DICT="dict"),
+            get_tesseract_version=MagicMock(side_effect=not_found()),
             TesseractNotFoundError=not_found,
+        )
+        dataset = SimpleNamespace(column_names=["question", "answers", "image"])
+
+        with (
+            patch.dict(sys.modules, {"pytesseract": pytesseract}),
+            pytest.raises(RuntimeError, match=r"tesseract --version.*winget install"),
+        ):
+            evaluator.validate_data(dataset)
+
+    def test_image_compute_records_native_tesseract_version(self):
+        evaluator, _, _ = self._make_document_evaluator(
+            {
+                "question": "What is the company?",
+                "image": SimpleNamespace(size=(200, 100)),
+                "answers": ["ITC Limited"],
+            }
+        )
+        evaluator.config.dataset.columns_mapping = {"document_mode": "true"}
+        pytesseract = SimpleNamespace(
+            image_to_data=MagicMock(
+                return_value={
+                    "text": ["ITC", "Limited"],
+                    "left": [20, 60],
+                    "top": [10, 10],
+                    "width": [30, 40],
+                    "height": [20, 20],
+                }
+            ),
+            get_tesseract_version=MagicMock(return_value="5.5.3"),
+            Output=SimpleNamespace(DICT="dict"),
+            TesseractNotFoundError=RuntimeError,
+        )
+
+        with patch.dict(sys.modules, {"pytesseract": pytesseract}):
+            result = evaluator.compute()
+
+        assert result["ocr_engine_version"] == "5.5.3"
+        assert result["ocr_samples"] == 1
+
+    def test_unsupported_native_tesseract_version_is_rejected(self):
+        evaluator, _, _ = self._make_document_evaluator({})
+        pytesseract = SimpleNamespace(
+            get_tesseract_version=MagicMock(return_value="4.1.3"),
+            TesseractNotFoundError=RuntimeError,
         )
 
         with (
             patch.dict(sys.modules, {"pytesseract": pytesseract}),
-            pytest.raises(RuntimeError, match="Native Tesseract was not found"),
+            pytest.raises(RuntimeError, match=r"4\.1\.3 is unsupported.*5\.x is required"),
         ):
-            evaluator._document_words_and_boxes({"image": SimpleNamespace(size=(10, 10))})
+            evaluator._require_tesseract_runtime()
 
     def test_missing_python_ocr_extra_has_actionable_error(self):
         evaluator, _, _ = self._make_document_evaluator({})
