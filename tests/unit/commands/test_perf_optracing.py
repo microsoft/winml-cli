@@ -642,6 +642,52 @@ class TestOpTracingHardwareMonitor:
         monitored_loop.assert_called_once()
 
 
+class TestEPDeviceMonitorBinding:
+    def test_provider_options_select_matching_ep_device(self) -> None:
+        from winml.modelkit.commands.perf import _get_ep_device_binding
+
+        def make_device(device_id: str, luid: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                device_type="GPU",
+                ort_handle=SimpleNamespace(
+                    ep_options={"device_id": device_id},
+                    device=SimpleNamespace(metadata={"LUID": luid}),
+                ),
+            )
+
+        gpu0 = make_device("0", "99219")
+        gpu1 = make_device("1", "99220")
+        ep_device = SimpleNamespace(
+            device=gpu0,
+            ep=SimpleNamespace(devices=(gpu0, gpu1)),
+        )
+
+        assert _get_ep_device_binding(ep_device, {"device_id": "1"}) == (
+            "0x00000000_0x00018394",
+            "gpu",
+        )
+
+    def test_unmatched_device_override_disables_bound_luid(self) -> None:
+        from winml.modelkit.commands.perf import _get_ep_device_binding
+
+        gpu = SimpleNamespace(
+            device_type="GPU",
+            ort_handle=SimpleNamespace(
+                ep_options={"device_id": "0"},
+                device=SimpleNamespace(metadata={"LUID": "99219"}),
+            ),
+        )
+        ep_device = SimpleNamespace(
+            device=gpu,
+            ep=SimpleNamespace(devices=(gpu,)),
+        )
+
+        assert _get_ep_device_binding(ep_device, {"device_id": "1"}) == (
+            None,
+            None,
+        )
+
+
 class _ConfigStub:
     """Lightweight stand-in for BenchmarkConfig used by capture tests."""
 
