@@ -21,6 +21,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _DOCUMENT_COLUMN_KEYS = {"words_column", "boxes_column", "image_column"}
+_TESSERACT_INSTALL_HINT = (
+    "Install the document extra and native Tesseract 5.x, then verify the executable with "
+    "`tesseract --version`. On Windows, run `winget install --id "
+    "UB-Mannheim.TesseractOCR --version 5.4.0.20240606 --exact`."
+)
 
 
 def _is_true(value: str | None) -> bool:
@@ -235,6 +240,41 @@ class WinMLQuestionAnsweringEvaluator(WinMLEvaluator):
                 f"document question answering is missing required data: {details}; "
                 f"dataset has {sorted(columns)}"
             )
+        if not has_precomputed:
+            self._require_tesseract_runtime()
+
+    def _require_tesseract_runtime(self) -> tuple[Any, str]:
+        runtime = getattr(self, "_tesseract_runtime", None)
+        if runtime is not None:
+            return cast("tuple[Any, str]", runtime)
+        try:
+            import pytesseract  # type: ignore[import-untyped]
+        except ImportError as error:
+            raise RuntimeError(
+                "Image-only document QA requires the optional OCR dependency. "
+                f"Install winml-cli[document]. {_TESSERACT_INSTALL_HINT}"
+            ) from error
+        try:
+            version = str(pytesseract.get_tesseract_version()).splitlines()[0].strip()
+        except pytesseract.TesseractNotFoundError as error:
+            raise RuntimeError(
+                "Native Tesseract executable was not found or could not run its version "
+                f"command. {_TESSERACT_INSTALL_HINT} Alternatively, provide precomputed "
+                "words and boxes."
+            ) from error
+        if not version:
+            raise RuntimeError(
+                "Native Tesseract returned an empty version. "
+                f"{_TESSERACT_INSTALL_HINT}"
+            )
+        if version.partition(".")[0] != "5":
+            raise RuntimeError(
+                f"Native Tesseract {version} is unsupported; version 5.x is required. "
+                f"{_TESSERACT_INSTALL_HINT}"
+            )
+        runtime = (pytesseract, version)
+        self._tesseract_runtime = runtime
+        return runtime
 
     def _document_words_and_boxes(
         self,
@@ -258,13 +298,7 @@ class WinMLQuestionAnsweringEvaluator(WinMLEvaluator):
         else:
             if mapping.get("ocr_engine", "tesseract").casefold() != "tesseract":
                 raise ValueError("ocr_engine currently supports only 'tesseract'.")
-            try:
-                import pytesseract  # type: ignore[import-untyped]
-            except ImportError as error:
-                raise RuntimeError(
-                    "Image-only document QA requires the optional OCR dependency. "
-                    "Install winml-cli[document] and native Tesseract, or provide words and boxes."
-                ) from error
+            pytesseract, tesseract_version = self._require_tesseract_runtime()
             if image is None or image_size is None:
                 raise ValueError(
                     "Image-only document QA requires a PIL image with width and height."
@@ -273,8 +307,8 @@ class WinMLQuestionAnsweringEvaluator(WinMLEvaluator):
                 data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
             except pytesseract.TesseractNotFoundError as error:
                 raise RuntimeError(
-                    "Native Tesseract was not found. Install Tesseract or provide precomputed "
-                    "words and boxes."
+                    "Native Tesseract failed after validation. Verify `tesseract --version` or "
+                    "provide precomputed words and boxes."
                 ) from error
             words = []
             absolute_boxes = []
@@ -297,6 +331,7 @@ class WinMLQuestionAnsweringEvaluator(WinMLEvaluator):
                 coordinate_system="absolute",
             )
             source = "tesseract"
+            self._last_ocr_version = tesseract_version
 
         if not words or len(words) != len(boxes):
             raise ValueError("Document OCR must produce equal non-zero word and box counts.")
@@ -341,10 +376,13 @@ class WinMLQuestionAnsweringEvaluator(WinMLEvaluator):
         windows_processed = 0
         ocr_samples = 0
         precomputed_samples = 0
+        ocr_version = None
         for row in self.data:
             words, boxes, source = self._document_words_and_boxes(row)
             ocr_samples += source == "tesseract"
             precomputed_samples += source == "precomputed"
+            if source == "tesseract":
+                ocr_version = self._last_ocr_version
             question = str(row[mapping.get("question_column", "question")])
             encoding = tokenizer(
                 question.split(),
@@ -400,12 +438,15 @@ class WinMLQuestionAnsweringEvaluator(WinMLEvaluator):
                 windows_processed += 1
             metric.update(prediction, self._references(row[mapping.get("label_column", "answers")]))
 
-        return {
+        result = {
             **metric.compute(),
             "windows_processed": windows_processed,
             "ocr_samples": ocr_samples,
             "precomputed_samples": precomputed_samples,
         }
+        if ocr_version is not None:
+            result["ocr_engine_version"] = ocr_version
+        return result
 
     def compute(self) -> dict[str, Any]:
         """Run QA evaluation with automatic SQuAD v2 detection.
