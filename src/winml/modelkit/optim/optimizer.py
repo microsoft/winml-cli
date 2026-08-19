@@ -97,8 +97,9 @@ class Optimizer:
 
         # PRE-STAGE: Shape inference (required for optimizers)
         # Many optimizers check .Shape() and skip if nullptr (BiasGeluFusion, etc.)
-        from ..onnx import infer_shapes
+        from ..onnx import capture_metadata, infer_shapes, restore_metadata
 
+        metadata_snapshot = capture_metadata(model)
         logger.info("Running shape inference (pre-stage)...")
         start_time = time.time()
         model = infer_shapes(model)
@@ -137,6 +138,8 @@ class Optimizer:
         start_time = time.time()
         model = infer_shapes(model)
         logger.info("✓ Shape inference completed in %.2fs", time.time() - start_time)
+
+        restore_metadata(model, metadata_snapshot)
 
         # Note: Post-optimization validation removed. Validation happens at:
         # - load_onnx(validate=True) on input (path-based, safe for any size)

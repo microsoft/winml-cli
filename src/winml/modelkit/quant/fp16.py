@@ -11,6 +11,7 @@ the quantizer's ``mode="fp16"`` path.
 from __future__ import annotations
 
 import logging
+import re
 from copy import deepcopy
 from dataclasses import dataclass
 from math import prod
@@ -20,7 +21,7 @@ from google.protobuf.message import EncodeError
 
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Iterator, Sequence
 
     from onnx import (
         AttributeProto,
@@ -34,7 +35,53 @@ if TYPE_CHECKING:
     )
     from onnx.defs import OpSchema
 
+    from ..onnx.metadata import MetadataSnapshot
+
 logger = logging.getLogger(__name__)
+
+_GENERATED_CAST_NAME = re.compile(r"^(?P<owner>.+)_(?:input|output)_cast\d+$")
+
+
+def _iter_nodes(model: ModelProto) -> Iterator[NodeProto]:
+    """Yield nodes from the main graph, nested graphs, and local functions."""
+
+    def iter_node_list(nodes: Iterable[NodeProto]) -> Iterator[NodeProto]:
+        for node in nodes:
+            yield node
+            for attribute in node.attribute:
+                if attribute.HasField("g"):
+                    yield from iter_node_list(attribute.g.node)
+                for graph in attribute.graphs:
+                    yield from iter_node_list(graph.node)
+
+    yield from iter_node_list(model.graph.node)
+    for function in model.functions:
+        yield from iter_node_list(function.node)
+
+
+def _propagate_generated_cast_metadata(
+    model: ModelProto,
+    snapshot: MetadataSnapshot,
+) -> None:
+    """Associate converter-generated boundary casts with their owner metadata."""
+    for node in _iter_nodes(model):
+        if node.op_type != "Cast" or node.name in snapshot.nodes:
+            continue
+        match = _GENERATED_CAST_NAME.fullmatch(node.name)
+        if match and match["owner"] in snapshot.nodes:
+            snapshot.nodes[node.name] = snapshot.nodes[match["owner"]]
+            continue
+        if node.name.endswith("_winml_fp32_cast") and node.output:
+            consumer = next(
+                (
+                    candidate
+                    for candidate in _iter_nodes(model)
+                    if node.output[0] in candidate.input and candidate.name in snapshot.nodes
+                ),
+                None,
+            )
+            if consumer is not None:
+                snapshot.nodes[node.name] = snapshot.nodes[consumer.name]
 
 
 @dataclass(frozen=True)
@@ -2904,6 +2951,10 @@ def convert_to_fp16(
     from onnx import TensorProto
     from onnxruntime.transformers.float16 import convert_float_to_float16
 
+    from ..onnx import capture_metadata, restore_metadata
+
+    metadata_snapshot = capture_metadata(model)
+
     _reject_sparse_initializer_tensor_metadata(model, op_block_list)
     _reject_duplicate_float_initializer_names(model, op_block_list)
     io_preflight_model = _ort_inference_preflight_model(model)
@@ -3067,6 +3118,9 @@ def convert_to_fp16(
     if converted is not model:
         model.CopyFrom(converted)
         converted = model
+
+    _propagate_generated_cast_metadata(converted, metadata_snapshot)
+    restore_metadata(converted, metadata_snapshot)
 
     converted_nodes = len(converted.graph.node)
     if converted_nodes != original_nodes:

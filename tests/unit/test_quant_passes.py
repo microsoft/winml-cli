@@ -345,7 +345,11 @@ class TestFP16Conversion:
     ) -> None:
         """Large external-data models can exceed protobuf's in-memory serialize limit."""
         calls: list[dict] = []
-        model = SimpleNamespace(graph=SimpleNamespace(initializer=[], node=[]))
+        model = SimpleNamespace(
+            graph=SimpleNamespace(initializer=[], node=[]),
+            functions=[],
+            metadata_props=[],
+        )
 
         def fake_convert(model_arg, **kwargs):
             calls.append(kwargs)
@@ -371,7 +375,10 @@ class TestFP16Conversion:
             is model
         )
         assert calls == [
-            {"keep_io_types": True, "op_block_list": ["Softmax"]},
+            {
+                "keep_io_types": True,
+                "op_block_list": ["Softmax"],
+            },
             {
                 "keep_io_types": True,
                 "disable_shape_infer": True,

@@ -11,8 +11,9 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
-from onnx import TensorProto, helper, save
+from onnx import StringStringEntryProto, TensorProto, helper, load, save
 
+from winml.modelkit.core.onnx_node_tagger import DynamoMetadataTagger
 from winml.modelkit.export.htp import HTPExporter
 
 
@@ -41,6 +42,41 @@ class TestHTPExporterTaggedNodesStats:
         assert exporter._export_stats["tagged_nodes"] == 0
         assert exporter._export_stats["coverage_percentage"] == 0.0
         assert exporter._export_stats["empty_tags"] == 0
+
+    def test_unnamed_dynamo_node_tags_are_materialized_on_disk(self, tmp_path: Path) -> None:
+        node = helper.make_node("Identity", ["x"], ["y"])
+        node.metadata_props.extend(
+            [
+                StringStringEntryProto(
+                    key=DynamoMetadataTagger.NAME_SCOPES_KEY,
+                    value=repr(["", "identity"]),
+                ),
+                StringStringEntryProto(
+                    key=DynamoMetadataTagger.CLASS_HIERARCHY_KEY,
+                    value=repr(["pkg.Net", "aten.identity.default"]),
+                ),
+            ]
+        )
+        graph = helper.make_graph(
+            [node],
+            "g",
+            [helper.make_tensor_value_info("x", TensorProto.FLOAT, [1])],
+            [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1])],
+        )
+        model = helper.make_model(graph)
+        exporter = HTPExporter(embed_hierarchy_attributes=True)
+        exporter._node_tagger = DynamoMetadataTagger()
+
+        exporter._apply_hierarchy_tags(model)
+        output_path = tmp_path / "tagged.onnx"
+        exporter._embed_tags_in_onnx(str(output_path), model)
+
+        restored = load(output_path)
+        restored_node = restored.graph.node[0]
+        assert restored_node.name == "winml_htp_0_Identity"
+        props = {prop.key: prop.value for prop in restored_node.metadata_props}
+        assert props["winml.hierarchy.tag"] == "/Net"
+        assert props["winml.hierarchy.depth"] == "1"
 
     def test_stats_populated_when_hierarchy_enabled(self) -> None:
         """Control: stats are populated normally when embedding is enabled."""

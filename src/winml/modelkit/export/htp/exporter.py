@@ -795,6 +795,7 @@ class HTPExporter:
         assert self._node_tagger is not None, (
             "_apply_hierarchy_tags called before _initialize_node_tagger"
         )
+        self._ensure_unique_node_names(onnx_model)
         # Store ONNX model for later use in displaying operations
         self._onnx_model = onnx_model
         self._tagged_nodes = self._node_tagger.tag_all_nodes(onnx_model)
@@ -807,6 +808,25 @@ class HTPExporter:
         total_nodes = len(onnx_model.graph.node)
         self._export_stats["onnx_nodes"] = total_nodes
         self._update_tag_stats(total_nodes)
+
+    @staticmethod
+    def _ensure_unique_node_names(onnx_model: onnx.ModelProto) -> None:
+        """Assign deterministic names so tag keys survive protobuf iteration."""
+        reserved = {node.name for node in onnx_model.graph.node if node.name}
+        seen: set[str] = set()
+        generated_index = 0
+        for node in onnx_model.graph.node:
+            if node.name and node.name not in seen:
+                seen.add(node.name)
+                continue
+            while True:
+                candidate = f"winml_htp_{generated_index}_{node.op_type}"
+                generated_index += 1
+                if candidate not in reserved:
+                    break
+            node.name = candidate
+            reserved.add(candidate)
+            seen.add(candidate)
 
     def _embed_graph_metadata(
         self, onnx_model: onnx.ModelProto, export_config: WinMLExportConfig

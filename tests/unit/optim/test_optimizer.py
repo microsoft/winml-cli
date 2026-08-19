@@ -272,6 +272,37 @@ class TestOptimizerExecution:
         assert "chain1_marker" in metadata_keys
         assert "chain2_marker" in metadata_keys
 
+    def test_optimize_restores_node_metadata_after_destructive_pipe(
+        self, sample_model: onnx.ModelProto
+    ) -> None:
+        sample_model.graph.node[0].metadata_props.add(
+            key="winml.hierarchy.tag",
+            value="/Model/Layer",
+        )
+
+        class StripMetadataPipe(BasePipe):
+            name: ClassVar[str] = "strip_metadata"
+            capabilities: ClassVar[dict[str, Any]] = {}
+
+            @classmethod
+            def build_config(cls, **kwargs: Any) -> PipeConfig:
+                return PipeConfig()
+
+            def process(self, model: onnx.ModelProto, config: PipeConfig) -> onnx.ModelProto:
+                for node in model.graph.node:
+                    del node.metadata_props[:]
+                return model
+
+        original_pipes = Optimizer.pipes[:]
+        Optimizer.pipes = [StripMetadataPipe]
+        try:
+            result = Optimizer().optimize(sample_model)
+        finally:
+            Optimizer.pipes = original_pipes
+
+        props = {prop.key: prop.value for prop in result.graph.node[0].metadata_props}
+        assert props["winml.hierarchy.tag"] == "/Model/Layer"
+
     def test_optimize_respects_should_process(self, sample_model: onnx.ModelProto) -> None:
         """Verify optimize() skips pipes when should_process returns False."""
 
