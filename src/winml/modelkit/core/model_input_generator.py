@@ -36,6 +36,28 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def _generate_ordered_bounding_boxes(
+    shape: list[int], min_value: int, max_value: int
+) -> np.ndarray:
+    """Generate positive-area ``[x1, y1, x2, y2]`` boxes within inclusive bounds."""
+    if max_value <= min_value:
+        raise ValueError("Bounding-box range must contain at least two coordinates")
+
+    coordinates = np.random.randint(min_value, max_value + 1, size=shape)
+    x1 = np.minimum(coordinates[..., 0], coordinates[..., 2])
+    y1 = np.minimum(coordinates[..., 1], coordinates[..., 3])
+    x2 = np.maximum(coordinates[..., 0], coordinates[..., 2])
+    y2 = np.maximum(coordinates[..., 1], coordinates[..., 3])
+
+    x_equal = x1 == x2
+    y_equal = y1 == y2
+    x1 = np.where(x_equal & (x2 == max_value), x1 - 1, x1)
+    y1 = np.where(y_equal & (y2 == max_value), y1 - 1, y1)
+    x2 = np.where(x_equal & (x2 < max_value), x2 + 1, x2)
+    y2 = np.where(y_equal & (y2 < max_value), y2 + 1, y2)
+    return np.stack((x1, y1, x2, y2), axis=-1).astype(np.int64)
+
+
 def generate_dummy_inputs_from_specs(
     input_specs: dict[str, dict[str, Any]],
 ) -> dict[str, np.ndarray]:
@@ -106,7 +128,14 @@ def generate_dummy_inputs_from_specs(
             min_val, max_val = spec["range"]
 
             if dtype == np.int64:
-                inputs[name] = np.random.randint(min_val, max_val + 1, size=shape).astype(dtype)
+                if name == "bbox" and shape and shape[-1] == 4:
+                    inputs[name] = _generate_ordered_bounding_boxes(
+                        shape, int(min_val), int(max_val)
+                    )
+                else:
+                    inputs[name] = np.random.randint(min_val, max_val + 1, size=shape).astype(
+                        dtype
+                    )
             else:
                 inputs[name] = np.random.rand(*shape).astype(dtype) * (max_val - min_val) + min_val
         else:

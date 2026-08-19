@@ -44,6 +44,7 @@ TASK_TO_WINML_CLASS: dict[str, str] = {
     # Not yet implemented — falls back to WinMLModelForGenericTask at runtime
     "token-classification": "WinMLModelForTokenClassification",
     "question-answering": "WinMLModelForQuestionAnswering",
+    "document-question-answering": "WinMLModelForQuestionAnswering",
     "text-generation": "WinMLModelForCausalLM",
     "text2text-generation": "WinMLModelForSeq2SeqLM",
     "fill-mask": "WinMLModelForMaskedLM",

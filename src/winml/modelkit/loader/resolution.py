@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, cast
 
 from .task import (
     HF_TASK_DEFAULTS,
+    TASK_SYNONYM_EXTENSIONS,
     get_default_task_for_model_id,
     get_supported_tasks,
     normalize_task,
@@ -178,6 +179,23 @@ _FEATURE_MODALITY_BY_MAIN_INPUT: dict[str, str] = {
 }
 
 
+_ARCHITECTURE_SUFFIX_TASKS: dict[str, str] = {
+    "ForQuestionAnswering": "question-answering",
+}
+
+
+def _infer_task_from_architecture_suffix(config: PretrainedConfig) -> str | None:
+    """Infer a task from the primary architecture suffix when Optimum has no mapping."""
+    architectures = getattr(config, "architectures", None)
+    if not architectures:
+        return None
+    architecture_name = architectures[0]
+    for suffix, task in _ARCHITECTURE_SUFFIX_TASKS.items():
+        if architecture_name.endswith(suffix):
+            return task
+    return None
+
+
 def _resolve_task_modality(config: PretrainedConfig, task: str) -> str:
     """Upgrade a modality-blind ``feature-extraction`` to its modality-aware variant.
 
@@ -252,6 +270,7 @@ class TaskSource(str, Enum):
     MODEL_ID_DEFAULT = "model-id-default"  # MODEL_TASK_MAPPING model-id default
     SENTINEL_DEFAULT = "sentinel-default"  # (model_type, None) sentinel
     TASKS_MANAGER = "tasks-manager"  # Optimum inference (incl. fill-mask upgrade)
+    ARCHITECTURE_SUFFIX = "architecture-suffix"  # class-name suffix fallback
     WRAPPED_LIBRARY = "wrapped-library"  # no architectures -> first supported task
     PIPELINE_TAG = "pipeline-tag"  # Hub pipeline_tag fallback
     HF_TASK_DEFAULT = "hf-task-default"  # last-resort default
@@ -415,14 +434,31 @@ _SEQ2SEQ_GENERATION_TASK = "text2text-generation"
 
 
 def _infer_task_from_architecture(config: PretrainedConfig) -> str:
-    """Optimum task inferred from ``config.architectures[0]``.
+    """Infer the Optimum task from ``config.architectures[0]``.
 
-    Includes the encoder-decoder fill-mask -> text2text-generation correction.
+    Includes the encoder-decoder fill-mask -> text2text-generation correction and
+    uses the architecture suffix only when Optimum has no mapping.
     """
-    return _upgrade_fill_mask_for_seq2seq(
-        _detect_task_from_model_class(_resolve_model_class_from_config(config)),
-        config,
-    )
+    model_class = _resolve_model_class_from_config(config)
+    try:
+        task = _detect_task_from_model_class(model_class)
+    except ValueError:
+        suffix_task = _infer_task_from_architecture_suffix(config)
+        if suffix_task is None:
+            raise
+        task = suffix_task
+    return _upgrade_fill_mask_for_seq2seq(task, config)
+
+
+def _architecture_task_source(config: PretrainedConfig, task: str) -> TaskSource:
+    """Return suffix provenance only when Optimum cannot infer the architecture task."""
+    try:
+        model_class = _resolve_model_class_from_config(config)
+        _detect_task_from_model_class(model_class)
+    except ValueError:
+        if _infer_task_from_architecture_suffix(config) == task:
+            return TaskSource.ARCHITECTURE_SUFFIX
+    return TaskSource.TASKS_MANAGER
 
 
 def _composite_components_for_task(model_type: str, task: str) -> CompositeComponents | None:
@@ -519,7 +555,11 @@ def resolve_task(
             # is preserved. Consistent with the inferred branch below and USER_TASK —
             # adding --model-class must not collapse the modality.
             opt_task = normalize_task(task)
-            surfaced = _resolve_task_modality(config, opt_task)
+            surfaced = (
+                task
+                if task in TASK_SYNONYM_EXTENSIONS
+                else _resolve_task_modality(config, opt_task)
+            )
         else:
             # Task inferred from the architecture: surface it modality-aware, consistent
             # with the detection path (Stage 3), so e.g. a ViT backbone is
@@ -617,15 +657,15 @@ def resolve_task(
             # lookup failure here — e.g. a wrapped library whose classes aren't registered
             # under framework="pt" — can't escape as a raw KeyError.
 
-    # 1c. TasksManager (reads config.architectures)
+    # 1c. TasksManager (reads config.architectures), then generic suffix fallback
     if opt_task is None:
         try:
             opt_task = _infer_task_from_architecture(config)
-            source = TaskSource.TASKS_MANAGER
+            source = _architecture_task_source(config, opt_task)
         except ValueError:
             opt_task = None
 
-    # 1d. Hub pipeline_tag fallback
+    # 1e. Hub pipeline_tag fallback
     if opt_task is None and model_id and model_type:
         from ..utils.hub_utils import get_pipeline_tag
 
@@ -638,7 +678,7 @@ def resolve_task(
             # reinforcement-learning, time-series-forecasting). Admitting one would flow a
             # non-exportable task into Stage 2 (model-class) / Stage 3 instead of degrading
             # to the last-resort default. Populate Optimum's ONNX export-config registry
-            # first (as Stage 1b does) so get_supported_tasks doesn't return [].
+            # first (as Stage 1c does) so get_supported_tasks doesn't return [].
             import optimum.exporters.onnx.model_configs  # noqa: F401
 
             if normalized_tag in get_supported_tasks(
@@ -647,12 +687,12 @@ def resolve_task(
                 opt_task = normalized_tag
                 source = TaskSource.PIPELINE_TAG
 
-    # 1e. last-resort default
+    # 1f. last-resort default
     if opt_task is None:
         opt_task = next(iter(HF_TASK_DEFAULTS))
         source = TaskSource.HF_TASK_DEFAULT
 
-    # --- Stage 2: model class (if not already resolved in 1b) -------------
+    # --- Stage 2: model class (if not already resolved during detection) --
     if resolved is None:
         resolved = _get_custom_model_class(model_type_norm, opt_task)
         if resolved is None:
@@ -669,6 +709,6 @@ def resolve_task(
     # --- Stage 4: composite tag (detection path) --------------------------
     composite = _composite_components_for_task(model_type, opt_task) if model_type else None
 
-    if source is None:  # structural invariant: Stage 1d always sets a source
+    if source is None:  # structural invariant: Stage 1 always sets a source
         raise RuntimeError("resolve_task: internal invariant violated — source was not set")
     return TaskResolution(surfaced, to_optimum_task(surfaced), resolved, source, composite)

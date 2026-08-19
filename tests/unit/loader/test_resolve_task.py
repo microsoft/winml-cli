@@ -11,7 +11,12 @@ Offline / config-only: every case builds its config with
 import pytest
 from transformers import AutoConfig
 
-from winml.modelkit.loader.resolution import TaskSource, resolve_task
+from winml.modelkit.loader.resolution import (
+    TaskSource,
+    _infer_task_from_architecture,
+    _infer_task_from_architecture_suffix,
+    resolve_task,
+)
 from winml.modelkit.loader.task import to_optimum_task
 
 
@@ -33,6 +38,70 @@ def test_autodetect_text_classification_via_tasks_manager():
     r = resolve_task(_cfg("bert", ["BertForSequenceClassification"]))
     assert r.task == "text-classification"
     assert r.source == TaskSource.TASKS_MANAGER
+
+
+def test_layoutlm_qa_uses_suffix_task_and_registered_class_mapping():
+    r = resolve_task(_cfg("layoutlm", ["LayoutLMForQuestionAnswering"]))
+    assert r.task == "question-answering"
+    assert r.optimum_task == "question-answering"
+    assert r.model_class.__name__ == "LayoutLMForQuestionAnswering"
+    assert r.source == TaskSource.ARCHITECTURE_SUFFIX
+
+
+def test_supported_qa_architecture_keeps_tasks_manager_provenance():
+    r = resolve_task(_cfg("bert", ["BertForQuestionAnswering"]))
+    assert r.task == "question-answering"
+    assert r.source == TaskSource.TASKS_MANAGER
+
+
+@pytest.mark.parametrize(
+    "model_type,architecture,expected_task",
+    [
+        ("bert", "BertForSequenceClassification", "text-classification"),
+        ("layoutlm", "LayoutLMForQuestionAnswering", "question-answering"),
+    ],
+)
+def test_architecture_inference_keeps_string_contract_and_suffix_fallback(
+    model_type, architecture, expected_task
+):
+    assert _infer_task_from_architecture(_cfg(model_type, [architecture])) == expected_task
+
+
+def test_layoutlm_non_qa_architecture_keeps_tasks_manager_routing():
+    r = resolve_task(_cfg("layoutlm", ["LayoutLMForTokenClassification"]))
+    assert r.task == "token-classification"
+    assert r.source == TaskSource.TASKS_MANAGER
+
+
+def test_explicit_document_qa_preserves_public_task_and_uses_canonical_qa_class():
+    r = resolve_task(
+        _cfg("layoutlm", ["LayoutLMForQuestionAnswering"]),
+        task="document-question-answering",
+    )
+    assert r.task == "document-question-answering"
+    assert r.optimum_task == "question-answering"
+    assert r.model_class.__name__ == "LayoutLMForQuestionAnswering"
+    assert r.source == TaskSource.USER_TASK
+
+
+def test_document_qa_with_explicit_model_class_preserves_public_task():
+    r = resolve_task(
+        _cfg("layoutlm", ["LayoutLMForQuestionAnswering"]),
+        task="document-question-answering",
+        model_class="LayoutLMForQuestionAnswering",
+    )
+    assert r.task == "document-question-answering"
+    assert r.optimum_task == "question-answering"
+    assert r.model_class.__name__ == "LayoutLMForQuestionAnswering"
+    assert r.source == TaskSource.USER_CLASS
+
+
+def test_architecture_suffix_fallback_only_uses_primary_architecture():
+    config = _cfg(
+        "layoutlm",
+        ["LayoutLMForSequenceClassification", "LayoutLMForQuestionAnswering"],
+    )
+    assert _infer_task_from_architecture_suffix(config) is None
 
 
 def test_autodetect_modality_upgrade_for_vision_feature_extraction():
