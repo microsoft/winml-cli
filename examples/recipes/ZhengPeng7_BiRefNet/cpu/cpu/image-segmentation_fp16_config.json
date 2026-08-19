@@ -5,7 +5,7 @@
     "export_params": true,
     "do_constant_folding": true,
     "verbose": false,
-    "dynamo": false,
+    "dynamo": true,
     "enable_hierarchy_tags": true,
     "clean_onnx": false,
     "hierarchy_tag_format": "full",
