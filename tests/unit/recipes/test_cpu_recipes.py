@@ -77,3 +77,49 @@ def test_cpu_recipes(rec):
     else:
         assert config.quant is not None
         assert config.quant.mode == rec["quant_mode"]
+
+
+@pytest.mark.parametrize(
+    ("precision", "opset_version", "dynamo", "dtype", "quant_mode"),
+    [
+        ("fp32", 17, False, "float32", None),
+        ("fp16", 18, True, "float16", "fp16"),
+    ],
+)
+def test_birefnet_cpu_recipes_preserve_mixed_export_contract(
+    precision: str,
+    opset_version: int,
+    dynamo: bool,
+    dtype: str,
+    quant_mode: str | None,
+) -> None:
+    path = (
+        REPO_ROOT
+        / "examples"
+        / "recipes"
+        / "ZhengPeng7_BiRefNet"
+        / "cpu"
+        / "cpu"
+        / f"image-segmentation_{precision}_config.json"
+    )
+    config = WinMLBuildConfig.from_dict(json.loads(path.read_text(encoding="utf-8")))
+
+    assert config.export is not None
+    assert config.export.opset_version == opset_version
+    assert config.export.dynamo is dynamo
+    assert config.export.enable_hierarchy_tags is True
+    assert len(config.export.input_tensors) == 1
+    assert config.export.input_tensors[0].name == "x"
+    assert config.export.input_tensors[0].dtype == dtype
+    assert config.export.input_tensors[0].shape == (1, 3, 1024, 1024)
+    assert [tensor.name for tensor in config.export.output_tensors] == ["logits"]
+    assert config.loader.task == "image-segmentation"
+    assert config.loader.model_class == "AutoModelForImageSegmentation"
+    assert config.loader.model_type == "SegformerForSemanticSegmentation"
+    assert config.loader.trust_remote_code is True
+
+    if quant_mode is None:
+        assert config.quant is None
+    else:
+        assert config.quant is not None
+        assert config.quant.mode == quant_mode

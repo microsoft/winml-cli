@@ -1,6 +1,6 @@
 {
   "export": {
-    "opset_version": 17,
+    "opset_version": 18,
     "batch_size": 1,
     "export_params": true,
     "do_constant_folding": true,

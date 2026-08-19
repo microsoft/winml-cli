@@ -110,6 +110,12 @@ class TestHTPExporterReadDefaultOpset:
 class TestHTPExporterOpsetMismatchWarning:
     """Mismatch guidance must match the exporter and conversion direction."""
 
+    def test_matching_requested_and_actual_opset_is_accepted(self, caplog) -> None:
+        with caplog.at_level(logging.WARNING):
+            HTPExporter._warn_on_opset_mismatch(18, 18, dynamo=True)
+
+        assert caplog.text == ""
+
     def test_failed_dynamo_downconversion_recommends_no_dynamo(self, caplog) -> None:
         with caplog.at_level(logging.WARNING):
             HTPExporter._warn_on_opset_mismatch(17, 18, dynamo=True)
