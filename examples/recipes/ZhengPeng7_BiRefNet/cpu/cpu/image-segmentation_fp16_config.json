@@ -12,7 +12,7 @@
     "input_tensors": [
       {
         "name": "x",
-        "dtype": "float32",
+        "dtype": "float16",
         "shape": [
           1,
           3,

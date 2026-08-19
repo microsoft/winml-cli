@@ -408,6 +408,10 @@ def _load_model(
         from ..loader import load_hf_model
 
         effective_trust = trust_remote_code or config.loader.trust_remote_code
+        torch_dtype = _resolve_export_torch_dtype(config) if effective_trust else None
+        load_kwargs: dict[str, Any] = {}
+        if torch_dtype is not None:
+            load_kwargs["torch_dtype"] = torch_dtype
         pytorch_model, _, _ = load_hf_model(
             model_name_or_path=model_id,
             task=task,
@@ -415,7 +419,28 @@ def _load_model(
             trust_remote_code=effective_trust,
             hf_config=hf_config,
             model_type=model_type,
+            **load_kwargs,
         )
         return pytorch_model
 
     raise ValueError("Impossible to load model: no model_id provided and random_init=False.")
+
+
+def _resolve_export_torch_dtype(config: WinMLBuildConfig) -> Any | None:
+    """Resolve a uniform floating model dtype from configured export inputs."""
+    if config.export is None or not config.export.input_tensors:
+        return None
+
+    import torch
+
+    dtype_map = {
+        "bfloat16": torch.bfloat16,
+        "float16": torch.float16,
+        "float32": torch.float32,
+    }
+    floating_dtypes = {
+        spec.dtype for spec in config.export.input_tensors if spec.dtype in dtype_map
+    }
+    if len(floating_dtypes) != 1:
+        return None
+    return dtype_map[floating_dtypes.pop()]

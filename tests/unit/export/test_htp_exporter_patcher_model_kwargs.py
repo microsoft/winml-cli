@@ -17,6 +17,7 @@ This test pins the contract that ``_get_optimum_patcher`` passes an explicit
 
 from __future__ import annotations
 
+from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
 import torch.nn as nn
@@ -50,6 +51,21 @@ class _OverwritingConfigModel(nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.config = object()
+
+
+class _MetadataBackedConfig:
+    model_type = "shared-model-type"
+    architectures: ClassVar[list[str]] = ["RemoteArchitecture"]
+    auto_map: ClassVar[dict[str, str]] = {
+        "AutoModelForImageSegmentation": "modeling.RemoteArchitecture"
+    }
+
+
+class _MetadataBackedModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.config = object()
+        self._winml_hf_config = _MetadataBackedConfig()
 
 
 class TestGetOptimumPatcherModelKwargs:
@@ -110,3 +126,20 @@ class TestGetOptimumPatcherModelKwargs:
 
         assert isinstance(captured["config"], _ArchitectureConfig)
         assert constructor.call_args.kwargs["model_type"] == "custom-architecture"
+
+    def test_uses_preserved_remote_metadata_before_config_class_fallback(self) -> None:
+        model = _MetadataBackedModel()
+        fake_onnx_config = MagicMock()
+        fake_onnx_config.patch_model_for_export.return_value = MagicMock()
+
+        with patch(
+            "winml.modelkit.export.io._get_onnx_config",
+            return_value=fake_onnx_config,
+        ) as get_onnx_config:
+            HTPExporter._get_optimum_patcher(model, task="image-segmentation")
+
+        get_onnx_config.assert_called_once_with(
+            "shared-model-type",
+            "image-segmentation",
+            model._winml_hf_config,
+        )

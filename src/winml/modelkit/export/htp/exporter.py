@@ -686,6 +686,12 @@ class HTPExporter:
         model_config = getattr(model, "config", None)
         model_type = getattr(model_config, "model_type", None) if model_config else None
         if not model_type:
+            resolved_hf_config = getattr(model, "_winml_hf_config", None)
+            resolved_model_type = getattr(resolved_hf_config, "model_type", None)
+            if resolved_model_type:
+                model_config = resolved_hf_config
+                model_type = resolved_model_type
+        if not model_type:
             # Trusted custom-code models occasionally overwrite the
             # PreTrainedModel config with an internal runtime settings object.
             # Recover the Hugging Face config from the architecture-declared

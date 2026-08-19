@@ -73,6 +73,7 @@ def test_loader_config_preserves_remote_auto_class_and_trust() -> None:
 def test_load_hf_model_calls_remote_auto_class_with_trust() -> None:
     config = RemoteImageSegmentationConfig()
     model = MagicMock()
+    model.config = object()
     model.parameters.return_value = []
     with (
         patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=config),
@@ -94,3 +95,4 @@ def test_load_hf_model_calls_remote_auto_class_with_trust() -> None:
         trust_remote_code=True,
         config=config,
     )
+    assert model._winml_hf_config is config
