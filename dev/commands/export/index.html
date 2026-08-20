@@ -2723,6 +2723,13 @@ pipeline. This is the entry point before <code>winml quantize</code> or <code>wi
 <td>Output ONNX file path (e.g., <code>model.onnx</code>).</td>
 </tr>
 <tr>
+<td><code>--batch-size</code></td>
+<td></td>
+<td>integer</td>
+<td><code>1</code></td>
+<td>Static batch size for generated model inputs.</td>
+</tr>
+<tr>
 <td><code>--with-report/--no-with-report</code></td>
 <td></td>
 <td>flag</td>
@@ -2833,36 +2840,39 @@ understand custom metadata.</p>
 </span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
 </span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>Success! Model exported to: resnet50.onnx
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Export with verbose output and full Markdown + JSON reports</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>facebook/convnext-tiny-224<span class="w"> </span>-o<span class="w"> </span>convnext.onnx<span class="w"> </span>-v<span class="w"> </span>--with-report
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Export a model with a static batch size of 2</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>-o<span class="w"> </span>resnet50_batch2.onnx<span class="w"> </span>--batch-size<span class="w"> </span><span class="m">2</span>
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Export a BERT model, overriding input shapes for longer sequences</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>-o<span class="w"> </span>bert.onnx<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>--shape-config<span class="w"> </span>shape.json
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># shape.json: {&quot;sequence_length&quot;: 512}</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Export with verbose output and full Markdown + JSON reports</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>facebook/convnext-tiny-224<span class="w"> </span>-o<span class="w"> </span>convnext.onnx<span class="w"> </span>-v<span class="w"> </span>--with-report
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Export with a hand-crafted input-spec file (skips auto-detection)</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>-o<span class="w"> </span>bert.onnx<span class="w"> </span>--input-specs<span class="w"> </span>inputs.json
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Export a BERT model, overriding input shapes for longer sequences</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>-o<span class="w"> </span>bert.onnx<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--shape-config<span class="w"> </span>shape.json
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># shape.json: {&quot;sequence_length&quot;: 512}</span>
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Export a fully static-shaped model (the default) for NPU/QNN compilation.</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="c1"># The default dummy inputs already produce static shapes; use --shape-config to</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># pin any symbolic dimensions to concrete sizes, or --input-specs to fully</span>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># specify every input tensor.</span>
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>-o<span class="w"> </span>bert.onnx<span class="w"> </span>--shape-config<span class="w"> </span>shape_config.json
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="c1"># shape_config.json: {&quot;sequence_length&quot;: 128}</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Export with a hand-crafted input-spec file (skips auto-detection)</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>-o<span class="w"> </span>bert.onnx<span class="w"> </span>--input-specs<span class="w"> </span>inputs.json
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Export with dynamic batch and sequence dimensions</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>-o<span class="w"> </span>bert.onnx<span class="w"> </span>--dynamic-axes<span class="w"> </span>dynamic_axes.json
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="c1"># dynamic_axes.json:</span>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1"># {&quot;input_ids&quot;: {&quot;0&quot;: &quot;batch&quot;, &quot;1&quot;: &quot;sequence&quot;}, &quot;attention_mask&quot;: {&quot;0&quot;: &quot;batch&quot;, &quot;1&quot;: &quot;sequence&quot;}}</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Export a fully static-shaped model (the default) for NPU/QNN compilation.</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="c1"># The default dummy inputs already produce static shapes; use --shape-config to</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="c1"># pin any symbolic dimensions to concrete sizes, or --input-specs to fully</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1"># specify every input tensor.</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>-o<span class="w"> </span>bert.onnx<span class="w"> </span>--shape-config<span class="w"> </span>shape_config.json
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="c1"># shape_config.json: {&quot;sequence_length&quot;: 128}</span>
+</span></code></pre></div>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Export with dynamic batch and sequence dimensions</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>-o<span class="w"> </span>bert.onnx<span class="w"> </span>--dynamic-axes<span class="w"> </span>dynamic_axes.json
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="c1"># dynamic_axes.json:</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1"># {&quot;input_ids&quot;: {&quot;0&quot;: &quot;batch&quot;, &quot;1&quot;: &quot;sequence&quot;}, &quot;attention_mask&quot;: {&quot;0&quot;: &quot;batch&quot;, &quot;1&quot;: &quot;sequence&quot;}}</span>
 </span></code></pre></div>
 <p><code>--input-specs</code> also accepts symbolic dimension names in <code>shape</code>; symbolic
 entries are used as dynamic ONNX axis names while size <code>1</code> is used for the
 dummy input tensor. For example, <code>{"input_ids": {"dtype": "int64", "shape":
 ["batch", "sequence"]}}</code> exports <code>input_ids</code> with dynamic <code>batch</code> and
 <code>sequence</code> dimensions.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Produce clean ONNX without hierarchy metadata (for third-party optimizers)</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>-o<span class="w"> </span>resnet50_clean.onnx<span class="w"> </span>--no-hierarchy
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Produce clean ONNX without hierarchy metadata (for third-party optimizers)</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>-o<span class="w"> </span>resnet50_clean.onnx<span class="w"> </span>--no-hierarchy
 </span></code></pre></div>
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
