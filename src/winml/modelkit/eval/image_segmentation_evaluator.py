@@ -55,10 +55,13 @@ class WinMLImageSegmentationEvaluator(WinMLEvaluator):
         self._annotation_col = mapping.get(
             "annotation_column", get_default(task, "annotation_column"),
         )
+        self._binary_foreground = self._uses_binary_foreground_contract(model)
         super().__init__(config, model)
 
     def prepare_pipeline(self) -> Pipeline:
         """Create pipeline and match image processor size to ONNX input shape."""
+        if getattr(self, "_binary_foreground", False):
+            return None  # type: ignore[return-value]
         pipe = super().prepare_pipeline()
 
         io_config = getattr(self.model, "io_config", None) or {}
@@ -82,6 +85,11 @@ class WinMLImageSegmentationEvaluator(WinMLEvaluator):
         This is done per-sample in compute() using ds_config.label_mapping.
         """
         self._validate_schema(dataset)
+        if getattr(self, "_binary_foreground", False):
+            from datasets import Image
+
+            dataset = dataset.cast_column(self._image_col, Image(decode=False))
+            dataset = dataset.cast_column(self._annotation_col, Image(decode=False))
         if ds_config.label_mapping:
             logger.info(
                 "Label mapping provided (%d entries). "
@@ -92,6 +100,9 @@ class WinMLImageSegmentationEvaluator(WinMLEvaluator):
 
     def compute(self) -> dict[str, Any]:
         """Run segmentation evaluation and return mIoU metrics."""
+        if getattr(self, "_binary_foreground", False):
+            return self._compute_binary_foreground()
+
         from .metrics import MeanIoUMetric
 
         num_labels = getattr(self.model.config, "num_labels", None)
@@ -123,6 +134,112 @@ class WinMLImageSegmentationEvaluator(WinMLEvaluator):
                 logger.info("Processed %d / %d images...", i + 1, len(self.data))
 
         return metric.compute()
+
+    def _compute_binary_foreground(self) -> dict[str, Any]:
+        """Evaluate a one-logit foreground mask without semantic-class decoding."""
+        import io
+        from pathlib import Path
+
+        import torch
+        from PIL import Image
+
+        from .metrics import BinarySegmentationMetric
+
+        metric = BinarySegmentationMetric()
+        skipped = 0
+        requested = len(self.data)
+        input_shapes = self.model.io_config.get("input_shapes", [])
+        if not input_shapes or len(input_shapes[0]) != 4:
+            raise ValueError("Binary image segmentation requires a four-dimensional input shape.")
+        _, channels, height, width = input_shapes[0]
+        if channels != 3 or not isinstance(height, int) or not isinstance(width, int):
+            raise ValueError(
+                "Binary image segmentation requires a static [batch, 3, height, width] input."
+            )
+
+        def open_image(value: Any, mode: str) -> Image.Image:
+            if isinstance(value, Image.Image):
+                return value.convert(mode)
+            if isinstance(value, dict):
+                if value.get("bytes") is not None:
+                    return Image.open(io.BytesIO(value["bytes"])).convert(mode)
+                if value.get("path") is not None:
+                    return Image.open(value["path"]).convert(mode)
+            if isinstance(value, bytes):
+                return Image.open(io.BytesIO(value)).convert(mode)
+            if isinstance(value, (str, Path)):
+                return Image.open(value).convert(mode)
+            raise TypeError(f"Unsupported image value: {type(value).__name__}")
+
+        mean = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)[:, None, None]
+        std = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)[:, None, None]
+
+        for index, sample in enumerate(self.data):
+            image_value = sample.get(self._image_col)
+            annotation_value = sample.get(self._annotation_col)
+            if image_value is None or annotation_value is None:
+                logger.warning("Skipping sample %d: missing image or annotation.", index)
+                skipped += 1
+                continue
+
+            image = open_image(image_value, "RGB")
+            annotation = open_image(annotation_value, "L")
+            resized = image.resize((width, height), Image.Resampling.BILINEAR)
+            image_array = np.asarray(resized, dtype=np.float32).transpose(2, 0, 1) / 255.0
+            normalized = (image_array - mean) / std
+            output = self.model(pixel_values=torch.from_numpy(normalized[None]))
+            logits = getattr(output, "logits", None)
+            if logits is None:
+                raise ValueError("Binary image-segmentation output is missing foreground logits.")
+            if isinstance(logits, torch.Tensor):
+                logits = logits.detach().cpu().numpy()
+            logits_array = np.asarray(logits, dtype=np.float32)
+            if logits_array.ndim != 4 or logits_array.shape[:2] != (1, 1):
+                raise ValueError(
+                    "Binary foreground logits must have shape [1, 1, height, width], "
+                    f"got {logits_array.shape}."
+                )
+            stable_logits = np.clip(logits_array[0, 0], -88.0, 88.0)
+            probabilities = 1.0 / (1.0 + np.exp(-stable_logits))
+            prediction = Image.fromarray((probabilities >= 0.5).astype(np.uint8) * 255)
+            prediction = prediction.resize(annotation.size, Image.Resampling.NEAREST)
+            metric.update(np.asarray(prediction) > 0, np.asarray(annotation) > 0)
+
+        result = metric.compute()
+        result["num_skipped"] += skipped
+        result["requested_samples"] = requested
+        result["processed_samples"] = result["num_samples"]
+        if result["num_samples"] == 0:
+            raise DatasetValidationError(
+                "Binary image-segmentation evaluation processed no non-empty masks."
+            )
+        return result
+
+    @staticmethod
+    def _uses_binary_foreground_contract(model: WinMLPreTrainedModel) -> bool:
+        """Return whether metadata and ONNX I/O declare binary foreground masks."""
+        config = getattr(model, "config", None)
+        architectures = set(getattr(config, "architectures", None) or [])
+        auto_map = getattr(config, "auto_map", None)
+        if not architectures or not isinstance(auto_map, dict):
+            return False
+        remote_reference = auto_map.get("AutoModelForImageSegmentation")
+        if not isinstance(remote_reference, str):
+            return False
+        if remote_reference.rsplit(".", 1)[-1] not in architectures:
+            return False
+
+        io_config = getattr(model, "io_config", None) or {}
+        input_names = io_config.get("input_names", [])
+        output_names = io_config.get("output_names", [])
+        output_shapes = io_config.get("output_shapes", [])
+        return (
+            input_names == ["x"]
+            and output_names == ["logits"]
+            and len(output_shapes) == 1
+            and len(output_shapes[0]) == 4
+            and output_shapes[0][1] == 1
+        )
 
     @staticmethod
     def prepare_prediction(
@@ -182,9 +299,10 @@ class WinMLImageSegmentationEvaluator(WinMLEvaluator):
 
     def _validate_schema(self, dataset: Dataset) -> None:
         """Check dataset has required columns."""
-        if "image" not in dataset.column_names:
+        if self._image_col not in dataset.column_names:
             raise DatasetValidationError(
-                f"Dataset missing 'image' column. Available: {list(dataset.column_names)}.",
+                f"Dataset missing image column '{self._image_col}'. "
+                f"Available: {list(dataset.column_names)}.",
             )
         if self._annotation_col not in dataset.column_names:
             raise DatasetValidationError(

@@ -25,14 +25,37 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import onnx
 
 
 logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
+
+    from onnx import ModelProto, NodeProto
+
 # Prefix for custom winml node attributes
 _WINML_ATTR_PREFIX = "winml."
+
+
+def _iter_nodes(model: ModelProto) -> Iterator[NodeProto]:
+    """Yield nodes recursively across graphs and local functions."""
+
+    def iter_node_list(nodes: Iterable[NodeProto]) -> Iterator[NodeProto]:
+        for node in nodes:
+            yield node
+            for attribute in node.attribute:
+                if attribute.HasField("g"):
+                    yield from iter_node_list(attribute.g.node)
+                for graph in attribute.graphs:
+                    yield from iter_node_list(graph.node)
+
+    yield from iter_node_list(model.graph.node)
+    for function in model.functions:
+        yield from iter_node_list(function.node)
 
 
 @dataclass
@@ -101,7 +124,7 @@ def capture_metadata(model: onnx.ModelProto) -> MetadataSnapshot:
         snapshot.model_props.append((prop.key, prop.value))
 
     # Capture node-level metadata
-    for node in model.graph.node:
+    for node in _iter_nodes(model):
         entry = _capture_node(node)
         if entry is not None:
             snapshot.nodes[node.name] = entry
@@ -132,7 +155,8 @@ def restore_metadata(
     Returns:
         RestoreResult with counts of restored items.
     """
-    result = RestoreResult(nodes_total=len(model.graph.node))
+    nodes = list(_iter_nodes(model))
+    result = RestoreResult(nodes_total=len(nodes))
 
     # Restore model-level metadata_props (only missing ones)
     existing_model_keys = {prop.key for prop in model.metadata_props}
@@ -142,7 +166,7 @@ def restore_metadata(
             result.model_props_restored += 1
 
     # Restore node-level metadata by name match
-    for node in model.graph.node:
+    for node in nodes:
         if node.name not in snapshot.nodes:
             continue
         entry = snapshot.nodes[node.name]

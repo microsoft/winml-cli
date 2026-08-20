@@ -11,6 +11,7 @@ the quantizer's ``mode="fp16"`` path.
 from __future__ import annotations
 
 import logging
+import re
 from copy import deepcopy
 from dataclasses import dataclass
 from math import prod
@@ -20,7 +21,7 @@ from google.protobuf.message import EncodeError
 
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Iterator, Sequence
 
     from onnx import (
         AttributeProto,
@@ -34,7 +35,55 @@ if TYPE_CHECKING:
     )
     from onnx.defs import OpSchema
 
+    from ..onnx.metadata import MetadataSnapshot
+
 logger = logging.getLogger(__name__)
+
+_GENERATED_CAST_NAME = re.compile(r"^(?P<owner>.+)_(?:input|output)_cast\d+$")
+_PRECISION_FREE_CAST_PREFIX = "InsertedPrecisionFreeCast_"
+_PRECISION_FREE_CAST_DOC = "cast node to cast from float16 to float32 on cpu"
+
+
+def _iter_nodes(model: ModelProto) -> Iterator[NodeProto]:
+    """Yield nodes from the main graph, nested graphs, and local functions."""
+
+    def iter_node_list(nodes: Iterable[NodeProto]) -> Iterator[NodeProto]:
+        for node in nodes:
+            yield node
+            for attribute in node.attribute:
+                if attribute.HasField("g"):
+                    yield from iter_node_list(attribute.g.node)
+                for graph in attribute.graphs:
+                    yield from iter_node_list(graph.node)
+
+    yield from iter_node_list(model.graph.node)
+    for function in model.functions:
+        yield from iter_node_list(function.node)
+
+
+def _propagate_generated_cast_metadata(
+    model: ModelProto,
+    snapshot: MetadataSnapshot,
+) -> None:
+    """Associate converter-generated boundary casts with their owner metadata."""
+    for node in _iter_nodes(model):
+        if node.op_type != "Cast" or node.name in snapshot.nodes:
+            continue
+        match = _GENERATED_CAST_NAME.fullmatch(node.name)
+        if match and match["owner"] in snapshot.nodes:
+            snapshot.nodes[node.name] = snapshot.nodes[match["owner"]]
+            continue
+        if node.name.endswith("_winml_fp32_cast") and node.output:
+            consumer = next(
+                (
+                    candidate
+                    for candidate in _iter_nodes(model)
+                    if node.output[0] in candidate.input and candidate.name in snapshot.nodes
+                ),
+                None,
+            )
+            if consumer is not None:
+                snapshot.nodes[node.name] = snapshot.nodes[consumer.name]
 
 
 @dataclass(frozen=True)
@@ -45,6 +94,13 @@ class _InitializerOutput:
     name: str
     output_index: int
     has_consumers: bool
+
+
+@dataclass(frozen=True)
+class _PrecisionFreeCast:
+    """A proven FP16-to-FLOAT boundary that ORT must not narrow."""
+
+    node_name: str
 
 
 def _tensor_data_is_loaded(initializer: TensorProto) -> bool:
@@ -157,6 +213,52 @@ def _ort_traversed_graphs(model: ModelProto, op_block_list: list[str] | None) ->
         traversed.append(graph)
         pending.extend(_iter_ort_child_graphs(graph, blocked_ops))
     return traversed
+
+
+def _name_anonymous_late_cast_nodes(model: ModelProto, op_block_list: list[str] | None) -> None:
+    """Give anonymous late-Cast owners deterministic collision-free names."""
+    from onnxruntime.transformers.float16 import ALWAYS_FLOAT_INPUTS
+
+    blocked_ops = _effective_blocked_ops(op_block_list)
+    graphs = _ort_traversed_graphs(model, op_block_list)
+    reserved_tensors = {name for graph in graphs for name in _graph_tensor_names(graph)}
+    reserved_nodes = {
+        node.name for graph in graphs for node in getattr(graph, "node", []) if node.name
+    }
+    next_index = 0
+
+    for graph in graphs:
+        for node in getattr(graph, "node", []):
+            if node.name or (
+                node.op_type not in blocked_ops and node.op_type not in ALWAYS_FLOAT_INPUTS
+            ):
+                continue
+            while True:
+                candidate = f"winml_fp16_unnamed_{next_index}"
+                next_index += 1
+                tensor_aliases = {
+                    f"{candidate}_input_cast_{input_index}"
+                    for input_index in range(len(node.input))
+                } | {
+                    f"{candidate}_output_cast_{output_index}"
+                    for output_index in range(len(node.output))
+                }
+                node_aliases = {
+                    f"{candidate}_input_cast{input_index}" for input_index in range(len(node.input))
+                } | {
+                    f"{candidate}_output_cast{output_index}"
+                    for output_index in range(len(node.output))
+                }
+                if (
+                    candidate not in reserved_nodes
+                    and tensor_aliases.isdisjoint(reserved_tensors)
+                    and node_aliases.isdisjoint(reserved_nodes)
+                ):
+                    break
+            node.name = candidate
+            reserved_tensors.update(tensor_aliases)
+            reserved_nodes.add(candidate)
+            reserved_nodes.update(node_aliases)
 
 
 def _direct_initializer_outputs_in_graph(
@@ -983,6 +1085,72 @@ def _node_input_is_proven_non_float(
     return bool(concrete_types) and all(
         not _type_proto_contains_float_tensor(value_type) for value_type in concrete_types
     )
+
+
+def _tensor_elem_type_is(value_type: TypeProto, data_type: int) -> bool:
+    """Whether a concrete type is a tensor with the requested element type."""
+    return value_type.HasField("tensor_type") and value_type.tensor_type.elem_type == data_type
+
+
+def _capture_precision_free_casts(
+    model: ModelProto,
+    op_block_list: list[str] | None,
+) -> list[_PrecisionFreeCast]:
+    """Capture explicit, fully typed FP16-to-FLOAT Cast boundaries."""
+    from onnx import TensorProto
+
+    graphs = _ort_traversed_graphs(model, op_block_list)
+    name_counts: dict[str, int] = {}
+    for graph in graphs:
+        for node in graph.node:
+            if node.name:
+                name_counts[node.name] = name_counts.get(node.name, 0) + 1
+
+    captured: list[_PrecisionFreeCast] = []
+    for graph in graphs:
+        for node in graph.node:
+            if not node.name.startswith(_PRECISION_FREE_CAST_PREFIX):
+                continue
+            target = next(
+                (attribute.i for attribute in node.attribute if attribute.name == "to"),
+                None,
+            )
+            if node.op_type != "Cast" or target != TensorProto.FLOAT:
+                msg = f"Malformed FP16-to-FLOAT precision boundary: {node.name}"
+                raise RuntimeError(msg)
+            if len(node.input) != 1:
+                msg = f"Malformed FP16-to-FLOAT precision boundary: {node.name}"
+                raise RuntimeError(msg)
+            input_types = _graph_declared_types(graph, node.input[0])
+            output_types = [
+                value_type
+                for output_name in node.output
+                for value_type in _graph_declared_types(graph, output_name)
+            ]
+            if not (
+                node.doc_string == _PRECISION_FREE_CAST_DOC
+                and input_types
+                and all(
+                    _tensor_elem_type_is(value_type, TensorProto.FLOAT16)
+                    for value_type in input_types
+                )
+                and output_types
+                and all(
+                    _tensor_elem_type_is(value_type, TensorProto.FLOAT)
+                    for value_type in output_types
+                )
+            ):
+                msg = f"Malformed FP16-to-FLOAT precision boundary: {node.name}"
+                raise RuntimeError(msg)
+            if not node.name or name_counts.get(node.name) != 1:
+                msg = "A proven FP16-to-FLOAT precision boundary must have a unique node name."
+                raise RuntimeError(msg)
+            captured.append(
+                _PrecisionFreeCast(
+                    node_name=node.name,
+                )
+            )
+    return captured
 
 
 def _node_input_is_precision_coupled(
@@ -2904,9 +3072,14 @@ def convert_to_fp16(
     from onnx import TensorProto
     from onnxruntime.transformers.float16 import convert_float_to_float16
 
+    from ..onnx import capture_metadata, restore_metadata
+
+    metadata_snapshot = capture_metadata(model)
+
     _reject_sparse_initializer_tensor_metadata(model, op_block_list)
     _reject_duplicate_float_initializer_names(model, op_block_list)
     io_preflight_model = _ort_inference_preflight_model(model)
+    _name_anonymous_late_cast_nodes(io_preflight_model, op_block_list)
     blocked_ops = _effective_blocked_ops(op_block_list)
     _reject_unpreserved_float_container_io(
         io_preflight_model,
@@ -2937,6 +3110,10 @@ def convert_to_fp16(
         io_preflight_model,
         keep_io_types=keep_io_types,
         op_block_list=op_block_list,
+    )
+    precision_free_casts = _capture_precision_free_casts(
+        io_preflight_model,
+        op_block_list,
     )
     captured = _capture_safe_initializer_outputs(
         model, keep_io_types=keep_io_types, op_block_list=op_block_list
@@ -2995,6 +3172,7 @@ def convert_to_fp16(
         io_preflight_model,
         keep_io_types=keep_io_types,
     )
+    _name_anonymous_late_cast_nodes(model, op_block_list)
     needs_safe_conversion = (
         bool(captured)
         or _has_nested_initializer_outputs(model, op_block_list)
@@ -3025,23 +3203,40 @@ def convert_to_fp16(
         logger.info("  Keeping ops in FP32: %s", op_block_list)
 
     try:
-        converted: ModelProto = convert_float_to_float16(
-            conversion_model,
-            keep_io_types=keep_io_types,
-            op_block_list=op_block_list,
-        )
+        if precision_free_casts:
+            converted: ModelProto = convert_float_to_float16(
+                conversion_model,
+                keep_io_types=keep_io_types,
+                op_block_list=op_block_list,
+                node_block_list=[item.node_name for item in precision_free_casts],
+            )
+        else:
+            converted = convert_float_to_float16(
+                conversion_model,
+                keep_io_types=keep_io_types,
+                op_block_list=op_block_list,
+            )
     except EncodeError:
         logger.warning(
             "FP16 conversion shape inference could not serialize the model; "
             "retrying with shape inference disabled. This can happen for "
             "large ONNX models that use external data."
         )
-        converted = convert_float_to_float16(
-            conversion_model,
-            keep_io_types=keep_io_types,
-            disable_shape_infer=True,
-            op_block_list=op_block_list,
-        )
+        if precision_free_casts:
+            converted = convert_float_to_float16(
+                conversion_model,
+                keep_io_types=keep_io_types,
+                disable_shape_infer=True,
+                op_block_list=op_block_list,
+                node_block_list=[item.node_name for item in precision_free_casts],
+            )
+        else:
+            converted = convert_float_to_float16(
+                conversion_model,
+                keep_io_types=keep_io_types,
+                disable_shape_infer=True,
+                op_block_list=op_block_list,
+            )
 
     converted_graphs = _ort_traversed_graphs(converted, op_block_list)
     if keep_io_types:
@@ -3067,6 +3262,9 @@ def convert_to_fp16(
     if converted is not model:
         model.CopyFrom(converted)
         converted = model
+
+    _propagate_generated_cast_metadata(converted, metadata_snapshot)
+    restore_metadata(converted, metadata_snapshot)
 
     converted_nodes = len(converted.graph.node)
     if converted_nodes != original_nodes:

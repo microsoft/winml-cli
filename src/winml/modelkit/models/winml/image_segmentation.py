@@ -81,8 +81,11 @@ class WinMLModelForImageSegmentation(WinMLPreTrainedModel):
         Returns:
             ImageSegmentationOutput with logits, pred_masks, and pred_boxes
         """
-        # Build inputs dict - only include non-None values
-        inputs: dict[str, Any] = {"pixel_values": pixel_values}
+        # Custom binary foreground models may expose a single architecture-specific
+        # input name (for example ``x``) while retaining image-segmentation semantics.
+        input_names = self.io_config.get("input_names", [])
+        image_input_name = input_names[0] if len(input_names) == 1 else "pixel_values"
+        inputs: dict[str, Any] = {image_input_name: pixel_values}
         if pixel_mask is not None:
             inputs["pixel_mask"] = pixel_mask
 
@@ -90,8 +93,12 @@ class WinMLModelForImageSegmentation(WinMLPreTrainedModel):
         formatted = self._format_inputs(**inputs)
         outputs = self._run_inference(formatted)
 
+        logits = outputs.get("logits")
+        if logits is None and len(outputs) == 1:
+            logits = next(iter(outputs.values()))
+
         return ImageSegmentationOutput(
-            logits=outputs.get("logits"),
+            logits=logits,
             pred_boxes=outputs.get("pred_boxes"),
             pred_masks=outputs.get("pred_masks"),
         )

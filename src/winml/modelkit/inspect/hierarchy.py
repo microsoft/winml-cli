@@ -129,7 +129,7 @@ def _is_hf_module(module: nn.Module) -> bool:
     return True
 
 
-def extract_hierarchy(model_id: str) -> HierarchyInfo:
+def extract_hierarchy(model_id: str, *, trust_remote_code: bool = False) -> HierarchyInfo:
     """Extract the HF module hierarchy from a model.
 
     If the model is already cached locally, loads pretrained weights.
@@ -149,7 +149,7 @@ def extract_hierarchy(model_id: str) -> HierarchyInfo:
         logger.debug("Checking if model is cached locally...")
         model = AutoModel.from_pretrained(
             model_id,
-            trust_remote_code=False,
+            trust_remote_code=trust_remote_code,
             local_files_only=True,
         )
         logger.info("Using cached pretrained model")
@@ -158,8 +158,12 @@ def extract_hierarchy(model_id: str) -> HierarchyInfo:
         logger.debug("Model not cached or load failed (%s), using random weights", type(e).__name__)
         from ..loader import load_hf_config
 
-        config = load_hf_config(AutoConfig, model_id, trust_remote_code=False)
-        model = AutoModel.from_config(config)
+        config = load_hf_config(
+            AutoConfig,
+            model_id,
+            trust_remote_code=trust_remote_code,
+        )
+        model = AutoModel.from_config(config, trust_remote_code=trust_remote_code)
         logger.info("Using random weights (model not downloaded)")
 
     model.eval()

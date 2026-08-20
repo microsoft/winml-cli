@@ -17,8 +17,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+import torch
 
 from winml.modelkit.build.hf import BuildResult, build_hf_model
+from winml.modelkit.export import InputTensorSpec
 
 
 # =============================================================================
@@ -378,6 +380,31 @@ class TestBuildHfModel:
 
         m_load.assert_called_once()
         assert m_load.call_args.kwargs["model_class"] == "AutoModelForImageClassification"
+        assert "torch_dtype" not in m_load.call_args.kwargs
+
+    @pytest.mark.parametrize(
+        ("input_dtype", "expected_dtype"),
+        [("float32", torch.float32), ("float16", torch.float16)],
+    )
+    def test_trusted_pretrained_load_uses_export_input_dtype(
+        self,
+        sample_config,
+        input_dtype: str,
+        expected_dtype: torch.dtype,
+    ) -> None:
+        from winml.modelkit.build.hf import _load_model
+
+        assert sample_config.export is not None
+        sample_config.export.input_tensors = [
+            InputTensorSpec(name="x", dtype=input_dtype, shape=(1, 3, 16, 16))
+        ]
+        sample_config.loader.trust_remote_code = True
+
+        with patch("winml.modelkit.loader.load_hf_model") as load:
+            load.return_value = (MagicMock(), MagicMock(), "image-classification")
+            _load_model(sample_config, "test-model", trust_remote_code=False)
+
+        assert load.call_args.kwargs["torch_dtype"] is expected_dtype
 
     def test_pre_loaded_model_skips_load(
         self, tmp_path: Path, sample_config, mock_pipeline

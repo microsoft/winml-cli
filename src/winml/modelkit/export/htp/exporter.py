@@ -678,7 +678,6 @@ class HTPExporter:
         """
         try:
             import optimum.exporters.onnx.model_configs  # noqa: F401
-            from optimum.exporters.tasks import TasksManager
         except ImportError:
             logger.debug("Optimum not available; skipping model patcher.")
             return contextlib.nullcontext()
@@ -686,28 +685,47 @@ class HTPExporter:
         model_config = getattr(model, "config", None)
         model_type = getattr(model_config, "model_type", None) if model_config else None
         if not model_type:
+            resolved_hf_config = getattr(model, "_winml_hf_config", None)
+            resolved_model_type = getattr(resolved_hf_config, "model_type", None)
+            if resolved_model_type:
+                model_config = resolved_hf_config
+                model_type = resolved_model_type
+        if not model_type:
+            # Trusted custom-code models occasionally overwrite the
+            # PreTrainedModel config with an internal runtime settings object.
+            # Recover the Hugging Face config from the architecture-declared
+            # config_class so its registered export patcher still applies.
+            config_class = getattr(model.__class__, "config_class", None)
+            if callable(config_class):
+                try:
+                    model_config = config_class()
+                    model_type = getattr(model_config, "model_type", None)
+                except (TypeError, ValueError):
+                    logger.debug(
+                        "Could not instantiate %s.config_class for export patch resolution.",
+                        model.__class__.__name__,
+                    )
+        if not model_type:
             logger.debug("Model has no config.model_type; skipping Optimum patcher.")
             return contextlib.nullcontext()
         if task is None:
             logger.debug("No task provided; skipping Optimum patcher.")
             return contextlib.nullcontext()
 
-        # TasksManager expects Optimum-canonical task names
-        from ...loader import to_optimum_task
+        from ..io import ONNXConfigNotFoundError, _get_onnx_config
 
+        assert model_config is not None
         try:
-            cfg_cls = TasksManager.get_exporter_config_constructor(
-                "onnx",
-                model_type=model_type,
-                task=to_optimum_task(task),
-                library_name="transformers",
-            )
             # Pass an explicit empty model_kwargs so patchers that inject extra
             # forward arguments can populate it. Some patchers (e.g. ViTPose MoE,
             # which sets a constant dataset_index) assume a mutable dict and crash
             # on the None default from patch_model_for_export.
-            return cfg_cls(model_config).patch_model_for_export(model, model_kwargs={})
-        except KeyError:
+            return _get_onnx_config(
+                model_type,
+                task,
+                model_config,
+            ).patch_model_for_export(model, model_kwargs={})
+        except ONNXConfigNotFoundError:
             logger.debug(
                 "Model type '%s' (task='%s') not in Optimum registry; "
                 "exporting without Optimum patcher.",
@@ -777,6 +795,7 @@ class HTPExporter:
         assert self._node_tagger is not None, (
             "_apply_hierarchy_tags called before _initialize_node_tagger"
         )
+        self._ensure_unique_node_names(onnx_model)
         # Store ONNX model for later use in displaying operations
         self._onnx_model = onnx_model
         self._tagged_nodes = self._node_tagger.tag_all_nodes(onnx_model)
@@ -789,6 +808,25 @@ class HTPExporter:
         total_nodes = len(onnx_model.graph.node)
         self._export_stats["onnx_nodes"] = total_nodes
         self._update_tag_stats(total_nodes)
+
+    @staticmethod
+    def _ensure_unique_node_names(onnx_model: onnx.ModelProto) -> None:
+        """Assign deterministic names so tag keys survive protobuf iteration."""
+        reserved = {node.name for node in onnx_model.graph.node if node.name}
+        seen: set[str] = set()
+        generated_index = 0
+        for node in onnx_model.graph.node:
+            if node.name and node.name not in seen:
+                seen.add(node.name)
+                continue
+            while True:
+                candidate = f"winml_htp_{generated_index}_{node.op_type}"
+                generated_index += 1
+                if candidate not in reserved:
+                    break
+            node.name = candidate
+            reserved.add(candidate)
+            seen.add(candidate)
 
     def _embed_graph_metadata(
         self, onnx_model: onnx.ModelProto, export_config: WinMLExportConfig

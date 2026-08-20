@@ -86,6 +86,12 @@ dependencies = [
 ]
 
 optional-dependencies.audio = [ "soundfile>=0.13" ]
+# Dependencies imported by the ZhengPeng7/BiRefNet trusted remote code during
+# export. They are not required by winml itself; install with `winml-cli[birefnet]`.
+optional-dependencies.birefnet = [
+  "einops>=0.8",
+  "kornia>=0.8",
+]
 optional-dependencies.openvino = [ "openvino>=2023" ]
 optional-dependencies.qnn = [
   "onnxruntime-qnn>=1.24.1; python_version>='3.11'",

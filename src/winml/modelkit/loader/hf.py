@@ -289,6 +289,9 @@ def load_hf_model(
     if torch_dtype is not None:
         load_kwargs["torch_dtype"] = torch_dtype
     model = loader_cls.from_pretrained(model_name_or_path, **load_kwargs)
+    runtime_config = getattr(model, "config", None)
+    if trust_remote_code and not getattr(runtime_config, "model_type", None):
+        model._winml_hf_config = hf_config
 
     # [5] Export Preparation
     model.eval()

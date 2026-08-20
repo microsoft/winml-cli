@@ -4281,17 +4281,41 @@ class TestConvertToFP16:
             convert_to_fp16(model, keep_io_types=False, op_block_list=["Identity"])
         assert model.SerializeToString() == original
 
-    def test_duplicate_late_cast_alias_is_rejected_before_mutation(self) -> None:
-        """Blocked nodes must not allocate the same deterministic Cast tensor name."""
+    def test_anonymous_late_cast_aliases_are_named_deterministically(self) -> None:
+        """Anonymous blocked nodes receive stable names before ORT adds late Casts."""
         model = _build_duplicate_late_cast_alias_model()
-        original = model.SerializeToString()
+        duplicate = ModelProto()
+        duplicate.CopyFrom(model)
 
         checker.check_model(model)
         shape_inference.infer_shapes(model, strict_mode=True)
 
-        with np.testing.assert_raises_regex(RuntimeError, "late Cast tensor"):
-            convert_to_fp16(model, keep_io_types=False, op_block_list=["Identity"])
-        assert model.SerializeToString() == original
+        result = convert_to_fp16(model, keep_io_types=False, op_block_list=["Identity"])
+        duplicate_result = convert_to_fp16(
+            duplicate,
+            keep_io_types=False,
+            op_block_list=["Identity"],
+        )
+
+        checker.check_model(result)
+        assert result.SerializeToString() == duplicate_result.SerializeToString()
+        assert [node.name for node in result.graph.node if node.op_type == "Identity"] == [
+            "winml_fp16_unnamed_0",
+            "winml_fp16_unnamed_1",
+        ]
+        assert len({output for node in result.graph.node for output in node.output if output}) == 6
+        session = ort.InferenceSession(
+            result.SerializeToString(), providers=["CPUExecutionProvider"]
+        )
+        outputs = session.run(
+            None,
+            {
+                "a": np.array([1.0], dtype=np.float16),
+                "c": np.array([2.0], dtype=np.float16),
+            },
+        )
+        np.testing.assert_array_equal(outputs[0], np.array([1.0], dtype=np.float16))
+        np.testing.assert_array_equal(outputs[1], np.array([2.0], dtype=np.float16))
 
     def test_late_cast_node_name_collision_is_rejected_before_mutation(self) -> None:
         """Generated late Cast node names must be unique in the top-level graph."""
