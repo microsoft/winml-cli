@@ -1103,6 +1103,7 @@ class TestPerTaskDefaultDataset:
             ("zero-shot-classification", "fancyzhx/ag_news", "test"),
             ("zero-shot-image-classification", "uoft-cs/cifar100", "test"),
             ("image-classification", "timm/mini-imagenet", "test"),
+            ("reranking", "orgrctera/msmarco_passage_ranking", "dev"),
         ],
     )
     def test_per_task_default_split_reaches_evaluator(
