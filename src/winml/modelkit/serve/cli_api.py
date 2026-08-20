@@ -37,7 +37,7 @@ from pydantic import BaseModel
 from .. import __version__
 from ..cli import main as winml_cli
 from ..utils._security import _disable_remote_code_execution
-from ._security import SameOriginMiddleware
+from ._security import _CLI_API_LOOPBACK_ONLY_ROUTES, SameOriginMiddleware
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +145,10 @@ app = FastAPI(
     version=__version__,
 )
 
-app.add_middleware(SameOriginMiddleware)
+app.add_middleware(
+    SameOriginMiddleware,
+    loopback_only_routes=_CLI_API_LOOPBACK_ONLY_ROUTES,
+)
 
 _static_dir = Path(__file__).parent / "static"
 if _static_dir.exists():

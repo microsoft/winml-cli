@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from html.parser import HTMLParser
 from typing import Any
 
 import click
@@ -15,8 +16,10 @@ from fastapi.testclient import TestClient
 
 import winml.modelkit.serve.app as serve_app_module
 import winml.modelkit.serve.cli_api as cli_api
+from winml.modelkit.inference import InferenceEngine, PredictionResult
 from winml.modelkit.loader import load_hf_config, load_hf_model
 from winml.modelkit.serve._security import _is_same_origin
+from winml.modelkit.serve.manager import ModelSlot
 
 
 def _successful_cli_response(command: str) -> cli_api.CliResponse:
@@ -28,6 +31,24 @@ def _successful_cli_response(command: str) -> cli_api.CliResponse:
         stderr="",
         duration_ms=0,
     )
+
+
+class _DemoPolicyParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.content_security_policy: str | None = None
+        self.server_url_attributes: dict[str, str | None] | None = None
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        attributes = dict(attrs)
+        if tag == "meta" and attributes.get("http-equiv", "").lower() == "content-security-policy":
+            self.content_security_policy = attributes.get("content")
+        if tag == "input" and attributes.get("id") == "serverUrl":
+            self.server_url_attributes = attributes
 
 
 class TestOriginProtection:
@@ -45,7 +66,7 @@ class TestOriginProtection:
 
         monkeypatch.setattr(cli_api, "_invoke", fake_invoke)
 
-        with TestClient(cli_api.app) as client:
+        with TestClient(cli_api.app, client=("127.0.0.1", 50000)) as client:
             response = client.post(
                 "/v1/cli/sys",
                 headers={"Origin": "https://example.invalid"},
@@ -91,7 +112,7 @@ class TestOriginProtection:
         assert _is_same_origin(scope) is expected
 
     def test_phase_zero_rejects_foreign_origin_preflight(self) -> None:
-        with TestClient(cli_api.app) as client:
+        with TestClient(cli_api.app, client=("127.0.0.1", 50000)) as client:
             response = client.options(
                 "/v1/cli/build",
                 headers={
@@ -133,7 +154,11 @@ class TestOriginProtection:
         ],
     )
     def test_phase_zero_allows_local_clients(self, headers: dict[str, str]) -> None:
-        with TestClient(cli_api.app, base_url="http://127.0.0.1:8000") as client:
+        with TestClient(
+            cli_api.app,
+            base_url="http://127.0.0.1:8000",
+            client=("127.0.0.1", 50000),
+        ) as client:
             response = client.get("/v1/health", headers=headers)
 
         assert response.status_code == 200
@@ -153,6 +178,279 @@ class TestOriginProtection:
         assert "access-control-allow-origin" not in response.headers
 
 
+class TestLoopbackProtection:
+    """Only clients on this machine can invoke privileged HTTP routes."""
+
+    def test_remote_client_cannot_invoke_cli_without_origin(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        invocations: list[str] = []
+
+        def fake_invoke(command: str, _args: dict[str, Any]) -> cli_api.CliResponse:
+            invocations.append(command)
+            return _successful_cli_response(command)
+
+        monkeypatch.setattr(cli_api, "_invoke", fake_invoke)
+
+        with TestClient(cli_api.app, client=("192.0.2.20", 50000)) as client:
+            response = client.post(
+                "/v1/cli/compile",
+                json={
+                    "args": {
+                        "model": "model.onnx",
+                        "compiler": "qairt",
+                        "qnn_sdk_root": r"\\attacker\share\sdk",
+                    }
+                },
+            )
+
+        assert response.status_code == 403
+        assert invocations == []
+
+    def test_remote_client_cannot_bypass_cli_guard_through_mount(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        invocations: list[str] = []
+
+        def fake_invoke(command: str, _args: dict[str, Any]) -> cli_api.CliResponse:
+            invocations.append(command)
+            return _successful_cli_response(command)
+
+        monkeypatch.setattr(cli_api, "_invoke", fake_invoke)
+        parent = FastAPI()
+        parent.mount("/proxy", cli_api.app)
+
+        with TestClient(parent, client=("192.0.2.20", 50000)) as client:
+            response = client.post("/proxy/v1/cli/sys", json={"args": {}})
+
+        assert response.status_code == 403
+        assert invocations == []
+
+    def test_remote_client_cannot_use_management_route_without_origin(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        invocations: list[str] = []
+
+        async def fake_run(
+            command: str,
+            _args: dict[str, Any],
+        ) -> cli_api.CliResponse:
+            invocations.append(command)
+            return _successful_cli_response(command)
+
+        monkeypatch.setattr(serve_app_module, "_run_with_semaphore", fake_run)
+        app = serve_app_module.create_app(model_path="unused")
+        client = TestClient(app, client=("192.0.2.20", 50000))
+        try:
+            cli_response = client.post("/v1/cli/sys", json={"args": {}})
+            ep_response = client.post("/v1/ep", json={"ep": "cpu"})
+            load_response = client.post("/v1/models", json={"model_id": "owner/model"})
+            unload_response = client.delete("/v1/models/owner/model")
+            read_only_response = client.get("/v1/models")
+            inference_response = client.post(
+                "/v1/predict",
+                json={"inputs": {"text": "hello"}, "params": {}},
+            )
+        finally:
+            client.close()
+
+        assert cli_response.status_code == 403
+        assert ep_response.status_code == 403
+        assert load_response.status_code == 403
+        assert unload_response.status_code == 403
+        assert read_only_response.status_code == 503
+        assert inference_response.status_code == 503
+        assert invocations == []
+
+    @pytest.mark.parametrize("client_host", ["127.0.0.1", "::1"])
+    def test_loopback_client_can_invoke_cli_without_origin(
+        self,
+        client_host: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(
+            cli_api,
+            "_invoke",
+            lambda command, _args: _successful_cli_response(command),
+        )
+
+        with TestClient(cli_api.app, client=(client_host, 50000)) as client:
+            response = client.post("/v1/cli/sys", json={"args": {}})
+
+        assert response.status_code == 200
+
+    @pytest.mark.parametrize(
+        ("path", "request_kwargs"),
+        [
+            (
+                "/v1/predict?model_id=owner/unloaded-model",
+                {"json": {"inputs": {"text": "hello"}, "params": {}}},
+            ),
+            (
+                "/v1/predict/file",
+                {
+                    "files": {"file": ("input.bin", b"data")},
+                    "data": {"model_id": "owner/unloaded-model"},
+                },
+            ),
+        ],
+    )
+    def test_remote_inference_cannot_lazy_load_model(
+        self,
+        path: str,
+        request_kwargs: dict[str, Any],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        load_calls: list[str] = []
+
+        def record_load(
+            _engine: InferenceEngine,
+            model_path: str,
+            **_kwargs: Any,
+        ) -> None:
+            load_calls.append(str(model_path))
+            raise AssertionError("remote request reached model loading")
+
+        monkeypatch.setattr(InferenceEngine, "load", record_load)
+        app = serve_app_module.create_app(model_path=None, mode="multi")
+
+        with TestClient(
+            app,
+            client=("192.0.2.20", 50000),
+            raise_server_exceptions=False,
+        ) as client:
+            response = client.post(path, **request_kwargs)
+
+        assert response.status_code == 400
+        assert "not loaded" in response.text
+        assert load_calls == []
+
+    def test_loopback_inference_retains_lazy_load(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        load_calls: list[str] = []
+
+        def fake_load(
+            engine: InferenceEngine,
+            model_path: str,
+            *,
+            task: str | None = None,
+            device: str = "auto",
+            **_kwargs: Any,
+        ) -> None:
+            load_calls.append(str(model_path))
+            engine._model = object()
+            engine._model_id = str(model_path)
+            engine._model_path = str(model_path)
+            engine._task = task or "unit-test"
+            engine._device = device
+            engine._user_input_schema = None
+
+        def fake_predict(
+            engine: InferenceEngine,
+            *,
+            inputs: dict[str, Any],
+            task: str | None = None,
+            **_kwargs: Any,
+        ) -> PredictionResult:
+            assert inputs == {"text": "hello"}
+            return PredictionResult(
+                task=task or engine.task or "unit-test",
+                model_id=engine.model_id,
+                device=engine.device,
+                predictions={},
+                latency_ms=0,
+            )
+
+        monkeypatch.setattr(InferenceEngine, "load", fake_load)
+        monkeypatch.setattr(InferenceEngine, "predict", fake_predict)
+        app = serve_app_module.create_app(model_path=None, mode="multi")
+
+        with TestClient(app, client=("127.0.0.1", 50000)) as client:
+            response = client.post(
+                "/v1/predict?model_id=owner/local-model",
+                json={"inputs": {"text": "hello"}, "params": {}},
+            )
+
+        assert response.status_code == 200
+        assert load_calls == ["owner/local-model"]
+
+    def test_remote_inference_can_use_loaded_model(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        load_calls: list[str] = []
+
+        def record_load(
+            _engine: InferenceEngine,
+            model_path: str,
+            **_kwargs: Any,
+        ) -> None:
+            load_calls.append(str(model_path))
+            raise AssertionError("loaded slot unexpectedly reloaded")
+
+        def fake_predict(
+            engine: InferenceEngine,
+            *,
+            inputs: dict[str, Any],
+            task: str | None = None,
+            **_kwargs: Any,
+        ) -> PredictionResult:
+            assert inputs == {"text": "hello"}
+            return PredictionResult(
+                task=task or engine.task or "unit-test",
+                model_id=engine.model_id,
+                device=engine.device,
+                predictions={},
+                latency_ms=0,
+            )
+
+        monkeypatch.setattr(InferenceEngine, "load", record_load)
+        monkeypatch.setattr(InferenceEngine, "predict", fake_predict)
+        app = serve_app_module.create_app(model_path=None, mode="multi")
+
+        with TestClient(app, client=("192.0.2.20", 50000)) as client:
+            engine = InferenceEngine()
+            engine._model = object()
+            engine._model_id = "owner/loaded-model"
+            engine._model_path = "owner/loaded-model"
+            engine._task = "unit-test"
+            engine._device = "cpu"
+            engine._user_input_schema = None
+            client.app.state.manager._slots["owner/loaded-model"] = ModelSlot(
+                model_id="owner/loaded-model",
+                engine=engine,
+            )
+
+            response = client.post(
+                "/v1/predict?model_id=owner/loaded-model",
+                json={"inputs": {"text": "hello"}, "params": {}},
+            )
+
+        assert response.status_code == 200
+        assert load_calls == []
+
+
+class TestDemoSecurity:
+    """The bundled UI cannot select a server outside its own origin."""
+
+    def test_demo_uses_only_window_origin(self) -> None:
+        with TestClient(cli_api.app, client=("127.0.0.1", 50000)) as client:
+            response = client.get("/demo")
+
+        parser = _DemoPolicyParser()
+        parser.feed(response.text)
+
+        assert response.status_code == 200
+        assert parser.content_security_policy == "connect-src 'self'"
+        assert parser.server_url_attributes is not None
+        assert "readonly" in parser.server_url_attributes
+
+
 class TestCliHttpPolicy:
     """HTTP dispatch exposes only the explicitly safe CLI capability set."""
 
@@ -170,7 +468,7 @@ class TestCliHttpPolicy:
 
         monkeypatch.setattr(cli_api, "_invoke", fake_invoke)
 
-        with TestClient(cli_api.app) as client:
+        with TestClient(cli_api.app, client=("127.0.0.1", 50000)) as client:
             response = client.post(
                 "/v1/cli/build",
                 json={"args": {key: True}},

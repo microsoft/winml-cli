@@ -7,28 +7,87 @@
 from __future__ import annotations
 
 import ipaddress
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
+from starlette._utils import get_route_path
 from starlette.responses import PlainTextResponse
 
 
 if TYPE_CHECKING:
+    from collections.abc import Collection, Mapping
+
     from starlette.types import ASGIApp, Receive, Scope, Send
 
 
-class SameOriginMiddleware:
-    """Reject browser requests whose origin differs from the target server."""
+_CLI_API_LOOPBACK_ONLY_ROUTES: dict[str, set[str] | None] = {"/v1/cli": None}
+_MODEL_API_LOOPBACK_ONLY_ROUTES: dict[str, set[str] | None] = {
+    "/v1/cli": None,
+    "/v1/ep": {"POST"},
+    "/v1/models": {"POST", "DELETE"},
+}
 
-    def __init__(self, app: ASGIApp) -> None:
+
+class SameOriginMiddleware:
+    """Enforce browser-origin and local-only route boundaries."""
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        loopback_only_routes: Mapping[str, Collection[str] | None] | None = None,
+    ) -> None:
         self.app = app
+        self._loopback_only_routes = {
+            prefix.rstrip("/"): (
+                None if methods is None else frozenset(method.upper() for method in methods)
+            )
+            for prefix, methods in (loopback_only_routes or {}).items()
+        }
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http" and not _is_same_origin(scope):
-            response = PlainTextResponse("Cross-origin requests are not allowed.", status_code=403)
-            await response(scope, receive, send)
-            return
+        if scope["type"] == "http":
+            if self._requires_loopback(scope) and not _is_loopback_client(scope):
+                response = PlainTextResponse(
+                    "This route is available only to local clients.",
+                    status_code=403,
+                )
+                await response(scope, receive, send)
+                return
+            if not _is_same_origin(scope):
+                response = PlainTextResponse(
+                    "Cross-origin requests are not allowed.",
+                    status_code=403,
+                )
+                await response(scope, receive, send)
+                return
         await self.app(scope, receive, send)
+
+    def _requires_loopback(self, scope: Scope) -> bool:
+        path = get_route_path(scope)
+        method = scope.get("method", "").upper()
+        for prefix, methods in self._loopback_only_routes.items():
+            if path != prefix and not path.startswith(f"{prefix}/"):
+                continue
+            if methods is None or method in methods:
+                return True
+        return False
+
+
+def _is_loopback_client(scope: Mapping[str, Any]) -> bool:
+    client = scope.get("client")
+    if not isinstance(client, (tuple, list)) or not client:
+        return False
+    host = client[0]
+    if not isinstance(host, str):
+        return False
+    try:
+        address = ipaddress.ip_address(host.split("%", maxsplit=1)[0])
+    except ValueError:
+        return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    return address.is_loopback
 
 
 def _is_same_origin(scope: Scope) -> bool:
