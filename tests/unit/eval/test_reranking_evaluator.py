@@ -146,6 +146,34 @@ def test_reranking_evaluator_rejects_grouped_rows_without_candidates() -> None:
         evaluator.compute()
 
 
+def test_reranking_evaluator_scores_grouped_rows_with_inline_candidates() -> None:
+    evaluator = _make_evaluator(
+        [
+            {
+                "query": "what is pcnt",
+                "expected_output": ["7187227"],
+                "metadata": {"query_id": "1048579", "source_row_index": 1},
+                "candidates": [
+                    {"id": "n1", "text": "negative passage"},
+                    {"id": "7187227", "text": "positive passage"},
+                ],
+            }
+        ],
+        scores=[0.1, 0.9],
+    )
+    evaluator._document_col = None
+    evaluator._group_col = None
+    evaluator._label_col = None
+    evaluator._candidate_id_col = None
+    evaluator._candidates_col = "candidates"
+    result = evaluator.compute()
+
+    assert result["mrr@10"] == 1.0
+    assert result["recall@1"] == 1.0
+    assert result["processed_groups"] == 1
+    assert result["processed_pairs"] == 2
+
+
 def test_reranking_evaluator_rejects_multi_logit_classification_outputs() -> None:
     evaluator = _make_evaluator([], scores=[])
     outputs = SimpleNamespace(logits=torch.tensor([[0.1, 0.9]], dtype=torch.float32))
