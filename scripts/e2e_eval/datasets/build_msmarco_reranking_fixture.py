@@ -193,21 +193,22 @@ def _select_rows(
         hf_positive_ids = {str(value) for value in _parse_json_list(row["expected_output"])}
         official_positive_ids = {str(value) for value in qrels[qid]}
 
-        positives: list[CandidateRow] = []
-        negatives: list[CandidateRow] = []
+        selected_candidates: list[CandidateRow] = []
+        selected_positive_ids: list[str] = []
+        selected_negative_ids: list[str] = []
         for candidate in top1000[qid]:
             if candidate.pid in hf_positive_ids and candidate.pid in official_positive_ids:
-                positives.append(candidate)
-            elif candidate.pid not in official_positive_ids and len(negatives) < max_negatives:
-                negatives.append(candidate)
-            if positives and len(negatives) >= max_negatives:
+                selected_candidates.append(candidate)
+                selected_positive_ids.append(candidate.pid)
+            elif candidate.pid not in official_positive_ids and len(selected_negative_ids) < max_negatives:
+                selected_candidates.append(candidate)
+                selected_negative_ids.append(candidate.pid)
+            if selected_positive_ids and len(selected_negative_ids) >= max_negatives:
                 break
 
-        if not positives or not negatives:
+        if not selected_positive_ids or not selected_negative_ids:
             continue
 
-        selected_positive_ids = [candidate.pid for candidate in positives]
-        selected_negative_ids = [candidate.pid for candidate in negatives]
         candidates = [
             {
                 "id": candidate.pid,
@@ -215,7 +216,7 @@ def _select_rows(
                 "rank": candidate.rank,
                 "relevant": candidate.pid in selected_positive_ids,
             }
-            for candidate in (*positives, *negatives)
+            for candidate in selected_candidates
         ]
         metadata_out = {
             **metadata,
@@ -223,6 +224,8 @@ def _select_rows(
             "source_row_index": row_index,
             "positive_candidate_ids": selected_positive_ids,
             "negative_candidate_ids": selected_negative_ids,
+            "selected_candidate_ids": [candidate.pid for candidate in selected_candidates],
+            "selection_strategy": "authoritative_top1000_order_with_bounded_negatives",
             "candidate_source": "official_top1000.dev",
         }
         selected_rows.append(
@@ -241,7 +244,9 @@ def _select_rows(
                 "official_qrels_positive_ids": sorted(official_positive_ids),
                 "selected_positive_candidate_ids": selected_positive_ids,
                 "selected_negative_candidate_ids": selected_negative_ids,
-                "candidate_ranks": {candidate.pid: candidate.rank for candidate in (*positives, *negatives)},
+                "selected_candidate_ids": [candidate.pid for candidate in selected_candidates],
+                "selection_strategy": "authoritative_top1000_order_with_bounded_negatives",
+                "candidate_ranks": {candidate.pid: candidate.rank for candidate in selected_candidates},
             }
         )
         if len(selected_rows) >= max_queries:
@@ -281,7 +286,7 @@ def build_dataset(output_dir: Path, cache_dir: Path, max_queries: int, max_negat
     dataset_dict.save_to_disk(str(output_dir))
 
     provenance = {
-        "schema": "winml/msmarco-reranking-fixture/1",
+        "schema": "winml/msmarco-reranking-fixture/2",
         "builder": {
             "script": "scripts/e2e_eval/datasets/build_msmarco_reranking_fixture.py",
             "hf_dataset_id": HF_DATASET_ID,

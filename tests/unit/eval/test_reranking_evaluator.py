@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import importlib.util
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -17,6 +20,27 @@ from winml.modelkit.utils.eval_utils import (
     DatasetValidationError,
     detect_reranking_dataset_mode,
 )
+
+
+_FIXTURE_BUILDER_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "scripts"
+    / "e2e_eval"
+    / "datasets"
+    / "build_msmarco_reranking_fixture.py"
+)
+_FIXTURE_BUILDER_SPEC = importlib.util.spec_from_file_location(
+    "build_msmarco_reranking_fixture",
+    _FIXTURE_BUILDER_PATH,
+)
+assert _FIXTURE_BUILDER_SPEC is not None
+assert _FIXTURE_BUILDER_SPEC.loader is not None
+_FIXTURE_BUILDER = importlib.util.module_from_spec(_FIXTURE_BUILDER_SPEC)
+sys.modules[_FIXTURE_BUILDER_SPEC.name] = _FIXTURE_BUILDER
+_FIXTURE_BUILDER_SPEC.loader.exec_module(_FIXTURE_BUILDER)
+
+CandidateRow = _FIXTURE_BUILDER.CandidateRow
+select_rows = _FIXTURE_BUILDER._select_rows
 
 
 class _FakeTokenizer:
@@ -89,6 +113,19 @@ def test_reranking_metric_handles_ties_and_no_positive_groups() -> None:
     assert result["recall@2"] == 1.0
     assert result["groups_without_positive"] == 1
     assert result["scored_groups"] == 1
+
+
+def test_reranking_metric_ties_preserve_authoritative_candidate_order() -> None:
+    metric = RerankingMetric(recall_ks=(1, 2, 10))
+
+    metric.update([0.9, 0.9, 0.9], [False, False, True])
+
+    result = metric.compute()
+
+    assert result["mrr@10"] == pytest.approx(1 / 3)
+    assert result["recall@1"] == 0.0
+    assert result["recall@2"] == 0.0
+    assert result["recall@10"] == 1.0
 
 
 def test_reranking_evaluator_scores_single_logits_and_accounts_for_groups() -> None:
@@ -175,6 +212,79 @@ def test_reranking_evaluator_scores_grouped_rows_with_inline_candidates() -> Non
     assert result["recall@1"] == 1.0
     assert result["processed_groups"] == 1
     assert result["processed_pairs"] == 2
+
+
+def test_reranking_evaluator_grouped_inline_ties_keep_original_candidate_order() -> None:
+    evaluator = _make_evaluator(
+        [
+            {
+                "query": "what is pcnt",
+                "expected_output": ["7187227"],
+                "metadata": {"query_id": "1048579", "source_row_index": 1},
+                "candidates": [
+                    {"id": "n1", "text": "negative one"},
+                    {"id": "n2", "text": "negative two"},
+                    {"id": "7187227", "text": "positive passage"},
+                ],
+            }
+        ],
+        scores=[0.5, 0.5, 0.5],
+    )
+    evaluator._document_col = None
+    evaluator._group_col = None
+    evaluator._label_col = None
+    evaluator._candidate_id_col = None
+    evaluator._candidates_col = "candidates"
+
+    result = evaluator.compute()
+
+    assert result["mrr@10"] == pytest.approx(1 / 3)
+    assert result["recall@1"] == 0.0
+    assert result["recall@2"] == 0.0
+    assert result["recall@10"] == 1.0
+    assert result["processed_groups"] == 1
+    assert result["processed_pairs"] == 3
+
+
+def test_fixture_builder_preserves_authoritative_order_when_negative_precedes_positive() -> None:
+    hf_rows = [
+        {
+            "input": "what is pcnt",
+            "expected_output": ["p1"],
+            "metadata": {"query_id": "q1"},
+        }
+    ]
+    queries = {"q1": "what is pcnt"}
+    qrels = {"q1": {"p1"}}
+    top1000 = {
+        "q1": [
+            CandidateRow(pid="n1", query="what is pcnt", passage="negative one", rank=1),
+            CandidateRow(pid="n2", query="what is pcnt", passage="negative two", rank=2),
+            CandidateRow(pid="p1", query="what is pcnt", passage="positive", rank=3),
+            CandidateRow(pid="n3", query="what is pcnt", passage="negative three", rank=4),
+        ]
+    }
+
+    selected_rows, provenance = select_rows(
+        hf_rows,
+        queries,
+        qrels,
+        top1000,
+        max_queries=1,
+        max_negatives=2,
+    )
+
+    assert [candidate["id"] for candidate in selected_rows[0]["candidates"]] == ["n1", "n2", "p1"]
+    assert [candidate["relevant"] for candidate in selected_rows[0]["candidates"]] == [
+        False,
+        False,
+        True,
+    ]
+    assert selected_rows[0]["metadata"]["selected_candidate_ids"] == ["n1", "n2", "p1"]
+    assert selected_rows[0]["metadata"]["positive_candidate_ids"] == ["p1"]
+    assert selected_rows[0]["metadata"]["negative_candidate_ids"] == ["n1", "n2"]
+    assert provenance[0]["selected_candidate_ids"] == ["n1", "n2", "p1"]
+    assert provenance[0]["candidate_ranks"] == {"n1": 1, "n2": 2, "p1": 3}
 
 
 def test_reranking_dataset_mode_prefers_grouped_inline_candidates() -> None:
