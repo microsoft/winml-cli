@@ -649,6 +649,7 @@ class TestEPDeviceMonitorBinding:
         def make_device(device_id: str, luid: str) -> SimpleNamespace:
             return SimpleNamespace(
                 device_type="GPU",
+                ep_name="DmlExecutionProvider",
                 ort_handle=SimpleNamespace(
                     ep_options={"device_id": device_id},
                     device=SimpleNamespace(metadata={"LUID": luid}),
@@ -672,6 +673,7 @@ class TestEPDeviceMonitorBinding:
 
         gpu = SimpleNamespace(
             device_type="GPU",
+            ep_name="DmlExecutionProvider",
             ort_handle=SimpleNamespace(
                 ep_options={"device_id": "0"},
                 device=SimpleNamespace(metadata={"LUID": "99219"}),
@@ -686,6 +688,103 @@ class TestEPDeviceMonitorBinding:
             None,
             None,
         )
+
+    def test_unadvertised_qnn_backend_override_selects_matching_device(self) -> None:
+        from winml.modelkit.commands.perf import _get_ep_device_binding
+
+        def make_device(device_type: str, luid: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                device_type=device_type,
+                ep_name="QNNExecutionProvider",
+                ort_handle=SimpleNamespace(
+                    ep_options={},
+                    device=SimpleNamespace(metadata={"LUID": luid}),
+                ),
+            )
+
+        npu = make_device("NPU", "99219")
+        gpu = make_device("GPU", "99220")
+        ep_device = SimpleNamespace(
+            device=npu,
+            ep=SimpleNamespace(devices=(npu, gpu)),
+        )
+
+        assert _get_ep_device_binding(ep_device, {"backend_type": "gpu"}) == (
+            "0x00000000_0x00018394",
+            "gpu",
+        )
+
+    def test_qnn_backend_without_candidate_uses_selected_device_discovery(self) -> None:
+        from winml.modelkit.commands.perf import _get_ep_device_binding
+
+        npu = SimpleNamespace(
+            device_type="NPU",
+            ep_name="QNNExecutionProvider",
+            ort_handle=SimpleNamespace(
+                ep_options={},
+                device=SimpleNamespace(metadata={"LUID": "99219"}),
+            ),
+        )
+        ep_device = SimpleNamespace(
+            device=npu,
+            ep=SimpleNamespace(devices=(npu,)),
+        )
+
+        assert _get_ep_device_binding(ep_device, {"backend_type": "gpu"}) == (
+            None,
+            "gpu",
+        )
+
+    def test_unknown_qnn_backend_disables_bound_adapter(self) -> None:
+        from winml.modelkit.commands.perf import (
+            _get_ep_device_binding,
+            _get_monitor_binding,
+        )
+
+        npu = SimpleNamespace(
+            device_type="NPU",
+            ep_name="QNNExecutionProvider",
+            ort_handle=SimpleNamespace(
+                ep_options={},
+                device=SimpleNamespace(metadata={"LUID": "99219"}),
+            ),
+        )
+        ep_device = SimpleNamespace(
+            device=npu,
+            ep=SimpleNamespace(devices=(npu,)),
+        )
+
+        assert _get_ep_device_binding(ep_device, {"backend_type": "unknown"}) == (
+            None,
+            None,
+        )
+        assert _get_monitor_binding(
+            ep_device,
+            "npu",
+            {"backend_type": "unknown"},
+        ) == ("cpu", None, None)
+
+    def test_qnn_cpu_backend_disables_accelerator_monitoring(self) -> None:
+        from winml.modelkit.commands.perf import _get_monitor_binding
+
+        npu = SimpleNamespace(
+            device_type="NPU",
+            ep_name="QNNExecutionProvider",
+            ort_handle=SimpleNamespace(
+                ep_options={},
+                device=SimpleNamespace(metadata={"LUID": "99219"}),
+            ),
+        )
+        ep_device = SimpleNamespace(
+            device=npu,
+            ep=SimpleNamespace(devices=(npu,)),
+        )
+
+        assert _get_monitor_binding(
+            ep_device,
+            "npu",
+            {"backend_type": "cpu"},
+        ) == ("cpu", None, None)
 
 
 class _ConfigStub:
