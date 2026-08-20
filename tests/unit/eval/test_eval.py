@@ -195,6 +195,26 @@ class TestResolveTask:
         config = WinMLEvaluationConfig(task="image-classification")
         assert _resolve_task(config) == "image-classification"
 
+    @pytest.mark.parametrize("mode", ["onnx", "compare"])
+    def test_supported_task_preserved_in_all_modes(self, mode):
+        from winml.modelkit.eval.evaluate import _resolve_task
+
+        config = WinMLEvaluationConfig(task="image-classification", mode=mode)
+        assert _resolve_task(config) == "image-classification"
+
+    def test_compare_preserves_task_without_metric_evaluator(self):
+        from winml.modelkit.eval.evaluate import _resolve_task
+
+        config = WinMLEvaluationConfig(task="image-to-image", mode="compare")
+        assert _resolve_task(config) == "image-to-image"
+
+    def test_onnx_rejects_task_without_metric_evaluator(self):
+        from winml.modelkit.eval.evaluate import _resolve_task
+
+        config = WinMLEvaluationConfig(task="image-to-image", mode="onnx")
+        with pytest.raises(ValueError, match="Task 'image-to-image' is not supported"):
+            _resolve_task(config)
+
     def test_no_model_id_raises(self):
         from winml.modelkit.eval.evaluate import _resolve_task
 
@@ -310,6 +330,16 @@ class TestGetEvaluatorClass:
         with pytest.raises(ValueError, match="not supported by `winml eval`"):
             get_evaluator_class(WinMLEvaluationConfig(task="made-up-task"))
 
+    def test_compare_dispatches_unsupported_metric_task_to_tensor_evaluator(self):
+        from winml.modelkit.eval import WinMLEvaluationConfig, get_evaluator_class
+
+        config = WinMLEvaluationConfig(task="image-to-image", mode="compare")
+        evaluator_class = get_evaluator_class(config)
+
+        assert evaluator_class.__module__ == "winml.modelkit.eval.tensor_similarity_evaluator"
+        assert evaluator_class.__name__ == "TensorSimilarityEvaluator"
+        assert config.task == "image-to-image"
+
     def test_evaluator_registry_matches_schema_tasks(self):
         from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
         from winml.modelkit.utils.eval_utils import TASK_SCHEMAS
@@ -394,6 +424,50 @@ class TestEvaluate:
         assert result.config.task is None
         assert result.metrics == {"cosine_mean": {"logits": 1.0}}
         load_model.assert_called_once()
+
+    def test_compare_reaches_tensor_dispatch_for_task_without_metric_evaluator(self):
+        """HF-reference compare keeps the model task and uses tensor metrics."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        config = WinMLEvaluationConfig(
+            model_id="test/image-to-image-model",
+            model_path="cand.onnx",
+            task="image-to-image",
+            mode="compare",
+        )
+        captured = {}
+
+        class TensorEvaluatorProbe:
+            def __init__(self, resolved_config, model):
+                captured["config"] = resolved_config
+                captured["model"] = model
+
+            def compute(self):
+                return {"cosine_mean": {"reconstruction": 1.0}}
+
+        def select_evaluator(resolved_config):
+            captured["evaluator_key"] = (
+                "compare-tensor" if resolved_config.mode == "compare" else resolved_config.task
+            )
+            return TensorEvaluatorProbe
+
+        model = MagicMock()
+        with (
+            patch.object(eval_mod, "_load_model", return_value=model),
+            patch.object(eval_mod, "get_evaluator_class", side_effect=select_evaluator),
+        ):
+            result = eval_mod.evaluate(config)
+
+        assert result.config.task == "image-to-image"
+        assert captured["config"].task == "image-to-image"
+        assert captured["evaluator_key"] == "compare-tensor"
+        assert captured["model"] is model
+        assert result.metrics == {"cosine_mean": {"reconstruction": 1.0}}
 
     def test_load_model_returns_none_for_onnx_compare(self):
         """_load_model short-circuits (no model_id needed) for two-ONNX compare."""

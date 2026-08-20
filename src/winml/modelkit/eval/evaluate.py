@@ -537,7 +537,7 @@ def _resolve_task(
 
     console.print(f"[dim]Use[/dim] {task} [dim]to evaluate[/dim]")
 
-    if task not in _EVALUATOR_REGISTRY:
+    if config.mode != "compare" and task not in _EVALUATOR_REGISTRY:
         supported = ", ".join(sorted(_EVALUATOR_REGISTRY))
         raise ValueError(f"Task '{task}' is not supported. Supported tasks: {supported}.")
     return task
