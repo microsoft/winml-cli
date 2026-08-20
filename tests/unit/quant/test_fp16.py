@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import numpy as np
 import onnxruntime as ort
 import pytest
 from onnx import StringStringEntryProto, TensorProto, checker, helper, save
@@ -71,8 +72,7 @@ def test_conversion_preserves_hierarchy_and_blocked_initializer_precision() -> N
     converted = convert_to_fp16(_repeated_max_model(), keep_io_types=False)
 
     assert all(
-        initializer.data_type == TensorProto.FLOAT
-        for initializer in converted.graph.initializer
+        initializer.data_type == TensorProto.FLOAT for initializer in converted.graph.initializer
     )
     tags = [
         {prop.key: prop.value for prop in node.metadata_props}.get(HIERARCHY_KEY)
@@ -167,8 +167,9 @@ def test_explicit_float_precision_boundary_remains_valid(tmp_path: Path) -> None
         ["float_x"],
         name="InsertedPrecisionFreeCast_x",
         to=TensorProto.FLOAT,
+        doc_string="cast node to cast from float16 to float32 on cpu",
     )
-    maximum = helper.make_node("Max", ["float_x", "zero"], ["output"], name="maximum")
+    maximum = helper.make_node("Max", ["float_x", "zero"], ["output"])
     graph = helper.make_graph(
         [boundary, maximum],
         "precision_boundary",
@@ -182,9 +183,61 @@ def test_explicit_float_precision_boundary_remains_valid(tmp_path: Path) -> None
 
     checker.check_model(converted)
     assert all(
-        initializer.data_type == TensorProto.FLOAT
-        for initializer in converted.graph.initializer
+        initializer.data_type == TensorProto.FLOAT for initializer in converted.graph.initializer
+    )
+    converted_boundary = next(
+        node for node in converted.graph.node if node.name == "InsertedPrecisionFreeCast_x"
+    )
+    target = next(
+        attribute.i for attribute in converted_boundary.attribute if attribute.name == "to"
+    )
+    assert target == TensorProto.FLOAT
+    assert converted_boundary.input == ["x"]
+    assert converted_boundary.output == ["InsertedPrecisionFreeCast_x_output_cast_0"]
+    boundary_output_types = {
+        value.type.tensor_type.elem_type
+        for value in converted.graph.value_info
+        if value.name == converted_boundary.output[0]
+    }
+    assert boundary_output_types == {TensorProto.FLOAT}
+    return_cast = next(
+        node
+        for node in converted.graph.node
+        if node.name == "InsertedPrecisionFreeCast_x_output_cast0"
+    )
+    return_target = next(
+        attribute.i for attribute in return_cast.attribute if attribute.name == "to"
+    )
+    assert return_cast.input == converted_boundary.output
+    assert return_cast.output == ["float_x"]
+    assert return_target == TensorProto.FLOAT16
+    assert next(node for node in converted.graph.node if node.op_type == "Max").name == (
+        "winml_fp16_unnamed_0"
     )
     output_path = tmp_path / "precision_boundary.onnx"
     save(converted, output_path)
-    ort.InferenceSession(output_path, providers=["CPUExecutionProvider"])
+    session = ort.InferenceSession(output_path, providers=["CPUExecutionProvider"])
+    (output,) = session.run(None, {"x": np.array([-1.0], dtype=np.float16)})
+    np.testing.assert_array_equal(output, np.array([0.0], dtype=np.float32))
+
+
+def test_malformed_precision_free_boundary_is_rejected_before_mutation() -> None:
+    boundary = helper.make_node(
+        "Cast",
+        ["x"],
+        ["float_x"],
+        name="InsertedPrecisionFreeCast_x",
+        to=TensorProto.FLOAT,
+    )
+    graph = helper.make_graph(
+        [boundary],
+        "malformed_precision_boundary",
+        [helper.make_tensor_value_info("x", TensorProto.FLOAT16, [1])],
+        [helper.make_tensor_value_info("float_x", TensorProto.FLOAT, [1])],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 18)])
+    original = model.SerializeToString()
+
+    with pytest.raises(RuntimeError, match="Malformed FP16-to-FLOAT precision boundary"):
+        convert_to_fp16(model, keep_io_types=False)
+    assert model.SerializeToString() == original
