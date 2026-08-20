@@ -11,6 +11,8 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
+from transformers.pipelines.text_classification import TextClassificationPipeline
+
 from ..utils.eval_utils import detect_reranking_dataset_mode, get_dataset_column_names
 from .base_evaluator import WinMLEvaluator
 
@@ -18,6 +20,7 @@ from .base_evaluator import WinMLEvaluator
 if TYPE_CHECKING:
     import torch
     from datasets import Dataset
+    from transformers.pipelines.base import Pipeline
 
     from ..models.winml.base import WinMLPreTrainedModel
     from .config import DatasetConfig, WinMLEvaluationConfig
@@ -35,6 +38,17 @@ class _Group:
     group_id: str
     query: str
     candidates: tuple[_Candidate, ...]
+
+
+class _RawRerankingPipeline(TextClassificationPipeline):
+    """Compatibility pipeline that preserves raw model outputs.
+
+    Reranking evaluation reads raw relevance logits directly instead of the
+    text-classification pipeline's label/score postprocessing.
+    """
+
+    def postprocess(self, model_outputs: Any, **kwargs: Any) -> Any:
+        return model_outputs
 
 
 class WinMLRerankingEvaluator(WinMLEvaluator):
@@ -86,9 +100,27 @@ class WinMLRerankingEvaluator(WinMLEvaluator):
         )
         super().__init__(config, model)
 
-    def prepare_pipeline(self) -> None:
-        """Bypass HF pipeline postprocessing; reranking reads raw logits directly."""
-        return
+    def prepare_pipeline(self) -> Pipeline:
+        """Return a Pipeline-compatible object without classification postprocessing."""
+        from transformers import pipeline
+
+        pipeline_kwargs: dict[str, Any] = {
+            "device": self.config.pipeline_device,
+            "pipeline_class": _RawRerankingPipeline,
+            "function_to_apply": "none",
+        }
+        if self.config.trust_remote_code:
+            pipeline_kwargs["trust_remote_code"] = True
+
+        return cast(
+            "Pipeline",
+            pipeline(
+                "text-classification",
+                model=self.model,
+                tokenizer=self.config.model_id,
+                **pipeline_kwargs,
+            ),
+        )
 
     def align_labels(self, dataset: Dataset, ds_config: DatasetConfig) -> Dataset:
         """No class-label alignment for grouped relevance judgments."""
@@ -143,7 +175,8 @@ class WinMLRerankingEvaluator(WinMLEvaluator):
         from ..utils.eval_utils import DatasetValidationError
 
         required = [self._query_col, self._document_col, self._group_col, self._label_col]
-        missing = [name for name in required if name not in column_names]
+        required_names = [name for name in required if name is not None]
+        missing = [name for name in required_names if name not in column_names]
         if missing:
             raise DatasetValidationError(
                 f"pairwise reranking dataset is missing required column(s): {sorted(missing)}"
