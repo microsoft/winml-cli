@@ -107,7 +107,7 @@ class WinMLEvaluator:
                 if isinstance(loaded, Dataset):
                     dataset = loaded
                 else:
-                    available_splits = sorted(str(name) for name in loaded.keys())
+                    available_splits = sorted(str(name) for name in loaded)
                     if ds.split not in loaded:
                         raise DatasetValidationError(
                             f"Local dataset '{ds.path}' has splits {available_splits}, "

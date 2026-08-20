@@ -13,7 +13,10 @@ import torch
 from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 from winml.modelkit.eval.metrics.ranking import RerankingMetric
 from winml.modelkit.eval.reranking_evaluator import WinMLRerankingEvaluator
-from winml.modelkit.utils.eval_utils import DatasetValidationError
+from winml.modelkit.utils.eval_utils import (
+    DatasetValidationError,
+    detect_reranking_dataset_mode,
+)
 
 
 class _FakeTokenizer:
@@ -172,6 +175,34 @@ def test_reranking_evaluator_scores_grouped_rows_with_inline_candidates() -> Non
     assert result["recall@1"] == 1.0
     assert result["processed_groups"] == 1
     assert result["processed_pairs"] == 2
+
+
+def test_reranking_dataset_mode_prefers_grouped_inline_candidates() -> None:
+    mode = detect_reranking_dataset_mode(
+        ["input", "expected_output", "metadata", "candidates"],
+        {
+            "query_column": "input",
+            "expected_output_column": "expected_output",
+            "metadata_column": "metadata",
+            "candidates_column": "candidates",
+        },
+    )
+
+    assert mode == "grouped-inline"
+
+
+def test_reranking_dataset_mode_accepts_pairwise_rows_without_grouped_columns() -> None:
+    mode = detect_reranking_dataset_mode(
+        ["query", "document", "group_id", "label"],
+        {
+            "query_column": "query",
+            "document_column": "document",
+            "group_column": "group_id",
+            "label_column": "label",
+        },
+    )
+
+    assert mode == "pairwise"
 
 
 def test_reranking_evaluator_rejects_multi_logit_classification_outputs() -> None:

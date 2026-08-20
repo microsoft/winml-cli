@@ -11,6 +11,7 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
+from ..utils.eval_utils import detect_reranking_dataset_mode, get_dataset_column_names
 from .base_evaluator import WinMLEvaluator
 
 
@@ -87,7 +88,7 @@ class WinMLRerankingEvaluator(WinMLEvaluator):
 
     def prepare_pipeline(self) -> None:
         """Bypass HF pipeline postprocessing; reranking reads raw logits directly."""
-        return None
+        return
 
     def align_labels(self, dataset: Dataset, ds_config: DatasetConfig) -> Dataset:
         """No class-label alignment for grouped relevance judgments."""
@@ -129,8 +130,12 @@ class WinMLRerankingEvaluator(WinMLEvaluator):
         return result
 
     def _materialize_groups(self) -> list[_Group]:
-        column_names = set(getattr(self.data, "column_names", []))
-        if self._document_col and self._group_col and self._label_col:
+        column_names = set(get_dataset_column_names(self.data))
+        dataset_mode = detect_reranking_dataset_mode(
+            column_names,
+            self.config.dataset.columns_mapping,
+        )
+        if dataset_mode == "pairwise":
             return self._groups_from_pairwise_rows(column_names)
         return self._groups_from_grouped_rows(column_names)
 
@@ -255,8 +260,6 @@ class WinMLRerankingEvaluator(WinMLEvaluator):
         return self._extract_relevance_score(outputs)
 
     def _extract_relevance_score(self, outputs: Any) -> float:
-        import torch
-
         logits = outputs["logits"] if isinstance(outputs, dict) else outputs.logits
         tensor = cast("torch.Tensor", logits)
         if tensor.numel() != 1:
@@ -288,9 +291,9 @@ class WinMLRerankingEvaluator(WinMLEvaluator):
         if isinstance(value, str):
             parsed = json.loads(value)
             if not isinstance(parsed, list):
-                raise ValueError(f"expected a JSON list, got {type(parsed).__name__}")
+                raise TypeError(f"expected a JSON list, got {type(parsed).__name__}")
             return parsed
-        raise ValueError(f"expected a list or JSON list string, got {type(value).__name__}")
+        raise TypeError(f"expected a list or JSON list string, got {type(value).__name__}")
 
     @staticmethod
     def _parse_json_object(value: Any) -> dict[str, Any]:
@@ -299,9 +302,9 @@ class WinMLRerankingEvaluator(WinMLEvaluator):
         if isinstance(value, str):
             parsed = json.loads(value)
             if not isinstance(parsed, dict):
-                raise ValueError(f"expected a JSON object, got {type(parsed).__name__}")
+                raise TypeError(f"expected a JSON object, got {type(parsed).__name__}")
             return cast("dict[str, Any]", parsed)
-        raise ValueError(f"expected a dict or JSON object string, got {type(value).__name__}")
+        raise TypeError(f"expected a dict or JSON object string, got {type(value).__name__}")
 
     @staticmethod
     def _parse_recall_ks(raw: str) -> tuple[int, ...]:

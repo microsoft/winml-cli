@@ -34,10 +34,13 @@ import json
 import shutil
 import tarfile
 import urllib.request
-from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 HF_DATASET_ID = "orgrctera/msmarco_passage_ranking"
@@ -59,6 +62,8 @@ DEFAULT_CACHE = Path.home() / ".cache" / "winml" / "msmarco_reranking_fixture"
 
 @dataclass(frozen=True)
 class CandidateRow:
+    """One candidate passage row from the official top1000 reranking file."""
+
     pid: str
     query: str
     passage: str
