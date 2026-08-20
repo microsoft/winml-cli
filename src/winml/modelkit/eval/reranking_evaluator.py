@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     import torch
     from datasets import Dataset
     from transformers.pipelines.base import Pipeline
+    from transformers.utils.generic import ModelOutput
 
     from ..models.winml.base import WinMLPreTrainedModel
     from .config import DatasetConfig, WinMLEvaluationConfig
@@ -47,7 +48,14 @@ class _RawRerankingPipeline(TextClassificationPipeline):
     text-classification pipeline's label/score postprocessing.
     """
 
-    def postprocess(self, model_outputs: Any, **kwargs: Any) -> Any:
+    def postprocess(
+        self,
+        model_outputs: ModelOutput,
+        function_to_apply: Any = None,
+        top_k: Any = 1,
+        _legacy: Any = True,
+        **postprocess_parameters: dict[Any, Any],
+    ) -> ModelOutput:
         return model_outputs
 
 
