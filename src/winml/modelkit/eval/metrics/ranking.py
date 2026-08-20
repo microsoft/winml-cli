@@ -32,7 +32,7 @@ class RerankingMetric:
         self._scored_groups = 0
         self._groups_without_positive = 0
         self._mrr_sum = 0.0
-        self._recall_hits = {k: 0 for k in self.recall_ks}
+        self._recall_hits = dict.fromkeys(self.recall_ks, 0)
 
     def update(self, scores: list[float], labels: list[bool]) -> None:
         """Update the aggregate with one ranked group."""
