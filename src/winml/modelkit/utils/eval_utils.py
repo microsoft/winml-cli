@@ -12,6 +12,7 @@ that importing it does not load the heavy ``winml.modelkit.eval`` package
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, TypeAlias, get_args
 
@@ -565,6 +566,76 @@ class DatasetValidationError(Exception):
     """Dataset failed schema validation against a task's expected columns."""
 
 
+RerankingDatasetMode: TypeAlias = Literal[
+    "pairwise",
+    "grouped-inline",
+    "grouped-authoritative",
+]
+
+
+def get_dataset_column_names(dataset: object) -> tuple[str, ...]:
+    """Best-effort column-name extraction for datasets and list-backed test fixtures."""
+    column_names = getattr(dataset, "column_names", None)
+    if isinstance(column_names, (list, tuple)):
+        return tuple(str(name) for name in column_names)
+    if isinstance(dataset, Sequence) and not isinstance(dataset, (str, bytes, bytearray)):
+        names: set[str] = set()
+        for row in dataset:
+            if isinstance(row, Mapping):
+                names.update(str(name) for name in row)
+        return tuple(sorted(names))
+    return ()
+
+
+def _resolved_reranking_column(mapping: dict[str, str], key: str) -> str | None:
+    return mapping.get(key, get_default("reranking", key))
+
+
+def detect_reranking_dataset_mode(
+    column_names: set[str] | list[str] | tuple[str, ...],
+    columns_mapping: dict[str, str] | None = None,
+) -> RerankingDatasetMode:
+    """Resolve reranking datasets to pairwise, grouped-inline, or grouped-authoritative."""
+    mapping = columns_mapping or {}
+    actual = set(column_names)
+
+    query_col = _resolved_reranking_column(mapping, "query_column")
+    expected_output_col = _resolved_reranking_column(mapping, "expected_output_column")
+    metadata_col = _resolved_reranking_column(mapping, "metadata_column")
+    document_col = mapping.get("document_column")
+    group_col = mapping.get("group_column")
+    label_col = mapping.get("label_column")
+    candidates_col = mapping.get("candidates_column")
+
+    grouped_required = tuple(
+        name for name in (query_col, expected_output_col, metadata_col) if name is not None
+    )
+    pairwise_required = tuple(
+        name for name in (query_col, document_col, group_col, label_col) if name is not None
+    )
+
+    has_grouped_core = len(grouped_required) == 3 and all(
+        name in actual for name in grouped_required
+    )
+    has_pairwise = len(pairwise_required) == 4 and all(name in actual for name in pairwise_required)
+
+    if has_grouped_core and candidates_col is not None and candidates_col in actual:
+        return "grouped-inline"
+    if has_pairwise:
+        return "pairwise"
+    if has_grouped_core:
+        return "grouped-authoritative"
+
+    grouped_missing = sorted(name for name in grouped_required if name not in actual)
+    pairwise_missing = sorted(name for name in pairwise_required if name not in actual)
+    raise DatasetValidationError(
+        "reranking datasets require either pairwise columns "
+        f"{sorted(pairwise_required)} or grouped authoritative columns {sorted(grouped_required)}; "
+        f"missing pairwise={pairwise_missing} grouped={grouped_missing}; "
+        f"dataset has {sorted(actual)}"
+    )
+
+
 def validate_dataset_columns(
     dataset: object,
     task: str,
@@ -582,6 +653,9 @@ def validate_dataset_columns(
         return
     mapping = columns_mapping or {}
     actual = set(column_names)
+    if task == "reranking":
+        detect_reranking_dataset_mode(actual, mapping)
+        return
     missing = [
         (item.name, mapping.get(item.name, item.default))
         for item in schema.columns
