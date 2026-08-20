@@ -206,6 +206,52 @@ def _ort_traversed_graphs(model: ModelProto, op_block_list: list[str] | None) ->
     return traversed
 
 
+def _name_anonymous_late_cast_nodes(model: ModelProto, op_block_list: list[str] | None) -> None:
+    """Give anonymous late-Cast owners deterministic collision-free names."""
+    from onnxruntime.transformers.float16 import ALWAYS_FLOAT_INPUTS
+
+    blocked_ops = _effective_blocked_ops(op_block_list)
+    graphs = _ort_traversed_graphs(model, op_block_list)
+    reserved_tensors = {name for graph in graphs for name in _graph_tensor_names(graph)}
+    reserved_nodes = {
+        node.name for graph in graphs for node in getattr(graph, "node", []) if node.name
+    }
+    next_index = 0
+
+    for graph in graphs:
+        for node in getattr(graph, "node", []):
+            if node.name or (
+                node.op_type not in blocked_ops and node.op_type not in ALWAYS_FLOAT_INPUTS
+            ):
+                continue
+            while True:
+                candidate = f"winml_fp16_unnamed_{next_index}"
+                next_index += 1
+                tensor_aliases = {
+                    f"{candidate}_input_cast_{input_index}"
+                    for input_index in range(len(node.input))
+                } | {
+                    f"{candidate}_output_cast_{output_index}"
+                    for output_index in range(len(node.output))
+                }
+                node_aliases = {
+                    f"{candidate}_input_cast{input_index}" for input_index in range(len(node.input))
+                } | {
+                    f"{candidate}_output_cast{output_index}"
+                    for output_index in range(len(node.output))
+                }
+                if (
+                    candidate not in reserved_nodes
+                    and tensor_aliases.isdisjoint(reserved_tensors)
+                    and node_aliases.isdisjoint(reserved_nodes)
+                ):
+                    break
+            node.name = candidate
+            reserved_tensors.update(tensor_aliases)
+            reserved_nodes.add(candidate)
+            reserved_nodes.update(node_aliases)
+
+
 def _direct_initializer_outputs_in_graph(
     graph: GraphProto,
     *,
@@ -2958,6 +3004,7 @@ def convert_to_fp16(
     _reject_sparse_initializer_tensor_metadata(model, op_block_list)
     _reject_duplicate_float_initializer_names(model, op_block_list)
     io_preflight_model = _ort_inference_preflight_model(model)
+    _name_anonymous_late_cast_nodes(io_preflight_model, op_block_list)
     blocked_ops = _effective_blocked_ops(op_block_list)
     _reject_unpreserved_float_container_io(
         io_preflight_model,
@@ -3046,6 +3093,7 @@ def convert_to_fp16(
         io_preflight_model,
         keep_io_types=keep_io_types,
     )
+    _name_anonymous_late_cast_nodes(model, op_block_list)
     needs_safe_conversion = (
         bool(captured)
         or _has_nested_initializer_outputs(model, op_block_list)
