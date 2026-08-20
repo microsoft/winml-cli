@@ -34,13 +34,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
 from ..inference import InferenceEngine
 from ..inference.types import PredictionResult
+from ._security import SameOriginMiddleware
 from .cli_api import CliRequest, CliResponse, _run_with_semaphore
 from .manager import ModelSlotManager, SingleModelManager
 from .schema import (
@@ -213,14 +213,7 @@ def create_app(
         ),
         lifespan=lifespan,
     )
-    # Permissive CORS for local dev server; no credentials to protect.
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    app.add_middleware(SameOriginMiddleware)
 
     # Serve demo UI at /demo
     _static_dir = Path(__file__).parent / "static"

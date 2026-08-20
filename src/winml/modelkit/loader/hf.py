@@ -202,8 +202,10 @@ def load_hf_model(
     logger.info("Loading HF model: %s", model_name_or_path)
 
     if trust_remote_code:
+        from ..utils._security import _require_remote_code_execution_allowed
         from ..utils.cli import warn_trust_remote_code
 
+        _require_remote_code_execution_allowed()
         warn_trust_remote_code()
 
     # Validate user_script requirements before any network calls
