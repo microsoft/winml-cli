@@ -221,19 +221,38 @@ def test_explicit_float_precision_boundary_remains_valid(tmp_path: Path) -> None
     np.testing.assert_array_equal(output, np.array([0.0], dtype=np.float32))
 
 
-def test_malformed_precision_free_boundary_is_rejected_before_mutation() -> None:
+@pytest.mark.parametrize(
+    ("op_type", "input_type", "output_type", "attributes"),
+    [
+        pytest.param("Identity", TensorProto.FLOAT16, TensorProto.FLOAT16, {}, id="wrong-op"),
+        pytest.param(
+            "Cast",
+            TensorProto.FLOAT,
+            TensorProto.FLOAT16,
+            {"to": TensorProto.FLOAT16},
+            id="wrong-direction",
+        ),
+    ],
+)
+def test_malformed_precision_free_boundary_is_rejected_before_mutation(
+    op_type: str,
+    input_type: int,
+    output_type: int,
+    attributes: dict[str, int],
+) -> None:
     boundary = helper.make_node(
-        "Cast",
+        op_type,
         ["x"],
-        ["float_x"],
+        ["boundary_output"],
         name="InsertedPrecisionFreeCast_x",
-        to=TensorProto.FLOAT,
+        doc_string="cast node to cast from float16 to float32 on cpu",
+        **attributes,
     )
     graph = helper.make_graph(
         [boundary],
         "malformed_precision_boundary",
-        [helper.make_tensor_value_info("x", TensorProto.FLOAT16, [1])],
-        [helper.make_tensor_value_info("float_x", TensorProto.FLOAT, [1])],
+        [helper.make_tensor_value_info("x", input_type, [1])],
+        [helper.make_tensor_value_info("boundary_output", output_type, [1])],
     )
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 18)])
     original = model.SerializeToString()

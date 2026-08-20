@@ -1109,14 +1109,15 @@ def _capture_precision_free_casts(
     captured: list[_PrecisionFreeCast] = []
     for graph in graphs:
         for node in graph.node:
+            if not node.name.startswith(_PRECISION_FREE_CAST_PREFIX):
+                continue
             target = next(
                 (attribute.i for attribute in node.attribute if attribute.name == "to"),
                 None,
             )
-            if not node.name.startswith(_PRECISION_FREE_CAST_PREFIX):
-                continue
             if node.op_type != "Cast" or target != TensorProto.FLOAT:
-                continue
+                msg = f"Malformed FP16-to-FLOAT precision boundary: {node.name}"
+                raise RuntimeError(msg)
             if len(node.input) != 1:
                 msg = f"Malformed FP16-to-FLOAT precision boundary: {node.name}"
                 raise RuntimeError(msg)
