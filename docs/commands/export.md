@@ -20,6 +20,7 @@ $ winml export [options]
 |---|---|---|---|---|
 | `--model` | `-m` | string | *(required)* | Hugging Face model name or local path (e.g., `prajjwal1/bert-tiny`). |
 | `--output` | `-o` | path | *(required)* | Output ONNX file path (e.g., `model.onnx`). |
+| `--batch-size` | | integer | `1` | Static batch size for generated model inputs. |
 | `--with-report/--no-with-report` | | flag | `false` | Generate full export reports: Markdown, JSON, and a console tree. |
 | `--hierarchy/--no-hierarchy` | | flag | `true` | Preserve `hierarchy_tag` metadata in ONNX nodes (use `--no-hierarchy` for a clean ONNX file). |
 | `--dynamo/--no-dynamo` | | flag | `false` | Use the legacy TorchScript exporter by default, whose opset-17 op decomposition is the validated path for QNN/NPU compilation today. Pass `--dynamo` to use PyTorch's TorchDynamo ONNX exporter for richer per-node module metadata. |
@@ -63,6 +64,11 @@ Starting HTP export...
   Detected task: image-classification
 
 Success! Model exported to: resnet50.onnx
+```
+
+```bash
+# Export a model with a static batch size of 2
+winml export -m microsoft/resnet-50 -o resnet50_batch2.onnx --batch-size 2
 ```
 
 ```bash
