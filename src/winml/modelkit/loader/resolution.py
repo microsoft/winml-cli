@@ -538,7 +538,7 @@ def resolve_task(
             # adding --model-class must not collapse the modality.
             surfaced_task = normalize_task(task)
             opt_task = to_optimum_task(surfaced_task)
-            surfaced = surfaced_task
+            surfaced = _resolve_task_modality(config, surfaced_task)
         else:
             # Task inferred from the architecture: surface it modality-aware, consistent
             # with the detection path (Stage 3), so e.g. a ViT backbone is
@@ -604,7 +604,13 @@ def resolve_task(
                         f"Check optimum documentation for supported tasks."
                     ) from e
         surfaced_task = normalized if original == "text-ranking" else original
-        return TaskResolution(surfaced_task, to_optimum_task(surfaced_task), resolved, TaskSource.USER_TASK, composite)
+        return TaskResolution(
+            surfaced_task,
+            to_optimum_task(surfaced_task),
+            resolved,
+            TaskSource.USER_TASK,
+            composite,
+        )
 
     # --- Stage 1: detection -----------------------------------------------
     # opt_task stays at its hoisted None until a detection sub-stage sets it.
