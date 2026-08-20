@@ -79,6 +79,23 @@ _TEXT_CLASSIFICATION_SCHEMA = TaskSchema(
     ),
 )
 
+_TABULAR_CLASSIFICATION_SCHEMA = TaskSchema(
+    columns=(
+        SchemaItem(
+            "input_column",
+            "numeric feature vector",
+            default="features",
+            remap_hint="<your_features_column>",
+        ),
+        SchemaItem(
+            "label_column",
+            "binary class label (0 or 1)",
+            default="label",
+            remap_hint="<your_label_column>",
+        ),
+    ),
+)
+
 _TOKEN_CLASSIFICATION_SCHEMA = TaskSchema(
     columns=(
         SchemaItem(
@@ -453,6 +470,7 @@ TASK_SCHEMAS: dict[str, TaskSchema] = {
     "text-classification": _TEXT_CLASSIFICATION_SCHEMA,
     "sequence-classification": _TEXT_CLASSIFICATION_SCHEMA,
     "next-sentence-prediction": _TEXT_CLASSIFICATION_SCHEMA,
+    "tabular-classification": _TABULAR_CLASSIFICATION_SCHEMA,
     "token-classification": _TOKEN_CLASSIFICATION_SCHEMA,
     "object-detection": _OBJECT_DETECTION_SCHEMA,
     "image-segmentation": _IMAGE_SEGMENTATION_SCHEMA,

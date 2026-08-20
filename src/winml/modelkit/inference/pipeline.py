@@ -505,8 +505,61 @@ def _create_extractive_question_answering_pipeline(
     return _ExtractiveQuestionAnsweringPipeline(model, tokenizer, device=device)
 
 
+class _TabularClassificationPipeline:
+    """Tensor-native pipeline for numeric tabular classifiers."""
+
+    task = "tabular-classification"
+    tokenizer = None
+    image_processor = None
+
+    def __init__(self, model: Any) -> None:
+        self.model = model
+        self._preprocess_params: dict[str, Any] = {}
+
+    def _sanitize_parameters(self) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        return {}, {}, {}
+
+    def __call__(self, features: Any) -> list[dict[str, Any]]:
+        import numpy as np
+        import torch
+
+        values = np.asarray(features, dtype=np.float32)
+        if values.ndim != 1:
+            raise ValueError(
+                f"Tabular features must be a 1D numeric vector, got shape {values.shape}."
+            )
+        output = self.model(features=torch.from_numpy(values).unsqueeze(0))
+        logits = getattr(output, "logits", output)
+        logits = torch.as_tensor(logits).detach().cpu().reshape(-1)
+        if logits.numel() == 1:
+            probability = torch.sigmoid(logits[0])
+            label_id = int(logits[0] >= 0)
+            score = probability if label_id == 1 else 1 - probability
+        elif logits.numel() == 2:
+            probabilities = torch.softmax(logits, dim=0)
+            label_id = int(torch.argmax(probabilities))
+            score = probabilities[label_id]
+        else:
+            raise ValueError(
+                "Tabular classification expects one binary logit or two class logits, "
+                f"got {logits.numel()}."
+            )
+        return [{"label": str(label_id), "score": float(score)}]
+
+
+def _create_tabular_classification_pipeline(
+    model: Any,
+    _model_id: str | None,
+    device: str = "cpu",
+    trust_remote_code: bool = False,
+) -> _TabularClassificationPipeline:
+    del device, trust_remote_code
+    return _TabularClassificationPipeline(model)
+
+
 _COMPAT_PIPELINE_FACTORIES = {
     "question-answering": _create_extractive_question_answering_pipeline,
+    "tabular-classification": _create_tabular_classification_pipeline,
 }
 
 

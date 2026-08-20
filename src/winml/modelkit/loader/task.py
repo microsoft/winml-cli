@@ -76,6 +76,7 @@ _TASK_REGISTRY: dict[str, str | None] = {
     "next-sentence-prediction": "nsp",
     "table-question-answering": "tabqa",
     "document-question-answering": "docqa",
+    "tabular-classification": "tabcls",
     "sentence-similarity": None,
     # Audio
     "audio-classification": "audiocls",
@@ -250,6 +251,9 @@ TASK_SYNONYM_EXTENSIONS: dict[str, str] = {
     # collapse to feature-extraction is guarded by tests/unit/loader/test_task_boundary.py.
     # next-sentence-prediction has the same I/O as text-classification: input_ids -> logits
     "next-sentence-prediction": "text-classification",
+    # tabular-classification uses a custom WinML task name but reuses Optimum's
+    # classification exporter boundary once the model exposes tensor features.
+    "tabular-classification": "text-classification",
     # mask-generation is registered via register_onnx_overwrite for SAM2.
     # Optimum incorrectly maps it to "feature-extraction"; preserve as-is.
     "mask-generation": "mask-generation",

@@ -37,6 +37,7 @@ TASK_TO_WINML_CLASS: dict[str, str] = {
     "text-classification": "WinMLModelForSequenceClassification",
     "sequence-classification": "WinMLModelForSequenceClassification",
     "next-sentence-prediction": "WinMLModelForSequenceClassification",
+    "tabular-classification": "WinMLModelForTabularClassification",
     "image-segmentation": "WinMLModelForImageSegmentation",
     "semantic-segmentation": "WinMLModelForSemanticSegmentation",
     "object-detection": "WinMLModelForObjectDetection",
@@ -85,6 +86,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
     from .object_detection import WinMLModelForObjectDetection
     from .question_answering import WinMLModelForQuestionAnswering
     from .sequence_classification import WinMLModelForSequenceClassification
+    from .tabular_classification import WinMLModelForTabularClassification
 
     # Map class names to modules
     class_map: dict[str, type] = {
@@ -96,6 +98,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
         "WinMLModelForQuestionAnswering": WinMLModelForQuestionAnswering,
         "WinMLModelForSemanticSegmentation": WinMLModelForSemanticSegmentation,
         "WinMLModelForSequenceClassification": WinMLModelForSequenceClassification,
+        "WinMLModelForTabularClassification": WinMLModelForTabularClassification,
         "WinMLModelForGenericTask": WinMLModelForGenericTask,
     }
 
@@ -212,6 +215,7 @@ from .kv_cache import (
 )
 from .object_detection import WinMLModelForObjectDetection
 from .sequence_classification import WinMLModelForSequenceClassification
+from .tabular_classification import WinMLModelForTabularClassification
 from .zero_shot_image_classification import WinMLModelForZeroShotImageClassification
 
 
@@ -239,6 +243,7 @@ __all__ = [
     "WinMLModelForObjectDetection",
     "WinMLModelForSemanticSegmentation",
     "WinMLModelForSequenceClassification",
+    "WinMLModelForTabularClassification",
     "WinMLModelForZeroShotImageClassification",
     "WinMLPreTrainedModel",
     "WinMLSlidingWindowCache",

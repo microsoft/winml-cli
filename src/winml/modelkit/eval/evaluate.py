@@ -71,6 +71,8 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
         "winml.modelkit.eval.text_classification_evaluator:WinMLTextClassificationEvaluator",
     "next-sentence-prediction":
         "winml.modelkit.eval.text_classification_evaluator:WinMLTextClassificationEvaluator",
+    "tabular-classification":
+        "winml.modelkit.eval.tabular_classification_evaluator:WinMLTabularClassificationEvaluator",
     "token-classification":
         "winml.modelkit.eval.token_classification_evaluator:WinMLTokenClassificationEvaluator",
     "object-detection":
@@ -448,6 +450,7 @@ def _load_model(
             device=config.device,
             ep=config.ep,
             precision=config.precision,
+            trust_remote_code=config.trust_remote_code,
             allow_unsupported_nodes=config.allow_unsupported_nodes,
             config=build_override,
             shape_config=config.shape_config,
