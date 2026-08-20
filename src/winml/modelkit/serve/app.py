@@ -40,11 +40,7 @@ from fastapi.staticfiles import StaticFiles
 from .. import __version__
 from ..inference import InferenceEngine
 from ..inference.types import PredictionResult
-from ._security import (
-    _MODEL_API_LOOPBACK_ONLY_ROUTES,
-    SameOriginMiddleware,
-    _is_loopback_client,
-)
+from ._security import SameOriginMiddleware, _is_loopback_client
 from .cli_api import CliRequest, CliResponse, _run_with_semaphore
 from .manager import ModelSlotManager, SingleModelManager
 from .schema import (
@@ -219,7 +215,11 @@ def create_app(
     )
     app.add_middleware(
         SameOriginMiddleware,
-        loopback_only_routes=_MODEL_API_LOOPBACK_ONLY_ROUTES,
+        loopback_only_routes={
+            "/v1/cli": None,
+            "/v1/ep": {"POST"},
+            "/v1/models": {"POST", "DELETE"},
+        },
     )
 
     # Serve demo UI at /demo

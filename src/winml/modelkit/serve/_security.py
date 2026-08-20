@@ -20,14 +20,6 @@ if TYPE_CHECKING:
     from starlette.types import ASGIApp, Receive, Scope, Send
 
 
-_CLI_API_LOOPBACK_ONLY_ROUTES: dict[str, set[str] | None] = {"/v1/cli": None}
-_MODEL_API_LOOPBACK_ONLY_ROUTES: dict[str, set[str] | None] = {
-    "/v1/cli": None,
-    "/v1/ep": {"POST"},
-    "/v1/models": {"POST", "DELETE"},
-}
-
-
 class SameOriginMiddleware:
     """Enforce browser-origin and local-only route boundaries."""
 
