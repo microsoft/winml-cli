@@ -252,6 +252,19 @@ def test_resolve_task_uses_pipeline_tag_when_architecture_fails() -> None:
     assert r.source == TaskSource.PIPELINE_TAG
 
 
+def test_resolve_task_surfaces_reranking_from_pipeline_tag() -> None:
+    """A text-ranking Hub pipeline tag upgrades a sequence classifier's surfaced task."""
+    cfg = _FakeConfig("bert", name_or_path="cross-encoder/ms-marco-MiniLM-L6-v2")
+    with (
+        patch(_INFER, return_value="text-classification"),
+        patch(_GET_PIPELINE_TAG, return_value="text-ranking"),
+    ):
+        r = resolve_task(cfg)
+    assert r.task == "reranking"
+    assert r.optimum_task == "text-classification"
+    assert r.source == TaskSource.TASKS_MANAGER
+
+
 def test_resolve_task_pipeline_tag_skips_non_exportable_task() -> None:
     """A pipeline_tag that is not in the model-type's ONNX-exportable set (e.g. a
     HuggingFace pipeline label like text-to-image with no export path) is rejected and

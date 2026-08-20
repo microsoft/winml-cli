@@ -79,6 +79,80 @@ _TEXT_CLASSIFICATION_SCHEMA = TaskSchema(
     ),
 )
 
+_RERANKING_SCHEMA = TaskSchema(
+    columns=(
+        SchemaItem(
+            "query_column",
+            "query text (grouped rows typically use the authoritative 'input' column)",
+            default="input",
+            remap_hint="<your_query_column>",
+        ),
+        SchemaItem(
+            "expected_output_column",
+            "JSON/list of relevant candidate IDs for grouped rows",
+            default="expected_output",
+            remap_hint="<your_relevant_ids_column>",
+        ),
+        SchemaItem(
+            "metadata_column",
+            "metadata dict/JSON for grouped rows (used for query_id and provenance)",
+            default="metadata",
+            remap_hint="<your_metadata_column>",
+        ),
+        SchemaItem(
+            "candidates_column",
+            "inline candidate list for grouped rows; each item must expose text and ID fields",
+            remap_hint="<your_candidates_column>",
+        ),
+        SchemaItem(
+            "document_column",
+            "candidate document text for pre-expanded pairwise rows",
+            remap_hint="<your_document_column>",
+        ),
+        SchemaItem(
+            "group_column",
+            "group/query identifier for pre-expanded pairwise rows",
+            remap_hint="<your_group_column>",
+        ),
+        SchemaItem(
+            "label_column",
+            "binary relevance flag for pre-expanded pairwise rows",
+            remap_hint="<your_label_column>",
+        ),
+        SchemaItem(
+            "candidate_id_column",
+            "candidate identifier for pre-expanded pairwise rows",
+            remap_hint="<your_candidate_id_column>",
+        ),
+    ),
+    params=(
+        SchemaItem(
+            "candidate_text_key",
+            "candidate text field inside grouped-row candidates",
+            default="text",
+            remap_hint="<candidate_text_key>",
+        ),
+        SchemaItem(
+            "candidate_id_key",
+            "candidate ID field inside grouped-row candidates",
+            default="id",
+            remap_hint="<candidate_id_key>",
+        ),
+        SchemaItem(
+            "metadata_group_key",
+            "group/query identifier field inside grouped-row metadata",
+            default="query_id",
+            remap_hint="<metadata_group_key>",
+        ),
+        SchemaItem(
+            "recall_ks",
+            "comma-separated K values for Recall@K",
+            default="1,10",
+            remap_hint="<k1,k2,...>",
+        ),
+    ),
+)
+
 _TOKEN_CLASSIFICATION_SCHEMA = TaskSchema(
     columns=(
         SchemaItem(
@@ -450,6 +524,7 @@ _TEXT_GENERATION_SCHEMA = TaskSchema(
 
 TASK_SCHEMAS: dict[str, TaskSchema] = {
     "image-classification": _IMAGE_CLASSIFICATION_SCHEMA,
+    "reranking": _RERANKING_SCHEMA,
     "text-classification": _TEXT_CLASSIFICATION_SCHEMA,
     "sequence-classification": _TEXT_CLASSIFICATION_SCHEMA,
     "next-sentence-prediction": _TEXT_CLASSIFICATION_SCHEMA,

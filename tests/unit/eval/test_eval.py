@@ -304,6 +304,12 @@ class TestGetEvaluatorClass:
             assert cls.__module__ == module_path
             assert cls.__name__ == class_name
 
+    def test_text_classification_still_uses_classification_evaluator(self) -> None:
+        from winml.modelkit.eval import WinMLEvaluationConfig, get_evaluator_class
+
+        cls = get_evaluator_class(WinMLEvaluationConfig(task="text-classification"))
+        assert cls.__name__ == "WinMLTextClassificationEvaluator"
+
     def test_unsupported_task_raises_value_error(self):
         from winml.modelkit.eval import WinMLEvaluationConfig, get_evaluator_class
 

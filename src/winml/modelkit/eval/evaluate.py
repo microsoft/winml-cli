@@ -65,6 +65,8 @@ def _select_model_loader(config: WinMLEvaluationConfig) -> _ModelLoaderKind:
 _EVALUATOR_REGISTRY: dict[str, str] = {
     "image-classification":
         "winml.modelkit.eval.base_evaluator:WinMLEvaluator",
+    "reranking":
+        "winml.modelkit.eval.reranking_evaluator:WinMLRerankingEvaluator",
     "text-classification":
         "winml.modelkit.eval.text_classification_evaluator:WinMLTextClassificationEvaluator",
     "sequence-classification":
@@ -189,6 +191,16 @@ _DEFAULT_DATASETS: dict[str, dict] = {
         "columns_mapping": {
             "input_column": "sentence1",
             "second_input_column": "sentence2",
+        },
+    },
+    "reranking": {
+        "path": "orgrctera/msmarco_passage_ranking",
+        "split": "dev",
+        "revision": "a7388b9efd4dd4b87a0db91314e5b3f0e4b0d9e6",
+        "columns_mapping": {
+            "query_column": "input",
+            "expected_output_column": "expected_output",
+            "metadata_column": "metadata",
         },
     },
     "token-classification": {
