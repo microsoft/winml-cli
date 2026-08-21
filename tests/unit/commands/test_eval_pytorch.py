@@ -343,7 +343,7 @@ class TestNativeEvaluation:
                 return_value=FakeEvaluator,
             ),
             patch(
-                "winml.modelkit.eval.evaluate._load_model",
+                "winml.modelkit.eval.evaluate.load_model",
                 return_value=model,
             ) as load_model,
         ):
@@ -475,7 +475,7 @@ class TestNativeEvaluation:
             evaluate(config)
 
     def test_load_model_uses_shared_native_loader(self) -> None:
-        from winml.modelkit.eval.evaluate import _load_model
+        from winml.modelkit.eval.evaluate import load_model
 
         model = MagicMock()
         loaded = NativeHFModel(
@@ -494,13 +494,14 @@ class TestNativeEvaluation:
             "winml.modelkit.loader.load_native_hf_model",
             return_value=loaded,
         ) as load:
-            assert _load_model(config) is model
+            assert load_model(config) is model
 
         load.assert_called_once_with(
             "fake/model",
             task="image-classification",
             device="gpu",
             trust_remote_code=True,
+            torch_dtype="auto",
         )
         assert config.device == "gpu"
 

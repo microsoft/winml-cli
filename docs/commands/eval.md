@@ -42,7 +42,9 @@ $ winml eval [options]
 | `--schema` | | flag | `false` | Print the expected dataset schema for the given `--task` and exit. Does not run evaluation. |
 | `--mode` | | `onnx\|compare` | `onnx` | Evaluation mode. `onnx` evaluates the ONNX candidate on a dataset. `compare` runs the ONNX candidate and a reference on identical random inputs and reports per-tensor similarity metrics — no dataset required. The reference is the HuggingFace model from `--model-id` by default, or a second ONNX file when `--reference` is given. |
 | `--input-data` | | `PATH` | — | Path to a `.npz` file of real input tensors to compare with instead of randomly generated ones (used with `--mode compare`). Keys must match the candidate model's input names. The **leading axis of each array is the sample axis**, so an archive shaped `(N, ...)` yields `N` samples (mean/std/min/max are computed across them); all inputs must share the same `N`. Each run is shaped to the candidate's batch size — a dynamic batch runs one row per sample, a static batch `B` chunks the axis into `N // B` batches (trailing rows are dropped with a warning). Note this differs from `winml perf --input-data`, which runs the **whole archive as a single batch**. |
-| `--reference` | | `TEXT` | — | Reference `.onnx` file to compare the candidate against (used with `--mode compare`). Compares two ONNX models on identical random inputs; `--model-id` and `--task` are not required in this mode. Both models run on the same `--device` / `--ep`. |
+| `--reference` | | `TEXT` | — | Reference `.onnx` file to compare the candidate against (used with `--mode compare`). Compares two ONNX models on identical random inputs; `--model-id` and `--task` are not required in this mode. |
+| `--reference-device` | | `cpu\|gpu\|npu\|auto` | `cpu` | Device used for the reference ONNX model. Only valid with `--reference`. |
+| `--reference-ep` | | `TEXT` | — | Explicit execution provider used for the reference ONNX model, for example `dml`. Only valid with `--reference`. |
 
 ## How it works
 
@@ -98,6 +100,12 @@ Compare two ONNX files directly (e.g. an fp32 baseline vs a quantized build), re
 
 ```bash
 $ winml eval --mode compare -m quantized.onnx --reference baseline.onnx
+```
+
+Compare a candidate running on DML with an ONNX reference running on CPU:
+
+```bash
+$ winml eval --mode compare -m candidate.onnx --device gpu --ep dml --reference baseline.onnx
 ```
 
 Check what dataset columns are expected before running, then remap them to match your dataset:
@@ -159,10 +167,10 @@ Evaluation reuses persistent model build artifacts by default. Pass
 a fresh build that replaces the persistent cache entry.
 
 For a pre-built ONNX input, cache controls apply only when
-`--no-skip-build` is set. Cache controls are ignored when no model build runs,
-including two-ONNX comparisons; the CLI warns when an explicit cache control
-has no effect. GenAI's runtime `_compiled/` artifacts are a separate cache and
-are not currently governed by these model build cache controls. Explicit build
+`--no-skip-build` is set. The CLI warns when an explicit cache control has no
+effect because no model build runs. GenAI's runtime `_compiled/` artifacts are
+a separate cache and are not currently governed by these model build cache
+controls. Explicit build
 or cache controls on a GenAI bundle produce a warning that distinguishes the
 model-build pipeline from the runtime compilation cache.
 
