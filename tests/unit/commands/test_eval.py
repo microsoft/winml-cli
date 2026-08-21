@@ -445,6 +445,8 @@ class TestEvalHelp:
 
         assert result.exit_code == 0, result.output
         assert "--reference" in result.output
+        assert "--reference-device" in result.output
+        assert "--reference-ep" in result.output
 
     def test_help_mentions_cache_controls(self, runner: CliRunner):
         from winml.modelkit.commands.eval import eval as eval_cmd
@@ -522,6 +524,37 @@ class TestReferenceModeGuard:
         )
         assert result.exit_code != 0
         assert "--reference is only valid with --mode compare" in result.output
+
+    @pytest.mark.parametrize(
+        ("option", "value"),
+        [("--reference-device", "gpu"), ("--reference-ep", "dml")],
+    )
+    def test_reference_environment_requires_reference(
+        self,
+        runner: CliRunner,
+        onnx_file,
+        option,
+        value,
+    ):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(
+            eval_cmd,
+            [
+                "--mode",
+                "compare",
+                "-m",
+                str(onnx_file),
+                "--model-id",
+                "some/model",
+                option,
+                value,
+            ],
+            obj={"debug": False},
+        )
+
+        assert result.exit_code != 0
+        assert "require --reference <onnx>" in result.output
 
 
 class TestInputDataModeGuard:
@@ -1361,7 +1394,7 @@ class TestIgnoredCacheFlags:
         assert any("rebuild=true from --config" in message for message in messages)
         assert not any("--no-use-cache ignored" in message for message in messages)
 
-    def test_two_onnx_comparison_warns_even_with_build_enabled(
+    def test_two_onnx_comparison_honors_build_enabled(
         self,
         runner: CliRunner,
         onnx_file,
@@ -1386,12 +1419,8 @@ class TestIgnoredCacheFlags:
             )
 
         assert result.exit_code == 0, result.output
-        assert any(
-            "--rebuild ignored for two-ONNX comparisons" in record.getMessage()
-            for record in caplog.records
-        )
-        assert any(
-            "--no-optimize ignored for two-ONNX comparisons" in record.getMessage()
+        assert not any(
+            "ignored for two-ONNX comparisons" in record.getMessage()
             for record in caplog.records
         )
 

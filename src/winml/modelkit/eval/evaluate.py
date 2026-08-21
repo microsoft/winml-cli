@@ -36,7 +36,6 @@ logger = logging.getLogger(__name__)
 class _ModelLoaderKind(Enum):
     PYTORCH = auto()
     GENAI = auto()
-    DIRECT_ONNX_COMPARE = auto()
     EVALUATOR_MANAGED = auto()
     ONNX = auto()
     PRETRAINED = auto()
@@ -48,8 +47,6 @@ def _select_model_loader(config: WinMLEvaluationConfig) -> _ModelLoaderKind:
         return _ModelLoaderKind.PYTORCH
     if config.task == "text-generation":
         return _ModelLoaderKind.GENAI
-    if config.mode == "compare" and config.reference_path is not None:
-        return _ModelLoaderKind.DIRECT_ONNX_COMPARE
     if isinstance(config.model_path, dict) and config.task == "mask-generation":
         return _ModelLoaderKind.EVALUATOR_MANAGED
     if config.model_path is not None:
@@ -361,11 +358,6 @@ def _load_model(
     if loader is _ModelLoaderKind.GENAI:
         return _load_genai_causal_lm(config)
 
-    # Two-ONNX compare: the evaluator builds both raw ORT sessions directly from
-    # config.model_path / config.reference_path — no WinMLAutoModel / HF config.
-    if loader is _ModelLoaderKind.DIRECT_ONNX_COMPARE:
-        return None
-
     quant_override: Any = None
     if not config.quant:
         from ..config import WinMLBuildConfig
@@ -383,7 +375,7 @@ def _load_model(
         rebuild=config.rebuild,
     )
 
-    if config.model_id is None:
+    if config.model_id is None and loader is not _ModelLoaderKind.ONNX:
         raise ValueError("model_id is required.")
 
     if loader is _ModelLoaderKind.EVALUATOR_MANAGED:
@@ -407,10 +399,14 @@ def _load_model(
 
             from ..loader import load_hf_config
 
-            hf_config = load_hf_config(
-                AutoConfig,
-                config.model_id,
-                trust_remote_code=config.trust_remote_code,
+            hf_config = (
+                load_hf_config(
+                    AutoConfig,
+                    config.model_id,
+                    trust_remote_code=config.trust_remote_code,
+                )
+                if config.model_id is not None
+                else None
             )
             model = WinMLAutoModel.from_onnx(
                 # ``model_path`` is narrowed to ``str | dict[str, str]`` here;
@@ -472,6 +468,45 @@ def _load_model(
         config.ep = "cpu"
         config._auto_device_selected = False
         return _load_model(config)
+
+
+def _make_reference_config(config: WinMLEvaluationConfig) -> WinMLEvaluationConfig:
+    """Derive an ordinary model-loading config for the compare reference.
+
+    An explicit ``--reference`` is currently an ONNX path and uses its own
+    device and EP. Without ``--reference``, compare mode preserves the existing
+    behavior of loading the candidate's Hugging Face ``model_id`` as a PyTorch
+    reference on CPU. A separate reference Hugging Face ID is not supported.
+    """
+    if config.reference_path is not None:
+        # Explicit reference: load the resolved ONNX path as a WinML model.
+        return replace(
+            config,
+            model_id=None,
+            model_path=config.reference_path,
+            reference_path=None,
+            runtime="winml",
+            device=config.reference_device,
+            ep=config.reference_ep,
+            precision="auto",
+            mode="onnx",
+            skip_build=True,
+        )
+
+    if config.model_id is None:
+        raise ValueError("model_id is required to load the Hugging Face reference model.")
+
+    # Implicit reference: load the candidate's original HF model with PyTorch.
+    return replace(
+        config,
+        model_path=None,
+        reference_path=None,
+        runtime="pytorch",
+        device="cpu",
+        ep=None,
+        precision="auto",
+        mode="onnx",
+    )
 
 
 def _load_genai_causal_lm(config: WinMLEvaluationConfig) -> WinMLGenaiCausalLM:
@@ -654,8 +689,8 @@ def evaluate(
     mode = config.mode if config.mode is not None else "onnx"
     if mode not in EVAL_MODES:
         raise ValueError(f"Invalid mode {mode!r}; expected one of {EVAL_MODES} or None.")
-    # Two-ONNX compare: both candidate and reference run as raw ORT sessions, so
-    # HF task resolution / model_id are not required — keep task as-is.
+    # Two-ONNX compare does not require HF task resolution or model metadata.
+    # With no explicit task, WinMLAutoModel selects its generic raw-output model.
     onnx_compare = mode == "compare" and config.reference_path is not None
     config = replace(
         config,
@@ -707,12 +742,21 @@ def evaluate(
                 "to see supported role=path model options.",
             ) from error
 
+    reference_model = (
+        _load_model(_make_reference_config(config))
+        if config.mode == "compare"
+        else None
+    )
+
     from ..utils.eval_utils import DatasetValidationError
 
     cls = get_evaluator_class(config)
     try:
         console.print("[bold]Loading dataset and evaluating...[/bold]")
-        task_evaluator = cls(config, model)
+        if config.mode == "compare":
+            task_evaluator = cls(config, model, reference_model)
+        else:
+            task_evaluator = cls(config, model)
         metrics = task_evaluator.compute()
     except DatasetValidationError as error:
         raise ValueError(
