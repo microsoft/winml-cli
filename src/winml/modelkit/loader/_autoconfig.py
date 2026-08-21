@@ -154,6 +154,11 @@ def load_hf_config(
         first tries identifier-based concrete config inference and otherwise
         returns a tagged generic config.
     """
+    if trust_remote_code:
+        from ..utils._security import _require_remote_code_execution_allowed
+
+        _require_remote_code_execution_allowed()
+
     from transformers import PretrainedConfig, __version__
 
     load_kwargs = kwargs.copy()
