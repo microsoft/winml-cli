@@ -227,7 +227,8 @@ class MarianDecoderWrapper(nn.Module):
             self_attn_cache._layer(i).values = args[kv_start + i * 2 + 1]
 
         self_attn_cache.set_trace_position(cache_position)
-        decoder = self.model.get_decoder()
+        model = cast("MarianMTModel", self.model)
+        decoder = model.get_decoder()
         if "cache_position" not in inspect.signature(decoder.forward).parameters:
             decoder.embed_positions.position_id = cache_position
             expanded_mask = decoder_attention_mask[:, None, None, :].to(
@@ -243,7 +244,7 @@ class MarianDecoderWrapper(nn.Module):
         cross_attn_cache = DynamicCache()
         cache = EncoderDecoderCache(self_attn_cache, cross_attn_cache)
 
-        out = self.model(
+        out = model(
             decoder_input_ids=decoder_input_ids,
             encoder_outputs=(encoder_hidden_states,),
             attention_mask=attention_mask,
