@@ -59,6 +59,7 @@ def load_native_hf_model(
     task: str | None = None,
     device: str = "auto",
     trust_remote_code: bool = False,
+    torch_dtype: Any = "auto",
 ) -> NativeHFModel:
     """Load the task-resolved Hugging Face model without ONNX export."""
     resolved_device = resolve_native_device(device)
@@ -69,7 +70,7 @@ def load_native_hf_model(
             model_id,
             resolved_device.torch_device,
             trust_remote_code=trust_remote_code,
-            torch_dtype="auto",
+            torch_dtype=torch_dtype,
         )
         return NativeHFModel(model=causal_model, device=resolved_device)
 
@@ -79,7 +80,7 @@ def load_native_hf_model(
         model_id,
         task=task,
         trust_remote_code=trust_remote_code,
-        torch_dtype="auto",
+        torch_dtype=torch_dtype,
     )
     model = model.to(resolved_device.torch_device).eval()
     return NativeHFModel(
