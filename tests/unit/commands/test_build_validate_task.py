@@ -152,6 +152,23 @@ class TestValidateTaskSupportedForModel:
                 task="next-sentence-prediction",
             )
 
+    def test_accepts_document_question_answering_for_layoutlm(self) -> None:
+        mock_config = MagicMock()
+        mock_config.model_type = "layoutlm"
+
+        with (
+            patch("winml.modelkit.loader.load_hf_config", return_value=mock_config),
+            patch("winml.modelkit.export.io.ensure_hf_models_registered"),
+            patch(
+                "winml.modelkit.loader.task.get_supported_tasks",
+                return_value=["question-answering"],
+            ),
+        ):
+            _validate_task_supported_for_model(
+                model_id="document/layoutlm-qa",
+                task="document-question-answering",
+            )
+
     def test_accepts_mask_generation_via_synonym_extensions(self) -> None:
         """``mask-generation`` is preserved in ``TASK_SYNONYM_EXTENSIONS`` for SAM2.
 

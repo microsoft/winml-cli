@@ -50,3 +50,10 @@ class TestResolveExporterTaskSynonyms:
         assert info.support_level != SupportLevel.UNSUPPORTED
         assert info.onnx_config_source == "TasksManager"
         assert info.onnx_config_class is not None
+
+    def test_document_question_answering_resolves_layoutlm_qa_exporter(self) -> None:
+        info = resolve_exporter("layoutlm", "document-question-answering", hf_config=None)
+
+        assert info.support_level != SupportLevel.UNSUPPORTED
+        assert info.onnx_config_source == "TasksManager"
+        assert info.onnx_config_class == "LayoutLMQAIOConfig"
