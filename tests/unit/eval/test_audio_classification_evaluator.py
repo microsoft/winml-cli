@@ -392,7 +392,10 @@ def test_scalar_string_label_mapping_rejects_unmapped_observed_value() -> None:
         }
     )
     dataset = Dataset.from_list(
-        [{"audio": {"array": [0.0], "sampling_rate": 16_000}, "gender": "unknown"}],
+        [
+            {"audio": {"array": [-1.0], "sampling_rate": 16_000}, "gender": "female"},
+            {"audio": {"array": [1.0], "sampling_rate": 16_000}, "gender": "unknown"},
+        ],
         features=features,
     )
     config = WinMLEvaluationConfig(
@@ -400,7 +403,7 @@ def test_scalar_string_label_mapping_rejects_unmapped_observed_value() -> None:
         task="audio-classification",
         dataset=DatasetConfig(
             path="example/gender-audio",
-            samples=1,
+            samples=2,
             shuffle=False,
             columns_mapping={"label_column": "gender"},
             label_mapping={"female": 0, "male": 1},

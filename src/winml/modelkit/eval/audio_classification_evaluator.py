@@ -269,11 +269,11 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
     def compute(self) -> dict[str, Any]:
         """Run one forward per selected row and compute task-appropriate metrics."""
         logits: list[np.ndarray] = []
-        targets: list[Any] = []
+        selected_targets = [self._target_for_row(row) for row in self.data]
+        processed_targets: list[Any] = []
         rejected_by_reason: dict[str, int] = {}
         adapter = cast("_AudioModelAdapter", self.pipe)
-        for row in self.data:
-            target = self._target_for_row(row)
+        for row, target in zip(self.data, selected_targets, strict=True):
             try:
                 prediction = adapter.predict_logits(row[self._audio_column])
             except (TypeError, ValueError, RuntimeError) as error:
@@ -281,7 +281,7 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
                 rejected_by_reason[reason] = rejected_by_reason.get(reason, 0) + 1
                 continue
             logits.append(prediction)
-            targets.append(target)
+            processed_targets.append(target)
         if not logits:
             raise DatasetValidationError("No selected audio samples were successfully processed.")
         scores = np.stack(logits)
@@ -291,15 +291,15 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
                 f"{len(self._model_id2label)} labels."
             )
         if self._target_kind == "multi-label":
-            metrics = self._multi_label_metrics(scores, targets)
+            metrics = self._multi_label_metrics(scores, processed_targets)
         else:
-            metrics = self._single_label_metrics(scores, targets)
+            metrics = self._single_label_metrics(scores, processed_targets)
         selected = len(self.data)
         metrics.update(
             requested_samples=self.config.dataset.samples,
             selected_samples=selected,
-            processed_samples=len(targets),
-            rejected_samples=selected - len(targets),
+            processed_samples=len(processed_targets),
+            rejected_samples=selected - len(processed_targets),
             rejected_by_reason=dict(sorted(rejected_by_reason.items())),
         )
         return metrics
