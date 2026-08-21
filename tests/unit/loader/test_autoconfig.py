@@ -30,6 +30,33 @@ class _FakeConfig:
         return ("specific", config_dict, kwargs)
 
 
+class _StrictFallbackConfig:
+    dilation: bool = False
+
+    @classmethod
+    def from_dict(cls, config_dict, **kwargs):
+        return {
+            "kind": "normalized",
+            "config_dict": config_dict,
+            "kwargs": kwargs,
+        }
+
+
+class _StrictFallbackConfigWithUnused:
+    dilation: bool = False
+
+    @classmethod
+    def from_dict(cls, config_dict, **kwargs):
+        payload = {
+            "kind": "normalized",
+            "config_dict": config_dict,
+            "kwargs": kwargs,
+        }
+        if kwargs.get("return_unused_kwargs"):
+            return payload, {"sentinel": kwargs.get("sentinel")}
+        return payload
+
+
 def test_local_path_uses_saved_model_identifier(tmp_path: Path) -> None:
     local_model_dir = tmp_path / "exports" / "run1"
     local_model_dir.mkdir(parents=True)
@@ -270,6 +297,93 @@ def test_concrete_or_trusted_remote_config_uses_auto_config(
         "owner/model",
         trust_remote_code=trust_remote_code,
     )
+
+
+def test_concrete_config_strict_none_bool_validation_uses_normalized_from_dict() -> None:
+    strict_error = type(
+        "StrictDataclassFieldValidationError",
+        (Exception,),
+        {},
+    )(
+        "Validation error for field 'dilation': "
+        "TypeError: Field 'dilation' expected bool, got NoneType (value: None)"
+    )
+    auto_config = MagicMock()
+    auto_config.from_pretrained.side_effect = strict_error
+    source_config_dict = {
+        "model_type": "table-transformer",
+        "dilation": None,
+        "hidden_size": 256,
+    }
+
+    with (
+        patch(
+            "transformers.PretrainedConfig.get_config_dict",
+            return_value=(source_config_dict, {"sentinel": "unused"}),
+        ),
+        patch(
+            "transformers.models.auto.configuration_auto.CONFIG_MAPPING",
+            {"table-transformer": _StrictFallbackConfig},
+        ),
+    ):
+        config = load_hf_config(auto_config, "owner/model")
+
+    assert config["kind"] == "normalized"
+    assert config["config_dict"]["dilation"] is False
+    assert source_config_dict["dilation"] is None
+    assert config["kwargs"] == {"sentinel": "unused"}
+
+
+def test_concrete_config_strict_none_bool_validation_preserves_return_unused_kwargs() -> None:
+    strict_error = type(
+        "StrictDataclassFieldValidationError",
+        (Exception,),
+        {},
+    )(
+        "Validation error for field 'dilation': "
+        "TypeError: Field 'dilation' expected bool, got NoneType (value: None)"
+    )
+    auto_config = MagicMock()
+    auto_config.from_pretrained.side_effect = strict_error
+
+    with (
+        patch(
+            "transformers.PretrainedConfig.get_config_dict",
+            return_value=(
+                {"model_type": "table-transformer", "dilation": None},
+                {"sentinel": "unused"},
+            ),
+        ),
+        patch(
+            "transformers.models.auto.configuration_auto.CONFIG_MAPPING",
+            {"table-transformer": _StrictFallbackConfigWithUnused},
+        ),
+    ):
+        config, unused_kwargs = load_hf_config(
+            auto_config,
+            "owner/model",
+            return_unused_kwargs=True,
+            sentinel="unused",
+        )
+
+    assert config["kind"] == "normalized"
+    assert config["config_dict"]["dilation"] is False
+    assert config["kwargs"]["return_unused_kwargs"] is True
+    assert unused_kwargs == {"sentinel": "unused"}
+
+
+def test_concrete_config_non_strict_error_is_raised() -> None:
+    auto_config = MagicMock()
+    auto_config.from_pretrained.side_effect = RuntimeError("boom")
+
+    with (
+        patch(
+            "transformers.PretrainedConfig.get_config_dict",
+            return_value=({"model_type": "table-transformer"}, {}),
+        ),
+        pytest.raises(RuntimeError, match="boom"),
+    ):
+        load_hf_config(auto_config, "owner/model")
 
 
 def test_generic_fallback_preserves_return_unused_kwargs_shape() -> None:
