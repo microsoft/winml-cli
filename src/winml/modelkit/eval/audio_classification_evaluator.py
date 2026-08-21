@@ -319,12 +319,16 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
         feature = dataset.features[self._label_column]
         if isinstance(feature, ClassLabel):
             self._target_kind = "single-label"
+        elif isinstance(feature, Value) and feature.dtype == "string":
+            self._validate_scalar_string_mapping()
+            self._target_kind = "single-label-string"
         elif isinstance(feature, Sequence) and isinstance(feature.feature, (ClassLabel, Value)):
             self._target_kind = "multi-label"
         else:
             raise DatasetValidationError(
                 f"Column {self._label_column!r} must be ClassLabel or a sequence of "
-                f"ClassLabel/string values; got {feature!r}."
+                "ClassLabel/string values, or a scalar string with an explicit label mapping; "
+                f"got {feature!r}."
             )
         self._label_feature = feature
 
@@ -335,6 +339,15 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
         if self._target_kind == "single-label":
             assert isinstance(self._label_feature, ClassLabel)
             return self._resolve_label(self._label_feature.int2str(int(raw_target)))
+        if self._target_kind == "single-label-string":
+            mapping = self.config.dataset.label_mapping
+            assert mapping is not None
+            value = str(raw_target)
+            if value not in mapping:
+                raise DatasetValidationError(
+                    f"Dataset label {value!r} is absent from the explicit label mapping."
+                )
+            return int(mapping[value])
 
         values = list(raw_target)
         feature = self._label_feature.feature
@@ -356,6 +369,43 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
         if not resolved:
             raise DatasetValidationError("Multi-label targets must contain at least one label.")
         return sorted(set(resolved))
+
+    def _validate_scalar_string_mapping(self) -> None:
+        mapping = self.config.dataset.label_mapping
+        if not mapping:
+            raise DatasetValidationError(
+                "Scalar string targets require a non-empty explicit label mapping."
+            )
+        if any(not isinstance(label, str) for label in mapping):
+            raise DatasetValidationError(
+                "Scalar string label mapping keys must be exact strings."
+            )
+        invalid_destinations = any(
+            not isinstance(model_id, int) or isinstance(model_id, bool)
+            for model_id in mapping.values()
+        )
+        if invalid_destinations:
+            raise DatasetValidationError(
+                "Scalar string label mapping destinations must be checkpoint IDs."
+            )
+        destinations = list(mapping.values())
+        if len(set(destinations)) != len(destinations):
+            raise DatasetValidationError(
+                "Scalar string label mapping contains duplicate checkpoint ID destinations."
+            )
+        checkpoint_ids = set(self._model_id2label)
+        mapped_ids = set(destinations)
+        unknown_ids = sorted(mapped_ids - checkpoint_ids)
+        if unknown_ids:
+            raise DatasetValidationError(
+                f"Label mapping target IDs {unknown_ids} are absent from model.config.id2label."
+            )
+        missing_ids = sorted(checkpoint_ids - mapped_ids)
+        if missing_ids:
+            raise DatasetValidationError(
+                "Scalar string label mapping must cover every checkpoint ID; "
+                f"missing {missing_ids}."
+            )
 
     def _resolve_label(self, value: str, *, fallback_name: Any = None) -> int:
         mapping = self.config.dataset.label_mapping or {}

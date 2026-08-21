@@ -67,7 +67,7 @@ _AUDIO_CLASSIFICATION_SCHEMA = TaskSchema(
         ),
         SchemaItem(
             "label_column",
-            "scalar ClassLabel or sequence of exact class labels",
+            "scalar ClassLabel, explicitly mapped scalar string, or sequence of exact class labels",
             default="label",
             remap_hint="<your_label_column>",
         ),

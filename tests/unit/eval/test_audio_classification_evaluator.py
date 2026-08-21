@@ -280,6 +280,147 @@ def test_scalar_binary_classlabel_preserves_argmax_accuracy_and_f1() -> None:
     assert metrics["class_coverage"] == 1.0
 
 
+def test_scalar_string_labels_use_explicit_checkpoint_id_mapping() -> None:
+    features = Features(
+        {
+            "audio": {
+                "array": Sequence(Value("float32")),
+                "sampling_rate": Value("int32"),
+            },
+            "gender": Value("string"),
+        }
+    )
+    dataset = Dataset.from_list(
+        [
+            {"audio": {"array": [-1.0] * 8, "sampling_rate": 16_000}, "gender": "female"},
+            {"audio": {"array": [1.0] * 8, "sampling_rate": 16_000}, "gender": "male"},
+        ],
+        features=features,
+    )
+    config = WinMLEvaluationConfig(
+        model_id="example/gender-audio",
+        task="audio-classification",
+        runtime="pytorch",
+        dataset=DatasetConfig(
+            path="example/gender-audio",
+            split="test",
+            samples=2,
+            shuffle=False,
+            columns_mapping={"label_column": "gender"},
+            label_mapping={"female": 0, "male": 1},
+        ),
+    )
+    model = _BinaryModel()
+
+    with (
+        patch("datasets.load_dataset", return_value=dataset),
+        patch(
+            "transformers.AutoFeatureExtractor.from_pretrained",
+            return_value=_IdentityWaveformExtractor(),
+        ),
+    ):
+        metrics = WinMLAudioClassificationEvaluator(config, model).compute()
+
+    assert model.forward_count == 2
+    assert metrics["accuracy"] == 1.0
+    assert metrics["macro_f1"] == 1.0
+
+
+@pytest.mark.parametrize(
+    ("label_mapping", "message"),
+    [
+        (None, "non-empty explicit label mapping"),
+        ({}, "non-empty explicit label mapping"),
+        ({"female": "0", "male": 1}, "destinations must be checkpoint IDs"),
+        ({"female": 0, "male": 0}, "duplicate checkpoint ID destinations"),
+        ({"female": 2, "male": 3}, "absent from model.config.id2label"),
+        ({"female": 0}, "must cover every checkpoint ID"),
+    ],
+    ids=[
+        "missing",
+        "empty",
+        "non-integer-destination",
+        "duplicate-destination",
+        "unknown-destinations",
+        "incomplete",
+    ],
+)
+def test_scalar_string_label_mapping_rejects_malformed_mappings(
+    label_mapping,
+    message,
+) -> None:
+    features = Features(
+        {
+            "audio": {
+                "array": Sequence(Value("float32")),
+                "sampling_rate": Value("int32"),
+            },
+            "gender": Value("string"),
+        }
+    )
+    dataset = Dataset.from_list(
+        [{"audio": {"array": [0.0], "sampling_rate": 16_000}, "gender": "female"}],
+        features=features,
+    )
+    config = WinMLEvaluationConfig(
+        model_id="example/gender-audio",
+        task="audio-classification",
+        dataset=DatasetConfig(
+            path="example/gender-audio",
+            samples=1,
+            shuffle=False,
+            columns_mapping={"label_column": "gender"},
+            label_mapping=label_mapping,
+        ),
+    )
+
+    with (
+        patch("datasets.load_dataset", return_value=dataset),
+        pytest.raises(DatasetValidationError, match=message),
+    ):
+        WinMLAudioClassificationEvaluator(config, _BinaryModel())
+
+
+def test_scalar_string_label_mapping_rejects_unmapped_observed_value() -> None:
+    features = Features(
+        {
+            "audio": {
+                "array": Sequence(Value("float32")),
+                "sampling_rate": Value("int32"),
+            },
+            "gender": Value("string"),
+        }
+    )
+    dataset = Dataset.from_list(
+        [{"audio": {"array": [0.0], "sampling_rate": 16_000}, "gender": "unknown"}],
+        features=features,
+    )
+    config = WinMLEvaluationConfig(
+        model_id="example/gender-audio",
+        task="audio-classification",
+        dataset=DatasetConfig(
+            path="example/gender-audio",
+            samples=1,
+            shuffle=False,
+            columns_mapping={"label_column": "gender"},
+            label_mapping={"female": 0, "male": 1},
+        ),
+    )
+    model = _BinaryModel()
+
+    with (
+        patch("datasets.load_dataset", return_value=dataset),
+        patch(
+            "transformers.AutoFeatureExtractor.from_pretrained",
+            return_value=_IdentityWaveformExtractor(),
+        ),
+        pytest.raises(DatasetValidationError, match=r"'unknown'.*absent"),
+    ):
+        WinMLAudioClassificationEvaluator(config, model).compute()
+
+    assert model.forward_count == 0
+
+
 def test_native_hf_model_without_io_config_uses_shared_adapter() -> None:
     config = WinMLEvaluationConfig(
         model_id="example/native-audio",
@@ -443,6 +584,10 @@ def test_registry_schema_and_no_universal_default() -> None:
 
     assert "audio-classification" in TASK_SCHEMAS
     assert "audio-classification" not in _DEFAULT_DATASETS
+    label_schema = next(
+        item for item in TASK_SCHEMAS["audio-classification"].columns if item.name == "label_column"
+    )
+    assert "explicitly mapped scalar string" in label_schema.description
     assert get_evaluator_class(WinMLEvaluationConfig(task="audio-classification")) is (
         WinMLAudioClassificationEvaluator
     )
