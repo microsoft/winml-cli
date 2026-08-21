@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from ..models.winml.composite_model import WinMLCompositeModel
     from ..models.winml.genai_causal_lm import WinMLGenaiCausalLM
     from .base_evaluator import WinMLEvaluator
+    from .tensor_similarity_evaluator import TensorSimilarityEvaluator
 
 logger = logging.getLogger(__name__)
 
@@ -375,7 +376,8 @@ def _load_model(
         rebuild=config.rebuild,
     )
 
-    if config.model_id is None and loader is not _ModelLoaderKind.ONNX:
+    model_id = config.model_id
+    if model_id is None and loader is not _ModelLoaderKind.ONNX:
         raise ValueError("model_id is required.")
 
     if loader is _ModelLoaderKind.EVALUATOR_MANAGED:
@@ -402,10 +404,10 @@ def _load_model(
             hf_config = (
                 load_hf_config(
                     AutoConfig,
-                    config.model_id,
+                    model_id,
                     trust_remote_code=config.trust_remote_code,
                 )
-                if config.model_id is not None
+                if model_id is not None
                 else None
             )
             model = WinMLAutoModel.from_onnx(
@@ -423,6 +425,8 @@ def _load_model(
             model.config = hf_config
             return model
 
+        assert model_id is not None
+
         # HuggingFace build path — export overrides (--input-specs/
         # --export-config/--dynamic-axes) are merged under the build config's
         # ``export`` section as a sparse dict so from_pretrained routes them
@@ -438,7 +442,7 @@ def _load_model(
             build_override = override_dict
 
         return WinMLAutoModel.from_pretrained(
-            config.model_id,
+            model_id,
             ep_device,
             task=config.task,
             device=config.device,
@@ -753,8 +757,10 @@ def evaluate(
     cls = get_evaluator_class(config)
     try:
         console.print("[bold]Loading dataset and evaluating...[/bold]")
+        task_evaluator: WinMLEvaluator | TensorSimilarityEvaluator
         if config.mode == "compare":
-            task_evaluator = cls(config, model, reference_model)
+            compare_evaluator = cast("type[TensorSimilarityEvaluator]", cls)
+            task_evaluator = compare_evaluator(config, model, reference_model)
         else:
             task_evaluator = cls(config, model)
         metrics = task_evaluator.compute()
