@@ -21,7 +21,10 @@
       {
         "name": "logits"
       }
-    ]
+    ],
+    "compatibility": {
+      "transformers_attention": "eager"
+    }
   },
   "optim": {},
   "quant": {
@@ -41,6 +44,9 @@
     "calibration_save_path": null,
     "op_types_to_quantize": null,
     "nodes_to_exclude": null,
+    "task": "audio-classification",
+    "model_id": "jakeBland/wav2vec-vm-finetune",
+    "model_type": "wav2vec2",
     "fp16_keep_io_types": true,
     "fp16_op_block_list": null
   },
@@ -48,7 +54,6 @@
   "loader": {
     "task": "audio-classification",
     "model_class": "AutoModelForAudioClassification",
-    "model_type": "wav2vec2",
-    "trust_remote_code": true
+    "model_type": "wav2vec2"
   }
 }
