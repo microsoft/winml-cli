@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 from types import SimpleNamespace
 from typing import ClassVar
 from unittest.mock import patch
@@ -13,7 +14,16 @@ import numpy as np
 import pytest
 import soundfile as sf
 import torch
-from datasets import ClassLabel, Dataset, DatasetDict, Features, Sequence, Value
+from datasets import (
+    Audio,
+    ClassLabel,
+    Dataset,
+    DatasetDict,
+    Features,
+    IterableDataset,
+    Sequence,
+    Value,
+)
 
 from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 from winml.modelkit.eval.audio_classification_evaluator import (
@@ -83,6 +93,91 @@ class _BinaryModel:
         score = inputs["input_values"].mean()
         self.forward_count += 1
         return {"logits": torch.stack((-score, score)).reshape(1, 2)}
+
+
+class _EncodingMustNotRunAudio(Audio):
+    def encode_example(self, value):
+        raise AssertionError("bounded selection must not re-encode raw audio")
+
+
+class _RawAudioIterableDataset(IterableDataset):
+    def __init__(self, rows, features) -> None:
+        self._rows = rows
+        self._raw_features = features
+
+    @property
+    def features(self):
+        return self._raw_features
+
+    @property
+    def column_names(self):
+        return list(self._raw_features)
+
+    def take(self, count):
+        return iter(self._rows[:count])
+
+
+def test_streaming_raw_audio_is_bounded_without_feature_reencoding() -> None:
+    def wav_bytes(value: float) -> bytes:
+        buffer = BytesIO()
+        sf.write(buffer, np.full(16_000, value, dtype=np.float32), 16_000, format="WAV")
+        return buffer.getvalue()
+
+    rows = [
+        {"audio": {"bytes": wav_bytes(-0.5), "path": None}, "labels": ["negative"]},
+        {"audio": {"bytes": wav_bytes(0.5), "path": None}, "labels": ["positive"]},
+    ]
+    dataset = _RawAudioIterableDataset(
+        rows,
+        Features(
+            {
+                "audio": _EncodingMustNotRunAudio(decode=False),
+                "labels": Sequence(Value("string")),
+            }
+        ),
+    )
+    config = WinMLEvaluationConfig(
+        model_id="example/streaming-audio",
+        task="audio-classification",
+        runtime="pytorch",
+        dataset=DatasetConfig(
+            path="example/streaming-audio",
+            split="test",
+            streaming=True,
+            samples=2,
+            shuffle=False,
+            columns_mapping={"label_column": "labels"},
+        ),
+    )
+    model = _BinaryModel()
+    extractor = _IdentityWaveformExtractor()
+    decoded_payloads = []
+    decode_audio = _AudioModelAdapter._decode_audio
+
+    def track_decode(audio):
+        decoded_payloads.append(audio)
+        return decode_audio(audio)
+
+    with (
+        patch("datasets.load_dataset", return_value=dataset),
+        patch(
+            "transformers.AutoFeatureExtractor.from_pretrained",
+            return_value=extractor,
+        ),
+        patch.object(_AudioModelAdapter, "_decode_audio", side_effect=track_decode),
+    ):
+        metrics = WinMLAudioClassificationEvaluator(config, model).compute()
+
+    assert [payload["bytes"] for payload in decoded_payloads] == [
+        row["audio"]["bytes"] for row in rows
+    ]
+    assert model.forward_count == 2
+    assert metrics["requested_samples"] == 2
+    assert metrics["selected_samples"] == 2
+    assert metrics["processed_samples"] == 2
+    assert metrics["rejected_samples"] == 0
+    assert np.isfinite(metrics["sample_average_precision"])
+    assert np.isfinite(metrics["micro_average_precision"])
 
 
 def test_rank_three_multilabel_uses_one_forward_per_row_and_finite_ap() -> None:

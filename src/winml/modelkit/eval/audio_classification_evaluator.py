@@ -257,7 +257,7 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
         if ds.shuffle:
             dataset = dataset.shuffle(seed=ds.seed)
         if isinstance(dataset, IterableDataset):
-            dataset = Dataset.from_list(list(dataset.take(ds.samples)), features=dataset.features)
+            dataset = Dataset.from_list(list(dataset.take(ds.samples)))
         else:
             dataset = dataset.select(range(min(ds.samples, len(dataset))))
         return dataset
