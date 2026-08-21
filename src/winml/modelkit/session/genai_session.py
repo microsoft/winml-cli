@@ -61,7 +61,11 @@ from ..utils.constants import (
     EP_SUPPORTED_DEVICES,
     normalize_ep_name,
 )
-from .ep_device import EP_DEVICE_SPECS, VALID_EPS, short_ep_name
+from .ep_device import (
+    VALID_EPS,
+    device_from_provider_option_hints,
+    short_ep_name,
+)
 from .ep_registry import WinMLEPRegistry
 
 
@@ -2326,16 +2330,8 @@ class GenaiSession:
     @staticmethod
     def _device_from_provider_hints(ep: EPName, options: dict[str, Any]) -> str | None:
         """Match provider options against EP/device routing hints in the catalog."""
-        matches: set[str] = set()
-        for spec in EP_DEVICE_SPECS:
-            if spec.ep != ep or not spec.provider_option_hints:
-                continue
-            if all(
-                Path(str(options.get(key, ""))).name.casefold() == expected.casefold()
-                for key, expected in spec.provider_option_hints.items()
-            ):
-                matches.add(spec.device)
-        return next(iter(matches)) if len(matches) == 1 else None
+        _, device = device_from_provider_option_hints(ep, options)
+        return device
 
     @staticmethod
     def _bundle_uses_hardware_ep(cfg: dict[str, Any]) -> str | None:

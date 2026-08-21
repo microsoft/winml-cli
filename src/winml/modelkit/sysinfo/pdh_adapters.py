@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from ..utils.constants import ACCELERATOR_DEVICE_TYPES
+from .luid import format_pdh_luid as _format_pdh_luid
 
 
 if TYPE_CHECKING:
@@ -230,19 +231,6 @@ def discover_gpu_luid() -> str | None:
     if len(luids) > 1:
         logger.debug("Multiple GPU adapters found; using %s", luids[0])
     return luids[0]
-
-
-def _format_pdh_luid(decimal_luid: str) -> str:
-    """Format a decimal LUID string as PDH ``"0xHHHHHHHH_0xHHHHHHHH"``.
-
-    ORT's autoEP exposes ``OrtHardwareDevice.metadata["LUID"]`` as a base-10
-    integer string covering the full 64 bits. PDH counter paths split that
-    into high/low 32-bit halves rendered in upper-case hex. This helper does
-    that conversion (and only that — callers must ensure the input parses
-    as an integer).
-    """
-    v = int(decimal_luid)
-    return f"0x{(v >> 32) & 0xFFFFFFFF:08X}_0x{v & 0xFFFFFFFF:08X}"
 
 
 def resolve_adapter_luid(
