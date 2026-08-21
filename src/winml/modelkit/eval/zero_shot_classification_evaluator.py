@@ -25,14 +25,15 @@ from typing import TYPE_CHECKING, Any, cast
 
 from tqdm import tqdm
 
+from ..utils.eval_utils import DatasetValidationError
+from .base_evaluator import WinMLEvaluator
+
+
 try:
     from transformers.pipelines.zero_shot_classification import ZeroShotClassificationPipeline
 except Exception:  # pragma: no cover - import fallback for constrained environments
     class ZeroShotClassificationPipeline:  # type: ignore[no-redef]
-        pass
-
-from ..utils.eval_utils import DatasetValidationError
-from .base_evaluator import WinMLEvaluator
+        """Fallback zero-shot pipeline type when transformers is unavailable."""
 
 
 if TYPE_CHECKING:
@@ -186,13 +187,14 @@ class WinMLZeroShotClassificationEvaluator(WinMLEvaluator):
             return token
         return None
 
-    def _resolve_reference_label(self, sample: dict[str, Any], class_names: list[str] | None) -> str:
+    def _resolve_reference_label(
+        self,
+        sample: dict[str, Any],
+        class_names: list[str] | None,
+    ) -> str:
         """Convert dataset label value to canonical NLI class name."""
         raw = sample[self._label_col]
-        if class_names is not None:
-            name = class_names[int(raw)]
-        else:
-            name = str(raw)
+        name = class_names[int(raw)] if class_names is not None else str(raw)
         normalized = self._normalize_nli_label(name)
         if normalized is None:
             raise DatasetValidationError(

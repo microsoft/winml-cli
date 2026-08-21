@@ -193,7 +193,10 @@ def _is_nli_sequence_classifier(config: PretrainedConfig) -> bool:
     architectures = getattr(config, "architectures", None)
     if not isinstance(architectures, list) or not architectures:
         return False
-    if not any(isinstance(name, str) and name.endswith("ForSequenceClassification") for name in architectures):
+    if not any(
+        isinstance(name, str) and name.endswith("ForSequenceClassification")
+        for name in architectures
+    ):
         return False
 
     id2label = getattr(config, "id2label", None)

@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from datasets import ClassLabel, Dataset, Features, Value
 
 from winml.modelkit.eval.metrics.classification import ClassificationMetric
@@ -15,7 +17,11 @@ from winml.modelkit.eval.zero_shot_classification_evaluator import (
 
 class _MockConfig:
     class _Inner:
-        id2label = {2: "NEUTRAL", 0: "CONTRADICTION", 1: "ENTAILMENT"}
+        id2label: ClassVar[dict[int, str]] = {
+            2: "NEUTRAL",
+            0: "CONTRADICTION",
+            1: "ENTAILMENT",
+        }
 
     config = _Inner()
 
