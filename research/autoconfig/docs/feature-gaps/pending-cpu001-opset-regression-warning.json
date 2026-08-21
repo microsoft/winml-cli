@@ -1,0 +1,67 @@
+{
+  "issue_number": null,
+  "github_url": null,
+  "title": "winml build: warn when opset 19/21 regresses dense-Transpose models on CPU EP",
+  "status": "PENDING",
+  "labels": ["bug", "cpu", "dev experience", "P2"],
+  "filed_date": null,
+  "category": "build",
+  "source_findings": ["cpu-001"],
+  "affected_eps": ["cpu"],
+  "affected_arch": ["convnext", "dinov2", "dense_transpose_vit"],
+  "summary": "Auto-config baseline for ConvNext and DINOv2 uses a special Transpose-optimizer bypass path. Any explicit opset override (17, 19, or 21) disrupts this path and causes 3–10x slowdown on CPU EP. Users have no warning when this happens.",
+  "root_cause": "ORT's CPU EP Transpose optimizer uses a code path that only activates when opset is left at the ONNX model's native value. Forcing an explicit opset — even opset 17 (same as baseline) — triggers a different code path that materializes all Transpose operations explicitly, causing catastrophic memory overhead on dense-Transpose graph topologies.",
+  "measured_impact": [
+    {
+      "model": "microsoft/convnext-base",
+      "ep": "cpu",
+      "hypothesis": "h2 (opset19)",
+      "baseline_ms": null,
+      "gain_pct": -290.0,
+      "verdict": "DISCARD",
+      "protocol": "3x300 iters",
+      "date": "2026-06 (prior sweep)"
+    },
+    {
+      "model": "facebook/dinov2-small",
+      "ep": "cpu",
+      "hypothesis": "h1 (opset17 explicit)",
+      "baseline_ms": 112.6,
+      "result_ms": 762.0,
+      "gain_pct": -577.0,
+      "verdict": "DISCARD",
+      "note": "Even forcing opset17 (same as baseline) causes 6.8x regression — it's the explicitness of the override, not the version number.",
+      "protocol": "3x300 iters",
+      "date": "2026-06-18"
+    },
+    {
+      "model": "facebook/dinov2-small",
+      "ep": "cpu",
+      "hypothesis": "h2 (opset19)",
+      "baseline_ms": 112.6,
+      "result_ms": 1106.0,
+      "gain_pct": -882.0,
+      "verdict": "DISCARD",
+      "note": "9.8x slowdown — cpu-001 fires on DINOv2 as hard as ConvNext.",
+      "protocol": "3x300 iters",
+      "date": "2026-06-18"
+    },
+    {
+      "model": "microsoft/resnet-18",
+      "ep": "cpu",
+      "hypothesis": "h2 (opset19)",
+      "baseline_ms": null,
+      "gain_pct": 2.4,
+      "verdict": "MARGINAL",
+      "note": "ResNet is SAFE — sparse Transpose graph, opset changes neutral to slightly positive.",
+      "date": "2026-06-18"
+    }
+  ],
+  "fix_needed": {
+    "file": "winml build (pipeline)",
+    "description": "When user requests opset override on a dense-Transpose model targeting CPU EP, emit a warning: 'cpu-001: opset override may disrupt ORT Transpose optimizer bypass path on this model. Baseline auto-config is recommended for CPU EP with dense-Transpose architectures.'"
+  },
+  "discriminator": "Transpose count >= 49 AND ep == 'cpu' → warn before applying opset override",
+  "related_issues": [],
+  "notes": "cpu-001 was originally documented as ConvNext-specific. 2026-06-18 sweep confirms it fires equally on DINOv2 (both have dense Transpose graphs). Scope updated in cpu.json."
+}

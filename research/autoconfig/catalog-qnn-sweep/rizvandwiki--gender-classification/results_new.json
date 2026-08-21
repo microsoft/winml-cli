@@ -1,0 +1,31 @@
+{
+  "model_id": "rizvandwiki/gender-classification",
+  "task": "image-classification",
+  "hypotheses": {
+    "h0": {
+      "description": "opset17 no opts",
+      "model_file": "quantized.onnx",
+      "screen_p50_ms": 29.602,
+      "screen_cv": 0.5068,
+      "full_p50s_ms": [
+        14.151,
+        14.942,
+        13.889
+      ],
+      "avg_p50_ms": 14.327
+    },
+    "h3": {
+      "description": "opset21 no opts",
+      "model_file": "quantized.onnx",
+      "screen_p50_ms": 15.056,
+      "screen_cv": 0.579,
+      "full_p50s_ms": [
+        13.698,
+        13.921,
+        13.868
+      ],
+      "avg_p50_ms": 13.829
+    }
+  },
+  "opset21_gain_pct": 3.48
+}

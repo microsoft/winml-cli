@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>autoconfig Skill — Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f4f6f9;
+    padding: 32px 24px;
+    color: #1a1a2e;
+  }
+  h1 { font-size: 18px; font-weight: 700; color: #1a1a2e; margin-bottom: 4px; }
+  .subtitle { font-size: 12px; color: #666; margin-bottom: 6px; }
+  .version-tag {
+    display: inline-block; background: #e8eaf6; color: #3949ab;
+    border-radius: 4px; padding: 2px 8px; font-size: 10px; font-weight: 700;
+    letter-spacing: 0.5px; margin-bottom: 24px;
+  }
+
+  /* ── Layout ── */
+  .diagram { display: flex; flex-direction: column; align-items: center; gap: 0; }
+  .lifecycle-flow {
+    width: 100%; max-width: 960px; box-sizing: border-box;
+    position: relative; padding-left: 54px;
+  }
+  .orchestrator-line {
+    position: absolute; left: 20px; top: 0; bottom: 0;
+    width: 14px; border-radius: 999px;
+    background: linear-gradient(180deg, #4a79d9, #3f6fcc);
+    border: 1.5px solid #7ea6f0;
+  }
+  .orchestrator-label {
+    position: absolute; left: 4px; top: 10px;
+    writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg);
+    font-size: 11px; font-weight: 700; letter-spacing: 0.8px;
+    color: #1f3f83; background: #e8eaf6; border: 1px solid #c5cae9; border-radius: 6px;
+    padding: 6px 4px;
+  }
+
+  /* ── Phase strips ── */
+  .phase-row {
+    display: flex; align-items: stretch; width: 100%; max-width: 900px; margin-bottom: 0;
+  }
+  .phase-label {
+    writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg);
+    font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+    padding: 12px 8px; border-radius: 8px 0 0 8px; min-width: 32px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .phase-body {
+    flex: 1; padding: 16px 20px; border-radius: 0 8px 8px 0;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+
+  /* ── Phase colors ── */
+  .p0 .phase-label { background: #e8eaf6; color: #3949ab; }
+  .p0 .phase-body  { background: #f3f4fc; border: 1.5px solid #c5cae9; }
+  .p1 .phase-label { background: #e0f2f1; color: #00695c; }
+  .p1 .phase-body  { background: #f1faf9; border: 1.5px solid #b2dfdb; }
+  .p2 .phase-label { background: #fff3e0; color: #e65100; }
+  .p2 .phase-body  { background: #fffbf5; border: 1.5px solid #ffe0b2; }
+  .p3 .phase-label { background: #fce4ec; color: #880e4f; }
+  .p3 .phase-body  { background: #fff5f8; border: 1.5px solid #f8bbd0; }
+
+  /* ── Connector arrows ── */
+  .arrow {
+    display: flex; justify-content: center; align-items: center;
+    height: 28px; width: 100%; max-width: 900px; position: relative;
+  }
+  .arrow::before {
+    content: ''; position: absolute; left: 50%; top: 0; bottom: 0;
+    width: 2px; background: #aab;
+  }
+  .arrow-head {
+    position: relative; z-index: 1; background: #f4f6f9;
+    padding: 0 6px; font-size: 18px; color: #889; line-height: 1;
+  }
+
+  /* ── Generic box ── */
+  .box {
+    background: #fff; border-radius: 8px; padding: 10px 14px;
+    border: 1.5px solid #dde; font-size: 12px; min-width: 130px;
+  }
+  .box-title {
+    font-weight: 700; font-size: 11px; margin-bottom: 5px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .box ul { padding-left: 14px; color: #445; line-height: 1.6; font-size: 11px; }
+  .box code {
+    font-family: "Cascadia Code","Fira Code",monospace; font-size: 10px;
+    background: #f0f2f5; padding: 1px 4px; border-radius: 3px; color: #2d4a8a;
+  }
+
+  /* ── Loop (Phase 2) ── */
+  .loop-container { width: 100%; display: flex; gap: 10px; align-items: flex-start; }
+  .loop-agents { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+  .experiment-loop {
+    border: 2px dashed #ffcc80; border-radius: 12px; padding: 10px 12px;
+    display: flex; flex-direction: column; gap: 8px; background: #fffaf3;
+  }
+  .experiment-loop-title {
+    font-size: 11px; font-weight: 700; color: #bf360c;
+    text-transform: uppercase; letter-spacing: 0.6px;
+  }
+  .rel-note {
+    align-self: center; font-size: 10px; color: #5c6bc0; background: #eef2ff;
+    border: 1px dashed #9fa8da; border-radius: 999px; padding: 2px 10px;
+  }
+  .rel-note.data { color: #00897b; border-color: #80cbc4; background: #edfdfb; }
+  .loop-agent {
+    background: #fff; border-radius: 8px; padding: 10px 14px;
+    border: 1.5px solid #ffe0b2; font-size: 11px;
+  }
+  .loop-agent .agent-title { font-weight: 700; font-size: 11px; margin-bottom: 4px; color: #bf360c; }
+  .loop-agent ul { padding-left: 14px; color: #445; line-height: 1.65; }
+  .loop-agent .new-badge {
+    display: inline-block; background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7;
+    border-radius: 4px; padding: 0 5px; font-size: 9px; font-weight: 700;
+    letter-spacing: 0.5px; margin-left: 6px; vertical-align: middle;
+  }
+  .loop-side { display: flex; flex-direction: column; gap: 8px; min-width: 158px; }
+  .stop-box {
+    background: #fff; border: 1.5px dashed #aab; border-radius: 8px;
+    padding: 10px 14px; font-size: 11px; color: #556;
+  }
+  .stop-box .stop-title { font-weight: 700; margin-bottom: 4px; }
+  .stop-box ul { padding-left: 14px; line-height: 1.65; }
+  .loop-return {
+    margin-top: 2px; display: flex; align-items: center; justify-content: center; gap: 8px;
+    font-size: 10.5px; font-weight: 700; color: #bf360c;
+    border: 1.5px dashed #bf360c; border-radius: 999px; padding: 4px 10px; background: #fff3e0;
+  }
+  .loop-return .loop-icon { font-size: 13px; line-height: 1; }
+  .mini-arrow { text-align: center; font-size: 13px; color: #e65100; line-height: 1; margin: -2px 0; }
+
+  /* verdict pill */
+  .verdict-row {
+    display: flex; gap: 6px; flex-wrap: wrap; margin-top: 5px; padding-left: 4px;
+  }
+  .pill {
+    padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700;
+    letter-spacing: 0.3px;
+  }
+  .pill-keep    { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+  .pill-marginal{ background: #fff8e1; color: #f57f17; border: 1px solid #ffe082; }
+  .pill-discard { background: #fce4ec; color: #880e4f; border: 1px solid #f48fb1; }
+  .pill-early   { background: #e3f2fd; color: #1565c0; border: 1px solid #90caf9; }
+  .pill-crash   { background: #efebe9; color: #4e342e; border: 1px solid #bcaaa4; }
+
+  /* ── Output badges ── */
+  .output-badges { display: flex; gap: 10px; flex-wrap: wrap; }
+  .badge {
+    background: #fff; border-radius: 8px; padding: 8px 14px;
+    border: 1.5px solid #f48fb1; font-size: 11px; min-width: 160px;
+  }
+  .badge .badge-title {
+    font-weight: 700; font-size: 10px; color: #880e4f;
+    margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .badge code {
+    display: block; font-family: "Cascadia Code",monospace; font-size: 10px;
+    background: #fce4ec; padding: 2px 5px; border-radius: 3px; margin-top: 2px; color: #6a0e30;
+  }
+
+  /* ── User input ── */
+  .user-input {
+    max-width: 900px; width: 100%; background: #fff; border: 2px solid #3949ab;
+    border-radius: 10px; padding: 12px 20px; display: flex; align-items: center; gap: 20px;
+  }
+  .user-input .ui-icon { font-size: 24px; }
+  .user-input .ui-text { font-size: 12px; }
+  .user-input .ui-text strong { font-size: 13px; }
+  .tag {
+    display: inline-block; background: #e8eaf6; color: #3949ab;
+    border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: 600; margin: 2px 3px 2px 0;
+  }
+
+  /* profile-result box */
+  .profile-result {
+    background: #e0f7fa; border: 1.5px solid #80cbc4; border-radius: 6px;
+    padding: 6px 10px; font-size: 10.5px; color: #004d40; min-width: 190px;
+  }
+  .profile-result strong { font-size: 11px; display: block; margin-bottom: 3px; }
+</style>
+</head>
+<body>
+
+<h1>autoconfig — Skill Architecture</h1>
+<p class="subtitle">Profile-guided autonomous config search for WinApp developers</p>
+<div class="version-tag">v3 · 2026-06-17 · AgenticGPUOptimizer V2 patterns applied</div>
+
+<div class="diagram">
+
+  <!-- USER INPUT -->
+  <div class="user-input">
+    <div class="ui-icon">&#128100;</div>
+    <div class="ui-text">
+      <strong>User input</strong> &nbsp;&mdash;&nbsp;
+      Model ID &nbsp;+&nbsp; Target EP &nbsp;+&nbsp; Objective:
+      <span class="tag">accuracy-primary</span>
+      <span class="tag">latency-primary</span>
+      <span class="tag">Pareto</span>
+      &nbsp;+ optional budget / accuracy floor
+    </div>
+  </div>
+
+  <div class="arrow"><div class="arrow-head">&#8595;</div></div>
+
+  <div class="lifecycle-flow">
+  <div class="orchestrator-line"></div>
+  <div class="orchestrator-label">Orchestrator</div>
+
+  <!-- PHASE 0 -->
+  <div class="phase-row p0">
+    <div class="phase-label">Phase 0 · Intake</div>
+    <div class="phase-body" style="flex-wrap:nowrap;align-items:stretch">
+      <div class="box" style="flex:1">
+        <div class="box-title">Inspect</div>
+        <ul>
+          <li><code>winml inspect</code></li>
+          <li>EP availability check</li>
+          <li>Load <code>session.json</code> (crash-resume)</li>
+        </ul>
+      </div>
+      <div style="color:#aab;font-size:18px;display:flex;align-items:center">&#8594;</div>
+      <div class="box" style="flex:1">
+        <div class="box-title">Baseline Build</div>
+        <ul>
+          <li><code>winml build</code> (opset17, no quant)</li>
+          <li>Record baseline p50</li>
+        </ul>
+      </div>
+      <div style="color:#aab;font-size:18px;display:flex;align-items:center">&#8594;</div>
+      <div class="box" style="flex:1">
+        <div class="box-title">Correctness Contract</div>
+        <ul>
+          <li><code>winml eval --mode compare</code></li>
+          <li>Reference: original ONNX or HF PyTorch</li>
+          <li>Lock cosine similarity = 1.000</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow"><div class="arrow-head">&#8595;</div></div>
+
+  <!-- PHASE 1 -->
+  <div class="phase-row p1">
+    <div class="phase-label">Phase 1 · Insight</div>
+    <div class="phase-body" style="flex-direction:column;gap:14px">
+
+      <div style="display:flex;gap:10px;width:100%;align-items:flex-start">
+        <div class="box" style="flex:1">
+          <div class="box-title">Runtime Profile</div>
+          <ul>
+            <li><code>winml perf --profile</code> (pending #158)</li>
+            <li>Per-op kernel time, bottleneck %</li>
+          </ul>
+        </div>
+        <div class="box" style="flex:1">
+          <div class="box-title">Static Analyzer</div>
+          <ul>
+            <li><code>winml analyze --ep &lt;ep&gt;</code></li>
+            <li>Conv% &rarr; npu-006 risk flag</li>
+            <li>Partial-support op list</li>
+          </ul>
+        </div>
+        <div class="box" style="flex:1">
+          <div class="box-title">Graph Analysis</div>
+          <ul>
+            <li>Op counts by type</li>
+            <li>Fusion opportunities</li>
+            <li>Static vs dynamic axes</li>
+          </ul>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:8px;padding:0 4px">
+        <div style="flex:1;height:1.5px;background:#a5d6a7"></div>
+        <div style="font-size:11px;color:#2e7d32;font-weight:600">Insight Engine &mdash; hypothesis_pool (unfiltered candidates)</div>
+        <div style="flex:1;height:1.5px;background:#a5d6a7"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="arrow"><div class="arrow-head">&#8595;</div></div>
+
+  <!-- PHASE 2 -->
+  <div class="phase-row p2">
+    <div class="phase-label">Phase 2 · Opt Loop</div>
+    <div class="phase-body">
+      <div class="loop-container">
+
+        <div class="loop-agents">
+          <div class="experiment-loop">
+            <div class="experiment-loop-title">Experiment loop (until stop condition)</div>
+
+            <div class="loop-agent">
+              <div class="agent-title">Explorer</div>
+              <div style="display:flex;gap:8px;margin-bottom:8px">
+                <div class="box" style="flex:1;border-color:#80cbc4;background:#e0f7fa;padding:7px 10px">
+                  <div class="box-title" style="color:#004d40;font-size:10px;margin-bottom:2px">skip_set</div>
+                  <div style="font-size:10.5px;color:#004d40">KB hard-block pruning after hypothesis generation</div>
+                </div>
+                <div class="box" style="flex:1;border-color:#a5d6a7;background:#f1faf9;padding:7px 10px">
+                  <div class="box-title" style="color:#1b5e20;font-size:10px;margin-bottom:2px">priority_queue</div>
+                  <div style="font-size:10.5px;color:#1b5e20">Ranked hypotheses after pruning</div>
+                </div>
+              </div>
+              <ul>
+                <li>Skip completed iters from <code>session.json</code> <span class="new-badge">NEW</span></li>
+                <li>Load <code>hypothesis_pool</code> from Insight Engine</li>
+                <li>Apply KB hard blocks &rarr; <code>skip_set</code></li>
+                <li>Rank remaining hypotheses &rarr; <code>priority_queue</code></li>
+                <li>Pop next hypothesis from <code>priority_queue</code></li>
+                <li>Build <code>config.json</code> delta</li>
+              </ul>
+            </div>
+
+            <div class="rel-note">spawn per experiment &darr;</div>
+            <div class="mini-arrow">&#8595;</div>
+
+            <div class="loop-agent">
+              <div class="agent-title">Optimizer</div>
+              <ul>
+                <li><code>winml build -c config.json</code></li>
+                <li><strong>Phase A — screen</strong> (200 iters): CV gate for CPU/GPU; <em>disabled</em> for QNN NPU (DVFS)</li>
+                <li><strong>Early exit</strong> <span class="new-badge">NEW</span>: screen &Delta; &lt; 1% &rarr; DISCARD, skip full bench</li>
+                <li><strong>Phase B — full bench</strong> (3 &times; 1000 iters, 60s cool-down)</li>
+                <li><code>winml eval</code> &rarr; accuracy gate</li>
+              </ul>
+            </div>
+
+            <div class="rel-note data">benchmark + accuracy data &darr;</div>
+            <div class="mini-arrow">&#8595;</div>
+
+            <div class="loop-agent">
+              <div class="agent-title">Reviewer &mdash; ThroughputOnly <span class="new-badge">NEW</span></div>
+              <ul>
+                <li><code>threshold = max(1%, 2.0 &times; CV)</code></li>
+              </ul>
+              <div class="verdict-row">
+                <span class="pill pill-keep">KEEP &gt;1.5&times;thr</span>
+                <span class="pill pill-marginal">MARGINAL 1&times;&ndash;1.5&times;</span>
+                <span class="pill pill-discard">DISCARD</span>
+                <span class="pill pill-early">EARLY DISCARD</span>
+                <span class="pill pill-crash">ACC/BUILD FAIL</span>
+              </div>
+            </div>
+            <div class="loop-return"><span class="loop-icon">&#8634;</span> reviewer verdict / suggestions &rarr; back to Explorer (next iteration)</div>
+          </div>
+
+          <div class="loop-agent" style="border-color:#b2dfdb;background:#f1faf9">
+            <div class="agent-title" style="color:#006064">Crash-Resume <span class="new-badge">NEW</span></div>
+            <ul>
+              <li>Atomic write after every experiment</li>
+              <li>Stores: completed iters, baseline/best p50, discard counters</li>
+            </ul>
+          </div>
+
+        </div>
+
+        <div class="loop-side">
+          <div class="stop-box">
+            <div class="stop-title">Stop conditions</div>
+            <ul>
+              <li>Objective met</li>
+              <li>30 consecutive DISCARDs</li>
+              <li>Queue empty</li>
+              <li>User stops</li>
+            </ul>
+          </div>
+          <div class="stop-box" style="background:#fffde7;border-color:#ffe082">
+            <div class="stop-title" style="color:#f57f17">results.tsv</div>
+            config &middot; screen_p50 &middot; median_p50<br>
+            CV &middot; delta_pct &middot; status
+          </div>
+          <div class="stop-box" style="background:#f3f4fc;border-color:#c5cae9;margin-top:4px">
+            <div class="stop-title" style="color:#3949ab">session.json</div>
+            completed_iters<br>
+            baseline/best p50<br>
+            discard counters
+          </div>
+          <div class="stop-box" style="background:#fce4ec;border-color:#f48fb1;margin-top:4px">
+            <div class="stop-title" style="color:#880e4f">ep_knowledge/</div>
+            New entries as<br>
+            <strong>status="draft"</strong>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow"><div class="arrow-head">&#8595;</div></div>
+
+  <!-- PHASE 3 -->
+  <div class="phase-row p3">
+    <div class="phase-label">Phase 3 · Outcome</div>
+    <div class="phase-body">
+      <div class="output-badges">
+        <div class="badge">
+          <div class="badge-title">Champion Config</div>
+          Best config + provenance
+          <code>config_&lt;ep&gt;_optimal.json</code>
+        </div>
+        <div class="badge">
+          <div class="badge-title">HTML Report</div>
+          Chart + experiment table
+          <code>report.html</code>
+        </div>
+        <div class="badge">
+          <div class="badge-title">Experiment Artifacts</div>
+          Per-hypothesis logs
+          <code>experiments/&lt;n&gt;/</code>
+        </div>
+        <div class="badge">
+          <div class="badge-title">KB Draft Entry</div>
+          New findings, promoted after Gate 2
+          <code>ep_knowledge/&lt;ep&gt;.json</code>
+        </div>
+        <div class="badge">
+          <div class="badge-title">Feature Requirements</div>
+          Issues filed per finding
+          <code>#NNN &middot; &lt;feature gap title&gt;</code>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <!-- Footnote -->
+  <div style="max-width:900px;width:100%;margin-top:22px;font-size:11px;color:#778;line-height:1.8;border-top:1px dashed #ccd;padding-top:14px">
+    <strong>v3 · 2026-06-17:</strong>
+    ThroughputOnly verdict policy (threshold = max(1%, 2&times;CV));
+    screen early exit (&Delta;&lt;1% skips full bench, saves ~25&ndash;90 min);
+    crash-resume via atomic session.json.
+    &nbsp;&middot;&nbsp;
+    <strong>Key constraints:</strong>
+    npu-006 (Conv%&gt;20% &rarr; block conv fusions);
+    npu-007 (CV gate off on NPU);
+    cpu-001 (opset17 on CPU);
+    gpu-004 (no quant on QNN GPU).
+  </div>
+
+</div>
+</body>
+</html>
