@@ -6,6 +6,10 @@
 
 from __future__ import annotations
 
+import json
+import re
+import shutil
+import subprocess
 from html.parser import HTMLParser
 from typing import Any
 
@@ -49,6 +53,26 @@ class _DemoPolicyParser(HTMLParser):
             self.content_security_policy = attributes.get("content")
         if tag == "input" and attributes.get("id") == "serverUrl":
             self.server_url_attributes = attributes
+
+
+def _evaluate_demo_server_url(html: str, document_url: str) -> str:
+    match = re.search(r"^const serverUrl = (?P<expression>.+);\r?$", html, re.MULTILINE)
+    assert match is not None
+
+    node = shutil.which("node")
+    assert node is not None
+    script = (
+        f"const window = {{ location: new URL({json.dumps(document_url)}) }};\n"
+        f"const serverUrl = {match.group('expression')};\n"
+        "process.stdout.write(serverUrl);"
+    )
+    result = subprocess.run(  # noqa: S603 -- fixed Node executable and repository JS
+        [node, "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout
 
 
 class TestOriginProtection:
@@ -438,7 +462,7 @@ class TestLoopbackProtection:
 class TestDemoSecurity:
     """The bundled UI cannot select a server outside its own origin."""
 
-    def test_demo_uses_only_window_origin(self) -> None:
+    def test_demo_locks_server_selection_to_document_origin(self) -> None:
         with TestClient(cli_api.app, client=("127.0.0.1", 50000)) as client:
             response = client.get("/demo")
 
@@ -449,6 +473,19 @@ class TestDemoSecurity:
         assert parser.content_security_policy == "connect-src 'self'"
         assert parser.server_url_attributes is not None
         assert "readonly" in parser.server_url_attributes
+        assert _evaluate_demo_server_url(response.text, str(response.url)) == "http://testserver"
+
+    def test_demo_preserves_mount_path_in_server_url(self) -> None:
+        parent = FastAPI()
+        parent.mount("/proxy", cli_api.app)
+
+        with TestClient(parent, client=("127.0.0.1", 50000)) as client:
+            response = client.get("/proxy/demo")
+
+        assert response.status_code == 200
+        assert _evaluate_demo_server_url(response.text, str(response.url)) == (
+            "http://testserver/proxy"
+        )
 
 
 class TestCliHttpPolicy:

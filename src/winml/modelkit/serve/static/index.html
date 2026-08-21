@@ -918,7 +918,7 @@ canvas.spark{width:100%;height:60px;display:block}
 // ══════════════════════════════════════════════════
 // State
 // ══════════════════════════════════════════════════
-const serverUrl = window.location.origin;
+const serverUrl = new URL('.', window.location.href).href.replace(/\/$/, '');
 let selectedFile = null;
 let pollTimer = null;
 let _log_handler_seq = 0;  // tracks last seen log seq for /v1/logs polling
