@@ -501,6 +501,7 @@ class TestNativeEvaluation:
             task="image-classification",
             device="gpu",
             trust_remote_code=True,
+            torch_dtype="auto",
         )
         assert config.device == "gpu"
 
