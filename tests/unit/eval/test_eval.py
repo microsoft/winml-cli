@@ -1647,6 +1647,40 @@ class TestLoadModel:
         assert reference.precision == "auto"
         assert reference.mode == "onnx"
 
+    def test_implicit_hf_reference_loads_on_cpu_fp32(self):
+        import importlib
+        import sys
+
+        import torch
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            model_path="candidate.onnx",
+            task="image-classification",
+            mode="compare",
+        )
+        evaluator = MagicMock()
+        evaluator.compute.return_value = {}
+        evaluator_factory = MagicMock(return_value=evaluator)
+
+        with (
+            patch.object(
+                eval_mod,
+                "_load_model",
+                side_effect=[MagicMock(), MagicMock()],
+            ) as load_model,
+            patch.object(eval_mod, "get_evaluator_class", return_value=evaluator_factory),
+        ):
+            eval_mod.evaluate(config)
+
+        reference_call = load_model.call_args_list[1]
+        assert reference_call.args[0].runtime == "pytorch"
+        assert reference_call.args[0].device == "cpu"
+        assert reference_call.kwargs["torch_dtype"] is torch.float32
+
     def test_auto_target_retries_cpu_after_ort_runtime_failure(self, caplog):
         """An unusable auto-selected accelerator retries with the CPU EP."""
         import importlib

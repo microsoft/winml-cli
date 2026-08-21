@@ -314,6 +314,8 @@ class EvalResult:
 def _load_model(
     config: WinMLEvaluationConfig,
     pytorch_model: nn.Module | None = None,
+    *,
+    torch_dtype: Any = "auto",
 ) -> (
     nn.Module | HFCausalLM | WinMLPreTrainedModel | WinMLCompositeModel | WinMLGenaiCausalLM | None
 ):
@@ -352,6 +354,7 @@ def _load_model(
             task=config.task,
             device=config.device,
             trust_remote_code=config.trust_remote_code,
+            torch_dtype=torch_dtype,
         )
         config.device = loaded.device.name
         return loaded.model
@@ -471,7 +474,7 @@ def _load_model(
         config.device = "cpu"
         config.ep = "cpu"
         config._auto_device_selected = False
-        return _load_model(config)
+        return _load_model(config, torch_dtype=torch_dtype)
 
 
 def _make_reference_config(config: WinMLEvaluationConfig) -> WinMLEvaluationConfig:
@@ -746,8 +749,13 @@ def evaluate(
                 "to see supported role=path model options.",
             ) from error
 
+    import torch
+
     reference_model = (
-        _load_model(_make_reference_config(config))
+        _load_model(
+            _make_reference_config(config),
+            torch_dtype=torch.float32,
+        )
         if config.mode == "compare"
         else None
     )
