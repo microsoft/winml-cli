@@ -21,7 +21,10 @@
       {
         "name": "logits"
       }
-    ]
+    ],
+    "compatibility": {
+      "transformers_attention": "eager"
+    }
   },
   "optim": {},
   "quant": null,
@@ -29,7 +32,6 @@
   "loader": {
     "task": "audio-classification",
     "model_class": "AutoModelForAudioClassification",
-    "model_type": "wav2vec2",
-    "trust_remote_code": true
+    "model_type": "wav2vec2"
   }
 }
