@@ -35,7 +35,11 @@ class _StrictFallbackConfig:
 
     @classmethod
     def from_dict(cls, config_dict, **kwargs):
-        return ("normalized", config_dict, kwargs)
+        return {
+            "kind": "normalized",
+            "config_dict": config_dict,
+            "kwargs": kwargs,
+        }
 
 
 class _StrictFallbackConfigWithUnused:
@@ -43,7 +47,11 @@ class _StrictFallbackConfigWithUnused:
 
     @classmethod
     def from_dict(cls, config_dict, **kwargs):
-        payload = ("normalized", config_dict, kwargs)
+        payload = {
+            "kind": "normalized",
+            "config_dict": config_dict,
+            "kwargs": kwargs,
+        }
         if kwargs.get("return_unused_kwargs"):
             return payload, {"sentinel": kwargs.get("sentinel")}
         return payload
@@ -320,10 +328,10 @@ def test_concrete_config_strict_none_bool_validation_uses_normalized_from_dict()
     ):
         config = load_hf_config(auto_config, "owner/model")
 
-    assert config[0] == "normalized"
-    assert config[1]["dilation"] is False
+    assert config["kind"] == "normalized"
+    assert config["config_dict"]["dilation"] is False
     assert source_config_dict["dilation"] is None
-    assert config[2] == {"sentinel": "unused"}
+    assert config["kwargs"] == {"sentinel": "unused"}
 
 
 def test_concrete_config_strict_none_bool_validation_preserves_return_unused_kwargs() -> None:
@@ -358,9 +366,9 @@ def test_concrete_config_strict_none_bool_validation_preserves_return_unused_kwa
             sentinel="unused",
         )
 
-    assert config[0] == "normalized"
-    assert config[1]["dilation"] is False
-    assert config[2]["return_unused_kwargs"] is True
+    assert config["kind"] == "normalized"
+    assert config["config_dict"]["dilation"] is False
+    assert config["kwargs"]["return_unused_kwargs"] is True
     assert unused_kwargs == {"sentinel": "unused"}
 
 
