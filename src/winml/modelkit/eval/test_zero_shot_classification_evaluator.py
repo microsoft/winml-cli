@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from datasets import ClassLabel, Dataset, Features, Value
 
@@ -13,6 +13,10 @@ from winml.modelkit.eval.metrics.classification import ClassificationMetric
 from winml.modelkit.eval.zero_shot_classification_evaluator import (
     WinMLZeroShotClassificationEvaluator,
 )
+
+
+if TYPE_CHECKING:
+    import pytest
 
 
 class _MockConfig:
@@ -44,20 +48,20 @@ def _build_nli_dataset() -> Dataset:
     )
 
 
-def test_nli_pair_mode_consumes_hypothesis_and_maps_labels() -> None:
+def test_nli_pair_mode_consumes_hypothesis_and_maps_labels(monkeypatch: pytest.MonkeyPatch) -> None:
     def _fake_compute(
         self: ClassificationMetric,
         predictions: list[str],
         references: list[str],
-        label_names: list[str],
-    ) -> dict[str, float]:
-        del self, label_names
+        labels: list[str],
+    ) -> dict[str, Any]:
+        del self, labels
         accuracy = sum(int(p == r) for p, r in zip(predictions, references, strict=False)) / len(
             references
         )
         return {"accuracy": accuracy, "f1": accuracy}
 
-    ClassificationMetric.compute = _fake_compute
+    monkeypatch.setattr(ClassificationMetric, "compute", _fake_compute)
 
     evaluator = WinMLZeroShotClassificationEvaluator.__new__(WinMLZeroShotClassificationEvaluator)
     evaluator.model = _MockConfig()
@@ -79,7 +83,7 @@ def test_nli_pair_mode_consumes_hypothesis_and_maps_labels() -> None:
             return [{"label": "CONTRADICTION", "score": 0.9}]
         return [{"label": "NEUTRAL", "score": 0.9}]
 
-    evaluator.pipe = _pipe
+    monkeypatch.setattr(evaluator, "pipe", _pipe, raising=False)
 
     result = evaluator.compute()
 
@@ -88,20 +92,20 @@ def test_nli_pair_mode_consumes_hypothesis_and_maps_labels() -> None:
     assert result["f1"] == 1.0
 
 
-def test_legacy_candidate_labels_mode_unchanged() -> None:
+def test_legacy_candidate_labels_mode_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
     def _fake_compute(
         self: ClassificationMetric,
         predictions: list[str],
         references: list[str],
-        label_names: list[str],
-    ) -> dict[str, float]:
-        del self, label_names
+        labels: list[str],
+    ) -> dict[str, Any]:
+        del self, labels
         accuracy = sum(int(p == r) for p, r in zip(predictions, references, strict=False)) / len(
             references
         )
         return {"accuracy": accuracy, "f1": accuracy}
 
-    ClassificationMetric.compute = _fake_compute
+    monkeypatch.setattr(ClassificationMetric, "compute", _fake_compute)
 
     features = Features(
         {
@@ -125,14 +129,20 @@ def test_legacy_candidate_labels_mode_unchanged() -> None:
 
     seen_candidate_labels: list[str] = []
 
-    def _pipe(text: str, **kwargs: object) -> dict[str, list[str]]:
+    def _pipe(
+        text: str,
+        *,
+        candidate_labels: list[str],
+        hypothesis_template: str | None = None,
+    ) -> dict[str, list[str]]:
         del text
-        seen_candidate_labels.extend(kwargs["candidate_labels"])
-        if kwargs["candidate_labels"][0] == "world":
+        del hypothesis_template
+        seen_candidate_labels.extend(candidate_labels)
+        if candidate_labels[0] == "world":
             return {"labels": ["world"]}
         return {"labels": ["sports"]}
 
-    evaluator.pipe = _pipe
+    monkeypatch.setattr(evaluator, "pipe", _pipe, raising=False)
 
     result = evaluator.compute()
 

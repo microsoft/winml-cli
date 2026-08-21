@@ -193,7 +193,10 @@ class WinMLZeroShotClassificationEvaluator(WinMLEvaluator):
         class_names: list[str] | None,
     ) -> str:
         """Convert dataset label value to canonical NLI class name."""
-        raw = sample[self._label_col]
+        label_col = self._label_col
+        if label_col is None:
+            raise DatasetValidationError("label column is not configured for evaluation.")
+        raw = sample[label_col]
         name = class_names[int(raw)] if class_names is not None else str(raw)
         normalized = self._normalize_nli_label(name)
         if normalized is None:
@@ -246,17 +249,17 @@ class WinMLZeroShotClassificationEvaluator(WinMLEvaluator):
         if self._input_pair_col:
             class_names = getattr(self.data.features.get(self._label_col), "names", None)
             labels = ["entailment", "contradiction", "neutral"]
-            predictions: list[str] = []
-            references: list[str] = []
+            pair_predictions: list[str] = []
+            pair_references: list[str] = []
             for sample in tqdm(self.data, desc="Evaluating zero-shot (NLI pairs)"):
                 result = self.pipe(
                     sample[self._input_col],
                     text_pair=sample[self._input_pair_col],
                     top_k=None,
                 )
-                predictions.append(self._resolve_prediction_label(result))
-                references.append(self._resolve_reference_label(sample, class_names))
-            return ClassificationMetric().compute(predictions, references, labels)
+                pair_predictions.append(self._resolve_prediction_label(result))
+                pair_references.append(self._resolve_reference_label(sample, class_names))
+            return ClassificationMetric().compute(pair_predictions, pair_references, labels)
 
         candidate_labels = self._resolve_candidate_labels(self.data)
         class_names = getattr(self.data.features.get(self._label_col), "names", None)
@@ -276,12 +279,16 @@ class WinMLZeroShotClassificationEvaluator(WinMLEvaluator):
         if self._hypothesis_template is not None:
             pipe_kwargs["hypothesis_template"] = self._hypothesis_template
 
-        predictions: list[str] = []
-        references: list[str] = []
+        candidate_predictions: list[str] = []
+        candidate_references: list[str] = []
         for sample in tqdm(self.data, desc="Evaluating zero-shot (accuracy)"):
             result = self.pipe(sample[self._input_col], **pipe_kwargs)
-            predictions.append(result["labels"][0])
+            candidate_predictions.append(result["labels"][0])
             raw = sample[self._label_col]
-            references.append(class_names[int(raw)] if class_names else str(raw))
+            candidate_references.append(class_names[int(raw)] if class_names else str(raw))
 
-        return ClassificationMetric().compute(predictions, references, candidate_labels)
+        return ClassificationMetric().compute(
+            candidate_predictions,
+            candidate_references,
+            candidate_labels,
+        )
