@@ -29,7 +29,6 @@ if TYPE_CHECKING:
     from ..models.winml.composite_model import WinMLCompositeModel
     from ..models.winml.genai_causal_lm import WinMLGenaiCausalLM
     from .base_evaluator import WinMLEvaluator
-    from .tensor_similarity_evaluator import TensorSimilarityEvaluator
 
 logger = logging.getLogger(__name__)
 
@@ -311,7 +310,7 @@ class EvalResult:
         return result
 
 
-def _load_model(
+def load_model(
     config: WinMLEvaluationConfig,
     pytorch_model: nn.Module | None = None,
     *,
@@ -474,46 +473,7 @@ def _load_model(
         config.device = "cpu"
         config.ep = "cpu"
         config._auto_device_selected = False
-        return _load_model(config, torch_dtype=torch_dtype)
-
-
-def _make_reference_config(config: WinMLEvaluationConfig) -> WinMLEvaluationConfig:
-    """Derive an ordinary model-loading config for the compare reference.
-
-    An explicit ``--reference`` is currently an ONNX path and uses its own
-    device and EP. Without ``--reference``, compare mode preserves the existing
-    behavior of loading the candidate's Hugging Face ``model_id`` as a PyTorch
-    reference on CPU. A separate reference Hugging Face ID is not supported.
-    """
-    if config.reference_path is not None:
-        # Explicit reference: load the resolved ONNX path as a WinML model.
-        return replace(
-            config,
-            model_id=None,
-            model_path=config.reference_path,
-            reference_path=None,
-            runtime="winml",
-            device=config.reference_device,
-            ep=config.reference_ep,
-            precision="auto",
-            mode="onnx",
-            skip_build=True,
-        )
-
-    if config.model_id is None:
-        raise ValueError("model_id is required to load the Hugging Face reference model.")
-
-    # Implicit reference: load the candidate's original HF model with PyTorch.
-    return replace(
-        config,
-        model_path=None,
-        reference_path=None,
-        runtime="pytorch",
-        device="cpu",
-        ep=None,
-        precision="auto",
-        mode="onnx",
-    )
+        return load_model(config, torch_dtype=torch_dtype)
 
 
 def _load_genai_causal_lm(config: WinMLEvaluationConfig) -> WinMLGenaiCausalLM:
@@ -702,7 +662,7 @@ def evaluate(
     config = replace(
         config,
         mode=mode,
-        task=(config.task if onnx_compare else _resolve_task(config, pytorch_model)),
+        task=(None if onnx_compare else _resolve_task(config, pytorch_model)),
         dataset=deepcopy(config.dataset),
     )
     _validate_pytorch_runtime_config(config)
@@ -736,11 +696,11 @@ def evaluate(
     model: Any
     if pytorch_model is not None:
         console.print("\n[bold]Using supplied PyTorch model...[/bold]")
-        model = _load_model(config, pytorch_model)
+        model = load_model(config, pytorch_model)
     else:
         console.print("\n[bold]Loading model...[/bold]")
         try:
-            model = _load_model(config)
+            model = load_model(config)
         except Exception as error:
             raise ValueError(
                 f"Failed to load model '{config.model_id}'. "
@@ -749,28 +709,12 @@ def evaluate(
                 "to see supported role=path model options.",
             ) from error
 
-    import torch
-
-    reference_model = (
-        _load_model(
-            _make_reference_config(config),
-            torch_dtype=torch.float32,
-        )
-        if config.mode == "compare"
-        else None
-    )
-
     from ..utils.eval_utils import DatasetValidationError
 
     cls = get_evaluator_class(config)
     try:
         console.print("[bold]Loading dataset and evaluating...[/bold]")
-        task_evaluator: WinMLEvaluator | TensorSimilarityEvaluator
-        if config.mode == "compare":
-            compare_evaluator = cast("type[TensorSimilarityEvaluator]", cls)
-            task_evaluator = compare_evaluator(config, model, reference_model)
-        else:
-            task_evaluator = cls(config, model)
+        task_evaluator = cls(config, model)
         metrics = task_evaluator.compute()
     except DatasetValidationError as error:
         raise ValueError(

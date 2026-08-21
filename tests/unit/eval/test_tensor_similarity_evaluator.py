@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import ClassVar
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -97,7 +98,7 @@ class TestCompositeGuard:
             dataset=DatasetConfig(),
         )
         with pytest.raises(TypeError) as exc:
-            TensorSimilarityEvaluator(config, composite, object())
+            TensorSimilarityEvaluator(config, composite)
         msg = str(exc.value)
         assert "composite" in msg.lower()
         assert "image-feature-extraction" in msg
@@ -144,7 +145,11 @@ class TestInputDataCompare:
         )
         model = _FakeCandidateModel({"input_names": ["input"], "input_types": ["float32"]})
 
-        evaluator = TensorSimilarityEvaluator(config, model, object())  # type: ignore[arg-type]
+        with patch(
+            "winml.modelkit.eval.evaluate.load_model",
+            return_value=object(),
+        ):
+            evaluator = TensorSimilarityEvaluator(config, model)  # type: ignore[arg-type]
 
         assert isinstance(evaluator.data, InputDataDataset)
         # Leading axis is the sample axis: (2, 3) -> 2 samples of shape (1, 3).
@@ -171,8 +176,8 @@ class _FakeRandomDataset:
         return 0
 
 
-class TestInjectedModels:
-    def test_uses_models_loaded_by_evaluate(self, monkeypatch):
+class TestReferenceLoading:
+    def test_loads_onnx_reference_with_independent_config(self, monkeypatch):
         import winml.modelkit.datasets.random_dataset as rd_mod
 
         monkeypatch.setattr(rd_mod, "RandomDataset", _FakeRandomDataset)
@@ -190,18 +195,53 @@ class TestInjectedModels:
         candidate = _FakeCandidateModel({"input_names": ["input"]})
         reference = _FakeCandidateModel({"input_names": ["input"]}, path="ref.onnx")
 
-        evaluator = TensorSimilarityEvaluator(
-            config,
-            candidate,  # type: ignore[arg-type]
-            reference,
-        )
+        with patch(
+            "winml.modelkit.eval.evaluate.load_model",
+            return_value=reference,
+        ) as load_model:
+            evaluator = TensorSimilarityEvaluator(
+                config,
+                candidate,  # type: ignore[arg-type]
+            )
 
         assert evaluator.model is candidate
         assert evaluator.reference_model is reference
+        reference_config = load_model.call_args.args[0]
+        assert reference_config.model_path == "ref.onnx"
+        assert reference_config.reference_path is None
+        assert reference_config.device == "gpu"
+        assert reference_config.ep == "dml"
+        assert reference_config.task is None
+        assert load_model.call_args.kwargs["torch_dtype"] is torch.float32
         # RandomDataset is built over the candidate ONNX I/O.
         assert evaluator.data.kwargs["model_path"].endswith("cand.onnx")
         assert evaluator.data.kwargs["max_samples"] == 5
         assert evaluator.data.kwargs["seed"] == 1
+
+    def test_implicit_hf_reference_loads_on_cpu_fp32(self, monkeypatch):
+        import winml.modelkit.datasets.random_dataset as rd_mod
+
+        monkeypatch.setattr(rd_mod, "RandomDataset", _FakeRandomDataset)
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            model_path="cand.onnx",
+            task="image-classification",
+            mode="compare",
+            dataset=DatasetConfig(samples=1),
+        )
+        candidate = _FakeCandidateModel({"input_names": ["input"]})
+
+        with patch(
+            "winml.modelkit.eval.evaluate.load_model",
+            return_value=object(),
+        ) as load_model:
+            TensorSimilarityEvaluator(config, candidate)  # type: ignore[arg-type]
+
+        reference_config = load_model.call_args.args[0]
+        assert reference_config.runtime == "pytorch"
+        assert reference_config.device == "cpu"
+        assert load_model.call_args.kwargs["torch_dtype"] is torch.float32
+
 
 class TestONNXReferenceWithInputData:
     def test_prepare_data_uses_input_data_over_candidate_model(self, tmp_path):
@@ -224,11 +264,14 @@ class TestONNXReferenceWithInputData:
             path="ref.onnx",
         )
 
-        evaluator = TensorSimilarityEvaluator(
-            config,
-            candidate,  # type: ignore[arg-type]
-            reference,
-        )
+        with patch(
+            "winml.modelkit.eval.evaluate.load_model",
+            return_value=reference,
+        ):
+            evaluator = TensorSimilarityEvaluator(
+                config,
+                candidate,  # type: ignore[arg-type]
+            )
 
         assert isinstance(evaluator.data, InputDataDataset)
         assert len(evaluator.data) == 3
@@ -247,11 +290,14 @@ class TestONNXReferenceWithInputData:
             input_data=str(npz),
         )
         io_config = {"input_names": ["input"], "input_types": ["float32"]}
-        evaluator = TensorSimilarityEvaluator(
-            config,
-            _FakeCandidateModel(io_config),  # type: ignore[arg-type]
-            _FakeCandidateModel(io_config, path="ref.onnx"),
-        )
+        with patch(
+            "winml.modelkit.eval.evaluate.load_model",
+            return_value=_FakeCandidateModel(io_config, path="ref.onnx"),
+        ):
+            evaluator = TensorSimilarityEvaluator(
+                config,
+                _FakeCandidateModel(io_config),  # type: ignore[arg-type]
+            )
 
         result = evaluator.compute()
 
@@ -271,15 +317,21 @@ class TestReferenceLabelInDiagnostics:
             input_data=str(npz),
         )
         io_config = {"input_names": ["input"], "input_types": ["float32"]}
-        evaluator = TensorSimilarityEvaluator(
-            config,
-            _FakeCandidateModel(io_config, output_name="cand_out"),  # type: ignore[arg-type]
-            _FakeCandidateModel(
+        with patch(
+            "winml.modelkit.eval.evaluate.load_model",
+            return_value=_FakeCandidateModel(
                 io_config,
                 path="ref.onnx",
                 output_name="ref_out",
             ),
-        )
+        ):
+            evaluator = TensorSimilarityEvaluator(
+                config,
+                _FakeCandidateModel(  # type: ignore[arg-type]
+                    io_config,
+                    output_name="cand_out",
+                ),
+            )
 
         with pytest.raises(ValueError) as exc:
             evaluator.compute()

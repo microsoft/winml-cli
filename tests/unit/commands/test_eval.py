@@ -1011,7 +1011,7 @@ class TestPerTaskDefaultDataset:
     @staticmethod
     def _run_and_capture(runner: CliRunner, args: list[str]):
         """Invoke the eval CLI, letting ``evaluate()`` run end-to-end with
-        ``_load_model`` and the evaluator class stubbed. Returns the cfg
+        ``load_model`` and the evaluator class stubbed. Returns the cfg
         observed by the evaluator (i.e. after default-injection)."""
         import importlib
 
@@ -1029,7 +1029,7 @@ class TestPerTaskDefaultDataset:
                 return {"accuracy": 1.0}
 
         with (
-            patch.object(evaluate_mod, "_load_model", return_value=object()),
+            patch.object(evaluate_mod, "load_model", return_value=object()),
             patch.object(
                 evaluate_mod,
                 "get_evaluator_class",
@@ -1830,11 +1830,11 @@ class TestEvalExportOverrides:
         assert cfg.export_overrides is None
 
     def test_load_model_hf_threads_export_overrides(self):
-        """_load_model forwards export overrides as a sparse {"export": ...} dict."""
+        """load_model forwards export overrides as a sparse {"export": ...} dict."""
         from unittest.mock import MagicMock
 
         from winml.modelkit.eval.config import WinMLEvaluationConfig
-        from winml.modelkit.eval.evaluate import _load_model
+        from winml.modelkit.eval.evaluate import load_model
 
         cfg = WinMLEvaluationConfig(
             model_id="microsoft/resnet-50",
@@ -1847,7 +1847,7 @@ class TestEvalExportOverrides:
             "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
             return_value=MagicMock(),
         ) as mock_fp:
-            _load_model(cfg)
+            load_model(cfg)
 
         kwargs = mock_fp.call_args.kwargs
         assert kwargs["config"] == {"export": {"dynamic_axes": {"pixel_values": {"0": "batch"}}}}
@@ -1858,7 +1858,7 @@ class TestEvalExportOverrides:
         from unittest.mock import MagicMock
 
         from winml.modelkit.eval.config import WinMLEvaluationConfig
-        from winml.modelkit.eval.evaluate import _load_model
+        from winml.modelkit.eval.evaluate import load_model
 
         cfg = WinMLEvaluationConfig(
             model_id="microsoft/resnet-50",
@@ -1871,7 +1871,7 @@ class TestEvalExportOverrides:
             "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
             return_value=MagicMock(),
         ) as mock_fp:
-            _load_model(cfg)
+            load_model(cfg)
 
         assert mock_fp.call_args.kwargs["config"] == {
             "export": {"opset_version": 18},
@@ -1883,7 +1883,7 @@ class TestEvalExportOverrides:
         from unittest.mock import MagicMock
 
         from winml.modelkit.eval.config import WinMLEvaluationConfig
-        from winml.modelkit.eval.evaluate import _load_model
+        from winml.modelkit.eval.evaluate import load_model
 
         cfg = WinMLEvaluationConfig(
             model_id="microsoft/resnet-50",
@@ -1894,7 +1894,7 @@ class TestEvalExportOverrides:
             "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
             return_value=MagicMock(),
         ) as mock_fp:
-            _load_model(cfg)
+            load_model(cfg)
 
         assert mock_fp.call_args.kwargs["config"] is None
         assert mock_fp.call_args.kwargs["shape_config"] is None

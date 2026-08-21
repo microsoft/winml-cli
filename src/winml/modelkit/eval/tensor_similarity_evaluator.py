@@ -10,9 +10,8 @@ drawn from :class:`RandomDataset` over the candidate's model I/O metadata)
 and reports per-output tensor-parity metrics (SQNR, PSNR, cosine, MSE,
 max absolute diff) via :class:`TensorSimilarityMetric`.
 
-The evaluator receives already-loaded candidate and reference model instances.
-The reference is an HF PyTorch model by default or a WinML model when
-``config.reference_path`` is set.
+The evaluator receives the candidate model and loads an HF PyTorch reference
+by default or a WinML reference when ``config.reference_path`` is set.
 
 When ``config.input_data`` is set, both sides run on real tensors from a
 ``.npz`` archive instead of random inputs.
@@ -24,6 +23,7 @@ reflects the build pipeline (optimize / quantize / compile) only.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 
@@ -36,6 +36,37 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _make_reference_config(config: WinMLEvaluationConfig) -> WinMLEvaluationConfig:
+    """Derive an ordinary model-loading config for the compare reference."""
+    if config.reference_path is not None:
+        return replace(
+            config,
+            model_id=None,
+            model_path=config.reference_path,
+            reference_path=None,
+            runtime="winml",
+            device=config.reference_device,
+            ep=config.reference_ep,
+            precision="auto",
+            mode="onnx",
+            skip_build=True,
+        )
+
+    if config.model_id is None:
+        raise ValueError("model_id is required to load the Hugging Face reference model.")
+
+    return replace(
+        config,
+        model_path=None,
+        reference_path=None,
+        runtime="pytorch",
+        device="cpu",
+        ep=None,
+        precision="auto",
+        mode="onnx",
+    )
+
+
 class TensorSimilarityEvaluator:
     """Per-output tensor parity between a candidate and a reference model."""
 
@@ -43,7 +74,6 @@ class TensorSimilarityEvaluator:
         self,
         config: WinMLEvaluationConfig,
         model: WinMLPreTrainedModel | WinMLCompositeModel,
-        reference_model: Any,
     ) -> None:
         from ..models.winml.composite_model import WinMLCompositeModel
 
@@ -60,8 +90,15 @@ class TensorSimilarityEvaluator:
                 "Example: winml eval --mode compare --task <sub_task> "
                 f"--model <sub_onnx_path> --model-id {config.model_id}"
             )
+        import torch
+
+        from .evaluate import load_model
+
         self.model = model
-        self.reference_model = reference_model
+        self.reference_model = load_model(
+            _make_reference_config(config),
+            torch_dtype=torch.float32,
+        )
         self.data = self.prepare_data()
 
     def prepare_data(self) -> Any:
