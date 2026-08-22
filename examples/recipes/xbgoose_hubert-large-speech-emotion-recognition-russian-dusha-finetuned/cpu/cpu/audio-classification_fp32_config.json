@@ -6,6 +6,9 @@
     "do_constant_folding": true,
     "verbose": false,
     "dynamo": false,
+    "compatibility": {
+      "transformers_attention": "eager"
+    },
     "enable_hierarchy_tags": true,
     "clean_onnx": false,
     "hierarchy_tag_format": "full",
