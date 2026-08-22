@@ -21,12 +21,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
+from PIL import Image
 
 from winml.modelkit.inference.engine import _discover_pipeline_params
 from winml.modelkit.inference.pipeline import (
     _HF_PIPELINE_TASK_MAP,
     _adapt_image_processor_size,
     _adapt_tokenizer_padding,
+    _ClassificationVisualQuestionAnsweringPipeline,
     _detect_tokenizer_dict_param,
     _ExtractiveQuestionAnsweringPipeline,
     _pipeline_component_kwargs,
@@ -289,6 +291,55 @@ class TestCreatePipeline:
         assert discovered_params["align_to_words"]["sample_value"] == "True"
         assert discovered_params["topk"]["type"] == "integer"
         assert discovered_params["topk"]["sample_value"] == "5"
+
+    def test_constructs_removed_classification_vqa_pipeline(self) -> None:
+        model = _make_model_with_shapes(
+            [[1, 40], [1, 40], [1, 40], [1, 3, 384, 384]]
+        )
+        processor = MagicMock()
+        processor.tokenizer = MagicMock()
+        processor.image_processor = MagicMock()
+
+        with patch("transformers.AutoProcessor.from_pretrained", return_value=processor):
+            result = create_pipeline("visual-question-answering", model, "test-model")
+
+        assert isinstance(result, _ClassificationVisualQuestionAnsweringPipeline)
+
+    def test_classification_vqa_square_resizes_casts_and_decodes(self) -> None:
+        model = MagicMock()
+        model.io_config = {
+            "input_names": ["input_ids", "attention_mask", "token_type_ids", "pixel_values"],
+            "input_shapes": [[1, 40], [1, 40], [1, 40], [1, 3, 384, 384]],
+            "input_types": ["tensor(int32)", "tensor(int32)", "tensor(int32)", "tensor(float)"],
+        }
+        model.config.id2label = {0: "no", 1: "yes"}
+        model.return_value = {"logits": torch.tensor([[0.0, 4.0]])}
+        processor = MagicMock()
+        processor.tokenizer = MagicMock()
+        processor.image_processor = MagicMock()
+        processor.return_value = {
+            "input_ids": torch.ones((1, 40), dtype=torch.int64),
+            "attention_mask": torch.ones((1, 40), dtype=torch.int64),
+            "token_type_ids": torch.zeros((1, 40), dtype=torch.int64),
+            "pixel_values": torch.ones((1, 3, 384, 384)),
+            "pixel_mask": torch.ones((1, 384, 384), dtype=torch.int64),
+        }
+        pipe = _ClassificationVisualQuestionAnsweringPipeline(model, processor)
+
+        result = pipe(Image.new("L", (640, 512)), "Is it visible?")
+
+        processed_image = processor.call_args.kwargs["images"]
+        assert processed_image.mode == "RGB"
+        assert processed_image.size == (384, 384)
+        assert processor.call_args.kwargs["max_length"] == 40
+        assert set(model.call_args.kwargs) == set(model.io_config["input_names"])
+        assert model.call_args.kwargs["input_ids"].dtype is torch.int32
+        assert result[0]["answer"] == "yes"
+
+    def test_classification_vqa_rejects_generative_output(self) -> None:
+        pipe = _ClassificationVisualQuestionAnsweringPipeline(MagicMock(), MagicMock())
+        with pytest.raises(ValueError, match="generative VQA outputs"):
+            pipe.postprocess({"sequences": torch.tensor([[1, 2]])})
 
     def test_rejects_slow_question_answering_tokenizer_at_construction(self) -> None:
         model = _make_model_with_shapes([[1, 16]])

@@ -76,6 +76,8 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
         "winml.modelkit.eval.image_segmentation_evaluator:WinMLImageSegmentationEvaluator",
     "question-answering":
         "winml.modelkit.eval.question_answering_evaluator:WinMLQuestionAnsweringEvaluator",
+    "visual-question-answering":
+        "winml.modelkit.eval.visual_question_answering_evaluator:WinMLVisualQuestionAnsweringEvaluator",
     "feature-extraction":
         "winml.modelkit.eval.feature_extraction_evaluator:WinMLFeatureExtractionEvaluator",
     "sentence-similarity":
@@ -212,6 +214,18 @@ _DEFAULT_DATASETS: dict[str, dict] = {
             "question_column": "question",
             "context_column": "context",
             "id_column": "id",
+            "label_column": "answers",
+        },
+    },
+    "visual-question-answering": {
+        "path": "lmms-lab-encoder/VQAv2",
+        "revision": "32665d35052eb4a6d4414851c3c829a72754915a",
+        "split": "validation",
+        "streaming": True,
+        "shuffle": False,
+        "columns_mapping": {
+            "input_column": "image",
+            "question_column": "question",
             "label_column": "answers",
         },
     },
