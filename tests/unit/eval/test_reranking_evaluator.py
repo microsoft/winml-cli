@@ -89,6 +89,8 @@ def _make_evaluator(data, scores: list[float]) -> WinMLRerankingEvaluator:
     evaluator._expected_output_col = "expected_output"
     evaluator._metadata_col = "metadata"
     evaluator._candidates_col = None
+    evaluator._positive_col = None
+    evaluator._negative_col = None
     evaluator._document_col = "document"
     evaluator._group_col = "group_id"
     evaluator._label_col = "label"
@@ -97,6 +99,7 @@ def _make_evaluator(data, scores: list[float]) -> WinMLRerankingEvaluator:
     evaluator._candidate_id_key = "id"
     evaluator._metadata_group_key = "query_id"
     evaluator._recall_ks = (1, 2, 10)
+    evaluator._max_candidates = 10
     evaluator._tokenizer = _FakeTokenizer()
     return evaluator
 
@@ -212,6 +215,70 @@ def test_reranking_evaluator_scores_grouped_rows_with_inline_candidates() -> Non
     assert result["recall@1"] == 1.0
     assert result["processed_groups"] == 1
     assert result["processed_pairs"] == 2
+
+
+def test_reranking_evaluator_materializes_bounded_positive_and_negative_text() -> None:
+    evaluator = _make_evaluator(
+        [
+            {
+                "query": "economic dispatch",
+                "positive": ["relevant one", "relevant two"],
+                "negative": ["negative one", "negative two", "negative three"],
+            }
+        ],
+        scores=[0.9, 0.8, 0.1],
+    )
+    evaluator._positive_col = "positive"
+    evaluator._negative_col = "negative"
+    evaluator._document_col = None
+    evaluator._group_col = None
+    evaluator._label_col = None
+    evaluator._max_candidates = 3
+    evaluator.config.dataset.columns_mapping = {
+        "query_column": "query",
+        "positive_column": "positive",
+        "negative_column": "negative",
+    }
+
+    groups = evaluator._materialize_groups()
+    result = evaluator.compute()
+
+    assert [candidate.candidate_id for candidate in groups[0].candidates] == [
+        "0:positive:0",
+        "0:positive:1",
+        "0:negative:0",
+    ]
+    assert [candidate.relevant for candidate in groups[0].candidates] == [True, True, False]
+    assert result["processed_pairs"] == 3
+    assert result["recall@1"] == 1.0
+
+
+def test_reranking_evaluator_does_not_cap_materialized_candidate_column() -> None:
+    evaluator = _make_evaluator(
+        [
+            {
+                "query": "what is pcnt",
+                "expected_output": ["p1"],
+                "metadata": {"query_id": "q1"},
+                "candidates": [
+                    {"id": "n1", "text": "negative one"},
+                    {"id": "n2", "text": "negative two"},
+                    {"id": "p1", "text": "positive"},
+                ],
+            }
+        ],
+        scores=[0.1, 0.2, 0.9],
+    )
+    evaluator._document_col = None
+    evaluator._group_col = None
+    evaluator._label_col = None
+    evaluator._candidates_col = "candidates"
+    evaluator._max_candidates = 1
+
+    result = evaluator.compute()
+
+    assert result["processed_pairs"] == 3
+    assert result["recall@1"] == 1.0
 
 
 def test_reranking_evaluator_grouped_inline_ties_keep_original_candidate_order() -> None:

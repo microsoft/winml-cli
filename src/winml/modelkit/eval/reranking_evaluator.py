@@ -83,6 +83,8 @@ class WinMLRerankingEvaluator(WinMLEvaluator):
             get_default(task, "metadata_column") or "metadata",
         )
         self._candidates_col = mapping.get("candidates_column")
+        self._positive_col = mapping.get("positive_column")
+        self._negative_col = mapping.get("negative_column")
         self._document_col = mapping.get("document_column")
         self._group_col = mapping.get("group_column")
         self._label_col = mapping.get("label_column")
@@ -101,6 +103,9 @@ class WinMLRerankingEvaluator(WinMLEvaluator):
         )
         self._recall_ks = self._parse_recall_ks(
             mapping.get("recall_ks", get_default(task, "recall_ks") or "1,10")
+        )
+        self._max_candidates = self._parse_max_candidates(
+            mapping.get("max_candidates", get_default(task, "max_candidates") or "10")
         )
         self._tokenizer = AutoTokenizer.from_pretrained(
             config.model_id,
@@ -177,7 +182,54 @@ class WinMLRerankingEvaluator(WinMLEvaluator):
         )
         if dataset_mode == "pairwise":
             return self._groups_from_pairwise_rows(column_names)
+        if dataset_mode == "grouped-text":
+            return self._groups_from_text_lists()
         return self._groups_from_grouped_rows(column_names)
+
+    def _groups_from_text_lists(self) -> list[_Group]:
+        from ..utils.eval_utils import DatasetValidationError
+
+        assert self._positive_col is not None
+        assert self._negative_col is not None
+        groups: list[_Group] = []
+        for row_index, sample in enumerate(self.data):
+            query = str(sample[self._query_col])
+            if not query.strip():
+                continue
+            positives = self._parse_json_sequence(sample[self._positive_col])
+            negatives = self._parse_json_sequence(sample[self._negative_col])
+            if not positives:
+                raise DatasetValidationError(
+                    f"reranking group {row_index!r} has no positive passages"
+                )
+
+            candidates = [
+                _Candidate(
+                    candidate_id=f"{row_index}:positive:{candidate_index}",
+                    text=str(text),
+                    relevant=True,
+                )
+                for candidate_index, text in enumerate(positives[: self._max_candidates])
+                if str(text).strip()
+            ]
+            if not candidates:
+                raise DatasetValidationError(
+                    f"reranking group {row_index!r} has no non-empty positive passages"
+                )
+            remaining = max(self._max_candidates - len(candidates), 0)
+            candidates.extend(
+                _Candidate(
+                    candidate_id=f"{row_index}:negative:{candidate_index}",
+                    text=str(text),
+                    relevant=False,
+                )
+                for candidate_index, text in enumerate(negatives[:remaining])
+                if str(text).strip()
+            )
+            groups.append(
+                _Group(group_id=str(row_index), query=query, candidates=tuple(candidates))
+            )
+        return groups
 
     def _groups_from_pairwise_rows(self, column_names: set[str]) -> list[_Group]:
         from ..utils.eval_utils import DatasetValidationError
@@ -353,3 +405,10 @@ class WinMLRerankingEvaluator(WinMLEvaluator):
         if not ks or any(k <= 0 for k in ks):
             raise ValueError(f"invalid recall_ks setting: {raw!r}")
         return ks
+
+    @staticmethod
+    def _parse_max_candidates(raw: str) -> int:
+        value = int(raw)
+        if value <= 0:
+            raise ValueError(f"invalid max_candidates setting: {raw!r}")
+        return value
