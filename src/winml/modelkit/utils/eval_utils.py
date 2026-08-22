@@ -106,6 +106,16 @@ _RERANKING_SCHEMA = TaskSchema(
             remap_hint="<your_candidates_column>",
         ),
         SchemaItem(
+            "positive_column",
+            "relevant passage text list for grouped rows",
+            remap_hint="<your_positive_passages_column>",
+        ),
+        SchemaItem(
+            "negative_column",
+            "non-relevant passage text list for grouped rows",
+            remap_hint="<your_negative_passages_column>",
+        ),
+        SchemaItem(
             "document_column",
             "candidate document text for pre-expanded pairwise rows",
             remap_hint="<your_document_column>",
@@ -150,6 +160,12 @@ _RERANKING_SCHEMA = TaskSchema(
             "comma-separated K values for Recall@K",
             default="1,10",
             remap_hint="<k1,k2,...>",
+        ),
+        SchemaItem(
+            "max_candidates",
+            "maximum candidates materialized from positive/negative passage lists",
+            default="10",
+            remap_hint="<positive integer>",
         ),
     ),
 )
@@ -569,6 +585,7 @@ class DatasetValidationError(Exception):
 RerankingDatasetMode: TypeAlias = Literal[
     "pairwise",
     "grouped-inline",
+    "grouped-text",
     "grouped-authoritative",
 ]
 
@@ -606,6 +623,8 @@ def detect_reranking_dataset_mode(
     group_col = mapping.get("group_column")
     label_col = mapping.get("label_column")
     candidates_col = mapping.get("candidates_column")
+    positive_col = mapping.get("positive_column")
+    negative_col = mapping.get("negative_column")
 
     grouped_required = tuple(
         name for name in (query_col, expected_output_col, metadata_col) if name is not None
@@ -618,18 +637,26 @@ def detect_reranking_dataset_mode(
         name in actual for name in grouped_required
     )
     has_pairwise = len(pairwise_required) == 4 and all(name in actual for name in pairwise_required)
+    has_grouped_text = (
+        query_col is not None
+        and positive_col is not None
+        and negative_col is not None
+        and all(name in actual for name in (query_col, positive_col, negative_col))
+    )
 
     if has_grouped_core and candidates_col is not None and candidates_col in actual:
         return "grouped-inline"
     if has_pairwise:
         return "pairwise"
+    if has_grouped_text:
+        return "grouped-text"
     if has_grouped_core:
         return "grouped-authoritative"
 
     grouped_missing = sorted(name for name in grouped_required if name not in actual)
     pairwise_missing = sorted(name for name in pairwise_required if name not in actual)
     raise DatasetValidationError(
-        "reranking datasets require either pairwise columns "
+        "reranking datasets require pairwise columns "
         f"{sorted(pairwise_required)} or grouped authoritative columns {sorted(grouped_required)}; "
         f"missing pairwise={pairwise_missing} grouped={grouped_missing}; "
         f"dataset has {sorted(actual)}"

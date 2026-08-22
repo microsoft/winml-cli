@@ -194,13 +194,16 @@ _DEFAULT_DATASETS: dict[str, dict] = {
         },
     },
     "reranking": {
-        "path": "orgrctera/msmarco_passage_ranking",
-        "split": "dev",
-        "revision": "a7388b9efd4dd4b87a0db91314e5b3f0e4b0d9e6",
+        "path": "mteb/scidocs-reranking",
+        "split": "test",
+        "revision": "56a6d0140cf6356659e2a7c1413286a774468d44",
+        "streaming": True,
+        "shuffle": False,
         "columns_mapping": {
-            "query_column": "input",
-            "expected_output_column": "expected_output",
-            "metadata_column": "metadata",
+            "query_column": "query",
+            "positive_column": "positive",
+            "negative_column": "negative",
+            "max_candidates": "10",
         },
     },
     "token-classification": {
