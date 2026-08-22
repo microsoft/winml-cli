@@ -1092,7 +1092,7 @@ class TestPerTaskDefaultDataset:
         from winml.modelkit.commands.eval import eval as eval_cmd
         from winml.modelkit.eval.reranking_evaluator import WinMLRerankingEvaluator
 
-        evaluate_mod = importlib.import_module("winml.modelkit.eval.evaluate")
+        evaluate_function = importlib.import_module("winml.modelkit.eval").evaluate
         public_row = {
             "query": "A Direct Search Method to solve Economic Dispatch Problem",
             "positive": [f"relevant passage {index}" for index in range(5)],
@@ -1131,9 +1131,10 @@ class TestPerTaskDefaultDataset:
         model = MagicMock()
         model.io_config = {"input_shapes": [[1, 4]]}
         model.return_value = SimpleNamespace(logits=torch.tensor([[0.5]]))
+        model_loader = MagicMock(return_value=model)
 
         with (
-            patch.object(evaluate_mod, "_load_model", return_value=model, create=True),
+            patch.dict(evaluate_function.__globals__, {"_load_model": model_loader}),
             patch("datasets.load_dataset", return_value=_Dataset([public_row])) as load,
             patch("datasets.Dataset.from_list", return_value=_Dataset([public_row])),
             patch("transformers.AutoTokenizer.from_pretrained", return_value=_Tokenizer()),
