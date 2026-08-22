@@ -162,7 +162,7 @@ class TestHFPipelineTaskMap:
 
     @pytest.mark.parametrize(
         "task",
-        ["sequence-classification", "next-sentence-prediction"],
+        ["reranking", "sequence-classification", "next-sentence-prediction"],
     )
     def test_classification_aliases_map_to_transformers_task(self, task: str) -> None:
         assert _HF_PIPELINE_TASK_MAP[task] == "text-classification"

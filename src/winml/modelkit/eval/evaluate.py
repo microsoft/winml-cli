@@ -62,6 +62,8 @@ def _select_model_loader(config: WinMLEvaluationConfig) -> _ModelLoaderKind:
 _EVALUATOR_REGISTRY: dict[str, str] = {
     "image-classification":
         "winml.modelkit.eval.base_evaluator:WinMLEvaluator",
+    "reranking":
+        "winml.modelkit.eval.reranking_evaluator:WinMLRerankingEvaluator",
     "text-classification":
         "winml.modelkit.eval.text_classification_evaluator:WinMLTextClassificationEvaluator",
     "sequence-classification":
@@ -186,6 +188,19 @@ _DEFAULT_DATASETS: dict[str, dict] = {
         "columns_mapping": {
             "input_column": "sentence1",
             "second_input_column": "sentence2",
+        },
+    },
+    "reranking": {
+        "path": "mteb/scidocs-reranking",
+        "split": "test",
+        "revision": "56a6d0140cf6356659e2a7c1413286a774468d44",
+        "streaming": True,
+        "shuffle": False,
+        "columns_mapping": {
+            "query_column": "query",
+            "positive_column": "positive",
+            "negative_column": "negative",
+            "max_candidates": "10",
         },
     },
     "token-classification": {

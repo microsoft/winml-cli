@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import click
 import pytest
@@ -1050,6 +1050,7 @@ class TestPerTaskDefaultDataset:
             ("zero-shot-classification", "fancyzhx/ag_news", "test"),
             ("zero-shot-image-classification", "uoft-cs/cifar100", "test"),
             ("image-classification", "timm/mini-imagenet", "test"),
+            ("reranking", "mteb/scidocs-reranking", "test"),
         ],
     )
     def test_per_task_default_split_reaches_evaluator(
@@ -1110,6 +1111,96 @@ class TestPerTaskDefaultDataset:
             ],
         )
         assert cfg.dataset.split == "test"  # the default's split wins
+
+    def test_reranking_default_runs_real_evaluator_with_bounded_candidates(
+        self,
+        runner: CliRunner,
+        onnx_file,
+    ) -> None:
+        from types import SimpleNamespace
+
+        import torch
+
+        from winml.modelkit.commands.eval import eval as eval_cmd
+        from winml.modelkit.eval.reranking_evaluator import WinMLRerankingEvaluator
+
+        public_row = {
+            "query": "A Direct Search Method to solve Economic Dispatch Problem",
+            "positive": [f"relevant passage {index}" for index in range(5)],
+            "negative": [f"negative passage {index}" for index in range(25)],
+        }
+
+        class _Dataset:
+            def __init__(self, rows):
+                self.rows = rows
+                self.column_names = ["query", "positive", "negative"]
+                self.features = None
+
+            def __len__(self):
+                return len(self.rows)
+
+            def __iter__(self):
+                return iter(self.rows)
+
+            def shuffle(self, **_kwargs):
+                return self
+
+            def take(self, count):
+                return iter(self.rows[:count])
+
+            def select(self, indices):
+                return _Dataset([self.rows[index] for index in indices])
+
+        class _Tokenizer:
+            def __call__(self, _query, _document, **_kwargs):
+                values = torch.ones((1, 4), dtype=torch.int64)
+                return {"input_ids": values, "attention_mask": values}
+
+            def pad(self, encoding, **_kwargs):
+                return encoding
+
+        model = MagicMock()
+        model.io_config = {"input_shapes": [[1, 4]]}
+        model.return_value = SimpleNamespace(logits=torch.tensor([[0.5]]))
+
+        with (
+            patch("winml.modelkit.models.WinMLAutoModel.from_onnx", return_value=model),
+            patch("winml.modelkit.loader.load_hf_config", return_value=MagicMock()),
+            patch("datasets.load_dataset", return_value=_Dataset([public_row])) as load,
+            patch("datasets.Dataset.from_list", return_value=_Dataset([public_row])),
+            patch("transformers.AutoTokenizer.from_pretrained", return_value=_Tokenizer()),
+            patch.object(WinMLRerankingEvaluator, "prepare_pipeline", return_value=object()),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
+            patch("winml.modelkit.commands.eval._write_and_display") as display,
+        ):
+            result = runner.invoke(
+                eval_cmd,
+                [
+                    "-m",
+                    str(onnx_file),
+                    "--model-id",
+                    "cross-encoder/ms-marco-MiniLM-L6-v2",
+                    "--task",
+                    "reranking",
+                    "--ep",
+                    "cpu",
+                    "--device",
+                    "cpu",
+                    "--samples",
+                    "1",
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert load.call_args.args == ("mteb/scidocs-reranking",)
+        assert load.call_args.kwargs["revision"] == "56a6d0140cf6356659e2a7c1413286a774468d44"
+        assert load.call_args.kwargs["streaming"] is True
+        assert model.call_count == 10
+        eval_result = display.call_args.args[0]
+        assert eval_result.metrics["processed_groups"] == 1
+        assert eval_result.metrics["processed_pairs"] == 10
+        assert eval_result.metrics["groups_without_positive"] == 0
 
     def test_user_column_merged_when_default_dataset_used(
         self,

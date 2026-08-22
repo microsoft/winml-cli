@@ -362,6 +362,18 @@ TASK_REGISTRY: dict[str, TaskInputSpec] = {
         mapping=PipelineMapping(pipe_input="text"),
     ),
     # -- Text + text --------------------------------------------------------
+    "reranking": TaskInputSpec(
+        user_inputs=[
+            InputField(name="query", type="text", required=True, description="Search query"),
+            InputField(
+                name="document",
+                type="text",
+                required=True,
+                description="Candidate document to score",
+            ),
+        ],
+        mapping=PipelineMapping(pipe_input=["query", "document"]),
+    ),
     "question-answering": TaskInputSpec(
         user_inputs=[
             InputField(
