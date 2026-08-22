@@ -347,9 +347,7 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
     @staticmethod
     def _extract_logits(outputs: Any) -> np.ndarray:
         logits = (
-            outputs.get("logits")
-            if isinstance(outputs, dict)
-            else getattr(outputs, "logits", None)
+            outputs.get("logits") if isinstance(outputs, dict) else getattr(outputs, "logits", None)
         )
         if logits is None:
             raise ValueError("CTC model output does not contain logits.")

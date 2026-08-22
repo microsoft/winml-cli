@@ -92,10 +92,7 @@ def test_asr_registry_schema_and_generic_model_route() -> None:
     config = WinMLEvaluationConfig(task="automatic-speech-recognition")
     assert get_evaluator_class(config) is WinMLCTCASREvaluator
     assert "automatic-speech-recognition" in TASK_SCHEMAS
-    assert (
-        get_winml_class("wav2vec2", "automatic-speech-recognition")
-        is WinMLModelForGenericTask
-    )
+    assert get_winml_class("wav2vec2", "automatic-speech-recognition") is WinMLModelForGenericTask
     assert TASK_REGISTRY["automatic-speech-recognition"].user_inputs[0].type == "audio"
 
 
