@@ -100,6 +100,8 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
         "winml.modelkit.eval.mask_generation_evaluator:WinMLMaskGenerationEvaluator",
     "text-generation":
         "winml.modelkit.eval.text_generation_evaluator:WinMLTextGenerationEvaluator",
+    "automatic-speech-recognition":
+        "winml.modelkit.eval.ctc_asr_evaluator:WinMLCTCASREvaluator",
 }
 # fmt: on
 
@@ -282,6 +284,18 @@ _DEFAULT_DATASETS: dict[str, dict] = {
         "name": "wikitext-2-raw-v1",
         "split": "test",
         "columns_mapping": {"input_column": "text"},
+    },
+    "automatic-speech-recognition": {
+        "path": "google/fleurs",
+        "name": "en_us",
+        "split": "validation",
+        "samples": 2,
+        "shuffle": False,
+        "revision": "70bb2e84b976b7e960aa89f1c648e09c59f894dd",
+        "columns_mapping": {
+            "input_column": "audio",
+            "label_column": "transcription",
+        },
     },
 }
 
