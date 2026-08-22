@@ -1084,7 +1084,6 @@ class TestPerTaskDefaultDataset:
         runner: CliRunner,
         onnx_file,
     ) -> None:
-        import importlib
         from types import SimpleNamespace
 
         import torch
@@ -1092,8 +1091,6 @@ class TestPerTaskDefaultDataset:
         from winml.modelkit.commands.eval import eval as eval_cmd
         from winml.modelkit.eval.reranking_evaluator import WinMLRerankingEvaluator
 
-        evaluate_package = importlib.import_module("winml.modelkit.eval")
-        evaluate_function = importlib.import_module("winml.modelkit.eval.evaluate").evaluate
         public_row = {
             "query": "A Direct Search Method to solve Economic Dispatch Problem",
             "positive": [f"relevant passage {index}" for index in range(5)],
@@ -1132,14 +1129,10 @@ class TestPerTaskDefaultDataset:
         model = MagicMock()
         model.io_config = {"input_shapes": [[1, 4]]}
         model.return_value = SimpleNamespace(logits=torch.tensor([[0.5]]))
-        model_loader = MagicMock(return_value=model)
-
-        def run_real_evaluate(config):
-            with patch.dict(evaluate_function.__globals__, {"_load_model": model_loader}):
-                return evaluate_function(config)
 
         with (
-            patch.object(evaluate_package, "evaluate", side_effect=run_real_evaluate),
+            patch("winml.modelkit.models.WinMLAutoModel.from_onnx", return_value=model),
+            patch("winml.modelkit.loader.load_hf_config", return_value=MagicMock()),
             patch("datasets.load_dataset", return_value=_Dataset([public_row])) as load,
             patch("datasets.Dataset.from_list", return_value=_Dataset([public_row])),
             patch("transformers.AutoTokenizer.from_pretrained", return_value=_Tokenizer()),
