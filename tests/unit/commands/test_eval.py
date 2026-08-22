@@ -1133,7 +1133,7 @@ class TestPerTaskDefaultDataset:
         model.return_value = SimpleNamespace(logits=torch.tensor([[0.5]]))
 
         with (
-            patch.object(evaluate_mod, "_load_model", return_value=model),
+            patch.object(evaluate_mod, "_load_model", return_value=model, create=True),
             patch("datasets.load_dataset", return_value=_Dataset([public_row])) as load,
             patch("datasets.Dataset.from_list", return_value=_Dataset([public_row])),
             patch("transformers.AutoTokenizer.from_pretrained", return_value=_Tokenizer()),
