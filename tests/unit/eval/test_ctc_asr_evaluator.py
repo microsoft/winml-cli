@@ -280,8 +280,91 @@ def test_compute_preserves_accounting_and_rejection_reasons() -> None:
     assert result["wer"] == 0.0
     assert result["cer"] == 0.0
     assert result["processed_samples"] == 1
+    assert result["skipped_samples"] == 0
     assert result["rejected_samples"] == 1
     assert result["rejection_reasons"] == {"bad audio": 1}
+
+
+def test_compute_scores_successful_empty_decode_as_deletions() -> None:
+    evaluator = _evaluator(input_shape=[1, "samples"])
+    evaluator.data = [
+        {"audio": "empty", "transcription": "hello world"},
+        {"audio": "decoded", "transcription": "good day"},
+    ]
+    evaluator._transcribe = lambda value: "" if value == "empty" else "good day"
+
+    result = evaluator.compute()
+
+    assert result["wer"] == 0.5
+    assert result["cer"] == pytest.approx(11 / 19)
+    assert result["predictions"] == ["", "good day"]
+    assert result["processed_samples"] == 2
+    assert result["skipped_samples"] == 0
+    assert result["rejected_samples"] == 0
+    assert result["rejection_reasons"] == {}
+
+
+def test_compute_scores_all_empty_hypotheses_as_deletions() -> None:
+    evaluator = _evaluator(input_shape=[1, "samples"])
+    evaluator.data = [
+        {"audio": "first", "transcription": "hello world"},
+        {"audio": "second", "transcription": "good day"},
+    ]
+    evaluator._transcribe = lambda _value: ""
+
+    result = evaluator.compute()
+
+    assert result["wer"] == 1.0
+    assert result["cer"] == 1.0
+    assert result["predictions"] == ["", ""]
+    assert result["processed_samples"] == 2
+    assert result["skipped_samples"] == 0
+    assert result["rejected_samples"] == 0
+    assert result["rejection_reasons"] == {}
+
+
+def test_compute_rejects_empty_reference_but_keeps_empty_hypothesis() -> None:
+    evaluator = _evaluator(input_shape=[1, "samples"])
+    evaluator.data = [
+        {"audio": "invalid-reference", "transcription": " \t "},
+        {"audio": "empty-hypothesis", "transcription": "valid"},
+    ]
+    evaluator._transcribe = lambda _value: ""
+
+    result = evaluator.compute()
+
+    assert result["wer"] == 1.0
+    assert result["cer"] == 1.0
+    assert result["predictions"] == [""]
+    assert result["references"] == ["valid"]
+    assert result["processed_samples"] == 1
+    assert result["skipped_samples"] == 0
+    assert result["rejected_samples"] == 1
+    assert result["rejection_reasons"] == {"normalized transcription is empty": 1}
+
+
+def test_compute_distinguishes_decode_failure_from_empty_decode() -> None:
+    evaluator = _evaluator(input_shape=[1, "samples"])
+    evaluator.data = [
+        {"audio": "failure", "transcription": "rejected"},
+        {"audio": "empty", "transcription": "kept"},
+    ]
+
+    def transcribe(value: str) -> str:
+        if value == "failure":
+            raise _RejectedSampleError("decode failed")
+        return ""
+
+    evaluator._transcribe = transcribe
+    result = evaluator.compute()
+
+    assert result["wer"] == 1.0
+    assert result["cer"] == 1.0
+    assert result["predictions"] == [""]
+    assert result["processed_samples"] == 1
+    assert result["skipped_samples"] == 0
+    assert result["rejected_samples"] == 1
+    assert result["rejection_reasons"] == {"decode failed": 1}
 
 
 def test_compute_fails_closed_when_all_rows_are_rejected() -> None:

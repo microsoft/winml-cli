@@ -238,8 +238,6 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
                 if not reference:
                     raise _RejectedSampleError("normalized transcription is empty")
                 prediction = self._transcribe(row.get(self._audio_column))
-                if not prediction:
-                    raise _RejectedSampleError("decoded prediction is empty")
             except _RejectedSampleError as error:
                 rejection_reasons[str(error)] += 1
                 continue
@@ -258,6 +256,7 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
             "predictions": predictions,
             "references": references,
             "processed_samples": len(predictions),
+            "skipped_samples": 0,
             "rejected_samples": rejected,
             "rejection_reasons": dict(rejection_reasons),
             "target_lang": self.target_lang,
