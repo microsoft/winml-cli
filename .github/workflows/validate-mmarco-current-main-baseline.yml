@@ -263,10 +263,11 @@ jobs:
           ]
           config_results = []
           for name, task_args in config_specs:
-              output = fresh(name)
+              output_root = fresh(name)
+              output = output_root / "generated"
               record = run(name, [str(WINML), "config", "-m", MODEL_ID, *task_args, "-o", str(output)], timeout=300)
               generated = []
-              for path in sorted(output.rglob("*")):
+              for path in sorted(output_root.rglob("*")):
                   if path.is_file():
                       generated.append({"path": path.relative_to(EVIDENCE).as_posix(), "bytes": path.stat().st_size, "sha256": sha256(path)})
               config_results.append({"name": name, "task_args": task_args, "exit_code": record["exit_code"], "generated": generated})
