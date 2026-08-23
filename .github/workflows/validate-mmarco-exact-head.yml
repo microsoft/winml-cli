@@ -29,6 +29,7 @@ jobs:
         with:
           repository: ssss141414/winml-cli
           ref: bc7377782d96a4788e565ff3acf0a6c2f06ae56d
+          fetch-depth: 2
           persist-credentials: false
 
       - name: Initialize evidence and assert identity
@@ -172,6 +173,7 @@ jobs:
         with:
           repository: ssss141414/winml-cli
           ref: bc7377782d96a4788e565ff3acf0a6c2f06ae56d
+          fetch-depth: 2
           persist-credentials: false
 
       - name: Initialize and assert identity
@@ -262,6 +264,7 @@ jobs:
         with:
           repository: ssss141414/winml-cli
           ref: bc7377782d96a4788e565ff3acf0a6c2f06ae56d
+          fetch-depth: 2
           persist-credentials: false
 
       - name: Initialize evidence and assert identity/diff
