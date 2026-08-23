@@ -1,0 +1,443 @@
+name: Validation-only mMARCO current-main baseline
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-mmarco-current-main-baseline-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+env:
+  MAIN_SHA: 0876e5ae1c98a169a6137e092e0d7b30bf9cee33
+  PREVIOUS_MAIN_SHA: 0876e5ae1c98a169a6137e092e0d7b30bf9cee33
+  MODEL_ID: cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
+  MODEL_REVISION: 1427fd652930e4ba29e8149678df786c240d8825
+  CANDIDATE_SHA: bc7377782d96a4788e565ff3acf0a6c2f06ae56d
+  DATASET_REVISION: 8e0c766dbe9e16e1d221116a3f36795fbade07f6
+
+jobs:
+  current-main-baseline:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact current main
+        uses: actions/checkout@v4
+        with:
+          repository: microsoft/winml-cli
+          ref: 0876e5ae1c98a169a6137e092e0d7b30bf9cee33
+          fetch-depth: 1
+
+      - name: Assert exact checkout
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path evidence -Force | Out-Null
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne $env:MAIN_SHA) { throw "HEAD mismatch: $head != $env:MAIN_SHA" }
+          git status --porcelain=v1 | Out-File evidence/checkout-status.txt -Encoding utf8
+          if ((Get-Content evidence/checkout-status.txt -Raw).Trim()) { throw 'Exact-main checkout is dirty.' }
+          @{
+            repository = 'microsoft/winml-cli'
+            head = $head
+            asserted_main_sha = $env:MAIN_SHA
+            previous_main_sha = $env:PREVIOUS_MAIN_SHA
+            moved_main = ($env:MAIN_SHA -ne $env:PREVIOUS_MAIN_SHA)
+            runner_workspace = $env:GITHUB_WORKSPACE
+          } | ConvertTo-Json | Out-File evidence/checkout.json -Encoding utf8
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.13"
+          enable-cache: false
+
+      - name: Create main-local exact-lock environment
+        shell: pwsh
+        run: |
+          $started = Get-Date
+          $stdout = 'evidence/sync.stdout.txt'
+          $stderr = 'evidence/sync.stderr.txt'
+          $process = Start-Process uv -ArgumentList @('sync','--locked','--all-extras','--all-groups') -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          if ((Get-Item $stdout).Length -eq 0) { '<EMPTY STDOUT>' | Out-File $stdout -Encoding utf8 }
+          if ((Get-Item $stderr).Length -eq 0) { '<EMPTY STDERR>' | Out-File $stderr -Encoding utf8 }
+          @{
+            name = 'exact-lock-sync'
+            command = 'uv sync --locked --all-extras --all-groups'
+            exit_code = $process.ExitCode
+            duration_seconds = [math]::Round(((Get-Date) - $started).TotalSeconds, 3)
+            stdout = $stdout
+            stderr = $stderr
+          } | ConvertTo-Json | Out-File evidence/sync.record.json -Encoding utf8
+          if ($process.ExitCode -ne 0) { throw "Exact-lock sync failed: $($process.ExitCode)" }
+          if (-not (Test-Path '.venv/Scripts/python.exe')) { throw 'Checkout-local .venv was not created.' }
+
+      - name: Run bounded baseline and comparison probes
+        shell: pwsh
+        env:
+          HF_HOME: ${{ runner.temp }}\hf-home
+          HF_HUB_CACHE: ${{ runner.temp }}\hf-home\hub
+          HF_HUB_DISABLE_XET: "1"
+        run: |
+          @'
+          from __future__ import annotations
+
+          import collections
+          import hashlib
+          import importlib
+          import json
+          import os
+          import shutil
+          import subprocess
+          import sys
+          import time
+          import urllib.request
+          from pathlib import Path
+          from typing import Any
+
+          ROOT = Path.cwd().resolve()
+          EVIDENCE = ROOT / "evidence"
+          COMMANDS = EVIDENCE / "commands"
+          OUTPUTS = EVIDENCE / "outputs"
+          COMMANDS.mkdir(parents=True, exist_ok=True)
+          OUTPUTS.mkdir(parents=True, exist_ok=True)
+          PYTHON = (ROOT / ".venv" / "Scripts" / "python.exe").resolve()
+          WINML = (ROOT / ".venv" / "Scripts" / "winml.exe").resolve()
+          MODEL_ID = os.environ["MODEL_ID"]
+          MODEL_REVISION = os.environ["MODEL_REVISION"]
+          MAIN_SHA = os.environ["MAIN_SHA"]
+          CANDIDATE_SHA = os.environ["CANDIDATE_SHA"]
+          DATASET_REVISION = os.environ["DATASET_REVISION"]
+          records: list[dict[str, Any]] = []
+
+          def sha256(path: Path) -> str:
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+
+          def write_text(path: Path, text: str) -> None:
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(text if text else "<EMPTY>\n", encoding="utf-8")
+
+          def run(name: str, args: list[str], timeout: int = 300) -> dict[str, Any]:
+              started = time.monotonic()
+              timed_out = False
+              try:
+                  completed = subprocess.run(
+                      args,
+                      cwd=ROOT,
+                      text=True,
+                      encoding="utf-8",
+                      errors="replace",
+                      capture_output=True,
+                      timeout=timeout,
+                      check=False,
+                  )
+                  exit_code = completed.returncode
+                  stdout = completed.stdout
+                  stderr = completed.stderr
+              except subprocess.TimeoutExpired as error:
+                  timed_out = True
+                  exit_code = 124
+                  stdout = error.stdout or ""
+                  stderr = (error.stderr or "") + f"\nTIMEOUT after {timeout} seconds\n"
+              stdout_path = COMMANDS / f"{name}.stdout.txt"
+              stderr_path = COMMANDS / f"{name}.stderr.txt"
+              write_text(stdout_path, stdout)
+              write_text(stderr_path, stderr)
+              record = {
+                  "name": name,
+                  "argv": args,
+                  "command": subprocess.list2cmdline(args),
+                  "cwd": str(ROOT),
+                  "exit_code": exit_code,
+                  "timed_out": timed_out,
+                  "timeout_seconds": timeout,
+                  "duration_seconds": round(time.monotonic() - started, 3),
+                  "stdout": stdout_path.relative_to(EVIDENCE).as_posix(),
+                  "stderr": stderr_path.relative_to(EVIDENCE).as_posix(),
+                  "stdout_actual_bytes": len(stdout.encode("utf-8")),
+                  "stderr_actual_bytes": len(stderr.encode("utf-8")),
+              }
+              (COMMANDS / f"{name}.record.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+              records.append(record)
+              return record
+
+          def fresh(name: str) -> Path:
+              path = OUTPUTS / name
+              if path.exists():
+                  raise SystemExit(f"Fresh output collision: {path}")
+              path.mkdir(parents=True)
+              return path
+
+          def module_info(name: str) -> dict[str, Any]:
+              try:
+                  module = importlib.import_module(name)
+                  return {"version": getattr(module, "__version__", None), "root": str(Path(module.__file__).resolve())}
+              except Exception as error:
+                  return {"error": repr(error)}
+
+          if not PYTHON.is_file() or not WINML.is_file():
+              raise SystemExit("Checkout-local Python or winml runner is missing")
+          if ROOT not in PYTHON.parents or ROOT not in WINML.parents:
+              raise SystemExit("Runtime is not checkout-local")
+
+          lock = ROOT / "uv.lock"
+          provenance = {
+              "repository": "microsoft/winml-cli",
+              "main_sha": MAIN_SHA,
+              "head": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "checkout_root": str(ROOT),
+              "environment_root": str((ROOT / ".venv").resolve()),
+              "interpreter": str(PYTHON),
+              "command_runner": str(WINML),
+              "lock_path": str(lock.resolve()),
+              "lock_sha256": sha256(lock),
+              "sync_record": "sync.record.json",
+              "python": sys.version,
+              "packages": {name: module_info(name) for name in ("winml", "transformers", "optimum", "onnx", "onnxruntime", "huggingface_hub")},
+          }
+          if provenance["head"] != MAIN_SHA:
+              raise SystemExit(f"HEAD mismatch in driver: {provenance['head']} != {MAIN_SHA}")
+          (EVIDENCE / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
+
+          version = run("version", [str(WINML), "--version"])
+
+          from huggingface_hub import snapshot_download
+
+          snapshot = Path(snapshot_download(repo_id=MODEL_ID, revision=MODEL_REVISION, cache_dir=os.environ["HF_HUB_CACHE"])).resolve()
+          files = []
+          for path in sorted(snapshot.rglob("*")):
+              if path.is_file():
+                  files.append({"path": path.relative_to(snapshot).as_posix(), "bytes": path.stat().st_size, "sha256": sha256(path)})
+          manifest = {"model_id": MODEL_ID, "revision": MODEL_REVISION, "snapshot": str(snapshot), "files": files}
+          (EVIDENCE / "hf_snapshot_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+          write_text(COMMANDS / "hf-hydration.stdout.txt", json.dumps({"snapshot": str(snapshot), "file_count": len(files), "bytes": sum(row["bytes"] for row in files)}) + "\n")
+          write_text(COMMANDS / "hf-hydration.stderr.txt", "<EMPTY STDERR>\n")
+          hydration_record = {
+              "name": "hf-hydration",
+              "command": f"snapshot_download(repo_id={MODEL_ID!r}, revision={MODEL_REVISION!r})",
+              "exit_code": 0,
+              "timed_out": False,
+              "stdout": "commands/hf-hydration.stdout.txt",
+              "stderr": "commands/hf-hydration.stderr.txt",
+              "output": "hf_snapshot_manifest.json",
+          }
+          (COMMANDS / "hf-hydration.record.json").write_text(json.dumps(hydration_record, indent=2) + "\n", encoding="utf-8")
+          records.append(hydration_record)
+
+          import optimum.exporters.onnx.model_configs  # noqa: F401
+          from optimum.exporters.tasks import TasksManager
+          from winml.modelkit.export.io import ensure_hf_models_registered
+
+          model_type = "xlm-roberta"
+          vendor = sorted(TasksManager._SUPPORTED_MODEL_TYPE.get(model_type, {}).get("onnx", {}).keys())
+          ensure_hf_models_registered()
+          after = sorted(TasksManager._SUPPORTED_MODEL_TYPE.get(model_type, {}).get("onnx", {}).keys())
+          optimum = {"model_type": model_type, "vendor": vendor, "after_winml": after, "added_by_winml": sorted(set(after) - set(vendor))}
+          (EVIDENCE / "optimum_probe.json").write_text(json.dumps(optimum, indent=2) + "\n", encoding="utf-8")
+          write_text(COMMANDS / "optimum-probe.stdout.txt", json.dumps(optimum) + "\n")
+          write_text(COMMANDS / "optimum-probe.stderr.txt", "<EMPTY STDERR>\n")
+          optimum_record = {"name": "optimum-probe", "command": "TasksManager before/after ensure_hf_models_registered()", "exit_code": 0, "timed_out": False, "stdout": "commands/optimum-probe.stdout.txt", "stderr": "commands/optimum-probe.stderr.txt", "output": "optimum_probe.json"}
+          (COMMANDS / "optimum-probe.record.json").write_text(json.dumps(optimum_record, indent=2) + "\n", encoding="utf-8")
+          records.append(optimum_record)
+
+          inspect_record = run("inspect", [str(WINML), "inspect", "-m", MODEL_ID, "--format", "json"], timeout=300)
+
+          config_specs = [
+              ("config-default", []),
+              ("config-text-classification", ["-t", "text-classification"]),
+              ("config-text-ranking", ["-t", "text-ranking"]),
+              ("config-reranking", ["-t", "reranking"]),
+          ]
+          config_results = []
+          for name, task_args in config_specs:
+              output = fresh(name)
+              record = run(name, [str(WINML), "config", "-m", MODEL_ID, *task_args, "-o", str(output)], timeout=300)
+              generated = []
+              for path in sorted(output.rglob("*")):
+                  if path.is_file():
+                      generated.append({"path": path.relative_to(EVIDENCE).as_posix(), "bytes": path.stat().st_size, "sha256": sha256(path)})
+              config_results.append({"name": name, "task_args": task_args, "exit_code": record["exit_code"], "generated": generated})
+          (EVIDENCE / "config_results.json").write_text(json.dumps(config_results, indent=2) + "\n", encoding="utf-8")
+
+          build_output = fresh("build-default")
+          build_record = run(
+              "build-default",
+              [str(WINML), "build", "-m", MODEL_ID, "-o", str(build_output), "--ep", "cpu", "--device", "cpu", "--no-analyze", "--no-optimize", "--no-quant", "--no-compile", "--rebuild"],
+              timeout=2400,
+          )
+          models = sorted(build_output.rglob("*.onnx"), key=lambda path: (path.name != "model.onnx", len(path.parts), str(path)))
+          structure: dict[str, Any] = {"build_exit_code": build_record["exit_code"], "models": []}
+          if models:
+              import onnx
+
+              for model_path in models:
+                  graph = onnx.load(str(model_path), load_external_data=False)
+                  external = sorted({entry.value for tensor in graph.graph.initializer for entry in tensor.external_data if entry.key == "location"})
+                  artifact_files = [model_path, *(model_path.parent / item for item in external)]
+                  structure["models"].append({
+                      "path": model_path.relative_to(EVIDENCE).as_posix(),
+                      "ir_version": graph.ir_version,
+                      "opsets": [{"domain": item.domain, "version": item.version} for item in graph.opset_import],
+                      "inputs": [{"name": item.name, "dtype": item.type.tensor_type.elem_type, "shape": [dimension.dim_value if dimension.HasField("dim_value") else dimension.dim_param for dimension in item.type.tensor_type.shape.dim]} for item in graph.graph.input],
+                      "outputs": [{"name": item.name, "dtype": item.type.tensor_type.elem_type, "shape": [dimension.dim_value if dimension.HasField("dim_value") else dimension.dim_param for dimension in item.type.tensor_type.shape.dim]} for item in graph.graph.output],
+                      "initializer_types": dict(collections.Counter(onnx.TensorProto.DataType.Name(item.data_type) for item in graph.graph.initializer)),
+                      "node_count": len(graph.graph.node),
+                      "operator_counts": dict(collections.Counter(item.op_type for item in graph.graph.node)),
+                      "files": [{"name": item.name, "exists": item.is_file(), "bytes": item.stat().st_size if item.is_file() else None, "sha256": sha256(item) if item.is_file() else None} for item in artifact_files],
+                  })
+          (EVIDENCE / "build_structure.json").write_text(json.dumps(structure, indent=2) + "\n", encoding="utf-8")
+
+          perf_record = None
+          eval_record = None
+          if models and build_record["exit_code"] == 0:
+              perf_record = run("perf-default", [str(WINML), "perf", "-m", str(models[0].resolve()), "--ep", "cpu", "--device", "cpu", "--iterations", "3", "--warmup", "1", "--output", str(EVIDENCE / "perf-default.json"), "--overwrite", "--format", "json"], timeout=900)
+              eval_record = run("eval-reranking", [str(WINML), "eval", "-m", str(models[0].resolve()), "--model-id", MODEL_ID, "--task", "reranking", "--dataset", "C-MTEB/Mmarco-reranking", "--dataset-name", "default", "--dataset-revision", DATASET_REVISION, "--split", "dev", "--samples", "1", "--no-shuffle", "--streaming", "--column", "query_column=query", "--column", "positive_column=positive", "--column", "negative_column=negative", "--column", "max_candidates=10", "--ep", "cpu", "--device", "cpu"], timeout=900)
+          else:
+              write_text(COMMANDS / "perf-default.not-run.txt", "NOT-RUN: recipe-free build did not produce a successful ONNX artifact.\n")
+              write_text(COMMANDS / "eval-reranking.not-run.txt", "NOT-RUN: recipe-free build did not produce a successful ONNX artifact.\n")
+
+          recipe_root = EVIDENCE / "candidate-recipes"
+          recipe_root.mkdir()
+          candidate_paths = {}
+          for precision in ("fp32", "fp16"):
+              relative = f"examples/recipes/cross-encoder_mmarco-mMiniLMv2-L12-H384-v1/cpu/cpu/reranking_{precision}_config.json"
+              url = f"https://raw.githubusercontent.com/ssss141414/winml-cli/{CANDIDATE_SHA}/{relative}"
+              destination = recipe_root / f"reranking_{precision}_config.json"
+              urllib.request.urlretrieve(url, destination)
+              candidate_paths[precision] = {"source": url, "path": destination.relative_to(EVIDENCE).as_posix(), "sha256": sha256(destination)}
+
+          default_jsons = sorted((OUTPUTS / "config-default").rglob("*.json"))
+          if not default_jsons:
+              comparison = {"status": "NOT-COMPARABLE", "reason": "Current-main default winml config emitted no JSON recipe.", "candidate_recipes": candidate_paths, "comparisons": []}
+          else:
+              auto_path = default_jsons[0]
+
+              def strip_notes(value: Any) -> Any:
+                  if isinstance(value, dict):
+                      return {key: strip_notes(item) for key, item in value.items() if key.lower() not in {"_note", "note", "notes"}}
+                  if isinstance(value, list):
+                      return [strip_notes(item) for item in value]
+                  return value
+
+              def flatten(value: Any, pointer: str = "") -> dict[str, Any]:
+                  if isinstance(value, dict):
+                      result = {}
+                      for key in sorted(value):
+                          result.update(flatten(value[key], f"{pointer}/{key.replace('~', '~0').replace('/', '~1')}"))
+                      return result
+                  if isinstance(value, list):
+                      result = {}
+                      for index, item in enumerate(value):
+                          result.update(flatten(item, f"{pointer}/{index}"))
+                      return result
+                  return {pointer or "/": value}
+
+              auto = strip_notes(json.loads(auto_path.read_text(encoding="utf-8-sig")))
+              auto_flat = flatten(auto)
+              comparisons = []
+              for precision, metadata in candidate_paths.items():
+                  candidate_path = EVIDENCE / metadata["path"]
+                  candidate = strip_notes(json.loads(candidate_path.read_text(encoding="utf-8-sig")))
+                  candidate_flat = flatten(candidate)
+                  rows = []
+                  for pointer in sorted(set(auto_flat) | set(candidate_flat)):
+                      auto_value = auto_flat.get(pointer, "<ABSENT>")
+                      candidate_value = candidate_flat.get(pointer, "<ABSENT>")
+                      if auto_value == candidate_value:
+                          status = "IDENTICAL"
+                          reason = None
+                      elif precision == "fp16" and (pointer == "/quant" or pointer.startswith("/quant/")):
+                          status = "NOT-COMPARABLE"
+                          reason = "Current-main Planner auto-config is generated without a precision flag; fp16 quantization fields describe a later precision realization and have no like-for-like baseline field."
+                      else:
+                          status = "DIFFERENT"
+                          reason = None
+                      rows.append({"pointer": pointer, "auto_config": auto_value, "candidate": candidate_value, "status": status, "reason": reason})
+                  comparisons.append({"precision": precision, "candidate": metadata, "field_rows": rows, "counts": dict(collections.Counter(row["status"] for row in rows))})
+              comparison = {
+                  "status": "COMPARED",
+                  "notes_stripped": ["_note", "note", "notes"],
+                  "auto_config": {"path": auto_path.relative_to(EVIDENCE).as_posix(), "sha256": sha256(auto_path), "command": next(row["command"] for row in records if row["name"] == "config-default")},
+                  "candidate_recipes": candidate_paths,
+                  "comparisons": comparisons,
+              }
+          (EVIDENCE / "recipe_comparison.json").write_text(json.dumps(comparison, indent=2) + "\n", encoding="utf-8")
+
+          summary = {
+              "main_sha": MAIN_SHA,
+              "previous_main_sha": os.environ["PREVIOUS_MAIN_SHA"],
+              "moved_main": MAIN_SHA != os.environ["PREVIOUS_MAIN_SHA"],
+              "model_id": MODEL_ID,
+              "model_revision": MODEL_REVISION,
+              "version_exit": version["exit_code"],
+              "version_output": (COMMANDS / "version.stdout.txt").read_text(encoding="utf-8"),
+              "optimum_probe": optimum,
+              "inspect_exit": inspect_record["exit_code"],
+              "configs": config_results,
+              "build_exit": build_record["exit_code"],
+              "artifact_count": len(models),
+              "perf_exit": perf_record["exit_code"] if perf_record else None,
+              "eval_reranking_exit": eval_record["exit_code"] if eval_record else None,
+              "recipe_comparison_status": comparison["status"],
+              "expected_unsupported_errors_preserved": [row["name"] for row in config_results if row["exit_code"] != 0] + (["eval-reranking"] if eval_record and eval_record["exit_code"] != 0 else []),
+          }
+          (EVIDENCE / "baseline_summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+          (EVIDENCE / "command_index.json").write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps(summary, indent=2))
+          '@ | Out-File "$env:RUNNER_TEMP\mmarco_current_main_baseline.py" -Encoding utf8
+          & .venv\Scripts\python.exe "$env:RUNNER_TEMP\mmarco_current_main_baseline.py" 2>&1 | Tee-Object evidence/driver.log.txt
+          exit $LASTEXITCODE
+
+      - name: Validate evidence completeness
+        if: always()
+        shell: pwsh
+        run: |
+          @'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path('evidence')
+          required = [
+              'checkout.json', 'sync.record.json', 'provenance.json', 'hf_snapshot_manifest.json',
+              'optimum_probe.json', 'config_results.json', 'build_structure.json',
+              'recipe_comparison.json', 'baseline_summary.json', 'command_index.json', 'driver.log.txt',
+          ]
+          errors = []
+          for relative in required:
+              path = root / relative
+              if not path.is_file() or path.stat().st_size == 0:
+                  errors.append(f'missing-or-empty:{relative}')
+          if not errors:
+              provenance = json.loads((root / 'provenance.json').read_text(encoding='utf-8-sig'))
+              if provenance.get('head') != os.environ['MAIN_SHA']:
+                  errors.append('provenance-head-mismatch')
+              if not Path(provenance['environment_root']).is_relative_to(Path(provenance['checkout_root'])):
+                  errors.append('environment-not-checkout-local')
+              records = json.loads((root / 'command_index.json').read_text(encoding='utf-8-sig'))
+              for record in records:
+                  for stream in ('stdout', 'stderr'):
+                      path = root / record[stream]
+                      if not path.is_file() or path.stat().st_size == 0:
+                          errors.append(f"missing-record-stream:{record['name']}:{stream}")
+              manifest = json.loads((root / 'hf_snapshot_manifest.json').read_text(encoding='utf-8-sig'))
+              if manifest.get('revision') != os.environ['MODEL_REVISION'] or not manifest.get('files'):
+                  errors.append('hf-manifest-invalid')
+          payload = {'valid': not errors, 'errors': errors, 'main_sha': os.environ['MAIN_SHA']}
+          (root / 'workflow_validation.json').write_text(json.dumps(payload, indent=2) + '\n', encoding='utf-8')
+          if errors:
+              raise SystemExit(';'.join(errors))
+          print(json.dumps(payload))
+          '@ | .venv\Scripts\python.exe -
+
+      - name: Upload Planner baseline evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmarco-current-main-baseline-${{ env.MAIN_SHA }}
+          path: evidence
+          if-no-files-found: error
+          retention-days: 14
