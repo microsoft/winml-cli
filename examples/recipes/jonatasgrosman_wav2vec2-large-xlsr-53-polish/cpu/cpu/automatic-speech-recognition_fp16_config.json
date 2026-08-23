@@ -21,7 +21,10 @@
       {
         "name": "logits"
       }
-    ]
+    ],
+    "compatibility": {
+      "transformers_attention": "eager"
+    }
   },
   "optim": {},
   "quant": {
@@ -49,5 +52,22 @@
     "task": "automatic-speech-recognition",
     "model_class": "AutoModelForCTC",
     "model_type": "wav2vec2"
+  },
+  "eval": {
+    "task": "automatic-speech-recognition",
+    "dataset": {
+      "path": "google/fleurs",
+      "name": "pl_pl",
+      "split": "validation",
+      "samples": 2,
+      "shuffle": false,
+      "seed": 42,
+      "streaming": false,
+      "revision": "70bb2e84b976b7e960aa89f1c648e09c59f894dd",
+      "columns_mapping": {
+        "input_column": "audio",
+        "label_column": "transcription"
+      }
+    }
   }
 }
