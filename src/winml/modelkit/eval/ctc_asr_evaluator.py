@@ -22,6 +22,7 @@ from .base_evaluator import WinMLEvaluator
 
 if TYPE_CHECKING:
     from datasets import Dataset
+    from transformers.pipelines.base import Pipeline
 
     from .config import WinMLEvaluationConfig
 
@@ -185,9 +186,11 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
         self.sampling_rate = sampling_rate
         self.blank_token_id = self._resolve_blank_token_id(model_config)
         self.tokenizer_vocab_size = self._resolve_tokenizer_vocab_size()
-        self.model = model
-        self.config = config
-        self.data = self.prepare_data()
+        super().__init__(config, model)
+
+    def prepare_pipeline(self) -> Pipeline | None:  # type: ignore[override]
+        """Skip the HF pipeline because CTC decoding drives the model directly."""
+        return None
 
     def prepare_data(self) -> Dataset:
         """Load deterministic rows and force explicit decode=False audio values."""

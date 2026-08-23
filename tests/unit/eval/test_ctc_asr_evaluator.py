@@ -128,6 +128,31 @@ def test_non_ctc_asr_fails_closed() -> None:
         WinMLCTCASREvaluator(config, model)
 
 
+def test_constructor_initializes_base_evaluator_state() -> None:
+    from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
+
+    processor = _Processor(target_lang="eng")
+    model = MagicMock()
+    model.config = SimpleNamespace(architectures=["Wav2Vec2ForCTC"], pad_token_id=0)
+    config = WinMLEvaluationConfig(
+        model_id="org/ctc-model",
+        task="automatic-speech-recognition",
+        dataset=DatasetConfig(path="dataset"),
+    )
+    prepared_data = object()
+
+    with (
+        patch("transformers.AutoProcessor.from_pretrained", return_value=processor),
+        patch.object(WinMLCTCASREvaluator, "prepare_data", return_value=prepared_data),
+    ):
+        evaluator = WinMLCTCASREvaluator(config, model)
+
+    assert evaluator.model is model
+    assert evaluator.config is config
+    assert evaluator.data is prepared_data
+    assert evaluator.pipe is None
+
+
 def test_prepare_data_sorts_by_id_and_caps_rows() -> None:
     from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
