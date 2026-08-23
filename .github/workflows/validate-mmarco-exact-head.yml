@@ -1,0 +1,611 @@
+name: Validation-only exact candidate bc737778
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-mmarco-exact-bc737778-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+env:
+  CANDIDATE_SHA: bc7377782d96a4788e565ff3acf0a6c2f06ae56d
+  PARENT_SHA: 3708969b731425b0c6d4b97920d1b5e6519bb013
+  MODEL_ID: cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
+  MODEL_REVISION: 1427fd652930e4ba29e8149678df786c240d8825
+  DATASET_REVISION: 8e0c766dbe9e16e1d221116a3f36795fbade07f6
+
+jobs:
+  exact-head-lint:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@v4
+        with:
+          repository: ssss141414/winml-cli
+          ref: bc7377782d96a4788e565ff3acf0a6c2f06ae56d
+          persist-credentials: false
+
+      - name: Initialize evidence and assert identity
+        id: identity
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path evidence | Out-Null
+          $actual = (git rev-parse HEAD).Trim()
+          $parent = (git rev-parse HEAD^).Trim()
+          $lock = (Get-FileHash uv.lock -Algorithm SHA256).Hash.ToLowerInvariant()
+          @{
+            expected_candidate = $env:CANDIDATE_SHA
+            actual_candidate = $actual
+            expected_parent = $env:PARENT_SHA
+            actual_parent = $parent
+            lock_sha256 = $lock
+            workspace = $env:GITHUB_WORKSPACE
+          } | ConvertTo-Json | Out-File evidence/identity.json -Encoding utf8
+          if ($actual -ne $env:CANDIDATE_SHA -or $parent -ne $env:PARENT_SHA) { throw "Exact identity mismatch" }
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Exact-lock sync
+        id: sync
+        shell: pwsh
+        run: |
+          & uv sync --locked --all-extras --all-groups 2>&1 | Tee-Object evidence/sync.log.txt
+          exit $LASTEXITCODE
+
+      - name: Assert candidate-local provenance
+        id: provenance
+        shell: pwsh
+        run: |
+          @'
+          import importlib.metadata
+          import importlib.util
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          venv = (workspace / ".venv").resolve()
+          executable = Path(sys.executable).resolve()
+          prefix = Path(sys.prefix).resolve()
+          if prefix != venv or not executable.is_relative_to(venv):
+              raise SystemExit("Python executable or prefix is outside candidate-local .venv")
+          packages = (("ruff", "ruff"), ("mypy", "mypy"), ("pytest", "pytest"),
+                      ("transformers", "transformers"),
+                      ("onnxruntime-windowsml", "onnxruntime"))
+          resolved = {}
+          for distribution, module in packages:
+              dist = importlib.metadata.distribution(distribution)
+              dist_root = Path(dist.locate_file("")).resolve()
+              spec = importlib.util.find_spec(module)
+              import_root = Path(spec.origin).resolve() if spec and spec.origin else None
+              if not dist_root.is_relative_to(venv) or (import_root and not import_root.is_relative_to(venv)):
+                  raise SystemExit(f"Foreign package root for {distribution}")
+              resolved[distribution] = {"version": dist.version, "distribution_root": str(dist_root), "import_root": str(import_root)}
+          payload = {
+              "candidate": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "checkout_root": str(workspace), "environment_root": str(venv),
+              "interpreter": str(executable), "python": sys.version,
+              "uv": subprocess.check_output(["uv", "--version"], text=True).strip(),
+              "lock_sha256": __import__("hashlib").sha256((workspace / "uv.lock").read_bytes()).hexdigest(),
+              "packages": resolved,
+          }
+          (workspace / "evidence" / "provenance.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+          '@ | uv run python -
+
+      - name: Check license headers
+        id: license
+        shell: pwsh
+        run: |
+          & uv run pre-commit run insert-license --all-files 2>&1 | Tee-Object evidence/license.log.txt
+          exit $LASTEXITCODE
+
+      - name: Ruff
+        id: ruff
+        shell: pwsh
+        run: |
+          & uv run ruff check src/ tests/ 2>&1 | Tee-Object evidence/ruff.log.txt
+          exit $LASTEXITCODE
+
+      - name: Mypy
+        id: mypy
+        shell: pwsh
+        run: |
+          & uv run mypy -p winml.modelkit 2>&1 | Tee-Object evidence/mypy.log.txt
+          exit $LASTEXITCODE
+
+      - name: Finalize lint evidence
+        if: always()
+        shell: pwsh
+        env:
+          IDENTITY: ${{ steps.identity.outcome }}
+          SYNC: ${{ steps.sync.outcome }}
+          PROVENANCE: ${{ steps.provenance.outcome }}
+          LICENSE: ${{ steps.license.outcome }}
+          RUFF: ${{ steps.ruff.outcome }}
+          MYPY: ${{ steps.mypy.outcome }}
+        run: |
+          $states = @{identity=$env:IDENTITY; sync=$env:SYNC; provenance=$env:PROVENANCE; license=$env:LICENSE; ruff=$env:RUFF; mypy=$env:MYPY}
+          $success = @($states.Values | Where-Object { $_ -ne 'success' }).Count -eq 0
+          @{success=$success; phase=if($success){'completed'}else{'failed'}; outer_exit_code=if($success){0}else{1}; timed_out=$false; error=if($success){$null}else{'One or more lint phases failed'}; candidate=$env:CANDIDATE_SHA; states=$states} | ConvertTo-Json -Depth 5 | Out-File evidence/job_status.json -Encoding utf8
+
+      - name: Upload lint evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmarco-exact-lint
+          path: evidence
+          if-no-files-found: error
+
+  exact-head-test:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: analyze
+            paths: tests/unit/analyze
+          - group: models
+            paths: tests/unit/models tests/unit/loader tests/unit/datasets tests/unit/export
+          - group: optim
+            paths: tests/unit/optim
+          - group: commands
+            paths: tests/unit/commands tests/unit/config tests/unit/build tests/unit/compiler tests/unit/session tests/unit/eval
+          - group: remaining
+            paths: tests/unit/core tests/unit/onnx tests/unit/cache tests/unit/utils tests/unit/test_helpers tests/unit/sysinfo tests/unit/inspect tests/unit/optracing tests/regression tests/cli
+    name: exact-head-test (${{ matrix.group }})
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@v4
+        with:
+          repository: ssss141414/winml-cli
+          ref: bc7377782d96a4788e565ff3acf0a6c2f06ae56d
+          persist-credentials: false
+
+      - name: Initialize and assert identity
+        id: identity
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path evidence | Out-Null
+          $actual = (git rev-parse HEAD).Trim()
+          $parent = (git rev-parse HEAD^).Trim()
+          @{candidate=$actual; parent=$parent; expected_candidate=$env:CANDIDATE_SHA; expected_parent=$env:PARENT_SHA; lock_sha256=(Get-FileHash uv.lock -Algorithm SHA256).Hash.ToLowerInvariant()} | ConvertTo-Json | Out-File evidence/identity.json -Encoding utf8
+          if ($actual -ne $env:CANDIDATE_SHA -or $parent -ne $env:PARENT_SHA) { throw "Exact identity mismatch" }
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Exact-lock sync
+        id: sync
+        shell: pwsh
+        run: |
+          & uv sync --locked --all-extras 2>&1 | Tee-Object evidence/sync.log.txt
+          exit $LASTEXITCODE
+
+      - name: Assert candidate-local provenance
+        id: provenance
+        shell: pwsh
+        run: |
+          @'
+          import importlib.metadata, importlib.util, json, os, sys
+          from pathlib import Path
+          workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          venv = (workspace / ".venv").resolve()
+          executable = Path(sys.executable).resolve()
+          if Path(sys.prefix).resolve() != venv or not executable.is_relative_to(venv):
+              raise SystemExit("Interpreter outside candidate-local .venv")
+          packages = {}
+          for distribution, module in (("pytest", "pytest"), ("transformers", "transformers"), ("onnxruntime-windowsml", "onnxruntime")):
+              dist = importlib.metadata.distribution(distribution)
+              root = Path(dist.locate_file("")).resolve()
+              spec = importlib.util.find_spec(module)
+              imported = Path(spec.origin).resolve() if spec and spec.origin else None
+              if not root.is_relative_to(venv) or (imported and not imported.is_relative_to(venv)):
+                  raise SystemExit(f"Foreign root for {distribution}")
+              packages[distribution] = {"version": dist.version, "distribution_root": str(root), "import_root": str(imported)}
+          (workspace / "evidence" / "provenance.json").write_text(json.dumps({"environment_root": str(venv), "interpreter": str(executable), "packages": packages}, indent=2) + "\n", encoding="utf-8")
+          '@ | uv run python -
+
+      - name: Run tests
+        id: tests
+        shell: pwsh
+        run: |
+          $paths = "${{ matrix.paths }}" -split ' '
+          & uv run pytest @paths --tb=short --no-cov -m "not e2e and not npu and not gpu" 2>&1 | Tee-Object evidence/tests-${{ matrix.group }}.log.txt
+          exit $LASTEXITCODE
+
+      - name: Finalize test evidence
+        if: always()
+        shell: pwsh
+        env:
+          IDENTITY: ${{ steps.identity.outcome }}
+          SYNC: ${{ steps.sync.outcome }}
+          PROVENANCE: ${{ steps.provenance.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+        run: |
+          $states = @{identity=$env:IDENTITY; sync=$env:SYNC; provenance=$env:PROVENANCE; tests=$env:TESTS}
+          $success = @($states.Values | Where-Object { $_ -ne 'success' }).Count -eq 0
+          @{success=$success; phase=if($success){'completed'}else{'failed'}; outer_exit_code=if($success){0}else{1}; timed_out=$false; error=if($success){$null}else{'One or more test phases failed'}; candidate=$env:CANDIDATE_SHA; group='${{ matrix.group }}'; states=$states} | ConvertTo-Json -Depth 5 | Out-File evidence/job_status.json -Encoding utf8
+
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmarco-exact-test-${{ matrix.group }}
+          path: evidence
+          if-no-files-found: error
+
+  exact-head-model:
+    runs-on: windows-latest
+    timeout-minutes: 300
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@v4
+        with:
+          repository: ssss141414/winml-cli
+          ref: bc7377782d96a4788e565ff3acf0a6c2f06ae56d
+          persist-credentials: false
+
+      - name: Initialize evidence and assert identity/diff
+        id: identity
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path evidence | Out-Null
+          New-Item -ItemType Directory -Path "$env:RUNNER_TEMP\mmarco-build\fp32" -Force | Out-Null
+          New-Item -ItemType Directory -Path "$env:RUNNER_TEMP\mmarco-build\fp16" -Force | Out-Null
+          $actual = (git rev-parse HEAD).Trim()
+          $parent = (git rev-parse HEAD^).Trim()
+          $paths = @(git diff-tree --no-commit-id --name-only -r HEAD)
+          $expected = @(
+            'examples/recipes/cross-encoder_mmarco-mMiniLMv2-L12-H384-v1/cpu/cpu/reranking_fp16_config.json',
+            'examples/recipes/cross-encoder_mmarco-mMiniLMv2-L12-H384-v1/cpu/cpu/reranking_fp32_config.json'
+          )
+          $legacy = 'examples/recipes/cross-encoder_mmarco-mMiniLMv2-L12-H384-v1/cpu/cpu/text-classification_fp16_config.json'
+          git diff --exit-code $env:PARENT_SHA $env:CANDIDATE_SHA -- $legacy 2>&1 | Tee-Object evidence/legacy-recipe-diff.log.txt
+          if ($LASTEXITCODE -ne 0) { throw "Legacy recipe changed" }
+          $diffOk = (Compare-Object ($paths | Sort-Object) ($expected | Sort-Object)).Count -eq 0
+          @{candidate=$actual; parent=$parent; expected_candidate=$env:CANDIDATE_SHA; expected_parent=$env:PARENT_SHA; changed_paths=$paths; exact_two_recipe_diff=$diffOk; no_readme_or_source_changes=(@($paths | Where-Object { $_ -eq 'README.md' -or $_ -like 'src/*' }).Count -eq 0); lock_sha256=(Get-FileHash uv.lock -Algorithm SHA256).Hash.ToLowerInvariant()} | ConvertTo-Json -Depth 5 | Out-File evidence/identity.json -Encoding utf8
+          if ($actual -ne $env:CANDIDATE_SHA -or $parent -ne $env:PARENT_SHA -or -not $diffOk) { throw "Candidate identity or diff mismatch" }
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Exact-lock sync
+        id: sync
+        shell: pwsh
+        run: |
+          & uv sync --locked --all-extras --all-groups 2>&1 | Tee-Object evidence/sync.log.txt
+          exit $LASTEXITCODE
+
+      - name: Assert provenance and provider snapshot
+        id: provenance
+        shell: pwsh
+        run: |
+          @'
+          import hashlib, importlib.metadata, importlib.util, json, os, subprocess, sys
+          from pathlib import Path
+          import onnxruntime as ort
+          workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          venv = (workspace / ".venv").resolve()
+          executable = Path(sys.executable).resolve()
+          if Path(sys.prefix).resolve() != venv or not executable.is_relative_to(venv):
+              raise SystemExit("Interpreter outside candidate-local .venv")
+          packages = {}
+          for distribution, module in (("ruff", "ruff"), ("mypy", "mypy"), ("pytest", "pytest"), ("transformers", "transformers"), ("onnx", "onnx"), ("onnxruntime-windowsml", "onnxruntime")):
+              dist = importlib.metadata.distribution(distribution)
+              root = Path(dist.locate_file("")).resolve()
+              spec = importlib.util.find_spec(module)
+              imported = Path(spec.origin).resolve() if spec and spec.origin else None
+              if not root.is_relative_to(venv) or (imported and not imported.is_relative_to(venv)):
+                  raise SystemExit(f"Foreign root for {distribution}")
+              packages[distribution] = {"version": dist.version, "distribution_root": str(root), "import_root": str(imported)}
+          payload = {"candidate": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(), "checkout_root": str(workspace), "environment_root": str(venv), "interpreter": str(executable), "python": sys.version, "uv": subprocess.check_output(["uv", "--version"], text=True).strip(), "lock_sha256": hashlib.sha256((workspace / "uv.lock").read_bytes()).hexdigest(), "packages": packages, "available_providers": ort.get_available_providers()}
+          (workspace / "evidence" / "provenance.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+          '@ | uv run python -
+
+      - name: Hydrate exact HF revision
+        id: hydrate
+        shell: pwsh
+        run: |
+          "HF_HOME=$env:RUNNER_TEMP\hf-home" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "HF_HUB_CACHE=$env:RUNNER_TEMP\hf-home\hub" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "HF_HUB_DISABLE_XET=1" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          @'
+          import hashlib, json, os
+          from pathlib import Path
+          from huggingface_hub import snapshot_download
+          model = os.environ["MODEL_ID"]
+          revision = os.environ["MODEL_REVISION"]
+          cache = Path(os.environ["RUNNER_TEMP"]) / "hf-home" / "hub"
+          snapshot = Path(snapshot_download(repo_id=model, revision=revision, cache_dir=cache)).resolve()
+          if snapshot.name != revision:
+              raise SystemExit(f"Snapshot mismatch: {snapshot.name}")
+          repo_cache = cache / "models--cross-encoder--mmarco-mMiniLMv2-L12-H384-v1"
+          refs = repo_cache / "refs"
+          refs.mkdir(parents=True, exist_ok=True)
+          (refs / "main").write_text(revision, encoding="utf-8")
+          resolved = Path(snapshot_download(repo_id=model, revision="main", cache_dir=cache, local_files_only=True)).resolve()
+          if resolved != snapshot:
+              raise SystemExit(f"Offline main ref mismatch: {resolved} != {snapshot}")
+          files = []
+          for path in sorted(snapshot.rglob("*")):
+              if path.is_file():
+                  files.append({"path": path.relative_to(snapshot).as_posix(), "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "bytes": path.stat().st_size})
+          Path("evidence/hf_snapshot_manifest.json").write_text(json.dumps({"model_id": model, "revision": revision, "snapshot": str(snapshot), "files": files}, indent=2) + "\n", encoding="utf-8")
+          '@ | uv run python - 2>&1 | Tee-Object evidence/hydrate.log.txt
+          exit $LASTEXITCODE
+
+      - name: No-recipe reranking resolution
+        id: resolution
+        shell: pwsh
+        env:
+          HF_HUB_OFFLINE: "1"
+        run: |
+          & uv run winml config -m $env:MODEL_ID -t reranking -o "$env:RUNNER_TEMP\mmarco-no-recipe" 2>&1 | Tee-Object evidence/no-recipe-resolution.log.txt
+          exit $LASTEXITCODE
+
+      - name: Build fp32
+        id: build32
+        shell: pwsh
+        env:
+          HF_HUB_OFFLINE: "1"
+        run: |
+          $recipe = 'examples/recipes/cross-encoder_mmarco-mMiniLMv2-L12-H384-v1/cpu/cpu/reranking_fp32_config.json'
+          & uv run winml build -c $recipe -m $env:MODEL_ID -o "$env:RUNNER_TEMP\mmarco-build\fp32" 2>&1 | Tee-Object evidence/build-fp32.log.txt
+          exit $LASTEXITCODE
+
+      - name: Build fp16
+        id: build16
+        shell: pwsh
+        env:
+          HF_HUB_OFFLINE: "1"
+        run: |
+          $recipe = 'examples/recipes/cross-encoder_mmarco-mMiniLMv2-L12-H384-v1/cpu/cpu/reranking_fp16_config.json'
+          & uv run winml build -c $recipe -m $env:MODEL_ID -o "$env:RUNNER_TEMP\mmarco-build\fp16" --precision fp16 2>&1 | Tee-Object evidence/build-fp16.log.txt
+          exit $LASTEXITCODE
+
+      - name: Structural validation and L2 raw-logit parity
+        id: validate
+        shell: pwsh
+        env:
+          HF_HUB_OFFLINE: "1"
+        run: |
+          @'
+          import collections, hashlib, json, os, re
+          from pathlib import Path
+          import numpy as np
+          import onnx
+          import onnxruntime as ort
+          import torch
+          from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+          evidence = Path("evidence")
+          build_root = Path(os.environ["RUNNER_TEMP"]) / "mmarco-build"
+          def find_model(kind):
+              paths = sorted((build_root / kind).rglob("*.onnx"), key=lambda p: (p.name != "model.onnx", len(p.parts), str(p)))
+              if not paths:
+                  raise SystemExit(f"No ONNX model found for {kind}")
+              return paths[0].resolve()
+          models = {kind: find_model(kind) for kind in ("fp32", "fp16")}
+          structure = {}
+          component_rows = {}
+          for kind, path in models.items():
+              graph = onnx.load(str(path), load_external_data=False)
+              inputs = []
+              for value in graph.graph.input:
+                  tensor = value.type.tensor_type
+                  dims = [d.dim_value if d.HasField("dim_value") else d.dim_param for d in tensor.shape.dim]
+                  inputs.append({"name": value.name, "dtype": tensor.elem_type, "shape": dims})
+              outputs = []
+              for value in graph.graph.output:
+                  tensor = value.type.tensor_type
+                  dims = [d.dim_value if d.HasField("dim_value") else d.dim_param for d in tensor.shape.dim]
+                  outputs.append({"name": value.name, "dtype": tensor.elem_type, "shape": dims})
+              if inputs != [{"name": "input_ids", "dtype": onnx.TensorProto.INT32, "shape": [1, 512]}, {"name": "attention_mask", "dtype": onnx.TensorProto.INT32, "shape": [1, 512]}]:
+                  raise SystemExit(f"Unexpected inputs for {kind}: {inputs}")
+              if len(outputs) != 1 or outputs[0]["name"] != "logits" or outputs[0]["shape"] != [1, 1]:
+                  raise SystemExit(f"Unexpected output for {kind}: {outputs}")
+              types = collections.Counter(onnx.TensorProto.DataType.Name(t.data_type) for t in graph.graph.initializer)
+              if kind == "fp32" and types["FLOAT"] == 0:
+                  raise SystemExit("fp32 artifact has no FLOAT initializers")
+              if kind == "fp16" and types["FLOAT16"] == 0:
+                  raise SystemExit("fp16 artifact has no FLOAT16 initializers")
+              external = sorted({entry.value for tensor in graph.graph.initializer for entry in tensor.external_data if entry.key == "location"})
+              files = [path] + [path.parent / item for item in external]
+              for item in files:
+                  if not item.is_file() or item.parent != path.parent:
+                      raise SystemExit(f"Missing or non-colocated artifact file: {item}")
+              components = collections.defaultdict(lambda: {"node_count": 0, "operator_counts": collections.Counter(), "nodes": []})
+              for node in graph.graph.node:
+                  name = node.name or "/".join(node.output)
+                  lowered = name.lower()
+                  if "classifier" in lowered:
+                      component = "classifier"
+                  elif "embedding" in lowered:
+                      component = "embeddings"
+                  elif "attention" in lowered:
+                      component = "encoder.layers[].self_attention"
+                  elif any(token in lowered for token in ("intermediate", "feed_forward", "feedforward", "/output/", ".output.")):
+                      component = "encoder.layers[].feed_forward"
+                  elif "encoder" in lowered or re.search(r"layer[./_][0-9]+", lowered):
+                      component = "encoder.layers[].other"
+                  else:
+                      component = "unmapped"
+                  row = components[component]
+                  row["node_count"] += 1
+                  row["operator_counts"][node.op_type] += 1
+                  row["nodes"].append(name)
+              component_rows[kind] = {key: {"node_count": value["node_count"], "operator_counts": dict(value["operator_counts"]), "nodes": value["nodes"]} for key, value in components.items()}
+              structure[kind] = {"model": str(path), "ir_version": graph.ir_version, "opsets": [{"domain": item.domain, "version": item.version} for item in graph.opset_import], "inputs": inputs, "outputs": outputs, "initializer_types": dict(types), "external_data": external, "artifact_bytes": sum(item.stat().st_size for item in files), "files": [{"name": item.name, "bytes": item.stat().st_size, "sha256": hashlib.sha256(item.read_bytes()).hexdigest()} for item in files], "operator_counts": dict(collections.Counter(node.op_type for node in graph.graph.node)), "node_count": len(graph.graph.node)}
+          if structure["fp16"]["artifact_bytes"] >= structure["fp32"]["artifact_bytes"] * 0.75:
+              raise SystemExit("fp16 artifact does not show expected size reduction")
+            def read_log(path):
+              payload = path.read_bytes()
+              for encoding in ("utf-8-sig", "utf-16"):
+                try:
+                  return payload.decode(encoding)
+                except UnicodeDecodeError:
+                  pass
+              return payload.decode("utf-8", errors="replace")
+            logs = read_log(evidence / "build-fp32.log.txt") + read_log(evidence / "build-fp16.log.txt")
+          random_warning = "were newly initialized" in logs or "probably TRAIN this model" in logs
+          if random_warning:
+              raise SystemExit("Random-head warning found in build logs")
+
+          tokenizer = AutoTokenizer.from_pretrained(os.environ["MODEL_ID"], revision=os.environ["MODEL_REVISION"], local_files_only=True)
+          reference, loading = AutoModelForSequenceClassification.from_pretrained(os.environ["MODEL_ID"], revision=os.environ["MODEL_REVISION"], local_files_only=True, output_loading_info=True)
+          reference.eval()
+          missing_head = [key for key in loading.get("missing_keys", []) if "classifier" in key]
+          if missing_head:
+              raise SystemExit(f"Reference classifier keys missing: {missing_head}")
+          pairs = [
+              ["How many people live in Berlin?", "Berlin has a population of about 3.8 million people."],
+              ["How many people live in Berlin?", "Berlin ist die Hauptstadt Deutschlands und hat rund 3,8 Millionen Einwohner."],
+              ["How many people live in Berlin?", "北京是中华人民共和国的首都。"],
+          ]
+          encoded = tokenizer([row[0] for row in pairs], [row[1] for row in pairs], padding="max_length", truncation=True, max_length=512, return_tensors="pt")
+          with torch.no_grad():
+              pt = reference(input_ids=encoded["input_ids"], attention_mask=encoded["attention_mask"]).logits.detach().cpu().numpy().reshape(-1).astype(np.float64)
+          parity = {"pairs": pairs, "sequence_length": 512, "reference_logits": pt.tolist(), "reference_descending_order": np.argsort(-pt, kind="stable").tolist(), "activation": "Identity", "postprocessing": "none", "artifacts": {}}
+          for kind, path in models.items():
+              session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+              feed = {"input_ids": encoded["input_ids"].numpy().astype(np.int32), "attention_mask": encoded["attention_mask"].numpy().astype(np.int32)}
+              values = np.array([session.run(["logits"], {key: value[index:index+1] for key, value in feed.items()})[0].reshape(-1)[0] for index in range(len(pairs))], dtype=np.float64)
+              cosine = float(np.dot(pt, values) / (np.linalg.norm(pt) * np.linalg.norm(values)))
+              order = np.argsort(-values, kind="stable").tolist()
+              parity["artifacts"][kind] = {"raw_logits": values.tolist(), "cosine": cosine, "max_abs": float(np.max(np.abs(pt - values))), "descending_order": order, "order_matches_reference": order == parity["reference_descending_order"]}
+              if order != parity["reference_descending_order"]:
+                  raise SystemExit(f"Descending order mismatch for {kind}")
+          (evidence / "structure.json").write_text(json.dumps(structure, indent=2) + "\n", encoding="utf-8")
+          (evidence / "component_mapping.json").write_text(json.dumps({"mapping_basis": "ONNX hierarchy-tagged node names", "confidence": "mapped with explicit unmapped bucket", "components": component_rows}, indent=2) + "\n", encoding="utf-8")
+          (evidence / "l2_parity.json").write_text(json.dumps(parity, indent=2) + "\n", encoding="utf-8")
+          (evidence / "model_paths.json").write_text(json.dumps({key: str(value) for key, value in models.items()}, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps(parity, indent=2))
+          '@ | uv run python - 2>&1 | Tee-Object evidence/structure-l2.log.txt
+          exit $LASTEXITCODE
+
+      - name: CPU perf fp32
+        id: perf32
+        shell: pwsh
+        run: |
+          $models = Get-Content evidence/model_paths.json | ConvertFrom-Json
+          & uv run winml perf -m $models.fp32 --device cpu --ep cpu --iterations 3 --warmup 1 --output evidence/perf-fp32.json --overwrite --format json 2>&1 | Tee-Object evidence/perf-fp32.log.txt
+          exit $LASTEXITCODE
+
+      - name: CPU perf fp16 bounded start
+        id: perf16
+        shell: pwsh
+        run: |
+          $models = Get-Content evidence/model_paths.json | ConvertFrom-Json
+          & uv run winml perf -m $models.fp16 --device cpu --ep cpu --iterations 1 --warmup 0 --output evidence/perf-fp16.json --overwrite --format json 2>&1 | Tee-Object evidence/perf-fp16.log.txt
+          exit $LASTEXITCODE
+
+      - name: L3 shipped reranking evaluator
+        id: l3
+        shell: pwsh
+        run: |
+          $models = Get-Content evidence/model_paths.json | ConvertFrom-Json
+          & uv run winml eval -m $models.fp32 --model-id $env:MODEL_ID --task reranking --dataset C-MTEB/Mmarco-reranking --dataset-name default --dataset-revision $env:DATASET_REVISION --split dev --samples 2 --no-shuffle --streaming --column query_column=query --column positive_column=positive --column negative_column=negative --column max_candidates=10 --ep cpu --device cpu --output evidence/l3-eval.json --overwrite --format json 2>&1 | Tee-Object evidence/l3-eval.log.txt
+          exit $LASTEXITCODE
+
+      - name: Download runtime analysis rules
+        id: rules
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Path "$env:RUNNER_TEMP\rules" -Force | Out-Null
+          gh release download v0.2.0 --repo microsoft/winml-cli --pattern 'rules-v*.zip' --dir "$env:RUNNER_TEMP\rules"
+          $zip = Get-ChildItem "$env:RUNNER_TEMP\rules" -Filter '*.zip' | Select-Object -First 1
+          Expand-Archive $zip.FullName -DestinationPath "$env:RUNNER_TEMP\rules\expanded" -Force
+          $provider = Get-ChildItem "$env:RUNNER_TEMP\rules\expanded" -Directory -Recurse | Where-Object { $_.Name -eq 'QNNExecutionProvider_NPU' } | Select-Object -First 1
+          if (-not $provider) { throw 'Extracted rules do not contain QNNExecutionProvider_NPU' }
+          "WINMLCLI_RULES_DIR=$($provider.Parent.FullName)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          @{release='v0.2.0'; zip=$zip.Name; zip_sha256=(Get-FileHash $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant(); rules_root=$provider.Parent.FullName; parquet_count=@(Get-ChildItem $provider.Parent.FullName -Recurse -Filter '*.parquet').Count} | ConvertTo-Json | Out-File evidence/rules.json -Encoding utf8
+
+      - name: Analyze fp32 all EPs
+        id: analyze
+        shell: pwsh
+        run: |
+          $models = Get-Content evidence/model_paths.json | ConvertFrom-Json
+          & uv run winml analyze --model $models.fp32 --ep all --output evidence/analyze-all.json 2>&1 | Tee-Object evidence/analyze-all.log.txt
+          exit $LASTEXITCODE
+
+      - name: Summarize analysis and L3 semantics
+        id: summarize
+        shell: pwsh
+        run: |
+          @'
+          import json
+          from pathlib import Path
+          evidence = Path("evidence")
+          analyze = json.loads((evidence / "analyze-all.json").read_text(encoding="utf-8-sig"))
+          mapping = json.loads((evidence / "component_mapping.json").read_text(encoding="utf-8-sig"))
+          l3 = json.loads((evidence / "l3-eval.json").read_text(encoding="utf-8-sig"))
+          metadata = analyze.get("metadata", {})
+          results = analyze.get("results", [])
+          classifications = {row.get("execution_provider", row.get("ep", f"row-{index}")): row.get("classification") for index, row in enumerate(results)}
+          summary = {"total_operators": metadata.get("total_operators"), "unique_operator_types": metadata.get("unique_operator_types"), "operator_counts": metadata.get("operator_counts"), "per_ep_classification": classifications, "component_mapping": mapping, "l3": l3, "l3_contract": {"dataset": "C-MTEB/Mmarco-reranking", "revision": "8e0c766dbe9e16e1d221116a3f36795fbade07f6", "config": "default", "split": "dev", "requested_groups": 2, "max_candidates_per_group": 10, "max_pairs": 20, "sequence_length": 512, "schema": ["query", "positive", "negative"], "score": "raw Identity logit descending", "claim": "functional smoke only"}}
+          if summary["total_operators"] is None or not results:
+              raise SystemExit("Analyze output lacks complete metadata/results")
+          text = json.dumps(summary, indent=2) + "\n"
+          (evidence / "analysis-summary.json").write_text(text, encoding="utf-8")
+          print(text)
+          '@ | uv run python - 2>&1 | Tee-Object evidence/summarize.log.txt
+          exit $LASTEXITCODE
+
+      - name: Finalize model evidence
+        if: always()
+        shell: pwsh
+        env:
+          IDENTITY: ${{ steps.identity.outcome }}
+          SYNC: ${{ steps.sync.outcome }}
+          PROVENANCE: ${{ steps.provenance.outcome }}
+          HYDRATE: ${{ steps.hydrate.outcome }}
+          RESOLUTION: ${{ steps.resolution.outcome }}
+          BUILD32: ${{ steps.build32.outcome }}
+          BUILD16: ${{ steps.build16.outcome }}
+          VALIDATE: ${{ steps.validate.outcome }}
+          PERF32: ${{ steps.perf32.outcome }}
+          PERF16: ${{ steps.perf16.outcome }}
+          L3: ${{ steps.l3.outcome }}
+          RULES: ${{ steps.rules.outcome }}
+          ANALYZE: ${{ steps.analyze.outcome }}
+          SUMMARIZE: ${{ steps.summarize.outcome }}
+        run: |
+          $states = @{identity=$env:IDENTITY; sync=$env:SYNC; provenance=$env:PROVENANCE; hydrate=$env:HYDRATE; resolution=$env:RESOLUTION; build_fp32=$env:BUILD32; build_fp16=$env:BUILD16; structure_l2=$env:VALIDATE; perf_fp32=$env:PERF32; perf_fp16=$env:PERF16; l3=$env:L3; rules=$env:RULES; analyze=$env:ANALYZE; summarize=$env:SUMMARIZE}
+          $success = @($states.Values | Where-Object { $_ -ne 'success' }).Count -eq 0
+          @{success=$success; phase=if($success){'completed'}else{'failed'}; outer_exit_code=if($success){0}else{1}; timed_out=$false; error=if($success){$null}else{'One or more model phases failed'}; candidate=$env:CANDIDATE_SHA; parent=$env:PARENT_SHA; states=$states} | ConvertTo-Json -Depth 5 | Out-File evidence/job_status.json -Encoding utf8
+
+      - name: Upload model evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmarco-exact-model
+          path: evidence
+          if-no-files-found: error
+          retention-days: 14
