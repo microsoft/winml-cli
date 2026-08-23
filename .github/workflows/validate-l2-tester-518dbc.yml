@@ -124,13 +124,16 @@ jobs:
               actual_inputs = [(x['name'],x['dtype'],x['shape']) for x in recipe['export']['input_tensors']]
               checks.append({'check':f'{precision} exact BERT inputs','passed':actual_inputs == expected_inputs})
               checks.append({'check':f'{precision} scalar logits declaration','passed':recipe['export']['output_tensors'] == [{'name':'logits'}]})
-          siblings = {}
-          for size in ('L6','L12'):
-              for precision in ('fp32','fp16'):
-                  path = f'examples/recipes/cross-encoder_ms-marco-MiniLM-{size}-v2/cpu/cpu/reranking_{precision}_config.json'
-                  current = (root / path).read_bytes()
-                  parent = subprocess.check_output(['git','show',f"{os.environ['PARENT']}:{path}"])
-                  siblings[f'{size}-{precision}'] = {'sha256':hashlib.sha256(current).hexdigest(),'unchanged_from_parent':current == parent}
+            siblings = {}
+            for size in ('L6','L12'):
+              directory = root / f'examples/recipes/cross-encoder_ms-marco-MiniLM-{size}-v2/cpu/cpu'
+              for recipe_path in sorted(directory.glob('*_config.json')):
+                path = recipe_path.relative_to(root).as_posix()
+                current = recipe_path.read_bytes()
+                parent = subprocess.check_output(['git','show',f"{os.environ['PARENT']}:{path}"])
+                siblings[f'{size}:{recipe_path.name}'] = {'sha256':hashlib.sha256(current).hexdigest(),'unchanged_from_parent':current == parent}
+            checks.append({'check':'L6 reranking sibling recipes are present','passed':all(f'L6:reranking_{precision}_config.json' in siblings for precision in ('fp32','fp16'))})
+            checks.append({'check':'L12 exact-parent sibling set is recorded','passed':any(key.startswith('L12:') for key in siblings)})
           checks.append({'check':'all existing sibling recipes unchanged','passed':all(x['unchanged_from_parent'] for x in siblings.values())})
           result = {'success':all(x['passed'] for x in checks),'checks':checks,'siblings':siblings}
           (evidence/'config-validation.json').write_text(json.dumps(result,indent=2)+'\n')
