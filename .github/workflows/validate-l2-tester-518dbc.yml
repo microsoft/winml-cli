@@ -55,8 +55,9 @@ jobs:
           "HF_PATH=$hf" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Assert identity, parent, lock, and exact two-file delta
-        shell: ${{ github.workspace }}/candidate/.venv/Scripts/python.exe {0}
+        shell: pwsh
         run: |
+          @'
           import hashlib, json, os, pathlib, subprocess
           checkout = pathlib.Path('candidate').resolve()
           evidence = pathlib.Path(os.environ['EVIDENCE'])
@@ -81,6 +82,8 @@ jobs:
           }
           (evidence / 'identity.json').write_text(json.dumps(status, indent=2) + '\n')
           assert status['success'], status
+          '@ | & "$env:GITHUB_WORKSPACE\candidate\.venv\Scripts\python.exe" -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Record candidate-local environment provenance
         working-directory: candidate
@@ -108,8 +111,9 @@ jobs:
 
       - name: Validate config semantics and sibling recipe invariance
         working-directory: candidate
-        shell: ${{ github.workspace }}/candidate/.venv/Scripts/python.exe {0}
+        shell: pwsh
         run: |
+          @'
           import hashlib, json, os, pathlib, subprocess
           root = pathlib.Path.cwd()
           evidence = pathlib.Path(os.environ['EVIDENCE'])
@@ -138,6 +142,8 @@ jobs:
           result = {'success':all(x['passed'] for x in checks),'checks':checks,'siblings':siblings}
           (evidence/'config-validation.json').write_text(json.dumps(result,indent=2)+'\n')
           assert result['success'], result
+          '@ | & "$env:GITHUB_WORKSPACE\candidate\.venv\Scripts\python.exe" -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build exact fp32 and true fp16 recipes
         working-directory: candidate
@@ -153,8 +159,9 @@ jobs:
 
       - name: Validate model structure, precision, layout, and random-head absence
         working-directory: candidate
-        shell: ${{ github.workspace }}/candidate/.venv/Scripts/python.exe {0}
+        shell: pwsh
         run: |
+          @'
           import collections, hashlib, json, math, os, pathlib
           import numpy as np, onnx, onnxruntime as ort
           models = pathlib.Path(os.environ['MODELS']); evidence = pathlib.Path(os.environ['EVIDENCE'])
@@ -181,6 +188,8 @@ jobs:
           assert results['random_head_warning_absent']
           results['success'] = True
           (evidence/'model-validation.json').write_text(json.dumps(results,indent=2)+'\n')
+          '@ | & "$env:GITHUB_WORKSPACE\candidate\.venv\Scripts\python.exe" -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: CPU perf for both precisions
         working-directory: candidate
@@ -196,8 +205,9 @@ jobs:
 
       - name: Pinned PyTorch versus ONNX raw-logit parity
         working-directory: candidate
-        shell: ${{ github.workspace }}/candidate/.venv/Scripts/python.exe {0}
+        shell: pwsh
         run: |
+          @'
           import json, os, pathlib
           import numpy as np, onnxruntime as ort, torch
           from transformers import AutoModelForSequenceClassification, AutoTokenizer
@@ -223,6 +233,8 @@ jobs:
               assert result[precision]['reference_descending_order'] == result[precision]['onnx_descending_order']
           result['success']=True
           (evidence/'l2-parity.json').write_text(json.dumps(result,indent=2)+'\n')
+          '@ | & "$env:GITHUB_WORKSPACE\candidate\.venv\Scripts\python.exe" -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Pinned SciDocs shipped evaluator smoke
         working-directory: candidate
@@ -266,8 +278,9 @@ jobs:
 
       - name: Summarize and validate analyze JSON after wrapper
         working-directory: candidate
-        shell: ${{ github.workspace }}/candidate/.venv/Scripts/python.exe {0}
+        shell: pwsh
         run: |
+          @'
           import collections, json, os, pathlib
           import onnx
           evidence=pathlib.Path(os.environ['EVIDENCE']); models=pathlib.Path(os.environ['MODELS'])
@@ -301,11 +314,14 @@ jobs:
           status='PASS' if control['analyze_exit_code']==0 else 'ANALYZE-PARTIAL-SUCCESS'
           summary={'success':True,'status':status,'candidate':os.environ['CANDIDATE'],'analyze_exit_code':control['analyze_exit_code'],'summarizer_ran_after_analyze':True,'total_operators':metadata['total_operators'],'unique_operator_types':metadata['unique_operator_types'],'operator_counts':metadata['operator_counts'],'per_ep':per_ep,'component_analysis':{'model_breakdown_sha256':'7d7563290d3a9818be7fa0c0ef3621420c104d7e54f6a3555db2b35b7a9ff3e7','components':components,'mapped_node_count':len(assigned),'unmapped_node_count':len(unmapped),'unmapped_nodes':unmapped,'gaps':[] if not unmapped else ['root/helper nodes not attributable to one frozen semantic component']},'pr_summary':{'component_rows':[{'artifact_label':'fp32','architecture_regions':'embeddings; 2x encoder attention/FFN; pooler; scalar classifier','mapped_nodes':len(assigned),'partial_nodes':0,'unmapped_nodes':len(unmapped),'confidence':'mapped'}],'op_rows':[{'artifact_label':'fp32','total_operators':metadata['total_operators'],'unique_operator_types':metadata['unique_operator_types'],'dominant_operator_counts':dict(sorted(metadata['operator_counts'].items(),key=lambda x:-x[1])[:6]),'actionable_ep_findings':[{'ep':row['ep'],'partial':row['classification']['partial'],'unsupported':row['classification']['unsupported']} for row in per_ep if row['classification']['partial'] or row['classification']['unsupported']]}],'mapping_gaps':[] if not unmapped else ['root/helper nodes remain explicitly unmapped']}}
           (evidence/'analysis-summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+          '@ | & "$env:GITHUB_WORKSPACE\candidate\.venv\Scripts\python.exe" -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Final semantic validation and artifact manifest
         working-directory: candidate
-        shell: ${{ github.workspace }}/candidate/.venv/Scripts/python.exe {0}
+        shell: pwsh
         run: |
+          @'
           import hashlib,json,os,pathlib
           evidence=pathlib.Path(os.environ['EVIDENCE']); models=pathlib.Path(os.environ['MODELS'])
           identity=json.loads((evidence/'identity.json').read_text()); provenance=json.loads((evidence/'provenance.json').read_text()); model=json.loads((evidence/'model-validation.json').read_text()); parity=json.loads((evidence/'l2-parity.json').read_text()); analysis=json.loads((evidence/'analysis-summary.json').read_text()); control=json.loads((evidence/'analyze-control.json').read_text()); eval_result=json.loads((evidence/'scidocs-reranking-eval.json').read_text())
@@ -327,6 +343,8 @@ jobs:
           (evidence/'artifact-manifest.json').write_text(json.dumps({'success':result['success'],'candidate':os.environ['CANDIDATE'],'lock_sha256':identity['lock_sha256'],'files':manifest},indent=2)+'\n')
           (evidence/'job-status.json').write_text(json.dumps({'success':result['success'],'result':result['result'],'phase':'completed','outer_exit_code':result['outer_exit_code'],'timed_out':False,'error':result['error'],'candidate':os.environ['CANDIDATE'],'analysis_status':analysis['status']},indent=2)+'\n')
           assert result['success'], result
+          '@ | & "$env:GITHUB_WORKSPACE\candidate\.venv\Scripts\python.exe" -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload complete model and quality-independent evidence
         if: always()
