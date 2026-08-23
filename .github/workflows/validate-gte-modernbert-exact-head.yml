@@ -1,0 +1,216 @@
+name: Validation-only exact candidate 5833e0f8
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-gte-modernbert-exact-5833e0f8-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  exact-head-lint:
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@v4
+        with:
+          repository: ssss141414/winml-cli
+          ref: 5833e0f8bb3d2b3df95cf813861c7692fa6459af
+          persist-credentials: false
+
+      - name: Assert exact candidate SHA
+        shell: pwsh
+        run: |
+          $expected = "5833e0f8bb3d2b3df95cf813861c7692fa6459af"
+          $actual = (git rev-parse HEAD).Trim()
+          Write-Host "expected_candidate_sha=$expected"
+          Write-Host "actual_checkout_sha=$actual"
+          if ($actual -ne $expected) {
+            throw "Exact candidate checkout failed: expected $expected, got $actual"
+          }
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --locked --all-extras --all-groups
+
+      - name: Emit and assert provenance
+        shell: pwsh
+        run: |
+          Get-Location
+          git rev-parse HEAD
+          Get-FileHash uv.lock -Algorithm SHA256 | Format-List
+          Write-Host "candidate_venv=$env:GITHUB_WORKSPACE\.venv"
+          uv --version
+          uv run ruff --version
+          uv run mypy --version
+          uv run pytest --version
+          @'
+          import importlib.metadata
+          import importlib.util
+          import os
+          from pathlib import Path
+          import sys
+
+          venv = (Path(os.environ["GITHUB_WORKSPACE"]) / ".venv").resolve()
+          executable = Path(sys.executable).resolve()
+          prefix = Path(sys.prefix).resolve()
+          print(f"python_executable={executable}")
+          print(f"python_prefix={prefix}")
+          print(f"expected_venv={venv}")
+          if prefix != venv or not executable.is_relative_to(venv):
+              raise SystemExit("Python executable/prefix is outside candidate-local .venv")
+
+          packages = (
+              ("ruff", "ruff"),
+              ("mypy", "mypy"),
+              ("pytest", "pytest"),
+              ("transformers", "transformers"),
+              ("onnxruntime", "onnxruntime"),
+          )
+          for distribution, module_name in packages:
+              version = importlib.metadata.version(distribution)
+              dist_root = Path(importlib.metadata.distribution(distribution).locate_file("")).resolve()
+              print(f"{distribution}_version={version}")
+              print(f"{distribution}_distribution_root={dist_root}")
+              if not dist_root.is_relative_to(venv):
+                  raise SystemExit(f"{distribution} distribution root is outside candidate-local .venv")
+              spec = importlib.util.find_spec(module_name)
+              if spec is not None and spec.origin is not None:
+                  import_root = Path(spec.origin).resolve()
+                  print(f"{module_name}_import_root={import_root}")
+                  if not import_root.is_relative_to(venv):
+                      raise SystemExit(f"{module_name} import root is outside candidate-local .venv")
+          '@ | uv run python -
+
+      - name: Check license headers
+        run: uv run pre-commit run insert-license --all-files
+
+      - name: Lint
+        run: uv run ruff check src/ tests/
+
+      - name: Type check (required)
+        run: >-
+          uv run mypy
+          -p winml.modelkit
+
+  exact-head-test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: analyze
+            paths: tests/unit/analyze
+          - group: models
+            paths: >-
+              tests/unit/models tests/unit/loader tests/unit/datasets
+              tests/unit/export
+          - group: optim
+            paths: tests/unit/optim
+          - group: commands
+            paths: >-
+              tests/unit/commands tests/unit/config tests/unit/build
+              tests/unit/compiler tests/unit/session tests/unit/eval
+          - group: remaining
+            paths: >-
+              tests/unit/core tests/unit/onnx tests/unit/cache
+              tests/unit/utils tests/unit/test_helpers tests/unit/sysinfo
+              tests/unit/inspect tests/unit/optracing tests/regression tests/cli
+
+    name: exact-head-test (${{ matrix.group }})
+
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@v4
+        with:
+          repository: ssss141414/winml-cli
+          ref: 5833e0f8bb3d2b3df95cf813861c7692fa6459af
+          persist-credentials: false
+
+      - name: Assert exact candidate SHA
+        shell: pwsh
+        run: |
+          $expected = "5833e0f8bb3d2b3df95cf813861c7692fa6459af"
+          $actual = (git rev-parse HEAD).Trim()
+          Write-Host "expected_candidate_sha=$expected"
+          Write-Host "actual_checkout_sha=$actual"
+          if ($actual -ne $expected) {
+            throw "Exact candidate checkout failed: expected $expected, got $actual"
+          }
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --locked --all-extras
+
+      - name: Emit and assert provenance
+        shell: pwsh
+        run: |
+          Get-Location
+          git rev-parse HEAD
+          Get-FileHash uv.lock -Algorithm SHA256 | Format-List
+          Write-Host "candidate_venv=$env:GITHUB_WORKSPACE\.venv"
+          uv --version
+          uv run pytest --version
+          @'
+          import importlib.metadata
+          import importlib.util
+          import os
+          from pathlib import Path
+          import sys
+
+          venv = (Path(os.environ["GITHUB_WORKSPACE"]) / ".venv").resolve()
+          executable = Path(sys.executable).resolve()
+          prefix = Path(sys.prefix).resolve()
+          print(f"python_executable={executable}")
+          print(f"python_prefix={prefix}")
+          print(f"expected_venv={venv}")
+          if prefix != venv or not executable.is_relative_to(venv):
+              raise SystemExit("Python executable/prefix is outside candidate-local .venv")
+
+          packages = (
+              ("pytest", "pytest"),
+              ("transformers", "transformers"),
+              ("onnxruntime", "onnxruntime"),
+          )
+          for distribution, module_name in packages:
+              version = importlib.metadata.version(distribution)
+              dist_root = Path(importlib.metadata.distribution(distribution).locate_file("")).resolve()
+              print(f"{distribution}_version={version}")
+              print(f"{distribution}_distribution_root={dist_root}")
+              if not dist_root.is_relative_to(venv):
+                  raise SystemExit(f"{distribution} distribution root is outside candidate-local .venv")
+              spec = importlib.util.find_spec(module_name)
+              if spec is not None and spec.origin is not None:
+                  import_root = Path(spec.origin).resolve()
+                  print(f"{module_name}_import_root={import_root}")
+                  if not import_root.is_relative_to(venv):
+                      raise SystemExit(f"{module_name} import root is outside candidate-local .venv")
+          '@ | uv run python -
+
+      - name: Run tests (${{ matrix.group }})
+        shell: pwsh
+        run: |
+          uv run pytest ${{ matrix.paths }} --tb=short --no-cov `
+            -m "not e2e and not npu and not gpu"
