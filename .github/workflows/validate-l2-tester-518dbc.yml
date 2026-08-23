@@ -55,7 +55,7 @@ jobs:
           "HF_PATH=$hf" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Assert identity, parent, lock, and exact two-file delta
-        shell: candidate/.venv/Scripts/python.exe {0}
+        shell: ${{ github.workspace }}/candidate/.venv/Scripts/python.exe {0}
         run: |
           import hashlib, json, os, pathlib, subprocess
           checkout = pathlib.Path('candidate').resolve()
@@ -108,7 +108,7 @@ jobs:
 
       - name: Validate config semantics and sibling recipe invariance
         working-directory: candidate
-        shell: .venv/Scripts/python.exe {0}
+        shell: ${{ github.workspace }}/candidate/.venv/Scripts/python.exe {0}
         run: |
           import hashlib, json, os, pathlib, subprocess
           root = pathlib.Path.cwd()
@@ -153,7 +153,7 @@ jobs:
 
       - name: Validate model structure, precision, layout, and random-head absence
         working-directory: candidate
-        shell: .venv/Scripts/python.exe {0}
+        shell: ${{ github.workspace }}/candidate/.venv/Scripts/python.exe {0}
         run: |
           import collections, hashlib, json, math, os, pathlib
           import numpy as np, onnx, onnxruntime as ort
@@ -196,7 +196,7 @@ jobs:
 
       - name: Pinned PyTorch versus ONNX raw-logit parity
         working-directory: candidate
-        shell: .venv/Scripts/python.exe {0}
+        shell: ${{ github.workspace }}/candidate/.venv/Scripts/python.exe {0}
         run: |
           import json, os, pathlib
           import numpy as np, onnxruntime as ort, torch
@@ -266,7 +266,7 @@ jobs:
 
       - name: Summarize and validate analyze JSON after wrapper
         working-directory: candidate
-        shell: .venv/Scripts/python.exe {0}
+        shell: ${{ github.workspace }}/candidate/.venv/Scripts/python.exe {0}
         run: |
           import collections, json, os, pathlib
           import onnx
@@ -304,7 +304,7 @@ jobs:
 
       - name: Final semantic validation and artifact manifest
         working-directory: candidate
-        shell: .venv/Scripts/python.exe {0}
+        shell: ${{ github.workspace }}/candidate/.venv/Scripts/python.exe {0}
         run: |
           import hashlib,json,os,pathlib
           evidence=pathlib.Path(os.environ['EVIDENCE']); models=pathlib.Path(os.environ['MODELS'])
