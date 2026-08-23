@@ -415,8 +415,8 @@ def test_compute_preserves_accounting_and_rejection_reasons() -> None:
 def test_compute_rejects_duplicate_selected_source_indices_before_inference() -> None:
     evaluator = _evaluator(input_shape=[1, "samples"])
     evaluator.data = [
-        {"_winml_source_index": 0, "audio": "first", "transcription": "first"},
-        {"_winml_source_index": 0, "audio": "second", "transcription": "second"},
+        {"_winml_source_index": 0, "id": 1, "audio": "first", "transcription": "first"},
+        {"_winml_source_index": 0, "id": 2, "audio": "second", "transcription": "second"},
     ]
     evaluator._transcribe = MagicMock()
 
@@ -437,11 +437,152 @@ def test_compute_rejects_missing_selected_source_index_before_inference() -> Non
     evaluator._transcribe.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        (
+            {
+                "_winml_source_index": 0,
+                "audio": {"path": "sample.wav"},
+                "transcription": "reference",
+            },
+            "dataset ID",
+        ),
+        (
+            {
+                "_winml_source_index": 0,
+                "id": True,
+                "audio": {"path": "sample.wav"},
+                "transcription": "reference",
+            },
+            "dataset ID",
+        ),
+        (
+            {
+                "_winml_source_index": 0,
+                "id": "   ",
+                "audio": {"path": "sample.wav"},
+                "transcription": "reference",
+            },
+            "dataset ID",
+        ),
+        (
+            {
+                "_winml_source_index": 0,
+                "id": 1525,
+                "transcription": "reference",
+            },
+            "audio identity",
+        ),
+        (
+            {
+                "_winml_source_index": 0,
+                "id": 1525,
+                "audio": {"path": "", "key": ""},
+                "transcription": "reference",
+            },
+            "audio identity",
+        ),
+    ],
+)
+def test_compute_rejects_malformed_selected_identity_before_inference(
+    row: dict[str, object],
+    message: str,
+) -> None:
+    evaluator = _evaluator(input_shape=[1, "samples"])
+    evaluator.data = [row]
+    evaluator._transcribe = MagicMock()
+
+    with pytest.raises(DatasetValidationError, match=message):
+        evaluator.compute()
+
+    evaluator._transcribe.assert_not_called()
+
+
+def test_compute_rejects_duplicate_audio_identity_before_inference() -> None:
+    evaluator = _evaluator(input_shape=[1, "samples"])
+    evaluator.data = [
+        {
+            "_winml_source_index": 0,
+            "id": 1525,
+            "audio": {"path": r"C:\first\same.wav", "key": "first"},
+            "transcription": "first",
+        },
+        {
+            "_winml_source_index": 1,
+            "id": 1657,
+            "audio": {"path": r"D:\second\same.wav", "key": "second"},
+            "transcription": "second",
+        },
+    ]
+    evaluator._transcribe = MagicMock()
+
+    with pytest.raises(DatasetValidationError, match="duplicate audio identities"):
+        evaluator.compute()
+
+    evaluator._transcribe.assert_not_called()
+
+
+def test_compute_accepts_duplicate_dataset_ids_with_distinct_row_and_audio_identity() -> None:
+    evaluator = _evaluator(input_shape=[1, "samples"])
+    evaluator.data = [
+        {
+            "_winml_source_index": 0,
+            "id": 1525,
+            "audio": {"path": "first.wav"},
+            "transcription": "same sentence",
+        },
+        {
+            "_winml_source_index": 1,
+            "id": 1525,
+            "audio": {"path": "second.wav"},
+            "transcription": "same sentence",
+        },
+    ]
+    evaluator._transcribe = MagicMock(return_value="same sentence")
+
+    result = evaluator.compute()
+
+    assert result["selected_source_ids"] == [1525, 1525]
+    assert result["selected_source_indices"] == [0, 1]
+    assert result["selected_audio_paths"] == ["first.wav", "second.wav"]
+    assert evaluator._transcribe.call_count == 2
+
+
+def test_compute_accepts_and_emits_pinned_fleurs_row_identities() -> None:
+    evaluator = _evaluator(input_shape=[1, "samples"])
+    evaluator.data = [
+        {
+            "_winml_source_index": 0,
+            "id": 1525,
+            "audio": {"path": r"C:\cache\10018492969996036091.wav"},
+            "transcription": "first",
+        },
+        {
+            "_winml_source_index": 1,
+            "id": 1657,
+            "audio": {"path": r"C:\cache\10288018704489549018.wav"},
+            "transcription": "second",
+        },
+    ]
+    evaluator._transcribe = MagicMock(side_effect=["first", "second"])
+
+    result = evaluator.compute()
+
+    assert result["selected_source_ids"] == [1525, 1657]
+    assert result["selected_source_indices"] == [0, 1]
+    assert result["selected_audio_paths"] == [
+        "10018492969996036091.wav",
+        "10288018704489549018.wav",
+    ]
+    assert evaluator._transcribe.call_count == 2
+
+
 def test_compute_scores_successful_empty_decode_as_deletions() -> None:
     evaluator = _evaluator(input_shape=[1, "samples"])
     evaluator.data = [
-        {"_winml_source_index": 0, "audio": "empty", "transcription": "hello world"},
-        {"_winml_source_index": 1, "audio": "decoded", "transcription": "good day"},
+        {"_winml_source_index": 0, "id": 1, "audio": "empty", "transcription": "hello world"},
+        {"_winml_source_index": 1, "id": 2, "audio": "decoded", "transcription": "good day"},
     ]
     evaluator._transcribe = lambda value: "" if value == "empty" else "good day"
 
@@ -459,8 +600,8 @@ def test_compute_scores_successful_empty_decode_as_deletions() -> None:
 def test_compute_scores_all_empty_hypotheses_as_deletions() -> None:
     evaluator = _evaluator(input_shape=[1, "samples"])
     evaluator.data = [
-        {"_winml_source_index": 0, "audio": "first", "transcription": "hello world"},
-        {"_winml_source_index": 1, "audio": "second", "transcription": "good day"},
+        {"_winml_source_index": 0, "id": 1, "audio": "first", "transcription": "hello world"},
+        {"_winml_source_index": 1, "id": 2, "audio": "second", "transcription": "good day"},
     ]
     evaluator._transcribe = lambda _value: ""
 
@@ -478,8 +619,18 @@ def test_compute_scores_all_empty_hypotheses_as_deletions() -> None:
 def test_compute_rejects_empty_reference_but_keeps_empty_hypothesis() -> None:
     evaluator = _evaluator(input_shape=[1, "samples"])
     evaluator.data = [
-        {"_winml_source_index": 0, "audio": "invalid-reference", "transcription": " \t "},
-        {"_winml_source_index": 1, "audio": "empty-hypothesis", "transcription": "valid"},
+        {
+            "_winml_source_index": 0,
+            "id": 1,
+            "audio": "invalid-reference",
+            "transcription": " \t ",
+        },
+        {
+            "_winml_source_index": 1,
+            "id": 2,
+            "audio": "empty-hypothesis",
+            "transcription": "valid",
+        },
     ]
     evaluator._transcribe = lambda _value: ""
 
@@ -498,8 +649,8 @@ def test_compute_rejects_empty_reference_but_keeps_empty_hypothesis() -> None:
 def test_compute_distinguishes_decode_failure_from_empty_decode() -> None:
     evaluator = _evaluator(input_shape=[1, "samples"])
     evaluator.data = [
-        {"_winml_source_index": 0, "audio": "failure", "transcription": "rejected"},
-        {"_winml_source_index": 1, "audio": "empty", "transcription": "kept"},
+        {"_winml_source_index": 0, "id": 1, "audio": "failure", "transcription": "rejected"},
+        {"_winml_source_index": 1, "id": 2, "audio": "empty", "transcription": "kept"},
     ]
 
     def transcribe(value: str) -> str:
@@ -521,14 +672,16 @@ def test_compute_distinguishes_decode_failure_from_empty_decode() -> None:
 
 def test_compute_fails_closed_when_all_rows_are_rejected() -> None:
     evaluator = _evaluator(input_shape=[1, "samples"])
-    evaluator.data = [{"_winml_source_index": 0, "audio": None, "transcription": ""}]
+    evaluator.data = [{"_winml_source_index": 0, "id": 1, "audio": "invalid", "transcription": ""}]
     with pytest.raises(DatasetValidationError, match="processed=0, rejected=1"):
         evaluator.compute()
 
 
 def test_unexpected_inference_error_propagates() -> None:
     evaluator = _evaluator(input_shape=[1, "samples"])
-    evaluator.data = [{"_winml_source_index": 0, "audio": "value", "transcription": "reference"}]
+    evaluator.data = [
+        {"_winml_source_index": 0, "id": 1, "audio": "value", "transcription": "reference"}
+    ]
     evaluator._transcribe = MagicMock(side_effect=RuntimeError("session failed"))
     with pytest.raises(RuntimeError, match="session failed"):
         evaluator.compute()

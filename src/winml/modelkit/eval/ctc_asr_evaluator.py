@@ -204,23 +204,48 @@ def _configure_processor_language(processor: Any, model_config: Any) -> str | No
     return str(active) if active is not None else None
 
 
+def _normalize_identity_scalar(value: Any, field: str) -> str | int | float:
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, str):
+        value = unicodedata.normalize("NFKC", value).strip()
+        if value:
+            return str(value)
+    elif isinstance(value, int) and not isinstance(value, bool):
+        return int(value)
+    elif isinstance(value, float) and math.isfinite(value):
+        return float(value)
+    raise DatasetValidationError(f"Selected ASR row has no valid {field} provenance.")
+
+
 def _selected_row_provenance(row: dict[str, Any], audio_column: str) -> dict[str, Any]:
     source_index = row.get("_winml_source_index")
-    if not isinstance(source_index, int) or isinstance(source_index, bool):
+    if isinstance(source_index, np.integer):
+        source_index = int(source_index)
+    if not isinstance(source_index, int) or isinstance(source_index, bool) or source_index < 0:
         raise DatasetValidationError("Selected ASR row has no valid source index provenance.")
+    dataset_id = _normalize_identity_scalar(row.get("id"), "dataset ID")
     audio = row.get(audio_column)
     audio_path: str | None = None
-    audio_key: str | int | None = None
+    audio_key: str | int | float | None = None
     if isinstance(audio, dict):
         path = audio.get("path")
         if isinstance(path, str) and path:
-            audio_path = Path(path).name
+            audio_path = unicodedata.normalize(
+                "NFKC", path.replace("\\", "/").rsplit("/", 1)[-1]
+            ).strip()
         key = audio.get("key")
-        if isinstance(key, (str, int)) and not isinstance(key, bool):
-            audio_key = key
+        if key not in (None, ""):
+            audio_key = _normalize_identity_scalar(key, "audio key")
+    elif isinstance(audio, str) and audio:
+        audio_path = unicodedata.normalize(
+            "NFKC", audio.replace("\\", "/").rsplit("/", 1)[-1]
+        ).strip()
+    if not audio_path and audio_key is None:
+        raise DatasetValidationError("Selected ASR row has no valid audio identity provenance.")
     return {
         "source_index": source_index,
-        "dataset_id": row.get("id"),
+        "dataset_id": dataset_id,
         "audio_path": audio_path,
         "audio_key": audio_key,
     }
@@ -304,6 +329,10 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
         source_indices = [row["source_index"] for row in selected_rows]
         if len(source_indices) != len(set(source_indices)):
             raise DatasetValidationError("Selected ASR rows contain duplicate source indices.")
+        audio_paths = [row["audio_path"] for row in selected_rows if row["audio_path"] is not None]
+        audio_keys = [row["audio_key"] for row in selected_rows if row["audio_key"] is not None]
+        if len(audio_paths) != len(set(audio_paths)) or len(audio_keys) != len(set(audio_keys)):
+            raise DatasetValidationError("Selected ASR rows contain duplicate audio identities.")
 
         for row in self.data:
             try:
