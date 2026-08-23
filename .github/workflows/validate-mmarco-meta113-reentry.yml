@@ -1,0 +1,473 @@
+name: Validation-only mMARCO meta-113 re-entry
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-mmarco-meta113-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+env:
+  CANDIDATE_SHA: bc7377782d96a4788e565ff3acf0a6c2f06ae56d
+  PARENT_SHA: 3708969b731425b0c6d4b97920d1b5e6519bb013
+  CANDIDATE_REPOSITORY: ssss141414/winml-cli
+  MODEL_ID: cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
+  MODEL_REVISION: 1427fd652930e4ba29e8149678df786c240d8825
+
+jobs:
+  repaired-analyze-wrapper:
+    name: repaired analyze wrapper
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+      - name: Check out exact fork candidate
+        uses: actions/checkout@v4
+        with:
+          repository: ssss141414/winml-cli
+          ref: bc7377782d96a4788e565ff3acf0a6c2f06ae56d
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Assert exact HEAD and initialize evidence
+        id: identity
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path evidence | Out-Null
+          New-Item -ItemType Directory -Path "$env:RUNNER_TEMP\mmarco-meta113\fp32" -Force | Out-Null
+          $actual = (git rev-parse HEAD).Trim()
+          $parent = (git rev-parse HEAD^).Trim()
+          $lock = (Get-FileHash uv.lock -Algorithm SHA256).Hash.ToLowerInvariant()
+          $identity = @{
+            expected_candidate = $env:CANDIDATE_SHA
+            actual_candidate = $actual
+            expected_parent = $env:PARENT_SHA
+            actual_parent = $parent
+            candidate_repository = $env:CANDIDATE_REPOSITORY
+            lock_sha256 = $lock
+            checkout_root = $env:GITHUB_WORKSPACE
+          }
+          $identity | ConvertTo-Json | Out-File evidence/identity.json -Encoding utf8
+          if ($actual -ne $env:CANDIDATE_SHA -or $parent -ne $env:PARENT_SHA) {
+            throw 'Exact candidate identity mismatch'
+          }
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Hydrate candidate-local exact lock
+        id: sync
+        shell: pwsh
+        run: |
+          & uv sync --locked --all-extras --all-groups 2>&1 | Tee-Object evidence/sync.log.txt
+          exit $LASTEXITCODE
+
+      - name: Assert candidate-local environment provenance
+        id: provenance
+        shell: pwsh
+        run: |
+          @'
+          import hashlib
+          import importlib.metadata
+          import importlib.util
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          environment = (workspace / ".venv").resolve()
+          interpreter = Path(sys.executable).resolve()
+          if Path(sys.prefix).resolve() != environment or not interpreter.is_relative_to(environment):
+              raise SystemExit("Interpreter is outside candidate-local .venv")
+
+          packages = {}
+          for distribution, module in (
+              ("onnx", "onnx"),
+              ("onnxruntime-windowsml", "onnxruntime"),
+              ("transformers", "transformers"),
+          ):
+              dist = importlib.metadata.distribution(distribution)
+              distribution_root = Path(dist.locate_file("")).resolve()
+              spec = importlib.util.find_spec(module)
+              import_root = Path(spec.origin).resolve() if spec and spec.origin else None
+              if not distribution_root.is_relative_to(environment):
+                  raise SystemExit(f"Foreign distribution root for {distribution}")
+              if import_root and not import_root.is_relative_to(environment):
+                  raise SystemExit(f"Foreign import root for {distribution}")
+              packages[distribution] = {
+                  "version": dist.version,
+                  "distribution_root": str(distribution_root),
+                  "import_root": str(import_root),
+              }
+
+          payload = {
+              "candidate": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "checkout_root": str(workspace),
+              "environment_root": str(environment),
+              "interpreter": str(interpreter),
+              "python": sys.version,
+              "uv": subprocess.check_output(["uv", "--version"], text=True).strip(),
+              "lock_sha256": hashlib.sha256((workspace / "uv.lock").read_bytes()).hexdigest(),
+              "packages": packages,
+          }
+          (workspace / "evidence" / "provenance.json").write_text(
+              json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+          )
+          '@ | uv run python -
+
+      - name: Hydrate exact model revision
+        id: hydrate
+        shell: pwsh
+        run: |
+          "HF_HOME=$env:RUNNER_TEMP\hf-home" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "HF_HUB_CACHE=$env:RUNNER_TEMP\hf-home\hub" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "HF_HUB_DISABLE_XET=1" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          @'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          from huggingface_hub import snapshot_download
+
+          model = os.environ["MODEL_ID"]
+          revision = os.environ["MODEL_REVISION"]
+          cache = Path(os.environ["RUNNER_TEMP"]) / "hf-home" / "hub"
+          snapshot = Path(snapshot_download(repo_id=model, revision=revision, cache_dir=cache)).resolve()
+          if snapshot.name != revision:
+              raise SystemExit(f"Snapshot mismatch: {snapshot.name}")
+
+          refs = cache / "models--cross-encoder--mmarco-mMiniLMv2-L12-H384-v1" / "refs"
+          refs.mkdir(parents=True, exist_ok=True)
+          (refs / "main").write_text(revision, encoding="utf-8")
+          resolved = Path(
+              snapshot_download(repo_id=model, revision="main", cache_dir=cache, local_files_only=True)
+          ).resolve()
+          if resolved != snapshot:
+              raise SystemExit(f"Pinned offline main mismatch: {resolved} != {snapshot}")
+
+          files = []
+          for path in sorted(snapshot.rglob("*")):
+              if path.is_file():
+                  files.append({
+                      "path": path.relative_to(snapshot).as_posix(),
+                      "bytes": path.stat().st_size,
+                      "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                  })
+          Path("evidence/hf-snapshot.json").write_text(
+              json.dumps({"model_id": model, "revision": revision, "files": files}, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          '@ | uv run python - 2>&1 | Tee-Object evidence/hydrate.log.txt
+          exit $LASTEXITCODE
+
+      - name: Bounded fp32 rebuild
+        id: build
+        timeout-minutes: 30
+        shell: pwsh
+        env:
+          HF_HUB_OFFLINE: "1"
+        run: |
+          $recipe = 'examples/recipes/cross-encoder_mmarco-mMiniLMv2-L12-H384-v1/cpu/cpu/reranking_fp32_config.json'
+          & uv run winml build -c $recipe -m $env:MODEL_ID -o "$env:RUNNER_TEMP\mmarco-meta113\fp32" 2>&1 | Tee-Object evidence/build-fp32.log.txt
+          exit $LASTEXITCODE
+
+      - name: Verify rebuilt artifact identity and digest
+        id: artifact
+        shell: pwsh
+        run: |
+          @'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import onnx
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "mmarco-meta113" / "fp32"
+          models = sorted(root.rglob("*.onnx"), key=lambda path: (path.name != "model.onnx", len(path.parts)))
+          if not models:
+              raise SystemExit("Bounded rebuild emitted no ONNX model")
+          model = models[0].resolve()
+          graph = onnx.load(str(model), load_external_data=False)
+          external = sorted({
+              entry.value
+              for tensor in graph.graph.initializer
+              for entry in tensor.external_data
+              if entry.key == "location"
+          })
+          files = [model, *[model.parent / item for item in external]]
+          for path in files:
+              if not path.is_file() or path.parent != model.parent:
+                  raise SystemExit(f"Missing or non-colocated model file: {path}")
+          identity = json.loads(Path("evidence/identity.json").read_text(encoding="utf-8-sig"))
+          manifest = {
+              "candidate": identity["actual_candidate"],
+              "lock_sha256": identity["lock_sha256"],
+              "model": str(model),
+              "node_count": len(graph.graph.node),
+              "files": [
+                  {"name": path.name, "bytes": path.stat().st_size, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+                  for path in files
+              ],
+          }
+          Path("evidence/artifact-manifest.json").write_text(
+              json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+          )
+          Path("evidence/model-path.txt").write_text(str(model) + "\n", encoding="utf-8")
+          '@ | uv run python -
+
+      - name: Download pinned runtime analysis rules
+        id: rules
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $root = "$env:RUNNER_TEMP\mmarco-meta113\rules"
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          gh release download v0.2.0 --repo microsoft/winml-cli --pattern 'rules-v*.zip' --dir $root
+          $zip = Get-ChildItem $root -Filter '*.zip' | Select-Object -First 1
+          if (-not $zip) { throw 'Rules archive was not downloaded' }
+          Expand-Archive $zip.FullName -DestinationPath "$root\expanded" -Force
+          $provider = Get-ChildItem "$root\expanded" -Directory -Recurse | Where-Object { $_.Name -eq 'QNNExecutionProvider_NPU' } | Select-Object -First 1
+          if (-not $provider) { throw 'Rules archive lacks QNNExecutionProvider_NPU' }
+          $rulesRoot = $provider.Parent.FullName
+          "WINMLCLI_RULES_DIR=$rulesRoot" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          @{
+            release = 'v0.2.0'
+            archive = $zip.Name
+            archive_sha256 = (Get-FileHash $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            rules_root = $rulesRoot
+            parquet_count = @(Get-ChildItem $rulesRoot -Recurse -Filter '*.parquet').Count
+          } | ConvertTo-Json | Out-File evidence/rules.json -Encoding utf8
+
+      - name: Capture analyze exit and durable streams
+        id: analyze
+        shell: pwsh
+        run: |
+          $model = (Get-Content evidence/model-path.txt -Raw).Trim()
+          $started = (Get-Date).ToUniversalTime().ToString('o')
+          & uv run winml analyze --model $model --ep all --output evidence/analyze-all.json 1> evidence/analyze.stdout.txt 2> evidence/analyze.stderr.txt
+          $analyzeExit = $LASTEXITCODE
+          $finished = (Get-Date).ToUniversalTime().ToString('o')
+          $control = @{
+            candidate = $env:CANDIDATE_SHA
+            command = "uv run winml analyze --model <rebuilt-fp32> --ep all --output evidence/analyze-all.json"
+            started_utc = $started
+            finished_utc = $finished
+            analyze_exit_code = $analyzeExit
+            wrapper_exit_code = 0
+            stdout = 'analyze.stdout.txt'
+            stderr = 'analyze.stderr.txt'
+            output_json = 'analyze-all.json'
+          }
+          $control | ConvertTo-Json | Out-File evidence/analyze-control.json -Encoding utf8
+          $analyzeExit | Out-File evidence/analyze.exit.txt -Encoding ascii
+          Write-Output "Captured winml analyze exit $analyzeExit; continuing to independent validator"
+          exit 0
+
+      - name: Always summarize and validate complete requested-EP JSON
+        id: summarize
+        if: always()
+        shell: pwsh
+        run: |
+          @'
+          import datetime as dt
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = Path("evidence")
+          started = dt.datetime.now(dt.timezone.utc)
+          (evidence / "summarizer-started.json").write_text(
+              json.dumps({"started_utc": started.isoformat(), "candidate": os.environ["CANDIDATE_SHA"]}, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          expected_eps = {
+              "NvTensorRTRTXExecutionProvider",
+              "CUDAExecutionProvider",
+              "MIGraphXExecutionProvider",
+              "QNNExecutionProvider",
+              "OpenVINOExecutionProvider",
+              "TensorrtExecutionProvider",
+              "DmlExecutionProvider",
+          }
+          rule_backed_eps = {
+              "NvTensorRTRTXExecutionProvider",
+              "QNNExecutionProvider",
+              "OpenVINOExecutionProvider",
+          }
+          bucket_names = ("supported", "partial", "unsupported", "unknown")
+          checks = []
+          errors = []
+          summary = {
+              "status": "FAIL",
+              "candidate": os.environ["CANDIDATE_SHA"],
+              "analyze_exit_code": None,
+              "total_operators": None,
+              "unique_operator_types": None,
+              "per_ep": [],
+          }
+
+          def require(condition, message):
+              checks.append({"check": message, "passed": bool(condition)})
+              if not condition:
+                  errors.append(message)
+
+          try:
+              control = json.loads((evidence / "analyze-control.json").read_text(encoding="utf-8-sig"))
+              analyze_exit = int((evidence / "analyze.exit.txt").read_text(encoding="ascii").strip())
+              summary["analyze_exit_code"] = analyze_exit
+              require(analyze_exit == 1, "analyze exit is exactly 1")
+              require(control.get("analyze_exit_code") == analyze_exit, "control record agrees with analyze exit")
+              require(control.get("wrapper_exit_code") == 0, "wrapper captured nonzero exit without short-circuit")
+              require((evidence / "analyze.stdout.txt").is_file(), "analyze stdout persisted")
+              require((evidence / "analyze.stderr.txt").is_file(), "analyze stderr persisted")
+              require((evidence / "analyze-all.json").is_file(), "analyze JSON persisted")
+              finished = dt.datetime.fromisoformat(control["finished_utc"])
+              require(started >= finished, "summarizer started after analyze completed")
+
+              payload = json.loads((evidence / "analyze-all.json").read_text(encoding="utf-8-sig"))
+              require(isinstance(payload, list), "analyze JSON root is a list")
+              records = payload if isinstance(payload, list) else []
+              require(len(records) == len(expected_eps), "one top-level record exists for every requested EP")
+              seen_eps = set()
+              findings = []
+              for index, record in enumerate(records):
+                  metadata = record.get("metadata") if isinstance(record, dict) else None
+                  require(isinstance(metadata, dict), f"record {index} has metadata")
+                  if not isinstance(metadata, dict):
+                      continue
+                  require(metadata.get("total_operators") == 387, f"record {index} has exact total_operators 387")
+                  require(metadata.get("unique_operator_types") == 20, f"record {index} has exact unique_operator_types 20")
+                  counts = metadata.get("operator_counts")
+                  require(isinstance(counts, dict) and len(counts) == 20, f"record {index} has all 20 operator count rows")
+                  require(isinstance(counts, dict) and sum(counts.values()) == 387, f"record {index} operator counts sum to 387")
+                  results = record.get("results")
+                  require(isinstance(results, list) and len(results) == 1, f"record {index} has exactly one EP result")
+                  if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict):
+                      continue
+                  result = results[0]
+                  ep = result.get("ep_type")
+                  require(ep in expected_eps, f"record {index} names a requested EP")
+                  require(ep not in seen_eps, f"record {index} EP is not duplicated")
+                  if isinstance(ep, str):
+                      seen_eps.add(ep)
+                  classification = result.get("classification")
+                  require(isinstance(classification, dict), f"{ep} has a classification object")
+                  if not isinstance(classification, dict):
+                      continue
+                  require(all(name in classification for name in bucket_names), f"{ep} has all four classification buckets")
+                  require(all(isinstance(classification.get(name), list) for name in bucket_names), f"{ep} classification buckets are arrays")
+                  buckets = {name: classification.get(name, []) for name in bucket_names}
+                  flattened = [item for name in bucket_names for item in buckets[name]]
+                  require(all(len(items) == len(set(items)) for items in buckets.values()), f"{ep} has no duplicate within a classification bucket")
+                  if ep in rule_backed_eps:
+                      require(len(set(flattened)) == 20, f"{ep} classifies all 20 operator types")
+                  else:
+                      require(len(flattened) == 0 and result.get("runtime_support") is False, f"{ep} explicitly records no-rule classification")
+                  for name in ("partial", "unsupported", "unknown"):
+                      findings.extend({"ep": ep, "classification": name, "operator": item} for item in buckets[name])
+                  summary["per_ep"].append({
+                      "ep": ep,
+                      "runtime_support": result.get("runtime_support"),
+                      "classification_counts": {name: len(buckets[name]) for name in bucket_names},
+                  })
+
+              require(seen_eps == expected_eps, "requested EP set is exact and complete")
+              require(bool(findings), "nonzero exit has findings semantics in complete JSON")
+              summary["total_operators"] = records[0]["metadata"]["total_operators"] if records else None
+              summary["unique_operator_types"] = records[0]["metadata"]["unique_operator_types"] if records else None
+              summary["findings"] = findings
+          except Exception as exc:
+              errors.append(f"validator exception: {type(exc).__name__}: {exc}")
+
+          success = not errors
+          summary["status"] = "ANALYZE-PARTIAL-SUCCESS" if success else "FAIL"
+          summary["errors"] = errors
+          finished = dt.datetime.now(dt.timezone.utc)
+          semantic = {
+              "success": success,
+              "status": summary["status"],
+              "candidate": os.environ["CANDIDATE_SHA"],
+              "checks": checks,
+              "errors": errors,
+          }
+          control_flow = {
+              "candidate": os.environ["CANDIDATE_SHA"],
+              "analyze_exit_code": summary["analyze_exit_code"],
+              "summarizer_started_utc": started.isoformat(),
+              "summarizer_finished_utc": finished.isoformat(),
+              "summarizer_ran_after_analyze": any(
+                  item["check"] == "summarizer started after analyze completed" and item["passed"] for item in checks
+              ),
+              "terminal_status": summary["status"],
+              "validator_exit_code": 0 if success else 1,
+          }
+          (evidence / "analysis-summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+          (evidence / "semantic-validation.json").write_text(json.dumps(semantic, indent=2) + "\n", encoding="utf-8")
+          (evidence / "control-flow-status.json").write_text(json.dumps(control_flow, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps(summary, indent=2))
+          if not success:
+              raise SystemExit(1)
+          '@ | uv run python - 2>&1 | Tee-Object evidence/summarizer.log.txt
+          exit $LASTEXITCODE
+
+      - name: Finalize repaired job status
+        id: finalize
+        if: always()
+        shell: pwsh
+        env:
+          IDENTITY: ${{ steps.identity.outcome }}
+          SYNC: ${{ steps.sync.outcome }}
+          PROVENANCE: ${{ steps.provenance.outcome }}
+          HYDRATE: ${{ steps.hydrate.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+          ARTIFACT: ${{ steps.artifact.outcome }}
+          RULES: ${{ steps.rules.outcome }}
+          ANALYZE_CAPTURE: ${{ steps.analyze.outcome }}
+          SUMMARIZER: ${{ steps.summarize.outcome }}
+        run: |
+          $states = @{
+            identity = $env:IDENTITY
+            sync = $env:SYNC
+            provenance = $env:PROVENANCE
+            hydrate = $env:HYDRATE
+            build = $env:BUILD
+            artifact = $env:ARTIFACT
+            rules = $env:RULES
+            analyze_capture = $env:ANALYZE_CAPTURE
+            summarizer = $env:SUMMARIZER
+          }
+          $semantic = if (Test-Path evidence/semantic-validation.json) { Get-Content evidence/semantic-validation.json -Raw | ConvertFrom-Json } else { $null }
+          $success = @($states.Values | Where-Object { $_ -ne 'success' }).Count -eq 0 -and $semantic -and $semantic.success
+          @{
+            success = [bool]$success
+            phase = if ($success) { 'completed' } else { 'failed' }
+            outer_exit_code = if ($success) { 0 } else { 1 }
+            timed_out = $false
+            error = if ($success) { $null } else { 'Prerequisite or fail-closed semantic validation failed' }
+            candidate = $env:CANDIDATE_SHA
+            analysis_status = if ($semantic) { $semantic.status } else { 'FAIL' }
+            states = $states
+          } | ConvertTo-Json -Depth 5 | Out-File evidence/job-status.json -Encoding utf8
+          if (-not $success) { exit 1 }
+
+      - name: Upload durable methodology evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmarco-meta113-repaired-control-flow
+          path: evidence
+          if-no-files-found: error
+          retention-days: 90
