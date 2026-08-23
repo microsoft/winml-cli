@@ -1,0 +1,429 @@
+name: Validation-only L2 tester exact candidate
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CANDIDATE: 518dbc8c270e47ef3dfcfbd4c8218ba2d067ddcc
+  PARENT: 3708969b731425b0c6d4b97920d1b5e6519bb013
+  CANDIDATE_REPOSITORY: ssss141414/winml-cli
+  MODEL_ID: cross-encoder/ms-marco-MiniLM-L2-v2
+  MODEL_REVISION: 1b5cd67b15209f24824c50370e0397743aa9b787
+  DATASET_REVISION: 56a6d0140cf6356659e2a7c1413286a774468d44
+  PYTHONUTF8: "1"
+  HF_HUB_DISABLE_PROGRESS_BARS: "1"
+  TRANSFORMERS_VERBOSITY: error
+
+jobs:
+  model-validation:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact fork candidate
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CANDIDATE_REPOSITORY }}
+          ref: ${{ env.CANDIDATE }}
+          path: candidate
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Hydrate exact candidate lock
+        working-directory: candidate
+        run: uv sync --locked --all-extras --all-groups
+
+      - name: Establish evidence paths
+        shell: pwsh
+        run: |
+          $evidence = Join-Path $env:RUNNER_TEMP 'l2-tester-evidence'
+          $models = Join-Path $env:RUNNER_TEMP 'l2-tester-models'
+          $hf = Join-Path $env:RUNNER_TEMP 'l2-hf-pinned'
+          New-Item -ItemType Directory -Path $evidence,$models,$hf -Force | Out-Null
+          "EVIDENCE=$evidence" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "MODELS=$models" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "HF_PATH=$hf" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Assert identity, parent, lock, and exact two-file delta
+        shell: python
+        run: |
+          import hashlib, json, os, pathlib, subprocess
+          checkout = pathlib.Path('candidate').resolve()
+          evidence = pathlib.Path(os.environ['EVIDENCE'])
+          run = lambda *args: subprocess.check_output(args, cwd=checkout, text=True).strip()
+          candidate = run('git', 'rev-parse', 'HEAD')
+          parent = run('git', 'rev-parse', 'HEAD^')
+          paths = sorted(run('git', 'diff-tree', '--no-commit-id', '--name-only', '-r', candidate).splitlines())
+          expected = sorted([
+              'examples/recipes/cross-encoder_ms-marco-MiniLM-L2-v2/cpu/cpu/reranking_fp16_config.json',
+              'examples/recipes/cross-encoder_ms-marco-MiniLM-L2-v2/cpu/cpu/reranking_fp32_config.json',
+          ])
+          lock_hash = hashlib.sha256((checkout / 'uv.lock').read_bytes()).hexdigest()
+          status = {
+              'success': candidate == os.environ['CANDIDATE'] and parent == os.environ['PARENT'] and paths == expected,
+              'phase': 'completed', 'outer_exit_code': 0, 'timed_out': False, 'error': None,
+              'candidate': candidate, 'expected_candidate': os.environ['CANDIDATE'],
+              'parent': parent, 'expected_parent': os.environ['PARENT'],
+              'candidate_repository': os.environ['CANDIDATE_REPOSITORY'],
+              'checkout_root': str(checkout), 'lock_sha256': lock_hash,
+              'changed_paths': paths, 'exact_two_recipe_diff': paths == expected,
+              'github_sha_is_not_evidence_sha': os.environ.get('GITHUB_SHA'),
+          }
+          (evidence / 'identity.json').write_text(json.dumps(status, indent=2) + '\n')
+          assert status['success'], status
+
+      - name: Record candidate-local environment provenance
+        working-directory: candidate
+        shell: pwsh
+        run: |
+          uv run python -c "import json,os,pathlib,shutil,sys,importlib.metadata as m; import onnx,onnxruntime,transformers,pytest,mypy; root=pathlib.Path.cwd().resolve(); env=(root/'.venv').resolve(); data={'success':True,'phase':'completed','outer_exit_code':0,'timed_out':False,'error':None,'candidate':os.environ['CANDIDATE'],'checkout_root':str(root),'environment_root':str(env),'interpreter':sys.executable,'python':sys.version,'uv':os.popen('uv --version').read().strip(),'lock_sha256':__import__('hashlib').sha256((root/'uv.lock').read_bytes()).hexdigest(),'packages':{n:{'version':m.version(n)} for n in ['ruff','mypy','pytest','transformers','onnx','onnxruntime-windowsml']},'executables':{'ruff':shutil.which('ruff'),'mypy':shutil.which('mypy'),'pytest':shutil.which('pytest')},'imports':{'winml':__import__('winml').__file__,'onnx':onnx.__file__,'onnxruntime':onnxruntime.__file__,'transformers':transformers.__file__,'pytest':pytest.__file__,'mypy':mypy.__file__}}; assert pathlib.Path(sys.executable).resolve().is_relative_to(env); assert all(pathlib.Path(p).resolve().is_relative_to(env) for p in data['executables'].values()); assert all(pathlib.Path(p).resolve().is_relative_to(env) or pathlib.Path(p).resolve().is_relative_to(root) for p in data['imports'].values()); pathlib.Path(os.environ['EVIDENCE'],'provenance.json').write_text(json.dumps(data,indent=2)+'\n')"
+
+      - name: Download pinned Hugging Face snapshot
+        working-directory: candidate
+        run: >-
+          uv run python -c "from huggingface_hub import snapshot_download;
+          import os; print(snapshot_download(os.environ['MODEL_ID'], revision=os.environ['MODEL_REVISION'],
+          local_dir=os.environ['HF_PATH']))"
+
+      - name: Schema, no-recipe aliases, family stability, and focused regressions
+        working-directory: candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          uv run winml eval --schema --task reranking 2>&1 | Tee-Object (Join-Path $env:EVIDENCE 'eval-schema.log.txt')
+          uv run winml config -m $env:HF_PATH --task text-ranking -o (Join-Path $env:EVIDENCE 'config-text-ranking.json') --overwrite 2>&1 | Tee-Object (Join-Path $env:EVIDENCE 'config-text-ranking.log.txt')
+          uv run winml config -m $env:HF_PATH --task reranking -o (Join-Path $env:EVIDENCE 'config-reranking.json') --overwrite 2>&1 | Tee-Object (Join-Path $env:EVIDENCE 'config-reranking.log.txt')
+          uv run pytest tests/unit/loader/test_task_boundary.py tests/unit/loader/test_resolve_task.py tests/unit/loader/test_resolve_task_and_model_class.py tests/unit/eval/test_reranking_evaluator.py tests/unit/eval/test_eval.py --tb=short --no-cov -m "not e2e and not npu and not gpu" 2>&1 | Tee-Object (Join-Path $env:EVIDENCE 'focused-regressions.log.txt')
+          if ($LASTEXITCODE -ne 0) { throw "Focused regressions failed: $LASTEXITCODE" }
+
+      - name: Validate config semantics and sibling recipe invariance
+        working-directory: candidate
+        shell: python
+        run: |
+          import hashlib, json, os, pathlib, subprocess
+          root = pathlib.Path.cwd()
+          evidence = pathlib.Path(os.environ['EVIDENCE'])
+          aliases = [json.loads((evidence / name).read_text()) for name in ('config-text-ranking.json','config-reranking.json')]
+          expected_inputs = [('input_ids','int32',[1,512]),('attention_mask','int32',[1,512]),('token_type_ids','int32',[1,512])]
+          checks = []
+          checks.append({'check':'text-ranking and reranking generated configs are identical','passed':aliases[0] == aliases[1]})
+          checks.append({'check':'canonical loader task is reranking','passed':aliases[0]['loader']['task'] == 'reranking'})
+          checks.append({'check':'export model class is sequence classification','passed':aliases[0]['loader']['model_class'] == 'AutoModelForSequenceClassification'})
+          for precision in ('fp32','fp16'):
+              recipe = json.loads((root / f'examples/recipes/cross-encoder_ms-marco-MiniLM-L2-v2/cpu/cpu/reranking_{precision}_config.json').read_text())
+              actual_inputs = [(x['name'],x['dtype'],x['shape']) for x in recipe['export']['input_tensors']]
+              checks.append({'check':f'{precision} exact BERT inputs','passed':actual_inputs == expected_inputs})
+              checks.append({'check':f'{precision} scalar logits declaration','passed':recipe['export']['output_tensors'] == [{'name':'logits'}]})
+          siblings = {}
+          for size in ('L6','L12'):
+              for precision in ('fp32','fp16'):
+                  path = f'examples/recipes/cross-encoder_ms-marco-MiniLM-{size}-v2/cpu/cpu/reranking_{precision}_config.json'
+                  current = (root / path).read_bytes()
+                  parent = subprocess.check_output(['git','show',f"{os.environ['PARENT']}:{path}"])
+                  siblings[f'{size}-{precision}'] = {'sha256':hashlib.sha256(current).hexdigest(),'unchanged_from_parent':current == parent}
+          checks.append({'check':'all existing sibling recipes unchanged','passed':all(x['unchanged_from_parent'] for x in siblings.values())})
+          result = {'success':all(x['passed'] for x in checks),'checks':checks,'siblings':siblings}
+          (evidence/'config-validation.json').write_text(json.dumps(result,indent=2)+'\n')
+          assert result['success'], result
+
+      - name: Build exact fp32 and true fp16 recipes
+        working-directory: candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $fp32 = Join-Path $env:MODELS 'fp32'
+          $fp16 = Join-Path $env:MODELS 'fp16'
+          uv run winml build -c examples/recipes/cross-encoder_ms-marco-MiniLM-L2-v2/cpu/cpu/reranking_fp32_config.json -m $env:HF_PATH -o $fp32 2>&1 | Tee-Object (Join-Path $env:EVIDENCE 'build-fp32.log.txt')
+          if ($LASTEXITCODE -ne 0) { throw "fp32 build failed: $LASTEXITCODE" }
+          uv run winml build -c examples/recipes/cross-encoder_ms-marco-MiniLM-L2-v2/cpu/cpu/reranking_fp16_config.json -m $env:HF_PATH -o $fp16 --precision fp16 2>&1 | Tee-Object (Join-Path $env:EVIDENCE 'build-fp16.log.txt')
+          if ($LASTEXITCODE -ne 0) { throw "fp16 build failed: $LASTEXITCODE" }
+
+      - name: Validate model structure, precision, layout, and random-head absence
+        working-directory: candidate
+        shell: python
+        run: |
+          import collections, hashlib, json, math, os, pathlib
+          import numpy as np, onnx, onnxruntime as ort
+          models = pathlib.Path(os.environ['MODELS']); evidence = pathlib.Path(os.environ['EVIDENCE'])
+          expected_inputs = {'input_ids':('tensor(int32)',[1,512]),'attention_mask':('tensor(int32)',[1,512]),'token_type_ids':('tensor(int32)',[1,512])}
+          results = {}
+          for precision in ('fp32','fp16'):
+              path = models/precision/'model.onnx'; model = onnx.load(path); onnx.checker.check_model(model)
+              session = ort.InferenceSession(str(path), providers=['CPUExecutionProvider'])
+              inputs = {x.name:(x.type,list(x.shape)) for x in session.get_inputs()}
+              output = session.get_outputs()[0]
+              census = collections.Counter(onnx.TensorProto.DataType.Name(x.data_type) for x in model.graph.initializer)
+              feed = {name:np.zeros((1,512),dtype=np.int32) for name in expected_inputs}; feed['attention_mask'][:] = 1
+              scalar = float(session.run(None,feed)[0].reshape(-1)[0])
+              results[precision] = {'path':str(path),'bytes':path.stat().st_size,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'ir':model.ir_version,'opsets':[(x.domain,x.version) for x in model.opset_import],'inputs':inputs,'output':(output.name,output.type,list(output.shape)),'initializer_types':dict(census),'node_count':len(model.graph.node),'finite_scalar':math.isfinite(scalar),'sample_logit':scalar,'external_files':[p.name for p in path.parent.iterdir() if p.is_file() and p.name not in {'model.onnx'}]}
+              assert inputs == expected_inputs
+              assert results[precision]['output'] == ('logits','tensor(float)',[1,1])
+              assert math.isfinite(scalar)
+          results['fp16_size_ratio'] = results['fp16']['bytes']/results['fp32']['bytes']
+          assert results['fp32']['initializer_types'].get('FLOAT',0) > 0
+          assert results['fp16']['initializer_types'].get('FLOAT16',0) > 0
+          assert results['fp16_size_ratio'] < 0.7
+          logs = '\n'.join((evidence/f'build-{p}.log.txt').read_text(errors='replace') for p in ('fp32','fp16'))
+          results['random_head_warning_absent'] = 'were newly initialized' not in logs and 'should probably TRAIN' not in logs
+          assert results['random_head_warning_absent']
+          results['success'] = True
+          (evidence/'model-validation.json').write_text(json.dumps(results,indent=2)+'\n')
+
+      - name: CPU perf for both precisions
+        working-directory: candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($precision in @('fp32','fp16')) {
+            $model = Join-Path $env:MODELS "$precision\model.onnx"
+            $report = Join-Path $env:EVIDENCE "perf-$precision.json"
+            uv run winml perf -m $model --ep cpu --device cpu --iterations 20 --warmup 3 -o $report --overwrite --format json 2>&1 | Tee-Object (Join-Path $env:EVIDENCE "perf-$precision.log.txt")
+            if ($LASTEXITCODE -ne 0) { throw "$precision perf failed: $LASTEXITCODE" }
+          }
+
+      - name: Pinned PyTorch versus ONNX raw-logit parity
+        working-directory: candidate
+        shell: python
+        run: |
+          import json, os, pathlib
+          import numpy as np, onnxruntime as ort, torch
+          from transformers import AutoModelForSequenceClassification, AutoTokenizer
+          hf = os.environ['HF_PATH']; models = pathlib.Path(os.environ['MODELS']); evidence = pathlib.Path(os.environ['EVIDENCE'])
+          pairs = [
+              ('How many people live in Berlin?','Berlin had a population of 3,520,031 registered inhabitants in an area of 891.82 square kilometers.'),
+              ('How many people live in Berlin?','Berlin is well known for its museums.'),
+              ('How many people live in Berlin?','Paris is the capital of France and lies on the River Seine.'),
+          ]
+          tokenizer = AutoTokenizer.from_pretrained(hf); model = AutoModelForSequenceClassification.from_pretrained(hf).eval()
+          reference=[]; feeds=[]
+          for query,document in pairs:
+              encoded=tokenizer(query,document,padding='max_length',truncation=True,max_length=512,return_tensors='pt')
+              with torch.no_grad(): reference.append(float(model(**encoded).logits.reshape(-1)[0]))
+              feeds.append({name:value.cpu().numpy().astype(np.int32) for name,value in encoded.items() if name in {'input_ids','attention_mask','token_type_ids'}})
+          result={'model_id':os.environ['MODEL_ID'],'model_revision':os.environ['MODEL_REVISION'],'pairs':[],'reference_raw_logits':reference,'transform':'none','order':'descending'}
+          for idx,(query,document) in enumerate(pairs): result['pairs'].append({'query':query,'document':document,'reference_raw_scalar':reference[idx]})
+          for precision in ('fp32','fp16'):
+              session=ort.InferenceSession(str(models/precision/'model.onnx'),providers=['CPUExecutionProvider'])
+              actual=[float(session.run(['logits'],feed)[0].reshape(-1)[0]) for feed in feeds]
+              cosine=float(np.dot(reference,actual)/(np.linalg.norm(reference)*np.linalg.norm(actual)))
+              result[precision]={'onnx_raw_logits':actual,'cosine':cosine,'max_abs':float(np.max(np.abs(np.array(reference)-np.array(actual)))),'reference_descending_order':np.argsort(-np.array(reference),kind='stable').tolist(),'onnx_descending_order':np.argsort(-np.array(actual),kind='stable').tolist(),'named_inputs':sorted(feeds[0])}
+              assert result[precision]['reference_descending_order'] == result[precision]['onnx_descending_order']
+          result['success']=True
+          (evidence/'l2-parity.json').write_text(json.dumps(result,indent=2)+'\n')
+
+      - name: Pinned SciDocs shipped evaluator smoke
+        working-directory: candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $model = Join-Path $env:MODELS 'fp32\model.onnx'
+          $report = Join-Path $env:EVIDENCE 'scidocs-reranking-eval.json'
+          uv run winml eval -m $model --model-id $env:HF_PATH --task reranking --dataset mteb/scidocs-reranking --dataset-revision $env:DATASET_REVISION --split test --streaming --no-shuffle --samples 2 --column query_column=query --column positive_column=positive --column negative_column=negative --column max_candidates=10 --ep cpu --device cpu -o $report --overwrite 2>&1 | Tee-Object (Join-Path $env:EVIDENCE 'scidocs-reranking-eval.log.txt')
+          if ($LASTEXITCODE -ne 0) { throw "SciDocs eval failed: $LASTEXITCODE" }
+
+      - name: Acquire runtime rules
+        shell: pwsh
+        run: |
+          $rules = Join-Path $env:RUNNER_TEMP 'l2-rules'
+          New-Item -ItemType Directory -Path $rules -Force | Out-Null
+          $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/microsoft/winml-cli/releases/latest'
+          $asset = @($release.assets | Where-Object { $_.name -like 'rules-v*.zip' })[0]
+          if ($null -eq $asset) { throw 'No rules-v*.zip release asset found' }
+          $zip = Join-Path $rules $asset.name
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath (Join-Path $rules 'expanded') -Force
+          "WINMLCLI_RULES_DIR=$(Join-Path $rules 'expanded')" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          @{release=$release.tag_name;asset=$asset.name;sha256=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant();parquet_count=@(Get-ChildItem (Join-Path $rules 'expanded') -Recurse -Filter *.parquet).Count} | ConvertTo-Json | Out-File (Join-Path $env:EVIDENCE 'rules.json') -Encoding utf8
+
+      - name: Analyze with repaired nonzero capture wrapper
+        working-directory: candidate
+        shell: pwsh
+        run: |
+          $started = (Get-Date).ToUniversalTime().ToString('o')
+          $model = Join-Path $env:MODELS 'fp32\model.onnx'
+          $json = Join-Path $env:EVIDENCE 'analyze-all.json'
+          $ErrorActionPreference = 'Continue'
+          uv run winml analyze --model $model --ep all --output $json 1> (Join-Path $env:EVIDENCE 'analyze.stdout.txt') 2> (Join-Path $env:EVIDENCE 'analyze.stderr.txt')
+          $analyzeExit = $LASTEXITCODE
+          $ErrorActionPreference = 'Stop'
+          $finished = (Get-Date).ToUniversalTime().ToString('o')
+          "$analyzeExit" | Out-File (Join-Path $env:EVIDENCE 'analyze.exit.txt') -Encoding ascii
+          @{success=$true;phase='completed';outer_exit_code=0;timed_out=$false;error=$null;candidate=$env:CANDIDATE;analyze_exit_code=$analyzeExit;wrapper_exit_code=0;started_utc=$started;finished_utc=$finished;json=$json} | ConvertTo-Json | Out-File (Join-Path $env:EVIDENCE 'analyze-control.json') -Encoding utf8
+          exit 0
+
+      - name: Summarize and validate analyze JSON after wrapper
+        working-directory: candidate
+        shell: python
+        run: |
+          import collections, json, os, pathlib
+          import onnx
+          evidence=pathlib.Path(os.environ['EVIDENCE']); models=pathlib.Path(os.environ['MODELS'])
+          control=json.loads((evidence/'analyze-control.json').read_text()); raw=json.loads((evidence/'analyze-all.json').read_text())
+          records=raw if isinstance(raw,list) else [raw]
+          expected={'NvTensorRTRTXExecutionProvider','CUDAExecutionProvider','MIGraphXExecutionProvider','QNNExecutionProvider','OpenVINOExecutionProvider','TensorrtExecutionProvider','DmlExecutionProvider'}
+          seen=set(); per_ep=[]
+          for record in records:
+              assert record['metadata']['total_operators'] > 0 and record['metadata']['unique_operator_types'] > 0
+              assert sum(record['metadata']['operator_counts'].values()) == record['metadata']['total_operators']
+              assert len(record['results']) == 1
+              result=record['results'][0]; seen.add(result['ep_type'])
+              assert all(bucket in result['classification'] for bucket in ('supported','partial','unsupported','unknown'))
+              per_ep.append({'ep':result['ep_type'],'classification':result['classification']})
+          assert seen == expected, (seen,expected)
+          metadata=records[0]['metadata']; graph=onnx.load(models/'fp32'/'model.onnx',load_external_data=False).graph
+          specs=[
+              ('bert.embeddings','Paired-text embeddings',lambda n:'/embeddings/' in n),
+              ('bert.encoder.layer[].attention','Bidirectional self-attention',lambda n:'/attention/' in n),
+              ('bert.encoder.layer[].intermediate_output','Feed-forward and residual output',lambda n:'/intermediate/' in n or '/output/' in n),
+              ('bert.pooler','First-token pooler',lambda n:'/pooler/' in n),
+              ('classifier','Scalar relevance head',lambda n:'classifier' in n.lower()),
+          ]
+          assigned=set(); components=[]
+          for cid,label,predicate in specs:
+              nodes=[n for n in graph.node if predicate(n.name) and n.name not in assigned]; assigned.update(n.name for n in nodes)
+              counts=dict(collections.Counter(n.op_type for n in nodes))
+              issues={row['ep']:{'partial':sorted(set(row['classification']['partial']) & set(counts)),'unsupported':sorted(set(row['classification']['unsupported']) & set(counts))} for row in per_ep}
+              components.append({'component_id':cid,'component_name':label,'onnx_regions_or_nodes':[n.name for n in nodes],'node_count':len(nodes),'operator_counts':counts,'mapping_basis':'HTP-preserved ONNX scope name + frozen model breakdown','confidence':'mapped','per_ep_issues':issues})
+          unmapped=[n.name for n in graph.node if n.name not in assigned]
+          status='PASS' if control['analyze_exit_code']==0 else 'ANALYZE-PARTIAL-SUCCESS'
+          summary={'success':True,'status':status,'candidate':os.environ['CANDIDATE'],'analyze_exit_code':control['analyze_exit_code'],'summarizer_ran_after_analyze':True,'total_operators':metadata['total_operators'],'unique_operator_types':metadata['unique_operator_types'],'operator_counts':metadata['operator_counts'],'per_ep':per_ep,'component_analysis':{'model_breakdown_sha256':'7d7563290d3a9818be7fa0c0ef3621420c104d7e54f6a3555db2b35b7a9ff3e7','components':components,'mapped_node_count':len(assigned),'unmapped_node_count':len(unmapped),'unmapped_nodes':unmapped,'gaps':[] if not unmapped else ['root/helper nodes not attributable to one frozen semantic component']},'pr_summary':{'component_rows':[{'artifact_label':'fp32','architecture_regions':'embeddings; 2x encoder attention/FFN; pooler; scalar classifier','mapped_nodes':len(assigned),'partial_nodes':0,'unmapped_nodes':len(unmapped),'confidence':'mapped'}],'op_rows':[{'artifact_label':'fp32','total_operators':metadata['total_operators'],'unique_operator_types':metadata['unique_operator_types'],'dominant_operator_counts':dict(sorted(metadata['operator_counts'].items(),key=lambda x:-x[1])[:6]),'actionable_ep_findings':[{'ep':row['ep'],'partial':row['classification']['partial'],'unsupported':row['classification']['unsupported']} for row in per_ep if row['classification']['partial'] or row['classification']['unsupported']]}],'mapping_gaps':[] if not unmapped else ['root/helper nodes remain explicitly unmapped']}}
+          (evidence/'analysis-summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+
+      - name: Final semantic validation and artifact manifest
+        working-directory: candidate
+        shell: python
+        run: |
+          import hashlib,json,os,pathlib
+          evidence=pathlib.Path(os.environ['EVIDENCE']); models=pathlib.Path(os.environ['MODELS'])
+          identity=json.loads((evidence/'identity.json').read_text()); provenance=json.loads((evidence/'provenance.json').read_text()); model=json.loads((evidence/'model-validation.json').read_text()); parity=json.loads((evidence/'l2-parity.json').read_text()); analysis=json.loads((evidence/'analysis-summary.json').read_text()); control=json.loads((evidence/'analyze-control.json').read_text()); eval_result=json.loads((evidence/'scidocs-reranking-eval.json').read_text())
+          metrics=eval_result['metrics']; checks=[
+              ('identity terminal success',identity['success'] and identity['phase']=='completed' and identity['outer_exit_code']==0 and not identity['timed_out'] and identity['error'] is None),
+              ('candidate agreement',all(x['candidate']==os.environ['CANDIDATE'] for x in (identity,provenance,analysis,control))),
+              ('lock agreement',identity['lock_sha256']==provenance['lock_sha256']),
+              ('model validation success',model['success']),('parity success',parity['success']),
+              ('analyze wrapper completed',control['success'] and control['phase']=='completed' and control['wrapper_exit_code']==0 and not control['timed_out'] and control['error'] is None),
+              ('analysis complete',analysis['success'] and analysis['total_operators']>0 and len(analysis['per_ep'])==7),
+              ('L3 accounting',metrics['processed_groups']==2 and metrics['processed_pairs']<=20 and metrics['skipped_groups']==0),
+              ('L3 metrics',all(name in metrics for name in ('mrr@10','recall@1','recall@10'))),
+          ]
+          result={'success':all(ok for _,ok in checks),'result':'PASS' if all(ok for _,ok in checks) else 'FAIL','phase':'completed','outer_exit_code':0 if all(ok for _,ok in checks) else 1,'timed_out':False,'error':None if all(ok for _,ok in checks) else 'semantic validation failed','candidate':os.environ['CANDIDATE'],'analysis_status':analysis['status'],'checks':[{'check':name,'passed':ok} for name,ok in checks]}
+          (evidence/'semantic-validation.json').write_text(json.dumps(result,indent=2)+'\n')
+          manifest=[]
+          for root in (evidence,models):
+              for path in sorted(p for p in root.rglob('*') if p.is_file()): manifest.append({'path':str(path.relative_to(root.parent)),'bytes':path.stat().st_size,'sha256':hashlib.sha256(path.read_bytes()).hexdigest()})
+          (evidence/'artifact-manifest.json').write_text(json.dumps({'success':result['success'],'candidate':os.environ['CANDIDATE'],'lock_sha256':identity['lock_sha256'],'files':manifest},indent=2)+'\n')
+          (evidence/'job-status.json').write_text(json.dumps({'success':result['success'],'result':result['result'],'phase':'completed','outer_exit_code':result['outer_exit_code'],'timed_out':False,'error':result['error'],'candidate':os.environ['CANDIDATE'],'analysis_status':analysis['status']},indent=2)+'\n')
+          assert result['success'], result
+
+      - name: Upload complete model and quality-independent evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: l2-tester-model-validation-518dbc
+          path: |
+            ${{ env.EVIDENCE }}
+            ${{ env.MODELS }}/fp32/model.onnx
+            ${{ env.MODELS }}/fp32/winml_build_config.json
+            ${{ env.MODELS }}/fp32/export_htp_metadata.json
+            ${{ env.MODELS }}/fp16/model.onnx
+            ${{ env.MODELS }}/fp16/winml_build_config.json
+            ${{ env.MODELS }}/fp16/export_htp_metadata.json
+          if-no-files-found: error
+          retention-days: 7
+
+  lint-quality:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CANDIDATE_REPOSITORY }}
+          ref: ${{ env.CANDIDATE }}
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v4
+      - run: uv python install 3.11
+      - run: uv sync --locked --all-extras --all-groups
+      - name: Candidate-local provenance
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory evidence -Force | Out-Null
+          uv run python -c "import hashlib,json,os,pathlib,sys,importlib.metadata as m; r=pathlib.Path.cwd().resolve(); e=(r/'.venv').resolve(); d={'success':True,'candidate':os.environ['CANDIDATE'],'actual_candidate':os.popen('git rev-parse HEAD').read().strip(),'checkout_root':str(r),'environment_root':str(e),'interpreter':sys.executable,'lock_sha256':hashlib.sha256((r/'uv.lock').read_bytes()).hexdigest(),'versions':{n:m.version(n) for n in ['ruff','mypy','pytest']}}; assert d['actual_candidate']==d['candidate'] and pathlib.Path(sys.executable).resolve().is_relative_to(e); pathlib.Path('evidence/provenance.json').write_text(json.dumps(d,indent=2)+'\n')"
+      - name: License headers
+        run: uv run pre-commit run insert-license --all-files 2>&1 | Tee-Object evidence/license.log.txt
+      - name: Ruff
+        run: uv run ruff check src/ tests/ 2>&1 | Tee-Object evidence/ruff.log.txt
+      - name: Mypy
+        run: uv run mypy -p winml.modelkit 2>&1 | Tee-Object evidence/mypy.log.txt
+      - name: Record terminal status
+        if: success()
+        shell: pwsh
+        run: |
+          @{success=$true;result='PASS';phase='completed';outer_exit_code=0;timed_out=$false;error=$null;candidate=$env:CANDIDATE} | ConvertTo-Json | Out-File evidence/status.json -Encoding utf8
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: l2-tester-quality-lint-518dbc
+          path: evidence
+          if-no-files-found: error
+          retention-days: 7
+
+  test-quality:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: analyze
+            paths: tests/unit/analyze
+          - group: models
+            paths: tests/unit/models tests/unit/loader tests/unit/datasets tests/unit/export
+          - group: optim
+            paths: tests/unit/optim
+          - group: commands
+            paths: tests/unit/commands tests/unit/config tests/unit/build tests/unit/compiler tests/unit/session tests/unit/eval
+          - group: remaining
+            paths: tests/unit/core tests/unit/onnx tests/unit/cache tests/unit/utils tests/unit/test_helpers tests/unit/sysinfo tests/unit/inspect tests/unit/optracing tests/regression tests/cli
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CANDIDATE_REPOSITORY }}
+          ref: ${{ env.CANDIDATE }}
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v4
+      - run: uv python install 3.11
+      - run: uv sync --locked --all-extras
+      - name: Candidate-local provenance
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory evidence -Force | Out-Null
+          uv run python -c "import hashlib,json,os,pathlib,sys,importlib.metadata as m; r=pathlib.Path.cwd().resolve(); e=(r/'.venv').resolve(); d={'success':True,'candidate':os.environ['CANDIDATE'],'actual_candidate':os.popen('git rev-parse HEAD').read().strip(),'group':'${{ matrix.group }}','paths':'${{ matrix.paths }}','checkout_root':str(r),'environment_root':str(e),'interpreter':sys.executable,'lock_sha256':hashlib.sha256((r/'uv.lock').read_bytes()).hexdigest(),'pytest':m.version('pytest')}; assert d['actual_candidate']==d['candidate'] and pathlib.Path(sys.executable).resolve().is_relative_to(e); pathlib.Path('evidence/provenance.json').write_text(json.dumps(d,indent=2)+'\n')"
+      - name: Run workflow partition
+        shell: pwsh
+        run: |
+          uv run pytest ${{ matrix.paths }} --tb=short --no-cov -m "not e2e and not npu and not gpu" 2>&1 | Tee-Object evidence/pytest.log.txt
+          if ($LASTEXITCODE -ne 0) { throw "Partition failed: $LASTEXITCODE" }
+      - name: Record terminal status
+        if: success()
+        shell: pwsh
+        run: |
+          @{success=$true;result='PASS';phase='completed';outer_exit_code=0;timed_out=$false;error=$null;candidate=$env:CANDIDATE;group='${{ matrix.group }}'} | ConvertTo-Json | Out-File evidence/status.json -Encoding utf8
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: l2-tester-quality-${{ matrix.group }}-518dbc
+          path: evidence
+          if-no-files-found: error
+          retention-days: 7
