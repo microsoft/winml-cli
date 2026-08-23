@@ -228,19 +228,28 @@ jobs:
           (COMMANDS / "hf-hydration.record.json").write_text(json.dumps(hydration_record, indent=2) + "\n", encoding="utf-8")
           records.append(hydration_record)
 
-          import optimum.exporters.onnx.model_configs  # noqa: F401
-          from optimum.exporters.tasks import TasksManager
-          from winml.modelkit.export.io import ensure_hf_models_registered
-
           model_type = "xlm-roberta"
-          vendor = sorted(TasksManager._SUPPORTED_MODEL_TYPE.get(model_type, {}).get("onnx", {}).keys())
-          ensure_hf_models_registered()
-          after = sorted(TasksManager._SUPPORTED_MODEL_TYPE.get(model_type, {}).get("onnx", {}).keys())
-          optimum = {"model_type": model_type, "vendor": vendor, "after_winml": after, "added_by_winml": sorted(set(after) - set(vendor))}
+          try:
+              import optimum.exporters.onnx.model_configs  # noqa: F401
+              from optimum.exporters.tasks import TasksManager
+              from winml.modelkit.export.io import ensure_hf_models_registered
+
+              vendor = sorted(TasksManager._SUPPORTED_MODEL_TYPE.get(model_type, {}).get("onnx", {}).keys())
+              ensure_hf_models_registered()
+              after = sorted(TasksManager._SUPPORTED_MODEL_TYPE.get(model_type, {}).get("onnx", {}).keys())
+              optimum = {"model_type": model_type, "vendor": vendor, "after_winml": after, "added_by_winml": sorted(set(after) - set(vendor)), "status": "PASS"}
+              optimum_exit = 0
+              optimum_error = "<EMPTY STDERR>\n"
+          except Exception:
+              import traceback
+
+              optimum_error = traceback.format_exc()
+              optimum = {"model_type": model_type, "vendor": None, "after_winml": None, "added_by_winml": None, "status": "FAIL-IMPORT", "error": optimum_error.strip()}
+              optimum_exit = 1
           (EVIDENCE / "optimum_probe.json").write_text(json.dumps(optimum, indent=2) + "\n", encoding="utf-8")
           write_text(COMMANDS / "optimum-probe.stdout.txt", json.dumps(optimum) + "\n")
-          write_text(COMMANDS / "optimum-probe.stderr.txt", "<EMPTY STDERR>\n")
-          optimum_record = {"name": "optimum-probe", "command": "TasksManager before/after ensure_hf_models_registered()", "exit_code": 0, "timed_out": False, "stdout": "commands/optimum-probe.stdout.txt", "stderr": "commands/optimum-probe.stderr.txt", "output": "optimum_probe.json"}
+          write_text(COMMANDS / "optimum-probe.stderr.txt", optimum_error)
+          optimum_record = {"name": "optimum-probe", "command": "TasksManager before/after ensure_hf_models_registered()", "exit_code": optimum_exit, "timed_out": False, "stdout": "commands/optimum-probe.stdout.txt", "stderr": "commands/optimum-probe.stderr.txt", "output": "optimum_probe.json"}
           (COMMANDS / "optimum-probe.record.json").write_text(json.dumps(optimum_record, indent=2) + "\n", encoding="utf-8")
           records.append(optimum_record)
 
