@@ -19,6 +19,7 @@ from winml.modelkit.eval.ctc_asr_evaluator import (
     _corpus_error_rate,
     _decode_audio,
     _is_ctc_config,
+    _load_ctc_processor,
     _normalize_transcript,
     _RejectedSampleError,
     _resample_audio,
@@ -199,16 +200,93 @@ def test_resample_uses_processor_rate_only_when_needed() -> None:
     assert _resample_audio(waveform, 8_000, 16_000).shape == (160,)
 
 
-def test_language_selection_uses_config_and_tokenizer_semantics() -> None:
+def test_optional_lm_dependency_falls_back_to_plain_wav2vec2_processor() -> None:
+    feature_extractor = object()
+    tokenizer = object()
+    processor = object()
+    missing_lm = ImportError(
+        "Wav2Vec2ProcessorWithLM requires the pyctcdecode library but it was not found"
+    )
+
+    with (
+        patch("transformers.AutoProcessor.from_pretrained", side_effect=missing_lm),
+        patch("transformers.AutoFeatureExtractor.from_pretrained", return_value=feature_extractor),
+        patch("transformers.AutoTokenizer.from_pretrained", return_value=tokenizer),
+        patch("transformers.Wav2Vec2Processor", return_value=processor) as processor_class,
+    ):
+        assert _load_ctc_processor("org/ctc-model", trust_remote_code=False) is processor
+
+    processor_class.assert_called_once_with(
+        feature_extractor=feature_extractor,
+        tokenizer=tokenizer,
+    )
+
+
+def test_available_lm_processor_is_preserved() -> None:
+    processor = object()
+    with patch("transformers.AutoProcessor.from_pretrained", return_value=processor):
+        assert _load_ctc_processor("org/lm-model", trust_remote_code=False) is processor
+
+
+def test_unrelated_processor_import_error_fails_closed() -> None:
+    with (
+        patch(
+            "transformers.AutoProcessor.from_pretrained",
+            side_effect=ImportError("unsupported custom processor dependency"),
+        ),
+        pytest.raises(ImportError, match="unsupported custom processor dependency"),
+    ):
+        _load_ctc_processor("org/unsupported-model", trust_remote_code=False)
+
+
+def test_incompatible_greedy_processor_components_fail_clearly() -> None:
+    missing_lm = ImportError(
+        "Wav2Vec2ProcessorWithLM requires the pyctcdecode library but it was not found"
+    )
+    with (
+        patch("transformers.AutoProcessor.from_pretrained", side_effect=missing_lm),
+        patch("transformers.AutoFeatureExtractor.from_pretrained", return_value=object()),
+        patch("transformers.AutoTokenizer.from_pretrained", return_value=object()),
+        patch("transformers.Wav2Vec2Processor", side_effect=TypeError("incompatible components")),
+        pytest.raises(ValueError, match="cannot form a greedy CTC processor"),
+    ):
+        _load_ctc_processor("org/unsupported-model", trust_remote_code=False)
+
+
+def test_ordinary_wav2vec2_tokenizer_accepts_null_target_language() -> None:
+    processor = _Processor(target_lang=None)
+    assert _configure_processor_language(processor, SimpleNamespace(adapter_attn_dim=None)) is None
+
+
+def test_mms_language_selection_uses_adapter_metadata() -> None:
     processor = _Processor(target_lang="eng")
-    active = _configure_processor_language(processor, SimpleNamespace(target_lang="deu"))
+    active = _configure_processor_language(
+        processor,
+        SimpleNamespace(target_lang="deu", adapter_attn_dim=16),
+    )
     assert active == "deu"
     assert processor.tokenizer.target_lang == "deu"
 
 
-def test_processor_published_language_is_preserved_without_config_override() -> None:
+def test_mms_published_language_is_preserved_without_config_override() -> None:
     processor = _Processor(target_lang="eng")
-    assert _configure_processor_language(processor, SimpleNamespace()) == "eng"
+    assert _configure_processor_language(processor, SimpleNamespace(adapter_attn_dim=16)) == "eng"
+
+
+def test_invalid_mms_adapter_fails_closed() -> None:
+    processor = _Processor(target_lang="eng")
+    processor.tokenizer.set_target_lang = MagicMock(side_effect=ValueError("invalid adapter"))
+    with pytest.raises(ValueError, match="cannot select requested adapter language 'invalid'"):
+        _configure_processor_language(
+            processor,
+            SimpleNamespace(target_lang="invalid", adapter_attn_dim=16),
+        )
+
+
+def test_mms_adapter_metadata_requires_an_active_language() -> None:
+    processor = _Processor(target_lang=None)
+    with pytest.raises(ValueError, match="supports language adapters but no language is active"):
+        _configure_processor_language(processor, SimpleNamespace(adapter_attn_dim=16))
 
 
 def test_static_audio_windows_pad_and_insert_blank_for_processor_ctc_decode() -> None:

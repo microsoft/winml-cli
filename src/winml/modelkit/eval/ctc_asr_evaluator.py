@@ -131,6 +131,36 @@ def _is_ctc_config(config: Any) -> bool:
     )
 
 
+def _load_ctc_processor(model_id: str, *, trust_remote_code: bool) -> Any:
+    """Load the published processor, falling back only from an unavailable optional LM."""
+    from transformers import AutoProcessor
+
+    try:
+        return AutoProcessor.from_pretrained(model_id, trust_remote_code=trust_remote_code)
+    except ImportError as error:
+        message = str(error)
+        if "Wav2Vec2ProcessorWithLM" not in message or "pyctcdecode" not in message:
+            raise
+
+    from transformers import AutoFeatureExtractor, AutoTokenizer, Wav2Vec2Processor
+
+    try:
+        feature_extractor = AutoFeatureExtractor.from_pretrained(
+            model_id,
+            trust_remote_code=trust_remote_code,
+        )
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_id,
+            trust_remote_code=trust_remote_code,
+        )
+        return Wav2Vec2Processor(feature_extractor=feature_extractor, tokenizer=tokenizer)
+    except Exception as error:
+        raise ValueError(
+            "The checkpoint declares Wav2Vec2ProcessorWithLM, but optional pyctcdecode is "
+            "unavailable and its feature extractor/tokenizer cannot form a greedy CTC processor."
+        ) from error
+
+
 def _configure_processor_language(processor: Any, model_config: Any) -> str | None:
     """Select and validate a tokenizer language using checkpoint metadata only."""
     tokenizer = getattr(processor, "tokenizer", processor)
@@ -140,6 +170,17 @@ def _configure_processor_language(processor: Any, model_config: Any) -> str | No
         None,
     )
     active = getattr(tokenizer, "target_lang", None)
+    adapter_attn_dim = getattr(model_config, "adapter_attn_dim", None)
+    adapter_capable = (
+        isinstance(adapter_attn_dim, int) and adapter_attn_dim > 0
+    ) or active is not None
+    if not adapter_capable:
+        if configured is not None:
+            raise ValueError(
+                f"Checkpoint requests target language {configured!r}, but its metadata does not "
+                "expose language-adapter support."
+            )
+        return None
     if configured is not None and configured != active:
         setter = getattr(tokenizer, "set_target_lang", None)
         if not callable(setter):
@@ -147,10 +188,19 @@ def _configure_processor_language(processor: Any, model_config: Any) -> str | No
                 f"Checkpoint requests target language {configured!r}, but its tokenizer "
                 "cannot select a language."
             )
-        setter(configured)
+        try:
+            setter(configured)
+        except Exception as error:
+            raise ValueError(
+                f"Checkpoint tokenizer cannot select requested adapter language {configured!r}."
+            ) from error
         active = getattr(tokenizer, "target_lang", configured)
-    if hasattr(tokenizer, "target_lang") and not active:
-        raise ValueError("The checkpoint tokenizer exposes target_lang but no language is active.")
+        if active != configured:
+            raise ValueError(
+                f"Checkpoint tokenizer did not activate requested adapter language {configured!r}."
+            )
+    if not active:
+        raise ValueError("The checkpoint supports language adapters but no language is active.")
     return str(active) if active is not None else None
 
 
@@ -170,9 +220,7 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
         if not config.model_id:
             raise ValueError("CTC ASR evaluation requires model_id to load its processor.")
 
-        from transformers import AutoProcessor
-
-        self.processor = AutoProcessor.from_pretrained(
+        self.processor = _load_ctc_processor(
             config.model_id,
             trust_remote_code=config.trust_remote_code,
         )
