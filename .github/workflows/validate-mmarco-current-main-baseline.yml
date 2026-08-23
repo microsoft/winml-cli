@@ -35,11 +35,12 @@ jobs:
       - name: Assert exact checkout
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path evidence -Force | Out-Null
           $head = (git rev-parse HEAD).Trim()
           if ($head -ne $env:MAIN_SHA) { throw "HEAD mismatch: $head != $env:MAIN_SHA" }
-          git status --porcelain=v1 | Out-File evidence/checkout-status.txt -Encoding utf8
-          if ((Get-Content evidence/checkout-status.txt -Raw).Trim()) { throw 'Exact-main checkout is dirty.' }
+                    $checkoutStatus = git status --porcelain=v1
+                    if ($checkoutStatus) { throw "Exact-main checkout is dirty: $checkoutStatus" }
+                    New-Item -ItemType Directory -Path evidence -Force | Out-Null
+                    '<CLEAN>' | Out-File evidence/checkout-status.txt -Encoding utf8
           @{
             repository = 'microsoft/winml-cli'
             head = $head
