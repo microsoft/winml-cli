@@ -466,7 +466,7 @@ jobs:
               structure[kind] = {"model": str(path), "ir_version": graph.ir_version, "opsets": [{"domain": item.domain, "version": item.version} for item in graph.opset_import], "inputs": inputs, "outputs": outputs, "initializer_types": dict(types), "external_data": external, "artifact_bytes": sum(item.stat().st_size for item in files), "files": [{"name": item.name, "bytes": item.stat().st_size, "sha256": hashlib.sha256(item.read_bytes()).hexdigest()} for item in files], "operator_counts": dict(collections.Counter(node.op_type for node in graph.graph.node)), "node_count": len(graph.graph.node)}
           if structure["fp16"]["artifact_bytes"] >= structure["fp32"]["artifact_bytes"] * 0.75:
               raise SystemExit("fp16 artifact does not show expected size reduction")
-            def read_log(path):
+          def read_log(path):
               payload = path.read_bytes()
               for encoding in ("utf-8-sig", "utf-16"):
                 try:
@@ -474,7 +474,7 @@ jobs:
                 except UnicodeDecodeError:
                   pass
               return payload.decode("utf-8", errors="replace")
-            logs = read_log(evidence / "build-fp32.log.txt") + read_log(evidence / "build-fp16.log.txt")
+          logs = read_log(evidence / "build-fp32.log.txt") + read_log(evidence / "build-fp16.log.txt")
           random_warning = "were newly initialized" in logs or "probably TRAIN this model" in logs
           if random_warning:
               raise SystemExit("Random-head warning found in build logs")
