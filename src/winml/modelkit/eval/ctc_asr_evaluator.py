@@ -204,6 +204,28 @@ def _configure_processor_language(processor: Any, model_config: Any) -> str | No
     return str(active) if active is not None else None
 
 
+def _selected_row_provenance(row: dict[str, Any], audio_column: str) -> dict[str, Any]:
+    source_index = row.get("_winml_source_index")
+    if not isinstance(source_index, int) or isinstance(source_index, bool):
+        raise DatasetValidationError("Selected ASR row has no valid source index provenance.")
+    audio = row.get(audio_column)
+    audio_path: str | None = None
+    audio_key: str | int | None = None
+    if isinstance(audio, dict):
+        path = audio.get("path")
+        if isinstance(path, str) and path:
+            audio_path = Path(path).name
+        key = audio.get("key")
+        if isinstance(key, (str, int)) and not isinstance(key, bool):
+            audio_key = key
+    return {
+        "source_index": source_index,
+        "dataset_id": row.get("id"),
+        "audio_path": audio_path,
+        "audio_key": audio_key,
+    }
+
+
 class WinMLCTCASREvaluator(WinMLEvaluator):
     """Evaluate metadata-resolved CTC ASR models with bounded full utterances."""
 
@@ -267,18 +289,21 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
         validate_dataset_columns(dataset, "automatic-speech-recognition", ds.columns_mapping)
         if ds.streaming:
             rows = list(dataset.take(ds.samples))
-            if rows and "id" in rows[0]:
-                rows.sort(key=lambda row: row["id"])
-            return Dataset.from_list(rows)
-        if "id" in dataset.column_names:
-            dataset = dataset.sort("id")
-        return dataset.select(range(min(ds.samples, len(dataset))))
+        else:
+            rows = [dataset[index] for index in range(min(ds.samples, len(dataset)))]
+        return Dataset.from_list(
+            [{**row, "_winml_source_index": index} for index, row in enumerate(rows)]
+        )
 
     def compute(self) -> dict[str, Any]:
         """Decode bounded rows and report corpus WER/CER plus accounting."""
         predictions: list[str] = []
         references: list[str] = []
         rejection_reasons: Counter[str] = Counter()
+        selected_rows = [_selected_row_provenance(row, self._audio_column) for row in self.data]
+        source_indices = [row["source_index"] for row in selected_rows]
+        if len(source_indices) != len(set(source_indices)):
+            raise DatasetValidationError("Selected ASR rows contain duplicate source indices.")
 
         for row in self.data:
             try:
@@ -303,6 +328,13 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
             "cer": _corpus_error_rate(references, predictions, words=False),
             "predictions": predictions,
             "references": references,
+            "requested_samples": self.config.dataset.samples,
+            "selected_samples": len(selected_rows),
+            "selected_source_ids": [row["dataset_id"] for row in selected_rows],
+            "selected_source_indices": source_indices,
+            "selected_audio_paths": [row["audio_path"] for row in selected_rows],
+            "selected_audio_keys": [row["audio_key"] for row in selected_rows],
+            "selected_rows": selected_rows,
             "processed_samples": len(predictions),
             "skipped_samples": 0,
             "rejected_samples": rejected,
