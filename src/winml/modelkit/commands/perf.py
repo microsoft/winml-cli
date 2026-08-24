@@ -304,6 +304,117 @@ def _pre_bench_kwargs_from_ep_device(
     }
 
 
+def _get_ep_device_binding(
+    ep_device: WinMLEPDevice | None,
+    provider_options: dict[str, str] | None = None,
+) -> tuple[str | None, str | None]:
+    """Return the effective LUID and device kind for a concrete EP binding."""
+    if ep_device is None:
+        return None, None
+
+    from ..sysinfo import get_ep_device_luid
+
+    device = ep_device.device
+    has_provider_selector, provider_device = _get_provider_selected_device(
+        ep_device,
+        provider_options,
+    )
+    if has_provider_selector and provider_device is None:
+        return None, None
+
+    if provider_options:
+        candidates = [
+            candidate
+            for candidate in ep_device.ep.devices
+            if provider_device is None
+            or candidate.device_type.lower() == provider_device
+        ]
+        if not candidates:
+            return None, provider_device
+        candidate_options = [
+            (
+                candidate,
+                {
+                    str(key): str(value)
+                    for key, value in candidate.ort_handle.ep_options.items()
+                },
+            )
+            for candidate in candidates
+        ]
+        advertised_keys = {
+            key for _, options in candidate_options for key in options
+        }
+        selected_options = {
+            str(key): str(value)
+            for key, value in device.ort_handle.ep_options.items()
+        }
+        device_overrides = {
+            key: str(value)
+            for key, value in provider_options.items()
+            if key in advertised_keys and selected_options.get(key) != str(value)
+        }
+        if device_overrides:
+            matches = [
+                candidate
+                for candidate, options in candidate_options
+                if all(options.get(key) == value for key, value in device_overrides.items())
+            ]
+            if len(matches) != 1:
+                return None, provider_device
+            device = matches[0]
+        elif has_provider_selector and device not in candidates:
+            if len(candidates) != 1:
+                return None, provider_device
+            device = candidates[0]
+
+    luid = get_ep_device_luid(device.ort_handle)
+    device_kind = device.device_type.lower()
+    if device_kind not in ACCELERATOR_DEVICE_TYPES:
+        return (None, device_kind) if has_provider_selector else (None, None)
+    return luid, device_kind
+
+
+def _get_provider_selected_device(
+    ep_device: WinMLEPDevice | None,
+    provider_options: dict[str, str] | None,
+) -> tuple[bool, str | None]:
+    """Return whether provider options select a device and the resolved kind."""
+    if ep_device is None or not provider_options:
+        return False, None
+
+    from ..session import device_from_provider_option_hints
+
+    return device_from_provider_option_hints(
+        ep_device.device.ep_name,
+        provider_options,
+    )
+
+
+def _get_monitor_binding(
+    ep_device: WinMLEPDevice | None,
+    requested_device: str,
+    provider_options: dict[str, str] | None,
+) -> tuple[str, str | None, str | None]:
+    """Return the safe monitor device, LUID, and bound adapter device."""
+    adapter_luid, adapter_device = _get_ep_device_binding(
+        ep_device,
+        provider_options,
+    )
+    has_provider_selector, _ = _get_provider_selected_device(
+        ep_device,
+        provider_options,
+    )
+    if has_provider_selector and adapter_luid is None:
+        return "cpu", None, None
+
+    monitor_device = adapter_device or requested_device
+    return (
+        monitor_device,
+        adapter_luid,
+        adapter_device if adapter_luid is not None else None,
+    )
+
+
 def _open_ep_monitor_or_exit(
     *,
     op_tracing: str | None,
@@ -1164,13 +1275,31 @@ class PerfBenchmark:
         if device == "cpu":
             return None
 
+        bound_luid, bound_device = _get_ep_device_binding(
+            self._ep_device,
+            self.config.ep_options,
+        )
+        if bound_luid is not None:
+            return bound_luid
+        has_provider_selector, _ = _get_provider_selected_device(
+            self._ep_device,
+            self.config.ep_options,
+        )
+        if has_provider_selector:
+            return None
+
         try:
             from ..sysinfo.pdh_adapters import resolve_adapter_luid
 
             # ep_name is the full ORT EP name (a member of EPName at runtime);
             # WinMLPreTrainedModel types it loosely as ``str | None``.
             ep_name = cast("EPName | None", self._single.ep_name)
-            kinds = (device,) if device in ACCELERATOR_DEVICE_TYPES else ACCELERATOR_DEVICE_TYPES
+            effective_device = bound_device or device
+            kinds = (
+                (effective_device,)
+                if effective_device in ACCELERATOR_DEVICE_TYPES
+                else ACCELERATOR_DEVICE_TYPES
+            )
             for kind in kinds:
                 luid = resolve_adapter_luid(kind, ep_name=ep_name)
                 if luid:
@@ -1258,13 +1387,20 @@ class PerfBenchmark:
         # Full ORT EP name; HWMonitor resolves the adapter LUID from it.
         ep_name = cast("EPName | None", self._single.ep_name)
         monitor_device = self._single.device or self.config.device or "auto"
+        effective_monitor_device, adapter_luid, adapter_device = _get_monitor_binding(
+            self._ep_device,
+            monitor_device,
+            self.config.ep_options,
+        )
 
         session = self._single._session
         if hw_available:
             hw_monitor = HWMonitor(
                 poll_interval_ms=_HW_POLL_INTERVAL_MS,
-                device=monitor_device,
+                device=effective_monitor_device,
                 ep_name=ep_name,
+                adapter_luid=adapter_luid,
+                adapter_device=adapter_device if adapter_luid is not None else None,
             )
             with (
                 _native_warning_filtered_perf(
@@ -1615,10 +1751,23 @@ def _perf_modules(
                     from ..session.monitor.hw_monitor import HWMonitor
 
                     if HWMonitor.is_available():
+                        (
+                            effective_monitor_device,
+                            adapter_luid,
+                            adapter_device,
+                        ) = _get_monitor_binding(
+                            resolved_ep_device,
+                            resolved_device,
+                            ep_options,
+                        )
                         hw_ctx = HWMonitor(
                             poll_interval_ms=_HW_POLL_INTERVAL_MS,
-                            device=resolved_device,
+                            device=effective_monitor_device,
                             ep_name=cast("EPName | None", session.ep_name),
+                            adapter_luid=adapter_luid,
+                            adapter_device=(
+                                adapter_device if adapter_luid is not None else None
+                            ),
                         )
 
                 if hw_ctx:
