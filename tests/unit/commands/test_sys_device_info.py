@@ -31,6 +31,7 @@ from winml.modelkit.commands.sys import (
     _gather,
     _gather_device_info,
     _get_memory_info,
+    _render_compact,
 )
 
 
@@ -40,6 +41,7 @@ def _fake_ep_info(
     hardware_name: str,
     architecture: str | None = None,
     driver: str | None = None,
+    luid: str | None = None,
     ep_name: str = "OpenVINOExecutionProvider",
 ) -> dict[str, dict[str, Any]]:
     """Build an ``ep_info``-shaped dict with a single per-source device row.
@@ -61,6 +63,7 @@ def _fake_ep_info(
                         {
                             "device_type": device_type,
                             "hardware_name": hardware_name,
+                            "luid": luid,
                             "device_facts": facts,
                         }
                     ]
@@ -86,6 +89,7 @@ class TestDeviceInfoEnrichment:
             device_type="NPU",
             hardware_name="Intel(R) AI Boost",
             architecture="4000",
+            luid="0x00000000_0x00018393",
         )
 
         with (
@@ -101,6 +105,7 @@ class TestDeviceInfoEnrichment:
         assert npu_entry["name"] == "Intel(R) AI Boost"
         # The architecture came from the ep_info device row's device_facts.
         assert npu_entry["details"]["architecture"] == "4000"
+        assert npu_entry["details"]["luid"] == "0x00000000_0x00018393"
         # sysinfo-provided driver is preserved (setdefault doesn't clobber).
         assert npu_entry["details"]["driver"] == "32.0.100.4023"
 
@@ -129,6 +134,7 @@ class TestDeviceInfoEnrichment:
         assert len(result) == 1
         npu_entry = result[0]
         assert "architecture" not in npu_entry["details"]
+        assert npu_entry["details"]["luid"] is None
         assert npu_entry["details"]["driver"] == "32.0.100.4023"
 
     def test_device_info_first_match_wins(self) -> None:
@@ -195,6 +201,7 @@ class TestDeviceInfoEnrichment:
         # Sysinfo-only details survive without any ep_info to enrich from.
         assert len(result) == 1
         assert result[0]["details"]["driver"] == "32.0.100"
+        assert result[0]["details"]["luid"] is None
         assert "architecture" not in result[0]["details"]
 
 class TestMemoryInfo:
@@ -227,6 +234,32 @@ class TestMemoryInfo:
             assert _get_memory_info() == {"physical_total_mib": None}
 
         assert "physical memory total must be greater than zero" in caplog.text
+
+
+def test_compact_device_output_includes_luid(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _render_compact(
+        {
+            "devices": [
+                {
+                    "type": "GPU",
+                    "name": "Test GPU",
+                    "details": {"luid": "0x00000000_0x00018393"},
+                },
+                {
+                    "type": "CPU",
+                    "name": "Test CPU",
+                    "details": {"luid": None},
+                },
+            ]
+        },
+        False,
+    )
+
+    output = capsys.readouterr().out
+    assert "GPU: Test GPU (LUID: 0x00000000_0x00018393)" in output
+    assert "CPU: Test CPU (LUID: N/A)" in output
 
 
 class TestGatherDeviceSectionEnrichment:

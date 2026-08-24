@@ -604,12 +604,14 @@ def _gather_device_info(
                 entry["details"] = {
                     "driver": item.driver_version,
                     "manufacturer": item.manufacturer,
+                    "luid": None,
                 }
             elif device_label == "CPU":
                 entry["details"] = {
                     "cores": item.core_count,
                     "threads": item.thread_count,
                     "architecture": item.architecture.name,
+                    "luid": None,
                 }
             result.append(entry)
             priority += 1
@@ -640,6 +642,7 @@ def _gather_device_info(
                 )
                 if matched_dev is None:
                     continue
+                entry["details"]["luid"] = matched_dev.get("luid")
                 # ``device_facts`` values are ``"Label: Value"`` strings;
                 # split on the first colon so we can merge by lowercased
                 # key alongside sysinfo's details.
@@ -696,6 +699,7 @@ def _output_device_text(devices: list[dict[str, Any]]) -> None:
             console.print(f"             [red]Error: {escape(details['error'])}[/red]")
         elif dev["type"] in ("NPU", "GPU"):
             parts = [
+                f"LUID: {details.get('luid') or 'N/A'}",
                 f"Driver: {details.get('driver', 'N/A')}",
                 f"Manufacturer: {details.get('manufacturer', 'N/A')}",
             ]
@@ -704,7 +708,8 @@ def _output_device_text(devices: list[dict[str, Any]]) -> None:
             console.print(f"             {' | '.join(parts)}")
         elif dev["type"] == "CPU":
             console.print(
-                f"             Cores: {details.get('cores', 'N/A')} | "
+                f"             LUID: {details.get('luid') or 'N/A'} | "
+                f"Cores: {details.get('cores', 'N/A')} | "
                 f"Threads: {details.get('threads', 'N/A')} | "
                 f"Architecture: {details.get('architecture', 'N/A')}"
             )
@@ -1203,7 +1208,11 @@ def _render_compact(info: dict[str, Any], _verbose: bool) -> None:
     if "python" in info:
         _output_compact(info)
     if "devices" in info:
-        parts = [f"{d['type']}: {d['name'].strip()}" for d in info["devices"]]
+        parts = [
+            f"{d['type']}: {d['name'].strip()} "
+            f"(LUID: {d.get('details', {}).get('luid') or 'N/A'})"
+            for d in info["devices"]
+        ]
         click.echo(" | ".join(parts) if parts else "No devices found")
     if "executionProviders" in info:
         parts = list(info["executionProviders"])

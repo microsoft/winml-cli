@@ -65,8 +65,11 @@ ML Libraries
 
 Available Devices (priority order)
   #1  NPU   Qualcomm(R) Hexagon NPU
+             LUID: 0x00000000_0x00018393 | Driver: 1.0.0 | Manufacturer: Qualcomm
   #2  GPU   Qualcomm(R) Adreno GPU
+             LUID: 0x00000000_0x00018394 | Driver: 1.0.0 | Manufacturer: Qualcomm
   #3  CPU   Snapdragon(R) X Elite
+             LUID: N/A | Cores: 12 | Threads: 12 | Architecture: ARM64
 
 Available Execution Providers
   QNNExecutionProvider           -> NPU/GPU
