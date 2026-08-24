@@ -714,8 +714,11 @@ class TestEPDeviceMonitorBinding:
             "gpu",
         )
 
-    def test_qnn_backend_without_candidate_uses_selected_device_discovery(self) -> None:
-        from winml.modelkit.commands.perf import _get_ep_device_binding
+    def test_qnn_backend_without_candidate_disables_adapter_monitoring(self) -> None:
+        from winml.modelkit.commands.perf import (
+            _get_ep_device_binding,
+            _get_monitor_binding,
+        )
 
         npu = SimpleNamespace(
             device_type="NPU",
@@ -734,6 +737,46 @@ class TestEPDeviceMonitorBinding:
             None,
             "gpu",
         )
+        assert _get_monitor_binding(
+            ep_device,
+            "npu",
+            {"backend_type": "gpu"},
+        ) == ("cpu", None, None)
+
+    def test_qnn_backend_without_candidate_disables_vram_discovery(self) -> None:
+        from winml.modelkit.commands.perf import BenchmarkConfig, PerfBenchmark
+
+        npu = SimpleNamespace(
+            device_type="NPU",
+            ep_name="QNNExecutionProvider",
+            ort_handle=SimpleNamespace(
+                ep_options={},
+                device=SimpleNamespace(metadata={"LUID": "99219"}),
+            ),
+        )
+        ep_device = SimpleNamespace(
+            device=npu,
+            ep=SimpleNamespace(devices=(npu,)),
+        )
+        benchmark = PerfBenchmark(
+            BenchmarkConfig(
+                model_id="fake/model",
+                device="npu",
+                ep_options={"backend_type": "gpu"},
+            )
+        )
+        benchmark._model = SimpleNamespace(
+            device="npu",
+            ep_name="QNNExecutionProvider",
+        )
+        benchmark._ep_device = ep_device
+
+        with patch(
+            "winml.modelkit.sysinfo.pdh_adapters.resolve_adapter_luid"
+        ) as resolve_adapter_luid:
+            assert benchmark._resolve_adapter_luid() is None
+
+        resolve_adapter_luid.assert_not_called()
 
     def test_unknown_qnn_backend_disables_bound_adapter(self) -> None:
         from winml.modelkit.commands.perf import (

@@ -400,11 +400,11 @@ def _get_monitor_binding(
         ep_device,
         provider_options,
     )
-    has_provider_selector, provider_device = _get_provider_selected_device(
+    has_provider_selector, _ = _get_provider_selected_device(
         ep_device,
         provider_options,
     )
-    if has_provider_selector and provider_device is None:
+    if has_provider_selector and adapter_luid is None:
         return "cpu", None, None
 
     monitor_device = adapter_device or requested_device
@@ -1281,11 +1281,11 @@ class PerfBenchmark:
         )
         if bound_luid is not None:
             return bound_luid
-        has_provider_selector, provider_device = _get_provider_selected_device(
+        has_provider_selector, _ = _get_provider_selected_device(
             self._ep_device,
             self.config.ep_options,
         )
-        if has_provider_selector and provider_device not in ACCELERATOR_DEVICE_TYPES:
+        if has_provider_selector:
             return None
 
         try:

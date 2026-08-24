@@ -459,7 +459,7 @@ def device_from_provider_option_hints(
     matches: set[str] | None = None
     for key in selector_keys.intersection(options):
         actual = str(options[key]).replace("\\", "/").rsplit("/", 1)[-1]
-        key_matches = {
+        key_matches: set[str] = {
             spec.device
             for spec in specs
             if key in spec.provider_option_hints
