@@ -209,8 +209,8 @@ def _patched_trocr_sinusoidal_positional_embedding_forward(
             self.weights = weights
         ref_tensor = getattr(self, "_float_tensor", None)
         if ref_tensor is not None and not ref_tensor.is_meta:
-            return cast("torch.Tensor", weights.to(ref_tensor))
-        return cast("torch.Tensor", weights.to(input_ids.device))
+            return weights.to(ref_tensor)
+        return weights.to(input_ids.device)
 
     abs_pos = getattr(self, "position_id", None)
     if abs_pos is not None:
