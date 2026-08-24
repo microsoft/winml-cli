@@ -209,8 +209,10 @@ def _patched_trocr_sinusoidal_positional_embedding_forward(
             self.weights = weights
         ref_tensor = getattr(self, "_float_tensor", None)
         if ref_tensor is not None and not ref_tensor.is_meta:
-            return weights.to(ref_tensor)
-        return weights.to(input_ids.device)
+            runtime_weights: torch.Tensor = weights.to(ref_tensor)
+            return runtime_weights
+        runtime_weights = weights.to(input_ids.device)
+        return runtime_weights
 
     abs_pos = getattr(self, "position_id", None)
     if abs_pos is not None:
@@ -227,12 +229,9 @@ def _patched_trocr_sinusoidal_positional_embedding_forward(
             weights = weights[offset:]
         else:
             position_ids = (abs_pos + offset).long()
-        return cast(
-            "torch.Tensor",
-            weights.index_select(0, position_ids.view(-1))
-            .view(position_ids.size(0), position_ids.size(1), -1)
-            .detach(),
-        )
+        return weights.index_select(0, position_ids.view(-1)).view(
+            position_ids.size(0), position_ids.size(1), -1
+        ).detach()
     # Below: identical to HF's original ``TrOCRSinusoidalPositionalEmbedding.forward``.
     bsz, seq_len = input_ids.size()
     position_ids = self.create_position_ids_from_input_ids(
@@ -242,10 +241,7 @@ def _patched_trocr_sinusoidal_positional_embedding_forward(
     if self.weights is None or max_pos > self.weights.size(0):
         self.weights = self.get_embedding(max_pos, self.embedding_dim, padding_idx)
     weights = _runtime_weights()
-    return cast(
-        "torch.Tensor",
-        weights.index_select(0, position_ids.view(-1)).view(bsz, seq_len, -1).detach(),
-    )
+    return weights.index_select(0, position_ids.view(-1)).view(bsz, seq_len, -1).detach()
 
 
 def _build_ved_patching_specs() -> list[PatchingSpec]:
