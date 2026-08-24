@@ -39,7 +39,7 @@ from winml.modelkit.session import (
     GenaiSessionError,
     GenerationTiming,
 )
-from winml.modelkit.session.monitor.memory_tracker import MEMORY_PROFILE_FIELDS
+from winml.modelkit.session.monitor.memory_tracker import RSS_MEMORY_PROFILE_FIELDS
 
 
 # ---------------------------------------------------------------------------
@@ -435,7 +435,7 @@ class TestMetricMath:
         )
         monkeypatch.setattr(
             "winml.modelkit.session.monitor.memory_tracker.get_vram_mb",
-            lambda _adapter_luid: (None, None),
+            lambda _adapter_luid: (0.0, 0.0),
         )
         monkeypatch.setattr(perf_genai, "_resolve_adapter_luid", lambda *_args: None, raising=False)
 
@@ -447,7 +447,7 @@ class TestMetricMath:
         assert result.memory_profile["rss_after_session_mb"] == 150.0
         assert result.memory_profile["rss_peak_during_inference_mb"] == 180.0
         assert result.memory_profile["rss_peak_delta_mb"] == 80.0
-        assert set(result.memory_profile) == MEMORY_PROFILE_FIELDS
+        assert set(result.memory_profile) == RSS_MEMORY_PROFILE_FIELDS
 
     def test_memory_profile_includes_vram_only_for_proven_adapter(self, monkeypatch) -> None:
         cfg = GenaiPerfConfig(
@@ -498,17 +498,21 @@ class TestMetricMath:
         result = GenaiPerfBenchmark(cfg, session=session).run()
 
         assert result.memory_profile is not None
-        assert result.memory_profile["vram_local_process_baseline_mb"] is None
-        assert result.memory_profile["vram_shared_process_baseline_mb"] is None
-        assert result.memory_profile["vram_local_before_session_mb"] == 10.0
-        assert result.memory_profile["vram_shared_before_session_mb"] == 20.0
-        assert result.memory_profile["vram_local_after_session_mb"] == 30.0
-        assert result.memory_profile["vram_shared_after_session_mb"] == 50.0
-        assert result.memory_profile["vram_local_peak_during_inference_mb"] == 40.0
-        assert result.memory_profile["vram_shared_peak_during_inference_mb"] == 70.0
-        assert result.memory_profile["vram_local_peak_delta_mb"] == 30.0
-        assert result.memory_profile["vram_shared_peak_delta_mb"] == 50.0
-        assert set(result.memory_profile) == MEMORY_PROFILE_FIELDS
+        assert result.memory_profile["vram_local_baseline_mb"] == 10.0
+        assert result.memory_profile["vram_shared_baseline_mb"] == 20.0
+        assert result.memory_profile["vram_local_after_compile_mb"] == 30.0
+        assert result.memory_profile["vram_shared_after_compile_mb"] == 50.0
+        assert result.memory_profile["vram_local_after_inference_mb"] == 40.0
+        assert result.memory_profile["vram_shared_after_inference_mb"] == 70.0
+        assert result.memory_profile["vram_local_checkpoint_peak_mb"] == 40.0
+        assert result.memory_profile["vram_shared_checkpoint_peak_mb"] == 70.0
+        assert result.memory_profile["vram_local_model_load_delta_mb"] == 20.0
+        assert result.memory_profile["vram_shared_model_load_delta_mb"] == 30.0
+        assert result.memory_profile["vram_local_inference_delta_mb"] == 10.0
+        assert result.memory_profile["vram_shared_inference_delta_mb"] == 20.0
+        assert result.memory_profile["vram_local_total_delta_mb"] == 30.0
+        assert result.memory_profile["vram_shared_total_delta_mb"] == 50.0
+        assert "vram_local_peak_during_inference_mb" not in result.memory_profile
 
 
 # ---------------------------------------------------------------------------

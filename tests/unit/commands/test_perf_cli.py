@@ -38,7 +38,7 @@ from winml.modelkit.commands.perf import (
     generate_output_path,
     perf,
 )
-from winml.modelkit.session.monitor.memory_tracker import MEMORY_PROFILE_FIELDS
+from winml.modelkit.session.monitor.memory_tracker import RSS_MEMORY_PROFILE_FIELDS
 from winml.modelkit.utils.console import SafeConsole
 
 
@@ -1984,7 +1984,7 @@ class TestClassicMemoryProfile:
             return MagicMock()
 
         monkeypatch.setattr(benchmark, "_resolve_device_ep", resolve_device_ep)
-        monkeypatch.setattr(benchmark, "_resolve_adapter_luid", lambda: None)
+        monkeypatch.setattr(benchmark, "_resolve_adapter_luid", lambda: "luid")
         monkeypatch.setattr(benchmark, "_load_model", load_model)
         monkeypatch.setattr(benchmark, "_run_benchmark", run_benchmark)
         monkeypatch.setattr(
@@ -2002,7 +2002,7 @@ class TestClassicMemoryProfile:
         )
         monkeypatch.setattr(
             "winml.modelkit.session.monitor.memory_tracker.get_vram_mb",
-            lambda _adapter_luid: (None, None),
+            lambda _adapter_luid: (0.0, 0.0),
         )
         monkeypatch.setattr(perf_module, "_pre_bench_kwargs_from_ep_device", lambda *_, **__: {})
         monkeypatch.setattr(perf_module, "print_pre_bench_block", lambda *_, **__: None)
@@ -2025,25 +2025,18 @@ class TestClassicMemoryProfile:
         assert result.memory_profile["rss_session_delta_mb"] == 50.0
         assert result.memory_profile["rss_end_delta_mb"] == -10.0
         assert result.memory_profile["rss_peak_delta_mb"] == 60.0
-        assert set(result.memory_profile) == MEMORY_PROFILE_FIELDS
+        assert set(result.memory_profile) >= RSS_MEMORY_PROFILE_FIELDS
+        assert result.memory_profile["vram_local_baseline_mb"] == 0.0
+        assert result.memory_profile["vram_shared_after_inference_mb"] == 0.0
+        assert "vram_local_peak_during_inference_mb" not in result.memory_profile
 
-    def test_json_and_cli_preserve_deprecated_fields_and_show_unknown_vram(
-        self,
-    ) -> None:
+    def test_json_and_cli_preserve_deprecated_rss_fields(self) -> None:
         memory: dict[str, object] = {
             "rss_peak_during_inference_mb": 120.0,
             "rss_peak_delta_mb": 20.0,
             "rss_session_delta_mb": 15.0,
             "rss_end_delta_mb": -5.0,
             "rss_total_delta_mb": -5.0,
-            "vram_local_peak_during_inference_mb": None,
-            "vram_shared_peak_during_inference_mb": None,
-            "vram_local_peak_delta_mb": None,
-            "vram_shared_peak_delta_mb": None,
-            "vram_local_session_delta_mb": None,
-            "vram_shared_session_delta_mb": None,
-            "vram_local_end_delta_mb": None,
-            "vram_shared_end_delta_mb": None,
             "deprecated_fields": ["rss_total_delta_mb"],
         }
         result = BenchmarkResult(
@@ -2057,11 +2050,9 @@ class TestClassicMemoryProfile:
         output = console.export_text()
 
         assert serialized["memory"]["rss_total_delta_mb"] == -5.0
-        assert serialized["memory"]["vram_local_peak_delta_mb"] is None
         assert serialized["memory"]["deprecated_fields"] == ["rss_total_delta_mb"]
         assert "peak increase +20.0 MB" in output
         assert "end change -5.0 MB" in output
-        assert "VRAM (local/shared): peak N/A/N/A MB" in output
 
 
 # =============================================================================

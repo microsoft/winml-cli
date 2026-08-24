@@ -33,21 +33,10 @@ DEPRECATED_MEMORY_FIELDS = (
     "rss_model_load_delta_mb",
     "rss_inference_delta_mb",
     "rss_total_delta_mb",
-    "vram_local_baseline_mb",
-    "vram_shared_baseline_mb",
-    "vram_local_after_compile_mb",
-    "vram_shared_after_compile_mb",
-    "vram_local_checkpoint_peak_mb",
-    "vram_shared_checkpoint_peak_mb",
-    "vram_local_model_load_delta_mb",
-    "vram_shared_model_load_delta_mb",
-    "vram_local_inference_delta_mb",
-    "vram_shared_inference_delta_mb",
-    "vram_local_total_delta_mb",
-    "vram_shared_total_delta_mb",
 )
 
-CANONICAL_MEMORY_FIELDS = (
+RSS_MEMORY_PROFILE_FIELDS = frozenset(
+    (
     "setup_duration_ms",
     "rss_process_baseline_mb",
     "rss_before_session_mb",
@@ -57,25 +46,9 @@ CANONICAL_MEMORY_FIELDS = (
     "rss_session_delta_mb",
     "rss_peak_delta_mb",
     "rss_end_delta_mb",
-    "vram_local_process_baseline_mb",
-    "vram_shared_process_baseline_mb",
-    "vram_local_before_session_mb",
-    "vram_shared_before_session_mb",
-    "vram_local_after_session_mb",
-    "vram_shared_after_session_mb",
-    "vram_local_peak_during_inference_mb",
-    "vram_shared_peak_during_inference_mb",
-    "vram_local_after_inference_mb",
-    "vram_shared_after_inference_mb",
-    "vram_local_session_delta_mb",
-    "vram_shared_session_delta_mb",
-    "vram_local_peak_delta_mb",
-    "vram_shared_peak_delta_mb",
-    "vram_local_end_delta_mb",
-    "vram_shared_end_delta_mb",
-)
-MEMORY_PROFILE_FIELDS = frozenset(
-    (*CANONICAL_MEMORY_FIELDS, *DEPRECATED_MEMORY_FIELDS, "deprecated_fields")
+    *DEPRECATED_MEMORY_FIELDS,
+    "deprecated_fields",
+    )
 )
 
 
@@ -84,16 +57,14 @@ def get_rss_mb() -> float:
     return psutil.Process(os.getpid()).memory_info().rss / _MB
 
 
-def get_vram_mb(adapter_luid: str | None) -> tuple[float | None, float | None]:
+def get_vram_mb(adapter_luid: str | None) -> tuple[float, float]:
     """Return current VRAM usage as (local_mb, shared_mb) via PDH.
 
-    Returns ``(None, None)`` when the adapter cannot be identified or queried.
-    A counter value of ``0.0`` is preserved as a successful zero-usage sample.
+    Returns (0.0, 0.0) on non-Windows, if no adapter_luid, or on failure.
     """
     if sys.platform != "win32" or not adapter_luid:
-        return None, None
+        return 0.0, 0.0
 
-    q = None
     try:
         from ._pdh import PdhQuery
 
@@ -110,20 +81,13 @@ def get_vram_mb(adapter_luid: str | None) -> tuple[float | None, float | None]:
         )
         # Memory counters are absolute (not rate-based), single collect suffices.
         values = q.collect()
-        local_bytes = values.get("local")
-        shared_bytes = values.get("shared")
-        local = local_bytes / _MB if local_bytes is not None else None
-        shared = shared_bytes / _MB if shared_bytes is not None else None
+        q.close()
+        local = (values.get("local") or 0) / _MB
+        shared = (values.get("shared") or 0) / _MB
         return local, shared
     except Exception:
         logger.debug("VRAM query failed", exc_info=True)
-        return None, None
-    finally:
-        if q is not None:
-            try:
-                q.close()
-            except Exception:
-                logger.debug("Could not close VRAM query", exc_info=True)
+        return 0.0, 0.0
 
 
 @dataclass(frozen=True)
@@ -131,8 +95,6 @@ class _MemorySnapshot:
     """One process-memory sample."""
 
     rss_mb: float
-    vram_local_mb: float | None
-    vram_shared_mb: float | None
 
 
 class ProcessMemoryTracker:
@@ -141,35 +103,22 @@ class ProcessMemoryTracker:
     def __init__(
         self,
         *,
-        adapter_luid: str | None = None,
         poll_interval_seconds: float = _DEFAULT_POLL_INTERVAL_SECONDS,
         rss_reader: Callable[[], float] | None = None,
-        vram_reader: Callable[[str | None], tuple[float | None, float | None]]
-        | None = None,
     ) -> None:
         if poll_interval_seconds <= 0:
             raise ValueError("poll_interval_seconds must be positive")
-        self._adapter_luid = adapter_luid
         self._poll_interval_seconds = poll_interval_seconds
         self._rss_reader = rss_reader or get_rss_mb
-        self._vram_reader = vram_reader or get_vram_mb
         self._process_baseline: _MemorySnapshot | None = None
         self._before_session: _MemorySnapshot | None = None
         self._after_session: _MemorySnapshot | None = None
         self._after_inference: _MemorySnapshot | None = None
         self._rss_inference_peak: float | None = None
-        self._vram_local_inference_peak: float | None = None
-        self._vram_shared_inference_peak: float | None = None
         self._setup_duration_ms = 0.0
         self._stop_event = threading.Event()
         self._poll_thread: threading.Thread | None = None
         self._lock = threading.Lock()
-
-    def set_adapter_luid(self, adapter_luid: str | None) -> None:
-        """Set the proven adapter to query before the session is created."""
-        if self._poll_thread is not None:
-            raise RuntimeError("Cannot change adapter while inference sampling is active")
-        self._adapter_luid = adapter_luid
 
     def record_process_baseline(self) -> None:
         """Record RSS before runtime setup or model/session construction."""
@@ -191,8 +140,6 @@ class ProcessMemoryTracker:
         self._after_inference = None
         with self._lock:
             self._rss_inference_peak = None
-            self._vram_local_inference_peak = None
-            self._vram_shared_inference_peak = None
         self._stop_event.clear()
         self._record_inference_sample(self._snapshot())
         self._poll_thread = threading.Thread(
@@ -226,13 +173,7 @@ class ProcessMemoryTracker:
     def _snapshot(self, *, collect: bool = False) -> _MemorySnapshot:
         if collect:
             gc.collect()
-        rss_mb = self._rss_reader()
-        local_mb, shared_mb = self._vram_reader(self._adapter_luid)
-        return _MemorySnapshot(
-            rss_mb=rss_mb,
-            vram_local_mb=local_mb,
-            vram_shared_mb=shared_mb,
-        )
+        return _MemorySnapshot(rss_mb=self._rss_reader())
 
     def _poll_inference(self) -> None:
         while not self._stop_event.wait(self._poll_interval_seconds):
@@ -248,12 +189,6 @@ class ProcessMemoryTracker:
         with self._lock:
             self._rss_inference_peak = self._optional_max(
                 self._rss_inference_peak, snapshot.rss_mb
-            )
-            self._vram_local_inference_peak = self._optional_max(
-                self._vram_local_inference_peak, snapshot.vram_local_mb
-            )
-            self._vram_shared_inference_peak = self._optional_max(
-                self._vram_shared_inference_peak, snapshot.vram_shared_mb
             )
 
     @staticmethod
@@ -315,33 +250,6 @@ class ProcessMemoryTracker:
             "rss_end_delta_mb": rss_end_delta,
         }
 
-        for kind in ("local", "shared"):
-            process_value = getattr(process, f"vram_{kind}_mb")
-            before_value = getattr(before, f"vram_{kind}_mb")
-            after_session_value = getattr(after_session, f"vram_{kind}_mb")
-            peak_value = getattr(self, f"_vram_{kind}_inference_peak")
-            after_inference_value = getattr(after_inference, f"vram_{kind}_mb")
-            result.update(
-                {
-                    f"vram_{kind}_process_baseline_mb": self._round(process_value),
-                    f"vram_{kind}_before_session_mb": self._round(before_value),
-                    f"vram_{kind}_after_session_mb": self._round(after_session_value),
-                    f"vram_{kind}_peak_during_inference_mb": self._round(peak_value),
-                    f"vram_{kind}_after_inference_mb": self._round(
-                        after_inference_value
-                    ),
-                    f"vram_{kind}_session_delta_mb": self._delta(
-                        after_session_value, before_value
-                    ),
-                    f"vram_{kind}_peak_delta_mb": self._peak_delta(
-                        peak_value, before_value
-                    ),
-                    f"vram_{kind}_end_delta_mb": self._delta(
-                        after_inference_value, before_value
-                    ),
-                }
-            )
-
         result.update(
             {
                 "rss_baseline_mb": result["rss_process_baseline_mb"],
@@ -356,32 +264,5 @@ class ProcessMemoryTracker:
                 "rss_total_delta_mb": rss_end_delta,
             }
         )
-        for kind in ("local", "shared"):
-            process_value = getattr(process, f"vram_{kind}_mb")
-            before_value = getattr(before, f"vram_{kind}_mb")
-            after_session_value = getattr(after_session, f"vram_{kind}_mb")
-            after_inference_value = getattr(after_inference, f"vram_{kind}_mb")
-            result.update(
-                {
-                    f"vram_{kind}_baseline_mb": self._round(process_value),
-                    f"vram_{kind}_after_compile_mb": self._round(
-                        after_session_value
-                    ),
-                    f"vram_{kind}_checkpoint_peak_mb": self._checkpoint_peak(
-                        process_value,
-                        after_session_value,
-                        after_inference_value,
-                    ),
-                    f"vram_{kind}_model_load_delta_mb": self._delta(
-                        after_session_value, before_value
-                    ),
-                    f"vram_{kind}_inference_delta_mb": self._delta(
-                        after_inference_value, after_session_value
-                    ),
-                    f"vram_{kind}_total_delta_mb": self._delta(
-                        after_inference_value, before_value
-                    ),
-                }
-            )
         result["deprecated_fields"] = list(DEPRECATED_MEMORY_FIELDS)
         return result

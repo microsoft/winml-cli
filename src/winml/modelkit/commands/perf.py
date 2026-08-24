@@ -545,7 +545,7 @@ class BenchmarkResult:
     hw_monitor: dict[str, Any] | None = None
 
     # Memory profile dict (lifecycle snapshots and deltas from memory_tracker)
-    memory_profile: dict[str, object] | None = None
+    memory_profile: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -836,7 +836,7 @@ class PerfBenchmark:
         self._inputs: dict[str, np.ndarray] | None = None
         self._ep_device: WinMLEPDevice | None = None
         self._effective_batch: int = config.batch_size
-        self._memory: dict[str, object] | None = None
+        self._memory: dict[str, Any] | None = None
         self._memory_tracker: ProcessMemoryTracker | None = None
         # Concrete device + EP resolved from the config's request, populated by
         # _resolve_device_ep() on the first call (before the build). The config
@@ -968,7 +968,6 @@ class PerfBenchmark:
         setup_start = time.perf_counter()
         self._resolve_device_ep()
         if self._memory_tracker is not None:
-            self._memory_tracker.set_adapter_luid(self._resolve_adapter_luid())
             self._memory_tracker.record_before_session(
                 setup_duration_ms=(time.perf_counter() - setup_start) * 1000.0
             )
@@ -1032,17 +1031,25 @@ class PerfBenchmark:
         """
         assert self._model is not None
 
+        adapter_luid: str | None = None
+        vram_local_baseline = vram_shared_baseline = 0.0
+        vram_local_compile = vram_shared_compile = 0.0
+
         # Private callers may inject an already-created model and invoke
         # _run_single() directly. Keep that path measurable, while run() records
         # the authoritative pre-model baseline used by the CLI.
         if self.config.memory and self._memory_tracker is None:
             from ..session.monitor.memory_tracker import ProcessMemoryTracker
 
-            self._memory_tracker = ProcessMemoryTracker(
-                adapter_luid=self._resolve_adapter_luid()
-            )
+            self._memory_tracker = ProcessMemoryTracker()
             self._memory_tracker.record_process_baseline()
             self._memory_tracker.record_before_session(setup_duration_ms=0.0)
+
+        if self.config.memory:
+            from ..session.monitor.memory_tracker import get_vram_mb
+
+            adapter_luid = self._resolve_adapter_luid()
+            vram_local_baseline, vram_shared_baseline = get_vram_mb(adapter_luid)
 
         # [2] Generate inputs
         logger.info("Generating benchmark inputs")
@@ -1054,6 +1061,7 @@ class PerfBenchmark:
 
         if self._memory_tracker is not None:
             self._memory_tracker.record_after_session()
+            vram_local_compile, vram_shared_compile = get_vram_mb(adapter_luid)
 
         # Pre-benchmark identity block (model + device sub-blocks).
         # opset is not currently extracted on this path; pass None.
@@ -1089,7 +1097,45 @@ class PerfBenchmark:
         if self._memory_tracker is not None:
             with self._memory_tracker.track_inference():
                 stats = self._run_benchmark()
-            self._memory = self._memory_tracker.to_dict()
+            rss_profile = self._memory_tracker.to_dict()
+            rss_baseline = cast("float", rss_profile["rss_baseline_mb"])
+            rss_after_compile = cast("float", rss_profile["rss_after_compile_mb"])
+            rss_after_inference = cast("float", rss_profile["rss_after_inference_mb"])
+            vram_local_infer, vram_shared_infer = get_vram_mb(adapter_luid)
+            self._memory = {
+                "rss_baseline_mb": round(rss_baseline, 2),
+                "rss_after_compile_mb": round(rss_after_compile, 2),
+                "rss_after_inference_mb": round(rss_after_inference, 2),
+                "rss_checkpoint_peak_mb": round(
+                    max(rss_baseline, rss_after_compile, rss_after_inference), 2
+                ),
+                "rss_model_load_delta_mb": round(rss_after_compile - rss_baseline, 2),
+                "rss_inference_delta_mb": round(rss_after_inference - rss_after_compile, 2),
+                "rss_total_delta_mb": round(rss_after_inference - rss_baseline, 2),
+                "vram_local_baseline_mb": round(vram_local_baseline, 2),
+                "vram_shared_baseline_mb": round(vram_shared_baseline, 2),
+                "vram_local_after_compile_mb": round(vram_local_compile, 2),
+                "vram_shared_after_compile_mb": round(vram_shared_compile, 2),
+                "vram_local_after_inference_mb": round(vram_local_infer, 2),
+                "vram_shared_after_inference_mb": round(vram_shared_infer, 2),
+                "vram_local_checkpoint_peak_mb": round(
+                    max(vram_local_baseline, vram_local_compile, vram_local_infer), 2
+                ),
+                "vram_shared_checkpoint_peak_mb": round(
+                    max(vram_shared_baseline, vram_shared_compile, vram_shared_infer), 2
+                ),
+                "vram_local_model_load_delta_mb": round(
+                    vram_local_compile - vram_local_baseline, 2
+                ),
+                "vram_local_inference_delta_mb": round(vram_local_infer - vram_local_compile, 2),
+                "vram_local_total_delta_mb": round(vram_local_infer - vram_local_baseline, 2),
+                "vram_shared_model_load_delta_mb": round(
+                    vram_shared_compile - vram_shared_baseline, 2
+                ),
+                "vram_shared_inference_delta_mb": round(vram_shared_infer - vram_shared_compile, 2),
+                "vram_shared_total_delta_mb": round(vram_shared_infer - vram_shared_baseline, 2),
+            }
+            self._memory.update(rss_profile)
         else:
             stats = self._run_benchmark()
 
@@ -1247,8 +1293,8 @@ class PerfBenchmark:
         if sys.platform != "win32":
             return None
 
-        model_device = self._single.device if self._model is not None else None
-        device = model_device or self._resolved_device or self.config.device
+        assert self._model is not None
+        device = self._single.device or self._resolved_device or self.config.device
         if device == "cpu":
             return None
 
@@ -1268,19 +1314,9 @@ class PerfBenchmark:
         try:
             from ..sysinfo.pdh_adapters import resolve_adapter_luid
 
-            # Prefer the runtime-reported EP after model creation. Before that,
-            # the resolved EP device is authoritative and lets VRAM baseline
-            # collection begin before eager session construction.
-            model_ep = self._single.ep_name if self._model is not None else None
-            ep_name = cast(
-                "EPName | None",
-                model_ep
-                or (
-                    self._ep_device.device.ep_name
-                    if self._ep_device is not None
-                    else self._resolved_ep
-                ),
-            )
+            # ep_name is the full ORT EP name (a member of EPName at runtime);
+            # WinMLPreTrainedModel types it loosely as ``str | None``.
+            ep_name = cast("EPName | None", self._single.ep_name)
             effective_device = bound_device or device
             kinds = (
                 (effective_device,)
@@ -1974,13 +2010,18 @@ def display_console_report(result: BenchmarkResult, console: SafeConsole) -> Non
             f"session change {_format_memory_mb(mem['rss_session_delta_mb'], signed=True)} MB  |  "
             f"end change {_format_memory_mb(mem['rss_end_delta_mb'], signed=True)} MB"
         )
-        console.print(
-            "  VRAM (local/shared): "
-            f"peak {_format_memory_pair(mem, 'peak_during_inference')} MB  |  "
-            f"peak increase {_format_memory_pair(mem, 'peak_delta', signed=True)} MB  |  "
-            f"session change {_format_memory_pair(mem, 'session_delta', signed=True)} MB  |  "
-            f"end change {_format_memory_pair(mem, 'end_delta', signed=True)} MB"
-        )
+        vram_local = mem.get("vram_local_after_inference_mb", 0)
+        vram_shared = mem.get("vram_shared_after_inference_mb", 0)
+        if vram_local > 0 or vram_shared > 0:
+            console.print(
+                f"  VRAM: {vram_local:.1f}/{vram_shared:.1f} MB (local/shared) -> "
+                f"model load: {mem['vram_local_model_load_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_model_load_delta_mb']:+.1f} MB  |  "
+                f"inference: {mem['vram_local_inference_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_inference_delta_mb']:+.1f} MB  |  "
+                f"total: {mem['vram_local_total_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_total_delta_mb']:+.1f} MB"
+            )
 
     console.print()
 
@@ -1990,18 +2031,6 @@ def _format_memory_mb(value: object, *, signed: bool = False) -> str:
     if not isinstance(value, int | float):
         return "N/A"
     return f"{value:+.1f}" if signed else f"{value:.1f}"
-
-
-def _format_memory_pair(
-    memory: dict[str, object],
-    field: str,
-    *,
-    signed: bool = False,
-) -> str:
-    """Format local/shared optional VRAM values."""
-    local = _format_memory_mb(memory.get(f"vram_local_{field}_mb"), signed=signed)
-    shared = _format_memory_mb(memory.get(f"vram_shared_{field}_mb"), signed=signed)
-    return f"{local}/{shared}"
 
 
 def write_json_report(result: BenchmarkResult, output_path: Path) -> None:

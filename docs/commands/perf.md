@@ -37,7 +37,7 @@ $ winml perf [options]
 | `--rebuild/--no-rebuild` | | flag | `false` | Force model rebuild even if a cached artifact already exists. |
 | `--module` | | `TEXT` | — | PyTorch module class name for per-module benchmarking (e.g., `BertAttention`). Builds and times each matching instance separately. See [Load and export](../concepts/load-and-export.md). |
 | `--monitor/--no-monitor` | | flag | `false` | Show a live NPU/CPU utilization chart while the benchmark runs and include hardware metrics in the JSON report. With `--runtime winml-genai`, the monitor wraps the genai load + generation benchmark. |
-| `--memory/--no-memory` | | flag | `true` | Record process RSS and adapter memory lifecycle snapshots, plus continuously sampled inference peaks. |
+| `--memory/--no-memory` | | flag | `true` | Measure process and device memory at each benchmark phase. |
 | `--op-tracing` | | `basic\|detail` | — | Enable operator-level profiling. QNN detail tracing requires an EPContext model; a raw ONNX input is detected and compiled automatically with the required profiling options. |
 | `--compile` / `--no-compile` | | flag | `false` | Compile the model to EPContext binaries during build. QNN detail op-tracing enables this automatically for a raw ONNX input unless `--no-compile` or `--skip-build` was explicitly specified. For `--runtime winml-genai` on the NPU, `--compile` pre-compiles each QNN stage (in an isolated subprocess) before generation. |
 | `--compile-timeout` | | `INTEGER` | `300` | *(winml-genai)* Max seconds to compile each EPContext stage before falling back to the original ONNX. Requires `--compile`. |
@@ -53,9 +53,7 @@ Both runtime reports include `schema_version: 2` and a `benchmark_info.runtime` 
 
 When `--memory` is enabled, both `winml` and `winml-genai` use the same lifecycle and field set. `rss_process_baseline_mb` is captured before EP setup and model/session creation. `rss_before_session_mb` is the post-setup baseline, `rss_after_session_mb` follows eager or lazy native session creation, and `rss_after_inference_mb` is the final diagnostic snapshot. A background sampler records `rss_peak_during_inference_mb`; `rss_peak_delta_mb` is `max(0, peak - process baseline)` and is the usage increase shown by the CLI. `rss_end_delta_mb` remains signed so working-set trimming is visible without being mislabeled as usage. `setup_duration_ms` reports the separated setup span.
 
-Adapter memory uses matching `vram_local_*` and `vram_shared_*` stages. Because the adapter is identified during setup, VRAM peak and end deltas use `vram_*_before_session_mb` as their baseline. If no concrete adapter or PDH counter can be resolved, every VRAM value is `null` in JSON and `N/A` in the CLI; a successfully collected zero remains `0.0`.
-
-The previous `rss_baseline_mb`, `rss_after_compile_mb`, `rss_checkpoint_peak_mb`, `rss_model_load_delta_mb`, `rss_inference_delta_mb`, `rss_total_delta_mb`, and corresponding `vram_*` fields remain for schema compatibility. They are listed in `memory.deprecated_fields`; new consumers should use the lifecycle fields above. In particular, the deprecated `*_checkpoint_peak_mb` fields remain discrete checkpoint maxima rather than true peaks.
+The previous `rss_baseline_mb`, `rss_after_compile_mb`, `rss_checkpoint_peak_mb`, `rss_model_load_delta_mb`, `rss_inference_delta_mb`, and `rss_total_delta_mb` fields remain for schema compatibility. They are listed in `memory.deprecated_fields`; new consumers should use the RSS lifecycle fields above. `rss_checkpoint_peak_mb` remains a discrete checkpoint maximum rather than a true peak.
 
 With `--runtime winml-genai`, `winml perf` benchmarks the onnxruntime-genai decoder pipeline rather than a single `session.run()`. The JSON report uses a phase-based schema: `load` contains startup spans, `requests` contains one warmup or timed generation sample per request, `aggregate` summarizes timed requests only, `memory` contains optional RAM/VRAM deltas, and `hw_monitor` contains optional monitor output. The optional `memory` and `hw_monitor` top-level names match the classic `winml` perf report; GenAI keeps `load`/`requests`/`aggregate` instead of classic `latency_ms`/`throughput` because generation has distinct prompt, first-token, and decode phases.
 
@@ -71,7 +69,7 @@ With `--runtime winml-genai`, `winml perf` benchmarks the onnxruntime-genai deco
 | Prefill TPS | `requests[].prefill_tokens_per_second`, `aggregate.prefill_tokens_per_second` | Prompt tokens divided by `prefill_duration_ms`. |
 | Decode TPS | `requests[].steady_state_decode_tokens_per_second`, `aggregate.steady_state_decode_tokens_per_second` | Tokens after the first divided by the sum of per-token decode durations after the first. |
 | RAM Usage | `memory.rss_*` | Shared lifecycle snapshots, continuously sampled inference peak, non-negative peak delta, and signed end delta. Requires `--memory`. |
-| VRAM Usage | `memory.vram_*` | Local/shared adapter lifecycle snapshots and continuously sampled inference peaks. Unavailable adapter data is `null`, not zero. Requires `--memory`. |
+| VRAM Usage | `memory.vram_*` | Adapter memory fields are emitted only when the effective GenAI route proves a specific accelerator adapter. Fields include baseline, after-compile, after-inference, load/inference/total deltas, and `vram_*_checkpoint_peak_mb` checkpoint maxima. Requires `--memory`. |
 
 ## Examples
 

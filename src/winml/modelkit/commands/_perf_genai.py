@@ -25,6 +25,7 @@ The ``perf`` command validates the folder input and delegates here via
 
 from __future__ import annotations
 
+import gc
 import json
 import logging
 import time
@@ -180,6 +181,20 @@ def _round_stats(values: dict[str, float]) -> dict[str, float]:
     return {key: round(value, 3) for key, value in values.items()}
 
 
+def _get_rss_mb() -> float:
+    """Return current process RSS in MB."""
+    from ..session.monitor.memory_tracker import get_rss_mb
+
+    return get_rss_mb()
+
+
+def _get_vram_mb(adapter_luid: str | None) -> tuple[float, float]:
+    """Return current process device-memory usage as local/shared MB."""
+    from ..session.monitor.memory_tracker import get_vram_mb
+
+    return get_vram_mb(adapter_luid)
+
+
 def _resolve_adapter_luid(device: str, ep: EPNameOrAlias | None) -> str | None:
     """Resolve the adapter LUID used for best-effort process VRAM sampling."""
     if device not in ACCELERATOR_DEVICE_TYPES:
@@ -193,6 +208,107 @@ def _resolve_adapter_luid(device: str, ep: EPNameOrAlias | None) -> str | None:
     except Exception:
         logger.debug("Could not resolve adapter LUID for genai memory tracking", exc_info=True)
     return None
+
+
+@dataclass
+class _MemorySnapshot:
+    """Point-in-time process RAM and device-memory usage."""
+
+    rss_mb: float = 0.0
+    vram_local_mb: float = 0.0
+    vram_shared_mb: float = 0.0
+
+
+class _GenaiMemoryTracker:
+    """Best-effort process memory tracking for the genai benchmark phases."""
+
+    def __init__(self, *, adapter_luid: str | None) -> None:
+        self._adapter_luid = adapter_luid
+        self._baseline = _MemorySnapshot()
+        self._after_load = _MemorySnapshot()
+        self._after_benchmark = _MemorySnapshot()
+
+    def _snapshot(self) -> _MemorySnapshot:
+        gc.collect()
+        rss = _get_rss_mb()
+        local, shared = _get_vram_mb(self._adapter_luid) if self._adapter_luid else (0.0, 0.0)
+        return _MemorySnapshot(rss_mb=rss, vram_local_mb=local, vram_shared_mb=shared)
+
+    def record_baseline(self) -> None:
+        self._baseline = self._snapshot()
+
+    def record_after_load(self) -> None:
+        self._after_load = self._snapshot()
+
+    def record_after_benchmark(self) -> None:
+        self._after_benchmark = self._snapshot()
+
+    @staticmethod
+    def _delta(after: float, before: float) -> float:
+        return round(after - before, 2)
+
+    def to_dict(self) -> dict[str, float]:
+        baseline = self._baseline
+        after_load = self._after_load
+        after_benchmark = self._after_benchmark
+        result = {
+            "rss_baseline_mb": round(baseline.rss_mb, 2),
+            "rss_after_compile_mb": round(after_load.rss_mb, 2),
+            "rss_after_inference_mb": round(after_benchmark.rss_mb, 2),
+            "rss_checkpoint_peak_mb": round(
+                max(baseline.rss_mb, after_load.rss_mb, after_benchmark.rss_mb), 2
+            ),
+            "rss_model_load_delta_mb": self._delta(after_load.rss_mb, baseline.rss_mb),
+            "rss_inference_delta_mb": self._delta(after_benchmark.rss_mb, after_load.rss_mb),
+            "rss_total_delta_mb": self._delta(after_benchmark.rss_mb, baseline.rss_mb),
+        }
+        if self._adapter_luid is None:
+            return result
+        result.update(
+            {
+                "vram_local_baseline_mb": round(baseline.vram_local_mb, 2),
+                "vram_shared_baseline_mb": round(baseline.vram_shared_mb, 2),
+                "vram_local_after_compile_mb": round(after_load.vram_local_mb, 2),
+                "vram_shared_after_compile_mb": round(after_load.vram_shared_mb, 2),
+                "vram_local_after_inference_mb": round(after_benchmark.vram_local_mb, 2),
+                "vram_shared_after_inference_mb": round(after_benchmark.vram_shared_mb, 2),
+                "vram_local_checkpoint_peak_mb": round(
+                    max(
+                        baseline.vram_local_mb,
+                        after_load.vram_local_mb,
+                        after_benchmark.vram_local_mb,
+                    ),
+                    2,
+                ),
+                "vram_shared_checkpoint_peak_mb": round(
+                    max(
+                        baseline.vram_shared_mb,
+                        after_load.vram_shared_mb,
+                        after_benchmark.vram_shared_mb,
+                    ),
+                    2,
+                ),
+                "vram_local_model_load_delta_mb": self._delta(
+                    after_load.vram_local_mb, baseline.vram_local_mb
+                ),
+                "vram_shared_model_load_delta_mb": self._delta(
+                    after_load.vram_shared_mb, baseline.vram_shared_mb
+                ),
+                "vram_local_inference_delta_mb": self._delta(
+                    after_benchmark.vram_local_mb, after_load.vram_local_mb
+                ),
+                "vram_shared_inference_delta_mb": self._delta(
+                    after_benchmark.vram_shared_mb, after_load.vram_shared_mb
+                ),
+                "vram_local_total_delta_mb": self._delta(
+                    after_benchmark.vram_local_mb, baseline.vram_local_mb
+                ),
+                "vram_shared_total_delta_mb": self._delta(
+                    after_benchmark.vram_shared_mb, baseline.vram_shared_mb
+                ),
+            }
+        )
+        return result
 
 
 # =============================================================================
@@ -343,7 +459,7 @@ class GenaiBenchmarkResult:
     load: dict[str, float | str | None] = field(default_factory=dict)
     requests: list[_RequestSample] = field(default_factory=list)
     aggregate: dict[str, Any] = field(default_factory=dict)
-    memory_profile: dict[str, object] | None = None
+    memory_profile: dict[str, Any] | None = None
     hw_monitor: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -523,7 +639,6 @@ class GenaiPerfBenchmark:
         session = self._session
         session.resolve_effective_route()
         if memory_tracker is not None:
-            memory_tracker.set_adapter_luid(self._effective_adapter_luid())
             memory_tracker.record_before_session(
                 setup_duration_ms=(time.perf_counter() - setup_start) * 1000.0
             )
@@ -539,15 +654,21 @@ class GenaiPerfBenchmark:
     def _run_benchmark_body(
         self,
         session: GenaiSession,
-        memory_tracker: ProcessMemoryTracker | None,
+        process_memory_tracker: ProcessMemoryTracker | None,
     ) -> GenaiBenchmarkResult:
         """Run load + generations after the effective route has been resolved."""
+        memory_tracker: _GenaiMemoryTracker | None = None
+        if process_memory_tracker is not None:
+            memory_tracker = _GenaiMemoryTracker(adapter_luid=self._effective_adapter_luid())
+            memory_tracker.record_baseline()
+
         session_load_start = self._clock()
         session.load()
         session_load_end = self._clock()
         session_load_ms = (session_load_end - session_load_start) * 1000.0
         if memory_tracker is not None:
-            memory_tracker.record_after_session()
+            process_memory_tracker.record_after_session()
+            memory_tracker.record_after_load()
 
         gen_config = GenerationConfig(
             max_new_tokens=self._config.max_new_tokens,
@@ -561,8 +682,8 @@ class GenaiPerfBenchmark:
             self._config.iterations,
             self._config.max_new_tokens,
         )
-        if memory_tracker is not None:
-            with memory_tracker.track_inference():
+        if process_memory_tracker is not None:
+            with process_memory_tracker.track_inference():
                 samples = [
                     self._time_one_generation(
                         session,
@@ -586,7 +707,9 @@ class GenaiPerfBenchmark:
         result = self._aggregate(samples, session_load_ms=session_load_ms)
 
         if memory_tracker is not None:
+            memory_tracker.record_after_benchmark()
             result.memory_profile = memory_tracker.to_dict()
+            result.memory_profile.update(process_memory_tracker.to_dict())
 
         return result
 
@@ -833,7 +956,7 @@ def display_genai_report(result: GenaiBenchmarkResult, console: Console) -> None
             )
 
     if result.memory_profile:
-        from .perf import _format_memory_mb, _format_memory_pair
+        from .perf import _format_memory_mb
 
         mem = result.memory_profile
         console.print()
@@ -844,13 +967,18 @@ def display_genai_report(result: GenaiBenchmarkResult, console: Console) -> None
             f"session change {_format_memory_mb(mem['rss_session_delta_mb'], signed=True)} MB  |  "
             f"end change {_format_memory_mb(mem['rss_end_delta_mb'], signed=True)} MB"
         )
-        console.print(
-            "  VRAM (local/shared): "
-            f"peak {_format_memory_pair(mem, 'peak_during_inference')} MB  |  "
-            f"peak increase {_format_memory_pair(mem, 'peak_delta', signed=True)} MB  |  "
-            f"session change {_format_memory_pair(mem, 'session_delta', signed=True)} MB  |  "
-            f"end change {_format_memory_pair(mem, 'end_delta', signed=True)} MB"
-        )
+        vram_local = mem.get("vram_local_after_inference_mb", 0.0)
+        vram_shared = mem.get("vram_shared_after_inference_mb", 0.0)
+        if vram_local > 0 or vram_shared > 0:
+            console.print(
+                f"  VRAM: {vram_local:.1f}/{vram_shared:.1f} MB (local/shared) -> "
+                f"model load: {mem['vram_local_model_load_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_model_load_delta_mb']:+.1f} MB  |  "
+                f"inference: {mem['vram_local_inference_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_inference_delta_mb']:+.1f} MB  |  "
+                f"total: {mem['vram_local_total_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_total_delta_mb']:+.1f} MB"
+            )
     console.print()
 
 
