@@ -1,0 +1,74 @@
+name: Tester mxbai exact head
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality:
+    if: github.event.pull_request.head.ref == 'tester/mxbai-rerank-base-v1-exact-head'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: analyze
+            command: uv run pytest tests/unit/analyze --tb=short --no-cov -m "not e2e and not npu and not gpu"
+          - group: models
+            command: uv run pytest tests/unit/models tests/unit/loader tests/unit/datasets tests/unit/export --tb=short --no-cov -m "not e2e and not npu and not gpu"
+          - group: optim
+            command: uv run pytest tests/unit/optim --tb=short --no-cov -m "not e2e and not npu and not gpu"
+          - group: commands
+            command: uv run pytest tests/unit/commands tests/unit/config tests/unit/build tests/unit/compiler tests/unit/session tests/unit/eval --tb=short --no-cov -m "not e2e and not npu and not gpu"
+          - group: remaining
+            command: uv run pytest tests/unit/core tests/unit/onnx tests/unit/cache tests/unit/utils tests/unit/test_helpers tests/unit/sysinfo tests/unit/inspect tests/unit/optracing tests/regression tests/cli --tb=short --no-cov -m "not e2e and not npu and not gpu"
+          - group: lint
+            command: uv run pre-commit run insert-license --all-files; if ($LASTEXITCODE) { exit $LASTEXITCODE }; uv run ruff check src/ tests/; if ($LASTEXITCODE) { exit $LASTEXITCODE }; uv run mypy -p winml.modelkit
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 4cc9e8ee56848ffea02642294b27647e3eaeadb0
+      - uses: astral-sh/setup-uv@v4
+      - run: uv python install 3.11
+      - run: uv sync --locked --all-extras --all-groups
+      - name: Exact identity and provenance
+        shell: pwsh
+        run: |
+          git rev-parse HEAD
+          if ((git rev-parse HEAD) -ne '4cc9e8ee56848ffea02642294b27647e3eaeadb0') { throw 'wrong HEAD' }
+          uv run python -c "import json,pathlib,sys; print(json.dumps({'python':sys.version,'executable':sys.executable,'prefix':sys.prefix,'lock':str(pathlib.Path('uv.lock').resolve())},indent=2))"
+      - name: Run ${{ matrix.group }}
+        shell: pwsh
+        run: ${{ matrix.command }}
+
+  goal:
+    if: github.event.pull_request.head.ref == 'tester/mxbai-rerank-base-v1-exact-head'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 4cc9e8ee56848ffea02642294b27647e3eaeadb0
+          path: candidate
+      - uses: actions/checkout@v4
+        with:
+          ref: tester/mxbai-rerank-base-v1-exact-head
+          path: harness
+      - uses: astral-sh/setup-uv@v4
+      - run: uv python install 3.11
+      - working-directory: candidate
+        run: uv sync --locked --all-extras
+      - name: Run exact-head Goal harness
+        shell: pwsh
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: candidate\.venv\Scripts\python.exe harness\.github\tester_mxbai_exact_head.py --candidate candidate --output evidence
+      - name: Upload Goal evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tester-mxbai-goal-${{ github.sha }}
+          path: evidence
+          if-no-files-found: error
+          retention-days: 7
