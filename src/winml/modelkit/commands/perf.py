@@ -73,7 +73,6 @@ logger = logging.getLogger(__name__)
 # Hardware monitor polling interval (milliseconds)
 _HW_POLL_INTERVAL_MS = 200
 _RUNTIME_TYPE: RuntimeName = "winml"
-_OpTracingLevel = Literal["basic", "detail"]
 
 
 def _resolve_runtime(runtime: RuntimeName, model: str) -> RuntimeName:
@@ -252,7 +251,7 @@ def _resolve_ep_monitor(
                     "with QNN runtime, or run `wmk perf` without --op-tracing."
                 )
             return QNNMonitor(
-                level=cast("_OpTracingLevel", op_tracing),
+                level=cast(Literal["basic", "detail"], op_tracing),  # noqa: TC006
                 output_dir=output_dir,
             )
 
