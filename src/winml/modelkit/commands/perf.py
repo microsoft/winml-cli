@@ -23,7 +23,7 @@ import time
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import click
 import numpy as np
@@ -52,7 +52,6 @@ from ._pre_bench import print_pre_bench_block
 if TYPE_CHECKING:
     import contextlib
     from collections.abc import Iterator
-    from typing import Literal
 
     from rich.console import Console
 
@@ -74,6 +73,7 @@ logger = logging.getLogger(__name__)
 # Hardware monitor polling interval (milliseconds)
 _HW_POLL_INTERVAL_MS = 200
 _RUNTIME_TYPE: RuntimeName = "winml"
+_OpTracingLevel = Literal["basic", "detail"]
 
 
 def _resolve_runtime(runtime: RuntimeName, model: str) -> RuntimeName:
@@ -252,7 +252,7 @@ def _resolve_ep_monitor(
                     "with QNN runtime, or run `wmk perf` without --op-tracing."
                 )
             return QNNMonitor(
-                level=cast('Literal["basic", "detail"]', op_tracing),
+                level=cast("_OpTracingLevel", op_tracing),
                 output_dir=output_dir,
             )
 
