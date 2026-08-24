@@ -72,8 +72,31 @@ def inspect_artifact(path: Path, precision: str) -> dict:
     external = [{"location": item, "path": str((path.parent / item).resolve()), "exists": (path.parent / item).is_file(), "bytes": (path.parent / item).stat().st_size if (path.parent / item).is_file() else None} for item in sorted(locations)]
     inputs = [{"name": item.name, "dtype": TensorProto.DataType.Name(item.type.tensor_type.elem_type), "shape": dims(item)} for item in model.graph.input]
     outputs = [{"name": item.name, "dtype": TensorProto.DataType.Name(item.type.tensor_type.elem_type), "shape": dims(item)} for item in model.graph.output]
+    component_patterns = {
+        "deberta.embeddings": ("embedding",),
+        "deberta.encoder.layer[]": ("encoder/layer", "encoder.layer", "debertav2layer"),
+        "deberta.encoder.layer[].attention": ("attention", "disentangledselfattention"),
+        "deberta.encoder.layer[].ffn": ("intermediate", "debertav2output", "/output"),
+        "pooler": ("pooler",),
+        "classifier": ("classifier",),
+    }
+    components = {}
+    mapped_top_level = set()
+    for component_id, patterns in component_patterns.items():
+        matched = []
+        for index, node in enumerate(model.graph.node):
+            searchable = f"{node.name} {' '.join(node.output)}".lower()
+            if any(pattern in searchable for pattern in patterns):
+                matched.append((index, node))
+                if component_id in {"deberta.embeddings", "deberta.encoder.layer[]", "pooler", "classifier"}:
+                    mapped_top_level.add(index)
+        operator_counts = {}
+        for _index, node in matched:
+            operator_counts[node.op_type] = operator_counts.get(node.op_type, 0) + 1
+        components[component_id] = {"node_count": len(matched), "operator_counts": operator_counts, "sample_nodes": [node.name for _index, node in matched[:5]], "mapping_basis": "fresh ONNX hierarchy-tagged node/output scopes", "confidence": "mapped" if matched else "gap"}
+    component_mapping = {"components": components, "top_level_mapped_node_count": len(mapped_top_level), "unmapped_node_count": len(model.graph.node) - len(mapped_top_level), "node_name_samples": [node.name for node in model.graph.node[:20]]}
     checks = {"inputs": inputs == [{"name": "input_ids", "dtype": "INT32", "shape": [1, 512]}, {"name": "attention_mask", "dtype": "INT32", "shape": [1, 512]}], "output": outputs == [{"name": "logits", "dtype": "FLOAT", "shape": [1, 1]}], "external_colocated": bool(external) and all(row["exists"] for row in external), "precision": types.get("FLOAT16", 0) == 228 and types.get("FLOAT", 0) == 0 if precision == "fp16" else types.get("FLOAT", 0) > 0}
-    return {"precision": precision, "path": str(path.resolve()), "sha256": sha256(path), "ir_version": model.ir_version, "opsets": [{"domain": row.domain, "version": row.version} for row in model.opset_import], "node_count": len(model.graph.node), "inputs": inputs, "outputs": outputs, "initializer_types": types, "external_data": external, "external_data_total_bytes": sum(row["bytes"] or 0 for row in external), "checks": checks}
+    return {"precision": precision, "path": str(path.resolve()), "sha256": sha256(path), "ir_version": model.ir_version, "opsets": [{"domain": row.domain, "version": row.version} for row in model.opset_import], "node_count": len(model.graph.node), "inputs": inputs, "outputs": outputs, "initializer_types": types, "external_data": external, "external_data_total_bytes": sum(row["bytes"] or 0 for row in external), "component_mapping": component_mapping, "checks": checks}
 
 
 def parity(snapshot: Path, artifacts: dict[str, Path]) -> dict:
