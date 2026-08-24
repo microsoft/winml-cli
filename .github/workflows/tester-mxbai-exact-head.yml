@@ -50,6 +50,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: 4cc9e8ee56848ffea02642294b27647e3eaeadb0
+          fetch-depth: 2
           path: candidate
       - uses: actions/checkout@v4
         with:
