@@ -169,11 +169,17 @@ def test_prepare_data_preserves_source_order_with_duplicate_ids(streaming: bool)
         {"id": 1657, "audio": {"path": "second.wav"}, "transcription": "second"},
         {"id": 1525, "audio": {"path": "third.wav"}, "transcription": "third"},
     ]
+    indexed_rows = [{**row, "_winml_source_index": index} for index, row in enumerate(rows)]
     dataset = MagicMock(column_names=["id", "audio", "transcription"])
     dataset.cast_column.return_value = dataset
     dataset.__len__.return_value = len(rows)
-    dataset.__getitem__.side_effect = rows.__getitem__
-    dataset.take.return_value = rows
+
+    def add_source_indices(*_args, **_kwargs):
+        dataset.__getitem__.side_effect = indexed_rows.__getitem__
+        dataset.take.return_value = indexed_rows
+        return dataset
+
+    dataset.map.side_effect = add_source_indices
     evaluator = WinMLCTCASREvaluator.__new__(WinMLCTCASREvaluator)
     evaluator._audio_column = "audio"
     evaluator.config = WinMLEvaluationConfig(
@@ -188,6 +194,211 @@ def test_prepare_data_preserves_source_order_with_duplicate_ids(streaming: bool)
     assert selected["_winml_source_index"] == [0, 1, 2]
     assert selected["transcription"] == ["first", "second", "third"]
     dataset.sort.assert_not_called()
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_prepare_data_applies_seeded_shuffle_before_bounded_selection(streaming: bool) -> None:
+    from datasets import Audio, Dataset
+
+    from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
+
+    rows = [
+        {
+            "id": index,
+            "audio": f"{index}.wav",
+            "transcription": str(index),
+        }
+        for index in range(10)
+    ]
+    dataset = Dataset.from_list(rows)
+    if streaming:
+        dataset = dataset.cast_column("audio", Audio(decode=False)).to_iterable_dataset()
+    evaluator = WinMLCTCASREvaluator.__new__(WinMLCTCASREvaluator)
+    evaluator._audio_column = "audio"
+    evaluator.config = WinMLEvaluationConfig(
+        task="automatic-speech-recognition",
+        dataset=DatasetConfig(
+            path="dataset",
+            samples=4,
+            shuffle=True,
+            seed=123,
+            streaming=streaming,
+        ),
+    )
+
+    with patch("datasets.load_dataset", return_value=dataset):
+        selected = evaluator.prepare_data()
+
+    assert selected["id"] == [7, 4, 0, 2]
+    assert selected["_winml_source_index"] == [7, 4, 0, 2]
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_prepare_data_shuffle_is_repeatable_and_seed_discriminating(streaming: bool) -> None:
+    from datasets import Dataset, Features, IterableDataset, Value
+
+    from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
+
+    rows = [
+        {"id": index, "audio": f"{index}.wav", "transcription": str(index)} for index in range(10)
+    ]
+    features = Features(
+        {
+            "id": Value("int64"),
+            "audio": Value("string"),
+            "transcription": Value("string"),
+        }
+    )
+
+    def select(seed: int) -> list[int]:
+        dataset = (
+            IterableDataset.from_generator(lambda: iter(rows), features=features)
+            if streaming
+            else Dataset.from_list(rows)
+        )
+        evaluator = WinMLCTCASREvaluator.__new__(WinMLCTCASREvaluator)
+        evaluator._audio_column = "audio"
+        evaluator.config = WinMLEvaluationConfig(
+            task="automatic-speech-recognition",
+            dataset=DatasetConfig(
+                path="dataset",
+                samples=4,
+                shuffle=True,
+                seed=seed,
+                streaming=streaming,
+            ),
+        )
+        with (
+            patch.object(dataset, "cast_column", return_value=dataset),
+            patch("datasets.load_dataset", return_value=dataset),
+        ):
+            return list(evaluator.prepare_data()["_winml_source_index"])
+
+    assert select(123) == select(123) == [7, 4, 0, 2]
+    assert select(456) != select(123)
+
+
+def test_prepare_data_shuffle_modes_match_beyond_stream_buffer() -> None:
+    from datasets import Dataset, Features, IterableDataset, Value
+
+    from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
+
+    rows = [
+        {"id": index, "audio": f"{index}.wav", "transcription": str(index)}
+        for index in range(1_200)
+    ]
+    features = Features(
+        {
+            "id": Value("int64"),
+            "audio": Value("string"),
+            "transcription": Value("string"),
+        }
+    )
+
+    def select(streaming: bool) -> list[int]:
+        dataset = (
+            IterableDataset.from_generator(lambda: iter(rows), features=features)
+            if streaming
+            else Dataset.from_list(rows)
+        )
+        evaluator = WinMLCTCASREvaluator.__new__(WinMLCTCASREvaluator)
+        evaluator._audio_column = "audio"
+        evaluator.config = WinMLEvaluationConfig(
+            task="automatic-speech-recognition",
+            dataset=DatasetConfig(
+                path="dataset",
+                samples=4,
+                shuffle=True,
+                seed=123,
+                streaming=streaming,
+            ),
+        )
+        with (
+            patch.object(dataset, "cast_column", return_value=dataset),
+            patch("datasets.load_dataset", return_value=dataset),
+        ):
+            return list(evaluator.prepare_data()["_winml_source_index"])
+
+    assert select(streaming=True) == select(streaming=False)
+
+
+def test_prepare_data_streaming_shuffle_is_bounded() -> None:
+    from datasets import Features, IterableDataset, Value
+
+    from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
+
+    yielded = 0
+
+    def rows():
+        nonlocal yielded
+        for index in range(10_000):
+            yielded += 1
+            if yielded > 1_100:
+                raise AssertionError("streaming shuffle consumed an unbounded source")
+            yield {"id": index, "audio": f"{index}.wav", "transcription": str(index)}
+
+    dataset = IterableDataset.from_generator(
+        rows,
+        features=Features(
+            {
+                "id": Value("int64"),
+                "audio": Value("string"),
+                "transcription": Value("string"),
+            }
+        ),
+    )
+    evaluator = WinMLCTCASREvaluator.__new__(WinMLCTCASREvaluator)
+    evaluator._audio_column = "audio"
+    evaluator.config = WinMLEvaluationConfig(
+        task="automatic-speech-recognition",
+        dataset=DatasetConfig(
+            path="dataset",
+            samples=4,
+            shuffle=True,
+            seed=123,
+            streaming=True,
+        ),
+    )
+
+    with (
+        patch.object(dataset, "cast_column", return_value=dataset),
+        patch("datasets.load_dataset", return_value=dataset),
+    ):
+        selected = evaluator.prepare_data()
+
+    assert len(selected) == 4
+    assert yielded <= 1_100
+    assert all(0 <= index < yielded for index in selected["_winml_source_index"])
+
+
+def test_compute_rejects_malformed_identity_selected_by_shuffle_before_inference() -> None:
+    from datasets import Dataset
+
+    from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
+
+    rows = [
+        {
+            "id": None if index == 7 else index,
+            "audio": f"{index}.wav",
+            "transcription": str(index),
+        }
+        for index in range(10)
+    ]
+    evaluator = WinMLCTCASREvaluator.__new__(WinMLCTCASREvaluator)
+    evaluator._audio_column = "audio"
+    evaluator._transcription_column = "transcription"
+    evaluator.config = WinMLEvaluationConfig(
+        task="automatic-speech-recognition",
+        dataset=DatasetConfig(path="dataset", samples=1, shuffle=True, seed=123),
+    )
+    with patch("datasets.load_dataset", return_value=Dataset.from_list(rows)):
+        evaluator.data = evaluator.prepare_data()
+    evaluator._transcribe = MagicMock()
+
+    assert evaluator.data["_winml_source_index"] == [7]
+    with pytest.raises(DatasetValidationError, match="dataset ID"):
+        evaluator.compute()
+    evaluator._transcribe.assert_not_called()
 
 
 def test_soundfile_decode_mixes_stereo_to_mono_float32() -> None:

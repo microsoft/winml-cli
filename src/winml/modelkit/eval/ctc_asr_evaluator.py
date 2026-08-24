@@ -312,13 +312,20 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
             ) from error
 
         validate_dataset_columns(dataset, "automatic-speech-recognition", ds.columns_mapping)
-        if ds.streaming:
+        dataset = dataset.map(
+            lambda _row, index: {"_winml_source_index": index},
+            with_indices=True,
+        )
+        if ds.shuffle:
+            if not ds.streaming:
+                dataset = dataset.to_iterable_dataset()
+            dataset = dataset.shuffle(seed=ds.seed)
+            rows = list(dataset.take(ds.samples))
+        elif ds.streaming:
             rows = list(dataset.take(ds.samples))
         else:
             rows = [dataset[index] for index in range(min(ds.samples, len(dataset)))]
-        return Dataset.from_list(
-            [{**row, "_winml_source_index": index} for index, row in enumerate(rows)]
-        )
+        return Dataset.from_list(rows)
 
     def compute(self) -> dict[str, Any]:
         """Decode bounded rows and report corpus WER/CER plus accounting."""
