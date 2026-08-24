@@ -14,6 +14,7 @@ concrete architecture can be inferred safely.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast, overload
 
@@ -22,7 +23,88 @@ if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
 
+logger = logging.getLogger(__name__)
+
+
 _RawConfigLoader: TypeAlias = Callable[..., tuple[dict[str, Any], dict[str, Any]]]
+
+
+def _is_strict_none_bool_validation_error(exc: Exception) -> bool:
+    """Return whether *exc* matches strict dataclass bool-vs-None validation."""
+    message = str(exc)
+    return (
+        "Validation error for field" in message
+        and "expected bool" in message
+        and "NoneType" in message
+    )
+
+
+def _declared_bool_fields(config_cls: type[Any]) -> set[str]:
+    """Collect fields annotated as ``bool`` across a config class hierarchy."""
+
+    def _is_bool_annotation(annotation: Any) -> bool:
+        if annotation is bool:
+            return True
+        if isinstance(annotation, str):
+            return annotation == "bool" or annotation == "builtins.bool"
+        return getattr(annotation, "__forward_arg__", None) == "bool"
+
+    fields: set[str] = set()
+    for cls in config_cls.__mro__:
+        annotations = getattr(cls, "__annotations__", {})
+        if not isinstance(annotations, dict):
+            continue
+        for field_name, field_type in annotations.items():
+            if _is_bool_annotation(field_type) and isinstance(field_name, str):
+                fields.add(field_name)
+    return fields
+
+
+def _normalize_none_bool_fields(
+    config_cls: type[Any],
+    config_dict: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Replace ``None`` with ``False`` for bool-annotated fields present in config."""
+    normalized = config_dict.copy()
+    replaced_fields: list[str] = []
+    for field_name in sorted(_declared_bool_fields(config_cls)):
+        if normalized.get(field_name) is None:
+            normalized[field_name] = False
+            replaced_fields.append(field_name)
+    return normalized, replaced_fields
+
+
+def _load_from_dict_with_strict_none_fallback(
+    *,
+    config_dict: dict[str, Any],
+    unused_kwargs: dict[str, Any],
+    model_id: str,
+    return_unused_kwargs: bool,
+) -> PretrainedConfig | tuple[PretrainedConfig, dict[str, Any]] | None:
+    """Try rebuilding config after normalizing strict ``None`` bool fields."""
+    model_type = config_dict.get("model_type")
+    if not isinstance(model_type, str):
+        return None
+
+    from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+
+    if model_type not in CONFIG_MAPPING:
+        return None
+
+    config_cls = CONFIG_MAPPING[model_type]
+    normalized_config_dict, replaced_fields = _normalize_none_bool_fields(config_cls, config_dict)
+    if not replaced_fields:
+        return None
+
+    logger.warning(
+        "Strict dataclass validation failed for '%s'; normalizing None->False for bool fields: %s",
+        model_id,
+        ", ".join(replaced_fields),
+    )
+    from_dict_kwargs = unused_kwargs.copy()
+    if return_unused_kwargs:
+        from_dict_kwargs["return_unused_kwargs"] = True
+    return config_cls.from_dict(normalized_config_dict, **from_dict_kwargs)
 
 
 def _fallback_identifiers(config_dict: dict[str, Any], model_id: str) -> list[str]:
@@ -154,6 +236,11 @@ def load_hf_config(
         first tries identifier-based concrete config inference and otherwise
         returns a tagged generic config.
     """
+    if trust_remote_code:
+        from ..utils._security import _require_remote_code_execution_allowed
+
+        _require_remote_code_execution_allowed()
+
     from transformers import PretrainedConfig, __version__
 
     load_kwargs = kwargs.copy()
@@ -189,14 +276,27 @@ def load_hf_config(
     auto_map = config_dict.get("auto_map")
     has_remote_config = isinstance(auto_map, dict) and isinstance(auto_map.get("AutoConfig"), str)
     if "model_type" in config_dict or has_remote_config:
-        return cast(
-            "PretrainedConfig | tuple[PretrainedConfig, dict[str, Any]]",
-            auto_config.from_pretrained(
-                model_id,
-                trust_remote_code=trust_remote_code,
-                **load_kwargs,
-            ),
-        )
+        try:
+            return cast(
+                "PretrainedConfig | tuple[PretrainedConfig, dict[str, Any]]",
+                auto_config.from_pretrained(
+                    model_id,
+                    trust_remote_code=trust_remote_code,
+                    **load_kwargs,
+                ),
+            )
+        except Exception as exc:
+            if not _is_strict_none_bool_validation_error(exc):
+                raise
+            fallback_result = _load_from_dict_with_strict_none_fallback(
+                config_dict=config_dict,
+                unused_kwargs=unused_kwargs,
+                model_id=model_id,
+                return_unused_kwargs=return_unused_kwargs,
+            )
+            if fallback_result is None:
+                raise
+            return fallback_result
 
     from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 

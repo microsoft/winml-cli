@@ -118,8 +118,10 @@ class WinMLEvaluationConfig:
             same leading length.
         reference_path: Path to a second ``.onnx`` file used as the reference in
             ``--mode compare``. When set, both ``model_path`` and ``reference_path``
-            run as raw ORT sessions and their output tensors are compared directly,
-            so no ``model_id`` / ``task`` / HF reference is needed.
+            load as WinML model instances and their output tensors are compared
+            directly, so no ``model_id`` / ``task`` / HF reference is needed.
+        reference_device: Device used for a reference ONNX model. Defaults to CPU.
+        reference_ep: Explicit execution provider for a reference ONNX model.
         task: HF pipeline task. Auto-detected from model_id if omitted.
         device: Target device for inference.
         ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides
@@ -158,6 +160,8 @@ class WinMLEvaluationConfig:
     model_path: str | dict[str, str] | None = None
     input_data: str | None = None
     reference_path: str | None = field(default=None, metadata={"cli_name": "reference"})
+    reference_device: str = "cpu"
+    reference_ep: EPNameOrAlias | None = None
     task: str | None = None
     device: str = "auto"
     precision: str = "auto"
@@ -212,6 +216,9 @@ class WinMLEvaluationConfig:
             result["input_data"] = self.input_data
         if self.reference_path is not None:
             result["reference_path"] = self.reference_path
+            result["reference_device"] = self.reference_device
+        if self.reference_ep is not None:
+            result["reference_ep"] = self.reference_ep
         if self.task is not None:
             result["task"] = self.task
         result["device"] = self.device
@@ -270,6 +277,8 @@ class WinMLEvaluationConfig:
             model_path=data.get("model_path"),
             input_data=data.get("input_data"),
             reference_path=data.get("reference_path"),
+            reference_device=data.get("reference_device", "cpu"),
+            reference_ep=data.get("reference_ep"),
             task=data.get("task"),
             device=data.get("device", "auto"),
             precision=data.get("precision", "auto"),

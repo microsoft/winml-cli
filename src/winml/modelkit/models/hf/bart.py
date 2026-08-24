@@ -328,6 +328,10 @@ class BartDecoderWrapper(nn.Module):
             layer.keys = args[kv_start + i * 2]
             layer.values = args[kv_start + i * 2 + 1]
 
+        # Transformers 5 may call Cache.update without cache_kwargs; preserve
+        # the explicit ONNX cache_position input for WinMLStaticCache.update.
+        self_attn_cache.set_trace_position(cache_position)
+
         # Thread absolute seq pos to the (patched) learned embedding via a
         # module attribute.  The patched forward reads this and uses it for
         # the lookup, ignoring the explicit position_ids kwarg that HF would

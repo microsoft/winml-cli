@@ -33,14 +33,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
 from ..inference import InferenceEngine
 from ..inference.types import PredictionResult
+from ._security import SameOriginMiddleware, _is_loopback_client
 from .cli_api import CliRequest, CliResponse, _run_with_semaphore
 from .manager import ModelSlotManager, SingleModelManager
 from .schema import (
@@ -213,13 +213,13 @@ def create_app(
         ),
         lifespan=lifespan,
     )
-    # Permissive CORS for local dev server; no credentials to protect.
     app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        SameOriginMiddleware,
+        loopback_only_routes={
+            "/v1/cli": None,
+            "/v1/ep": {"POST"},
+            "/v1/models": {"POST", "DELETE"},
+        },
     )
 
     # Serve demo UI at /demo
@@ -287,6 +287,7 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
         summary="Single file upload inference (image, audio, …)",
     )
     async def predict_file(
+        request: Request,
         file: UploadFile = File(..., description="Media file (image, audio, …)"),
         model_id: str = Form("_", description="Model ID (multi-model mode). Omit to auto-route."),
         task: str | None = Form(
@@ -319,7 +320,11 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
         except json.JSONDecodeError as exc:
             raise HTTPException(status_code=422, detail=f"Invalid params JSON: {exc}") from exc
         try:
-            async with mgr.borrow(model_id, task=task) as engine:
+            async with mgr.borrow(
+                model_id,
+                task=task,
+                load_if_missing=_is_loopback_client(request.scope),
+            ) as engine:
                 loop = asyncio.get_running_loop()
                 base_inputs = _build_file_inputs(data, text, engine.user_input_schema)
 
@@ -366,20 +371,25 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
         summary="JSON inference — named inputs with optional pipeline params",
     )
     async def predict_json(
-        request: PredictJsonRequest,
+        request: Request,
+        body: PredictJsonRequest,
         model_id: str = "_",
     ) -> PredictionResult:
         mgr = _get_mgr()
         try:
-            async with mgr.borrow(model_id, task=request.task) as engine:
+            async with mgr.borrow(
+                model_id,
+                task=body.task,
+                load_if_missing=_is_loopback_client(request.scope),
+            ) as engine:
                 loop = asyncio.get_running_loop()
-                task_override = request.task
+                task_override = body.task
 
                 # Decode base64 for binary inputs based on schema
-                inputs = _decode_rest_inputs(request.inputs, engine.user_input_schema)
+                inputs = _decode_rest_inputs(body.inputs, engine.user_input_schema)
 
                 # Check inputs/params collision
-                collision = set(inputs.keys()) & set(request.params.keys())
+                collision = set(inputs.keys()) & set(body.params.keys())
                 if collision:
                     key = sorted(collision)[0]
                     raise HTTPException(
@@ -390,7 +400,7 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
                         ),
                     )
 
-                pipe_params = dict(request.params)
+                pipe_params = dict(body.params)
                 return await loop.run_in_executor(
                     None,
                     lambda: engine.predict(inputs=inputs, task=task_override, **pipe_params),

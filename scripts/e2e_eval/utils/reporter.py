@@ -45,8 +45,9 @@ def build_eval_result(
 ) -> dict:
     """Build a unified eval_result dict (facts only, no derived fields).
 
-    perf_proc is the raw subprocess result from run_model(), or None when
-    eval_types_run is ["accuracy"] (accuracy-only mode, perf phase skipped).
+    perf_proc is the subprocess result from run_model(), including the
+    structured perf JSON under ``result``, or None when eval_types_run is
+    ["accuracy"] (accuracy-only mode, perf phase skipped).
     accuracy_result is the accuracy sub-section dict (or None if not run).
     ep is the explicit execution provider (e.g., "qnn", "dml"), or None when
     not specified (device-to-provider mapping was used).
@@ -68,6 +69,7 @@ def build_eval_result(
             "passed": passed,
             "elapsed": perf_proc["elapsed"],
             "exit_code": perf_proc["exit_code"],
+            "result": perf_proc.get("result"),
             "stdout_output": stdout,
             "stderr_output": stderr,
             "raw_stdout": raw_stdout,

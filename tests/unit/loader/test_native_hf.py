@@ -66,6 +66,24 @@ def test_load_native_hf_model_preserves_dtype_and_task_selection() -> None:
     assert result.device.name == "cpu"
 
 
+def test_load_native_hf_model_accepts_dtype_override() -> None:
+    model = MagicMock()
+    model.to.return_value = model
+    model.eval.return_value = model
+    with patch(
+        "winml.modelkit.loader.hf.load_hf_model",
+        return_value=(model, MagicMock(), "image-classification"),
+    ) as load:
+        load_native_hf_model(
+            "fake/model",
+            task="image-classification",
+            device="cpu",
+            torch_dtype=torch.float32,
+        )
+
+    assert load.call_args.kwargs["torch_dtype"] is torch.float32
+
+
 def test_load_native_text_generation_uses_causal_lm_adapter() -> None:
     adapter = MagicMock()
     with patch(

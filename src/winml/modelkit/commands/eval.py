@@ -17,6 +17,7 @@ import click
 from rich.console import Console
 
 from ..utils import cli as cli_utils
+from ..utils.constants import ALL_EP_NAMES, SUPPORTED_DEVICES
 from ..utils.eval_utils import EVAL_MODES, TASK_SCHEMAS, EvalMode, TaskSchema
 from ..utils.logging import configure_logging
 
@@ -220,6 +221,22 @@ logger = logging.getLogger(__name__)
         "--model-id / --task are not required in this mode."
     ),
 )
+@click.option(
+    "--reference-device",
+    type=click.Choice(
+        ["auto", *(device.lower() for device in SUPPORTED_DEVICES)],
+        case_sensitive=False,
+    ),
+    default="cpu",
+    show_default=True,
+    help="Device used to run the reference ONNX model.",
+)
+@click.option(
+    "--reference-ep",
+    type=click.Choice(ALL_EP_NAMES, case_sensitive=False),
+    default=None,
+    help="Execution provider used to run the reference ONNX model.",
+)
 @cli_utils.cache_options()
 @cli_utils.skip_build_option()
 @cli_utils.format_option()
@@ -265,6 +282,8 @@ def eval(
     mode: EvalMode,
     input_data: str | None,
     reference: str | None,
+    reference_device: str,
+    reference_ep: EPNameOrAlias | None,
     config_file: Path | None,
     use_cache: bool,
     rebuild: bool,
@@ -325,6 +344,17 @@ def eval(
 
     if cfg.reference_path is not None and cfg.mode != "compare":
         raise click.UsageError("--reference is only valid with --mode compare.")
+
+    reference_environment_requested = (
+        cli_utils.is_cli_provided(ctx, "reference_device")
+        or cli_utils.is_cli_provided(ctx, "reference_ep")
+        or "reference_device" in config_fields
+        or "reference_ep" in config_fields
+    )
+    if cfg.reference_path is None and reference_environment_requested:
+        raise click.UsageError(
+            "--reference-device and --reference-ep require --reference <onnx>."
+        )
 
     # ── 2. Resolve in place ──
     _resolve_model(cfg, model, model_id, allow_missing_model_id=cfg.reference_path is not None)
@@ -483,8 +513,6 @@ def _model_build_bypass(cfg: WinMLEvaluationConfig) -> _ModelBuildBypass | None:
                 "model build cache controls do not govern the GenAI runtime _compiled/ cache"
             ),
         )
-    if loader is _ModelLoaderKind.DIRECT_ONNX_COMPARE:
-        return _ModelBuildBypass("two-ONNX comparisons")
     if loader is _ModelLoaderKind.EVALUATOR_MANAGED:
         return _ModelBuildBypass("evaluator-managed composite inputs")
     if loader is _ModelLoaderKind.ONNX and cfg.skip_build:
@@ -851,7 +879,7 @@ def _resolve_model_path(
 
     When ``allow_missing_model_id`` is set (two-ONNX ``--mode compare``), a
     plain ``-m <file>.onnx`` is accepted without ``--model-id`` because the
-    candidate runs as a raw ORT session with no HF config resolution.
+    candidate uses the generic WinML model without HF config resolution.
     """
     if not model:
         if model_id is not None:
@@ -1013,6 +1041,9 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
         console.print(f"[dim]ONNX:[/dim]       {cfg.model_path}")
     if cfg.reference_path:
         console.print(f"[dim]Reference:[/dim]  {cfg.reference_path}")
+        console.print(f"[dim]Reference device:[/dim] {cfg.reference_device}")
+        if cfg.reference_ep:
+            console.print(f"[dim]Reference EP:[/dim] {cfg.reference_ep}")
 
     # Metrics table
     console.print()
