@@ -60,6 +60,21 @@ jobs:
       - run: uv python install 3.11
       - working-directory: candidate
         run: uv sync --locked --all-extras
+      - name: Download runtime analysis rules
+        id: rules
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Path rules-download, rules-expanded -Force | Out-Null
+          gh release download --repo microsoft/winml-cli --pattern 'rules-v*.zip' --dir rules-download
+          $archive = Get-ChildItem rules-download -Filter 'rules-v*.zip' | Select-Object -First 1
+          Expand-Archive -LiteralPath $archive.FullName -DestinationPath rules-expanded -Force
+          $provider = Get-ChildItem rules-expanded -Directory -Recurse | Where-Object Name -eq 'QNNExecutionProvider_GPU' | Select-Object -First 1
+          if (-not $provider) { throw 'Unable to locate provider folders in released rules archive.' }
+          "WINMLCLI_RULES_DIR=$($provider.Parent.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          (Get-ChildItem $provider.Parent.FullName -Recurse -Filter '*.parquet').Count
       - name: Run exact-head Goal harness
         shell: pwsh
         env:

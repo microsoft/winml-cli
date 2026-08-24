@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import statistics
 import subprocess
 import sys
@@ -61,7 +62,7 @@ def inspect_artifact(path: Path, precision: str) -> dict:
     from onnx import TensorProto
 
     model = onnx.load(path, load_external_data=False)
-    onnx.checker.check_model(model)
+    onnx.checker.check_model(onnx.load(path, load_external_data=True))
     types: dict[str, int] = {}
     locations = set()
     for initializer in model.graph.initializer:
@@ -137,6 +138,14 @@ def main() -> int:
     write_json(root / "l0-structure.json", {"artifacts": structures, "fp16_to_fp32_payload_ratio": ratio, "all_pass": all(all(row["checks"].values()) for row in structures) and ratio < 0.8})
     if not all(all(row["checks"].values()) for row in structures):
         return 1
+    metadata_root = root / "build-metadata"
+    for precision in ("fp32", "fp16"):
+        for name in ("winml_build_config.json", "export_htp_metadata.json", "analyze_result.json"):
+            source_path = artifacts[precision].parent / name
+            if source_path.is_file():
+                destination = metadata_root / precision / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_path, destination)
     perf_records = [run(root, f"perf-{precision}", cli + ["perf", "-m", str(artifacts[precision]), "--device", "cpu", "--ep", "cpu"], source, 1200) for precision in ("fp32", "fp16")]
     if any(row["exit_code"] != 0 or row["timed_out"] for row in perf_records):
         write_json(root / "terminal-status.json", {"phase": "L1-FAIL", "result": "FAIL", "records": perf_records})
@@ -148,10 +157,21 @@ def main() -> int:
     eval_output = root / "l3-eval.json"
     eval_command = cli + ["eval", "-m", str(artifacts["fp32"]), "--model-id", str(snapshot), "--task", "reranking", "--dataset", str(fixture), "--split", "dev", "--samples", "1", "--column", "query_column=input", "--column", "expected_output_column=expected_output", "--column", "metadata_column=metadata", "--column", "candidates_column=candidates", "--column", "max_candidates=4", "--ep", "cpu", "--device", "cpu", "-o", str(eval_output), "--overwrite"]
     evaluation = run(root, "l3-eval", eval_command, source, 1800)
-    analyze_output = root / "analyze-fp32.json"
-    analysis = run(root, "analyze-fp32", cli + ["analyze", "--model", str(artifacts["fp32"]), "--ep", "all", "--output", str(analyze_output)], source, 1800)
-    status = {"phase": "TESTER-COMPLETE", "result": "PASS" if builder["exit_code"] == evaluation["exit_code"] == 0 and analysis["exit_code"] in (0, 1, 2) else "FAIL", "candidate_sha": CANDIDATE, "parent_sha": PARENT, "l0": "PASS", "l1": "PASS", "l2": "PASS", "l3_exit": evaluation["exit_code"], "analysis_exit": analysis["exit_code"], "timed_out": any(row["timed_out"] for row in [builder, evaluation, analysis]), "error": None}
+    analysis_records = []
+    for precision in ("fp32", "fp16"):
+        analyze_output = root / f"analyze-{precision}.json"
+        analysis_records.append(run(root, f"analyze-{precision}", cli + ["analyze", "--model", str(artifacts[precision]), "--ep", "all", "--output", str(analyze_output)], source, 1800))
+    analysis_complete = all((root / f"analyze-{precision}.json").is_file() for precision in ("fp32", "fp16"))
+    required_eval_fields = all(name in json.dumps(json.loads(eval_output.read_text(encoding="utf-8"))).lower() for name in ("mrr@10", "recall@1", "recall@10", "scored_groups", "groups_without_positive")) if eval_output.is_file() else False
+    fixture_provenance = json.loads((fixture / "provenance.json").read_text(encoding="utf-8")) if (fixture / "provenance.json").is_file() else {}
+    selected_rows = fixture_provenance.get("selected_rows", [])
+    fixture_semantics = len(selected_rows) == 1 and len(selected_rows[0].get("selected_positive_candidate_ids", [])) >= 1 and len(selected_rows[0].get("selected_negative_candidate_ids", [])) <= 3
+    fp16_perf_text = (root / "logs" / "perf-fp16.stdout.log").read_text(encoding="utf-8", errors="replace") + (root / "logs" / "perf-fp16.stderr.log").read_text(encoding="utf-8", errors="replace")
+    status_pass = builder["exit_code"] == evaluation["exit_code"] == 0 and required_eval_fields and fixture_semantics and analysis_complete and all(row["exit_code"] in (0, 1, 2) for row in analysis_records) and "Model Precision: fp16" in fp16_perf_text
+    status = {"phase": "TESTER-COMPLETE", "result": "PASS" if status_pass else "FAIL", "candidate_sha": CANDIDATE, "parent_sha": PARENT, "l0": "PASS", "l1": "PASS", "l2": "PASS", "l3_exit": evaluation["exit_code"], "l3_semantics": {"required_metric_fields": required_eval_fields, "fixture_semantics": fixture_semantics}, "analysis_exits": {row["name"]: row["exit_code"] for row in analysis_records}, "analysis_complete": analysis_complete, "rules_root": os.environ.get("WINMLCLI_RULES_DIR"), "fp16_perf_reports_fp16": "Model Precision: fp16" in fp16_perf_text, "timed_out": any(row["timed_out"] for row in [builder, evaluation, *analysis_records]), "error": None if status_pass else "One or more final Goal predicates failed."}
     write_json(root / "terminal-status.json", status)
+    shutil.rmtree(snapshot, ignore_errors=True)
+    shutil.rmtree(root / "build", ignore_errors=True)
     return 0 if status["result"] == "PASS" else 1
 
 
