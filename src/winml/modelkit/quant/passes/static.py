@@ -13,6 +13,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
 
+from onnx import checker as onnx_checker
+
 from .base import BaseQuantPass
 
 
@@ -31,7 +33,6 @@ def _publish_staged_model(staged_path: Path, output_path: Path) -> None:
     backup_sidecar = staged_path.parent / "previous-output.onnx.data"
     backed_up_model = False
     backed_up_sidecar = False
-    published_model = False
     published_sidecar = False
     try:
         if output_path.exists():
@@ -44,10 +45,7 @@ def _publish_staged_model(staged_path: Path, output_path: Path) -> None:
             staged_sidecar.replace(output_sidecar)
             published_sidecar = True
         staged_path.replace(output_path)
-        published_model = True
     except BaseException:
-        if published_model:
-            output_path.unlink(missing_ok=True)
         if published_sidecar:
             output_sidecar.unlink(missing_ok=True)
         if backed_up_sidecar:
@@ -229,9 +227,7 @@ class StaticPass(BaseQuantPass):
             )
             save_onnx(quantized_model, staged_output, use_external_data=use_external_data)
 
-            import onnx
-
-            onnx.checker.check_model(str(staged_output), full_check=True)
+            onnx_checker.check_model(str(staged_output), full_check=True)
             _publish_staged_model(staged_output, output_path)
             postproc_time = time.perf_counter() - postproc_start
 

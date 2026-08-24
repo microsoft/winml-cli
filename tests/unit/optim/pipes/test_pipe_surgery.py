@@ -722,6 +722,57 @@ class TestTrimSplitGroupedConvProcess:
 
         self._assert_no_rewrite(model)
 
+    def test_conv_output_captured_by_subgraph_is_unchanged(self) -> None:
+        from onnx import TensorProto
+
+        model = _make_grouped_conv_tail_slice_model()
+        model.graph.initializer.append(
+            numpy_helper.from_array(np.array(True, dtype=np.bool_), "condition")
+        )
+
+        def branch_graph(name: str) -> onnx.GraphProto:
+            output_name = f"{name}_output"
+            return onnx.helper.make_graph(
+                [
+                    onnx.helper.make_node(
+                        "Identity",
+                        ["conv_output"],
+                        [output_name],
+                        name=f"{name}_identity",
+                    )
+                ],
+                name,
+                [],
+                [
+                    onnx.helper.make_tensor_value_info(
+                        output_name,
+                        TensorProto.FLOAT,
+                        [1, 32, 4],
+                    )
+                ],
+            )
+
+        model.graph.node.append(
+            onnx.helper.make_node(
+                "If",
+                ["condition"],
+                ["captured_conv_output"],
+                name="capture_conv_output",
+                then_branch=branch_graph("then_branch"),
+                else_branch=branch_graph("else_branch"),
+            )
+        )
+        model.graph.output.append(
+            onnx.helper.make_tensor_value_info(
+                "captured_conv_output",
+                TensorProto.FLOAT,
+                [1, 32, 4],
+            )
+        )
+        onnx.checker.check_model(model, full_check=True)
+
+        self._assert_no_rewrite(model)
+
     def test_nonunit_stride_is_unchanged(self) -> None:
         model = _make_grouped_conv_tail_slice_model()
         conv = next(node for node in model.graph.node if node.op_type == "Conv")
@@ -867,6 +918,73 @@ class TestTrimSplitGroupedConvProcess:
 
         onnx.checker.check_model(result, full_check=True)
         assert "weights" in {initializer.name for initializer in result.graph.initializer}
+
+    def test_existing_hint_with_nested_capture_fails_without_mutating_input(self) -> None:
+        from onnx import TensorProto
+
+        config = SurgeryPipeConfig(trim_split_grouped_conv=True)
+        model = SurgeryPipe().process(_make_grouped_conv_tail_slice_model(), config)
+        hint = json.loads(
+            next(
+                item.value
+                for item in model.metadata_props
+                if item.key == "winml.quantization.region_hints"
+            )
+        )
+        branch_name = hint["regions"][0]["branches"][0]
+        branch_output = next(
+            node.output[0] for node in model.graph.node if node.name == branch_name
+        )
+        model.graph.initializer.append(
+            numpy_helper.from_array(np.array(True, dtype=np.bool_), "condition")
+        )
+
+        def branch_graph(name: str) -> onnx.GraphProto:
+            output_name = f"{name}_output"
+            return onnx.helper.make_graph(
+                [
+                    onnx.helper.make_node(
+                        "Identity",
+                        [branch_output],
+                        [output_name],
+                        name=f"{name}_identity",
+                    )
+                ],
+                name,
+                [],
+                [
+                    onnx.helper.make_tensor_value_info(
+                        output_name,
+                        TensorProto.FLOAT,
+                        [1, 16, 3],
+                    )
+                ],
+            )
+
+        model.graph.node.append(
+            onnx.helper.make_node(
+                "If",
+                ["condition"],
+                ["captured_branch_output"],
+                name="capture_branch_output",
+                then_branch=branch_graph("then_branch"),
+                else_branch=branch_graph("else_branch"),
+            )
+        )
+        model.graph.output.append(
+            onnx.helper.make_tensor_value_info(
+                "captured_branch_output",
+                TensorProto.FLOAT,
+                [1, 16, 3],
+            )
+        )
+        onnx.checker.check_model(model, full_check=True)
+        original = model.SerializeToString()
+
+        with pytest.raises(QuantizationHintError, match="exclusively feed"):
+            SurgeryPipe().process(model, config)
+
+        assert model.SerializeToString() == original
 
     @pytest.mark.parametrize(
         "metadata_values",

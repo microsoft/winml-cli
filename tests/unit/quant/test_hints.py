@@ -9,9 +9,16 @@ from __future__ import annotations
 import json
 
 import numpy as np
-import onnx
 import pytest
-from onnx import TensorProto, helper, numpy_helper
+from onnx import (
+    GraphProto,
+    ModelProto,
+    StringStringEntryProto,
+    TensorProto,
+    checker,
+    helper,
+    numpy_helper,
+)
 
 from winml.modelkit.quant.hints import (
     QUANTIZATION_REGION_HINT_KEY,
@@ -28,11 +35,11 @@ _REMOVED_NODE_NAMES = {
 }
 
 
-def _scalar(value: object, dtype: np.dtype, name: str) -> onnx.TensorProto:
+def _scalar(value: object, dtype: np.dtype, name: str) -> TensorProto:
     return numpy_helper.from_array(np.asarray(value, dtype=dtype), name)
 
 
-def _make_hinted_qdq_model() -> onnx.ModelProto:
+def _make_hinted_qdq_model() -> ModelProto:
     initializers = [
         _scalar(0.1, np.dtype(np.float32), "input_scale"),
         _scalar(128, np.dtype(np.uint8), "input_zero_point"),
@@ -189,11 +196,11 @@ def _make_hinted_qdq_model() -> onnx.ModelProto:
             }
         ),
     )
-    onnx.checker.check_model(model, full_check=True)
+    checker.check_model(model, full_check=True)
     return model
 
 
-def _hint_entry(model: onnx.ModelProto) -> onnx.StringStringEntryProto:
+def _hint_entry(model: ModelProto) -> StringStringEntryProto:
     return next(item for item in model.metadata_props if item.key == QUANTIZATION_REGION_HINT_KEY)
 
 
@@ -209,7 +216,7 @@ class TestCanonicalizeQuantizationRegionHints:
         result = canonicalize_quantization_region_hints(model)
 
         assert model.SerializeToString() == original
-        onnx.checker.check_model(result, full_check=True)
+        checker.check_model(result, full_check=True)
         assert {node.name for node in result.graph.node} == original_nodes - _REMOVED_NODE_NAMES
         assert [
             initializer.SerializeToString() for initializer in result.graph.initializer
@@ -327,6 +334,58 @@ class TestCanonicalizeQuantizationRegionHints:
         original = model.SerializeToString()
 
         with pytest.raises(QuantizationHintError, match="graph output"):
+            canonicalize_quantization_region_hints(model)
+
+        assert model.SerializeToString() == original
+
+    @pytest.mark.parametrize(
+        ("captured_name", "data_type"),
+        [
+            ("branch0_output_q_value", TensorProto.UINT8),
+            ("branch0_output_dq_value", TensorProto.FLOAT),
+        ],
+    )
+    def test_nested_capture_fails_without_mutating_input(
+        self,
+        captured_name: str,
+        data_type: int,
+    ) -> None:
+        model = _make_hinted_qdq_model()
+        model.graph.initializer.append(_scalar(True, np.dtype(np.bool_), "condition"))
+
+        def branch_graph(name: str) -> GraphProto:
+            output_name = f"{name}_output"
+            return helper.make_graph(
+                [
+                    helper.make_node(
+                        "Identity",
+                        [captured_name],
+                        [output_name],
+                        name=f"{name}_identity",
+                    )
+                ],
+                name,
+                [],
+                [helper.make_tensor_value_info(output_name, data_type, [1, 2, 3])],
+            )
+
+        model.graph.node.append(
+            helper.make_node(
+                "If",
+                ["condition"],
+                ["captured_output"],
+                name="capture_nested_value",
+                then_branch=branch_graph("then_branch"),
+                else_branch=branch_graph("else_branch"),
+            )
+        )
+        model.graph.output.append(
+            helper.make_tensor_value_info("captured_output", data_type, [1, 2, 3])
+        )
+        checker.check_model(model, full_check=True)
+        original = model.SerializeToString()
+
+        with pytest.raises(QuantizationHintError, match="consumer"):
             canonicalize_quantization_region_hints(model)
 
         assert model.SerializeToString() == original

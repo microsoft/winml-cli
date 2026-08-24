@@ -12,6 +12,8 @@ from dataclasses import dataclass
 
 import onnx
 
+from ..onnx import get_captured_tensor_names
+
 
 QUANTIZATION_REGION_HINT_KEY = "winml.quantization.region_hints"
 STANDARD_ONNX_DOMAINS = frozenset(("", "ai.onnx"))
@@ -154,7 +156,14 @@ def canonicalize_quantization_region_hints(model: onnx.ModelProto) -> onnx.Model
     consumers: dict[str, list[int]] = {}
     for index, node in enumerate(nodes):
         indexes_by_name.setdefault(node.name, []).append(index)
-        for input_name in node.input:
+        consumed_names = {input_name for input_name in node.input if input_name}
+        for attribute in node.attribute:
+            if attribute.type == onnx.AttributeProto.GRAPH:
+                consumed_names.update(get_captured_tensor_names(attribute.g))
+            elif attribute.type == onnx.AttributeProto.GRAPHS:
+                for nested_graph in attribute.graphs:
+                    consumed_names.update(get_captured_tensor_names(nested_graph))
+        for input_name in consumed_names:
             consumers.setdefault(input_name, []).append(index)
     graph_outputs = {value.name for value in model.graph.output}
 

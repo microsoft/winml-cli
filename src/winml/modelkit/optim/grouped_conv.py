@@ -12,8 +12,8 @@ from dataclasses import dataclass
 
 import numpy as np
 import onnx
-from onnx import helper, numpy_helper
 
+from ..onnx import get_captured_tensor_names
 from ..quant.hints import (
     QUANTIZATION_REGION_HINT_KEY,
     STANDARD_ONNX_DOMAINS,
@@ -35,6 +35,7 @@ class _RewritePlan:
     kernel_end: int
     pad_begin: int
     pad_end: int
+    group: int
     branch_names: tuple[str, str]
     split_name: str
     concat_name: str
@@ -44,10 +45,6 @@ class _RewritePlan:
     bias_names: tuple[str, str] | None
 
 
-def _attributes(node: onnx.NodeProto) -> dict[str, object]:
-    return {attribute.name: helper.get_attribute_value(attribute) for attribute in node.attribute}
-
-
 def _constant_vector(
     name: str,
     initializers: dict[str, onnx.TensorProto],
@@ -55,7 +52,7 @@ def _constant_vector(
     initializer = initializers.get(name)
     if initializer is None:
         return None
-    values = np.asarray(numpy_helper.to_array(initializer))
+    values = np.asarray(onnx.numpy_helper.to_array(initializer))
     if values.ndim != 1:
         return None
     return [int(value) for value in values]
@@ -89,7 +86,7 @@ def _replace_attribute(node: onnx.NodeProto, name: str, value: object) -> None:
     attributes = [
         copy.deepcopy(attribute) for attribute in node.attribute if attribute.name != name
     ]
-    attributes.append(helper.make_attribute(name, value))
+    attributes.append(onnx.helper.make_attribute(name, value))
     del node.attribute[:]
     node.attribute.extend(attributes)
 
@@ -105,6 +102,21 @@ def _referenced_tensor_names(graph: onnx.GraphProto) -> set[str]:
                 for subgraph in attribute.graphs:
                     names.update(_referenced_tensor_names(subgraph))
     return names
+
+
+def _consumer_nodes(graph: onnx.GraphProto) -> dict[str, list[onnx.NodeProto]]:
+    consumers: dict[str, list[onnx.NodeProto]] = {}
+    for node in graph.node:
+        consumed_names = {input_name for input_name in node.input if input_name}
+        for attribute in node.attribute:
+            if attribute.type == onnx.AttributeProto.GRAPH:
+                consumed_names.update(get_captured_tensor_names(attribute.g))
+            elif attribute.type == onnx.AttributeProto.GRAPHS:
+                for nested_graph in attribute.graphs:
+                    consumed_names.update(get_captured_tensor_names(nested_graph))
+        for input_name in consumed_names:
+            consumers.setdefault(input_name, []).append(node)
+    return consumers
 
 
 def _match_plan(
@@ -132,15 +144,34 @@ def _match_plan(
     if len(tail_slice.input) != 5 or len(tail_slice.output) != 1:
         return None
 
-    conv_attributes = _attributes(conv)
-    if conv_attributes.get("auto_pad", b"NOTSET") != b"NOTSET":
+    conv_attributes = {attribute.name: attribute for attribute in conv.attribute}
+    auto_pad = conv_attributes.get("auto_pad")
+    if auto_pad is not None and (
+        auto_pad.type != onnx.AttributeProto.STRING or auto_pad.s != b"NOTSET"
+    ):
         return None
-    if "pads" not in conv_attributes:
+    pads_attribute = conv_attributes.get("pads")
+    if pads_attribute is None or pads_attribute.type != onnx.AttributeProto.INTS:
         return None
-    pads = [int(value) for value in conv_attributes["pads"]]
-    strides = [int(value) for value in conv_attributes.get("strides", [1])]
-    dilations = [int(value) for value in conv_attributes.get("dilations", [1])]
-    group = int(conv_attributes.get("group", 1))
+    pads = [int(value) for value in pads_attribute.ints]
+    strides_attribute = conv_attributes.get("strides")
+    if strides_attribute is not None and strides_attribute.type != onnx.AttributeProto.INTS:
+        return None
+    strides = (
+        [int(value) for value in strides_attribute.ints] if strides_attribute is not None else [1]
+    )
+    dilations_attribute = conv_attributes.get("dilations")
+    if dilations_attribute is not None and dilations_attribute.type != onnx.AttributeProto.INTS:
+        return None
+    dilations = (
+        [int(value) for value in dilations_attribute.ints]
+        if dilations_attribute is not None
+        else [1]
+    )
+    group_attribute = conv_attributes.get("group")
+    if group_attribute is not None and group_attribute.type != onnx.AttributeProto.INT:
+        return None
+    group = int(group_attribute.i) if group_attribute is not None else 1
     if len(pads) != 2 or strides != [1] or dilations != [1] or group < 2 or group % 2:
         return None
 
@@ -154,7 +185,7 @@ def _match_plan(
     weight_initializer = initializers.get(conv.input[1])
     if weight_initializer is None:
         return None
-    weights = np.asarray(numpy_helper.to_array(weight_initializer))
+    weights = np.asarray(onnx.numpy_helper.to_array(weight_initializer))
     if weights.ndim != 3:
         return None
     output_channels, channels_per_group, kernel_size = weights.shape
@@ -165,7 +196,17 @@ def _match_plan(
         or kernel_size <= 1
     ):
         return None
-    kernel_shape = [int(value) for value in conv_attributes.get("kernel_shape", [kernel_size])]
+    kernel_shape_attribute = conv_attributes.get("kernel_shape")
+    if (
+        kernel_shape_attribute is not None
+        and kernel_shape_attribute.type != onnx.AttributeProto.INTS
+    ):
+        return None
+    kernel_shape = (
+        [int(value) for value in kernel_shape_attribute.ints]
+        if kernel_shape_attribute is not None
+        else [kernel_size]
+    )
     if kernel_shape != [kernel_size]:
         return None
 
@@ -174,7 +215,7 @@ def _match_plan(
         bias_initializer = initializers.get(conv.input[2])
         if bias_initializer is None:
             return None
-        bias = np.asarray(numpy_helper.to_array(bias_initializer))
+        bias = np.asarray(onnx.numpy_helper.to_array(bias_initializer))
         if bias.shape != (output_channels,):
             return None
 
@@ -237,6 +278,7 @@ def _match_plan(
         kernel_end=kernel_end,
         pad_begin=pad_begin,
         pad_end=pad_end,
+        group=group,
         branch_names=branch_names,
         split_name=split_name,
         concat_name=concat_name,
@@ -253,11 +295,9 @@ def _validated_existing_regions(model: onnx.ModelProto) -> tuple[QuantizationReg
         return ()
 
     nodes_by_name: dict[str, list[onnx.NodeProto]] = {}
-    consumers: dict[str, list[onnx.NodeProto]] = {}
     for node in model.graph.node:
         nodes_by_name.setdefault(node.name, []).append(node)
-        for input_name in node.input:
-            consumers.setdefault(input_name, []).append(node)
+    consumers = _consumer_nodes(model.graph)
     graph_outputs = {value.name for value in model.graph.output}
     for region in regions:
         concat_nodes = nodes_by_name.get(region.concat, [])
@@ -318,10 +358,7 @@ def trim_split_grouped_convs(
     existing_regions = _validated_existing_regions(model)
     graph = model.graph
     initializers = {initializer.name: initializer for initializer in graph.initializer}
-    consumers: dict[str, list[onnx.NodeProto]] = {}
-    for node in graph.node:
-        for input_name in node.input:
-            consumers.setdefault(input_name, []).append(node)
+    consumers = _consumer_nodes(graph)
     graph_outputs = {value.name for value in graph.output}
     shapes = _static_shapes(model)
     used_names = {
@@ -354,23 +391,28 @@ def trim_split_grouped_convs(
     regions: list[QuantizationRegion] = []
     removable_initializers: set[str] = set()
     for plan in plans:
-        conv_attributes = _attributes(plan.conv)
-        weights = np.asarray(numpy_helper.to_array(initializers[plan.conv.input[1]]))
+        weights = np.asarray(onnx.numpy_helper.to_array(initializers[plan.conv.input[1]]))
         output_midpoint = weights.shape[0] // 2
         trimmed_weights = weights[:, :, plan.kernel_start : plan.kernel_end + 1]
         for index, values in enumerate(np.split(trimmed_weights, [output_midpoint], axis=0)):
             new_initializers.append(
-                numpy_helper.from_array(np.ascontiguousarray(values), plan.weight_names[index])
+                onnx.numpy_helper.from_array(
+                    np.ascontiguousarray(values),
+                    plan.weight_names[index],
+                )
             )
 
         if plan.bias_names is not None:
-            bias = np.asarray(numpy_helper.to_array(initializers[plan.conv.input[2]]))
+            bias = np.asarray(onnx.numpy_helper.to_array(initializers[plan.conv.input[2]]))
             for index, values in enumerate(np.split(bias, [output_midpoint], axis=0)):
                 new_initializers.append(
-                    numpy_helper.from_array(np.ascontiguousarray(values), plan.bias_names[index])
+                    onnx.numpy_helper.from_array(
+                        np.ascontiguousarray(values),
+                        plan.bias_names[index],
+                    )
                 )
 
-        split = helper.make_node(
+        split = onnx.helper.make_node(
             "Split",
             [plan.conv.input[0]],
             list(plan.split_outputs),
@@ -387,11 +429,11 @@ def trim_split_grouped_convs(
                 branch.input.append(plan.bias_names[index])
             del branch.output[:]
             branch.output.append(plan.branch_outputs[index])
-            _replace_attribute(branch, "group", int(conv_attributes["group"]) // 2)
+            _replace_attribute(branch, "group", plan.group // 2)
             _replace_attribute(branch, "kernel_shape", [plan.kernel_end - plan.kernel_start + 1])
             _replace_attribute(branch, "pads", [plan.pad_begin, plan.pad_end])
             branches.append(branch)
-        concat = helper.make_node(
+        concat = onnx.helper.make_node(
             "Concat",
             list(plan.branch_outputs),
             list(plan.tail_slice.output),
@@ -414,9 +456,9 @@ def trim_split_grouped_convs(
                 plan.conv.name,
                 plan.kernel_start,
                 plan.kernel_end + 1,
-                int(conv_attributes["group"]),
-                int(conv_attributes["group"]) // 2,
-                int(conv_attributes["group"]) // 2,
+                plan.group,
+                plan.group // 2,
+                plan.group // 2,
             )
 
     rebuilt: list[onnx.NodeProto] = []

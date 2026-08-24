@@ -28,7 +28,13 @@ from .io import (
 from .metadata import capture_metadata, restore_metadata
 from .persistence import ONNXSaveError, cleanup_onnx, load_onnx, save_onnx
 from .shape import infer_onnx_shapes, infer_shapes
-from .utils import EXTERNAL_DATA_THRESHOLD, check_onnx_model, get_model_size, strip_node_attrs
+from .utils import (
+    EXTERNAL_DATA_THRESHOLD,
+    check_onnx_model,
+    get_captured_tensor_names,
+    get_model_size,
+    strip_node_attrs,
+)
 
 
 __all__ = [
@@ -44,6 +50,7 @@ __all__ = [
     "cleanup_onnx",
     "copy_onnx_model",
     "generate_inputs_from_onnx",
+    "get_captured_tensor_names",
     "get_external_data_files",
     "get_io_config",
     "get_model_size",
@@ -64,7 +71,6 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "is_compiled_onnx": (".detection", "is_compiled_onnx"),
     "is_quantized_onnx": (".detection", "is_quantized_onnx"),
 }
-
 
 
 def __getattr__(name: str) -> Any:

@@ -12,10 +12,9 @@ from types import ModuleType, SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import onnx
 import pytest
 from google.protobuf.message import EncodeError
-from onnx import TensorProto, helper, numpy_helper
+from onnx import ModelProto, TensorProto, checker, helper, load, numpy_helper, save
 
 from winml.modelkit.optim.pipes import SurgeryPipe, SurgeryPipeConfig
 from winml.modelkit.quant import WinMLQuantizationConfig
@@ -654,7 +653,7 @@ class TestDynamicConfigSerialization:
 # ---------------------------------------------------------------------------
 
 
-def _make_static_grouped_conv_model() -> onnx.ModelProto:
+def _make_static_grouped_conv_model() -> ModelProto:
     weights = numpy_helper.from_array(
         np.random.RandomState(0).randn(4, 2, 8).astype(np.float32),
         "weights",
@@ -731,7 +730,7 @@ class TestStaticPassQuantizationRegionHints:
 
         model_path = tmp_path / "optimized.onnx"
         output_path = tmp_path / "quantized.onnx"
-        onnx.save(optimized, model_path)
+        save(optimized, model_path)
         result = StaticPass(
             WinMLQuantizationConfig(
                 mode="static",
@@ -744,8 +743,8 @@ class TestStaticPassQuantizationRegionHints:
         ).run(model_path, output_path, use_external_data=False)
 
         assert result.success
-        quantized = onnx.load(output_path)
-        onnx.checker.check_model(quantized, full_check=True)
+        quantized = load(output_path)
+        checker.check_model(quantized, full_check=True)
         metadata = {item.key: item.value for item in quantized.metadata_props}
         assert metadata["keep.me"] == "restored"
         assert QUANTIZATION_REGION_HINT_KEY not in metadata
@@ -779,11 +778,11 @@ class TestStaticPassQuantizationRegionHints:
         model_path = tmp_path / "optimized.onnx"
         output_path = tmp_path / "quantized.onnx"
         sidecar_path = tmp_path / "quantized.onnx.data"
-        onnx.save(optimized, model_path)
+        save(optimized, model_path)
         output_path.write_bytes(b"previous-output")
         sidecar_path.write_bytes(b"previous-sidecar")
 
-        def fail_postprocessing(_model: onnx.ModelProto) -> onnx.ModelProto:
+        def fail_postprocessing(_model: ModelProto) -> ModelProto:
             raise QuantizationHintError("stale hint")
 
         monkeypatch.setattr(
