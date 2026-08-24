@@ -15,10 +15,9 @@ Following Cardinal Rules:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import numpy as np
 import onnxruntime as ort
+import pytest
 from google.protobuf.message import EncodeError
 from onnx import (
     AttributeProto,
@@ -32,11 +31,8 @@ from onnx import (
     shape_inference,
 )
 
+import winml.modelkit.quant.fp16 as fp16_module
 from winml.modelkit.quant.fp16 import convert_to_fp16
-
-
-if TYPE_CHECKING:
-    import pytest
 
 
 # =============================================================================
@@ -3329,6 +3325,188 @@ def _build_non_float_initializer_before_nested_float_initializer_model() -> Mode
 
 class TestConvertToFP16:
     """Test convert_to_fp16 utility function."""
+
+    def test_exact_cast_node_exclusion_preserves_only_selected_float_boundary(self) -> None:
+        x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1])
+        token_ids = helper.make_tensor_value_info("token_ids", TensorProto.INT32, [1])
+        selected_output = helper.make_tensor_value_info("selected_out", TensorProto.FLOAT, [1])
+        neighbor_output = helper.make_tensor_value_info("neighbor_out", TensorProto.FLOAT, [1])
+        embeddings_output = helper.make_tensor_value_info("embeddings_out", TensorProto.FLOAT, [1])
+        selected = helper.make_node(
+            "Cast",
+            ["x"],
+            ["selected_out"],
+            name="InsertedPrecisionFreeCast_selected",
+            to=TensorProto.FLOAT,
+        )
+        neighbor = helper.make_node(
+            "Cast",
+            ["x"],
+            ["neighbor_out"],
+            name="InsertedPrecisionFreeCast_neighbor",
+            to=TensorProto.FLOAT,
+        )
+        embeddings_cast = helper.make_node(
+            "Cast",
+            ["token_ids"],
+            ["embeddings_out"],
+            name="InsertedPrecisionFreeCast_/deberta/embeddings/Cast_output_0",
+            to=TensorProto.FLOAT,
+        )
+        model = helper.make_model(
+            helper.make_graph(
+                [selected, neighbor, embeddings_cast],
+                "named_cast_boundaries",
+                [x, token_ids],
+                [selected_output, neighbor_output, embeddings_output],
+            ),
+            opset_imports=[helper.make_opsetid("", 17)],
+        )
+
+        result = convert_to_fp16(
+            model,
+            keep_io_types=False,
+            node_block_list=["InsertedPrecisionFreeCast_selected"],
+        )
+        cast_targets = {
+            node.name: next(attribute.i for attribute in node.attribute if attribute.name == "to")
+            for node in result.graph.node
+            if node.op_type == "Cast" and node.name.startswith("InsertedPrecisionFreeCast_")
+        }
+
+        assert cast_targets["InsertedPrecisionFreeCast_selected"] == TensorProto.FLOAT
+        assert cast_targets["InsertedPrecisionFreeCast_neighbor"] == TensorProto.FLOAT16
+        assert (
+            cast_targets["InsertedPrecisionFreeCast_/deberta/embeddings/Cast_output_0"]
+            == TensorProto.FLOAT16
+        )
+        checker.check_model(result)
+        shape_inference.infer_shapes(result, check_type=True, strict_mode=True)
+        ort.InferenceSession(result.SerializeToString(), providers=["CPUExecutionProvider"])
+
+    def test_unknown_node_exclusion_has_no_heuristic_effect(self) -> None:
+        original = _build_simple_fp32_model()
+        expected = convert_to_fp16(ModelProto.FromString(original.SerializeToString()))
+        actual = convert_to_fp16(original, node_block_list=["unknown_model_specific_prefix"])
+
+        assert actual.SerializeToString() == expected.SerializeToString()
+
+    def test_strict_validation_rejects_ordinary_top_level_type_mismatch(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        model = _build_simple_fp32_model()
+
+        def incompatible_conversion(model_arg, **kwargs):
+            model_arg.graph.output[0].type.tensor_type.elem_type = TensorProto.INT64
+            return model_arg
+
+        monkeypatch.setattr(
+            "onnxruntime.transformers.float16.convert_float_to_float16",
+            incompatible_conversion,
+        )
+
+        with np.testing.assert_raises_regex(RuntimeError, "incompatible FP16 types"):
+            convert_to_fp16(model)
+
+    def test_strict_capable_conversion_runs_converted_strict_sequence(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        model = _build_simple_fp32_model()
+        calls: list[bool] = []
+        validate = fp16_module._validate_converted_types
+
+        def recording_validate(model_arg: ModelProto, *, required: bool = True) -> bool:
+            calls.append(required)
+            return validate(model_arg, required=required)
+
+        monkeypatch.setattr(fp16_module, "_validate_converted_types", recording_validate)
+
+        convert_to_fp16(model)
+
+        assert calls == [False, True]
+
+    @pytest.mark.parametrize(
+        ("failure_source", "error"),
+        [
+            ("checker", AttributeError("missing checker capability")),
+            ("inference", EncodeError("model cannot be serialized")),
+            ("checker", checker.ValidationError("checker capability unavailable")),
+            ("inference", shape_inference.InferenceError("inference capability unavailable")),
+        ],
+        ids=["attribute-error", "encode-error", "validation-error", "inference-error"],
+    )
+    def test_input_capability_exceptions_skip_only_converted_generic_strict_sequence(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        failure_source: str,
+        error: Exception,
+    ) -> None:
+        model = _build_simple_fp32_model()
+        original = model.SerializeToString()
+        converter_calls = 0
+        infer_shapes = shape_inference.infer_shapes
+
+        def fail_checker(model_arg: ModelProto) -> None:
+            del model_arg
+            raise error
+
+        def fail_inference(model_arg: ModelProto, **kwargs: object) -> ModelProto:
+            if kwargs.get("check_type") is True and kwargs.get("strict_mode") is True:
+                raise error
+            return infer_shapes(model_arg, **kwargs)
+
+        def unchanged_conversion(model_arg: ModelProto, **kwargs: object) -> ModelProto:
+            nonlocal converter_calls
+            del kwargs
+            converter_calls += 1
+            return model_arg
+
+        if failure_source == "checker":
+            monkeypatch.setattr(checker, "check_model", fail_checker)
+        else:
+            monkeypatch.setattr(shape_inference, "infer_shapes", fail_inference)
+        monkeypatch.setattr(
+            "onnxruntime.transformers.float16.convert_float_to_float16",
+            unchanged_conversion,
+        )
+
+        result = convert_to_fp16(model)
+
+        assert result is model
+        assert converter_calls == 1
+        assert model.SerializeToString() == original
+
+    def test_input_capability_preflight_does_not_swallow_arbitrary_exceptions(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        model = _build_simple_fp32_model()
+
+        def fail_checker(model_arg: ModelProto) -> None:
+            del model_arg
+            raise ValueError("unexpected checker failure")
+
+        monkeypatch.setattr(checker, "check_model", fail_checker)
+
+        with pytest.raises(ValueError, match="unexpected checker failure"):
+            convert_to_fp16(model)
+
+    def test_specialized_external_data_safeguard_precedes_generic_strict_gate(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        model = _build_external_float_attribute_model(clear_data=True)
+
+        def unexpected_generic_validation(*args: object, **kwargs: object) -> bool:
+            del args, kwargs
+            pytest.fail("generic strict validation must not replace specialized safeguards")
+
+        monkeypatch.setattr(
+            fp16_module,
+            "_validate_converted_types",
+            unexpected_generic_validation,
+        )
+
+        with pytest.raises(RuntimeError, match="unloaded external data"):
+            convert_to_fp16(model, keep_io_types=False, op_block_list=[])
 
     def test_converts_weights_to_fp16(self) -> None:
         """FP16 conversion converts float32 initializers to float16."""

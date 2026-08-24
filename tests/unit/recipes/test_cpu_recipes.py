@@ -13,6 +13,24 @@ from winml.modelkit.config import WinMLBuildConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
+MXBAI_FP16_BOUNDARY_CASTS = [
+    "InsertedPrecisionFreeCast_/deberta/embeddings/LayerNorm/LayerNormalization_output_0",
+    *[
+        f"InsertedPrecisionFreeCast_/deberta/encoder/layer.{layer}/attention/self/{boundary}_output_0"
+        for layer in range(12)
+        for boundary in (
+            "Transpose_3",
+            "Reshape_1",
+            "Reshape_3",
+            "Transpose_8",
+            "Reshape_5",
+            "Reshape_13",
+        )
+    ],
+    "InsertedPrecisionFreeCast_/pooler/Gather_output_0",
+]
+MXBAI_EMBEDDINGS_INT32_CAST = "InsertedPrecisionFreeCast_/deberta/embeddings/Cast_output_0"
+
 recipes = [
     {
         "path": REPO_ROOT
@@ -77,3 +95,26 @@ def test_cpu_recipes(rec):
     else:
         assert config.quant is not None
         assert config.quant.mode == rec["quant_mode"]
+
+
+def test_mxbai_fp16_recipe_has_exact_frozen_boundary_casts() -> None:
+    path = (
+        REPO_ROOT
+        / "examples"
+        / "recipes"
+        / "mixedbread-ai_mxbai-rerank-base-v1"
+        / "cpu"
+        / "cpu"
+        / "reranking_fp16_config.json"
+    )
+    data = json.loads(path.read_text(encoding="utf-8"))
+    exclusions = data["quant"]["fp16_nodes_to_exclude"]
+
+    assert exclusions == MXBAI_FP16_BOUNDARY_CASTS
+    assert len(exclusions) == 74
+    assert len(set(exclusions)) == 74
+    assert MXBAI_EMBEDDINGS_INT32_CAST not in exclusions
+
+    config = WinMLBuildConfig.from_dict(data)
+    assert config.quant is not None
+    assert config.quant.fp16_nodes_to_exclude == MXBAI_FP16_BOUNDARY_CASTS
