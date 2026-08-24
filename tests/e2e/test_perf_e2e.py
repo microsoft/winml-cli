@@ -367,17 +367,22 @@ class _PerfBenchmarkSuite:
         assert "memory" in data, f"No 'memory' key in JSON output. Keys: {list(data.keys())}"
         mem = data["memory"]
 
-        # Required RAM fields
+        # Canonical lifecycle fields
+        assert mem["rss_process_baseline_mb"] > 0
+        assert mem["rss_before_session_mb"] > 0
+        assert mem["rss_after_session_mb"] > 0
+        assert mem["rss_peak_during_inference_mb"] > 0
+        assert mem["rss_after_inference_mb"] > 0
+        assert mem["rss_peak_delta_mb"] >= 0
+        assert "rss_end_delta_mb" in mem
+
+        # Deprecated aliases remain explicit for schema compatibility.
         assert "rss_baseline_mb" in mem
         assert "rss_after_compile_mb" in mem
-        assert "rss_after_inference_mb" in mem
         assert "rss_model_load_delta_mb" in mem
         assert "rss_inference_delta_mb" in mem
         assert "rss_total_delta_mb" in mem
-
-        # Values should be positive floats
-        assert mem["rss_after_inference_mb"] > 0
-        assert mem["rss_baseline_mb"] > 0
+        assert "rss_total_delta_mb" in mem["deprecated_fields"]
 
         # Console output should contain Memory section
         assert "Memory:" in result.output
@@ -436,9 +441,17 @@ class _PerfBenchmarkSuite:
         assert mem["rss_after_inference_mb"] > 0
         assert "rss_model_load_delta_mb" in mem
 
-        # VRAM fields (NPU exposes device memory fields, but values depend on driver)
+        # VRAM fields are always present; unavailable counters serialize as null.
+        assert "vram_local_before_session_mb" in mem
+        assert "vram_shared_before_session_mb" in mem
+        assert "vram_local_peak_during_inference_mb" in mem
+        assert "vram_shared_peak_during_inference_mb" in mem
+        assert "vram_local_peak_delta_mb" in mem
+        assert "vram_shared_peak_delta_mb" in mem
         assert "vram_local_after_inference_mb" in mem
         assert "vram_shared_after_inference_mb" in mem
+
+        # Deprecated aliases remain present.
         assert "vram_local_model_load_delta_mb" in mem
         assert "vram_shared_model_load_delta_mb" in mem
         assert "vram_local_inference_delta_mb" in mem

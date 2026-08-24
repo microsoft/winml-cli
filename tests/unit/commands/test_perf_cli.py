@@ -38,6 +38,7 @@ from winml.modelkit.commands.perf import (
     generate_output_path,
     perf,
 )
+from winml.modelkit.session.monitor.memory_tracker import MEMORY_PROFILE_FIELDS
 from winml.modelkit.utils.console import SafeConsole
 
 
@@ -1935,11 +1936,30 @@ class TestEffectiveBatchSize:
 
 
 class TestClassicMemoryProfile:
-    def test_memory_profile_includes_additive_peak_and_compile_fields(self, monkeypatch) -> None:
-        """Classic perf emits the same additive memory fields as GenAI."""
+    @pytest.mark.parametrize("eager_session", [True, False])
+    def test_eager_and_lazy_sessions_use_same_lifecycle(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        eager_session: bool,
+    ) -> None:
+        """Session memory is measured whether creation happens during load or compile."""
         config = BenchmarkConfig(model_id="m", memory=True, warmup=0)
         benchmark = PerfBenchmark(config)
-        single = MagicMock()
+        state = {"rss": 100.0}
+
+        class FakeSession:
+            def compile(self) -> None:
+                if not eager_session:
+                    state["rss"] = 160.0
+
+        single = SimpleNamespace(
+            _session=FakeSession(),
+            device="npu",
+            ep_name="QNNExecutionProvider",
+            task="image-classification",
+            running_model_path="model.onnx",
+            _onnx_path=None,
+        )
         single.io_config = {
             "input_names": ["pixel_values"],
             "input_shapes": [[1, 3, 224, 224]],
@@ -1947,30 +1967,26 @@ class TestClassicMemoryProfile:
             "output_names": ["logits"],
             "output_shapes": [[1, 1000]],
         }
-        single.device = "npu"
-        single.ep_name = "QNNExecutionProvider"
-        single.task = "image-classification"
-        single.running_model_path = "model.onnx"
-        single._session.compile.return_value = None
-        benchmark._model = single
-        benchmark._ep_device = MagicMock()
 
-        stats = MagicMock()
-        stats.mean_ms = 10.0
-        stats.min_ms = 9.0
-        stats.max_ms = 11.0
-        stats.p50_ms = 10.0
-        stats.p90_ms = 10.5
-        stats.p95_ms = 10.8
-        stats.p99_ms = 11.0
-        stats.samples_ms = [10.0]
-        stats.all_samples_ms = [10.0]
+        def resolve_device_ep() -> None:
+            state["rss"] = 110.0
+            benchmark._resolved_device = "npu"
+            benchmark._resolved_ep = "QNNExecutionProvider"
+            benchmark._ep_device = MagicMock()
 
-        rss_values = iter([100.0, 150.0, 180.0])
-        vram_values = iter([(10.0, 20.0), (30.0, 50.0), (40.0, 70.0)])
+        def load_model() -> None:
+            benchmark._model = single
+            if eager_session:
+                state["rss"] = 160.0
 
-        monkeypatch.setattr(benchmark, "_resolve_adapter_luid", lambda: "luid")
-        monkeypatch.setattr(benchmark, "_run_benchmark", lambda: stats)
+        def run_benchmark() -> MagicMock:
+            state["rss"] = 90.0
+            return MagicMock()
+
+        monkeypatch.setattr(benchmark, "_resolve_device_ep", resolve_device_ep)
+        monkeypatch.setattr(benchmark, "_resolve_adapter_luid", lambda: None)
+        monkeypatch.setattr(benchmark, "_load_model", load_model)
+        monkeypatch.setattr(benchmark, "_run_benchmark", run_benchmark)
         monkeypatch.setattr(
             benchmark,
             "_generate_inputs",
@@ -1982,39 +1998,70 @@ class TestClassicMemoryProfile:
         )
         monkeypatch.setattr(
             "winml.modelkit.session.monitor.memory_tracker.get_rss_mb",
-            lambda: next(rss_values),
+            lambda: state["rss"],
         )
         monkeypatch.setattr(
             "winml.modelkit.session.monitor.memory_tracker.get_vram_mb",
-            lambda _adapter_luid: next(vram_values),
+            lambda _adapter_luid: (None, None),
         )
-        monkeypatch.setattr("winml.modelkit.commands.perf._print_model_info", lambda *_, **__: None)
+        monkeypatch.setattr(perf_module, "_pre_bench_kwargs_from_ep_device", lambda *_, **__: {})
+        monkeypatch.setattr(perf_module, "print_pre_bench_block", lambda *_, **__: None)
+        monkeypatch.setattr(
+            benchmark,
+            "_collect_results",
+            lambda _stats: BenchmarkResult(
+                config=config,
+                memory_profile=benchmark._memory,
+            ),
+        )
 
-        result = benchmark._run_single()
+        result = benchmark.run()
 
-        assert result.memory_profile == {
-            "rss_baseline_mb": 100.0,
-            "rss_after_compile_mb": 150.0,
-            "rss_after_inference_mb": 180.0,
-            "rss_checkpoint_peak_mb": 180.0,
-            "rss_model_load_delta_mb": 50.0,
-            "rss_inference_delta_mb": 30.0,
-            "rss_total_delta_mb": 80.0,
-            "vram_local_baseline_mb": 10.0,
-            "vram_shared_baseline_mb": 20.0,
-            "vram_local_after_compile_mb": 30.0,
-            "vram_shared_after_compile_mb": 50.0,
-            "vram_local_after_inference_mb": 40.0,
-            "vram_shared_after_inference_mb": 70.0,
-            "vram_local_checkpoint_peak_mb": 40.0,
-            "vram_shared_checkpoint_peak_mb": 70.0,
-            "vram_local_model_load_delta_mb": 20.0,
-            "vram_shared_model_load_delta_mb": 30.0,
-            "vram_local_inference_delta_mb": 10.0,
-            "vram_shared_inference_delta_mb": 20.0,
-            "vram_local_total_delta_mb": 30.0,
-            "vram_shared_total_delta_mb": 50.0,
+        assert isinstance(result, BenchmarkResult)
+        assert result.memory_profile is not None
+        assert result.memory_profile["rss_process_baseline_mb"] == 100.0
+        assert result.memory_profile["rss_before_session_mb"] == 110.0
+        assert result.memory_profile["rss_after_session_mb"] == 160.0
+        assert result.memory_profile["rss_session_delta_mb"] == 50.0
+        assert result.memory_profile["rss_end_delta_mb"] == -10.0
+        assert result.memory_profile["rss_peak_delta_mb"] == 60.0
+        assert set(result.memory_profile) == MEMORY_PROFILE_FIELDS
+
+    def test_json_and_cli_preserve_deprecated_fields_and_show_unknown_vram(
+        self,
+    ) -> None:
+        memory: dict[str, object] = {
+            "rss_peak_during_inference_mb": 120.0,
+            "rss_peak_delta_mb": 20.0,
+            "rss_session_delta_mb": 15.0,
+            "rss_end_delta_mb": -5.0,
+            "rss_total_delta_mb": -5.0,
+            "vram_local_peak_during_inference_mb": None,
+            "vram_shared_peak_during_inference_mb": None,
+            "vram_local_peak_delta_mb": None,
+            "vram_shared_peak_delta_mb": None,
+            "vram_local_session_delta_mb": None,
+            "vram_shared_session_delta_mb": None,
+            "vram_local_end_delta_mb": None,
+            "vram_shared_end_delta_mb": None,
+            "deprecated_fields": ["rss_total_delta_mb"],
         }
+        result = BenchmarkResult(
+            config=BenchmarkConfig(model_id="m"),
+            memory_profile=memory,
+        )
+        console = SafeConsole(file=StringIO(), width=200, force_terminal=False, record=True)
+
+        display_console_report(result, console)
+        serialized = json.loads(json.dumps(result.to_dict()))
+        output = console.export_text()
+
+        assert serialized["memory"]["rss_total_delta_mb"] == -5.0
+        assert serialized["memory"]["vram_local_peak_delta_mb"] is None
+        assert serialized["memory"]["deprecated_fields"] == ["rss_total_delta_mb"]
+        assert "peak increase +20.0 MB" in output
+        assert "end change -5.0 MB" in output
+        assert "VRAM (local/shared): peak N/A/N/A MB" in output
 
 
 # =============================================================================
