@@ -11,7 +11,15 @@ import logging
 from dataclasses import dataclass
 
 import numpy as np
-import onnx
+from onnx import (
+    AttributeProto,
+    GraphProto,
+    ModelProto,
+    NodeProto,
+    TensorProto,
+    helper,
+    numpy_helper,
+)
 
 from ..onnx import get_captured_tensor_names
 from ..quant.hints import (
@@ -29,8 +37,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class _RewritePlan:
-    conv: onnx.NodeProto
-    tail_slice: onnx.NodeProto
+    conv: NodeProto
+    tail_slice: NodeProto
     kernel_start: int
     kernel_end: int
     pad_begin: int
@@ -47,18 +55,18 @@ class _RewritePlan:
 
 def _constant_vector(
     name: str,
-    initializers: dict[str, onnx.TensorProto],
+    initializers: dict[str, TensorProto],
 ) -> list[int] | None:
     initializer = initializers.get(name)
     if initializer is None:
         return None
-    values = np.asarray(onnx.numpy_helper.to_array(initializer))
+    values = np.asarray(numpy_helper.to_array(initializer))
     if values.ndim != 1:
         return None
     return [int(value) for value in values]
 
 
-def _static_shapes(model: onnx.ModelProto) -> dict[str, tuple[int | None, ...]]:
+def _static_shapes(model: ModelProto) -> dict[str, tuple[int | None, ...]]:
     shapes: dict[str, tuple[int | None, ...]] = {}
     for value_info in (*model.graph.input, *model.graph.value_info, *model.graph.output):
         tensor_type = value_info.type.tensor_type
@@ -82,36 +90,36 @@ def _unique_name(base: str, used_names: set[str]) -> str:
     return candidate
 
 
-def _replace_attribute(node: onnx.NodeProto, name: str, value: object) -> None:
+def _replace_attribute(node: NodeProto, name: str, value: object) -> None:
     attributes = [
         copy.deepcopy(attribute) for attribute in node.attribute if attribute.name != name
     ]
-    attributes.append(onnx.helper.make_attribute(name, value))
+    attributes.append(helper.make_attribute(name, value))
     del node.attribute[:]
     node.attribute.extend(attributes)
 
 
-def _referenced_tensor_names(graph: onnx.GraphProto) -> set[str]:
+def _referenced_tensor_names(graph: GraphProto) -> set[str]:
     names = {value.name for value in (*graph.input, *graph.output)}
     for node in graph.node:
         names.update(input_name for input_name in node.input if input_name)
         for attribute in node.attribute:
-            if attribute.type == onnx.AttributeProto.GRAPH:
+            if attribute.type == AttributeProto.GRAPH:
                 names.update(_referenced_tensor_names(attribute.g))
-            elif attribute.type == onnx.AttributeProto.GRAPHS:
+            elif attribute.type == AttributeProto.GRAPHS:
                 for subgraph in attribute.graphs:
                     names.update(_referenced_tensor_names(subgraph))
     return names
 
 
-def _consumer_nodes(graph: onnx.GraphProto) -> dict[str, list[onnx.NodeProto]]:
-    consumers: dict[str, list[onnx.NodeProto]] = {}
+def _consumer_nodes(graph: GraphProto) -> dict[str, list[NodeProto]]:
+    consumers: dict[str, list[NodeProto]] = {}
     for node in graph.node:
         consumed_names = {input_name for input_name in node.input if input_name}
         for attribute in node.attribute:
-            if attribute.type == onnx.AttributeProto.GRAPH:
+            if attribute.type == AttributeProto.GRAPH:
                 consumed_names.update(get_captured_tensor_names(attribute.g))
-            elif attribute.type == onnx.AttributeProto.GRAPHS:
+            elif attribute.type == AttributeProto.GRAPHS:
                 for nested_graph in attribute.graphs:
                     consumed_names.update(get_captured_tensor_names(nested_graph))
         for input_name in consumed_names:
@@ -120,11 +128,11 @@ def _consumer_nodes(graph: onnx.GraphProto) -> dict[str, list[onnx.NodeProto]]:
 
 
 def _match_plan(
-    conv: onnx.NodeProto,
+    conv: NodeProto,
     *,
-    consumers: dict[str, list[onnx.NodeProto]],
+    consumers: dict[str, list[NodeProto]],
     graph_outputs: set[str],
-    initializers: dict[str, onnx.TensorProto],
+    initializers: dict[str, TensorProto],
     shapes: dict[str, tuple[int | None, ...]],
     used_names: set[str],
 ) -> _RewritePlan | None:
@@ -146,22 +154,20 @@ def _match_plan(
 
     conv_attributes = {attribute.name: attribute for attribute in conv.attribute}
     auto_pad = conv_attributes.get("auto_pad")
-    if auto_pad is not None and (
-        auto_pad.type != onnx.AttributeProto.STRING or auto_pad.s != b"NOTSET"
-    ):
+    if auto_pad is not None and (auto_pad.type != AttributeProto.STRING or auto_pad.s != b"NOTSET"):
         return None
     pads_attribute = conv_attributes.get("pads")
-    if pads_attribute is None or pads_attribute.type != onnx.AttributeProto.INTS:
+    if pads_attribute is None or pads_attribute.type != AttributeProto.INTS:
         return None
     pads = [int(value) for value in pads_attribute.ints]
     strides_attribute = conv_attributes.get("strides")
-    if strides_attribute is not None and strides_attribute.type != onnx.AttributeProto.INTS:
+    if strides_attribute is not None and strides_attribute.type != AttributeProto.INTS:
         return None
     strides = (
         [int(value) for value in strides_attribute.ints] if strides_attribute is not None else [1]
     )
     dilations_attribute = conv_attributes.get("dilations")
-    if dilations_attribute is not None and dilations_attribute.type != onnx.AttributeProto.INTS:
+    if dilations_attribute is not None and dilations_attribute.type != AttributeProto.INTS:
         return None
     dilations = (
         [int(value) for value in dilations_attribute.ints]
@@ -169,7 +175,7 @@ def _match_plan(
         else [1]
     )
     group_attribute = conv_attributes.get("group")
-    if group_attribute is not None and group_attribute.type != onnx.AttributeProto.INT:
+    if group_attribute is not None and group_attribute.type != AttributeProto.INT:
         return None
     group = int(group_attribute.i) if group_attribute is not None else 1
     if len(pads) != 2 or strides != [1] or dilations != [1] or group < 2 or group % 2:
@@ -185,7 +191,7 @@ def _match_plan(
     weight_initializer = initializers.get(conv.input[1])
     if weight_initializer is None:
         return None
-    weights = np.asarray(onnx.numpy_helper.to_array(weight_initializer))
+    weights = np.asarray(numpy_helper.to_array(weight_initializer))
     if weights.ndim != 3:
         return None
     output_channels, channels_per_group, kernel_size = weights.shape
@@ -197,10 +203,7 @@ def _match_plan(
     ):
         return None
     kernel_shape_attribute = conv_attributes.get("kernel_shape")
-    if (
-        kernel_shape_attribute is not None
-        and kernel_shape_attribute.type != onnx.AttributeProto.INTS
-    ):
+    if kernel_shape_attribute is not None and kernel_shape_attribute.type != AttributeProto.INTS:
         return None
     kernel_shape = (
         [int(value) for value in kernel_shape_attribute.ints]
@@ -215,7 +218,7 @@ def _match_plan(
         bias_initializer = initializers.get(conv.input[2])
         if bias_initializer is None:
             return None
-        bias = np.asarray(onnx.numpy_helper.to_array(bias_initializer))
+        bias = np.asarray(numpy_helper.to_array(bias_initializer))
         if bias.shape != (output_channels,):
             return None
 
@@ -289,12 +292,12 @@ def _match_plan(
     )
 
 
-def _validated_existing_regions(model: onnx.ModelProto) -> tuple[QuantizationRegion, ...]:
+def _validated_existing_regions(model: ModelProto) -> tuple[QuantizationRegion, ...]:
     regions = parse_quantization_region_hints(model) or ()
     if not regions:
         return ()
 
-    nodes_by_name: dict[str, list[onnx.NodeProto]] = {}
+    nodes_by_name: dict[str, list[NodeProto]] = {}
     for node in model.graph.node:
         nodes_by_name.setdefault(node.name, []).append(node)
     consumers = _consumer_nodes(model.graph)
@@ -336,7 +339,7 @@ def _validated_existing_regions(model: onnx.ModelProto) -> tuple[QuantizationReg
 
 
 def _set_region_hints(
-    model: onnx.ModelProto,
+    model: ModelProto,
     regions: tuple[QuantizationRegion, ...],
 ) -> None:
     entry = next(
@@ -350,10 +353,10 @@ def _set_region_hints(
 
 
 def trim_split_grouped_convs(
-    model: onnx.ModelProto,
+    model: ModelProto,
     *,
     verbose: bool = False,
-) -> onnx.ModelProto:
+) -> ModelProto:
     """Trim unreachable 1D kernels and split even grouped Conv regions."""
     existing_regions = _validated_existing_regions(model)
     graph = model.graph
@@ -385,41 +388,41 @@ def trim_split_grouped_convs(
     if not plans:
         return model
 
-    replacements: dict[int, list[onnx.NodeProto]] = {}
+    replacements: dict[int, list[NodeProto]] = {}
     removed_node_ids: set[int] = set()
-    new_initializers: list[onnx.TensorProto] = []
+    new_initializers: list[TensorProto] = []
     regions: list[QuantizationRegion] = []
     removable_initializers: set[str] = set()
     for plan in plans:
-        weights = np.asarray(onnx.numpy_helper.to_array(initializers[plan.conv.input[1]]))
+        weights = np.asarray(numpy_helper.to_array(initializers[plan.conv.input[1]]))
         output_midpoint = weights.shape[0] // 2
         trimmed_weights = weights[:, :, plan.kernel_start : plan.kernel_end + 1]
         for index, values in enumerate(np.split(trimmed_weights, [output_midpoint], axis=0)):
             new_initializers.append(
-                onnx.numpy_helper.from_array(
+                numpy_helper.from_array(
                     np.ascontiguousarray(values),
                     plan.weight_names[index],
                 )
             )
 
         if plan.bias_names is not None:
-            bias = np.asarray(onnx.numpy_helper.to_array(initializers[plan.conv.input[2]]))
+            bias = np.asarray(numpy_helper.to_array(initializers[plan.conv.input[2]]))
             for index, values in enumerate(np.split(bias, [output_midpoint], axis=0)):
                 new_initializers.append(
-                    onnx.numpy_helper.from_array(
+                    numpy_helper.from_array(
                         np.ascontiguousarray(values),
                         plan.bias_names[index],
                     )
                 )
 
-        split = onnx.helper.make_node(
+        split = helper.make_node(
             "Split",
             [plan.conv.input[0]],
             list(plan.split_outputs),
             name=plan.split_name,
             axis=1,
         )
-        branches: list[onnx.NodeProto] = []
+        branches: list[NodeProto] = []
         for index in range(2):
             branch = copy.deepcopy(plan.conv)
             branch.name = plan.branch_names[index]
@@ -433,7 +436,7 @@ def trim_split_grouped_convs(
             _replace_attribute(branch, "kernel_shape", [plan.kernel_end - plan.kernel_start + 1])
             _replace_attribute(branch, "pads", [plan.pad_begin, plan.pad_end])
             branches.append(branch)
-        concat = onnx.helper.make_node(
+        concat = helper.make_node(
             "Concat",
             list(plan.branch_outputs),
             list(plan.tail_slice.output),
@@ -461,7 +464,7 @@ def trim_split_grouped_convs(
                 plan.group // 2,
             )
 
-    rebuilt: list[onnx.NodeProto] = []
+    rebuilt: list[NodeProto] = []
     for node in graph.node:
         if id(node) in replacements:
             rebuilt.extend(replacements[id(node)])

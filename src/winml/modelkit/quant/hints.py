@@ -10,7 +10,7 @@ import copy
 import json
 from dataclasses import dataclass
 
-import onnx
+from onnx import AttributeProto, ModelProto, NodeProto
 
 from ..onnx import get_captured_tensor_names
 
@@ -77,7 +77,7 @@ def _parse_payload(payload: object) -> tuple[QuantizationRegion, ...]:
 
 
 def parse_quantization_region_hints(
-    model: onnx.ModelProto,
+    model: ModelProto,
 ) -> tuple[QuantizationRegion, ...] | None:
     """Parse and strictly validate model-level quantization region hints."""
     entries = [item for item in model.metadata_props if item.key == QUANTIZATION_REGION_HINT_KEY]
@@ -125,7 +125,7 @@ def _one_node_index(
     return indexes[0]
 
 
-def _one_output(node: onnx.NodeProto, *, context: str) -> str:
+def _one_output(node: NodeProto, *, context: str) -> str:
     if len(node.output) != 1 or not node.output[0]:
         raise QuantizationHintError(f"{context} must have exactly one output")
     return node.output[0]
@@ -145,7 +145,7 @@ def _one_consumer(
     return indexes[0]
 
 
-def canonicalize_quantization_region_hints(model: onnx.ModelProto) -> onnx.ModelProto:
+def canonicalize_quantization_region_hints(model: ModelProto) -> ModelProto:
     """Remove exact hinted branch-output QDQ pairs from a copy of *model*."""
     regions = parse_quantization_region_hints(model)
     if regions is None:
@@ -158,9 +158,9 @@ def canonicalize_quantization_region_hints(model: onnx.ModelProto) -> onnx.Model
         indexes_by_name.setdefault(node.name, []).append(index)
         consumed_names = {input_name for input_name in node.input if input_name}
         for attribute in node.attribute:
-            if attribute.type == onnx.AttributeProto.GRAPH:
+            if attribute.type == AttributeProto.GRAPH:
                 consumed_names.update(get_captured_tensor_names(attribute.g))
-            elif attribute.type == onnx.AttributeProto.GRAPHS:
+            elif attribute.type == AttributeProto.GRAPHS:
                 for nested_graph in attribute.graphs:
                     consumed_names.update(get_captured_tensor_names(nested_graph))
         for input_name in consumed_names:
@@ -276,7 +276,7 @@ def canonicalize_quantization_region_hints(model: onnx.ModelProto) -> onnx.Model
             )
         rewrites_by_concat[concat_index] = region_rewrites
 
-    result = onnx.ModelProto()
+    result = ModelProto()
     result.CopyFrom(model)
     for concat_index, rewrites in rewrites_by_concat.items():
         concat = result.graph.node[concat_index]
