@@ -23,7 +23,7 @@ import time
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast, get_args
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import click
 import numpy as np
@@ -32,7 +32,12 @@ from rich.table import Table
 
 from ..utils import cli as cli_utils
 from ..utils.console import SafeConsole
-from ..utils.constants import ACCELERATOR_DEVICE_TYPES, EPName, EPNameOrAlias
+from ..utils.constants import (
+    ACCELERATOR_DEVICE_TYPES,
+    RUNTIME_NAMES,
+    EPName,
+    EPNameOrAlias,
+)
 from ..utils.logging import (
     configure_logging,
     suppress_huggingface_warning_logs,
@@ -56,6 +61,7 @@ if TYPE_CHECKING:
     from ..session.monitor.ep_monitor import WinMLEPMonitor
     from ..session.monitor.op_metrics import TraceFallbackReason
     from ..session.stats import PerfStats
+    from ..utils.constants import RuntimeName
 
 logger = logging.getLogger(__name__)
 
@@ -66,15 +72,7 @@ logger = logging.getLogger(__name__)
 
 # Hardware monitor polling interval (milliseconds)
 _HW_POLL_INTERVAL_MS = 200
-
-
-# Inference runtimes selectable via ``--runtime`` (closed set; mirrors the
-# ``--compiler`` / ``COMPILER_NAMES`` convention in utils.constants):
-#   "auto"        -> select from the local model folder contents (default)
-#   "winml"       -> single-shot ONNX inference
-#   "winml-genai" -> onnxruntime-genai decoder-pipeline generation
-RuntimeName = Literal["auto", "winml", "winml-genai"]
-RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
+_RUNTIME_TYPE: RuntimeName = "winml"
 
 
 def _resolve_runtime(runtime: RuntimeName, model: str) -> RuntimeName:
@@ -253,7 +251,7 @@ def _resolve_ep_monitor(
                     "with QNN runtime, or run `wmk perf` without --op-tracing."
                 )
             return QNNMonitor(
-                level=cast('Literal["basic", "detail"]', op_tracing),
+                level=cast(Literal["basic", "detail"], op_tracing),  # noqa: TC006
                 output_dir=output_dir,
             )
 
@@ -551,7 +549,7 @@ class BenchmarkResult:
         result: dict[str, Any] = {
             "schema_version": 2,
             "benchmark_info": {
-                "runtime": "winml",
+                "runtime": _RUNTIME_TYPE,
                 "model_id": self.config.model_id,
                 "running_model_path": self.running_model_path,
                 "task": self.actual_task,
