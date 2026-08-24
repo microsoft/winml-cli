@@ -29,6 +29,7 @@ class FP16Pass(BaseQuantPass):
 
     - ``fp16_keep_io_types`` — keep model inputs/outputs in their original dtype
     - ``fp16_op_block_list`` — op types that must not be cast to FP16
+    - ``fp16_nodes_to_exclude`` — exact node names that must not be cast to FP16
 
     Example::
 
@@ -64,6 +65,7 @@ class FP16Pass(BaseQuantPass):
             model,
             keep_io_types=self._config.fp16_keep_io_types,
             op_block_list=self._config.fp16_op_block_list,
+            node_block_list=self._config.fp16_nodes_to_exclude,
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         save_onnx(model, output_path, use_external_data=use_external_data)

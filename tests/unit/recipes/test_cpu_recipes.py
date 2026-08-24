@@ -13,6 +13,24 @@ from winml.modelkit.config import WinMLBuildConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
+MXBAI_XSMALL_FP16_BOUNDARY_CASTS = [
+    "InsertedPrecisionFreeCast_/deberta/embeddings/LayerNorm/LayerNormalization_output_0",
+    *[
+        f"InsertedPrecisionFreeCast_/deberta/encoder/layer.{layer}/attention/self/{boundary}_output_0"
+        for layer in range(12)
+        for boundary in (
+            "Transpose_3",
+            "Reshape_1",
+            "Reshape_3",
+            "Transpose_8",
+            "Reshape_5",
+            "Reshape_13",
+        )
+    ],
+    "InsertedPrecisionFreeCast_/pooler/Gather_output_0",
+]
+MXBAI_XSMALL_EMBEDDINGS_INT32_CAST = "InsertedPrecisionFreeCast_/deberta/embeddings/Cast_output_0"
+
 recipes = [
     {
         "path": REPO_ROOT
@@ -77,3 +95,51 @@ def test_cpu_recipes(rec):
     else:
         assert config.quant is not None
         assert config.quant.mode == rec["quant_mode"]
+
+
+def test_mxbai_xsmall_reranking_recipes() -> None:
+    recipe_root = (
+        REPO_ROOT / "examples" / "recipes" / "mixedbread-ai_mxbai-rerank-xsmall-v1" / "cpu" / "cpu"
+    )
+    fp32_data = json.loads((recipe_root / "reranking_fp32_config.json").read_text(encoding="utf-8"))
+    fp16_data = json.loads((recipe_root / "reranking_fp16_config.json").read_text(encoding="utf-8"))
+
+    assert fp32_data["quant"] is None
+    assert fp16_data["quant"]["fp16_nodes_to_exclude"] == MXBAI_XSMALL_FP16_BOUNDARY_CASTS
+    assert len(MXBAI_XSMALL_FP16_BOUNDARY_CASTS) == 74
+    assert len(set(MXBAI_XSMALL_FP16_BOUNDARY_CASTS)) == 74
+    assert MXBAI_XSMALL_EMBEDDINGS_INT32_CAST not in MXBAI_XSMALL_FP16_BOUNDARY_CASTS
+
+    for data in (fp32_data, fp16_data):
+        config = WinMLBuildConfig.from_dict(data)
+        assert config.loader.task == "reranking"
+        assert config.loader.model_class == "DebertaV2ForSequenceClassification"
+        assert config.loader.model_type == "deberta-v2"
+
+    fp16_config = WinMLBuildConfig.from_dict(fp16_data)
+    assert fp16_config.quant is not None
+    assert fp16_config.quant.mode == "fp16"
+    assert fp16_config.quant.fp16_nodes_to_exclude == MXBAI_XSMALL_FP16_BOUNDARY_CASTS
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        Path(
+            "examples/recipes/typeform_distilbert-base-uncased-mnli/cpu/cpu/"
+            "text-classification_fp16_config.json"
+        ),
+        Path(
+            "examples/recipes/audeering_wav2vec2-large-robust-12-ft-emotion-msp-dim/"
+            "cpu/cpu/audio-classification_fp16_config.json"
+        ),
+    ],
+    ids=["bert-family", "non-text"],
+)
+def test_existing_fp16_recipes_default_to_no_node_exclusions(relative_path: Path) -> None:
+    data = json.loads((REPO_ROOT / relative_path).read_text(encoding="utf-8"))
+
+    assert "fp16_nodes_to_exclude" not in data["quant"]
+    config = WinMLBuildConfig.from_dict(data)
+    assert config.quant is not None
+    assert config.quant.fp16_nodes_to_exclude is None
