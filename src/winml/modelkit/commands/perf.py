@@ -23,7 +23,7 @@ import time
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import click
 import numpy as np
@@ -37,7 +37,6 @@ from ..utils.constants import (
     RUNTIME_NAMES,
     EPName,
     EPNameOrAlias,
-    RuntimeName,
 )
 from ..utils.logging import (
     configure_logging,
@@ -53,6 +52,7 @@ from ._pre_bench import print_pre_bench_block
 if TYPE_CHECKING:
     import contextlib
     from collections.abc import Iterator
+    from typing import Literal
 
     from rich.console import Console
 
@@ -62,6 +62,7 @@ if TYPE_CHECKING:
     from ..session.monitor.ep_monitor import WinMLEPMonitor
     from ..session.monitor.op_metrics import TraceFallbackReason
     from ..session.stats import PerfStats
+    from ..utils.constants import RuntimeName
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ logger = logging.getLogger(__name__)
 
 # Hardware monitor polling interval (milliseconds)
 _HW_POLL_INTERVAL_MS = 200
+_RUNTIME_TYPE: RuntimeName = "winml"
 
 
 def _resolve_runtime(runtime: RuntimeName, model: str) -> RuntimeName:
@@ -437,7 +439,7 @@ class BenchmarkResult:
         result: dict[str, Any] = {
             "schema_version": 2,
             "benchmark_info": {
-                "runtime": "winml",
+                "runtime": _RUNTIME_TYPE,
                 "model_id": self.config.model_id,
                 "running_model_path": self.running_model_path,
                 "task": self.actual_task,
