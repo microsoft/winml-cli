@@ -1,0 +1,80 @@
+name: Tester mxbai bounded diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  diagnostic:
+    if: github.event.pull_request.head.ref == 'tester/mxbai-rerank-base-v1-diagnostic'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/winml-cli
+          ref: 4cc9e8ee56848ffea02642294b27647e3eaeadb0
+          fetch-depth: 2
+          path: candidate
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: tester/mxbai-rerank-base-v1-diagnostic
+          path: harness
+      - uses: astral-sh/setup-uv@v4
+      - run: uv python install 3.11
+      - working-directory: candidate
+        run: uv sync --locked --all-extras
+      - name: Assert immutable candidate identity
+        shell: pwsh
+        run: |
+          $head = git -C candidate rev-parse HEAD
+          $parent = git -C candidate rev-parse HEAD^
+          $identity = [ordered]@{ head = $head; parent = $parent }
+          New-Item -ItemType Directory -Path diagnostic-metadata -Force | Out-Null
+          $identity | ConvertTo-Json | Out-File diagnostic-metadata/immutable-identity.json -Encoding utf8
+          if ($head -ne '4cc9e8ee56848ffea02642294b27647e3eaeadb0') { throw "candidate HEAD mismatch: $head" }
+          if ($parent -ne '3708969b731425b0c6d4b97920d1b5e6519bb013') { throw "candidate parent mismatch: $parent" }
+      - name: Download runtime analysis rules
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Path rules-download, rules-expanded -Force | Out-Null
+          gh release download --repo microsoft/winml-cli --pattern 'rules-v*.zip' --dir rules-download
+          $archive = Get-ChildItem rules-download -Filter 'rules-v*.zip' | Select-Object -First 1
+          Expand-Archive -LiteralPath $archive.FullName -DestinationPath rules-expanded -Force
+          $provider = Get-ChildItem rules-expanded -Directory -Recurse | Where-Object Name -eq 'QNNExecutionProvider_GPU' | Select-Object -First 1
+          if (-not $provider) { throw 'Unable to locate provider folders in released rules archive.' }
+          "WINMLCLI_RULES_DIR=$($provider.Parent.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Run bounded diagnostic harness
+        id: harness
+        continue-on-error: true
+        shell: pwsh
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          candidate\.venv\Scripts\python.exe harness\.github\tester_mxbai_diagnostic.py --candidate candidate --original-harness harness\.github\tester_mxbai_exact_head.py --work diagnostic-work --slim diagnostic-evidence
+      - name: Add immutable metadata to slim evidence
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path diagnostic-evidence -Force | Out-Null
+          Copy-Item diagnostic-metadata/immutable-identity.json diagnostic-evidence/immutable-identity.json -Force
+          Copy-Item harness/.github/tester_mxbai_exact_head.py diagnostic-evidence/original-harness.py -Force
+          Copy-Item harness/.github/tester_mxbai_diagnostic.py diagnostic-evidence/diagnostic-harness.py -Force
+          Copy-Item harness/.github/workflows/tester-mxbai-diagnostic.yml diagnostic-evidence/diagnostic-workflow.yml -Force
+      - name: Upload slim diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tester-mxbai-bounded-diagnostic-${{ github.sha }}
+          path: diagnostic-evidence
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
+      - name: Preserve harness verdict
+        if: always() && steps.harness.outcome != 'success'
+        shell: pwsh
+        run: exit 1
