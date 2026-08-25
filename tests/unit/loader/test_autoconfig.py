@@ -128,7 +128,7 @@ def test_hub_model_id_wins_over_stale_saved_identifier() -> None:
     assert config[0] == "specific"
 
 
-@pytest.mark.parametrize("transformers_version", ["4.57.1", "5.0.0", "5.14.1"])
+@pytest.mark.parametrize("transformers_version", ["5.0.0", "5.14.1"])
 def test_model_type_less_config_bypasses_transformers_path_fallback(
     transformers_version: str,
 ) -> None:
@@ -262,29 +262,24 @@ def test_injected_raw_config_loader_is_used_once_without_global_raw_fetch() -> N
 
 
 @pytest.mark.parametrize(
-    ("config_dict", "trust_remote_code", "transformers_version"),
+    ("config_dict", "trust_remote_code"),
     [
-        ({"model_type": "specific"}, False, "4.57.1"),
-        ({"auto_map": {"AutoConfig": "config.CustomConfig"}}, True, "4.57.1"),
-        ({"auto_map": {"AutoConfig": "config.CustomConfig"}}, False, "4.57.1"),
-        ({"model_type": "specific"}, False, "5.14.1"),
+        ({"model_type": "specific"}, False),
+        ({"auto_map": {"AutoConfig": "config.CustomConfig"}}, True),
+        ({"auto_map": {"AutoConfig": "config.CustomConfig"}}, False),
     ],
 )
 def test_concrete_or_trusted_remote_config_uses_auto_config(
     config_dict: dict[str, object],
     trust_remote_code: bool,
-    transformers_version: str,
 ) -> None:
     expected_config = object()
     auto_config = MagicMock()
     auto_config.from_pretrained.return_value = expected_config
 
-    with (
-        patch(
-            "transformers.PretrainedConfig.get_config_dict",
-            return_value=(config_dict, {}),
-        ),
-        patch("transformers.__version__", transformers_version),
+    with patch(
+        "transformers.PretrainedConfig.get_config_dict",
+        return_value=(config_dict, {}),
     ):
         config = load_hf_config(
             auto_config,
@@ -418,61 +413,27 @@ def test_fallback_preserves_caller_identity_and_consumes_code_revision(tmp_path:
     model_dir.mkdir()
     (model_dir / "config.json").write_text('{"hidden_size": 128}', encoding="utf-8")
 
-    with patch("transformers.__version__", "4.57.1"):
-        config, unused_kwargs = load_hf_config(
-            AutoConfig,
-            str(model_dir),
-            code_revision="revision",
-            return_unused_kwargs=True,
-            sentinel="unused",
-        )
+    config, unused_kwargs = load_hf_config(
+        AutoConfig,
+        str(model_dir),
+        code_revision="revision",
+        return_unused_kwargs=True,
+        sentinel="unused",
+    )
 
     assert config._name_or_path == str(model_dir)
     assert unused_kwargs == {"sentinel": "unused"}
 
 
-def test_transformers4_fallback_converts_legacy_auth_token() -> None:
-    seen_kwargs: dict[str, object] = {}
-    legacy_token = object()
-
-    def _get_config_dict(*_args, **kwargs):
-        seen_kwargs.update(kwargs)
-        return {"hidden_size": 128}, {}
-
+def test_transformers5_rejects_legacy_auth_token_keyword() -> None:
     with (
-        patch("transformers.__version__", "4.57.1"),
-        patch(
-            "transformers.PretrainedConfig.get_config_dict",
-            side_effect=_get_config_dict,
-        ),
-        patch("transformers.models.auto.configuration_auto.CONFIG_MAPPING", {}),
-        pytest.warns(FutureWarning, match="use_auth_token.*deprecated"),
-    ):
-        load_hf_config(
-            _FailingAutoConfig,
-            "owner/neutral-model",
-            use_auth_token=legacy_token,
-        )
-
-    assert seen_kwargs["token"] is legacy_token
-    assert "use_auth_token" not in seen_kwargs
-
-
-def test_transformers4_fallback_rejects_conflicting_auth_tokens() -> None:
-    token = object()
-    legacy_token = object()
-
-    with (
-        patch("transformers.__version__", "4.57.1"),
         patch("transformers.PretrainedConfig.get_config_dict") as get_config_dict,
-        pytest.warns(FutureWarning, match="use_auth_token.*deprecated"),
-        pytest.raises(ValueError, match="both specified"),
+        pytest.raises(ValueError, match="use_auth_token.*not supported"),
     ):
         load_hf_config(
             _FailingAutoConfig,
             "owner/neutral-model",
-            token=token,
-            use_auth_token=legacy_token,
+            use_auth_token=object(),
         )
 
     get_config_dict.assert_not_called()

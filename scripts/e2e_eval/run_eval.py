@@ -2968,8 +2968,8 @@ def parse_args() -> argparse.Namespace:
             "Re-run jobs whose recorded status matches one of the given types. "
             "Valid values are the perf failure classifications "
             "(EXPORT_FAIL, ANALYZER_BLOCK, OPT_FAIL, COMPILE_FAIL, RUNTIME_FAIL, "
-            "ENVIRONMENT, TIMEOUT, UNKNOWN) and the accuracy status FAIL "
-            "(e.g. --retry-failed ENVIRONMENT FAIL). "
+            "HF_FETCH_FAIL, ENVIRONMENT, TIMEOUT, UNKNOWN) and the accuracy status "
+            "FAIL (e.g. --retry-failed HF_FETCH_FAIL ENVIRONMENT). "
             "Use without args to retry ALL non-PASS jobs. "
             "Implies --continue for passing jobs."
         ),

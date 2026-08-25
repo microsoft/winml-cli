@@ -241,29 +241,15 @@ def load_hf_config(
 
         _require_remote_code_execution_allowed()
 
-    from transformers import PretrainedConfig, __version__
+    from transformers import PretrainedConfig
 
     load_kwargs = kwargs.copy()
     if return_unused_kwargs:
         load_kwargs["return_unused_kwargs"] = True
-    is_transformers4 = __version__.startswith("4.")
-    if is_transformers4:
-        use_auth_token = load_kwargs.pop("use_auth_token", None)
-        if use_auth_token is not None:
-            import warnings
-
-            warnings.warn(
-                "The `use_auth_token` argument is deprecated and will be removed in v5 of "
-                "Transformers. Please use `token` instead.",
-                FutureWarning,
-                stacklevel=2,
-            )
-            if load_kwargs.get("token") is not None:
-                raise ValueError(
-                    "`token` and `use_auth_token` are both specified. Please set only the "
-                    "argument `token`."
-                )
-            load_kwargs["token"] = use_auth_token
+    if "use_auth_token" in load_kwargs:
+        raise ValueError(
+            "`use_auth_token` is not supported with transformers>=5; pass `token` instead."
+        )
 
     fallback_kwargs = load_kwargs.copy()
     fallback_kwargs["_from_auto"] = True
@@ -319,8 +305,9 @@ def load_hf_config(
         generic_config_dict.pop("architectures")
 
     generic_result = PretrainedConfig.from_dict(generic_config_dict, **unused_kwargs)
-    if return_unused_kwargs:
-        generic_config, returned_unused_kwargs = generic_result
+    if isinstance(generic_result, tuple):
+        generic_config = cast("PretrainedConfig", generic_result[0])
+        returned_unused_kwargs = cast("dict[str, Any]", generic_result[1])
         generic_config._winml_generic_fallback = True
         return generic_config, returned_unused_kwargs
     generic_result._winml_generic_fallback = True

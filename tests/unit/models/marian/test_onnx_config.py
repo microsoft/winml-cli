@@ -13,7 +13,6 @@ Tests for Marian IOConfig classes and the WinML composite model:
 
 from __future__ import annotations
 
-import inspect
 from typing import TYPE_CHECKING
 
 import onnx
@@ -201,9 +200,6 @@ class TestMarianDecoderIOConfig:
         tmp_path: Path,
     ) -> None:
         wrapper = MarianDecoderWrapper(MarianMTModel(marian_config), DECODER_LAYERS)
-        decoder = wrapper.model.get_decoder()
-        if "cache_position" in inspect.signature(decoder.forward).parameters:
-            pytest.skip("Transformers 4.x passes cache_position through MarianDecoder")
 
         onnx_config = MarianDecoderIOConfig(marian_config, task="text2text-generation")
         output_path = tmp_path / "marian_decoder.onnx"

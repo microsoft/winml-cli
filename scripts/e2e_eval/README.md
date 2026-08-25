@@ -95,8 +95,8 @@ uv run python scripts/e2e_eval/run_eval.py --continue
 # Backfill accuracy onto an existing perf-only batch (reuses cached perf)
 uv run python scripts/e2e_eval/run_eval.py --eval-type both --continue
 
-# Retry only ENVIRONMENT failures (disk/network issues)
-uv run python scripts/e2e_eval/run_eval.py --retry-failed ENVIRONMENT UNKNOWN
+# Retry only retryable infra/download failures
+uv run python scripts/e2e_eval/run_eval.py --retry-failed HF_FETCH_FAIL ENVIRONMENT UNKNOWN
 
 # Retry ALL failed jobs
 uv run python scripts/e2e_eval/run_eval.py --retry-failed

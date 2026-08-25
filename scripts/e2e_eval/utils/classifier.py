@@ -18,6 +18,7 @@ class FailureType(str, Enum):
     OPT_FAIL = "OPT_FAIL"
     COMPILE_FAIL = "COMPILE_FAIL"
     RUNTIME_FAIL = "RUNTIME_FAIL"
+    HF_FETCH_FAIL = "HF_FETCH_FAIL"  # HuggingFace unreachable + cache miss
     ENVIRONMENT = "ENVIRONMENT"  # disk/network/resource — retryable
     TIMEOUT = "TIMEOUT"  # exceeded per-model time limit
     UNKNOWN = "UNKNOWN"
@@ -77,6 +78,16 @@ CLASSIFICATION_RULES: list[tuple[FailureType, list[str]]] = [
             "out of memory",
             "memoryerror",
             "cuda error",
+        ],
+    ),
+    (
+        FailureType.HF_FETCH_FAIL,
+        [
+            "we couldn't connect to 'https://huggingface.co' to load the files",
+            "couldn't find them in the cached files",
+            "thrown while requesting head https://huggingface.co",
+            "huggingface_hub.utils._http",
+            "winerror 10060",
         ],
     ),
     (
