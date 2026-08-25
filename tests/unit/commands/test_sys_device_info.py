@@ -201,6 +201,50 @@ class TestDeviceInfoEnrichment:
 
         assert result[0]["details"]["luid"] is None
 
+    def test_device_info_uses_luid_when_an_earlier_source_omits_it(self) -> None:
+        """A metadata-free duplicate does not hide a later unique LUID."""
+        npu_item = MagicMock(
+            name="Qualcomm NPU",
+            driver_version="1.0",
+            manufacturer="Qualcomm",
+        )
+        npu_item.name = "Qualcomm NPU"
+        ep_info = {
+            "QNNExecutionProvider": {
+                "entries": [
+                    {
+                        "devices": [
+                            {
+                                "device_type": "NPU",
+                                "hardware_name": "<unknown>",
+                                "luid": None,
+                                "device_facts": [],
+                            }
+                        ]
+                    },
+                    {
+                        "devices": [
+                            {
+                                "device_type": "NPU",
+                                "hardware_name": "<unknown>",
+                                "luid": "0x00000000_0x000135AA",
+                                "device_facts": [],
+                            }
+                        ]
+                    },
+                ]
+            }
+        }
+
+        with (
+            patch("winml.modelkit.sysinfo.NPU.get_all", return_value=[npu_item]),
+            patch("winml.modelkit.sysinfo.GPU.get_all", return_value=[]),
+            patch("winml.modelkit.sysinfo.CPU.get_all", return_value=[]),
+        ):
+            result = _gather_device_info(ep_info)
+
+        assert result[0]["details"]["luid"] == "0x00000000_0x000135AA"
+
     def test_device_info_first_match_wins(self) -> None:
         """When multiple sources see the same device, first one in ep_info wins."""
         npu_item = MagicMock(

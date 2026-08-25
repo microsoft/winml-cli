@@ -689,9 +689,11 @@ def _find_matching_device(
                 if not hw or hw == "<unknown>":
                     unnamed_candidates.append(cast("dict[str, Any]", dev))
 
-    luids = {dev.get("luid") for dev in unnamed_candidates if dev.get("luid")}
-    if allow_unnamed and len(luids) == 1:
-        return unnamed_candidates[0]
+    candidates_by_luid = {
+        dev["luid"]: dev for dev in unnamed_candidates if dev.get("luid")
+    }
+    if allow_unnamed and len(candidates_by_luid) == 1:
+        return next(iter(candidates_by_luid.values()))
     return None
 
 
