@@ -64,11 +64,17 @@ def _extract_pipeline_input(sample: dict, columns_mapping: dict) -> Any:
     names. Returns the value verbatim — PIL.Image for vision tasks, ``str``
     for text tasks, etc.
     """
-    for key in ("image_column", "text_column", "input_column", "question_column"):
+    for key in (
+        "image_column",
+        "text_column",
+        "input_column",
+        "audio_column",
+        "question_column",
+    ):
         col = columns_mapping.get(key)
         if col and col in sample:
             return sample[col]
-    for col in ("image", "text", "input", "question", "sentence"):
+    for col in ("image", "audio", "text", "input", "question", "sentence"):
         if col in sample:
             return sample[col]
     return None
@@ -93,8 +99,8 @@ def _measure_pytorch_latency(task_evaluator: Any, warmup: int, iterations: int) 
         raise RuntimeError(
             "Could not determine pipeline input column for latency measurement; "
             "looked for columns_mapping keys (image_column/text_column/"
-            "input_column/question_column) and defaults (image/text/input/"
-            "question/sentence)."
+            "input_column/audio_column/question_column) and defaults "
+            "(image/audio/text/input/question/sentence)."
         )
 
     pipe = task_evaluator.pipe

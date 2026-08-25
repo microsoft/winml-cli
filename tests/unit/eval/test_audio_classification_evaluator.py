@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import json
+import runpy
 from io import BytesIO
+from pathlib import Path
 from types import SimpleNamespace
 from typing import ClassVar
 from unittest.mock import patch
@@ -16,7 +18,16 @@ import pytest
 import soundfile as sf
 import torch
 from click.testing import CliRunner
-from datasets import ClassLabel, Dataset, Features, Sequence, Value
+from datasets import (
+    Audio,
+    ClassLabel,
+    Dataset,
+    DatasetDict,
+    Features,
+    IterableDataset,
+    Sequence,
+    Value,
+)
 from onnx import TensorProto, helper, save
 from transformers import Wav2Vec2Config
 
@@ -24,6 +35,7 @@ from winml.modelkit.commands.eval import eval as eval_command
 from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 from winml.modelkit.eval.audio_classification_evaluator import (
     WinMLAudioClassificationEvaluator,
+    _AudioModelAdapter,
 )
 from winml.modelkit.utils.eval_utils import DatasetValidationError
 
@@ -32,10 +44,18 @@ class _IdentityFeatureExtractor:
     sampling_rate = 16_000
     padding_value = 0.0
 
-    def __call__(self, waveform, *, sampling_rate, return_tensors):
+    def __call__(self, waveform, *, sampling_rate, return_tensors, **kwargs):
         assert sampling_rate == self.sampling_rate
-        assert return_tensors == "np"
-        return {"input_values": np.asarray(waveform, dtype=np.float32)[None, :]}
+        assert return_tensors in {"np", "pt"}
+        values = np.asarray(waveform, dtype=np.float32)
+        if kwargs.get("padding") == "max_length":
+            max_length = kwargs["max_length"]
+            values = values[:max_length]
+            values = np.pad(values, (0, max_length - values.size))
+        tensor = values[None, :]
+        return {
+            "input_values": torch.from_numpy(tensor) if return_tensors == "pt" else tensor,
+        }
 
 
 class _SignClassifier:
@@ -46,9 +66,44 @@ class _SignClassifier:
     )
 
     def __call__(self, **kwargs):
-        values = kwargs["input_values"].numpy()
+        values = kwargs["input_values"].cpu().numpy()
         score = float(values.mean())
         return {"logits": torch.tensor([[score, -score, -10.0]])}
+
+
+class _TwoInputFeatureExtractor:
+    sampling_rate = 16_000
+
+    def __init__(self):
+        self.kwargs = None
+
+    def __call__(self, waveform, *, sampling_rate, return_tensors, **kwargs):
+        self.kwargs = kwargs
+        assert sampling_rate == self.sampling_rate
+        assert return_tensors == "pt"
+        length = kwargs.get("max_length", len(waveform))
+        values = np.asarray(waveform, dtype=np.float32)[:length]
+        values = np.pad(values, (0, length - values.size))
+        return {
+            "input_values": torch.from_numpy(values[None, :]),
+            "attention_mask": torch.ones((1, length), dtype=torch.int64),
+            "extra": torch.zeros((1, length), dtype=torch.int64),
+        }
+
+
+class _TwoInputClassifier:
+    io_config: ClassVar = {
+        "input_names": ["input_values", "attention_mask"],
+        "input_shapes": [[1, 8], [1, 8]],
+    }
+    config = _SignClassifier.config
+
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"logits": torch.tensor([[5.0, 0.0, -5.0]])}
 
 
 class _SpectrogramFeatureExtractor:
@@ -57,12 +112,17 @@ class _SpectrogramFeatureExtractor:
     def __call__(self, waveform, *, sampling_rate, return_tensors):
         assert waveform.size > 0
         assert sampling_rate == self.sampling_rate
-        assert return_tensors == "np"
-        return {"input_values": np.ones((1, 4, 3), dtype=np.float32)}
+        assert return_tensors == "pt"
+        return {"input_values": torch.ones((1, 4, 3), dtype=torch.float32)}
 
 
 class _SpectrogramClassifier:
     io_config: ClassVar = {"input_names": ["input_values"], "input_shapes": [[1, 4, 3]]}
+    config = _SignClassifier.config
+
+    def __call__(self, **kwargs):
+        assert kwargs["input_values"].shape == (1, 4, 3)
+        return {"logits": torch.tensor([[1.0, 0.0, -1.0]])}
 
 
 class _CountingStreamingDataset:
@@ -79,6 +139,28 @@ class _CountingStreamingDataset:
         for row in self._rows:
             self.rows_yielded += 1
             yield row
+
+
+class _EncodingMustNotRunAudio(Audio):
+    def encode_example(self, value):
+        raise AssertionError("bounded selection must not re-encode raw audio")
+
+
+class _RawAudioIterableDataset(IterableDataset):
+    def __init__(self, rows, features):
+        self._rows = rows
+        self._raw_features = features
+
+    @property
+    def features(self):
+        return self._raw_features
+
+    @property
+    def column_names(self):
+        return list(self._raw_features)
+
+    def __iter__(self):
+        return iter(self._rows)
 
 
 def _audio_dataset(rows):
@@ -179,97 +261,51 @@ class TestAudioPreprocessing:
             np.array([0.75], dtype=np.float32),
         )
 
-    def test_exact_short_and_multi_window_padding(self):
-        exact = WinMLAudioClassificationEvaluator._window_waveform(
-            np.arange(4, dtype=np.float32), 4
-        )
-        short = WinMLAudioClassificationEvaluator._window_waveform(
-            np.array([1.0, 2.0], dtype=np.float32), 4, -1.0
-        )
-        multi = WinMLAudioClassificationEvaluator._window_waveform(
-            np.arange(10, dtype=np.float32), 4
-        )
-
-        assert exact.shape == (1, 4)
-        np.testing.assert_array_equal(short, [[1.0, 2.0, -1.0, -1.0]])
-        assert multi.shape == (3, 4)
-        np.testing.assert_array_equal(multi[-1], [8.0, 9.0, 0.0, 0.0])
-
-    def test_empty_audio_is_rejected(self):
-        with pytest.raises(ValueError, match="empty"):
-            WinMLAudioClassificationEvaluator._window_waveform(np.array([], dtype=np.float32), 8)
-
-    def test_accepts_pre_normalized_waveform_without_feature_extractor(self):
-        evaluator = WinMLAudioClassificationEvaluator.__new__(WinMLAudioClassificationEvaluator)
-        evaluator.pipe = SimpleNamespace(padding_value=-1.0)
-        evaluator.model = _SignClassifier()
-
-        windows = evaluator._preprocess_audio([1.0, 2.0, 3.0])
-
-        np.testing.assert_array_equal(
-            windows,
-            [[1.0, 2.0, 3.0, -1.0, -1.0, -1.0, -1.0, -1.0]],
-        )
-
-    def test_pre_normalized_waveform_must_be_one_dimensional(self):
-        evaluator = WinMLAudioClassificationEvaluator.__new__(WinMLAudioClassificationEvaluator)
-        evaluator.pipe = SimpleNamespace(padding_value=0.0)
-        evaluator.model = _SignClassifier()
-
-        with pytest.raises(ValueError, match="must be 1D"):
-            evaluator._preprocess_audio(np.ones((1, 8), dtype=np.float32))
-
-    def test_missing_feature_extractor_input_is_rejected_clearly(self):
-        evaluator = WinMLAudioClassificationEvaluator.__new__(WinMLAudioClassificationEvaluator)
-        evaluator.pipe = lambda *_args, **_kwargs: {"input_features": np.ones((1, 8))}
-        evaluator.model = _SignClassifier()
-
-        with pytest.raises(ValueError, match="must contain 'input_values'"):
-            evaluator._preprocess_audio(
-                {"array": np.ones(8, dtype=np.float32), "sampling_rate": 16_000}
-            )
-
-    def test_preserves_rank_three_spectrogram_features(self):
-        evaluator = WinMLAudioClassificationEvaluator.__new__(WinMLAudioClassificationEvaluator)
-        evaluator.pipe = _SpectrogramFeatureExtractor()
-        evaluator.model = _SpectrogramClassifier()
-
-        features = evaluator._preprocess_audio(
-            {"array": np.ones(16, dtype=np.float32), "sampling_rate": 16_000}
-        )
-
-        assert features.shape == (1, 4, 3)
-        np.testing.assert_array_equal(features, np.ones((1, 4, 3), dtype=np.float32))
-
-    def test_rejects_spectrogram_shape_mismatch(self):
-        evaluator = WinMLAudioClassificationEvaluator.__new__(WinMLAudioClassificationEvaluator)
-        evaluator.pipe = _SpectrogramFeatureExtractor()
-        evaluator.model = _SpectrogramClassifier()
-        evaluator.model.io_config = {
-            "input_names": ["input_values"],
-            "input_shapes": [[1, 5, 3]],
-        }
-
-        with pytest.raises(ValueError, match="expected"):
-            evaluator._preprocess_audio(
-                {"array": np.ones(16, dtype=np.float32), "sampling_rate": 16_000}
-            )
-
-    def test_resamples_to_feature_extractor_rate_and_fixed_model_length(self):
-        evaluator = WinMLAudioClassificationEvaluator.__new__(WinMLAudioClassificationEvaluator)
-        evaluator.pipe = _IdentityFeatureExtractor()
-        evaluator.model = _SignClassifier()
-        waveform = np.sin(np.linspace(0, 4 * np.pi, 4_000, dtype=np.float32))
-
-        windows = evaluator._preprocess_audio({"array": waveform, "sampling_rate": 8_000})
-
-        # 0.5 seconds at 8 kHz becomes 0.5 seconds at 16 kHz, then 1000
-        # static 8-sample windows.
-        assert windows.shape == (1_000, 8)
-        assert windows.dtype == np.float32
-
-
 class TestAudioLabelAlignmentAndSampling:
+    def test_saved_dataset_dict_selects_requested_split(self, tmp_path):
+        train = _audio_dataset(
+            [{"audio": {"array": [-1.0] * 8, "sampling_rate": 16_000}, "label": 1}]
+        )
+        test = _audio_dataset(
+            [{"audio": {"array": [1.0] * 8, "sampling_rate": 16_000}, "label": 0}]
+        )
+        dataset_path = tmp_path / "audio-dataset"
+        DatasetDict({"train": train, "test": test}).save_to_disk(dataset_path)
+        config = _config(samples=1, label_mapping={"cat": 0})
+        config.dataset.path = str(dataset_path)
+
+        with patch(
+            "transformers.AutoFeatureExtractor.from_pretrained",
+            return_value=_IdentityFeatureExtractor(),
+        ):
+            evaluator = WinMLAudioClassificationEvaluator(config, _SignClassifier())
+
+        assert evaluator._eligible_count == 1
+        assert [sample.model_id for sample in evaluator.data] == [0]
+
+    def test_saved_dataset_dict_missing_split_is_clear(self, tmp_path):
+        dataset_path = tmp_path / "audio-dataset"
+        DatasetDict(
+            {
+                "train": _audio_dataset(
+                    [
+                        {
+                            "audio": {"array": [1.0] * 8, "sampling_rate": 16_000},
+                            "label": 0,
+                        }
+                    ]
+                )
+            }
+        ).save_to_disk(dataset_path)
+        config = _config(samples=1)
+        config.dataset.path = str(dataset_path)
+
+        with pytest.raises(
+            DatasetValidationError,
+            match=r"Dataset split 'test' was not found; available splits: \['train'\]",
+        ):
+            WinMLAudioClassificationEvaluator(config, _SignClassifier())
+
     def test_filters_authoritative_labels_before_stratified_sampling(self):
         rows = [
             {"audio": {"array": [1.0] * 8, "sampling_rate": 16_000}, "label": 0},
@@ -449,43 +485,208 @@ class TestAudioLabelAlignmentAndSampling:
 
 
 class TestAudioPredictionAndMetrics:
-    def test_mean_logit_aggregation_produces_one_utterance_prediction(self):
-        class _QueuedModel(_SignClassifier):
-            def __init__(self):
-                self.outputs = [
-                    torch.tensor([[10.0, 0.0, -1.0]]),
-                    torch.tensor([[0.0, 12.0, -1.0]]),
-                ]
+    def test_pytorch_baseline_latency_uses_selected_raw_audio_and_shared_pipe(self):
+        baseline = runpy.run_path(
+            str(Path(__file__).parents[3] / "scripts/e2e_eval/run_pytorch_baseline.py")
+        )
+        measure_latency = baseline["_measure_pytorch_latency"]
 
-            def __call__(self, **_kwargs):
-                return {"logits": self.outputs.pop(0)}
+        dataset = _audio_dataset(
+            [{"audio": {"array": [1.0] * 8, "sampling_rate": 16_000}, "label": 0}]
+        )
+        config = _config(samples=1, label_mapping={"cat": 0}, shuffle=False)
+        with (
+            patch("datasets.load_dataset", return_value=dataset),
+            patch(
+                "transformers.AutoFeatureExtractor.from_pretrained",
+                return_value=_IdentityFeatureExtractor(),
+            ),
+        ):
+            evaluator = WinMLAudioClassificationEvaluator(config, _SignClassifier())
+            latency = measure_latency(evaluator, warmup=0, iterations=1)
 
-        evaluator = WinMLAudioClassificationEvaluator.__new__(WinMLAudioClassificationEvaluator)
-        evaluator.model = _QueuedModel()
-        evaluator.pipe = _IdentityFeatureExtractor()
-        evaluator.config = _config(samples=1, label_mapping={"dog": 1})
-        evaluator._audio_col = "audio"
-        evaluator._label_col = "label"
-        evaluator.data = [
-            SimpleNamespace(
-                model_id=1,
-                row={
-                    "audio": {"array": [1.0] * 16, "sampling_rate": 16_000},
-                    "label": 1,
-                },
-                index=None,
+        assert evaluator.pipe.model is evaluator.model
+        assert latency["iterations"] == 1
+
+    def test_pre_normalized_waveform_must_be_one_dimensional(self):
+        with patch(
+            "transformers.AutoFeatureExtractor.from_pretrained",
+            return_value=_IdentityFeatureExtractor(),
+        ):
+            adapter = _AudioModelAdapter(_config(samples=1), _SignClassifier())
+            with pytest.raises(ValueError, match="must be 1D"):
+                adapter(np.ones((1, 8), dtype=np.float32))
+
+    def test_rank_three_spectrogram_runs_through_adapter(self):
+        with patch(
+            "transformers.AutoFeatureExtractor.from_pretrained",
+            return_value=_SpectrogramFeatureExtractor(),
+        ):
+            logits = _AudioModelAdapter(_config(samples=1), _SpectrogramClassifier())(
+                {"array": np.ones(16, dtype=np.float32), "sampling_rate": 16_000}
             )
+
+        np.testing.assert_array_equal(logits, [1.0, 0.0, -1.0])
+
+    def test_overlength_waveform_uses_one_padded_truncated_forward(self):
+        model = _TwoInputClassifier()
+        extractor = _TwoInputFeatureExtractor()
+        with patch(
+            "transformers.AutoFeatureExtractor.from_pretrained",
+            return_value=extractor,
+        ):
+            adapter = _AudioModelAdapter(_config(samples=1), model)
+            logits = adapter([1.0] * 24)
+
+        assert adapter.model is model
+        assert len(model.calls) == 1
+        assert set(model.calls[0]) == {"input_values", "attention_mask"}
+        assert model.calls[0]["input_values"].shape == (1, 8)
+        assert model.calls[0]["attention_mask"].shape == (1, 8)
+        assert extractor.kwargs == {
+            "padding": "max_length",
+            "truncation": True,
+            "max_length": 8,
+        }
+        np.testing.assert_array_equal(logits, [5.0, 0.0, -5.0])
+
+    def test_native_model_without_io_config_receives_all_extractor_outputs(self):
+        class _NativeModel:
+            config = _SignClassifier.config
+
+            def __init__(self):
+                self.inputs = None
+
+            def __call__(self, **kwargs):
+                self.inputs = kwargs
+                return SimpleNamespace(logits=torch.tensor([[1.0, 0.0, -1.0]]))
+
+        model = _NativeModel()
+        extractor = _TwoInputFeatureExtractor()
+        with patch(
+            "transformers.AutoFeatureExtractor.from_pretrained",
+            return_value=extractor,
+        ):
+            logits = _AudioModelAdapter(_config(samples=1), model)([1.0] * 8)
+
+        assert set(model.inputs) == {"input_values", "attention_mask", "extra"}
+        np.testing.assert_array_equal(logits, [1.0, 0.0, -1.0])
+
+    @pytest.mark.parametrize(
+        ("label_feature", "labels", "names", "label_mapping"),
+        [
+            (
+                Sequence(ClassLabel(names=["cat", "dog", "other"])),
+                [[0, 1], [1, 2]],
+                None,
+                None,
+            ),
+            (
+                Sequence(Value("string")),
+                [["/cat", "/dog"], ["/dog", "/other"]],
+                [["cat", "dog"], ["dog", "other"]],
+                None,
+            ),
+        ],
+        ids=["sequence-classlabel", "sequence-value-with-label-names"],
+    )
+    def test_multi_label_targets_have_finite_sigmoid_average_precision(
+        self,
+        label_feature,
+        labels,
+        names,
+        label_mapping,
+    ):
+        feature_map = {
+            "audio": {
+                "array": Sequence(Value("float32")),
+                "sampling_rate": Value("int32"),
+            },
+            "labels": label_feature,
+        }
+        rows = [
+            {
+                "audio": {"array": [1.0] * 8, "sampling_rate": 16_000},
+                "labels": labels[0],
+            },
+            {
+                "audio": {"array": [-1.0] * 8, "sampling_rate": 16_000},
+                "labels": labels[1],
+            },
         ]
-        evaluator._dataset_id_to_model_id = {1: 1}
-        evaluator._eligible_model_labels = ["dog"]
-        evaluator._eligible_count = 1
-        evaluator._selected_count = 1
+        columns_mapping = {"label_column": "labels"}
+        if names is not None:
+            feature_map["names"] = Sequence(Value("string"))
+            rows[0]["names"] = names[0]
+            rows[1]["names"] = names[1]
+            columns_mapping["label_name_column"] = "names"
+        dataset = Dataset.from_list(rows, features=Features(feature_map))
+        config = WinMLEvaluationConfig(
+            model_id="example/audio-classifier",
+            task="audio-classification",
+            dataset=DatasetConfig(
+                path="example/audio-dataset",
+                split="test",
+                samples=2,
+                shuffle=False,
+                columns_mapping=columns_mapping,
+                label_mapping=label_mapping,
+            ),
+        )
+        model = _TwoInputClassifier()
 
-        metrics = evaluator.compute()
+        with (
+            patch("datasets.load_dataset", return_value=dataset),
+            patch(
+                "transformers.AutoFeatureExtractor.from_pretrained",
+                return_value=_TwoInputFeatureExtractor(),
+            ),
+        ):
+            metrics = WinMLAudioClassificationEvaluator(config, model).compute()
 
-        assert metrics["accuracy"] == 1.0
-        assert metrics["macro_f1"] == 1.0
+        assert len(model.calls) == 2
+        assert np.isfinite(metrics["sample_average_precision"])
+        assert np.isfinite(metrics["micro_average_precision"])
+
+    def test_streaming_selection_preserves_raw_audio_without_reencoding(self):
+        encoded = BytesIO()
+        sf.write(encoded, np.ones(8, dtype=np.float32), 16_000, format="WAV")
+        raw_audio = {"bytes": encoded.getvalue(), "path": None}
+        dataset = _RawAudioIterableDataset(
+            [{"audio": raw_audio, "labels": ["cat"]}],
+            Features(
+                {
+                    "audio": _EncodingMustNotRunAudio(decode=False),
+                    "labels": Sequence(Value("string")),
+                }
+            ),
+        )
+        config = WinMLEvaluationConfig(
+            model_id="example/audio-classifier",
+            task="audio-classification",
+            dataset=DatasetConfig(
+                path="example/audio-dataset",
+                split="test",
+                samples=1,
+                shuffle=False,
+                streaming=True,
+                columns_mapping={"label_column": "labels"},
+            ),
+        )
+
+        with (
+            patch("datasets.load_dataset", return_value=dataset),
+            patch(
+                "transformers.AutoFeatureExtractor.from_pretrained",
+                return_value=_TwoInputFeatureExtractor(),
+            ),
+        ):
+            evaluator = WinMLAudioClassificationEvaluator(config, _TwoInputClassifier())
+            assert evaluator.data[0]["audio"]["bytes"] == raw_audio["bytes"]
+            metrics = evaluator.compute()
+
         assert metrics["processed_samples"] == 1
+        assert np.isfinite(metrics["sample_average_precision"])
 
     def test_end_to_end_fixed_shape_evaluator_reports_accounting(self):
         rows = [
@@ -509,6 +710,9 @@ class TestAudioPredictionAndMetrics:
         assert metrics == {
             "accuracy": 1.0,
             "macro_f1": 1.0,
+            "represented_classes": 2,
+            "total_classes": 3,
+            "class_coverage": 2 / 3,
             "requested_samples": 4,
             "eligible_samples": 4,
             "selected_samples": 4,
@@ -577,6 +781,9 @@ class TestAudioPredictionAndMetrics:
 
         assert metrics["accuracy"] == 0.0
         assert metrics["macro_f1"] == 0.0
+        assert metrics["represented_classes"] == 1
+        assert metrics["total_classes"] == 3
+        assert metrics["class_coverage"] == pytest.approx(1 / 3)
         assert metrics["confusion_matrix"] == {"cat": {"other": 1}}
 
     def test_cli_with_saved_dataset_and_fixed_shape_onnx_reports_metrics(self, tmp_path):

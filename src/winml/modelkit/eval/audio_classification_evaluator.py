@@ -3,7 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""Audio classification evaluator with fixed-window ONNX inference.
+"""Audio classification evaluation for scalar and multi-label targets.
 
 The evaluator deliberately has no built-in dataset. Audio-classification
 labels can represent languages, speakers, emotions, intents, or arbitrary
@@ -17,8 +17,10 @@ import logging
 import math
 import random
 from collections import defaultdict
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from io import BytesIO
+from itertools import islice
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -32,6 +34,7 @@ from .base_evaluator import WinMLEvaluator
 
 if TYPE_CHECKING:
     from datasets import Dataset
+    from numpy.typing import NDArray
 
     from ..models.winml.base import WinMLPreTrainedModel
     from .config import DatasetConfig, WinMLEvaluationConfig
@@ -40,10 +43,145 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class _SelectedAudioSample:
+class _SelectedAudioSample(Mapping[str, Any]):
     model_id: int
-    row: dict[str, Any] | None = None
-    index: int | None = None
+    row: dict[str, Any]
+
+    def __getitem__(self, key: str) -> Any:
+        return self.row[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.row)
+
+    def __len__(self) -> int:
+        return len(self.row)
+
+
+class _AudioModelAdapter:
+    """Decode, preprocess, and run one audio row for native HF or WinML models."""
+
+    def __init__(self, config: WinMLEvaluationConfig, model: Any) -> None:
+        from transformers import AutoFeatureExtractor
+
+        if not config.model_id:
+            raise ValueError("model_id is required to load the audio feature extractor.")
+        self._config = config
+        self.model = model
+        self._feature_extractor = AutoFeatureExtractor.from_pretrained(
+            config.model_id,
+            trust_remote_code=getattr(config, "trust_remote_code", False),
+        )
+        self._input_contracts = self._resolve_input_contracts()
+
+    def __call__(self, raw_audio: Any) -> np.ndarray:
+        """Return one row of logits after exactly one model forward."""
+        if isinstance(raw_audio, (list, tuple, np.ndarray)):
+            waveform = np.asarray(raw_audio, dtype=np.float32)
+            sampling_rate = int(getattr(self._feature_extractor, "sampling_rate", 0))
+            if waveform.ndim != 1:
+                raise ValueError(
+                    f"pre-normalized waveform input must be 1D, got shape {waveform.shape}",
+                )
+        else:
+            waveform, sampling_rate = WinMLAudioClassificationEvaluator._decode_audio(raw_audio)
+
+        waveform = WinMLAudioClassificationEvaluator._to_mono(waveform)
+        if waveform.size == 0:
+            raise ValueError("audio waveform is empty")
+        target_rate = int(
+            getattr(self._feature_extractor, "sampling_rate", sampling_rate),
+        )
+        if sampling_rate <= 0 or target_rate <= 0:
+            raise ValueError("audio sampling rate must be positive")
+        if sampling_rate != target_rate:
+            divisor = math.gcd(sampling_rate, target_rate)
+            waveform = resample_poly(
+                waveform,
+                target_rate // divisor,
+                sampling_rate // divisor,
+            ).astype(np.float32)
+
+        extractor_kwargs: dict[str, Any] = {
+            "sampling_rate": target_rate,
+            "return_tensors": "pt",
+        }
+        waveform_contract = self._input_contracts.get("input_values")
+        if waveform_contract is not None and len(waveform_contract) == 2:
+            extractor_kwargs.update(
+                padding="max_length",
+                truncation=True,
+                max_length=waveform_contract[1],
+            )
+        encoded = self._feature_extractor(waveform, **extractor_kwargs)
+        model_inputs = self._select_model_inputs(encoded)
+        device = (
+            getattr(self._config, "pipeline_device", "cpu")
+            if getattr(self._config, "runtime", None) == "pytorch"
+            else "cpu"
+        )
+        model_inputs = {
+            name: value.to(device)
+            if hasattr(value, "to")
+            else torch.as_tensor(value, device=device)
+            for name, value in model_inputs.items()
+        }
+        output = self.model(**model_inputs)
+        logits = (
+            output.get("logits")
+            if isinstance(output, dict)
+            else getattr(output, "logits", None)
+        )
+        if logits is None:
+            raise ValueError("audio-classification model output does not contain logits")
+        if hasattr(logits, "detach"):
+            logits = logits.detach().float().cpu().numpy()
+        array = np.asarray(logits, dtype=np.float32)
+        if array.ndim != 2 or array.shape[0] != 1:
+            raise ValueError(f"expected logits shape [1, classes], got {array.shape}")
+        return cast("NDArray[np.float32]", np.asarray(array[0], dtype=np.float32))
+
+    def _resolve_input_contracts(self) -> dict[str, list[int]]:
+        io_config = getattr(self.model, "io_config", None) or {}
+        names = io_config.get("input_names") or []
+        shapes = io_config.get("input_shapes") or []
+        if not names and not shapes:
+            return {}
+        if len(names) != len(shapes) or not names:
+            raise ValueError(
+                "audio-classification input names and shapes must have equal non-zero lengths",
+            )
+        contracts: dict[str, list[int]] = {}
+        for name, raw_shape in zip(names, shapes, strict=True):
+            shape = list(raw_shape)
+            if len(shape) < 2 or any(not isinstance(value, int) for value in shape[1:]):
+                raise ValueError(
+                    "audio-classification evaluation requires static non-batch input shapes",
+                )
+            if isinstance(shape[0], int) and shape[0] != 1:
+                raise ValueError("audio-classification evaluation requires batch size 1")
+            contracts[str(name)] = [1, *(int(value) for value in shape[1:])]
+        return contracts
+
+    def _select_model_inputs(self, encoded: Any) -> dict[str, Any]:
+        values = dict(encoded)
+        if not self._input_contracts:
+            if not values:
+                raise ValueError("audio feature extractor produced no model inputs")
+            return values
+        selected: dict[str, Any] = {}
+        for name, expected_shape in self._input_contracts.items():
+            if name not in values:
+                raise ValueError(
+                    f"audio feature extractor output must contain {name!r}; got {sorted(values)}",
+                )
+            actual_shape = list(getattr(values[name], "shape", ()))
+            if actual_shape != expected_shape:
+                raise ValueError(
+                    f"audio feature extractor produced {name} shape {actual_shape}; "
+                    f"expected {expected_shape}",
+                )
+            selected[name] = values[name]
+        return selected
 
 
 class WinMLAudioClassificationEvaluator(WinMLEvaluator):
@@ -65,21 +203,17 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
         self._dataset_id_to_model_id: dict[int, int] = {}
         self._eligible_model_labels: list[str] = []
         self._indexed_dataset: Any = None
+        self._target_kind = ""
+        self._label_feature: Any = None
+        self._label_name_col = mapping.get("label_name_column", "human_labels")
+        self._model_id2label, self._model_label2id = self._model_labels(model)
         super().__init__(config, model)
 
     def prepare_pipeline(self) -> Any:
-        """Load the checkpoint's audio feature extractor.
+        """Create the shared native-HF/WinML callable audio adapter."""
+        return _AudioModelAdapter(self.config, self.model)
 
-        A Transformers audio pipeline processes one fixed input at a time and
-        would silently truncate long utterances for a static ONNX graph. This
-        evaluator instead uses only its feature extractor and owns deterministic
-        windowing and utterance-level logit aggregation.
-        """
-        from transformers import AutoFeatureExtractor
-
-        return AutoFeatureExtractor.from_pretrained(self.config.model_id)
-
-    def prepare_data(self) -> list[_SelectedAudioSample]:
+    def prepare_data(self) -> list[_SelectedAudioSample | dict[str, Any]]:
         """Load, label-filter, then select a seeded stratified sample.
 
         Filtering happens before sampling so unsupported classes cannot consume
@@ -103,16 +237,42 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
                     streaming=ds.streaming,
                     revision=ds.revision,
                 )
+            if hasattr(dataset, "keys") and ds.split in dataset:
+                dataset = dataset[ds.split]
+            elif hasattr(dataset, "keys"):
+                available = sorted(str(split) for split in dataset)
+                raise DatasetValidationError(
+                    f"Dataset split '{ds.split}' was not found; available splits: {available}",
+                )
         except Exception as error:
+            if isinstance(error, DatasetValidationError):
+                raise
             raise DatasetValidationError(
                 f"Failed to load dataset '{ds.path}' "
                 f"(name={ds.name!r}, split='{ds.split}'): {error}",
             ) from error
 
-        self._validate_and_resolve_labels(dataset, ds)
+        self._validate_target_schema(dataset, ds)
         dataset = self._disable_backend_audio_decoding(dataset)
         if ds.samples <= 0:
             raise DatasetValidationError("samples must be greater than zero.")
+
+        if self._target_kind == "multi-label":
+            if ds.streaming:
+                if ds.shuffle:
+                    dataset = dataset.shuffle(seed=ds.seed)
+                selected_rows = list(islice(iter(dataset), ds.samples))
+                self._eligible_count = len(selected_rows)
+            else:
+                if ds.shuffle:
+                    dataset = dataset.shuffle(seed=ds.seed)
+                count = min(ds.samples, len(dataset))
+                selected_rows = [dataset[index] for index in range(count)]
+                self._eligible_count = len(dataset)
+            self._selected_count = len(selected_rows)
+            if not selected_rows:
+                raise DatasetValidationError("No samples were selected for evaluation.")
+            return selected_rows
 
         if ds.streaming:
             rows_by_label = self._streaming_reservoirs(
@@ -137,6 +297,43 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
     def align_labels(self, dataset: Dataset, ds_config: DatasetConfig) -> Dataset:
         """Keep base-class construction compatible; alignment is done before sampling."""
         return dataset
+
+    def _validate_target_schema(self, dataset: Any, ds: DatasetConfig) -> None:
+        """Validate scalar or sequence label semantics before selecting rows."""
+        from datasets import ClassLabel, Sequence, Value
+
+        columns = set(dataset.column_names)
+        missing = [col for col in (self._audio_col, self._label_col) if col not in columns]
+        if missing:
+            raise DatasetValidationError(
+                f"missing required column(s) {missing}; dataset has {sorted(columns)}",
+            )
+        feature = dataset.features[self._label_col]
+        self._label_feature = feature
+        if isinstance(feature, ClassLabel):
+            self._target_kind = "single-label"
+            self._validate_and_resolve_labels(dataset, ds)
+        elif isinstance(feature, Sequence) and isinstance(feature.feature, (ClassLabel, Value)):
+            self._target_kind = "multi-label"
+        else:
+            raise DatasetValidationError(
+                f"Column '{self._label_col}' must be ClassLabel or a sequence of "
+                f"ClassLabel/string values; got {feature!r}.",
+            )
+
+    @staticmethod
+    def _model_labels(model: Any) -> tuple[dict[int, str], dict[str, int]]:
+        config = getattr(model, "config", None)
+        raw_id2label = getattr(config, "id2label", None) or {}
+        id2label = {int(index): str(label) for index, label in raw_id2label.items()}
+        if not id2label or sorted(id2label) != list(range(len(id2label))):
+            raise DatasetValidationError(
+                "model.config.id2label must define contiguous class IDs starting at zero.",
+            )
+        label2id = {label: index for index, label in id2label.items()}
+        if len(label2id) != len(id2label):
+            raise DatasetValidationError("model.config.id2label contains duplicate label names.")
+        return id2label, label2id
 
     def _validate_and_resolve_labels(self, dataset: Any, ds: DatasetConfig) -> None:
         """Validate required columns and resolve exact dataset-name to model-ID mapping."""
@@ -230,7 +427,8 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
                 random.Random(seed + model_id).shuffle(label_indices)
             selected_indices = label_indices[: self.config.dataset.samples]
             rows[model_id] = [
-                _SelectedAudioSample(model_id=model_id, index=index) for index in selected_indices
+                _SelectedAudioSample(model_id=model_id, row=dataset[index])
+                for index in selected_indices
             ]
         return rows
 
@@ -334,67 +532,77 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
         return selected
 
     def compute(self) -> dict[str, Any]:
-        """Run all windows and report utterance accuracy, macro-F1, and accounting."""
-        from .metrics import ClassificationMetric
-
-        predictions: list[str] = []
-        references: list[str] = []
+        """Run exactly one forward per selected row and report task metrics."""
+        logits: list[np.ndarray] = []
+        targets: list[Any] = []
         confusion: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
         processed_by_label: dict[str, int] = defaultdict(int)
         selected_by_label: dict[str, int] = defaultdict(int)
         rejected_by_reason: dict[str, int] = defaultdict(int)
 
         for selected in self.data:
-            reference = self._decode_model_label(selected.model_id)
-            selected_by_label[reference] += 1
+            if isinstance(selected, _SelectedAudioSample):
+                reference_id = selected.model_id
+                reference = self._decode_model_label(reference_id)
+                selected_by_label[reference] += 1
+            else:
+                reference_id = None
+                reference = None
             try:
-                if selected.row is not None:
+                if isinstance(selected, _SelectedAudioSample) and selected.row is not None:
                     sample = selected.row
-                elif selected.index is not None:
-                    sample = self._indexed_dataset[selected.index]
+                elif isinstance(selected, dict):
+                    sample = selected
                 else:
                     raise ValueError("selected audio sample has no row or dataset index")
-                windows = self._preprocess_audio(sample[self._audio_col])
+                target = (
+                    reference_id
+                    if reference_id is not None
+                    else self._target_for_row(sample)
+                )
+                prediction_logits = self.pipe(sample[self._audio_col])
             except (TypeError, ValueError, RuntimeError) as error:
                 rejected_by_reason[type(error).__name__] += 1
                 logger.warning("Skipping audio sample: %s", error)
                 continue
+            logits.append(prediction_logits)
+            targets.append(target)
+            if reference is not None:
+                prediction = self._decode_model_label(int(np.argmax(prediction_logits)))
+                confusion[reference][prediction] += 1
+                processed_by_label[reference] += 1
 
-            window_logits = [self._infer_window(window) for window in windows]
-            utterance_logits = np.mean(np.stack(window_logits), axis=0)
-            prediction_id = int(np.argmax(utterance_logits))
-            prediction = self._decode_model_label(prediction_id)
-            predictions.append(prediction)
-            references.append(reference)
-            confusion[reference][prediction] += 1
-            processed_by_label[reference] += 1
-
-        if not references:
+        if not logits:
             raise DatasetValidationError("No audio samples were successfully processed.")
 
-        insufficient = {
-            label: (processed_by_label[label], min(5, selected_count))
-            for label, selected_count in selected_by_label.items()
-            if processed_by_label[label] < min(5, selected_count)
-        }
-        if insufficient:
-            details = ", ".join(
-                f"{label}={actual}/{required} required"
-                for label, (actual, required) in sorted(insufficient.items())
-            )
-            raise DatasetValidationError(
-                f"Too few usable samples after audio decoding/preprocessing: {details}.",
-            )
+        if self._target_kind == "single-label":
+            insufficient = {
+                label: (processed_by_label[label], min(5, selected_count))
+                for label, selected_count in selected_by_label.items()
+                if processed_by_label[label] < min(5, selected_count)
+            }
+            if insufficient:
+                details = ", ".join(
+                    f"{label}={actual}/{required} required"
+                    for label, (actual, required) in sorted(insufficient.items())
+                )
+                raise DatasetValidationError(
+                    f"Too few usable samples after audio decoding/preprocessing: {details}.",
+                )
 
-        metric = ClassificationMetric().compute(
-            predictions,
-            references,
-            self._eligible_model_labels,
+        scores = np.stack(logits)
+        if scores.shape[1] != len(self._model_id2label):
+            raise DatasetValidationError(
+                f"model returned {scores.shape[1]} classes but config defines "
+                f"{len(self._model_id2label)} labels.",
+            )
+        metrics: dict[str, Any] = (
+            self._multi_label_metrics(scores, targets)
+            if self._target_kind == "multi-label"
+            else self._single_label_metrics(scores, targets)
         )
-        processed = len(references)
-        return {
-            "accuracy": metric["accuracy"],
-            "macro_f1": metric["f1"],
+        processed = len(targets)
+        metrics.update({
             "requested_samples": self.config.dataset.samples,
             "eligible_samples": self._eligible_count,
             "selected_samples": self._selected_count,
@@ -406,78 +614,97 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
                 reference: dict(sorted(predictions.items()))
                 for reference, predictions in sorted(confusion.items())
             },
+        })
+        return metrics
+
+    def _target_for_row(self, row: dict[str, Any]) -> int | list[int]:
+        from datasets import ClassLabel
+
+        raw_target = row[self._label_col]
+        if self._target_kind == "single-label":
+            return self._resolve_label(self._label_feature.int2str(int(raw_target)))
+
+        values = list(raw_target)
+        feature = self._label_feature.feature
+        decoded = (
+            [feature.int2str(int(value)) for value in values]
+            if isinstance(feature, ClassLabel)
+            else [str(value) for value in values]
+        )
+        parallel_names = row.get(self._label_name_col)
+        if parallel_names is not None and len(parallel_names) != len(decoded):
+            raise DatasetValidationError(
+                f"Columns '{self._label_col}' and '{self._label_name_col}' must contain "
+                "the same number of labels.",
+            )
+        resolved = [
+            self._resolve_label(
+                value,
+                fallback_name=parallel_names[index] if parallel_names is not None else None,
+            )
+            for index, value in enumerate(decoded)
+        ]
+        if not resolved:
+            raise DatasetValidationError("Multi-label targets must contain at least one label.")
+        return sorted(set(resolved))
+
+    def _resolve_label(self, value: str, *, fallback_name: Any = None) -> int:
+        mapping = self.config.dataset.label_mapping or {}
+        if value in mapping:
+            model_id = int(mapping[value])
+        elif value in self._model_label2id:
+            model_id = self._model_label2id[value]
+        elif fallback_name is not None and str(fallback_name) in self._model_label2id:
+            model_id = self._model_label2id[str(fallback_name)]
+        else:
+            raise DatasetValidationError(
+                f"Dataset label {value!r} has no exact model-label match; provide an "
+                "authoritative label mapping or parallel exact label-name column.",
+            )
+        if model_id not in self._model_id2label:
+            raise DatasetValidationError(
+                f"Label mapping target {model_id} is absent from model.config.id2label.",
+            )
+        return model_id
+
+    def _single_label_metrics(
+        self,
+        logits: np.ndarray,
+        targets: list[int],
+    ) -> dict[str, Any]:
+        from .metrics.classification import ClassificationMetric
+
+        predictions = [self._model_id2label[int(index)] for index in np.argmax(logits, axis=1)]
+        references = [self._model_id2label[int(index)] for index in targets]
+        represented = sorted(set(references))
+        result = ClassificationMetric().compute(predictions, references, represented)
+        return {
+            "accuracy": result["accuracy"],
+            "macro_f1": result["f1"],
+            "represented_classes": len(represented),
+            "total_classes": len(self._model_id2label),
+            "class_coverage": len(represented) / len(self._model_id2label),
         }
 
-    def _preprocess_audio(self, audio: Any) -> np.ndarray:
-        """Convert raw audio or pre-normalized waveform input to model-sized windows."""
-        input_name, input_shape = self._model_input_contract()
-        if isinstance(audio, (list, tuple, np.ndarray)):
-            if len(input_shape) != 2:
-                raise ValueError(
-                    "pre-normalized waveform input requires a rank-2 ONNX input",
-                )
-            input_values = np.asarray(audio, dtype=np.float32)
-            if input_values.ndim != 1:
-                raise ValueError(
-                    f"pre-normalized waveform input must be 1D, got shape {input_values.shape}",
-                )
-            return self._window_waveform(
-                input_values,
-                int(input_shape[1]),
-                float(getattr(self.pipe, "padding_value", 0.0)),
-            )
+    @staticmethod
+    def _multi_label_metrics(
+        logits: np.ndarray,
+        targets: list[list[int]],
+    ) -> dict[str, float]:
+        from sklearn.metrics import average_precision_score
 
-        waveform, sampling_rate = self._decode_audio(audio)
-        target_rate = int(getattr(self.pipe, "sampling_rate", sampling_rate))
-        waveform = self._to_mono(waveform)
-        if waveform.size == 0:
-            raise ValueError("audio waveform is empty")
-        if sampling_rate <= 0 or target_rate <= 0:
-            raise ValueError("audio sampling rate must be positive")
-        if sampling_rate != target_rate:
-            divisor = math.gcd(sampling_rate, target_rate)
-            waveform = resample_poly(
-                waveform,
-                target_rate // divisor,
-                sampling_rate // divisor,
-            ).astype(np.float32)
-
-        encoded = self.pipe(
-            waveform,
-            sampling_rate=target_rate,
-            return_tensors="np",
-        )
-        if input_name not in encoded:
-            raise ValueError(
-                f"audio feature extractor output must contain {input_name!r}; "
-                f"got {sorted(encoded)}",
-            )
-        input_values = np.asarray(encoded[input_name], dtype=np.float32)
-        if len(input_shape) == 2:
-            return self._window_waveform(
-                input_values.reshape(-1),
-                int(input_shape[1]),
-                float(getattr(self.pipe, "padding_value", 0.0)),
-            )
-        if input_values.ndim != len(input_shape) or input_values.shape[0] != 1:
-            raise ValueError(
-                f"feature extractor produced shape {input_values.shape}; "
-                f"expected one batch matching {input_shape}",
-            )
-        mismatches = [
-            (index, actual, expected)
-            for index, (actual, expected) in enumerate(
-                zip(input_values.shape[1:], input_shape[1:], strict=True),
-                start=1,
-            )
-            if actual != expected
-        ]
-        if mismatches:
-            raise ValueError(
-                f"feature extractor produced shape {input_values.shape}; "
-                f"expected {input_shape}",
-            )
-        return input_values
+        references = np.zeros_like(logits, dtype=np.int8)
+        for row_index, model_ids in enumerate(targets):
+            references[row_index, model_ids] = 1
+        probabilities = 1.0 / (1.0 + np.exp(-logits))
+        sample_ap = float(average_precision_score(references, probabilities, average="samples"))
+        micro_ap = float(average_precision_score(references, probabilities, average="micro"))
+        if not np.isfinite(sample_ap) or not np.isfinite(micro_ap):
+            raise DatasetValidationError("Multi-label average precision must be finite.")
+        return {
+            "sample_average_precision": sample_ap,
+            "micro_average_precision": micro_ap,
+        }
 
     @staticmethod
     def _decode_audio(audio: Any) -> tuple[np.ndarray, int]:
@@ -556,60 +783,6 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
         if waveform.shape[1] <= 8:
             return np.asarray(waveform.mean(axis=1), dtype=np.float32)
         raise ValueError(f"cannot determine channel axis for audio shape {waveform.shape}")
-
-    @staticmethod
-    def _window_waveform(
-        waveform: np.ndarray,
-        window_length: int,
-        padding_value: float = 0.0,
-    ) -> np.ndarray:
-        """Split contiguous windows and right-pad only the final short window."""
-        if window_length <= 0:
-            raise ValueError("window length must be positive")
-        if waveform.size == 0:
-            raise ValueError("audio waveform is empty")
-        count = math.ceil(waveform.size / window_length)
-        windows = np.full((count, window_length), padding_value, dtype=np.float32)
-        for index in range(count):
-            chunk = waveform[index * window_length : (index + 1) * window_length]
-            windows[index, : chunk.size] = chunk
-        return windows
-
-    def _model_input_contract(self) -> tuple[str, list[int]]:
-        """Return the single static ONNX input name and shape."""
-        io_config = getattr(self.model, "io_config", None) or {}
-        input_names = io_config.get("input_names") or []
-        input_shapes = io_config.get("input_shapes") or []
-        if len(input_names) != 1 or len(input_shapes) != 1:
-            raise ValueError("audio-classification evaluation requires one ONNX input")
-        shape = input_shapes[0]
-        if len(shape) < 2 or any(not isinstance(dimension, int) for dimension in shape[1:]):
-            raise ValueError(
-                "audio-classification evaluation requires a static non-batch input shape",
-            )
-        if isinstance(shape[0], int) and shape[0] != 1:
-            raise ValueError("audio-classification evaluation requires batch size 1")
-        return str(input_names[0]), [1, *(int(dimension) for dimension in shape[1:])]
-
-    def _infer_window(self, window: np.ndarray) -> np.ndarray:
-        """Run one waveform window or feature tensor and return its 1D logits."""
-        model = cast("WinMLPreTrainedModel", self.model)
-        input_name = model.io_config["input_names"][0]
-        output = model(**{input_name: torch.from_numpy(window[None, :])})
-        if isinstance(output, dict):
-            logits = output.get("logits")
-            if logits is None and len(output) == 1:
-                logits = next(iter(output.values()))
-        else:
-            logits = getattr(output, "logits", None)
-        if logits is None:
-            raise ValueError("audio-classification model output does not contain logits")
-        if hasattr(logits, "detach"):
-            logits = logits.detach().cpu().numpy()
-        array = np.asarray(logits, dtype=np.float32)
-        if array.ndim != 2 or array.shape[0] != 1:
-            raise ValueError(f"expected logits shape [1, classes], got {array.shape}")
-        return np.asarray(array[0], dtype=np.float32)
 
     def _decode_model_label(self, model_id: int) -> str:
         """Decode a class ID through checkpoint id2label."""
