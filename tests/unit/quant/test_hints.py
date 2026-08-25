@@ -411,7 +411,56 @@ class TestCanonicalizeQuantizationRegionHints:
 
         assert model.SerializeToString() == original
 
-    def test_direct_branch_to_concat_fails_without_mutating_input(self) -> None:
+    @pytest.mark.parametrize("direct_branch_index", [0, 1])
+    def test_partially_quantized_branches_are_canonicalized(
+        self,
+        direct_branch_index: int,
+    ) -> None:
+        model = _make_hinted_qdq_model()
+        direct_branch = f"branch{direct_branch_index}"
+        removed = {f"{direct_branch}_output_q", f"{direct_branch}_output_dq"}
+        kept = [node for node in model.graph.node if node.name not in removed]
+        del model.graph.node[:]
+        model.graph.node.extend(kept)
+        concat = next(node for node in model.graph.node if node.name == "concat")
+        concat.input[direct_branch_index] = f"{direct_branch}_output"
+        original = model.SerializeToString()
+        original_nodes = {node.name for node in model.graph.node}
+        quantized_branch_index = 1 - direct_branch_index
+        quantized_branch = f"branch{quantized_branch_index}"
+
+        result = canonicalize_quantization_region_hints(model)
+
+        assert model.SerializeToString() == original
+        checker.check_model(result, full_check=True)
+        assert {node.name for node in result.graph.node} == original_nodes - {
+            f"{quantized_branch}_output_q",
+            f"{quantized_branch}_output_dq",
+        }
+        result_concat = next(node for node in result.graph.node if node.name == "concat")
+        assert list(result_concat.input) == ["branch0_output", "branch1_output"]
+        assert {item.key: item.value for item in result.metadata_props} == {"keep.me": "untouched"}
+
+    def test_direct_branches_are_already_canonical(self) -> None:
+        model = _make_hinted_qdq_model()
+        kept = [node for node in model.graph.node if node.name not in _REMOVED_NODE_NAMES]
+        del model.graph.node[:]
+        model.graph.node.extend(kept)
+        concat = next(node for node in model.graph.node if node.name == "concat")
+        concat.input[:] = ["branch0_output", "branch1_output"]
+        original = model.SerializeToString()
+        original_nodes = {node.name for node in model.graph.node}
+
+        result = canonicalize_quantization_region_hints(model)
+
+        assert model.SerializeToString() == original
+        checker.check_model(result, full_check=True)
+        assert {node.name for node in result.graph.node} == original_nodes
+        result_concat = next(node for node in result.graph.node if node.name == "concat")
+        assert list(result_concat.input) == ["branch0_output", "branch1_output"]
+        assert {item.key: item.value for item in result.metadata_props} == {"keep.me": "untouched"}
+
+    def test_direct_branch_fanout_fails_without_mutating_input(self) -> None:
         model = _make_hinted_qdq_model()
         removed = {"branch0_output_q", "branch0_output_dq"}
         kept = [node for node in model.graph.node if node.name not in removed]
@@ -419,9 +468,17 @@ class TestCanonicalizeQuantizationRegionHints:
         model.graph.node.extend(kept)
         concat = next(node for node in model.graph.node if node.name == "concat")
         concat.input[0] = "branch0_output"
+        model.graph.node.append(
+            helper.make_node(
+                "Identity",
+                ["branch0_output"],
+                ["fanout_output"],
+                name="direct_branch_fanout",
+            )
+        )
         original = model.SerializeToString()
 
-        with pytest.raises(QuantizationHintError, match="consumer is Concat"):
+        with pytest.raises(QuantizationHintError, match="consumer"):
             canonicalize_quantization_region_hints(model)
 
         assert model.SerializeToString() == original

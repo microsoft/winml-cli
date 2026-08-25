@@ -752,6 +752,61 @@ class TestStaticPassQuantizationRegionHints:
         concat = nodes[concat_name]
         assert list(concat.input) == [nodes[name].output[0] for name in branch_names]
 
+    def test_accepts_hints_when_generated_convs_are_not_quantized(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from onnxruntime.quantization import CalibrationDataReader
+
+        class Reader(CalibrationDataReader):
+            def __init__(self) -> None:
+                self.rewind()
+
+            def get_next(self) -> dict[str, np.ndarray] | None:
+                return next(self._iterator, None)
+
+            def rewind(self) -> None:
+                self._iterator = iter(
+                    [{"input": np.random.RandomState(7).randn(1, 4, 3).astype(np.float32)}]
+                )
+
+        optimized = SurgeryPipe().process(
+            _make_static_grouped_conv_model(),
+            SurgeryPipeConfig(trim_split_grouped_conv=True),
+        )
+        hint = json.loads(
+            next(
+                item.value
+                for item in optimized.metadata_props
+                if item.key == QUANTIZATION_REGION_HINT_KEY
+            )
+        )
+        branch_names = hint["regions"][0]["branches"]
+        concat_name = hint["regions"][0]["concat"]
+        model_path = tmp_path / "optimized.onnx"
+        output_path = tmp_path / "quantized.onnx"
+        save(optimized, model_path)
+        config = WinMLQuantizationConfig(
+            mode="static",
+            samples=1,
+            calibration_data=Reader(),
+            activation_type="uint8",
+            weight_type="uint8",
+            per_channel=False,
+            op_types_to_quantize=["MatMul"],
+        )
+
+        result = StaticPass(config).run(model_path, output_path, use_external_data=False)
+
+        assert result.success
+        quantized = load(output_path)
+        checker.check_model(quantized, full_check=True)
+        metadata = {item.key: item.value for item in quantized.metadata_props}
+        assert QUANTIZATION_REGION_HINT_KEY not in metadata
+        nodes = {node.name: node for node in quantized.graph.node}
+        concat = nodes[concat_name]
+        assert list(concat.input) == [nodes[name].output[0] for name in branch_names]
+
     def test_postprocessing_failure_preserves_existing_output(
         self,
         tmp_path: Path,

@@ -807,6 +807,39 @@ class TestTrimSplitGroupedConvProcess:
 
         self._assert_no_rewrite(model)
 
+    @pytest.mark.parametrize(
+        "initializer_name",
+        ["weights", "bias", "starts", "ends", "axes", "steps"],
+    )
+    def test_overridable_initializer_is_unchanged(self, initializer_name: str) -> None:
+        model = _make_grouped_conv_tail_slice_model()
+        initializer = next(
+            value for value in model.graph.initializer if value.name == initializer_name
+        )
+        model.graph.input.append(
+            onnx.helper.make_tensor_value_info(
+                initializer.name,
+                initializer.data_type,
+                list(initializer.dims),
+            )
+        )
+
+        self._assert_no_rewrite(model)
+
+    def test_legacy_ir_initializer_inputs_are_unchanged(self) -> None:
+        model = _make_grouped_conv_tail_slice_model()
+        model.ir_version = 3
+        for initializer in model.graph.initializer:
+            model.graph.input.append(
+                onnx.helper.make_tensor_value_info(
+                    initializer.name,
+                    initializer.data_type,
+                    list(initializer.dims),
+                )
+            )
+
+        self._assert_no_rewrite(model)
+
     def test_generated_names_do_not_collide(self) -> None:
         model = _make_grouped_conv_tail_slice_model()
         model.graph.node.append(

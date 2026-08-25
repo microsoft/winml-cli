@@ -186,7 +186,7 @@ class StaticPass(BaseQuantPass):
             prefix=f".{output_path.stem}-",
             dir=output_path.parent,
         ) as staging_directory:
-            staged_output = Path(staging_directory) / output_path.name
+            staged_output = (Path(staging_directory) / output_path.name).resolve()
             original_cwd = Path.cwd()
             try:
                 os.chdir(staged_output.parent)

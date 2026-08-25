@@ -107,14 +107,15 @@ def _install_fake_ort_quantization(monkeypatch: pytest.MonkeyPatch, *, quantize_
     monkeypatch.setitem(sys.modules, "onnxruntime.quantization.quant_utils", quant_utils_module)
 
 
-def test_quantize_onnx_removes_only_exact_external_data_sidecar(
+def test_quantize_onnx_publishes_relative_output_and_replaces_only_exact_sidecar(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Publishing should replace only the exact output model and sidecar."""
+    monkeypatch.chdir(tmp_path)
     model_path = tmp_path / "model.onnx"
     _write_minimal_onnx_model(model_path)
-    output_path = tmp_path / "quantized.onnx"
+    output_path = Path("quantized.onnx")
     exact_sidecar = tmp_path / f"{output_path.name}.data"
     extra_suffix_sidecar = tmp_path / f"{output_path.name}.data.bak"
     exact_sidecar.write_text("stale")
@@ -127,8 +128,9 @@ def test_quantize_onnx_removes_only_exact_external_data_sidecar(
     def fake_quantize(*, model_input, model_output: str, quant_config) -> None:
         assert model_input is input_model
         staged_output = Path(model_output)
+        assert staged_output.is_absolute()
         assert staged_output.name == output_path.name
-        assert staged_output.parent.parent == output_path.parent
+        assert staged_output.parent.parent == tmp_path
         assert staged_output != output_path
         assert quant_config.use_external_data_format is True
         assert exact_sidecar.exists()

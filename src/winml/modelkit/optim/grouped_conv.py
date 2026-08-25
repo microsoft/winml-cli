@@ -132,6 +132,7 @@ def _match_plan(
     *,
     consumers: dict[str, list[NodeProto]],
     graph_outputs: set[str],
+    graph_inputs: set[str],
     initializers: dict[str, TensorProto],
     shapes: dict[str, tuple[int | None, ...]],
     used_names: set[str],
@@ -150,6 +151,8 @@ def _match_plan(
     if tail_slice.op_type != "Slice" or tail_slice.domain not in ("", "ai.onnx"):
         return None
     if len(tail_slice.input) != 5 or len(tail_slice.output) != 1:
+        return None
+    if graph_inputs.intersection((*conv.input[1:], *tail_slice.input[1:])):
         return None
 
     conv_attributes = {attribute.name: attribute for attribute in conv.attribute}
@@ -363,6 +366,7 @@ def trim_split_grouped_convs(
     initializers = {initializer.name: initializer for initializer in graph.initializer}
     consumers = _consumer_nodes(graph)
     graph_outputs = {value.name for value in graph.output}
+    graph_inputs = {value.name for value in graph.input}
     shapes = _static_shapes(model)
     used_names = {
         name for node in graph.node for name in (*node.input, *node.output, node.name) if name
@@ -378,6 +382,7 @@ def trim_split_grouped_convs(
                 node,
                 consumers=consumers,
                 graph_outputs=graph_outputs,
+                graph_inputs=graph_inputs,
                 initializers=initializers,
                 shapes=shapes,
                 used_names=used_names,

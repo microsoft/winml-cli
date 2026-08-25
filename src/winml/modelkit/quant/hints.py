@@ -179,7 +179,7 @@ def canonicalize_quantization_region_hints(model: ModelProto) -> ModelProto:
                 f"Hinted Concat {region.concat!r} has unsupported domain {concat.domain!r}"
             )
 
-        region_dq_outputs: list[str] = []
+        region_inputs: list[str] = []
         region_rewrites: dict[str, str] = {}
         for branch_name in region.branches:
             branch_index = _one_node_index(indexes_by_name, branch_name, role="branch")
@@ -196,11 +196,17 @@ def canonicalize_quantization_region_hints(model: ModelProto) -> ModelProto:
                     f"Hinted branch {branch_name!r} output is a graph output"
                 )
 
-            q_index = _one_consumer(
+            branch_consumer_index = _one_consumer(
                 consumers,
                 branch_output,
                 context=f"Hinted branch {branch_name!r} output",
             )
+            if branch_consumer_index == concat_index:
+                region_inputs.append(branch_output)
+                region_rewrites[branch_output] = branch_output
+                continue
+
+            q_index = branch_consumer_index
             q_node = nodes[q_index]
             if q_node.op_type != "QuantizeLinear":
                 raise QuantizationHintError(
@@ -267,10 +273,10 @@ def canonicalize_quantization_region_hints(model: ModelProto) -> ModelProto:
                     f"Quantization nodes are shared by branch {branch_name!r}"
                 )
             remove_indexes.update((q_index, dq_index))
-            region_dq_outputs.append(dq_output)
+            region_inputs.append(dq_output)
             region_rewrites[dq_output] = branch_output
 
-        if list(concat.input) != region_dq_outputs:
+        if list(concat.input) != region_inputs:
             raise QuantizationHintError(
                 f"Hinted Concat {region.concat!r} inputs do not exactly match its branches"
             )
