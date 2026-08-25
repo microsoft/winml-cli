@@ -137,6 +137,70 @@ class TestDeviceInfoEnrichment:
         assert npu_entry["details"]["luid"] is None
         assert npu_entry["details"]["driver"] == "32.0.100.4023"
 
+    def test_device_info_uses_luid_from_unnamed_unique_ep_device(self) -> None:
+        """An unnamed provider device can match by unique type and LUID."""
+        npu_item = MagicMock(
+            name="Qualcomm NPU",
+            driver_version="1.0",
+            manufacturer="Qualcomm",
+        )
+        npu_item.name = "Qualcomm NPU"
+        ep_info = _fake_ep_info(
+            device_type="NPU",
+            hardware_name="<unknown>",
+            luid="0x00000000_0x000135AA",
+            ep_name="QNNExecutionProvider",
+        )
+
+        with (
+            patch("winml.modelkit.sysinfo.NPU.get_all", return_value=[npu_item]),
+            patch("winml.modelkit.sysinfo.GPU.get_all", return_value=[]),
+            patch("winml.modelkit.sysinfo.CPU.get_all", return_value=[]),
+        ):
+            result = _gather_device_info(ep_info)
+
+        assert result[0]["details"]["luid"] == "0x00000000_0x000135AA"
+
+    def test_device_info_does_not_guess_between_unnamed_ep_devices(self) -> None:
+        """Distinct unnamed adapters of one type remain ambiguous."""
+        npu_item = MagicMock(
+            name="Qualcomm NPU",
+            driver_version="1.0",
+            manufacturer="Qualcomm",
+        )
+        npu_item.name = "Qualcomm NPU"
+        ep_info = {
+            "QNNExecutionProvider": {
+                "entries": [
+                    {
+                        "devices": [
+                            {
+                                "device_type": "NPU",
+                                "hardware_name": "<unknown>",
+                                "luid": "0x00000000_0x000135AA",
+                                "device_facts": [],
+                            },
+                            {
+                                "device_type": "NPU",
+                                "hardware_name": "<unknown>",
+                                "luid": "0x00000000_0x000135AB",
+                                "device_facts": [],
+                            },
+                        ]
+                    }
+                ]
+            }
+        }
+
+        with (
+            patch("winml.modelkit.sysinfo.NPU.get_all", return_value=[npu_item]),
+            patch("winml.modelkit.sysinfo.GPU.get_all", return_value=[]),
+            patch("winml.modelkit.sysinfo.CPU.get_all", return_value=[]),
+        ):
+            result = _gather_device_info(ep_info)
+
+        assert result[0]["details"]["luid"] is None
+
     def test_device_info_first_match_wins(self) -> None:
         """When multiple sources see the same device, first one in ep_info wins."""
         npu_item = MagicMock(

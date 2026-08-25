@@ -639,6 +639,10 @@ def _gather_device_info(
                     ep_info,
                     match_type,
                     sysinfo_name,
+                    allow_unnamed=sum(
+                        candidate["type"] == match_type for candidate in result
+                    )
+                    == 1,
                 )
                 if matched_dev is None:
                     continue
@@ -660,13 +664,20 @@ def _find_matching_device(
     ep_info: dict[str, dict[str, Any]],
     match_type: str,
     sysinfo_name: str,
+    *,
+    allow_unnamed: bool,
 ) -> dict[str, Any] | None:
     """Return the first device dict in ``ep_info`` matching type + fuzzy name.
 
     Fuzzy relation: substring-in-either-direction covers both bias cases
     (OpenVINO appends "(iGPU)" to FULL_DEVICE_NAME that sysinfo's WMI
     query doesn't include; sysinfo may report a wordier form ORT trims).
+
+    Some providers expose a LUID but no hardware name. If sysinfo found only
+    one device of this type and every unnamed provider candidate identifies
+    the same adapter, that adapter is unambiguous and can still enrich it.
     """
+    unnamed_candidates: list[dict[str, Any]] = []
     for record in ep_info.values():
         for source_desc in record.get("entries", ()):
             for dev in source_desc.get("devices") or ():
@@ -675,6 +686,12 @@ def _find_matching_device(
                 hw = dev.get("hardware_name", "") or ""
                 if hw == sysinfo_name or sysinfo_name in hw or hw in sysinfo_name:
                     return cast("dict[str, Any]", dev)
+                if not hw or hw == "<unknown>":
+                    unnamed_candidates.append(cast("dict[str, Any]", dev))
+
+    luids = {dev.get("luid") for dev in unnamed_candidates if dev.get("luid")}
+    if allow_unnamed and len(luids) == 1:
+        return unnamed_candidates[0]
     return None
 
 
