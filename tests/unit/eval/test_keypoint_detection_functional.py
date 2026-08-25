@@ -18,7 +18,6 @@ import numpy as np
 import onnx
 import torch
 from datasets import Dataset, Features, Image, Sequence, Value
-from onnx import TensorProto, helper
 from PIL import PngImagePlugin
 
 from winml.modelkit.eval import WinMLEvaluationConfig, WinMLKeypointDetectionEvaluator
@@ -29,20 +28,17 @@ from winml.modelkit.session.ep_registry import WinMLEPRegistry
 
 
 _FIXTURE_DIR = Path(__file__).parents[2] / "fixtures"
-_IMAGE_PAYLOAD = _FIXTURE_DIR / "coco_000000029397_24x17.png.b64"
-_IMAGE_SHA256 = "31a9e41ec6ce08950322550381fca38a58a337ee84757afba90b802dadddc63d"
+_IMAGE_PAYLOAD = _FIXTURE_DIR / "generated_pose_24x17.png.b64"
+_IMAGE_SHA256 = "c73364487e82350382835a236fa9baf8ca2152b7b808d4827459e76b02291d1f"
 
-# Derived losslessly from COCO val2017 image 000000029397.jpg and person-keypoint
-# annotation 449985, then scaled from 640x449 to 24x17. Source image:
-# http://images.cocodataset.org/val2017/000000029397.jpg
+# The RGB payload is generated for this test with channels
+# ((11*x + 3*y) % 256, (5*x + 17*y) % 256, (19*x + 7*y) % 256).
+# It has no external media source. These COCO-style metric annotations are also
+# generated test data, not official COCO image or annotation content.
 _OBJECTS = {
-    "bbox": [[12.259125137329102, 0.1147216024802363, 7.9837497711181635, 7.5640534058976545]],
-    "area": [38.002989825480235],
-    "keypoints": [
-        [0.0] * 45
-        + [14.174999999999999, 5.982182628062361, 2.0]
-        + [18.075, 6.171492204899778, 2.0]
-    ],
+    "bbox": [[5.0, 1.0, 14.0, 14.0]],
+    "area": [196.0],
+    "keypoints": [[0.0] * 45 + [9.0, 6.0, 2.0] + [15.0, 6.0, 2.0]],
 }
 
 _PROCESSOR_CONFIG = {
@@ -61,7 +57,7 @@ _PROCESSOR_CONFIG = {
 def _write_saved_dataset(tmp_path: Path) -> Path:
     image_bytes = base64.b64decode(_IMAGE_PAYLOAD.read_text(encoding="ascii"))
     assert hashlib.sha256(image_bytes).hexdigest() == _IMAGE_SHA256
-    image_path = tmp_path / "000000029397.png"
+    image_path = tmp_path / "generated_pose.png"
     image_path.write_bytes(image_bytes)
 
     features = Features(
@@ -93,26 +89,32 @@ def _write_vitpose_processor(tmp_path: Path) -> Path:
 
 
 def _write_keypoint_model(tmp_path: Path) -> Path:
-    pixel_values = helper.make_tensor_value_info(
-        "pixel_values", TensorProto.FLOAT, [1, 3, 256, 192]
+    pixel_values = onnx.helper.make_tensor_value_info(
+        "pixel_values", onnx.TensorProto.FLOAT, [1, 3, 256, 192]
     )
-    heatmaps = helper.make_tensor_value_info("heatmaps", TensorProto.FLOAT, [1, 17, 64, 48])
-    reshape_shape = helper.make_tensor("reshape_shape", TensorProto.INT64, [4], [1, 1, 1, 1])
-    heatmap_shape = helper.make_tensor("heatmap_shape", TensorProto.INT64, [4], [1, 17, 64, 48])
-    graph = helper.make_graph(
+    heatmaps = onnx.helper.make_tensor_value_info(
+        "heatmaps", onnx.TensorProto.FLOAT, [1, 17, 64, 48]
+    )
+    reshape_shape = onnx.helper.make_tensor(
+        "reshape_shape", onnx.TensorProto.INT64, [4], [1, 1, 1, 1]
+    )
+    heatmap_shape = onnx.helper.make_tensor(
+        "heatmap_shape", onnx.TensorProto.INT64, [4], [1, 17, 64, 48]
+    )
+    graph = onnx.helper.make_graph(
         [
-            helper.make_node(
+            onnx.helper.make_node(
                 "ReduceMean", ["pixel_values"], ["mean"], axes=[0, 1, 2, 3], keepdims=0
             ),
-            helper.make_node("Reshape", ["mean", "reshape_shape"], ["mean_4d"]),
-            helper.make_node("Expand", ["mean_4d", "heatmap_shape"], ["heatmaps"]),
+            onnx.helper.make_node("Reshape", ["mean", "reshape_shape"], ["mean_4d"]),
+            onnx.helper.make_node("Expand", ["mean_4d", "heatmap_shape"], ["heatmaps"]),
         ],
         "KeypointEvalFixture",
         [pixel_values],
         [heatmaps],
         [reshape_shape, heatmap_shape],
     )
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
     model.ir_version = 8
     onnx.checker.check_model(model)
     model_path = tmp_path / "keypoint_fixture.onnx"
