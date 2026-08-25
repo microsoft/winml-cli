@@ -66,6 +66,8 @@ class HWMonitor:
         poll_interval_ms: int = 200,
         device: str = "auto",
         ep_name: EPName | None = None,
+        adapter_luid: str | None = None,
+        adapter_device: str | None = None,
     ) -> None:
         """Initialize the monitor.
 
@@ -80,8 +82,18 @@ class HWMonitor:
                 metadata to resolve the same LUID the inference session
                 will bind to — useful on hybrid systems where multiple
                 adapters share a device type.
+            adapter_luid: PDH-formatted LUID from the concrete EP device bound
+                to the inference session. Takes precedence over EP discovery.
+            adapter_device: Device kind (``"npu"`` or ``"gpu"``) associated
+                with ``adapter_luid``. Required when ``device`` is ``"auto"``.
         """
-        self._pdh = PdhPoller(poll_interval_ms, device=device, ep_name=ep_name)
+        self._pdh = PdhPoller(
+            poll_interval_ms,
+            device=device,
+            ep_name=ep_name,
+            adapter_luid=adapter_luid,
+            adapter_device=adapter_device,
+        )
 
     def __enter__(self) -> Self:
         """Start PDH background polling."""

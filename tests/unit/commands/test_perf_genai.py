@@ -13,6 +13,7 @@ itself is unit-tested in ``tests/unit/session/test_genai_session.py``.)
 from __future__ import annotations
 
 import json
+from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -21,6 +22,7 @@ from click.testing import CliRunner
 from rich.console import Console
 
 from winml.modelkit.commands import _perf_genai as perf_genai
+from winml.modelkit.commands import perf as perf_module
 from winml.modelkit.commands._perf_genai import (
     GenaiBenchmarkResult,
     GenaiPerfBenchmark,
@@ -31,7 +33,7 @@ from winml.modelkit.commands._perf_genai import (
     run_genai_perf,
     write_genai_report,
 )
-from winml.modelkit.commands.perf import perf
+from winml.modelkit.commands.perf import _resolve_runtime, perf
 from winml.modelkit.session import (
     GenaiNotInstalledError,
     GenaiSessionError,
@@ -50,14 +52,20 @@ def _timing(
     decode_s: list[float],
     *,
     input_tokens: int = 3,
+    generator_create_s: float = 0.0,
+    sequence_fetch_s: float = 0.0,
+    detokenization_s: float = 0.0,
 ) -> GenerationTiming:
     """Build a GenerationTiming with ``1 + len(decode_s)`` generated tokens."""
     return GenerationTiming(
         input_tokens=input_tokens,
         generated_tokens=1 + len(decode_s),
+        generator_create_s=generator_create_s,
         prefill_s=prefill_s,
         first_token_s=first_token_s,
         decode_s=list(decode_s),
+        sequence_fetch_s=sequence_fetch_s,
+        detokenization_s=detokenization_s,
     )
 
 
@@ -79,6 +87,7 @@ class _FakeSession:
         effective_ep: str | None = None,
         effective_device: str | None = None,
         effective_hardware_ep: str | None = None,
+        load_timings_ms: dict[str, float] | None = None,
     ) -> None:
         self._timings = list(timings)
         self._i = 0
@@ -93,6 +102,14 @@ class _FakeSession:
         self.effective_ep = effective_ep
         self.effective_device = effective_device
         self.effective_hardware_ep = effective_hardware_ep
+        self.load_timings_ms = load_timings_ms or {}
+        self.loaded = False
+
+    def load(self) -> None:
+        self.loaded = True
+
+    def resolve_effective_route(self) -> None:
+        pass
 
     def encode(self, text: str) -> list[int]:
         self.encoded_text = text
@@ -104,7 +121,9 @@ class _FakeSession:
             raise GenaiSessionError("bundle ships no chat template")
         return f"<chat>{prompt}</chat>"
 
-    def generate_timed(self, prompt: object, config: object = None) -> GenerationTiming:
+    def generate_timed(
+        self, prompt: object, config: object = None, **_kwargs: object
+    ) -> GenerationTiming:
         if self._i >= len(self._timings):
             raise GenaiSessionError("genai: generation produced no tokens (empty bundle output?)")
         timing = self._timings[self._i]
@@ -241,6 +260,64 @@ class TestResolveGenaiEp:
 
 
 class TestMetricMath:
+    def test_load_and_request_submetrics_are_canonical(self) -> None:
+        cfg = GenaiPerfConfig(bundle_dir=Path("x"), warmup=0, iterations=1, max_new_tokens=2)
+        # model_compute = 0.4 + 0.6 + 0.5 = 1.5s; response_eval = 1.1s.
+        timing = _timing(
+            0.4,
+            0.6,
+            [0.5],
+            input_tokens=4,
+            generator_create_s=0.05,
+            sequence_fetch_s=0.02,
+            detokenization_s=0.03,
+        )
+        session = _FakeSession(
+            [timing],
+            prompt_ids=[1, 2, 3, 4],
+            load_timings_ms={
+                "session_load_duration_ms": 1240.0,
+                "ep_registration_duration_ms": 10.0,
+                "bundle_prepare_duration_ms": 20.0,
+                "native_load_duration_ms": 800.0,
+                "config_create_duration_ms": 25.0,
+                "model_create_duration_ms": 750.0,
+                "tokenizer_create_duration_ms": 25.0,
+            },
+        )
+        # session.load outer span = 1250 ms; template = 100 ms; tokenization = 150 ms.
+        clock = iter([10.0, 11.25, 11.25, 11.35, 11.50])
+        bench = GenaiPerfBenchmark(cfg, session=session, clock=lambda: next(clock))
+
+        result = bench.run()
+
+        assert session.loaded is True
+        assert result.load["session_load_duration_ms"] == pytest.approx(1250.0)
+        assert result.load["native_load_duration_ms"] == pytest.approx(800.0)
+        assert result.load["model_create_duration_ms"] == pytest.approx(750.0)
+        assert result.load["weight_upload_duration_ms"] is None
+        assert result.load["weight_upload_estimate_duration_ms"] == pytest.approx(750.0)
+        assert result.load["weight_upload_estimate_source"] == "model_create_duration"
+
+        request = result.requests[0]
+        assert request.kind == "timed"
+        assert request.template_duration_ms == pytest.approx(100.0)
+        assert request.tokenization_duration_ms == pytest.approx(150.0)
+        assert request.generator_create_duration_ms == pytest.approx(50.0)
+        assert request.model_ttft_duration_ms == pytest.approx(1000.0)
+        assert request.request_ttft_duration_ms == pytest.approx(1300.0)
+        assert request.model_compute_duration_ms == pytest.approx(1500.0)
+        assert request.response_eval_duration_ms == pytest.approx(1100.0)
+        assert request.request_duration_ms == pytest.approx(1850.0)
+        assert request.prefill_tokens_per_second == pytest.approx(10.0)
+        assert request.steady_state_decode_tokens_per_second == pytest.approx(2.0)
+        assert request.response_eval_tokens_per_second == pytest.approx(1.8181818)
+
+        assert result.aggregate["cold_start_ttft_duration_ms"] == pytest.approx(2550.0)
+        assert result.aggregate["cold_start_total_duration_ms"] == pytest.approx(3100.0)
+        assert result.aggregate["request_duration_ms"]["mean"] == pytest.approx(1850.0)
+        assert result.aggregate["model_compute_duration_ms"]["mean"] == pytest.approx(1500.0)
+
     def test_single_run_metrics(self) -> None:
         cfg = GenaiPerfConfig(bundle_dir=Path("x"), warmup=0, iterations=1, max_new_tokens=4)
         # prefill 0.4s + first token 0.6s -> TTFT 1.0s; 3 decode steps of 0.4s.
@@ -253,19 +330,21 @@ class TestMetricMath:
         assert result.prompt_tokens == 5
         assert result.generated_tokens == 4
         assert result.context_length == 256
-        assert result.ttft_mean_ms == pytest.approx(1000.0)
-        assert result.prefill_mean_ms == pytest.approx(400.0)
+        assert result.aggregate["model_ttft_duration_ms"]["mean"] == pytest.approx(1000.0)
+        assert result.aggregate["prefill_duration_ms"]["mean"] == pytest.approx(400.0)
         # total = 0.4 + 0.6 + 3*0.4 = 2.2s
-        assert result.total_generation_mean_ms == pytest.approx(2200.0)
+        assert result.aggregate["model_compute_duration_ms"]["mean"] == pytest.approx(2200.0)
         # decode: 3 steps over 1.2s -> 2.5 tok/s
-        assert result.decode_tokens_per_sec == pytest.approx(2.5)
+        assert result.aggregate["steady_state_decode_tokens_per_second"]["mean"] == pytest.approx(
+            2.5
+        )
         # TPOT: mean of [0.4, 0.4, 0.4] = 0.4s
-        assert result.tpot_mean_ms == pytest.approx(400.0)
-        # avg per-token latency: 2200 ms / 4 tokens = 550 ms
-        assert result.avg_token_latency_ms == pytest.approx(550.0)
-        assert result.raw_ttft_ms == pytest.approx([1000.0])
-        assert result.raw_prefill_ms == pytest.approx([400.0])
-        assert result.raw_tpot_ms == pytest.approx([400.0])
+        assert result.aggregate["steady_state_tpot_ms"]["mean"] == pytest.approx(400.0)
+        assert result.aggregate["response_eval_tokens_per_second"]["mean"] == pytest.approx(4 / 1.8)
+        assert result.requests[0].model_ttft_duration_ms == pytest.approx(1000.0)
+        assert result.requests[0].prefill_duration_ms == pytest.approx(400.0)
+        assert result.requests[0].steady_state_tpot_ms == pytest.approx(400.0)
+        assert result.requests[0].prefill_tokens_per_second == pytest.approx(12.5)
 
     def test_warmup_runs_excluded(self) -> None:
         cfg = GenaiPerfConfig(bundle_dir=Path("x"), warmup=1, iterations=2, max_new_tokens=4)
@@ -278,11 +357,12 @@ class TestMetricMath:
 
         result = bench.run()
 
-        assert len(result.raw_ttft_ms) == 2
-        assert result.raw_ttft_ms == pytest.approx([1000.0, 2000.0])
-        assert result.ttft_mean_ms == pytest.approx(1500.0)
+        assert [s.kind for s in result.requests] == ["warmup", "timed", "timed"]
+        timed_ttft = [s.model_ttft_duration_ms for s in result.requests if s.kind == "timed"]
+        assert timed_ttft == pytest.approx([1000.0, 2000.0])
+        assert result.aggregate["model_ttft_duration_ms"]["mean"] == pytest.approx(1500.0)
         # totals 1500 / 3000 ms -> mean 2250 ms
-        assert result.total_generation_mean_ms == pytest.approx(2250.0)
+        assert result.aggregate["model_compute_duration_ms"]["mean"] == pytest.approx(2250.0)
 
     def test_single_token_generation_has_zero_decode_rate(self) -> None:
         cfg = GenaiPerfConfig(bundle_dir=Path("x"), warmup=0, iterations=1, max_new_tokens=1)
@@ -293,9 +373,9 @@ class TestMetricMath:
         result = bench.run()
 
         assert result.generated_tokens == 1
-        assert result.decode_tokens_per_sec == 0.0
-        assert result.tpot_mean_ms == 0.0
-        assert result.ttft_mean_ms == pytest.approx(2000.0)
+        assert result.aggregate["steady_state_decode_tokens_per_second"]["mean"] == 0.0
+        assert result.aggregate["steady_state_tpot_ms"]["mean"] == 0.0
+        assert result.aggregate["model_ttft_duration_ms"]["mean"] == pytest.approx(2000.0)
 
     def test_no_tokens_raises(self) -> None:
         cfg = GenaiPerfConfig(bundle_dir=Path("x"), warmup=0, iterations=1)
@@ -320,9 +400,99 @@ class TestMetricMath:
 
         result = bench.run()
 
-        assert result.raw_ttft_ms == pytest.approx([1000.0, 2000.0, 3000.0, 4000.0])
-        assert result.ttft_min_ms == pytest.approx(1000.0)
-        assert result.ttft_max_ms == pytest.approx(4000.0)
+        assert [s.model_ttft_duration_ms for s in result.requests] == pytest.approx(
+            [1000.0, 2000.0, 3000.0, 4000.0]
+        )
+        assert result.aggregate["model_ttft_duration_ms"]["min"] == pytest.approx(1000.0)
+        assert result.aggregate["model_ttft_duration_ms"]["max"] == pytest.approx(4000.0)
+
+    def test_memory_profile_uses_classic_perf_field_names(self, monkeypatch) -> None:
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("x"),
+            warmup=0,
+            iterations=1,
+            max_new_tokens=2,
+            memory=True,
+        )
+        session = _FakeSession([_timing(0.4, 0.6, [0.5])])
+        rss_values = iter([100.0, 150.0, 180.0])
+
+        monkeypatch.setattr(perf_genai, "_get_rss_mb", lambda: next(rss_values), raising=False)
+        monkeypatch.setattr(
+            perf_genai,
+            "_get_vram_mb",
+            lambda _adapter_luid: (0.0, 0.0),
+            raising=False,
+        )
+        monkeypatch.setattr(perf_genai, "_resolve_adapter_luid", lambda *_args: None, raising=False)
+
+        result = GenaiPerfBenchmark(cfg, session=session).run()
+
+        assert result.memory_profile == {
+            "rss_baseline_mb": 100.0,
+            "rss_after_compile_mb": 150.0,
+            "rss_after_inference_mb": 180.0,
+            "rss_checkpoint_peak_mb": 180.0,
+            "rss_model_load_delta_mb": 50.0,
+            "rss_inference_delta_mb": 30.0,
+            "rss_total_delta_mb": 80.0,
+        }
+
+    def test_memory_profile_includes_vram_only_for_proven_adapter(self, monkeypatch) -> None:
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("x"),
+            warmup=0,
+            iterations=1,
+            max_new_tokens=2,
+            memory=True,
+        )
+        session = _FakeSession(
+            [_timing(0.4, 0.6, [0.5])],
+            effective_device="gpu",
+            effective_hardware_ep="DmlExecutionProvider",
+        )
+        rss_values = iter([100.0, 150.0, 180.0])
+        vram_values = iter([(10.0, 20.0), (30.0, 50.0), (40.0, 70.0)])
+
+        monkeypatch.setattr(perf_genai, "_get_rss_mb", lambda: next(rss_values), raising=False)
+        monkeypatch.setattr(
+            perf_genai,
+            "_get_vram_mb",
+            lambda _adapter_luid: next(vram_values),
+            raising=False,
+        )
+        monkeypatch.setattr(
+            perf_genai,
+            "_resolve_adapter_luid",
+            lambda device, ep: "luid" if (device, ep) == ("gpu", "DmlExecutionProvider") else None,
+            raising=False,
+        )
+
+        result = GenaiPerfBenchmark(cfg, session=session).run()
+
+        assert result.memory_profile == {
+            "rss_baseline_mb": 100.0,
+            "rss_after_compile_mb": 150.0,
+            "rss_after_inference_mb": 180.0,
+            "rss_checkpoint_peak_mb": 180.0,
+            "rss_model_load_delta_mb": 50.0,
+            "rss_inference_delta_mb": 30.0,
+            "rss_total_delta_mb": 80.0,
+            "vram_local_baseline_mb": 10.0,
+            "vram_shared_baseline_mb": 20.0,
+            "vram_local_after_compile_mb": 30.0,
+            "vram_shared_after_compile_mb": 50.0,
+            "vram_local_after_inference_mb": 40.0,
+            "vram_shared_after_inference_mb": 70.0,
+            "vram_local_checkpoint_peak_mb": 40.0,
+            "vram_shared_checkpoint_peak_mb": 70.0,
+            "vram_local_model_load_delta_mb": 20.0,
+            "vram_shared_model_load_delta_mb": 30.0,
+            "vram_local_inference_delta_mb": 10.0,
+            "vram_shared_inference_delta_mb": 20.0,
+            "vram_local_total_delta_mb": 30.0,
+            "vram_shared_total_delta_mb": 50.0,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -380,6 +550,7 @@ class TestResultToDict:
     def _result(self) -> GenaiBenchmarkResult:
         cfg = GenaiPerfConfig(
             bundle_dir=Path("bundle"),
+            model_id="Qwen/Qwen3-0.6B",
             ep="qnn",
             device="npu",
             prompt="Benchmark this exact prompt",
@@ -402,15 +573,18 @@ class TestResultToDict:
         d = self._result().to_dict()
 
         assert set(d) == {
+            "schema_version",
             "benchmark_info",
-            "ttft_ms",
-            "prefill_ms",
-            "decode",
-            "total_generation_ms",
-            "raw",
+            "load",
+            "requests",
+            "aggregate",
         }
+        assert d["schema_version"] == 2
         info = d["benchmark_info"]
         assert info["runtime"] == "winml-genai"
+        assert info["model_id"] == "Qwen/Qwen3-0.6B"
+        assert info["running_model_path"] == "bundle"
+        assert info["bundle_dir"] == "bundle"
         assert info["ep"] == "qnn"
         assert info["device"] == "npu"
         assert info["effective_device"] == "npu"
@@ -422,16 +596,79 @@ class TestResultToDict:
         assert info["monitor"] is False
         assert info["apply_template"] is True
         assert info["prompt"] == "Benchmark this exact prompt"
-        assert set(d["ttft_ms"]) == {"mean", "min", "max", "p50", "p90", "p95", "p99"}
-        assert set(d["prefill_ms"]) == {"mean"}
-        assert set(d["decode"]) == {"tokens_per_sec", "avg_token_latency_ms", "tpot_ms"}
-        assert set(d["raw"]) == {
-            "ttft_ms",
-            "prefill_ms",
-            "decode_tokens_per_sec",
-            "tpot_ms",
-            "total_ms",
+        assert set(d["load"]) == {
+            "session_load_duration_ms",
+            "ep_registration_duration_ms",
+            "bundle_prepare_duration_ms",
+            "native_load_duration_ms",
+            "config_create_duration_ms",
+            "model_create_duration_ms",
+            "tokenizer_create_duration_ms",
+            "weight_upload_duration_ms",
+            "weight_upload_estimate_duration_ms",
+            "weight_upload_estimate_source",
         }
+        assert len(d["requests"]) == 1
+        assert set(d["requests"][0]) == {
+            "kind",
+            "index",
+            "prompt_tokens",
+            "generated_tokens",
+            "template_duration_ms",
+            "tokenization_duration_ms",
+            "generator_create_duration_ms",
+            "prefill_duration_ms",
+            "first_token_duration_ms",
+            "decode_token_durations_ms",
+            "sequence_fetch_duration_ms",
+            "detokenization_duration_ms",
+            "request_ttft_duration_ms",
+            "model_ttft_duration_ms",
+            "response_eval_duration_ms",
+            "model_compute_duration_ms",
+            "request_duration_ms",
+            "prefill_tokens_per_second",
+            "steady_state_decode_tokens_per_second",
+            "response_eval_tokens_per_second",
+            "steady_state_tpot_ms",
+        }
+        stats_keys = {
+            "mean",
+            "std",
+            "min",
+            "max",
+            "p50",
+            "p90",
+            "p95",
+            "p99",
+        }
+        assert d["aggregate"]["warmup_excluded"] is True
+        assert d["aggregate"]["timed_request_count"] == 1
+        assert set(d["aggregate"]["request_duration_ms"]) == stats_keys
+        assert set(d["aggregate"]["model_compute_duration_ms"]) == stats_keys
+        assert set(d["aggregate"]["model_ttft_duration_ms"]) == stats_keys
+        assert set(d["aggregate"]["request_ttft_duration_ms"]) == stats_keys
+        assert set(d["aggregate"]["prefill_duration_ms"]) == stats_keys
+        assert set(d["aggregate"]["response_eval_duration_ms"]) == stats_keys
+        assert set(d["aggregate"]["steady_state_tpot_ms"]) == stats_keys
+        assert set(d["aggregate"]["prefill_tokens_per_second"]) == stats_keys
+        assert set(d["aggregate"]["steady_state_decode_tokens_per_second"]) == stats_keys
+        assert set(d["aggregate"]["response_eval_tokens_per_second"]) == stats_keys
+        assert "accuracy" not in d
+
+    def test_to_dict_includes_optional_memory_and_hw_monitor(self) -> None:
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), iterations=1, warmup=0)
+        result = GenaiBenchmarkResult(
+            config=cfg,
+            memory_profile={"rss_total_delta_mb": 12.5},
+            hw_monitor={"monitor": "HWMonitor", "cpu": {"mean_pct": 1.0}},
+        )
+
+        d = result.to_dict()
+
+        assert d["memory"] == {"rss_total_delta_mb": 12.5}
+        assert d["hw_monitor"] == {"monitor": "HWMonitor", "cpu": {"mean_pct": 1.0}}
+        assert "hardware" not in d
 
     def test_to_dict_is_json_serializable(self) -> None:
         # Round-trips without error.
@@ -485,7 +722,6 @@ class TestResultToDict:
             def to_dict(self) -> dict:
                 return metrics
 
-        monkeypatch.setattr(perf_genai, "HWMonitor", FakeMonitor)
         cfg = GenaiPerfConfig(
             bundle_dir=Path("bundle"),
             ep="qnn",
@@ -495,8 +731,10 @@ class TestResultToDict:
             monitor=True,
         )
         session = _FakeSession([_timing(0.4, 0.6, [0.4])], effective_ep="qnn")
+        bench = GenaiPerfBenchmark(cfg, session=session)
+        monkeypatch.setattr(bench, "_build_hw_monitor", lambda: FakeMonitor())
 
-        data = GenaiPerfBenchmark(cfg, session=session).run().to_dict()
+        data = bench.run().to_dict()
 
         assert data["benchmark_info"]["monitor"] is True
         assert data["hw_monitor"] == metrics
@@ -542,36 +780,9 @@ class TestSessionDevice:
         GenaiPerfBenchmark(cfg)._build_session()
         assert captured == {"ep": "openvino", "device": "npu"}
 
-    def test_monitor_uses_bundle_effective_device_for_config(self) -> None:
-        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="config")
-        session = _FakeSession([], effective_device="gpu")
-        assert GenaiPerfBenchmark(cfg, session=session)._monitor_device() == "gpu"
-
-    def test_monitor_uses_cpu_only_when_bundle_device_is_ambiguous(self) -> None:
-        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="config")
-        session = _FakeSession([], effective_device=None)
-        assert GenaiPerfBenchmark(cfg, session=session)._monitor_device() is None
-
-    def test_monitor_uses_session_device_when_override_is_noop(self) -> None:
-        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="npu", ep="qnn")
-        session = _FakeSession([], effective_ep=None, effective_device="cpu")
-        assert GenaiPerfBenchmark(cfg, session=session)._monitor_device() == "cpu"
-
-    def test_monitor_ep_comes_from_effective_config_not_request(self) -> None:
-        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="gpu", ep="dml")
-        session = _FakeSession(
-            [],
-            effective_ep=None,
-            effective_device="gpu",
-            effective_hardware_ep="OpenVINOExecutionProvider",
-        )
-
-        assert (
-            GenaiPerfBenchmark(cfg, session=session)._monitor_ep()
-            == "OpenVINOExecutionProvider"
-        )
-
-    def test_accelerator_monitor_requires_unique_effective_ep(self, monkeypatch) -> None:
+    def test_build_hw_monitor_uses_cpu_when_effective_adapter_is_unproven(
+        self, monkeypatch
+    ) -> None:
         captured: dict = {}
 
         class FakeMonitor:
@@ -582,28 +793,47 @@ class TestSessionDevice:
             def __init__(self, **kwargs: object) -> None:
                 captured.update(kwargs)
 
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args: object) -> None:
-                pass
-
-            def to_dict(self) -> dict:
-                return {}
-
-        monkeypatch.setattr(perf_genai, "HWMonitor", FakeMonitor)
-        cfg = GenaiPerfConfig(
-            bundle_dir=Path("bundle"), device="gpu", ep="dml", iterations=1, warmup=0, monitor=True
+        monkeypatch.setattr(
+            "winml.modelkit.session.monitor.hw_monitor.HWMonitor",
+            FakeMonitor,
         )
-        session = _FakeSession(
-            [_timing(0.4, 0.6, [0.4])],
-            effective_device="gpu",
-            effective_hardware_ep=None,
-        )
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="config", ep=None)
 
-        GenaiPerfBenchmark(cfg, session=session).run()
+        monitor = GenaiPerfBenchmark(cfg, session=_FakeSession([]))._build_hw_monitor()
 
+        assert isinstance(monitor, FakeMonitor)
         assert captured == {"poll_interval_ms": 200, "device": "cpu", "ep_name": None}
+
+    def test_build_hw_monitor_uses_effective_route_not_requested_values(self, monkeypatch) -> None:
+        captured: dict = {}
+
+        class FakeMonitor:
+            @classmethod
+            def is_available(cls) -> bool:
+                return True
+
+            def __init__(self, **kwargs: object) -> None:
+                captured.update(kwargs)
+
+        monkeypatch.setattr(
+            "winml.modelkit.session.monitor.hw_monitor.HWMonitor",
+            FakeMonitor,
+        )
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), device="npu", ep="qnn")
+        session = _FakeSession(
+            [],
+            effective_device="gpu",
+            effective_hardware_ep="DmlExecutionProvider",
+        )
+
+        monitor = GenaiPerfBenchmark(cfg, session=session)._build_hw_monitor()
+
+        assert isinstance(monitor, FakeMonitor)
+        assert captured == {
+            "poll_interval_ms": 200,
+            "device": "gpu",
+            "ep_name": "DmlExecutionProvider",
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -643,6 +873,23 @@ class TestReporting:
         session = _FakeSession([_timing(0.4, 0.6, [0.4, 0.4, 0.4])])
         result = GenaiPerfBenchmark(cfg, session=session).run()
         display_genai_report(result, Console())
+
+    def test_display_genai_report_prefers_adapter_block_over_gpu_aggregate(self) -> None:
+        result = self._result()
+        result.hw_monitor = {
+            "device_kind": "gpu",
+            "adapter": {"mean_pct": 91.2, "peak_pct": 98.8, "sample_count": 5},
+            "gpu": {"mean_pct": 1.1, "peak_pct": 2.2, "sample_count": 11},
+            "cpu": {"mean_pct": 12.3, "peak_pct": 34.5, "sample_count": 5},
+            "ram": {"used_mb": 1024.0, "peak_mb": 2048.0},
+        }
+        console = Console(file=StringIO(), width=200, force_terminal=False, record=True)
+
+        display_genai_report(result, console)
+
+        out = console.export_text()
+        assert "GPU: 91.2% avg, 98.8% peak" in out
+        assert "GPU: 1.1% avg, 2.2% peak" not in out
 
     def test_genai_output_path_uses_bundle_name(self) -> None:
         path = genai_output_path(Path("/some/dir/my-bundle"))
@@ -751,6 +998,7 @@ class TestCliDispatch:
         )
         assert result.exit_code == 0, result.output
         cfg = capture_run["config"]
+        assert cfg.model_id == str(bundle)
         assert cfg.ep == "qnn"
         assert cfg.device == "npu"
         assert cfg.bundle_dir == bundle
@@ -805,17 +1053,32 @@ class TestCliDispatch:
         assert cfg.ep == "dml"
         assert cfg.device == "config"
 
-    def test_default_device_is_config(
+    def test_auto_runtime_default_dispatches_genai_bundle(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
     ) -> None:
-        # Omitting --device is genai's "respect the bundle" default: no EP
-        # override, device recorded as "config".
+        # Omitting --runtime detects the bundle marker and routes to genai.
+        # Omitting --device then respects the bundle's own routing.
         bundle = _make_bundle(tmp_path)
-        result = runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai"])
+        result = runner.invoke(perf, ["-m", str(bundle)])
         assert result.exit_code == 0, result.output
         cfg = capture_run["config"]
         assert cfg.device == "config"
         assert cfg.ep is None
+
+    def test_auto_runtime_dispatches_normalized_bundle_path(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
+    ) -> None:
+        bundle = _make_bundle(tmp_path)
+        monkeypatch.setattr(
+            perf_module.cli_utils,
+            "normalize_model_arg",
+            lambda _model: str(bundle),
+        )
+
+        result = runner.invoke(perf, ["-m", "~/bundle"])
+
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].bundle_dir == bundle
 
     def test_explicit_device_config_respects_bundle(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
@@ -832,8 +1095,8 @@ class TestCliDispatch:
         assert cfg.ep is None
 
     def test_onnx_runtime_rejects_device_config(self, runner: CliRunner, tmp_path: Path) -> None:
-        # "config" is a winml-genai-only sentinel; the default (winml) runtime
-        # rejects it with a clear message rather than a generic device error.
+        # "config" is a winml-genai-only sentinel; auto resolves an ONNX path to
+        # winml and rejects it with a clear message rather than a generic error.
         result = runner.invoke(perf, ["-m", str(tmp_path / "model.onnx"), "--device", "config"])
         assert result.exit_code != 0
         assert "winml-genai" in result.output
@@ -1047,6 +1310,21 @@ class TestCliDispatch:
         assert cfg.compile is True
         assert cfg.compile_timeout == 120
 
+    def test_memory_and_monitor_flags_forwarded(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        bundle = _make_bundle(tmp_path)
+        result = runner.invoke(
+            perf,
+            ["-m", str(bundle), "--runtime", "winml-genai", "--memory", "--monitor"],
+        )
+        assert result.exit_code == 0, result.output
+        assert "--memory" not in result.output
+        assert "--monitor" not in result.output
+        cfg = capture_run["config"]
+        assert cfg.memory is True
+        assert cfg.monitor is True
+
     def test_warns_and_ignores_winml_only_flags(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
     ) -> None:
@@ -1147,6 +1425,7 @@ class TestCliDispatch:
         assert build_calls["build"]["force_rebuild"] is False
         # Benchmarked the freshly built cache bundle.
         cfg = capture_run["config"]
+        assert cfg.model_id == "Qwen/Qwen3-0.6B"
         assert cfg.bundle_dir == build_calls["build"]["output_dir"]
         assert (cfg.bundle_dir / "genai_config.json").exists()
         # Omitting --device keeps the "respect the bundle" default.
@@ -1203,49 +1482,13 @@ class TestCliDispatch:
         assert result.exit_code == 0, result.output
         assert build_calls["build"]["force_rebuild"] is True
 
-    def test_ignore_cache_builds_in_tempdir(
-        self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
-    ) -> None:
-        # --ignore-cache mirrors the winml runtime: build fresh in a throwaway
-        # temp dir and never touch the managed cache. Both the assembled bundle
-        # and its component build cache land outside WINML_CACHE_DIR, and the
-        # managed bundle dir is never written.
-        import winml.modelkit.loader as loader_mod
-        import winml.modelkit.models.winml as winml_models
-        from winml.modelkit.cache import get_model_dir
-
-        monkeypatch.setenv("WINML_CACHE_DIR", str(tmp_path))
-        monkeypatch.setattr(
-            loader_mod, "resolve_loader_config", _fake_resolve_loader_config("qwen3")
-        )
-        monkeypatch.setattr(winml_models, "resolve_genai_bundle", lambda _mt: object())
-        build_calls: dict = {}
-        monkeypatch.setattr(
-            winml_models, "build_genai_bundle", _fake_build_genai_bundle(build_calls)
-        )
-
-        result = runner.invoke(
-            perf, ["-m", "Qwen/Qwen3-0.6B", "--runtime", "winml-genai", "--ignore-cache"]
-        )
-
-        assert result.exit_code == 0, result.output
-        build = build_calls["build"]
-        # Forced fresh build, isolated from the managed cache on both axes.
-        assert build["force_rebuild"] is True
-        assert not build["output_dir"].is_relative_to(tmp_path)
-        assert not Path(build["cache_dir"]).is_relative_to(tmp_path)
-        # The managed bundle dir is never populated.
-        managed = get_model_dir("Qwen/Qwen3-0.6B", cache_dir=tmp_path) / "genai-bundle"
-        assert not (managed / "genai_config.json").exists()
-        # The benchmark ran against the temp bundle that was built.
-        assert capture_run["config"].bundle_dir == build["output_dir"]
-
     def test_autobuild_honored_flags_not_warned_as_ignored(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
     ) -> None:
         # The build-driving flags (--rebuild/--task) steer the auto-build, so
         # they must NOT appear in the "options are ignored" warning when a bundle
-        # is built from a model id. A genuinely ignored flag (--memory) still is.
+        # is built from a model id. Runtime genai flags such as --memory are
+        # honored by the benchmark and must not be reported as ignored either.
         import winml.modelkit.loader as loader_mod
         import winml.modelkit.models.winml as winml_models
 
@@ -1273,7 +1516,7 @@ class TestCliDispatch:
         assert result.exit_code == 0, result.output
         assert "--rebuild" not in result.output
         assert "--task" not in result.output
-        assert "--memory" in result.output  # still ignored -> still warned
+        assert "--memory" not in result.output
 
     def test_prebuilt_bundle_still_warns_build_flags(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
@@ -1291,7 +1534,7 @@ class TestCliDispatch:
         # On a cache hit the model-id-keyed bundle is reused as-is, so the
         # artifact-shaping flags (--precision/--task) were NOT applied to it and
         # must be reported as ignored -- unlike a fresh build, which honors them.
-        # (--rebuild/--ignore-cache always force a build, so they never reach here.)
+        # (--rebuild always forces a build, so it never reaches here.)
         import winml.modelkit.models.winml as winml_models
         from winml.modelkit.cache import get_model_dir
 
@@ -1348,10 +1591,34 @@ class TestCliDispatch:
         assert "recipe" in result.output.lower()
         assert "config" not in capture_run
 
-    def test_winml_runtime_unaffected(
-        self, runner: CliRunner, tmp_path: Path, capture_run: dict
-    ) -> None:
-        # Default runtime must not route through the genai path.
+    def test_runtime_help_shows_auto_default(self, runner: CliRunner, capture_run: dict) -> None:
         result = runner.invoke(perf, ["--help"])
         assert result.exit_code == 0
+        assert "[auto|winml|winml-genai]" in result.output
+        assert "default: auto" in result.output
         assert "config" not in capture_run
+
+
+class TestAutoRuntime:
+    def test_selects_genai_for_bundle_folder(self, tmp_path: Path) -> None:
+        bundle = _make_bundle(tmp_path)
+        assert _resolve_runtime("auto", str(bundle)) == "winml-genai"
+
+    @pytest.mark.parametrize("model_kind", ["plain-folder", "onnx-file", "model-id"])
+    def test_selects_winml_without_bundle_marker(self, tmp_path: Path, model_kind: str) -> None:
+        if model_kind == "plain-folder":
+            model = tmp_path / "model"
+            model.mkdir()
+            value = str(model)
+        elif model_kind == "onnx-file":
+            model = tmp_path / "model.onnx"
+            model.write_bytes(b"onnx")
+            value = str(model)
+        else:
+            value = "organization/model"
+
+        assert _resolve_runtime("auto", value) == "winml"
+
+    @pytest.mark.parametrize("runtime", ["winml", "winml-genai"])
+    def test_preserves_explicit_runtime(self, runtime: str) -> None:
+        assert _resolve_runtime(runtime, "organization/model") == runtime

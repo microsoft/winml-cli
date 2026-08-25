@@ -37,6 +37,17 @@
   },
   {
     "hf_id": "Alibaba-NLP/gte-reranker-modernbert-base",
+    "task": "text-classification",
+    "model_type": "modernbert",
+    "group": "Top200",
+    "priority": "P3",
+    "downloads": 2639039,
+    "last_update_time": "2025-07-04T10:03:42+00:00",
+    "optimum_supported": false,
+    "order": 9
+  },
+  {
+    "hf_id": "Alibaba-NLP/gte-reranker-modernbert-base",
     "task": "text-ranking",
     "model_type": "modernbert",
     "group": "Top200",
@@ -554,7 +565,7 @@
     "tags": [
       "acc"
     ],
-    "order": 13
+    "order": 18
   },
   {
     "hf_id": "Intel/dpt-hybrid-midas",
@@ -1852,7 +1863,7 @@
     "downloads": 2374711,
     "last_update_time": "2025-08-29T14:37:04+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 10
   },
   {
     "hf_id": "cross-encoder/ms-marco-MiniLM-L12-v2",
@@ -1864,6 +1875,17 @@
     "last_update_time": "2025-08-29T14:37:04+00:00",
     "optimum_supported": true,
     "order": 5
+  },
+  {
+    "hf_id": "cross-encoder/ms-marco-MiniLM-L2-v2",
+    "task": "text-classification",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P3",
+    "downloads": 1157218,
+    "last_update_time": "2025-08-29T14:36:35+00:00",
+    "optimum_supported": false,
+    "order": 11
   },
   {
     "hf_id": "cross-encoder/ms-marco-MiniLM-L2-v2",
@@ -1939,6 +1961,17 @@
   },
   {
     "hf_id": "cross-encoder/nli-deberta-v3-base",
+    "task": "text-classification",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P3",
+    "downloads": 328641,
+    "last_update_time": "2025-04-11T09:56:48+00:00",
+    "optimum_supported": false,
+    "order": 15
+  },
+  {
+    "hf_id": "cross-encoder/nli-deberta-v3-base",
     "task": "zero-shot-classification",
     "model_type": "deberta-v2",
     "group": "Top200",
@@ -1971,7 +2004,7 @@
     "downloads": 898303,
     "last_update_time": "2025-03-09T21:39:03+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 12
   },
   {
     "hf_id": "dandelin/vilt-b32-finetuned-vqa",
@@ -2038,7 +2071,7 @@
     "downloads": 7263,
     "last_update_time": "2024-09-26T08:05:59+00:00",
     "optimum_supported": true,
-    "order": 11
+    "order": 12
   },
   {
     "hf_id": "deepset/tinyroberta-squad2",
@@ -2070,6 +2103,28 @@
   },
   {
     "hf_id": "dell-research-harvard/lt-wikidata-comp-en",
+    "task": "feature-extraction",
+    "model_type": "mpnet",
+    "group": "Top200",
+    "priority": "P3",
+    "downloads": 1677,
+    "last_update_time": "2024-03-20T00:27:30+00:00",
+    "optimum_supported": false,
+    "order": 19
+  },
+  {
+    "hf_id": "dell-research-harvard/lt-wikidata-comp-en",
+    "task": "sentence-similarity",
+    "model_type": "mpnet",
+    "group": "Top200",
+    "priority": "P3",
+    "downloads": 1677,
+    "last_update_time": "2024-03-20T00:27:30+00:00",
+    "optimum_supported": false,
+    "order": 13
+  },
+  {
+    "hf_id": "dell-research-harvard/lt-wikidata-comp-en",
     "task": "tabular-classification",
     "model_type": "mpnet",
     "group": "Top200",
@@ -2081,6 +2136,17 @@
   },
   {
     "hf_id": "dell-research-harvard/lt-wikidata-comp-multi",
+    "task": "feature-extraction",
+    "model_type": "xlm-roberta",
+    "group": "Top200",
+    "priority": "P3",
+    "downloads": 200,
+    "last_update_time": "2024-03-20T01:06:09+00:00",
+    "optimum_supported": false,
+    "order": 21
+  },
+  {
+    "hf_id": "dell-research-harvard/lt-wikidata-comp-multi",
     "task": "tabular-classification",
     "model_type": "xlm-roberta",
     "group": "Top200",
@@ -2089,6 +2155,17 @@
     "last_update_time": "2024-03-20T01:06:09+00:00",
     "optimum_supported": true,
     "order": 3
+  },
+  {
+    "hf_id": "dell-research-harvard/lt-wikidata-comp-zh",
+    "task": "feature-extraction",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P3",
+    "downloads": 237,
+    "last_update_time": "2024-03-20T00:54:46+00:00",
+    "optimum_supported": false,
+    "order": 20
   },
   {
     "hf_id": "dell-research-harvard/lt-wikidata-comp-zh",
@@ -3256,6 +3333,17 @@
     "order": 2
   },
   {
+    "hf_id": "impira/layoutlm-document-qa",
+    "task": "question-answering",
+    "model_type": "layoutlm",
+    "group": "Top200",
+    "priority": "P3",
+    "downloads": 25200,
+    "last_update_time": "2023-03-18T00:54:24+00:00",
+    "optimum_supported": false,
+    "order": 11
+  },
+  {
     "hf_id": "impira/layoutlm-invoices",
     "task": "document-question-answering",
     "model_type": "layoutlm",
@@ -3744,6 +3832,17 @@
     "order": 5
   },
   {
+    "hf_id": "microsoft/beit-base-patch16-224",
+    "task": "image-classification",
+    "model_type": "beit",
+    "group": "Top200",
+    "priority": "P3",
+    "downloads": 10616,
+    "last_update_time": "2024-04-21T11:02:37+00:00",
+    "optimum_supported": false,
+    "order": 15
+  },
+  {
     "hf_id": "microsoft/beit-base-patch16-224-pt22k-ft22k",
     "task": "image-classification",
     "model_type": "beit",
@@ -3766,7 +3865,7 @@
     "tags": [
       "acc"
     ],
-    "order": 12
+    "order": 16
   },
   {
     "hf_id": "microsoft/llmlingua-2-xlm-roberta-large-meetingbank",
@@ -3847,7 +3946,7 @@
     "tags": [
       "acc"
     ],
-    "order": 15
+    "order": 16
   },
   {
     "hf_id": "microsoft/swinv2-tiny-patch4-window16-256",
@@ -4059,6 +4158,17 @@
   },
   {
     "hf_id": "mixedbread-ai/mxbai-rerank-base-v1",
+    "task": "text-classification",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P3",
+    "downloads": 38359,
+    "last_update_time": "2025-04-02T14:40:30+00:00",
+    "optimum_supported": false,
+    "order": 17
+  },
+  {
+    "hf_id": "mixedbread-ai/mxbai-rerank-base-v1",
     "task": "text-ranking",
     "model_type": "deberta-v2",
     "group": "Top200",
@@ -4077,7 +4187,7 @@
     "downloads": 571583,
     "last_update_time": "2025-04-02T14:42:01+00:00",
     "optimum_supported": true,
-    "order": 11
+    "order": 13
   },
   {
     "hf_id": "mixedbread-ai/mxbai-rerank-xsmall-v1",
@@ -4705,6 +4815,17 @@
     "order": 7
   },
   {
+    "hf_id": "rubentito/layoutlmv3-base-mpdocvqa",
+    "task": "question-answering",
+    "model_type": "layoutlmv3",
+    "group": "Top200",
+    "priority": "P3",
+    "downloads": 146,
+    "last_update_time": "2024-06-06T08:35:37+00:00",
+    "optimum_supported": false,
+    "order": 13
+  },
+  {
     "hf_id": "ryukkt62/Suncast",
     "task": "tabular-regression",
     "model_type": "sklearn",
@@ -4971,7 +5092,7 @@
     "downloads": 164,
     "last_update_time": "2024-01-01T00:00:00+00:00",
     "optimum_supported": false,
-    "order": 16
+    "order": 17
   },
   {
     "hf_id": "timpal0l/mdeberta-v3-base-squad2",
@@ -4997,6 +5118,17 @@
     "last_update_time": "2025-12-19T19:10:57+00:00",
     "optimum_supported": true,
     "order": 5
+  },
+  {
+    "hf_id": "typeform/distilbert-base-uncased-mnli",
+    "task": "text-classification",
+    "model_type": "distilbert",
+    "group": "Top200",
+    "priority": "P3",
+    "downloads": 334662,
+    "last_update_time": "2023-03-22T08:49:00+00:00",
+    "optimum_supported": false,
+    "order": 14
   },
   {
     "hf_id": "typeform/distilbert-base-uncased-mnli",
@@ -5216,6 +5348,17 @@
     "last_update_time": "2023-03-20T17:51:02+00:00",
     "optimum_supported": true,
     "order": 8
+  },
+  {
+    "hf_id": "xhyi/layoutlmv3_docvqa_t11c5000",
+    "task": "question-answering",
+    "model_type": "layoutlmv3",
+    "group": "Top200",
+    "priority": "P3",
+    "downloads": 77,
+    "last_update_time": "2023-03-20T17:51:02+00:00",
+    "optimum_supported": false,
+    "order": 14
   },
   {
     "hf_id": "xingyang1/Distill-Any-Depth-Large-hf",

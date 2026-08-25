@@ -24,6 +24,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
+from ..optim.analysis import NodeRef
 from .models.onnx_model import ONNXModel
 from .models.support_level import SupportLevel
 
@@ -33,7 +34,7 @@ if TYPE_CHECKING:
 
     from onnx import ModelProto, NodeProto
 
-    from ..optim import CapabilityFinding, NodeRef
+    from ..optim import CapabilityFinding
     from ..utils.constants import EPName
 
 
@@ -68,6 +69,18 @@ class ProducedOperatorSupport:
     support: SupportLevel
     reason: str | None = None
 
+    def to_dict(self) -> dict[str, str]:
+        """Return the stable JSON representation of this produced operator."""
+        data = {
+            "op_type": self.op_type,
+            "label": self.label,
+            "change": self.change,
+            "support": self.support.value,
+        }
+        if self.reason is not None:
+            data["reason"] = self.reason
+        return data
+
 
 @dataclass
 class OptimizationOutputSupport:
@@ -88,6 +101,12 @@ class OptimizationOutputSupport:
     category: str
     description: str
     pipe_name: str
+    removed_nodes: list[NodeRef] = field(default_factory=list)
+    added_nodes: list[NodeRef] = field(default_factory=list)
+    modified_nodes: list[NodeRef] = field(default_factory=list)
+    removed_initializers: list[str] = field(default_factory=list)
+    added_initializers: list[str] = field(default_factory=list)
+    modified_initializers: list[str] = field(default_factory=list)
     operators: list[ProducedOperatorSupport] = field(default_factory=list)
     error: str | None = None
 
@@ -104,6 +123,44 @@ class OptimizationOutputSupport:
     def support_counts(self) -> dict[SupportLevel, int]:
         """Return a count of produced operators per support level."""
         return dict(Counter(op.support for op in self.operators))
+
+    @staticmethod
+    def _node_ref_dict(ref: NodeRef) -> dict[str, object]:
+        """Return the stable JSON representation of one graph-delta node."""
+        data: dict[str, object] = {
+            "op_type": ref.op_type,
+            "name": ref.name,
+            "outputs": list(ref.outputs),
+        }
+        if ref.domain and ref.domain != "ai.onnx":
+            data["domain"] = ref.domain
+        return data
+
+    def to_dict(self) -> dict[str, object]:
+        """Return actionable graph-delta and target-support evidence."""
+        data: dict[str, object] = {
+            "name": self.name,
+            "enable_flag": self.enable_flag,
+            "category": self.category,
+            "description": self.description,
+            "pipe_name": self.pipe_name,
+            "worst_support": self.worst_support.value,
+            "support_counts": {
+                level.value: count for level, count in self.support_counts().items()
+            },
+            "graph_delta": {
+                "removed_nodes": [self._node_ref_dict(ref) for ref in self.removed_nodes],
+                "added_nodes": [self._node_ref_dict(ref) for ref in self.added_nodes],
+                "modified_nodes": [self._node_ref_dict(ref) for ref in self.modified_nodes],
+                "removed_initializers": self.removed_initializers,
+                "added_initializers": self.added_initializers,
+                "modified_initializers": self.modified_initializers,
+            },
+            "operators": [operator.to_dict() for operator in self.operators],
+        }
+        if self.error is not None:
+            data["error"] = self.error
+        return data
 
 
 def _produced_node_refs(
@@ -137,6 +194,12 @@ def _check_one(
         category=finding.category,
         description=finding.description,
         pipe_name=finding.pipe_name,
+        removed_nodes=list(finding.removed_nodes),
+        added_nodes=list(finding.added_nodes),
+        modified_nodes=list(finding.modified_nodes),
+        removed_initializers=list(finding.removed_initializers),
+        added_initializers=list(finding.added_initializers),
+        modified_initializers=list(finding.modified_initializers),
     )
 
     produced = _produced_node_refs(finding)
@@ -179,7 +242,7 @@ def _check_one(
         support, reason = _lookup_support(ref, support_by_output)
         result.operators.append(
             ProducedOperatorSupport(
-                op_type=ref.op_type,
+                op_type=ref.qualified_op_type(),
                 label=ref.label(),
                 change=change,
                 support=support,

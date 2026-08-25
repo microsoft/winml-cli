@@ -42,17 +42,18 @@ QNN_VENDOR_ID: int = 0x4D4F
 def _stub_ep_entry(ep_name: str) -> EPEntry:
     """Build a minimal EPEntry suitable for wrapping a mocked OrtEpDevice.
 
-    The dll_path is fictional — tests never load the DLL because they
-    construct WinMLEP/WinMLEPDevice directly.
+    This fixture file stands in for an existing DLL so cache-identity tests can
+    fingerprint a stable path without loading any native library.
     """
     return EPEntry(
         ep_name=ep_name,
-        dll_path=Path(f"C:/fake/{ep_name}.dll"),
+        dll_path=Path(__file__),
         source=PyPISource(
             distribution="fake-dist",
             relative_dll="fake.dll",
             eps=(ep_name,),
         ),
+        version="test-version",
     )
 
 

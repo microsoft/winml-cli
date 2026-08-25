@@ -9,10 +9,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from ..utils.constants import EPNameOrAlias
 from ..utils.eval_utils import EvalMode
+
+
+EvalRuntime = Literal["winml", "pytorch"]
 
 
 @dataclass
@@ -115,8 +118,10 @@ class WinMLEvaluationConfig:
             same leading length.
         reference_path: Path to a second ``.onnx`` file used as the reference in
             ``--mode compare``. When set, both ``model_path`` and ``reference_path``
-            run as raw ORT sessions and their output tensors are compared directly,
-            so no ``model_id`` / ``task`` / HF reference is needed.
+            load as WinML model instances and their output tensors are compared
+            directly, so no ``model_id`` / ``task`` / HF reference is needed.
+        reference_device: Device used for a reference ONNX model. Defaults to CPU.
+        reference_ep: Explicit execution provider for a reference ONNX model.
         task: HF pipeline task. Auto-detected from model_id if omitted.
         device: Target device for inference.
         ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides
@@ -130,6 +135,11 @@ class WinMLEvaluationConfig:
             from ``model_id`` (ignored for pre-built ONNX inputs).
         dataset: Dataset configuration.
         output_path: Path to write JSON results.
+        runtime: Evaluation runtime.
+
+            - ``"winml"`` (default): export Hugging Face checkpoints to ONNX
+              and evaluate with WinML.
+            - ``"pytorch"``: evaluate the original Hugging Face checkpoint.
         mode: Evaluation mode (see :data:`EvalMode`).
 
             - ``"onnx"`` (default): evaluate the ONNX candidate on the
@@ -150,6 +160,8 @@ class WinMLEvaluationConfig:
     model_path: str | dict[str, str] | None = None
     input_data: str | None = None
     reference_path: str | None = field(default=None, metadata={"cli_name": "reference"})
+    reference_device: str = "cpu"
+    reference_ep: EPNameOrAlias | None = None
     task: str | None = None
     device: str = "auto"
     precision: str = "auto"
@@ -174,11 +186,28 @@ class WinMLEvaluationConfig:
     skip_build: bool = True
     use_cache: bool = True
     rebuild: bool = False
+    runtime: EvalRuntime = "winml"
+    trust_remote_code: bool = False
     _auto_device_selected: bool = field(default=False, repr=False, compare=False, kw_only=True)
+    _pipeline_device_override: str | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        kw_only=True,
+    )
+
+    @property
+    def pipeline_device(self) -> str:
+        """Return the tensor-placement device expected by Transformers pipelines."""
+        if self._pipeline_device_override is not None:
+            return self._pipeline_device_override
+        if self.runtime == "pytorch" and self.device.lower() == "gpu":
+            return "cuda"
+        return "cpu"
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
-        result: dict = {}
+        result: dict = {"runtime": self.runtime}
         if self.model_id is not None:
             result["model_id"] = self.model_id
         if self.model_path is not None:
@@ -187,6 +216,9 @@ class WinMLEvaluationConfig:
             result["input_data"] = self.input_data
         if self.reference_path is not None:
             result["reference_path"] = self.reference_path
+            result["reference_device"] = self.reference_device
+        if self.reference_ep is not None:
+            result["reference_ep"] = self.reference_ep
         if self.task is not None:
             result["task"] = self.task
         result["device"] = self.device
@@ -215,9 +247,12 @@ class WinMLEvaluationConfig:
             result["output_path"] = str(self.output_path)
         if self.mode != "onnx":
             result["mode"] = self.mode
-        result["skip_build"] = self.skip_build
-        result["use_cache"] = self.use_cache
-        result["rebuild"] = self.rebuild
+        if self.runtime == "winml":
+            result["skip_build"] = self.skip_build
+            result["use_cache"] = self.use_cache
+            result["rebuild"] = self.rebuild
+        if self.trust_remote_code:
+            result["trust_remote_code"] = True
         return result
 
     @classmethod
@@ -242,6 +277,8 @@ class WinMLEvaluationConfig:
             model_path=data.get("model_path"),
             input_data=data.get("input_data"),
             reference_path=data.get("reference_path"),
+            reference_device=data.get("reference_device", "cpu"),
+            reference_ep=data.get("reference_ep"),
             task=data.get("task"),
             device=data.get("device", "auto"),
             precision=data.get("precision", "auto"),
@@ -259,4 +296,6 @@ class WinMLEvaluationConfig:
             skip_build=data.get("skip_build", True),
             use_cache=data.get("use_cache", True),
             rebuild=data.get("rebuild", False),
+            runtime=data.get("runtime", "winml"),
+            trust_remote_code=data.get("trust_remote_code", False),
         )

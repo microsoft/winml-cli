@@ -28,7 +28,10 @@ class TestPreparePipeline:
         evaluator.model = MagicMock()
         sentinel = MagicMock()
 
-        with patch("transformers.pipeline", return_value=sentinel) as mock_pipeline:
+        with patch(
+            "winml.modelkit.inference.pipeline.create_pipeline",
+            return_value=sentinel,
+        ) as mock_pipeline:
             assert evaluator.prepare_pipeline() is sentinel
 
         assert "framework" not in mock_pipeline.call_args.kwargs
@@ -142,11 +145,30 @@ class TestEvaluationConfig:
         config = WinMLEvaluationConfig(
             model_path="cand.onnx",
             reference_path="ref.onnx",
+            reference_device="gpu",
+            reference_ep="dml",
             mode="compare",
         )
-        restored = WinMLEvaluationConfig.from_dict(config.to_dict())
+        serialized = config.to_dict()
+        restored = WinMLEvaluationConfig.from_dict(serialized)
         assert restored.reference_path == "ref.onnx"
+        assert serialized["reference_device"] == "gpu"
+        assert serialized["reference_ep"] == "dml"
+        assert restored.reference_device == "gpu"
+        assert restored.reference_ep == "dml"
         assert restored.mode == "compare"
+
+    def test_reference_environment_defaults_to_cpu(self):
+        config = WinMLEvaluationConfig(
+            model_path="cand.onnx",
+            reference_path="ref.onnx",
+            mode="compare",
+        )
+
+        assert config.reference_device == "cpu"
+        assert config.reference_ep is None
+        assert config.to_dict()["reference_device"] == "cpu"
+        assert "reference_ep" not in config.to_dict()
 
     def test_eval_result_to_dict(self):
         config = WinMLEvaluationConfig(
@@ -216,6 +238,28 @@ class TestResolveTask:
             ),
         ):
             assert _resolve_task(config) == "image-classification"
+
+    def test_infer_threads_trust_remote_code(self):
+        from winml.modelkit.eval.evaluate import _resolve_task
+
+        fake_resolution = MagicMock(task="image-classification")
+        config = WinMLEvaluationConfig(
+            model_id="custom/model",
+            trust_remote_code=True,
+        )
+        with (
+            patch(
+                "winml.modelkit.loader.load_hf_config",
+                return_value=MagicMock(),
+            ) as load_config,
+            patch(
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=fake_resolution,
+            ),
+        ):
+            assert _resolve_task(config) == "image-classification"
+
+        assert load_config.call_args.kwargs["trust_remote_code"] is True
 
     def test_explicit_feature_extraction_preserved_verbatim(self):
         """Explicit --task is surfaced verbatim (explicit means explicit).
@@ -331,14 +375,14 @@ class TestEvaluate:
         evaluator = MagicMock()
         evaluator.compute.return_value = {"accuracy": 1.0}
         with (
-            patch.object(eval_mod, "_load_model", return_value=MagicMock()),
+            patch.object(eval_mod, "load_model", return_value=MagicMock()),
             patch.object(eval_mod, "get_evaluator_class", return_value=lambda *_a, **_k: evaluator),
         ):
             result = eval_mod.evaluate(config)
         assert result.config.mode == "onnx"
 
-    def test_onnx_compare_skips_task_resolution_and_dataset(self):
-        """Two-ONNX compare skips HF task resolution and default-dataset lookup."""
+    def test_onnx_compare_ignores_explicit_task_and_skips_resolution(self):
+        """Two-ONNX compare preserves all raw outputs by clearing the task."""
         import importlib
         import sys
 
@@ -350,36 +394,33 @@ class TestEvaluate:
             model_path="cand.onnx",
             reference_path="ref.onnx",
             mode="compare",
+            task="image-classification",
         )
 
         evaluator = MagicMock()
         evaluator.compute.return_value = {"cosine_mean": {"logits": 1.0}}
+        candidate = MagicMock()
+        evaluator_factory = MagicMock(return_value=evaluator)
         with (
             patch.object(
                 eval_mod,
                 "_resolve_task",
                 side_effect=AssertionError("task resolution must be skipped"),
             ),
-            patch.object(eval_mod, "_load_model", return_value=None) as load_model,
-            patch.object(eval_mod, "get_evaluator_class", return_value=lambda *_a, **_k: evaluator),
+            patch.object(
+                eval_mod,
+                "load_model",
+                return_value=candidate,
+            ) as load_model,
+            patch.object(eval_mod, "get_evaluator_class", return_value=evaluator_factory),
         ):
             result = eval_mod.evaluate(config)
 
         assert result.config.mode == "compare"
         assert result.config.task is None
         assert result.metrics == {"cosine_mean": {"logits": 1.0}}
-        load_model.assert_called_once()
-
-    def test_load_model_returns_none_for_onnx_compare(self):
-        """_load_model short-circuits (no model_id needed) for two-ONNX compare."""
-        from winml.modelkit.eval.evaluate import _load_model
-
-        config = WinMLEvaluationConfig(
-            model_path="cand.onnx",
-            reference_path="ref.onnx",
-            mode="compare",
-        )
-        assert _load_model(config) is None
+        load_model.assert_called_once_with(result.config)
+        evaluator_factory.assert_called_once_with(result.config, candidate)
 
     def test_no_dataset_no_default_raises(self):
         """Tasks without a default dataset raise ValueError."""
@@ -402,7 +443,7 @@ class TestEvaluate:
         )
 
         with (
-            patch.object(eval_mod, "_load_model", return_value=MagicMock()),
+            patch.object(eval_mod, "load_model", return_value=MagicMock()),
             pytest.raises(ValueError, match="No dataset provided"),
         ):
             eval_mod.evaluate(config)
@@ -429,7 +470,7 @@ class TestEvaluate:
 
         with (
             patch.object(eval_mod, "_resolve_task", return_value="text-classification"),
-            patch.object(eval_mod, "_load_model", return_value=MagicMock()),
+            patch.object(eval_mod, "load_model", return_value=MagicMock()),
             # _EVALUATOR_REGISTRY now stores "module:Class" strings; patch the
             # public resolver instead of injecting a callable into the dict.
             patch.object(
@@ -467,7 +508,7 @@ class TestEvaluate:
 
         with (
             patch.object(eval_mod, "print_config", side_effect=fake_print_config),
-            patch.object(eval_mod, "_load_model", side_effect=fake_load_model),
+            patch.object(eval_mod, "load_model", side_effect=fake_load_model),
             pytest.raises(ValueError) as exc_info,
         ):
             eval_mod.evaluate(config)
@@ -500,7 +541,7 @@ class TestEvaluate:
 
         with (
             patch.object(eval_mod, "print_config", return_value=None),
-            patch.object(eval_mod, "_load_model", return_value=object()),
+            patch.object(eval_mod, "load_model", return_value=object()),
             patch.object(eval_mod, "get_evaluator_class", return_value=FailingEvaluator),
             pytest.raises(RuntimeError, match="internal evaluator failure"),
         ):
@@ -530,7 +571,7 @@ class TestEvaluate:
 
         with (
             patch.object(eval_mod, "print_config", return_value=None),
-            patch.object(eval_mod, "_load_model", return_value=object()),
+            patch.object(eval_mod, "load_model", return_value=object()),
             patch.object(eval_mod, "get_evaluator_class", return_value=FailingEvaluator),
             pytest.raises(ValueError, match="expected schema") as exc_info,
         ):
@@ -1452,7 +1493,7 @@ class TestDefaultDatasetImmutability:
             dataset=caller_dataset,
         )
 
-        with patch.object(eval_mod, "_load_model", return_value=MagicMock()):
+        with patch.object(eval_mod, "load_model", return_value=MagicMock()):
             eval_mod.evaluate(config)
 
         # Caller's dataset must be untouched (full dataclass state)
@@ -1464,7 +1505,7 @@ class TestDefaultDatasetImmutability:
 
 
 class TestLoadModel:
-    """Tests for _load_model."""
+    """Tests for load_model."""
 
     @pytest.fixture(autouse=True)
     def _mock_resolve_device(self):
@@ -1483,12 +1524,12 @@ class TestLoadModel:
             yield
 
     def test_load_model_no_model_id_raises(self):
-        """_load_model raises ValueError when model_id is None."""
-        from winml.modelkit.eval.evaluate import _load_model
+        """load_model raises ValueError when model_id is None."""
+        from winml.modelkit.eval.evaluate import load_model
 
         config = WinMLEvaluationConfig(model_id=None)
         with pytest.raises(ValueError, match="model_id is required"):
-            _load_model(config)
+            load_model(config)
 
     def test_load_model_from_pretrained(self):
         """When no model_path, calls from_pretrained."""
@@ -1513,11 +1554,11 @@ class TestLoadModel:
             "sys.modules",
             {"winml.modelkit.models": MagicMock(WinMLAutoModel=mock_auto)},
         ):
-            result = eval_mod._load_model(config)
+            result = eval_mod.load_model(config)
 
         mock_auto.from_pretrained.assert_called_once()
         call_args = mock_auto.from_pretrained.call_args
-        # _load_model now passes a WinMLEPDevice as the 2nd positional arg.
+        # load_model passes a WinMLEPDevice as the 2nd positional arg.
         assert call_args.args[0] == "test/model"
         # The mock auto_device returns a MagicMock — just confirm it landed.
         assert call_args.args[1] is not None
@@ -1528,6 +1569,82 @@ class TestLoadModel:
         assert call_args.kwargs["use_cache"] is True
         assert call_args.kwargs["force_rebuild"] is False
         assert result is mock_model
+
+    def test_load_onnx_without_model_id_returns_generic_winml_model(self):
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        mock_model = MagicMock()
+        mock_auto = MagicMock()
+        mock_auto.from_onnx.return_value = mock_model
+        config = WinMLEvaluationConfig(
+            model_path="candidate.onnx",
+            reference_path="reference.onnx",
+            mode="compare",
+            device="cpu",
+        )
+
+        with patch.dict(
+            "sys.modules",
+            {"winml.modelkit.models": MagicMock(WinMLAutoModel=mock_auto)},
+        ):
+            result = eval_mod.load_model(config)
+
+        assert result is mock_model
+        mock_auto.from_onnx.assert_called_once()
+        assert mock_auto.from_onnx.call_args.kwargs["hf_config"] is None
+        assert mock_auto.from_onnx.call_args.kwargs["task"] is None
+        assert mock_auto.from_onnx.call_args.kwargs["skip_build"] is True
+
+    def test_make_onnx_reference_config_uses_independent_environment(self):
+        from winml.modelkit.eval.tensor_similarity_evaluator import (
+            _make_reference_config,
+        )
+
+        config = WinMLEvaluationConfig(
+            model_path="candidate.onnx",
+            reference_path="reference.onnx",
+            reference_device="gpu",
+            reference_ep="dml",
+            mode="compare",
+        )
+
+        reference = _make_reference_config(config)
+
+        assert reference.model_path == "reference.onnx"
+        assert reference.model_id is None
+        assert reference.reference_path is None
+        assert reference.runtime == "winml"
+        assert reference.device == "gpu"
+        assert reference.ep == "dml"
+        assert reference.mode == "onnx"
+        assert reference.skip_build is True
+
+    def test_make_default_hf_reference_config_uses_native_defaults(self):
+        from winml.modelkit.eval.tensor_similarity_evaluator import (
+            _make_reference_config,
+        )
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            mode="compare",
+        )
+
+        reference = _make_reference_config(config)
+
+        assert reference.model_id == "test/model"
+        assert reference.model_path is None
+        assert reference.reference_path is None
+        assert reference.runtime == "pytorch"
+        assert reference.device == "cpu"
+        assert reference.ep is None
+        assert reference.precision == "auto"
+        assert reference.mode == "onnx"
 
     def test_auto_target_retries_cpu_after_ort_runtime_failure(self, caplog):
         """An unusable auto-selected accelerator retries with the CPU EP."""
@@ -1578,7 +1695,7 @@ class TestLoadModel:
                 gpu_ep_device,
                 cpu_ep_device,
             ]
-            result = eval_mod._load_model(config)
+            result = eval_mod.load_model(config)
 
         assert result is mock_model
         assert [call.args[1] for call in mock_auto.from_pretrained.call_args_list] == [
@@ -1618,7 +1735,7 @@ class TestLoadModel:
             "sys.modules",
             {"winml.modelkit.models": MagicMock(WinMLAutoModel=mock_auto)},
         ):
-            eval_mod._load_model(config)
+            eval_mod.load_model(config)
 
         kwargs = mock_auto.from_pretrained.call_args.kwargs
         # --no-quant -> WinMLBuildConfig override with quant cleared.
@@ -1649,6 +1766,7 @@ class TestLoadModel:
             model_path="model.onnx",
             task="image-classification",
             device="cpu",
+            trust_remote_code=True,
         )
 
         with (
@@ -1659,10 +1777,11 @@ class TestLoadModel:
             patch(
                 "winml.modelkit.loader.load_hf_config",
                 return_value=mock_hf_config,
-            ),
+            ) as load_hf_config,
         ):
-            result = eval_mod._load_model(config)
+            result = eval_mod.load_model(config)
 
+        assert load_hf_config.call_args.kwargs["trust_remote_code"] is True
         mock_auto.from_onnx.assert_called_once()
         assert mock_auto.from_onnx.call_args.kwargs["use_cache"] is True
         assert mock_auto.from_onnx.call_args.kwargs["force_rebuild"] is False

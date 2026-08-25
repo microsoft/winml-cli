@@ -26,7 +26,7 @@ from unittest.mock import MagicMock, patch
 
 import click
 import pytest
-from click.testing import CliRunner
+from click.testing import CliRunner, Result
 from rich.console import Console
 
 import winml.modelkit.commands.perf as perf_module
@@ -39,6 +39,74 @@ from winml.modelkit.commands.perf import (
     perf,
 )
 from winml.modelkit.utils.console import SafeConsole
+
+
+class TestPerfCacheOptions:
+    @staticmethod
+    def _capture_config(
+        runner: CliRunner,
+        tmp_path: Path,
+        extra_args: list[str],
+    ) -> tuple[Result, BenchmarkConfig | None]:
+        captured: dict[str, BenchmarkConfig] = {}
+
+        def _benchmark(config: BenchmarkConfig) -> MagicMock:
+            captured["config"] = config
+            instance = MagicMock()
+            instance.run.return_value = MagicMock()
+            return instance
+
+        with (
+            patch("winml.modelkit.commands.perf.PerfBenchmark", side_effect=_benchmark),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                [
+                    "-m",
+                    "test/model",
+                    "-o",
+                    str(tmp_path / "result.json"),
+                    *extra_args,
+                ],
+                obj={},
+            )
+
+        return result, captured.get("config")
+
+    def test_help_shows_canonical_flags(
+        self,
+        runner: CliRunner,
+    ) -> None:
+        result = runner.invoke(perf, ["--help"])
+
+        assert result.exit_code == 0, result.output
+        assert "--use-cache / --no-use-cache" in result.output
+        assert "--rebuild / --no-rebuild" in result.output
+
+    @pytest.mark.parametrize(
+        ("extra_args", "use_cache", "rebuild"),
+        [
+            ([], True, False),
+            (["--no-use-cache"], False, False),
+            (["--rebuild"], True, True),
+        ],
+    )
+    def test_canonical_flags_reach_benchmark_config(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        extra_args: list[str],
+        use_cache: bool,
+        rebuild: bool,
+    ) -> None:
+        result, config = self._capture_config(runner, tmp_path, extra_args)
+
+        assert result.exit_code == 0, result.output
+        assert config is not None
+        assert config.use_cache is use_cache
+        assert config.rebuild is rebuild
 
 
 @pytest.fixture(autouse=True)
@@ -578,6 +646,8 @@ class TestPerfUnifiedPipeline:
         # ep_device is now a WinMLEPDevice — its .device is a WinMLDevice whose
         # .device_type holds the upper-cased class string.
         assert kwargs.kwargs["ep_device"].device.device_type.lower() == "cpu"
+        assert kwargs.kwargs["use_cache"] is True
+        assert kwargs.kwargs["force_rebuild"] is False
         assert benchmark._model is mock_model
 
     def test_hf_load_model_calls_from_pretrained(self) -> None:
@@ -601,7 +671,42 @@ class TestPerfUnifiedPipeline:
         assert kwargs.args[0] == "microsoft/resnet-50"
         assert kwargs.kwargs["task"] == "image-classification"
         assert kwargs.kwargs["ep_device"].device.device_type.lower() == "cpu"
+        assert kwargs.kwargs["use_cache"] is True
+        assert kwargs.kwargs["force_rebuild"] is False
         assert benchmark._model is mock_model
+
+    @pytest.mark.parametrize(
+        ("use_cache", "rebuild", "force_rebuild"),
+        [
+            (False, False, True),
+            (True, True, True),
+            (False, True, True),
+        ],
+    )
+    def test_hf_load_model_maps_cache_policy(
+        self,
+        use_cache: bool,
+        rebuild: bool,
+        force_rebuild: bool,
+    ) -> None:
+        benchmark = PerfBenchmark(
+            BenchmarkConfig(
+                model_id="test/model",
+                device="cpu",
+                use_cache=use_cache,
+                rebuild=rebuild,
+            )
+        )
+
+        with patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
+            return_value=MagicMock(),
+        ) as mock_from_pretrained:
+            benchmark._load_model()
+
+        kwargs = mock_from_pretrained.call_args.kwargs
+        assert kwargs["use_cache"] is use_cache
+        assert kwargs["force_rebuild"] is force_rebuild
 
     def test_no_quantize_only_sets_quant_none(self, tmp_path: Path) -> None:
         """--no-quantize should only set quant=None, NOT compile=None."""
@@ -1220,6 +1325,7 @@ class TestPerfUnifiedPipeline:
             return mock
 
         with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch(
                 "winml.modelkit.commands.perf.PerfBenchmark",
                 side_effect=capture_config,
@@ -1234,6 +1340,7 @@ class TestPerfUnifiedPipeline:
                     str(onnx_file),
                     "--no-quant",
                     "--no-optimize",
+                    "--no-use-cache",
                     "-o",
                     str(tmp_path / "out.json"),
                 ],
@@ -1243,6 +1350,7 @@ class TestPerfUnifiedPipeline:
         assert result.exit_code == 0, result.output
         assert "--no-quant" in result.output
         assert "--no-optimize" in result.output
+        assert "--no-use-cache" in result.output
         assert "pre-built ONNX" in result.output
 
     def test_cli_onnx_no_build_flag_warning_at_defaults(
@@ -1273,6 +1381,40 @@ class TestPerfUnifiedPipeline:
 
         assert result.exit_code == 0, result.output
         assert "ignored for pre-built ONNX inputs (no build runs" not in result.output
+
+    def test_compiled_onnx_warns_for_cache_control_with_build_enabled(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        onnx_file = tmp_path / "compiled.onnx"
+        onnx_file.write_bytes(b"fake compiled onnx")
+
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=True),
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as benchmark_type,
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            benchmark_type.return_value.run.return_value = MagicMock()
+            result = runner.invoke(
+                perf,
+                [
+                    "-m",
+                    str(onnx_file),
+                    "--no-skip-build",
+                    "--no-use-cache",
+                    "--no-optimize",
+                    "-o",
+                    str(tmp_path / "out.json"),
+                ],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "--no-use-cache ignored for pre-built ONNX inputs" in result.output
+        assert "--no-optimize ignored for pre-built ONNX inputs" in result.output
+        assert "pass --no-skip-build to rebuild" not in result.output
 
     def test_cli_onnx_not_found_error(self, runner: CliRunner, tmp_path: Path) -> None:
         """CLI with non-existent .onnx file should raise FileNotFoundError."""
@@ -1600,6 +1742,15 @@ class TestPerfUnifiedPipeline:
 
         assert result.to_dict()["benchmark_info"]["ep_options"] is None
 
+    def test_to_dict_includes_schema_version_and_runtime(self) -> None:
+        """Classic perf reports the same schema markers as GenAI perf."""
+        config = BenchmarkConfig(model_id="m")
+        result = BenchmarkResult(config=config)
+        d = result.to_dict()
+
+        assert d["schema_version"] == 2
+        assert d["benchmark_info"]["runtime"] == "winml"
+
     def test_iterations_reports_configured_count_without_duration(self) -> None:
         """Without --duration, benchmark_info.iterations is the configured value."""
         config = BenchmarkConfig(model_id="m", iterations=100)
@@ -1781,6 +1932,89 @@ class TestEffectiveBatchSize:
         info = result.to_dict()["benchmark_info"]
         assert info["batch_size"] == 8
         assert info["effective_batch_size"] == 1
+
+
+class TestClassicMemoryProfile:
+    def test_memory_profile_includes_additive_peak_and_compile_fields(self, monkeypatch) -> None:
+        """Classic perf emits the same additive memory fields as GenAI."""
+        config = BenchmarkConfig(model_id="m", memory=True, warmup=0)
+        benchmark = PerfBenchmark(config)
+        single = MagicMock()
+        single.io_config = {
+            "input_names": ["pixel_values"],
+            "input_shapes": [[1, 3, 224, 224]],
+            "input_types": ["float32"],
+            "output_names": ["logits"],
+            "output_shapes": [[1, 1000]],
+        }
+        single.device = "npu"
+        single.ep_name = "QNNExecutionProvider"
+        single.task = "image-classification"
+        single.running_model_path = "model.onnx"
+        single._session.compile.return_value = None
+        benchmark._model = single
+        benchmark._ep_device = MagicMock()
+
+        stats = MagicMock()
+        stats.mean_ms = 10.0
+        stats.min_ms = 9.0
+        stats.max_ms = 11.0
+        stats.p50_ms = 10.0
+        stats.p90_ms = 10.5
+        stats.p95_ms = 10.8
+        stats.p99_ms = 11.0
+        stats.samples_ms = [10.0]
+        stats.all_samples_ms = [10.0]
+
+        rss_values = iter([100.0, 150.0, 180.0])
+        vram_values = iter([(10.0, 20.0), (30.0, 50.0), (40.0, 70.0)])
+
+        monkeypatch.setattr(benchmark, "_resolve_adapter_luid", lambda: "luid")
+        monkeypatch.setattr(benchmark, "_run_benchmark", lambda: stats)
+        monkeypatch.setattr(
+            benchmark,
+            "_generate_inputs",
+            lambda: setattr(
+                benchmark,
+                "_inputs",
+                {"pixel_values": MagicMock(shape=(1, 3, 224, 224))},
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.session.monitor.memory_tracker.get_rss_mb",
+            lambda: next(rss_values),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.session.monitor.memory_tracker.get_vram_mb",
+            lambda _adapter_luid: next(vram_values),
+        )
+        monkeypatch.setattr("winml.modelkit.commands.perf._print_model_info", lambda *_, **__: None)
+
+        result = benchmark._run_single()
+
+        assert result.memory_profile == {
+            "rss_baseline_mb": 100.0,
+            "rss_after_compile_mb": 150.0,
+            "rss_after_inference_mb": 180.0,
+            "rss_checkpoint_peak_mb": 180.0,
+            "rss_model_load_delta_mb": 50.0,
+            "rss_inference_delta_mb": 30.0,
+            "rss_total_delta_mb": 80.0,
+            "vram_local_baseline_mb": 10.0,
+            "vram_shared_baseline_mb": 20.0,
+            "vram_local_after_compile_mb": 30.0,
+            "vram_shared_after_compile_mb": 50.0,
+            "vram_local_after_inference_mb": 40.0,
+            "vram_shared_after_inference_mb": 70.0,
+            "vram_local_checkpoint_peak_mb": 40.0,
+            "vram_shared_checkpoint_peak_mb": 70.0,
+            "vram_local_model_load_delta_mb": 20.0,
+            "vram_shared_model_load_delta_mb": 30.0,
+            "vram_local_inference_delta_mb": 10.0,
+            "vram_shared_inference_delta_mb": 20.0,
+            "vram_local_total_delta_mb": 30.0,
+            "vram_shared_total_delta_mb": 50.0,
+        }
 
 
 # =============================================================================

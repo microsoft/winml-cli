@@ -55,7 +55,8 @@ For each filtered model the runner builds the model, runs `winml perf`, and — 
 perf passes — runs `winml eval`. **Recipes drive the build on every device (they
 carry the accuracy eval/dataset config), but quantized precision variants are
 NPU-only.** On NPU, builds prefer an **authored recipe** under
-`examples/recipes/<slug>/<task>_<precision>_config*.json` (built with
+`examples/recipes/<slug>/<ep>/<device>/<task>_<precision>_config*.json` (with
+legacy fallback to `examples/recipes/<slug>/`; built with
 `winml build -c`, once per precision variant that exists, e.g. `fp16` + `w8a16`);
 an NPU model without a recipe falls back to `winml config` and is expanded into
 **two jobs — `w8a8` and `w8a16`** (an explicit per-model `precision` in the
@@ -65,7 +66,7 @@ dropping quantized ones, and a model with no applicable recipe variant builds a
 single `winml config` fallback. EPs evaluated on the unquantized model (VitisAI)
 follow the same non-quantized-only rule on NPU. The runner writes one
 `eval_result.json` per `(model, task, precision)` containing facts only (perf
-output + the winml-eval `metrics`/`dataset`).
+JSON result + the winml-eval `metrics`/`dataset`).
 Delta/verdict grading against the PyTorch baseline is done by the report site.
 
 ```bash
@@ -109,8 +110,9 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 | `--registry` | `testsets/models_all.json` | Model registry file |
 | `--hf-model` | — | Single model (overrides registry) |
 | `--output-dir` | `eval_results/{date}` | Output directory |
-| `--recipes-dir` | `examples/recipes` | Authored recipe configs. NPU builds every precision variant (`winml config` `w8a8`+`w8a16` fallback when a model has none); CPU/GPU (and unquantized-track EPs like VitisAI) build only the non-quantized variants (e.g. `fp16`), else a `winml config` fallback |
+| `--recipes-dir` | `examples/recipes` | Authored recipe configs, selected from `<model>/<ep>/<device>` with legacy `<model>` fallback. NPU builds every precision variant (`winml config` `w8a8`+`w8a16` fallback when a model has none); CPU/GPU (and unquantized-track EPs like VitisAI) build only non-quantized variants, else a `winml config` fallback |
 | `--no-recipes` | off | Ignore recipes; build every model via `winml config` (on NPU still expands the `w8a8`+`w8a16` fallback) |
+| `--copy-recipes-from EP DEVICE` | — | Copy missing configs from each model's source target into `--ep/--device` before building; existing target configs are never overwritten |
 | `--eval-type` | `perf` | `perf`, `accuracy`, or `both` (perf-gated accuracy) |
 | `--task` | — | Filter by HF task |
 | `--priority` | `P0 P1 P2` | Filter: one or more of `P0`, `P1`, `P2`, `P3` (e.g. `--priority P0 P1`). Pass `P3` explicitly to include P3 models. |
@@ -361,10 +363,12 @@ eval_results/2026-02-25/
     └── ...                     # one dir per (model, task, precision)
 ```
 
-Each `eval_result.json` carries `perf` (latency stdout, pass/fail) and, when
-accuracy ran, `accuracy` (the winml-eval `metrics` + `dataset`). The site reads
-these to render the perf and accuracy reports. Recipe runs produce one directory
-per precision variant; fallback (no recipe) runs omit the `__<precision>` suffix.
+Each `eval_result.json` carries `perf.result` (the structured JSON object written
+by `winml perf --output`) together with pass/fail metadata. Captured stdout and
+stderr are retained only for failure diagnosis. When accuracy ran, `accuracy`
+contains the winml-eval `metrics` + `dataset`. The site reads these to render the
+perf and accuracy reports. Recipe runs produce one directory per precision
+variant; fallback (no recipe) runs omit the `__<precision>` suffix.
 
 ## File Layout
 

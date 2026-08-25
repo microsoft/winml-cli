@@ -144,7 +144,7 @@ If you don't know what hardware the user has, ask, or run `winml sys` and read t
 
 ## Common patterns
 
-**"Just benchmark this model on my hardware."** A single perf invocation against the source model is enough — `winml perf` builds artifacts on the fly (see `--rebuild`, `--ignore-cache`, `--no-quantize` in `winml perf --help`). You don't have to chain primitives manually. For live NPU utilization during the run, look for the `--monitor` flag in `winml perf --help`.
+**"Just benchmark this model on my hardware."** A single perf invocation against the source model is enough — `winml perf` builds artifacts on the fly (see `--rebuild`, `--no-use-cache`, `--no-quantize` in `winml perf --help`). You don't have to chain primitives manually. For live NPU utilization during the run, look for the `--monitor` flag in `winml perf --help`.
 
 **"What's the latency on NPU vs CPU?"** Build once, then run perf twice — once against the EP-compiled artifact on the NPU, once against the optimized (pre-compile) artifact on CPU. Compiled artifacts are tied to the EP they were compiled for, so run the CPU comparison against the pre-compile optimized ONNX, not the compiled NPU artifact.
 

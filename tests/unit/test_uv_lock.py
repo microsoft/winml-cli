@@ -38,3 +38,37 @@ def test_uv_lock_does_not_include_cuda_accelerator_packages() -> None:
     assert not disallowed_refs, "Unexpected CUDA/NVIDIA lock entries: " + ", ".join(
         sorted(disallowed_refs)
     )
+
+
+def test_uv_lock_records_direct_project_dependencies() -> None:
+    """The editable lock entry must retain every direct project dependency."""
+    repo_root = Path(__file__).resolve().parents[2]
+    project_data = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
+    lock_data = tomllib.loads((repo_root / "uv.lock").read_text(encoding="utf-8"))
+    direct_names = {
+        dependency.split(";", 1)[0]
+        .split("[", 1)[0]
+        .split("=", 1)[0]
+        .split("<", 1)[0]
+        .split(">", 1)[0]
+        .strip()
+        .lower()
+        .replace("_", "-")
+        for dependency in project_data["project"]["dependencies"]
+    }
+    root_package = next(
+        package
+        for package in lock_data["package"]
+        if package["name"] == "winml-cli" and package.get("source", {}).get("editable") == "."
+    )
+    locked_dependencies = {
+        _dependency_name(dependency).lower().replace("_", "-")
+        for dependency in root_package["dependencies"]
+    }
+    locked_requirements = {
+        str(requirement["name"]).lower().replace("_", "-")
+        for requirement in root_package["metadata"]["requires-dist"]
+    }
+
+    assert direct_names <= locked_dependencies
+    assert direct_names <= locked_requirements

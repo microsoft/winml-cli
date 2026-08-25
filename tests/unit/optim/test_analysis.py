@@ -12,7 +12,15 @@ Follows the Cardinal Rules:
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+from array import array
+from typing import ClassVar
+from unittest.mock import MagicMock
+
 import numpy as np
+import pytest
 from onnx import GraphProto, ModelProto, TensorProto, helper, numpy_helper
 
 from winml.modelkit.optim import (
@@ -29,7 +37,9 @@ from winml.modelkit.optim.analysis import (
     _collect_nodes,
     _diff_initializers,
     _diff_nodes,
+    _initializers_equal,
 )
+from winml.modelkit.optim.registry import CapabilityCategory
 
 
 # =============================================================================
@@ -72,6 +82,38 @@ def _benign_model() -> ModelProto:
     small = numpy_helper.from_array(np.ones(4, dtype=np.float32), "SMALL")
     node = helper.make_node("Add", ["x", "SMALL"], ["z"], name="addsmall")
     return _finalize(helper.make_graph([node], "benign", [x], [z], initializer=[small]))
+
+
+def _sibling_slice_model() -> ModelProto:
+    """Two contiguous sibling Slices that can be replaced by one Split."""
+    x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 6, 2])
+    left_out = helper.make_tensor_value_info("left_out", TensorProto.FLOAT, [1, 2, 2])
+    right_out = helper.make_tensor_value_info("right_out", TensorProto.FLOAT, [1, 4, 2])
+    left = helper.make_tensor_value_info("left", TensorProto.FLOAT, [1, 2, 2])
+    right = helper.make_tensor_value_info("right", TensorProto.FLOAT, [1, 4, 2])
+    nodes = [
+        helper.make_node("Slice", ["x", "left_starts", "left_ends", "axis", "steps"], ["left"]),
+        helper.make_node("Slice", ["x", "right_starts", "right_ends", "axis", "steps"], ["right"]),
+        helper.make_node("Relu", ["left"], ["left_out"]),
+        helper.make_node("Relu", ["right"], ["right_out"]),
+    ]
+    initializers = [
+        numpy_helper.from_array(np.asarray([0], dtype=np.int64), "left_starts"),
+        numpy_helper.from_array(np.asarray([2], dtype=np.int64), "left_ends"),
+        numpy_helper.from_array(np.asarray([2], dtype=np.int64), "right_starts"),
+        numpy_helper.from_array(np.asarray([6], dtype=np.int64), "right_ends"),
+        numpy_helper.from_array(np.asarray([1], dtype=np.int64), "axis"),
+        numpy_helper.from_array(np.asarray([1], dtype=np.int64), "steps"),
+    ]
+    graph = helper.make_graph(
+        nodes,
+        "sibling_slice",
+        [x],
+        [left_out, right_out],
+        initializer=initializers,
+        value_info=[left, right],
+    )
+    return _finalize(graph)
 
 
 # =============================================================================
@@ -127,6 +169,29 @@ class TestNodeDiff:
         _collect_nodes(model.graph, (), table_b)
         removed, added, modified = _diff_nodes(table_a, table_b)
         assert not removed and not added and not modified
+
+    def test_collected_node_preserves_custom_domain(self) -> None:
+        graph = helper.make_graph(
+            [
+                helper.make_node(
+                    "Gelu",
+                    ["x"],
+                    ["y"],
+                    name="gelu",
+                    domain="com.microsoft",
+                )
+            ],
+            "custom_domain",
+            [helper.make_tensor_value_info("x", TensorProto.FLOAT, [1])],
+            [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1])],
+        )
+        table: dict = {}
+
+        _collect_nodes(graph, (), table)
+
+        ref = next(iter(table.values()))[1]
+        assert ref.domain == "com.microsoft"
+        assert ref.qualified_op_type() == "com.microsoft::Gelu"
 
     def test_subgraph_nodes_are_collected(self) -> None:
         """Nodes inside a control-flow subgraph are included in the table."""
@@ -220,6 +285,138 @@ class TestInitializerDiff:
         assert removed == []
         assert added == []
         assert modified == ["BIG"]
+
+    def test_explicit_default_data_location_is_not_a_modification(self) -> None:
+        base = _benign_model()
+        probe = _clone(base)
+        probe.graph.initializer[0].data_location = TensorProto.DEFAULT
+
+        assert (
+            base.graph.initializer[0].SerializeToString()
+            != probe.graph.initializer[0].SerializeToString()
+        )
+        removed, added, modified = _diff_initializers(
+            _collect_initializers(base), _collect_initializers(probe)
+        )
+        assert removed == []
+        assert added == []
+        assert modified == []
+
+    @pytest.mark.parametrize(
+        ("data_type", "field_name"),
+        [
+            (TensorProto.FLOAT, "float_data"),
+            (TensorProto.DOUBLE, "double_data"),
+        ],
+    )
+    def test_repeated_float_signed_zero_change_is_detected(
+        self,
+        data_type: int,
+        field_name: str,
+    ) -> None:
+        base_init = TensorProto(name="W", data_type=data_type, dims=[1])
+        probe_init = TensorProto(name="W", data_type=data_type, dims=[1])
+        getattr(base_init, field_name).append(-0.0)
+        getattr(probe_init, field_name).append(0.0)
+
+        _, _, modified = _diff_initializers(
+            {"W": base_init},
+            {"W": probe_init},
+        )
+
+        assert modified == ["W"]
+
+    def test_signed_zero_change_with_pure_python_protobuf(self) -> None:
+        code = """
+from google.protobuf.internal import api_implementation
+from onnx import TensorProto
+from winml.modelkit.optim.analysis import _initializers_equal
+
+assert api_implementation.Type() == "python"
+base = TensorProto(
+    name="W", data_type=TensorProto.FLOAT, dims=[1], float_data=[-0.0]
+)
+probe = TensorProto(
+    name="W", data_type=TensorProto.FLOAT, dims=[1], float_data=[0.0]
+)
+assert not _initializers_equal(base, probe)
+"""
+        env = {
+            **os.environ,
+            "PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION": "python",
+        }
+
+        subprocess.run(  # noqa: S603 -- fixed interpreter and inline test code
+            [sys.executable, "-c", code],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    def test_upb_equality_does_not_copy_float_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        base_init = TensorProto(
+            name="W",
+            data_type=TensorProto.FLOAT,
+            dims=[1],
+            float_data=[1.0],
+        )
+        probe_init = TensorProto()
+        probe_init.CopyFrom(base_init)
+
+        monkeypatch.setattr("winml.modelkit.optim.analysis._PROTOBUF_IMPLEMENTATION", "upb")
+
+        def fail_array(*_args, **_kwargs):
+            raise AssertionError("upb equality fast path copied typed fields")
+
+        monkeypatch.setattr("winml.modelkit.optim.analysis.array", fail_array)
+
+        assert _initializers_equal(base_init, probe_init)
+
+    def test_cpp_equality_still_compares_float_bits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        base_init = TensorProto(
+            name="W",
+            data_type=TensorProto.FLOAT,
+            dims=[1],
+            float_data=[1.0],
+        )
+        probe_init = TensorProto()
+        probe_init.CopyFrom(base_init)
+        array_calls = 0
+        real_array = array
+
+        monkeypatch.setattr("winml.modelkit.optim.analysis._PROTOBUF_IMPLEMENTATION", "cpp")
+
+        def track_array(*args, **kwargs):
+            nonlocal array_calls
+            array_calls += 1
+            return real_array(*args, **kwargs)
+
+        monkeypatch.setattr("winml.modelkit.optim.analysis.array", track_array)
+
+        assert _initializers_equal(base_init, probe_init)
+        assert array_calls > 0
+
+    def test_repeated_integer_change_is_detected(self) -> None:
+        base_init = TensorProto(
+            name="W",
+            data_type=TensorProto.INT64,
+            dims=[1],
+            int64_data=[1],
+        )
+        probe_init = TensorProto(
+            name="W",
+            data_type=TensorProto.INT64,
+            dims=[1],
+            int64_data=[2],
+        )
+
+        _, _, modified = _diff_initializers(
+            {"W": base_init},
+            {"W": probe_init},
+        )
+
+        assert modified == ["W"]
 
 
 class TestExternalDataInitializerDiff:
@@ -356,6 +553,32 @@ class TestCapabilityFinding:
         assert NodeRef("MatMul", "mm", ("mm_out",)).label() == "MatMul 'mm'"
         assert NodeRef("Add", "", ("y",)).label() == "Add 'y'"
 
+    def test_node_ref_label_qualifies_custom_domains(self) -> None:
+        assert (
+            NodeRef("Gelu", "gelu", ("y",), "com.microsoft").label()
+            == "com.microsoft::Gelu 'gelu'"
+        )
+        assert NodeRef("Add", "add", ("y",), "ai.onnx").label() == "Add 'add'"
+
+    def test_op_histogram_distinguishes_custom_domains(self) -> None:
+        finding = CapabilityFinding(
+            name="x",
+            python_name="x",
+            enable_flag="--enable-x",
+            category="misc",
+            description="",
+            pipe_name="p",
+            added_nodes=[
+                NodeRef("Gelu", "standard", ("a",)),
+                NodeRef("Gelu", "contrib", ("b",), "com.microsoft"),
+            ],
+        )
+
+        assert finding.op_histogram("added") == [
+            ("Gelu", 1),
+            ("com.microsoft::Gelu", 1),
+        ]
+
 
 # =============================================================================
 # END-TO-END ANALYSIS
@@ -418,6 +641,93 @@ class TestAnalyzeModel:
         after_value = numpy_helper.to_array(model.graph.initializer[0])
         np.testing.assert_array_equal(before_value, after_value)
 
+    def test_preparation_failure_falls_back_and_cleans_up(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from winml.modelkit.optim.pipes import SurgeryPipe
+
+        cleanup_calls: list[None] = []
+        monkeypatch.setattr("winml.modelkit.optim.pipes.PIPES", [SurgeryPipe])
+        monkeypatch.setattr(
+            SurgeryPipe,
+            "prepare_analysis_model",
+            lambda _self, _model: (_ for _ in ()).throw(RuntimeError("prepare failed")),
+        )
+        monkeypatch.setattr(
+            SurgeryPipe,
+            "finish_analysis",
+            lambda _self: cleanup_calls.append(None),
+        )
+
+        findings = analyze_model(_extreme_constant_model(), SurgeryPipe.capabilities)
+
+        assert "clamp-constant-values" in {finding.name for finding in findings}
+        assert cleanup_calls == [None]
+
+    def test_target_context_forwarded_and_ep_constraints_filtered(
+        self, monkeypatch, caplog
+    ) -> None:
+        dml_cap = BoolCapability(
+            name="dml-only",
+            ort_name=None,
+            description="DML-only probe",
+            category=CapabilityCategory.MISC,
+            ep_constraint=("DML",),
+        )
+        cuda_cap = BoolCapability(
+            name="cuda-only",
+            ort_name=None,
+            description="CUDA-only probe",
+            category=CapabilityCategory.MISC,
+            ep_constraint=("CUDA",),
+        )
+        cap_registry = {cap.name: cap for cap in (dml_cap, cuda_cap)}
+        captured_ep_devices = []
+        started: list[str] = []
+        completed: list[str] = []
+
+        class TargetAwarePipe:
+            name = "target-aware"
+            capabilities = cap_registry
+
+            @classmethod
+            def build_config(cls, **kwargs):
+                captured_ep_devices.append(kwargs.get("ep_device"))
+                return kwargs
+
+            @staticmethod
+            def process(model, config):
+                enabled = next(
+                    (name for name in ("dml_only", "cuda_only") if config.get(name)),
+                    None,
+                )
+                if enabled is not None:
+                    model.graph.node.append(
+                        helper.make_node("Identity", ["z"], [f"{enabled}_output"])
+                    )
+                return model
+
+        ep_device = MagicMock()
+        ep_device.device.ep_name = "DmlExecutionProvider"
+        caplog.set_level("DEBUG", logger="winml.modelkit.optim.analysis")
+        monkeypatch.setattr("winml.modelkit.optim.pipes.PIPES", [TargetAwarePipe])
+        monkeypatch.setattr("winml.modelkit.onnx.infer_shapes", lambda model: model)
+
+        findings = analyze_model(
+            _benign_model(),
+            cap_registry,
+            ep_device=ep_device,
+            on_probe_start=started.append,
+            on_probe_complete=completed.append,
+        )
+
+        assert [finding.name for finding in findings] == ["dml-only"]
+        assert captured_ep_devices
+        assert all(value is ep_device for value in captured_ep_devices)
+        assert "Skipping capability 'cuda-only'" in caplog.text
+        assert started == ["dml-only", "cuda-only"]
+        assert completed == ["dml-only", "cuda-only"]
+
 
 # =============================================================================
 # OPTIMIZATION OUTPUT ITERATION
@@ -457,3 +767,134 @@ class TestIterOptimizationOutputs:
         iter_names = {finding.name for finding, _ in iter_optimization_outputs(model, caps)}
         analyze_names = {finding.name for finding in analyze_model(_matmul_add_model(), caps)}
         assert iter_names == analyze_names
+
+    def test_reports_algebraic_sibling_slice_to_split(self) -> None:
+        pairs = list(iter_optimization_outputs(_sibling_slice_model(), get_all_capabilities()))
+        matches = [
+            (finding, produced)
+            for finding, produced in pairs
+            if finding.name == "gather-slice-to-split-fusion"
+        ]
+
+        assert len(matches) == 1
+        finding, produced = matches[0]
+
+        assert finding.enable_flag == "--enable-gather-slice-to-split-fusion"
+        assert finding.pipe_name == "ort_graph+algebraic_rewrite"
+        assert any(ref.op_type == "Slice" for ref in finding.removed_nodes)
+        assert any(ref.op_type == "Split" for ref in finding.added_nodes)
+        assert [node.op_type for node in produced.graph.node] == ["Split", "Relu", "Relu"]
+
+    def test_shared_capability_probe_does_not_advance_pipeline_cursor(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        shared_cap = BoolCapability(
+            name="shared-route",
+            ort_name=None,
+            description="Shared route",
+            category=CapabilityCategory.MISC,
+        )
+        observer_cap = BoolCapability(
+            name="observer-probe",
+            ort_name=None,
+            description="Observer probe",
+            category=CapabilityCategory.MISC,
+        )
+        cap_registry = {
+            shared_cap.name: shared_cap,
+            observer_cap.name: observer_cap,
+        }
+
+        def append_identity(model: ModelProto, prefix: str) -> None:
+            suffix = sum(
+                output.startswith(prefix) for node in model.graph.node for output in node.output
+            )
+            model.graph.node.append(helper.make_node("Identity", ["z"], [f"{prefix}{suffix}"]))
+
+        class FirstSharedPipe:
+            name = "first-shared"
+            capabilities: ClassVar[dict[str, BoolCapability]] = {shared_cap.name: shared_cap}
+
+            @classmethod
+            def build_config(cls, **kwargs):
+                return kwargs
+
+            @staticmethod
+            def process(model, config):
+                if config.get("shared_route"):
+                    append_identity(model, "first_shared_")
+                return model
+
+            def prepare_analysis_model(self, model):
+                return model
+
+            def process_analysis(self, model, config):
+                return self.process(model, config)
+
+            @classmethod
+            def requires_analysis_clone(cls):
+                return True
+
+            def finish_analysis(self):
+                pass
+
+        class SecondSharedPipe(FirstSharedPipe):
+            name = "second-shared"
+
+            @staticmethod
+            def process(model, config):
+                append_identity(model, "default_marker_")
+                if config.get("shared_route"):
+                    append_identity(model, "second_shared_")
+                return model
+
+        class ObserverPipe(FirstSharedPipe):
+            name = "observer"
+            capabilities: ClassVar[dict[str, BoolCapability]] = {observer_cap.name: observer_cap}
+
+            @staticmethod
+            def process(model, config):
+                if config.get("observer_probe"):
+                    append_identity(model, "observer_")
+                return model
+
+        monkeypatch.setattr(
+            "winml.modelkit.optim.pipes.PIPES",
+            [FirstSharedPipe, SecondSharedPipe, ObserverPipe],
+        )
+        monkeypatch.setattr("winml.modelkit.onnx.infer_shapes", lambda model: model)
+
+        pairs = list(iter_optimization_outputs(_benign_model(), cap_registry))
+        observer_produced = next(
+            produced for finding, produced in pairs if finding.name == "observer-probe"
+        )
+
+        default_markers = [
+            output
+            for node in observer_produced.graph.node
+            for output in node.output
+            if output.startswith("default_marker_")
+        ]
+        assert default_markers == ["default_marker_0"]
+
+    def test_closing_iterator_cleans_up_prepared_pipe(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from winml.modelkit.optim.pipes import SurgeryPipe
+
+        cleanup_calls: list[None] = []
+        monkeypatch.setattr("winml.modelkit.optim.pipes.PIPES", [SurgeryPipe])
+        monkeypatch.setattr(
+            SurgeryPipe,
+            "finish_analysis",
+            lambda _self: cleanup_calls.append(None),
+        )
+
+        outputs = iter_optimization_outputs(_extreme_constant_model(), SurgeryPipe.capabilities)
+        finding, _ = next(outputs)
+        assert finding.name == "clamp-constant-values"
+
+        outputs.close()
+
+        assert cleanup_calls == [None]

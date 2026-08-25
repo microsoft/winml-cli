@@ -57,7 +57,7 @@ single-pass build. Individual stages can be suppressed with `--no-quant`,
 !!! tip "Reproducible CI/CD builds"
     The config file is a portable, self-contained pipeline specification. Check it into source control and invoke `winml build -c config.json` in CI to produce identical artifacts without manual flag management. Set `"auto": false` in the config to disable the autoconf discovery loop for fully deterministic output.
 
-## Genai bundles for decoder LLMs (NPU + QNN)
+## Genai bundles for decoder LLMs (NPU)
 
 For a registered decoder-LLM family (currently **Qwen3**), `--export-type
 optimized` switches `winml build` from the stock per-model ONNX output to a
@@ -82,8 +82,17 @@ build does — an explicit value is honored, otherwise the host is probed — an
 then builds the recipe for that resolved target. On an NPU host the command
 above needs no flags; on a host without the accelerator the resolved target has
 no recipe and the build fails fast (naming the `ep`/`device`) instead of
-silently producing a generic model. Pin `--ep qnn --device npu` to build the
-bundle anywhere (e.g. CI), since an explicit target skips host detection. An
+silently producing a generic model. Pin the NPU provider explicitly when needed:
+
+```bash
+# Qualcomm Snapdragon NPU
+winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --export-type optimized --ep qnn --device npu
+
+# AMD Ryzen AI NPU
+winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --export-type optimized --ep vitisai --device npu
+```
+
+An explicit target skips host detection, which is useful for reproducible CI. An
 unregistered family, a pre-exported `.onnx` input, or module mode also fail fast.
 `--output-dir` is required (the bundle is a directory) and `--use-cache` is not
 supported. Use `--precision` to override the transformer precision; the CPU

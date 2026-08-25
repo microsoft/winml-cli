@@ -30,13 +30,14 @@ from pathlib import Path
 from typing import Any, cast
 
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .. import __version__
 from ..cli import main as winml_cli
+from ..utils._security import _disable_remote_code_execution
+from ._security import SameOriginMiddleware
 
 
 # ---------------------------------------------------------------------------
@@ -144,13 +145,9 @@ app = FastAPI(
     version=__version__,
 )
 
-# Permissive CORS for local dev server; no credentials to protect.
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    SameOriginMiddleware,
+    loopback_only_routes={"/v1/cli": None},
 )
 
 _static_dir = Path(__file__).parent / "static"
@@ -178,6 +175,15 @@ def _args_to_flags(args: dict[str, Any]) -> list[str]:
     - None       → omits the flag entirely
     - Other      → ``--flag value``
     """
+    if any(
+        key.replace("-", "_") == "trust_remote_code" and value is True
+        for key, value in args.items()
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="trust_remote_code cannot be enabled through the HTTP API.",
+        )
+
     flags: list[str] = []
     for key, value in args.items():
         flag = "--" + key.replace("_", "-")
@@ -248,7 +254,8 @@ def _invoke(command: str, args: dict[str, Any]) -> CliResponse:
     cli_args = [command, *_args_to_flags(effective_args)]
 
     t0 = time.perf_counter()
-    result = runner.invoke(winml_cli, cli_args, catch_exceptions=True)
+    with _disable_remote_code_execution():
+        result = runner.invoke(winml_cli, cli_args, catch_exceptions=True)
     duration_ms = (time.perf_counter() - t0) * 1000
 
     # Build stderr from unhandled exceptions
@@ -291,6 +298,13 @@ def _invoke(command: str, args: dict[str, Any]) -> CliResponse:
 
 async def _run_with_semaphore(command: str, args: dict[str, Any]) -> CliResponse:
     """Acquire the appropriate semaphore and invoke the command."""
+    if command not in _ALL_COMMANDS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown command '{command}'. Valid commands: {sorted(_ALL_COMMANDS)}",
+        )
+    _args_to_flags(args)
+
     sem = _heavy_semaphore if command in _HEAVY_COMMANDS else _light_semaphore
     try:
         await asyncio.wait_for(sem.acquire(), timeout=_SEMAPHORE_TIMEOUT_SEC)
@@ -362,11 +376,6 @@ async def run_cli_command(command: str, body: CliRequest) -> CliResponse:
     **HTTP status**: always 200. Check ``exit_code`` (0 = success).
     Failures are reported in ``stderr`` and ``exit_code != 0``.
     """
-    if command not in _ALL_COMMANDS:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Unknown command '{command}'. Valid commands: {sorted(_ALL_COMMANDS)}",
-        )
     return await _run_with_semaphore(command, body.args)
 
 

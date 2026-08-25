@@ -55,6 +55,33 @@ class TestEncode:
         tokenizer.assert_called_once_with("some text", add_special_tokens=False)
 
 
+def test_from_model_adapts_without_reloading_or_moving() -> None:
+    tokenizer = MagicMock()
+    model = MagicMock()
+    model.eval.return_value = model
+
+    with (
+        patch(
+            "transformers.AutoTokenizer.from_pretrained",
+            return_value=tokenizer,
+        ) as load_tokenizer,
+        patch("transformers.AutoModelForCausalLM.from_pretrained") as load_model,
+    ):
+        adapter = HFCausalLM.from_model(
+            "dummy/model",
+            model,
+            torch.device("cuda:1"),
+            trust_remote_code=True,
+        )
+
+    load_tokenizer.assert_called_once_with("dummy/model", trust_remote_code=True)
+    load_model.assert_not_called()
+    model.eval.assert_called_once_with()
+    model.to.assert_not_called()
+    assert adapter._model is model
+    assert adapter._device == torch.device("cuda:1")
+
+
 class TestForward:
     def test_yields_one_vector_per_position(self) -> None:
         """One (vocab,) vector per position; trailing row dropped -> N-1 rows."""
@@ -99,9 +126,7 @@ def _make_genai_adapter(*, logits, context_length=2048):
     """
     logits = np.asarray(logits, dtype=np.float32)
 
-    with patch(
-        "winml.modelkit.models.winml.genai_causal_lm.GenaiSession"
-    ) as session_cls:
+    with patch("winml.modelkit.models.winml.genai_causal_lm.GenaiSession") as session_cls:
         session = session_cls.return_value
         session.context_length = context_length
         session._model = MagicMock(name="model")

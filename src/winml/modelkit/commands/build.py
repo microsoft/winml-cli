@@ -521,6 +521,84 @@ def _resolve_optimized_target(
     )
 
 
+def _build_genai_bundle_worker(
+    result_conn: Any,
+    model: str,
+    bundle_dir: str,
+    recipe: Any,
+    build_kwargs: dict[str, Any],
+) -> None:
+    """Build a genai bundle in a throwaway process and report its config path."""
+    try:
+        from ..models.winml import build_genai_bundle
+
+        config_path = build_genai_bundle(
+            model,
+            bundle_dir,
+            recipe,
+            emit=print,
+            **build_kwargs,
+        )
+        result_conn.send(("ok", str(config_path)))
+    except Exception as exc:
+        result_conn.send(("error", repr(exc)))
+    finally:
+        result_conn.close()
+
+
+def _build_genai_bundle_isolated(
+    model: str,
+    bundle_dir: Path,
+    recipe: Any,
+    **build_kwargs: Any,
+) -> Path:
+    """Build a bundle outside the CLI process to contain native EP teardown faults.
+
+    Plugin execution providers are process-wide native libraries. Some provider
+    versions can fault during interpreter teardown after a successful build.
+    The child reports the completed config path before teardown, allowing this
+    process to validate and keep a fully written bundle even if the child then
+    exits non-zero.
+    """
+    import multiprocessing
+
+    ctx = multiprocessing.get_context("spawn")
+    recv_conn, send_conn = ctx.Pipe(duplex=False)
+    proc = ctx.Process(
+        target=_build_genai_bundle_worker,
+        args=(send_conn, model, str(bundle_dir), recipe, build_kwargs),
+    )
+    proc.start()
+    send_conn.close()
+    proc.join()
+
+    result = recv_conn.recv() if recv_conn.poll() else None
+    recv_conn.close()
+    if result is None:
+        raise RuntimeError(
+            f"Genai bundle build subprocess exited {proc.exitcode} without reporting a result."
+        )
+
+    status, payload = result
+    if status != "ok":
+        raise RuntimeError(f"Genai bundle build failed in subprocess: {payload}")
+
+    config_path = Path(payload)
+    if not config_path.is_file():
+        raise RuntimeError(
+            "Genai bundle build reported success but did not write "
+            f"the expected config: {config_path}"
+        )
+    if proc.exitcode != 0:
+        logger.warning(
+            "Genai bundle subprocess exited %s during native teardown after writing %s; "
+            "using the completed bundle.",
+            proc.exitcode,
+            config_path,
+        )
+    return config_path
+
+
 def _maybe_build_genai_bundle(
     ctx: click.Context,
     *,
@@ -679,8 +757,6 @@ def _maybe_build_genai_bundle(
             "fixed by its recipe."
         )
 
-    from ..models.winml import build_genai_bundle
-
     # Both branches above guarantee a model id here: the explicit request rejects a
     # missing --model, and the implicit shortcut only proceeds when a recipe was
     # resolved (which requires a model). Narrow str | None -> str for the call.
@@ -689,7 +765,7 @@ def _maybe_build_genai_bundle(
     override_precision = precision if cli_utils.is_cli_provided(ctx, "precision") else None
     model_type = _genai_model_type(config_or_configs, preloaded_hf_config)
     console.print(f"\n[bold blue]Genai bundle[/bold blue] ({model_type}): {model} -> {bundle_dir}")
-    config_path = build_genai_bundle(
+    config_path = _build_genai_bundle_isolated(
         model,
         bundle_dir,
         recipe,
@@ -697,7 +773,6 @@ def _maybe_build_genai_bundle(
         device=bundle_device,
         precision=override_precision,
         force_rebuild=rebuild,
-        emit=lambda msg: console.print(msg, markup=False),
     )
     console.print(
         f"\n[green]\u2713[/green] genai bundle ready: {bundle_dir} ([dim]{config_path.name}[/dim])"

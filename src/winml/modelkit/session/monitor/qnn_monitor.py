@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import shutil
 import tempfile
 import time
 import uuid
@@ -30,9 +32,14 @@ from ..._env import env_flag_enabled
 from ...onnx.epcontext import select_main_epcontext_partition_name
 from ._onnx_metadata import _load_onnx_operator_data
 from .ep_monitor import WinMLEPMonitor
-from .op_metrics import OperatorMetrics, OpTraceResult, TraceStatus
+from .op_metrics import (
+    OperatorMetrics,
+    OpTraceResult,
+    TraceFallbackReason,
+    TraceStatus,
+)
 from .qnn._internal import _TOKEN_SUFFIX, parse_qhas, parse_qnn_profiling_csv
-from .qnn.viewer import find_qnn_sdk, run_qhas_viewer
+from .qnn.viewer import find_qnn_sdk, run_qhas_viewer_result
 
 
 if TYPE_CHECKING:
@@ -628,9 +635,10 @@ class QNNMonitor(WinMLEPMonitor):
         }
 
         status: TraceStatus = "ok"
+        fallback_reason: TraceFallbackReason | None = None
         # Detail mode: attempt QHAS post-processing.
         if self._level == "detail":
-            qhas_summary, qhas_operators, qhas_path = self._try_qhas(
+            qhas_summary, qhas_operators, qhas_path, fallback_reason = self._try_qhas(
                 artifacts, qhas_override=qhas_override
             )
             if qhas_path is not None and qhas_operators is not None:
@@ -653,17 +661,23 @@ class QNNMonitor(WinMLEPMonitor):
             num_samples=len(samples),
             artifacts=artifacts,
             status=status,
+            fallback_reason=fallback_reason,
         )
 
     def _try_qhas(
         self,
         artifacts: dict[str, str],
         qhas_override: Path | None = None,
-    ) -> tuple[dict[str, Any] | None, list[OperatorMetrics] | None, Path | None]:
+    ) -> tuple[
+        dict[str, Any] | None,
+        list[OperatorMetrics] | None,
+        Path | None,
+        TraceFallbackReason | None,
+    ]:
         """Attempt QHAS post-processing.
 
-        Returns ``(summary, operators, qhas_path)`` on success, or
-        ``(None, None, None)`` on any failure. Never raises.
+        Returns ``(summary, operators, qhas_path, fallback_reason)``. The
+        reason is ``None`` on success and a stable code on failure. Never raises.
 
         Per C-5 / FR-12 this method does NOT call :func:`os.chdir`.
         Live-path QNN logs are bound by the profiling CSV stem: ORT writes
@@ -680,34 +694,58 @@ class QNNMonitor(WinMLEPMonitor):
         """
         if qhas_override is not None:
             # Offline path: caller supplied the QHAS JSON; parse directly.
-            if not qhas_override.is_file():
+            try:
+                qhas_available = qhas_override.is_file()
+            except OSError as exc:
+                logger.info("QNNMonitor: qhas_override %s is unavailable: %s", qhas_override, exc)
+                return None, None, None, TraceFallbackReason.QHAS_OUTPUT_MISSING
+            if not qhas_available:
                 logger.info("QNNMonitor: qhas_override %s is not a file", qhas_override)
-                return None, None, None
+                return None, None, None, TraceFallbackReason.QHAS_OUTPUT_MISSING
             result_path = qhas_override
         else:
             # Live path: locate inputs and shell out to the QHAS viewer.
-            qnn_log = self._select_fresh_qnn_log()
+            try:
+                qnn_log = self._select_fresh_qnn_log()
+            except OSError as exc:
+                logger.info("QNNMonitor: QNN log metadata unavailable: %s", exc)
+                return None, None, None, TraceFallbackReason.QNN_LOG_MISSING
             if qnn_log is None:
                 logger.info("QNNMonitor: no *_qnn.log found for QHAS")
-                return None, None, None
+                return None, None, None, TraceFallbackReason.QNN_LOG_MISSING
 
             # Find the schematic by EPContext partition metadata (never chdir).
             schematic = self._find_schematic()
             if schematic is None:
                 logger.info("QNNMonitor: no *_schematic.bin found for QHAS")
-                return None, None, None
+                return None, None, None, TraceFallbackReason.SCHEMATIC_MISSING
 
-            sdk_root = find_qnn_sdk()
+            try:
+                sdk_root = find_qnn_sdk()
+            except OSError as exc:
+                logger.info("QNNMonitor: QNN SDK discovery failed: %s", exc)
+                return None, None, None, TraceFallbackReason.SDK_MISSING
             if sdk_root is None:
                 logger.info("QNNMonitor: QNN SDK not located; skipping QHAS")
-                return None, None, None
+                return None, None, None, TraceFallbackReason.SDK_MISSING
+            schematic = self._publish_schematic(schematic)
+            if schematic is None:
+                return None, None, None, TraceFallbackReason.SCHEMATIC_PUBLISH_FAILED
 
             qhas_output = self._qhas_output_path()
-            viewer_output = run_qhas_viewer(qnn_log, schematic, qhas_output, sdk_root=sdk_root)
-            if viewer_output is None or not viewer_output.is_file():
-                logger.info("QNNMonitor: QHAS viewer produced no output")
-                return None, None, None
-            result_path = viewer_output
+            viewer_result = run_qhas_viewer_result(
+                qnn_log,
+                schematic,
+                qhas_output,
+                sdk_root=sdk_root,
+            )
+            if viewer_result.path is None:
+                logger.info(
+                    "QNNMonitor: QHAS viewer unavailable (%s)",
+                    viewer_result.failure_reason,
+                )
+                return None, None, None, viewer_result.failure_reason
+            result_path = viewer_result.path
 
             artifacts["schematic"] = str(schematic)
 
@@ -716,7 +754,7 @@ class QNNMonitor(WinMLEPMonitor):
             parsed = parse_qhas(qhas_data)
         except Exception as exc:
             logger.warning("QNNMonitor: QHAS JSON parse failed: %s", exc)
-            return None, None, None
+            return None, None, None, TraceFallbackReason.QHAS_PARSE_FAILED
 
         # QHAS is inherently a single-snapshot summary (no per-sample
         # breakdown), so ``samples_us`` carries one entry equal to the
@@ -747,12 +785,16 @@ class QNNMonitor(WinMLEPMonitor):
             )
             for op in parsed.get("operators", [])
         ]
-        return parsed.get("summary"), operators, result_path
+        return parsed.get("summary"), operators, result_path, None
 
     def _snapshot_qnn_log_signatures(self) -> dict[Path, tuple[int, int, int, int, int]]:
         """Capture this run's QNN log metadata at monitor entry."""
         candidate = self._qnn_log_path()
-        signature = self._artifact_signature(candidate)
+        try:
+            signature = self._artifact_signature(candidate)
+        except OSError as exc:
+            logger.info("QNNMonitor: unable to snapshot QNN log metadata: %s", exc)
+            signature = None
         signatures: dict[Path, tuple[int, int, int, int, int]] = {}
         if signature is not None:
             signatures[candidate.resolve()] = signature
@@ -823,6 +865,33 @@ class QNNMonitor(WinMLEPMonitor):
             if schematic is not None:
                 return schematic
         return None
+
+    def _publish_schematic(self, schematic: Path) -> Path | None:
+        """Copy a run-bound schematic beside this monitor's profiling artifacts."""
+        destination = self._csv_path.with_name(f"{self._csv_path.stem}_schematic.bin")
+        staging = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            if schematic.resolve() != destination.resolve():
+                shutil.copy2(schematic, staging)
+                os.link(staging, destination)
+        except OSError as exc:
+            logger.warning(
+                "QNNMonitor: could not publish schematic %s to %s: %s",
+                schematic,
+                destination,
+                exc,
+            )
+            return None
+        finally:
+            try:
+                staging.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.debug(
+                    "QNNMonitor: could not remove schematic staging file %s: %s",
+                    staging,
+                    exc,
+                )
+        return destination
 
     def _schematic_partition_name(self) -> str | None:
         """Resolve the exact EPContext partition name for schematic lookup."""

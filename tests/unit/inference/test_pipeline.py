@@ -160,6 +160,13 @@ class TestHFPipelineTaskMap:
     def test_image_to_text_maps_to_transformers_5_name(self) -> None:
         assert _HF_PIPELINE_TASK_MAP["image-to-text"] == "image-text-to-text"
 
+    @pytest.mark.parametrize(
+        "task",
+        ["sequence-classification", "next-sentence-prediction"],
+    )
+    def test_classification_aliases_map_to_transformers_task(self, task: str) -> None:
+        assert _HF_PIPELINE_TASK_MAP[task] == "text-classification"
+
     def test_unknown_task_not_in_map(self) -> None:
         assert "image-classification" not in _HF_PIPELINE_TASK_MAP
 
@@ -182,6 +189,55 @@ class TestPipelineComponentKwargs:
 
 
 class TestCreatePipeline:
+    def test_threads_trust_remote_code_to_pipeline(self) -> None:
+        model = MagicMock()
+        pipe = MagicMock()
+        pipe.tokenizer = None
+        pipe.image_processor = None
+
+        with (
+            patch(
+                "winml.modelkit.inference.pipeline._pipeline_component_kwargs",
+                return_value={},
+            ),
+            patch("transformers.pipeline", return_value=pipe) as pipeline,
+        ):
+            create_pipeline(
+                "image-classification",
+                model,
+                "test-model",
+                trust_remote_code=True,
+            )
+
+        assert pipeline.call_args.kwargs["trust_remote_code"] is True
+
+    def test_places_native_pipeline_inputs_on_cuda(self) -> None:
+        model = MagicMock()
+        pipe = MagicMock()
+        pipe.tokenizer = None
+        pipe.image_processor = None
+
+        with (
+            patch(
+                "winml.modelkit.inference.pipeline._pipeline_component_kwargs",
+                return_value={},
+            ),
+            patch("transformers.pipeline", return_value=pipe) as pipeline,
+        ):
+            result = create_pipeline(
+                "image-classification",
+                model,
+                "test-model",
+                device="cuda",
+            )
+
+        assert result is pipe
+        pipeline.assert_called_once_with(
+            "image-classification",
+            model=model,
+            device="cuda",
+        )
+
     def test_constructs_real_transformers_pipeline(self) -> None:
         from transformers import ViTConfig, ViTForImageClassification, ViTImageProcessor
         from transformers.pipelines import ImageClassificationPipeline

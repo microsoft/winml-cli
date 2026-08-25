@@ -990,7 +990,7 @@ class TestPerfModule:
 class TestPerfDynamicAxes:
     """``--dynamic-axes`` feeds the HF export so the benchmarked model is dynamic.
 
-    ``--ignore-cache`` forces a fresh build in a throwaway folder so the cached
+    ``--no-use-cache`` forces a fresh build in a throwaway folder so the cached
     static export isn't reused, and ``--no-skip-build`` guarantees the export
     actually runs. The benchmarked ResNet-50 then exposes a dynamic (``None``)
     batch axis instead of the static ``1``.
@@ -1016,7 +1016,7 @@ class TestPerfDynamicAxes:
                 "cpu",
                 "--dynamic-axes",
                 str(axes),
-                "--ignore-cache",
+                "--no-use-cache",
                 "--no-skip-build",
                 "--no-optimize",
                 "--no-quant",

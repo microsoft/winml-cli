@@ -122,6 +122,7 @@ Set to `null` to skip compilation.
 | `ep_config.embed_context` | `bool` | `false` | Embed binary in ONNX (true) or external .bin (false). |
 | `ep_config.compiler` | `str` | `"ort"` | Compiler backend: `ort` or `qairt`. |
 | `ep_config.provider_options` | `dict` | `{}` | EP-specific options. |
+| `ep_config.provider_option_file_keys` | `list[str]` | `[]` | Keys in `provider_options` whose values are input files. Declared paths are canonicalized and content-fingerprinted for EPContext cache identity. |
 | `ep_config.qnn_sdk_root` | `str \| null` | `null` | QNN SDK path for QAIRT compiler backend. |
 | `validate` | `bool` | `true` | Validate compiled model. |
 | `verbose` | `bool` | `false` | Verbose compilation logging. |

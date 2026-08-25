@@ -8,9 +8,9 @@ Benchmarks a prebuilt ``onnxruntime-genai`` bundle folder through
 :class:`GenaiSession`.  Unlike the single-shot WinML path (which times each
 ``session.run()`` call), decoder pipelines split into a **prefill** phase
 (prompt -> first token) and a **decode** phase (subsequent tokens), so this
-module reports LLM-style metrics: time-to-first-token (TTFT), prefill latency,
-decode throughput (tokens/sec), time-per-output-token (TPOT), and total
-generation time.
+module reports LLM-style metrics: startup/cold-start spans, time-to-first-token (TTFT),
+prefill throughput, decode throughput (tokens/sec), time-per-output-token
+(TPOT), warm-start latency, and total generation time.
 
 Timing is captured inside :meth:`GenaiSession.generate_timed` at the
 onnxruntime-genai call boundaries (``append_tokens`` = prefill, each
@@ -25,8 +25,10 @@ The ``perf`` command validates the folder input and delegates here via
 
 from __future__ import annotations
 
+import gc
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -40,10 +42,10 @@ from ..session import (
     GenaiSession,
     GenaiSessionError,
     GenerationConfig,
-    HWMonitor,
     short_ep_name,
 )
 from ..utils.constants import (
+    ACCELERATOR_DEVICE_TYPES,
     EP_SUPPORTED_DEVICES,
     EPNameOrAlias,
     normalize_ep_name,
@@ -51,9 +53,11 @@ from ..utils.constants import (
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from rich.console import Console
 
-    from ..utils.constants import EPName
+    from ..utils.constants import EPName, RuntimeName
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +66,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # =============================================================================
 
-RUNTIME_TYPE = "winml-genai"
+RUNTIME_TYPE: RuntimeName = "winml-genai"
 _HW_POLL_INTERVAL_MS = 200
 
 # Built-in benchmark prompt.  Mirrored by the ``--prompt`` CLI default and the
@@ -154,6 +158,158 @@ def _percentile(sorted_xs: list[float], p: float) -> float:
     return sorted_xs[idx]
 
 
+def _stats(values: list[float]) -> dict[str, float]:
+    """Return the percentile summary shape used by perf JSON blocks."""
+    sorted_values = sorted(values)
+    mean = _mean(values)
+    variance = _mean([(value - mean) ** 2 for value in values]) if values else 0.0
+    return {
+        "mean": mean,
+        "std": variance**0.5,
+        "min": min(values) if values else 0.0,
+        "max": max(values) if values else 0.0,
+        "p50": _percentile(sorted_values, 50),
+        "p90": _percentile(sorted_values, 90),
+        "p95": _percentile(sorted_values, 95),
+        "p99": _percentile(sorted_values, 99),
+    }
+
+
+def _round_stats(values: dict[str, float]) -> dict[str, float]:
+    """Round a stats block for JSON output."""
+    return {key: round(value, 3) for key, value in values.items()}
+
+
+def _get_rss_mb() -> float:
+    """Return current process RSS in MB."""
+    from ..session.monitor.memory_tracker import get_rss_mb
+
+    return get_rss_mb()
+
+
+def _get_vram_mb(adapter_luid: str | None) -> tuple[float, float]:
+    """Return current process device-memory usage as local/shared MB."""
+    from ..session.monitor.memory_tracker import get_vram_mb
+
+    return get_vram_mb(adapter_luid)
+
+
+def _resolve_adapter_luid(device: str, ep: EPNameOrAlias | None) -> str | None:
+    """Resolve the adapter LUID used for best-effort process VRAM sampling."""
+    if device not in ACCELERATOR_DEVICE_TYPES:
+        return None
+
+    ep_name = normalize_ep_name(ep) if ep is not None else None
+    try:
+        from ..sysinfo.pdh_adapters import resolve_adapter_luid
+
+        return resolve_adapter_luid(device, ep_name=ep_name)
+    except Exception:
+        logger.debug("Could not resolve adapter LUID for genai memory tracking", exc_info=True)
+    return None
+
+
+@dataclass
+class _MemorySnapshot:
+    """Point-in-time process RAM and device-memory usage."""
+
+    rss_mb: float = 0.0
+    vram_local_mb: float = 0.0
+    vram_shared_mb: float = 0.0
+
+
+class _GenaiMemoryTracker:
+    """Best-effort process memory tracking for the genai benchmark phases."""
+
+    def __init__(self, *, adapter_luid: str | None) -> None:
+        self._adapter_luid = adapter_luid
+        self._baseline = _MemorySnapshot()
+        self._after_load = _MemorySnapshot()
+        self._after_benchmark = _MemorySnapshot()
+
+    def _snapshot(self) -> _MemorySnapshot:
+        gc.collect()
+        rss = _get_rss_mb()
+        local, shared = _get_vram_mb(self._adapter_luid) if self._adapter_luid else (0.0, 0.0)
+        return _MemorySnapshot(rss_mb=rss, vram_local_mb=local, vram_shared_mb=shared)
+
+    def record_baseline(self) -> None:
+        self._baseline = self._snapshot()
+
+    def record_after_load(self) -> None:
+        self._after_load = self._snapshot()
+
+    def record_after_benchmark(self) -> None:
+        self._after_benchmark = self._snapshot()
+
+    @staticmethod
+    def _delta(after: float, before: float) -> float:
+        return round(after - before, 2)
+
+    def to_dict(self) -> dict[str, float]:
+        baseline = self._baseline
+        after_load = self._after_load
+        after_benchmark = self._after_benchmark
+        result = {
+            "rss_baseline_mb": round(baseline.rss_mb, 2),
+            "rss_after_compile_mb": round(after_load.rss_mb, 2),
+            "rss_after_inference_mb": round(after_benchmark.rss_mb, 2),
+            "rss_checkpoint_peak_mb": round(
+                max(baseline.rss_mb, after_load.rss_mb, after_benchmark.rss_mb), 2
+            ),
+            "rss_model_load_delta_mb": self._delta(after_load.rss_mb, baseline.rss_mb),
+            "rss_inference_delta_mb": self._delta(after_benchmark.rss_mb, after_load.rss_mb),
+            "rss_total_delta_mb": self._delta(after_benchmark.rss_mb, baseline.rss_mb),
+        }
+        if self._adapter_luid is None:
+            return result
+        result.update(
+            {
+                "vram_local_baseline_mb": round(baseline.vram_local_mb, 2),
+                "vram_shared_baseline_mb": round(baseline.vram_shared_mb, 2),
+                "vram_local_after_compile_mb": round(after_load.vram_local_mb, 2),
+                "vram_shared_after_compile_mb": round(after_load.vram_shared_mb, 2),
+                "vram_local_after_inference_mb": round(after_benchmark.vram_local_mb, 2),
+                "vram_shared_after_inference_mb": round(after_benchmark.vram_shared_mb, 2),
+                "vram_local_checkpoint_peak_mb": round(
+                    max(
+                        baseline.vram_local_mb,
+                        after_load.vram_local_mb,
+                        after_benchmark.vram_local_mb,
+                    ),
+                    2,
+                ),
+                "vram_shared_checkpoint_peak_mb": round(
+                    max(
+                        baseline.vram_shared_mb,
+                        after_load.vram_shared_mb,
+                        after_benchmark.vram_shared_mb,
+                    ),
+                    2,
+                ),
+                "vram_local_model_load_delta_mb": self._delta(
+                    after_load.vram_local_mb, baseline.vram_local_mb
+                ),
+                "vram_shared_model_load_delta_mb": self._delta(
+                    after_load.vram_shared_mb, baseline.vram_shared_mb
+                ),
+                "vram_local_inference_delta_mb": self._delta(
+                    after_benchmark.vram_local_mb, after_load.vram_local_mb
+                ),
+                "vram_shared_inference_delta_mb": self._delta(
+                    after_benchmark.vram_shared_mb, after_load.vram_shared_mb
+                ),
+                "vram_local_total_delta_mb": self._delta(
+                    after_benchmark.vram_local_mb, baseline.vram_local_mb
+                ),
+                "vram_shared_total_delta_mb": self._delta(
+                    after_benchmark.vram_shared_mb, baseline.vram_shared_mb
+                ),
+            }
+        )
+        return result
+
+
 # =============================================================================
 # Data classes
 # =============================================================================
@@ -164,6 +320,7 @@ class GenaiPerfConfig:
     """Resolved request for a genai generation benchmark."""
 
     bundle_dir: Path
+    model_id: str | None = None
     ep: EPNameOrAlias | None = None
     device: str = "auto"
     prompt: str = _DEFAULT_PROMPT
@@ -175,74 +332,143 @@ class GenaiPerfConfig:
     compile_timeout: int = 300
     monitor: bool = False
     context_length: int | None = None
+    memory: bool = False
     output_path: Path | None = None
 
 
 @dataclass
-class _RunSample:
-    """Timing captured for a single full generation."""
+class _RequestSample:
+    """Canonical timing captured for one generation request."""
 
-    ttft_ms: float
-    prefill_ms: float
-    total_ms: float
-    decode_tokens_per_sec: float
-    tpot_ms: float
-    n_tokens: int
+    kind: str
+    index: int
+    prompt_tokens: int
+    generated_tokens: int
+    template_duration_ms: float
+    tokenization_duration_ms: float
+    generator_create_duration_ms: float
+    prefill_duration_ms: float
+    first_token_duration_ms: float
+    decode_token_durations_ms: list[float]
+    sequence_fetch_duration_ms: float
+    detokenization_duration_ms: float
+
+    @property
+    def model_ttft_duration_ms(self) -> float:
+        """Model-only TTFT: prefill + first generated token."""
+        return self.prefill_duration_ms + self.first_token_duration_ms
+
+    @property
+    def request_ttft_duration_ms(self) -> float:
+        """Request-level TTFT from prompt preparation through first token."""
+        return (
+            self.template_duration_ms
+            + self.tokenization_duration_ms
+            + self.generator_create_duration_ms
+            + self.model_ttft_duration_ms
+        )
+
+    @property
+    def response_eval_duration_ms(self) -> float:
+        """Time spent generating response tokens, including the first token."""
+        return self.first_token_duration_ms + sum(self.decode_token_durations_ms)
+
+    @property
+    def model_compute_duration_ms(self) -> float:
+        """Model compute: prefill + first token + steady-state decode."""
+        return self.prefill_duration_ms + self.response_eval_duration_ms
+
+    @property
+    def request_duration_ms(self) -> float:
+        """Full warm request duration from prompt prep to response text ready."""
+        return (
+            self.template_duration_ms
+            + self.tokenization_duration_ms
+            + self.generator_create_duration_ms
+            + self.model_compute_duration_ms
+            + self.sequence_fetch_duration_ms
+            + self.detokenization_duration_ms
+        )
+
+    @property
+    def prefill_tokens_per_second(self) -> float:
+        """Prompt-processing throughput."""
+        seconds = self.prefill_duration_ms / 1000.0
+        return self.prompt_tokens / seconds if seconds > 0 else 0.0
+
+    @property
+    def steady_state_decode_tokens_per_second(self) -> float:
+        """Decode throughput excluding the first generated token."""
+        total_ms = sum(self.decode_token_durations_ms)
+        return len(self.decode_token_durations_ms) / (total_ms / 1000.0) if total_ms > 0 else 0.0
+
+    @property
+    def response_eval_tokens_per_second(self) -> float:
+        """Response-token throughput including the first generated token."""
+        seconds = self.response_eval_duration_ms / 1000.0
+        return self.generated_tokens / seconds if seconds > 0 else 0.0
+
+    @property
+    def steady_state_tpot_ms(self) -> float:
+        """Mean per-token latency for tokens after the first."""
+        return _mean(self.decode_token_durations_ms)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to the canonical JSON request sample shape."""
+        return {
+            "kind": self.kind,
+            "index": self.index,
+            "prompt_tokens": self.prompt_tokens,
+            "generated_tokens": self.generated_tokens,
+            "template_duration_ms": round(self.template_duration_ms, 3),
+            "tokenization_duration_ms": round(self.tokenization_duration_ms, 3),
+            "generator_create_duration_ms": round(self.generator_create_duration_ms, 3),
+            "prefill_duration_ms": round(self.prefill_duration_ms, 3),
+            "first_token_duration_ms": round(self.first_token_duration_ms, 3),
+            "decode_token_durations_ms": [
+                round(value, 3) for value in self.decode_token_durations_ms
+            ],
+            "sequence_fetch_duration_ms": round(self.sequence_fetch_duration_ms, 3),
+            "detokenization_duration_ms": round(self.detokenization_duration_ms, 3),
+            "request_ttft_duration_ms": round(self.request_ttft_duration_ms, 3),
+            "model_ttft_duration_ms": round(self.model_ttft_duration_ms, 3),
+            "response_eval_duration_ms": round(self.response_eval_duration_ms, 3),
+            "model_compute_duration_ms": round(self.model_compute_duration_ms, 3),
+            "request_duration_ms": round(self.request_duration_ms, 3),
+            "prefill_tokens_per_second": round(self.prefill_tokens_per_second, 2),
+            "steady_state_decode_tokens_per_second": round(
+                self.steady_state_decode_tokens_per_second, 2
+            ),
+            "response_eval_tokens_per_second": round(self.response_eval_tokens_per_second, 2),
+            "steady_state_tpot_ms": round(self.steady_state_tpot_ms, 3),
+        }
 
 
 @dataclass
 class GenaiBenchmarkResult:
-    """Aggregated results from a genai generation benchmark."""
+    """Canonical results from a genai generation benchmark."""
 
     config: GenaiPerfConfig
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-
-    # Generation shape
     prompt_tokens: int = 0
     generated_tokens: int = 0
     context_length: int | None = None
-
-    # EP that actually took effect (from GenaiSession.effective_ep): the override
-    # alias when it applied, or None to mean "config" (no override, or an
-    # override that matched no stage).  Reported instead of the *requested* ep so
-    # the report never claims an EP that never applied.
     effective_ep: str | None = None
     effective_device: str | None = None
-
-    # Time to first token (prefill + first decode), milliseconds
-    ttft_mean_ms: float = 0.0
-    ttft_min_ms: float = 0.0
-    ttft_max_ms: float = 0.0
-    ttft_p50_ms: float = 0.0
-    ttft_p90_ms: float = 0.0
-    ttft_p95_ms: float = 0.0
-    ttft_p99_ms: float = 0.0
-
-    # Prefill / prompt-processing phase (og append_tokens), milliseconds
-    prefill_mean_ms: float = 0.0
-
-    # Decode phase
-    decode_tokens_per_sec: float = 0.0
-    avg_token_latency_ms: float = 0.0
-    # Time per output token — steady-state decode (og generate_next_token), ms
-    tpot_mean_ms: float = 0.0
-
-    # Whole generation (prefill + all decode), milliseconds
-    total_generation_mean_ms: float = 0.0
-
-    # Per-iteration samples (warmup excluded)
-    raw_ttft_ms: list[float] = field(default_factory=list)
-    raw_prefill_ms: list[float] = field(default_factory=list)
-    raw_decode_tokens_per_sec: list[float] = field(default_factory=list)
-    raw_tpot_ms: list[float] = field(default_factory=list)
-    raw_total_ms: list[float] = field(default_factory=list)
+    load: dict[str, float | str | None] = field(default_factory=dict)
+    requests: list[_RequestSample] = field(default_factory=list)
+    aggregate: dict[str, Any] = field(default_factory=dict)
+    memory_profile: dict[str, float] | None = None
     hw_monitor: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to a JSON-serializable dictionary."""
-        result = {
+        result: dict[str, Any] = {
+            "schema_version": 2,
             "benchmark_info": {
                 "runtime": RUNTIME_TYPE,
+                "model_id": self.config.model_id or str(self.config.bundle_dir),
+                "running_model_path": str(self.config.bundle_dir),
                 "bundle_dir": str(self.config.bundle_dir),
                 "ep": self.effective_ep or "config",
                 "device": self.config.device,
@@ -260,33 +486,30 @@ class GenaiBenchmarkResult:
                 "context_length": self.context_length,
                 "timestamp": self.timestamp,
             },
-            "ttft_ms": {
-                "mean": round(self.ttft_mean_ms, 3),
-                "min": round(self.ttft_min_ms, 3),
-                "max": round(self.ttft_max_ms, 3),
-                "p50": round(self.ttft_p50_ms, 3),
-                "p90": round(self.ttft_p90_ms, 3),
-                "p95": round(self.ttft_p95_ms, 3),
-                "p99": round(self.ttft_p99_ms, 3),
+            "load": {
+                key: round(value, 3) if isinstance(value, float) else value
+                for key, value in self.load.items()
             },
-            "prefill_ms": {"mean": round(self.prefill_mean_ms, 3)},
-            "decode": {
-                "tokens_per_sec": round(self.decode_tokens_per_sec, 2),
-                "avg_token_latency_ms": round(self.avg_token_latency_ms, 3),
-                "tpot_ms": round(self.tpot_mean_ms, 3),
-            },
-            "total_generation_ms": {"mean": round(self.total_generation_mean_ms, 3)},
-            "raw": {
-                "ttft_ms": [round(v, 3) for v in self.raw_ttft_ms],
-                "prefill_ms": [round(v, 3) for v in self.raw_prefill_ms],
-                "decode_tokens_per_sec": [round(v, 2) for v in self.raw_decode_tokens_per_sec],
-                "tpot_ms": [round(v, 3) for v in self.raw_tpot_ms],
-                "total_ms": [round(v, 3) for v in self.raw_total_ms],
-            },
+            "requests": [sample.to_dict() for sample in self.requests],
+            "aggregate": self._round_aggregate(),
         }
-        if self.hw_monitor is not None:
+        if self.memory_profile:
+            result["memory"] = self.memory_profile
+        if self.hw_monitor:
             result["hw_monitor"] = self.hw_monitor
         return result
+
+    def _round_aggregate(self) -> dict[str, Any]:
+        """Round aggregate statistics while preserving counters and flags."""
+        rounded: dict[str, Any] = {}
+        for key, value in self.aggregate.items():
+            if isinstance(value, dict):
+                rounded[key] = _round_stats(value)
+            elif isinstance(value, float):
+                rounded[key] = round(value, 3)
+            else:
+                rounded[key] = value
+        return rounded
 
 
 # =============================================================================
@@ -303,14 +526,13 @@ class GenaiPerfBenchmark:
             ``None`` a :class:`GenaiSession` is constructed from ``config``.
 
     Note:
-        The prompt is pre-encoded once (via :meth:`GenaiSession.encode`, which
-        also loads the model) so model-load and tokenization costs are
-        excluded from the timed generations.  Each timed generation is driven
-        by :meth:`GenaiSession.generate_timed`, which captures wall-clock spans
-        at the onnxruntime-genai call boundaries (``append_tokens`` = prefill,
-        each ``generate_next_token`` = one decode step), so TTFT and TPOT
-        reflect model compute rather than generator-construction or
-        detokenization overhead.
+        The session is loaded explicitly so model-load and prompt-preparation
+        spans can be reported separately from warm-start generation. Each timed
+        generation is driven by :meth:`GenaiSession.generate_timed`, which
+        captures wall-clock spans at the onnxruntime-genai call boundaries
+        (``append_tokens`` = prefill, each ``generate_next_token`` = one decode
+        step), so TTFT and TPOT reflect model compute rather than
+        generator-construction or detokenization overhead.
     """
 
     def __init__(
@@ -318,10 +540,11 @@ class GenaiPerfBenchmark:
         config: GenaiPerfConfig,
         *,
         session: GenaiSession | None = None,
+        clock: Callable[[], float] = time.perf_counter,
     ) -> None:
         self._config = config
         self._session = session
-        self._prompt_token_ids: list[int] = []
+        self._clock = clock
         self._generation_count = 0
 
     def _build_session(self) -> GenaiSession:
@@ -379,16 +602,55 @@ class GenaiPerfBenchmark:
 
     def run(self) -> GenaiBenchmarkResult:
         """Execute the benchmark and return aggregated metrics."""
+        return self._run_unmonitored()
+
+    def _build_hw_monitor(self) -> Any | None:
+        """Return an HWMonitor for the proven effective genai route, if available."""
+        try:
+            from ..session.monitor.hw_monitor import HWMonitor
+        except Exception:
+            logger.debug("HWMonitor import failed for genai benchmark", exc_info=True)
+            return None
+
+        if not HWMonitor.is_available():
+            logger.warning("HWMonitor unavailable; running genai benchmark without monitoring")
+            return None
+
+        monitor_device, ep_name = self._effective_monitor_route()
+        return HWMonitor(
+            poll_interval_ms=_HW_POLL_INTERVAL_MS,
+            device=monitor_device,
+            ep_name=ep_name,
+        )
+
+    def _run_unmonitored(self) -> GenaiBenchmarkResult:
+        """Execute the benchmark with optional monitoring and memory tracking."""
         if self._session is None:
             self._session = self._build_session()
         session = self._session
+        session.resolve_effective_route()
 
-        # Loads the model and tokenizer, then encodes the prompt once.  Both
-        # are outside the timed loop so they don't inflate TTFT.  Unless
-        # apply_template is disabled, the prompt is wrapped in the bundle's own
-        # chat template so the measured prefill reflects realistic chat usage
-        # (falls back to the raw prompt when the bundle ships no template).
-        self._prompt_token_ids = session.encode(self._prompt_text(session))
+        hw_monitor = self._build_hw_monitor() if self._config.monitor else None
+        if hw_monitor is not None:
+            with hw_monitor as hw:
+                result = self._run_benchmark_body(session)
+            result.hw_monitor = hw.to_dict()
+            return result
+        return self._run_benchmark_body(session)
+
+    def _run_benchmark_body(self, session: GenaiSession) -> GenaiBenchmarkResult:
+        """Run load + generations after the effective route has been resolved."""
+        memory_tracker: _GenaiMemoryTracker | None = None
+        if self._config.memory:
+            memory_tracker = _GenaiMemoryTracker(adapter_luid=self._effective_adapter_luid())
+            memory_tracker.record_baseline()
+
+        session_load_start = self._clock()
+        session.load()
+        session_load_end = self._clock()
+        session_load_ms = (session_load_end - session_load_start) * 1000.0
+        if memory_tracker is not None:
+            memory_tracker.record_after_load()
 
         gen_config = GenerationConfig(
             max_new_tokens=self._config.max_new_tokens,
@@ -402,51 +664,62 @@ class GenaiPerfBenchmark:
             self._config.iterations,
             self._config.max_new_tokens,
         )
-        hw_metrics: dict[str, Any] | None = None
-        if self._config.monitor and HWMonitor.is_available():
-            monitor_device = self._monitor_device()
-            ep_name = self._monitor_ep()
-            with HWMonitor(
-                poll_interval_ms=_HW_POLL_INTERVAL_MS,
-                device=monitor_device if monitor_device and ep_name else "cpu",
-                ep_name=ep_name,
-            ) as hw:
-                samples = [
-                    self._time_one_generation(session, gen_config) for _ in range(total_runs)
-                ]
-            hw_metrics = hw.to_dict()
-        else:
-            if self._config.monitor:
-                logger.warning("HWMonitor is unavailable; generation resource metrics omitted")
-            samples = [self._time_one_generation(session, gen_config) for _ in range(total_runs)]
+        samples = [
+            self._time_one_generation(
+                session,
+                gen_config,
+                kind="warmup" if i < self._config.warmup else "timed",
+                index=i,
+            )
+            for i in range(total_runs)
+        ]
 
-        result = self._aggregate(samples)
-        result.hw_monitor = hw_metrics
+        result = self._aggregate(samples, session_load_ms=session_load_ms)
+
+        if memory_tracker is not None:
+            memory_tracker.record_after_benchmark()
+            result.memory_profile = memory_tracker.to_dict()
+
         return result
 
-    def _monitor_device(self) -> str | None:
-        """Return the proven device to monitor, or ``None`` when unresolved."""
-        effective = getattr(self._session, "effective_device", None)
-        return effective if effective in ("cpu", "gpu", "npu") else None
+    def _effective_monitor_route(self) -> tuple[str, EPName | None]:
+        """Return a monitor route that is proven by the effective bundle config."""
+        session = self._session
+        effective_device = getattr(session, "effective_device", None)
+        effective_ep = getattr(session, "effective_hardware_ep", None)
+        if effective_device in ACCELERATOR_DEVICE_TYPES and effective_ep is not None:
+            return effective_device, effective_ep
+        return "cpu", None
 
-    def _monitor_ep(self) -> EPName | None:
-        """Return the unique EP proven by loaded effective routing."""
-        return getattr(self._session, "effective_hardware_ep", None)
+    def _effective_adapter_luid(self) -> str | None:
+        """Return the proven adapter LUID for VRAM tracking, or None to omit VRAM."""
+        session = self._session
+        effective_device = getattr(session, "effective_device", None)
+        effective_ep = getattr(session, "effective_hardware_ep", None)
+        if effective_device not in ACCELERATOR_DEVICE_TYPES or effective_ep is None:
+            return None
+        return _resolve_adapter_luid(effective_device, effective_ep)
 
     def _time_one_generation(
         self,
         session: GenaiSession,
         gen_config: GenerationConfig,
-    ) -> _RunSample:
-        """Run one generation and convert its og-boundary timing to a sample.
+        *,
+        kind: str,
+        index: int,
+    ) -> _RequestSample:
+        """Run one generation and convert spans to a canonical request sample.
 
-        Timing is captured inside :meth:`GenaiSession.generate_timed` at the
-        onnxruntime-genai call boundaries (``append_tokens`` = prefill, each
-        ``generate_next_token`` = one decode step), so TTFT and TPOT reflect
-        model compute rather than generator-construction / detokenization
-        overhead.
+        Prompt templating and tokenization are timed per request so the core
+        report can expose both request-level and model-compute metrics.
         """
-        timing = session.generate_timed(self._prompt_token_ids, gen_config)
+        template_start = self._clock()
+        prompt_text = self._prompt_text(session)
+        template_end = self._clock()
+        prompt_token_ids = session.encode(prompt_text)
+        tokenization_end = self._clock()
+
+        timing = session.generate_timed(prompt_token_ids, gen_config, clock=self._clock)
         self._generation_count += 1
         if self._generation_count == 1:
             logger.info("Model response (iteration 1): %s", timing.response_text)
@@ -456,51 +729,98 @@ class GenaiPerfBenchmark:
                 self._generation_count,
                 timing.response_text,
             )
-        return _RunSample(
-            ttft_ms=timing.ttft_s * 1000.0,
-            prefill_ms=timing.prefill_s * 1000.0,
-            total_ms=timing.total_s * 1000.0,
-            decode_tokens_per_sec=timing.decode_tokens_per_sec,
-            tpot_ms=timing.tpot_s * 1000.0,
-            n_tokens=timing.generated_tokens,
+        return _RequestSample(
+            kind=kind,
+            index=index,
+            prompt_tokens=timing.input_tokens,
+            generated_tokens=timing.generated_tokens,
+            template_duration_ms=(template_end - template_start) * 1000.0,
+            tokenization_duration_ms=(tokenization_end - template_end) * 1000.0,
+            generator_create_duration_ms=timing.generator_create_s * 1000.0,
+            prefill_duration_ms=timing.prefill_s * 1000.0,
+            first_token_duration_ms=timing.first_token_s * 1000.0,
+            decode_token_durations_ms=[value * 1000.0 for value in timing.decode_s],
+            sequence_fetch_duration_ms=timing.sequence_fetch_s * 1000.0,
+            detokenization_duration_ms=timing.detokenization_s * 1000.0,
         )
 
-    def _aggregate(self, samples: list[_RunSample]) -> GenaiBenchmarkResult:
-        """Aggregate timed samples (first ``warmup`` runs excluded)."""
-        timed = samples[self._config.warmup :] or samples
-        ttfts = [s.ttft_ms for s in timed]
-        prefills = [s.prefill_ms for s in timed]
-        totals = [s.total_ms for s in timed]
-        decode_tps = [s.decode_tokens_per_sec for s in timed]
-        tpots = [s.tpot_ms for s in timed]
-        token_latencies = [s.total_ms / s.n_tokens for s in timed if s.n_tokens]
-        sorted_ttfts = sorted(ttfts)
+    def _aggregate(
+        self, samples: list[_RequestSample], *, session_load_ms: float
+    ) -> GenaiBenchmarkResult:
+        """Aggregate canonical samples (warmup requests excluded from stats)."""
+        timed = [sample for sample in samples if sample.kind == "timed"] or samples
+        first = samples[0] if samples else None
+        load = self._load_metrics(session_load_ms)
+        aggregate: dict[str, Any] = {
+            "warmup_excluded": True,
+            "warmup_request_count": len([sample for sample in samples if sample.kind == "warmup"]),
+            "timed_request_count": len(timed),
+            "cold_start_ttft_duration_ms": (
+                session_load_ms + first.request_ttft_duration_ms if first else 0.0
+            ),
+            "cold_start_total_duration_ms": (
+                session_load_ms + first.request_duration_ms if first else 0.0
+            ),
+            "request_duration_ms": _stats([s.request_duration_ms for s in timed]),
+            "model_compute_duration_ms": _stats([s.model_compute_duration_ms for s in timed]),
+            "model_ttft_duration_ms": _stats([s.model_ttft_duration_ms for s in timed]),
+            "request_ttft_duration_ms": _stats([s.request_ttft_duration_ms for s in timed]),
+            "prefill_duration_ms": _stats([s.prefill_duration_ms for s in timed]),
+            "response_eval_duration_ms": _stats([s.response_eval_duration_ms for s in timed]),
+            "steady_state_tpot_ms": _stats([s.steady_state_tpot_ms for s in timed]),
+            "prefill_tokens_per_second": _stats([s.prefill_tokens_per_second for s in timed]),
+            "steady_state_decode_tokens_per_second": _stats(
+                [s.steady_state_decode_tokens_per_second for s in timed]
+            ),
+            "response_eval_tokens_per_second": _stats(
+                [s.response_eval_tokens_per_second for s in timed]
+            ),
+        }
 
         return GenaiBenchmarkResult(
             config=self._config,
             effective_ep=getattr(self._session, "effective_ep", None),
             effective_device=getattr(self._session, "effective_device", None),
-            prompt_tokens=len(self._prompt_token_ids),
-            generated_tokens=timed[0].n_tokens if timed else 0,
+            prompt_tokens=timed[0].prompt_tokens if timed else 0,
+            generated_tokens=timed[0].generated_tokens if timed else 0,
             context_length=self._session.context_length if self._session else None,
-            ttft_mean_ms=_mean(ttfts),
-            ttft_min_ms=min(ttfts) if ttfts else 0.0,
-            ttft_max_ms=max(ttfts) if ttfts else 0.0,
-            ttft_p50_ms=_percentile(sorted_ttfts, 50),
-            ttft_p90_ms=_percentile(sorted_ttfts, 90),
-            ttft_p95_ms=_percentile(sorted_ttfts, 95),
-            ttft_p99_ms=_percentile(sorted_ttfts, 99),
-            prefill_mean_ms=_mean(prefills),
-            decode_tokens_per_sec=_mean(decode_tps),
-            avg_token_latency_ms=_mean(token_latencies),
-            tpot_mean_ms=_mean(tpots),
-            total_generation_mean_ms=_mean(totals),
-            raw_ttft_ms=ttfts,
-            raw_prefill_ms=prefills,
-            raw_decode_tokens_per_sec=decode_tps,
-            raw_tpot_ms=tpots,
-            raw_total_ms=totals,
+            load=load,
+            requests=samples,
+            aggregate=aggregate,
         )
+
+    def _load_metrics(self, session_load_ms: float) -> dict[str, float | str | None]:
+        """Return canonical load metrics with a clear weight-upload estimate."""
+        load_timings = getattr(self._session, "load_timings_ms", {}) if self._session else {}
+        metrics: dict[str, float | str | None] = {
+            "session_load_duration_ms": session_load_ms,
+            "ep_registration_duration_ms": 0.0,
+            "bundle_prepare_duration_ms": 0.0,
+            "native_load_duration_ms": 0.0,
+            "config_create_duration_ms": 0.0,
+            "model_create_duration_ms": 0.0,
+            "tokenizer_create_duration_ms": 0.0,
+            "weight_upload_duration_ms": None,
+            "weight_upload_estimate_duration_ms": None,
+            "weight_upload_estimate_source": "unavailable",
+        }
+        for key in (
+            "ep_registration_duration_ms",
+            "bundle_prepare_duration_ms",
+            "native_load_duration_ms",
+            "config_create_duration_ms",
+            "model_create_duration_ms",
+            "tokenizer_create_duration_ms",
+        ):
+            if key in load_timings:
+                metrics[key] = float(load_timings[key])
+        if "session_load_duration_ms" in load_timings:
+            metrics["session_load_duration_ms"] = session_load_ms
+        model_create_ms = float(metrics["model_create_duration_ms"] or 0.0)
+        if model_create_ms > 0:
+            metrics["weight_upload_estimate_duration_ms"] = model_create_ms
+            metrics["weight_upload_estimate_source"] = "model_create_duration"
+        return metrics
 
 
 # =============================================================================
@@ -525,37 +845,107 @@ def display_genai_report(result: GenaiBenchmarkResult, console: Console) -> None
         f"(max_new_tokens={cfg.max_new_tokens})"
     )
 
+    load = result.load
+    aggregate = result.aggregate
+    if load or aggregate.get("cold_start_ttft_duration_ms"):
+        console.print()
+        console.print("[bold]Startup[/bold]")
+        console.print(
+            f"  Session load: {float(load.get('session_load_duration_ms') or 0.0):.2f} ms  |  "
+            f"Native load: {float(load.get('native_load_duration_ms') or 0.0):.2f} ms"
+        )
+        console.print(
+            f"  Cold TTFT: {float(aggregate.get('cold_start_ttft_duration_ms') or 0.0):.2f} ms  |  "
+            f"Cold total: {float(aggregate.get('cold_start_total_duration_ms') or 0.0):.2f} ms"
+        )
+        weight_upload_estimate = float(load.get("weight_upload_estimate_duration_ms") or 0.0)
+        if weight_upload_estimate:
+            console.print(
+                f"  Weight upload estimate: {weight_upload_estimate:.2f} ms "
+                f"[dim]({load.get('weight_upload_estimate_source')})[/dim]"
+            )
+
     console.print()
     console.print("[bold]Time to first token (ms)[/bold]")
+    model_ttft = aggregate.get("model_ttft_duration_ms", {})
     table = Table(show_header=True, header_style="bold cyan")
     for col in ["Avg", "P50", "P90", "P95", "P99", "Min", "Max"]:
         table.add_column(col, justify="right")
     table.add_row(
-        f"{result.ttft_mean_ms:.2f}",
-        f"{result.ttft_p50_ms:.2f}",
-        f"{result.ttft_p90_ms:.2f}",
-        f"{result.ttft_p95_ms:.2f}",
-        f"{result.ttft_p99_ms:.2f}",
-        f"{result.ttft_min_ms:.2f}",
-        f"{result.ttft_max_ms:.2f}",
+        f"{model_ttft.get('mean', 0.0):.2f}",
+        f"{model_ttft.get('p50', 0.0):.2f}",
+        f"{model_ttft.get('p90', 0.0):.2f}",
+        f"{model_ttft.get('p95', 0.0):.2f}",
+        f"{model_ttft.get('p99', 0.0):.2f}",
+        f"{model_ttft.get('min', 0.0):.2f}",
+        f"{model_ttft.get('max', 0.0):.2f}",
     )
     console.print(table)
 
+    prefill_duration = aggregate.get("prefill_duration_ms", {})
+    prefill_tps = aggregate.get("prefill_tokens_per_second", {})
+    decode_tps = aggregate.get("steady_state_decode_tokens_per_second", {})
+    tpot = aggregate.get("steady_state_tpot_ms", {})
+    request_duration = aggregate.get("request_duration_ms", {})
     console.print()
     console.print(
-        f"[bold]Prefill:[/bold]   {result.prefill_mean_ms:.2f} ms avg (prompt processing)"
+        f"[bold]Prefill:[/bold]   {prefill_duration.get('mean', 0.0):.2f} ms avg  |  "
+        f"{prefill_tps.get('mean', 0.0):.2f} tokens/sec"
     )
     console.print(
-        f"[bold]Decode:[/bold]    {result.decode_tokens_per_sec:.2f} tokens/sec  |  "
-        f"{result.tpot_mean_ms:.2f} ms/token (TPOT)"
+        f"[bold]Decode:[/bold]    {decode_tps.get('mean', 0.0):.2f} tokens/sec  |  "
+        f"{tpot.get('mean', 0.0):.2f} ms/token (TPOT)"
     )
     console.print(
-        f"[bold]Total:[/bold]     {result.total_generation_mean_ms:.2f} ms avg per generation"
+        f"[bold]Warm start:[/bold] {request_duration.get('mean', 0.0):.2f} ms avg per generation"
     )
+    console.print(f"[bold]Latency:[/bold]    {request_duration.get('mean', 0.0):.2f} ms avg")
     if cfg.warmup > 0:
         console.print(
             f"  [dim]Excluded first {cfg.warmup} warmup generation(s) from statistics[/dim]"
         )
+
+    if result.hw_monitor:
+        console.print()
+        console.print("[bold]Hardware (during genai benchmark)[/bold]")
+        cpu = result.hw_monitor.get("cpu", {})
+        ram = result.hw_monitor.get("ram", {})
+        device_kind = result.hw_monitor.get("device_kind")
+        if device_kind in ACCELERATOR_DEVICE_TYPES:
+            adapter = result.hw_monitor.get("adapter") or result.hw_monitor.get(device_kind, {})
+            console.print(
+                f"  {device_kind.upper()}: {adapter.get('mean_pct', 0):.1f}% avg, "
+                f"{adapter.get('peak_pct', 0):.1f}% peak  |  "
+                f"CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  "
+                f"RAM: {ram.get('used_mb', 0):.0f} MB"
+            )
+        else:
+            console.print(
+                f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  RAM: {ram.get('used_mb', 0):.0f} MB"
+            )
+
+    if result.memory_profile:
+        mem = result.memory_profile
+        console.print()
+        console.print("[bold]Memory:[/bold]")
+        console.print(
+            f"  RAM:  {mem['rss_after_inference_mb']:.1f} MB -> "
+            f"model load: {mem['rss_model_load_delta_mb']:+.1f} MB  |  "
+            f"inference: {mem['rss_inference_delta_mb']:+.1f} MB  |  "
+            f"total: {mem['rss_total_delta_mb']:+.1f} MB"
+        )
+        vram_local = mem.get("vram_local_after_inference_mb", 0.0)
+        vram_shared = mem.get("vram_shared_after_inference_mb", 0.0)
+        if vram_local > 0 or vram_shared > 0:
+            console.print(
+                f"  VRAM: {vram_local:.1f}/{vram_shared:.1f} MB (local/shared) -> "
+                f"model load: {mem['vram_local_model_load_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_model_load_delta_mb']:+.1f} MB  |  "
+                f"inference: {mem['vram_local_inference_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_inference_delta_mb']:+.1f} MB  |  "
+                f"total: {mem['vram_local_total_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_total_delta_mb']:+.1f} MB"
+            )
     console.print()
 
 

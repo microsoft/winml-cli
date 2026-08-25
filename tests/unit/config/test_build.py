@@ -4093,7 +4093,7 @@ class TestResolveQuantCompileConfig:
         from winml.modelkit.ep_path import EPCatalog
         from winml.modelkit.session import WinMLEPRegistry
 
-        def _compatible(ep: str) -> bool:
+        def _compatible(ep: str, _device_type: str | None = None) -> bool:
             if ep == "OpenVINOExecutionProvider":
                 raise RuntimeError("WMI unavailable")
             return True

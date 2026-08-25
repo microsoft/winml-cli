@@ -20,6 +20,7 @@ import numpy as np
 import onnx
 import pandas as pd
 from onnx import numpy_helper
+from onnx.defs import SchemaError
 
 from ...onnx import (
     ONNXDomain,
@@ -590,7 +591,18 @@ def get_query_conditions_for_node(
         - is_qdq: True if node has QDQ quantization on inputs or outputs.
     """
     conditions = {}
-    schema = domain.get_op_schema(node.op_type, opset_version)
+    try:
+        schema = domain.get_op_schema(node.op_type, opset_version)
+    except SchemaError as e:
+        # Some runtime-specific models emit extension ops in the default ONNX
+        # domain where no standard schema exists (for example
+        # SimplifiedLayerNormalization). Treat this as unsupported instead of
+        # aborting the whole analyze command.
+        raise OpUnsupportedError(
+            "Node "
+            f"{node.op_type} has no registered schema for domain "
+            f"'{domain.schema_domain}' at opset {opset_version}: {e}"
+        ) from e
     input_names, variadic_input_name, attribute_names, type_annotations = get_op_input_properties(
         schema
     )
@@ -2685,7 +2697,20 @@ class RuntimeCheckerQuery:
         ) as e:
             conditions_ms = _elapsed_ms(conditions_start)
             exception_type = type(e).__name__
-            logger.error(
+            reason = "optional_input_properties_not_found"
+            log_fn = logger.error
+
+            if isinstance(e, OpUnsupportedError):
+                error_message = str(e)
+                if "has no registered schema for domain" in error_message:
+                    reason = f"schema_not_registered:{node.op_type}"
+                else:
+                    reason = f"unsupported_op:{node.op_type}"
+                log_fn = logger.debug
+            elif isinstance(e, OpLackOfRequiredInformationError):
+                reason = "required_information_missing"
+
+            log_fn(
                 "%s caught for op %s (node: %s): %s",
                 exception_type,
                 node.op_type,
@@ -2710,7 +2735,7 @@ class RuntimeCheckerQuery:
                         compile=False,
                         run=False,
                         no_data=True,
-                        reason="optional_input_properties_not_found",
+                        reason=reason,
                         node_tags=node_tags,
                         debug_details=conditions_error_debug_details,
                     ),

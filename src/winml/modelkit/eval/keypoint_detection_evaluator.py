@@ -88,7 +88,10 @@ class WinMLKeypointDetectionEvaluator(WinMLEvaluator):
         """
         from transformers import AutoImageProcessor
 
-        processor = AutoImageProcessor.from_pretrained(self.config.model_id)
+        processor = AutoImageProcessor.from_pretrained(
+            self.config.model_id,
+            trust_remote_code=self.config.trust_remote_code,
+        )
 
         io_config = getattr(self.model, "io_config", None) or {}
         input_shapes = io_config.get("input_shapes", [])
@@ -184,12 +187,16 @@ class WinMLKeypointDetectionEvaluator(WinMLEvaluator):
         import torch
 
         inputs = processor.preprocess(images=image, boxes=[boxes], return_tensors="pt")
-        pixel_values = inputs["pixel_values"]
+        pixel_values = inputs["pixel_values"].to(self.config.pipeline_device)
 
         # Pass ``dataset_index`` only when the model declares it (e.g. ViTPose+).
         extra_inputs: dict[str, Any] = {}
         if self._declares_dataset_index():
-            extra_inputs["dataset_index"] = torch.tensor([self._dataset_index], dtype=torch.long)
+            extra_inputs["dataset_index"] = torch.tensor(
+                [self._dataset_index],
+                dtype=torch.long,
+                device=pixel_values.device,
+            )
 
         heatmaps = []
         with torch.no_grad():

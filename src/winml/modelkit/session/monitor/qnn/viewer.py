@@ -21,8 +21,11 @@ import json
 import logging
 import os
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from ..op_metrics import TraceFallbackReason
 
 
 logger = logging.getLogger(__name__)
@@ -48,6 +51,18 @@ _COMMON_SDK_PATHS: list[Path] = [
 ]
 _OPTRACE_READER_NAME = "QnnHtpOptraceProfilingReader.dll"
 _QHAS_SUMMARY_SUFFIX = "_qnn_htp_analysis_summary.json"
+
+
+@dataclass(frozen=True)
+class QHASViewerResult:
+    """Detailed outcome of QHAS viewer preparation and execution."""
+
+    path: Path | None
+    failure_reason: TraceFallbackReason | None
+
+    def __post_init__(self) -> None:
+        if (self.path is None) == (self.failure_reason is None):
+            raise ValueError("QHAS viewer result requires exactly one outcome")
 
 
 def find_qnn_sdk() -> Path | None:
@@ -175,57 +190,76 @@ def run_qhas_viewer(
     -------
     Path to the generated QNN HTP analysis summary JSON, or ``None`` on failure.
     """
-    viewer = _find_viewer_exe(sdk_root)
-    if viewer is None:
-        logger.warning(
-            "qnn-profile-viewer not found; set QNN_SDK_ROOT to enable detail mode "
-            "(falling back to basic CSV)"
-        )
-        return None
-    reader = _find_optrace_reader(viewer)
-    if reader is None:
-        logger.warning(
-            "%s not found for qnn-profile-viewer at %s; falling back to basic CSV",
-            _OPTRACE_READER_NAME,
-            viewer,
-        )
-        return None
+    return run_qhas_viewer_result(
+        qnn_log,
+        schematic,
+        output,
+        config,
+        sdk_root=sdk_root,
+    ).path
 
-    if not schematic.is_file():
-        logger.warning("Schematic file not found: %s", schematic)
-        return None
 
-    # Write the config next to the output and bind it to that run's artifact stem.
-    cfg = config if config is not None else _DEFAULT_CONFIG
-    config_path = output.with_name(f"{output.stem}_optrace_config.json")
-    config_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-
-    cmd = [
-        str(viewer),
-        "--input_log",
-        str(qnn_log),
-        "--output",
-        str(output),
-        "--reader",
-        str(reader),
-        "--schematic",
-        str(schematic),
-        "--config",
-        str(config_path),
-    ]
-    logger.info("Running QHAS viewer: %s", " ".join(cmd))
-
+def run_qhas_viewer_result(
+    qnn_log: Path,
+    schematic: Path,
+    output: Path,
+    config: dict[str, Any] | None = None,
+    *,
+    sdk_root: Path | None = None,
+) -> QHASViewerResult:
+    """Run QHAS viewer and distinguish execution from missing-output failures."""
     try:
+        viewer = _find_viewer_exe(sdk_root)
+        if viewer is None:
+            logger.warning(
+                "qnn-profile-viewer not found; set QNN_SDK_ROOT to enable detail mode "
+                "(falling back to basic CSV)"
+            )
+            return QHASViewerResult(path=None, failure_reason=TraceFallbackReason.VIEWER_FAILED)
+        reader = _find_optrace_reader(viewer)
+        if reader is None:
+            logger.warning(
+                "%s not found for qnn-profile-viewer at %s; falling back to basic CSV",
+                _OPTRACE_READER_NAME,
+                viewer,
+            )
+            return QHASViewerResult(path=None, failure_reason=TraceFallbackReason.VIEWER_FAILED)
+
+        if not schematic.is_file():
+            logger.warning("Schematic file not found: %s", schematic)
+            return QHASViewerResult(path=None, failure_reason=TraceFallbackReason.VIEWER_FAILED)
+
+        cfg = config if config is not None else _DEFAULT_CONFIG
+        config_path = output.with_name(f"{output.stem}_optrace_config.json")
+        config_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+
+        cmd = [
+            str(viewer),
+            "--input_log",
+            str(qnn_log),
+            "--output",
+            str(output),
+            "--reader",
+            str(reader),
+            "--schematic",
+            str(schematic),
+            "--config",
+            str(config_path),
+        ]
+        logger.info("Running QHAS viewer: %s", " ".join(cmd))
         subprocess.run(cmd, check=True, capture_output=True, text=True)  # noqa: S603
     except subprocess.CalledProcessError as exc:
         logger.error("QHAS viewer failed: %s", exc.stderr)
-        return None
-    except FileNotFoundError:
-        logger.error("qnn-profile-viewer executable not found at %s", viewer)
-        return None
+        return QHASViewerResult(path=None, failure_reason=TraceFallbackReason.VIEWER_FAILED)
+    except (OSError, TypeError, ValueError) as exc:
+        logger.error("QHAS viewer preparation or execution failed: %s", exc)
+        return QHASViewerResult(path=None, failure_reason=TraceFallbackReason.VIEWER_FAILED)
 
     summary_output = output.with_name(f"{output.stem}{_QHAS_SUMMARY_SUFFIX}")
-    if summary_output.is_file():
-        return summary_output
+    try:
+        if summary_output.is_file():
+            return QHASViewerResult(path=summary_output, failure_reason=None)
+    except OSError as exc:
+        logger.warning("Could not inspect QHAS analysis summary %s: %s", summary_output, exc)
     logger.warning("QHAS viewer did not produce analysis summary: %s", summary_output)
-    return None
+    return QHASViewerResult(path=None, failure_reason=TraceFallbackReason.QHAS_OUTPUT_MISSING)

@@ -324,6 +324,29 @@ class TestGenaiSessionLoad:
             session.load()
         assert session.context_length == 512
 
+    def test_load_records_stage_timings(
+        self, bundle_dir: Path, mock_og: MagicMock, monkeypatch
+    ) -> None:
+        values = iter([10.0, 10.0, 10.2, 10.5, 10.7, 10.8])
+        monkeypatch.setattr(
+            "winml.modelkit.session.genai_session.time.perf_counter",
+            lambda: next(values),
+        )
+
+        with _patch_og(mock_og):
+            session = GenaiSession(bundle_dir)
+            session.load()
+
+        assert session.load_timings_ms == {
+            "session_load_duration_ms": pytest.approx(800.0),
+            "ep_registration_duration_ms": pytest.approx(0.0),
+            "bundle_prepare_duration_ms": pytest.approx(0.0),
+            "native_load_duration_ms": pytest.approx(700.0),
+            "config_create_duration_ms": pytest.approx(200.0),
+            "model_create_duration_ms": pytest.approx(300.0),
+            "tokenizer_create_duration_ms": pytest.approx(200.0),
+        }
+
     def test_load_is_idempotent(self, bundle_dir: Path, mock_og: MagicMock) -> None:
         with _patch_og(mock_og):
             session = GenaiSession(bundle_dir)
@@ -970,11 +993,7 @@ class TestEffectiveDevice:
             "model": {
                 "decoder": {
                     "pipeline": [
-                        {
-                            "decoder": {
-                                "session_options": {"provider_options": [{"dml": {}}]}
-                            }
-                        }
+                        {"decoder": {"session_options": {"provider_options": [{"dml": {}}]}}}
                     ]
                 }
             }
@@ -987,11 +1006,7 @@ class TestEffectiveDevice:
             "model": {
                 "decoder": {
                     "pipeline": [
-                        {
-                            "decoder": {
-                                "session_options": {"provider_options": [{"qnn": {}}]}
-                            }
-                        }
+                        {"decoder": {"session_options": {"provider_options": [{"qnn": {}}]}}}
                     ]
                 }
             }
@@ -1003,9 +1018,7 @@ class TestEffectiveDevice:
         cfg = {
             "model": {
                 "decoder": {
-                    "session_options": {
-                        "provider_options": [{"openvino": {"device_type": "GPU"}}]
-                    }
+                    "session_options": {"provider_options": [{"openvino": {"device_type": "GPU"}}]}
                 }
             }
         }
@@ -1039,9 +1052,7 @@ class TestEffectiveDevice:
         cfg = {
             "model": {
                 "decoder": {
-                    "session_options": {
-                        "provider_options": [{"openvino": {"device_type": "GPU"}}]
-                    }
+                    "session_options": {"provider_options": [{"openvino": {"device_type": "GPU"}}]}
                 }
             }
         }
@@ -1057,11 +1068,7 @@ class TestEffectiveDevice:
             "model": {
                 "decoder": {
                     "pipeline": [
-                        {
-                            "decoder": {
-                                "session_options": {"provider_options": [{"dml": {}}]}
-                            }
-                        }
+                        {"decoder": {"session_options": {"provider_options": [{"dml": {}}]}}}
                     ]
                 }
             }
@@ -1078,11 +1085,7 @@ class TestEffectiveDevice:
             "model": {
                 "decoder": {
                     "pipeline": [
-                        {
-                            "decoder": {
-                                "session_options": {"provider_options": [{"qnn": {}}]}
-                            }
-                        }
+                        {"decoder": {"session_options": {"provider_options": [{"qnn": {}}]}}}
                     ]
                 }
             }
@@ -1096,9 +1099,7 @@ class TestEffectiveHardwareEp:
         cfg = {
             "model": {
                 "decoder": {
-                    "session_options": {
-                        "provider_options": [{"openvino": {"device_type": "GPU"}}]
-                    }
+                    "session_options": {"provider_options": [{"openvino": {"device_type": "GPU"}}]}
                 }
             }
         }
@@ -1122,15 +1123,34 @@ class TestEffectiveHardwareEp:
         assert GenaiSession._hardware_ep_from_config(cfg) is None
 
     def test_unknown_provider_is_unresolved(self) -> None:
-        cfg = {
-            "model": {
-                "decoder": {
-                    "session_options": {"provider_options": [{"future_ep": {}}]}
-                }
-            }
-        }
+        cfg = {"model": {"decoder": {"session_options": {"provider_options": [{"future_ep": {}}]}}}}
 
         assert GenaiSession._hardware_ep_from_config(cfg) is None
+
+
+class TestResolveEffectiveRoute:
+    def test_resolves_config_route_without_loading_native_handles(
+        self, bundle_dir_dml_pipeline: Path
+    ) -> None:
+        session = GenaiSession(bundle_dir_dml_pipeline)
+
+        session.resolve_effective_route()
+
+        assert session.effective_ep is None
+        assert session.effective_device == "gpu"
+        assert session.effective_hardware_ep == "DmlExecutionProvider"
+        assert session.context_length is None
+
+    def test_noop_override_stays_unresolved_for_cpu_config(
+        self, bundle_dir_cpu_pipeline: Path
+    ) -> None:
+        session = GenaiSession(bundle_dir_cpu_pipeline, ep="qnn", device="npu")
+
+        session.resolve_effective_route()
+
+        assert session.effective_ep is None
+        assert session.effective_device == "cpu"
+        assert session.effective_hardware_ep is None
 
 
 # ---------------------------------------------------------------------------
@@ -1270,33 +1290,41 @@ class TestGenerateTimed:
         self, bundle_dir: Path, mock_og: MagicMock
     ) -> None:
         # mock_og generator yields 2 tokens (is_done: F, F, T).
-        # clock calls: before append(0.0), after append(1.0), token1(2.5), token2(3.0).
-        clock = _clock_from([0.0, 1.0, 2.5, 3.0])
+        # clock calls: generator start/end, after append, token1, token2, after
+        # get_sequence, after decode.
+        clock = _clock_from([0.0, 0.2, 1.2, 2.7, 3.2, 3.3, 3.4])
         with _patch_og(mock_og), GenaiSession(bundle_dir) as session:
             timing = session.generate_timed([1, 2, 3, 4, 5], clock=clock)
 
         assert timing.input_tokens == 5
         assert timing.generated_tokens == 2
+        assert timing.generator_create_s == pytest.approx(0.2)
         assert timing.prefill_s == pytest.approx(1.0)
         assert timing.first_token_s == pytest.approx(1.5)
         assert timing.decode_s == pytest.approx([0.5])
+        assert timing.sequence_fetch_s == pytest.approx(0.1)
+        assert timing.detokenization_s == pytest.approx(0.1)
         # TTFT = prefill + first token.
         assert timing.ttft_s == pytest.approx(2.5)
         assert timing.total_s == pytest.approx(3.0)
 
-    def test_does_not_decode_tokens(self, bundle_dir: Path, mock_og: MagicMock) -> None:
-        """Only model-compute boundaries are timed — no tokenizer detokenization."""
-        clock = _clock_from([0.0, 1.0, 2.5, 3.0])
+    def test_times_fetch_and_detokenization_after_model_compute(
+        self, bundle_dir: Path, mock_og: MagicMock
+    ) -> None:
+        """Host fetch and detokenization are measured separately from model compute."""
+        clock = _clock_from([0.0, 0.2, 1.2, 2.7, 3.2, 3.3, 3.4])
         with _patch_og(mock_og), GenaiSession(bundle_dir) as session:
-            session.generate_timed([1, 2, 3], clock=clock)
+            timing = session.generate_timed([1, 2, 3], clock=clock)
 
-        stream = mock_og.Tokenizer.return_value.create_stream.return_value
-        stream.decode.assert_not_called()
+        mock_og.Generator.return_value.get_sequence.assert_called_once_with(0)
+        mock_og.Tokenizer.return_value.decode.assert_called_once()
+        assert timing.sequence_fetch_s == pytest.approx(0.1)
+        assert timing.detokenization_s == pytest.approx(0.1)
 
     def test_forwards_token_list_to_append_tokens(
         self, bundle_dir: Path, mock_og: MagicMock
     ) -> None:
-        clock = _clock_from([0.0, 1.0, 2.5, 3.0])
+        clock = _clock_from([0.0, 0.2, 1.2, 2.7, 3.2, 3.3, 3.4])
         with _patch_og(mock_og), GenaiSession(bundle_dir) as session:
             session.generate_timed([7, 8, 9], clock=clock)
 
@@ -1306,8 +1334,8 @@ class TestGenerateTimed:
         gen = mock_og.Generator.return_value
         gen.is_done.side_effect = None
         gen.is_done.return_value = False  # never signals done
-        # max_new_tokens=1 -> single token: clock before(0.0), after append(1.0), token1(2.0)
-        clock = _clock_from([0.0, 1.0, 2.0])
+        # max_new_tokens=1 -> single token.
+        clock = _clock_from([0.0, 0.2, 1.2, 2.2, 2.3, 2.4])
         with _patch_og(mock_og), GenaiSession(bundle_dir) as session:
             timing = session.generate_timed([1, 2], GenerationConfig(max_new_tokens=1), clock=clock)
 
@@ -1322,7 +1350,7 @@ class TestGenerateTimed:
         gen = mock_og.Generator.return_value
         gen.is_done.side_effect = None
         gen.is_done.return_value = True  # done immediately -> 0 tokens
-        clock = _clock_from([0.0, 1.0])
+        clock = _clock_from([0.0, 0.2, 1.2])
         with (
             _patch_og(mock_og),
             GenaiSession(bundle_dir) as session,
@@ -1331,16 +1359,23 @@ class TestGenerateTimed:
             session.generate_timed([1, 2], clock=clock)
 
     def test_auto_loads_on_first_call(self, bundle_dir: Path, mock_og: MagicMock) -> None:
-        clock = _clock_from([0.0, 1.0, 2.5, 3.0])
+        clock = _clock_from([0.0, 0.2, 1.2, 2.7, 3.2, 3.3, 3.4])
         with _patch_og(mock_og):
             session = GenaiSession(bundle_dir)
             assert not session.is_loaded
             session.generate_timed([1, 2, 3], clock=clock)
             assert session.is_loaded
 
-    def test_uses_context_length_as_max_length(self, bundle_dir: Path, mock_og: MagicMock) -> None:
-        """max_length = min(prompt_len + max_new_tokens, context_length)."""
-        clock = _clock_from([0.0, 1.0, 2.5, 3.0])
+    def test_dynamic_model_caps_max_length_at_context_length(
+        self, bundle_dir: Path, mock_og: MagicMock
+    ) -> None:
+        """A non-pipeline model caps its dynamic allocation at context_length."""
+        config_path = bundle_dir / "genai_config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["model"]["type"] = "decoder-only"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+
+        clock = _clock_from([0.0, 0.2, 1.2, 2.7, 3.2, 3.3, 3.4])
         with _patch_og(mock_og), GenaiSession(bundle_dir, context_length=128) as session:
             session.generate_timed([1, 2, 3], clock=clock)
 
@@ -1348,17 +1383,33 @@ class TestGenerateTimed:
         # prompt_len=3 + max_new_tokens=128 = 131, capped at context_length=128
         assert params.set_search_options.call_args.kwargs["max_length"] == 128
 
-    def test_max_length_is_prompt_plus_max_new_tokens(
+    def test_decoder_pipeline_uses_full_context_length(
         self, bundle_dir: Path, mock_og: MagicMock
     ) -> None:
-        """When context_length is large, max_length = prompt_len + max_new_tokens."""
-        clock = _clock_from([0.0, 1.0, 2.5, 3.0])
+        """A static decoder pipeline uses its full configured context length."""
+        clock = _clock_from([0.0, 0.2, 1.2, 2.7, 3.2, 3.3, 3.4])
         cfg = GenerationConfig(max_new_tokens=64)
         with _patch_og(mock_og), GenaiSession(bundle_dir, context_length=131072) as session:
             session.generate_timed([1, 2, 3, 4, 5], cfg, clock=clock)
 
         params = mock_og.GeneratorParams.return_value
-        # prompt_len=5 + max_new_tokens=64 = 69, well under context_length
+        assert params.set_search_options.call_args.kwargs["max_length"] == 131072
+
+    def test_dynamic_model_max_length_is_prompt_plus_max_new_tokens(
+        self, bundle_dir: Path, mock_og: MagicMock
+    ) -> None:
+        """A non-pipeline model keeps the bounded dynamic-allocation behavior."""
+        config_path = bundle_dir / "genai_config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["model"]["type"] = "decoder-only"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+
+        clock = _clock_from([0.0, 0.2, 1.2, 2.7, 3.2, 3.3, 3.4])
+        cfg = GenerationConfig(max_new_tokens=64)
+        with _patch_og(mock_og), GenaiSession(bundle_dir, context_length=131072) as session:
+            session.generate_timed([1, 2, 3, 4, 5], cfg, clock=clock)
+
+        params = mock_og.GeneratorParams.return_value
         assert params.set_search_options.call_args.kwargs["max_length"] == 69
 
 

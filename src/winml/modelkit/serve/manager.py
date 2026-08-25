@@ -49,12 +49,20 @@ class ModelManager(Protocol):
     """
 
     @asynccontextmanager
-    def borrow(self, model_id: str, task: str | None = None) -> AsyncIterator[InferenceEngine]:
+    def borrow(
+        self,
+        model_id: str,
+        task: str | None = None,
+        *,
+        load_if_missing: bool = True,
+    ) -> AsyncIterator[InferenceEngine]:
         """Context manager that yields a ready InferenceEngine.
 
         Blocks until the engine is available (respects concurrency limits).
         ``task`` is a routing hint used by ModelSlotManager when ``model_id``
         is the sentinel ``"_"``.
+        ``load_if_missing`` controls whether ModelSlotManager may create a new
+        slot for an explicit model ID.
         """
         raise NotImplementedError
 
@@ -110,7 +118,11 @@ class SingleModelManager:
 
     @asynccontextmanager
     async def borrow(
-        self, model_id: str = "_", task: str | None = None
+        self,
+        model_id: str = "_",
+        task: str | None = None,
+        *,
+        load_if_missing: bool = True,
     ) -> AsyncIterator[InferenceEngine]:
         """Acquire the lock, reload if idle-unloaded, yield engine, then start idle timer."""
         async with self._lock:
@@ -248,7 +260,11 @@ class ModelSlotManager:
 
     @asynccontextmanager
     async def borrow(
-        self, model_id: str, task: str | None = None
+        self,
+        model_id: str,
+        task: str | None = None,
+        *,
+        load_if_missing: bool = True,
     ) -> AsyncIterator[InferenceEngine]:
         """Acquire an engine for model_id, loading it if necessary.
 
@@ -259,7 +275,7 @@ class ModelSlotManager:
           4. Otherwise → raise ValueError listing available (model_id, task) pairs
         """
         resolved = await self._resolve(model_id, task)
-        slot = await self._acquire_slot(resolved)
+        slot = await self._acquire_slot(resolved, load_if_missing=load_if_missing)
         try:
             # Per-slot lock serialises inference for the same model so that
             # concurrent requests don't race inside the (non-thread-safe)
@@ -436,7 +452,12 @@ class ModelSlotManager:
                 f"Multiple models loaded — specify model_id or task. Available: {available}"
             )
 
-    async def _acquire_slot(self, model_id: str) -> ModelSlot:
+    async def _acquire_slot(
+        self,
+        model_id: str,
+        *,
+        load_if_missing: bool = True,
+    ) -> ModelSlot:
         # Fast path: model already loaded — just bump refcount under lock.
         # Also decides whether *this* coroutine is the designated loader.
         am_loader = False
@@ -449,6 +470,12 @@ class ModelSlotManager:
                 slot.refcount += 1
                 slot.last_used = time.monotonic()
                 return slot
+
+            if not load_if_missing:
+                raise ValueError(
+                    f"Model '{model_id}' is not loaded. "
+                    "Load it first from a local client via POST /v1/models."
+                )
 
             if model_id not in self._loading:
                 # We are the designated loader for this model_id

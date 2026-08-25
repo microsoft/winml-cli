@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Opt-in, exact algebraic graph-rewrite capabilities."""
+"""Opt-in algebraic graph-rewrite capabilities."""
 
 from __future__ import annotations
 
@@ -26,6 +26,17 @@ CONV_CHANNEL_AFFINE_FOLDING = BoolCapability(
     description=(
         "Fold safe scalar or channel-wise constant Mul/Add branches into Conv "
         "weights and bias; direct and static Split/Slice routing only"
+    ),
+    category=CapabilityCategory.REWRITE,
+    default=False,
+)
+
+EXP_POSITIVE_SCALE_FOLDING = BoolCapability(
+    name="exp-positive-scale-folding",
+    ort_name=None,
+    description=(
+        "Fold a finite, strictly positive constant scale after Exp into the log-domain input "
+        "bias with relaxed floating-point overflow semantics"
     ),
     category=CapabilityCategory.REWRITE,
     default=False,

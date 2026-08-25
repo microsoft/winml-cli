@@ -164,6 +164,62 @@ class TestOptimizationOutputSupport:
         assert counts[SupportLevel.SUPPORTED] == 2
         assert counts[SupportLevel.PARTIAL] == 1
 
+    def test_to_dict_includes_graph_delta_and_target_support(self) -> None:
+        """Structured JSON retains actionable graph and support evidence."""
+        from winml.modelkit.optim import NodeRef
+
+        opt = OptimizationOutputSupport(
+            name="static-split-to-slice",
+            enable_flag="--enable-static-split-to-slice",
+            category="rewrite",
+            description="Replace static Split with Slice.",
+            pipe_name="algebraic",
+            removed_nodes=[NodeRef("Split", "split", ("a", "b"), "ai.onnx")],
+            added_nodes=[NodeRef("Slice", "slice_0", ("a",), "com.microsoft")],
+            modified_initializers=["starts"],
+            operators=[
+                ProducedOperatorSupport(
+                    "com.microsoft::Slice",
+                    "com.microsoft::Slice 'slice_0'",
+                    "added",
+                    SupportLevel.SUPPORTED,
+                )
+            ],
+        )
+
+        assert opt.to_dict() == {
+            "name": "static-split-to-slice",
+            "enable_flag": "--enable-static-split-to-slice",
+            "category": "rewrite",
+            "description": "Replace static Split with Slice.",
+            "pipe_name": "algebraic",
+            "worst_support": "supported",
+            "support_counts": {"supported": 1},
+            "graph_delta": {
+                "removed_nodes": [{"op_type": "Split", "name": "split", "outputs": ["a", "b"]}],
+                "added_nodes": [
+                    {
+                        "op_type": "Slice",
+                        "name": "slice_0",
+                        "outputs": ["a"],
+                        "domain": "com.microsoft",
+                    }
+                ],
+                "modified_nodes": [],
+                "removed_initializers": [],
+                "added_initializers": [],
+                "modified_initializers": ["starts"],
+            },
+            "operators": [
+                {
+                    "op_type": "com.microsoft::Slice",
+                    "label": "com.microsoft::Slice 'slice_0'",
+                    "change": "added",
+                    "support": "supported",
+                }
+            ],
+        }
+
 
 # =============================================================================
 # END-TO-END SUPPORT CHECK

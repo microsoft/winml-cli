@@ -17,8 +17,6 @@ if TYPE_CHECKING:
     from datasets import Dataset
     from transformers.pipelines.base import Pipeline
 
-    from ..models.winml.base import WinMLPreTrainedModel
-    from ..models.winml.composite_model import WinMLCompositeModel
     from .config import DatasetConfig, WinMLEvaluationConfig
 
 logger = logging.getLogger(__name__)
@@ -47,7 +45,7 @@ class WinMLEvaluator:
     def __init__(
         self,
         config: WinMLEvaluationConfig,
-        model: WinMLPreTrainedModel | WinMLCompositeModel,
+        model: Any,
     ) -> None:
         self.model = model
         self.config = config
@@ -150,7 +148,13 @@ class WinMLEvaluator:
         assert self.config.task is not None, "config.task is required to build pipeline"
         return cast(
             "Pipeline",
-            create_pipeline(self.config.task, self.model, self.config.model_id),
+            create_pipeline(
+                self.config.task,
+                self.model,
+                self.config.model_id,
+                device=self.config.pipeline_device,
+                trust_remote_code=self.config.trust_remote_code,
+            ),
         )
 
     def _fixed_seq_length(self) -> int | None:

@@ -1414,18 +1414,20 @@ def analyze(
         # Optionally probe which optimizations would change the model and what
         # operators they would introduce. This probe is target-independent, so
         # materialize it once here and only re-run the (cheap) support lookup per
-        # EP/device below. Console-only feature — skipped in quiet mode.
+        # EP/device below. Quiet mode disables rendering, not data collection.
         optim_outputs: list[tuple[Any, Any]] = []
-        if check_optim and not quiet:
+        optim_probe_error: str | None = None
+        if check_optim:
             try:
                 import onnx
 
                 from ..optim import get_all_capabilities, iter_optimization_outputs
 
-                console.print(
-                    "[dim]Probing optimization outputs "
-                    "(this can take a while on large models)…[/dim]"
-                )
+                if not quiet:
+                    console.print(
+                        "[dim]Probing optimization outputs "
+                        "(this can take a while on large models)…[/dim]"
+                    )
                 optim_proto = onnx.load(str(model))
                 optim_outputs = list(iter_optimization_outputs(optim_proto, get_all_capabilities()))
                 # Each entry retains a full produced-model clone so the (cheap)
@@ -1439,6 +1441,7 @@ def analyze(
                 )
             except Exception as exc:
                 logger.warning("Could not probe optimization outputs: %s", exc)
+                optim_probe_error = str(exc)
                 optim_outputs = []
 
         # Model info header
@@ -1497,10 +1500,39 @@ def analyze(
         ep_header_rendered = False
         _no_data_eps: set[tuple[str, str]] = set()  # EP/device pairs with no op rule data
         analysis_results: list = []
+        optimization_support_payloads: list[dict[str, object] | None] = []
         current_run_unknown_op = False
         current_op_check_skipped = False
         current_pattern_check_skipped = False
         pattern_check_active = False
+
+        def _collect_optimization_support(
+            target_ep: EPName, target_device: str
+        ) -> tuple[list[Any], dict[str, object]]:
+            """Check one target and return renderable results plus JSON data."""
+            from ..analyze.optim_output import check_optimization_output_support
+
+            support_error: str | None = None
+            optim_support = []
+            if optim_probe_error is None:
+                try:
+                    optim_support = check_optimization_output_support(
+                        optim_outputs,
+                        ep=target_ep,
+                        device=target_device,
+                        model_path=str(model),
+                    )
+                except Exception as exc:
+                    support_error = str(exc)
+                    logger.warning("Could not check optimization output support: %s", exc)
+            payload: dict[str, object] = {
+                "ep_type": target_ep,
+                "device_type": target_device,
+                "probe_error": optim_probe_error,
+                "support_error": support_error,
+                "optimizations": [item.to_dict() for item in optim_support],
+            }
+            return optim_support, payload
 
         def _current_ep_device_pair_display_name() -> str:
             """Return current EP/device display label, or empty when unset."""
@@ -1902,14 +1934,10 @@ def analyze(
 
                     # Optimization output support section (per-EP), when opted in.
                     if check_optim:
-                        from ..analyze.optim_output import check_optimization_output_support
-
-                        optim_support = check_optimization_output_support(
-                            optim_outputs,
-                            ep=target_ep,
-                            device=target_device,
-                            model_path=str(model),
+                        optim_support, payload = _collect_optimization_support(
+                            target_ep, target_device
                         )
+                        optimization_support_payloads.append(payload)
                         _render_optim_output_support(
                             console,
                             optim_support,
@@ -1940,21 +1968,29 @@ def analyze(
                 )
                 analysis_results.append(result)
 
+                if check_optim:
+                    _, payload = _collect_optimization_support(target_ep, target_device)
+                    optimization_support_payloads.append(payload)
+
         result = analysis_results[-1]
+
+        serialized_results: list[dict[str, object]] = []
+        json_mode = output_format == "json"
+        if output or json_mode:
+            for index, run_result in enumerate(analysis_results):
+                payload = json.loads(run_result.to_json())
+                if check_optim:
+                    payload["optimization_output_support"] = optimization_support_payloads[index]
+                serialized_results.append(payload)
 
         # Save JSON if requested
         if output:
             try:
                 output.parent.mkdir(parents=True, exist_ok=True)
                 if len(analysis_results) == 1:
-                    output.write_text(result.to_json(), encoding="utf-8")
+                    output.write_text(json.dumps(serialized_results[0], indent=2), encoding="utf-8")
                 else:
-                    output.write_text(
-                        json.dumps(
-                            [json.loads(run_result.to_json()) for run_result in analysis_results]
-                        ),
-                        encoding="utf-8",
-                    )
+                    output.write_text(json.dumps(serialized_results), encoding="utf-8")
                 logger.info("JSON results saved to: %s", output)
             except OSError as e:
                 logger.error("Failed to write JSON output to %s: %s", output, e)
@@ -2033,17 +2069,11 @@ def analyze(
                 logger.debug("Config generation traceback:", exc_info=True)
 
         # Emit JSON to stdout if requested
-        json_mode = output_format == "json"
         if json_mode:
             if len(analysis_results) == 1:
-                click.echo(result.to_json())
+                click.echo(json.dumps(serialized_results[0], indent=2))
             else:
-                click.echo(
-                    json.dumps(
-                        [json.loads(run_result.to_json()) for run_result in analysis_results],
-                        indent=2,
-                    )
-                )
+                click.echo(json.dumps(serialized_results, indent=2))
 
         # Exit code: 0 = fully supported, 1 = partial support
         overall_supported = all(run_result.is_fully_supported() for run_result in analysis_results)

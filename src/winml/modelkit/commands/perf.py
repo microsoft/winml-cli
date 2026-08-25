@@ -23,7 +23,7 @@ import time
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast, get_args
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import click
 import numpy as np
@@ -32,7 +32,12 @@ from rich.table import Table
 
 from ..utils import cli as cli_utils
 from ..utils.console import SafeConsole
-from ..utils.constants import ACCELERATOR_DEVICE_TYPES, EPName, EPNameOrAlias
+from ..utils.constants import (
+    ACCELERATOR_DEVICE_TYPES,
+    RUNTIME_NAMES,
+    EPName,
+    EPNameOrAlias,
+)
 from ..utils.logging import (
     configure_logging,
     suppress_huggingface_warning_logs,
@@ -54,7 +59,9 @@ if TYPE_CHECKING:
     from ..models.winml.composite_model import WinMLCompositeModel
     from ..session import WinMLEPDevice
     from ..session.monitor.ep_monitor import WinMLEPMonitor
+    from ..session.monitor.op_metrics import TraceFallbackReason
     from ..session.stats import PerfStats
+    from ..utils.constants import RuntimeName
 
 logger = logging.getLogger(__name__)
 
@@ -65,14 +72,43 @@ logger = logging.getLogger(__name__)
 
 # Hardware monitor polling interval (milliseconds)
 _HW_POLL_INTERVAL_MS = 200
+_RUNTIME_TYPE: RuntimeName = "winml"
 
 
-# Inference runtimes selectable via ``--runtime`` (closed set; mirrors the
-# ``--compiler`` / ``COMPILER_NAMES`` convention in utils.constants):
-#   "winml"       -> single-shot ONNX inference (default)
-#   "winml-genai" -> onnxruntime-genai decoder-pipeline generation
-RuntimeName = Literal["winml", "winml-genai"]
-RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
+def _resolve_runtime(runtime: RuntimeName, model: str) -> RuntimeName:
+    """Resolve ``auto`` from a local model folder, preserving explicit choices."""
+    if runtime != "auto":
+        return runtime
+
+    model_path = Path(model)
+    if model_path.is_dir() and (model_path / "genai_config.json").is_file():
+        return "winml-genai"
+    return "winml"
+
+
+def _detail_fallback_guidance(reason: TraceFallbackReason | None) -> str:
+    """Return actionable guidance for a structured detail-trace fallback."""
+    from ..session.monitor.op_metrics import TraceFallbackReason
+
+    guidance: dict[TraceFallbackReason, str] = {
+        TraceFallbackReason.QNN_LOG_MISSING: "the QNN optrace log was not produced",
+        TraceFallbackReason.SCHEMATIC_MISSING: (
+            "the compiled EPContext has no optrace schematic; rerun detail "
+            "profiling from the raw ONNX so WinML can compile it with optrace enabled"
+        ),
+        TraceFallbackReason.SDK_MISSING: (
+            "the QNN SDK was not found; set QNN_SDK_ROOT to enable QHAS"
+        ),
+        TraceFallbackReason.VIEWER_FAILED: "the QHAS viewer did not produce an output",
+        TraceFallbackReason.SCHEMATIC_PUBLISH_FAILED: (
+            "could not copy the QNN optrace schematic next to the profiling artifacts"
+        ),
+        TraceFallbackReason.QHAS_OUTPUT_MISSING: "the requested QHAS output was not found",
+        TraceFallbackReason.QHAS_PARSE_FAILED: "the QHAS output could not be parsed",
+    }
+    if reason is None:
+        return "QHAS post-processing was unavailable"
+    return guidance.get(reason, "QHAS post-processing was unavailable")
 
 
 class _NativeWarningFilteredPerfContext:
@@ -215,7 +251,7 @@ def _resolve_ep_monitor(
                     "with QNN runtime, or run `wmk perf` without --op-tracing."
                 )
             return QNNMonitor(
-                level=cast('Literal["basic", "detail"]', op_tracing),
+                level=cast(Literal["basic", "detail"], op_tracing),  # noqa: TC006
                 output_dir=output_dir,
             )
 
@@ -264,6 +300,117 @@ def _pre_bench_kwargs_from_ep_device(
         "ep_version": ep_device.version,
         "ep_dll_path": "" if ep_device.is_builtin else str(ep_device.dll_path),
     }
+
+
+def _get_ep_device_binding(
+    ep_device: WinMLEPDevice | None,
+    provider_options: dict[str, str] | None = None,
+) -> tuple[str | None, str | None]:
+    """Return the effective LUID and device kind for a concrete EP binding."""
+    if ep_device is None:
+        return None, None
+
+    from ..sysinfo import get_ep_device_luid
+
+    device = ep_device.device
+    has_provider_selector, provider_device = _get_provider_selected_device(
+        ep_device,
+        provider_options,
+    )
+    if has_provider_selector and provider_device is None:
+        return None, None
+
+    if provider_options:
+        candidates = [
+            candidate
+            for candidate in ep_device.ep.devices
+            if provider_device is None
+            or candidate.device_type.lower() == provider_device
+        ]
+        if not candidates:
+            return None, provider_device
+        candidate_options = [
+            (
+                candidate,
+                {
+                    str(key): str(value)
+                    for key, value in candidate.ort_handle.ep_options.items()
+                },
+            )
+            for candidate in candidates
+        ]
+        advertised_keys = {
+            key for _, options in candidate_options for key in options
+        }
+        selected_options = {
+            str(key): str(value)
+            for key, value in device.ort_handle.ep_options.items()
+        }
+        device_overrides = {
+            key: str(value)
+            for key, value in provider_options.items()
+            if key in advertised_keys and selected_options.get(key) != str(value)
+        }
+        if device_overrides:
+            matches = [
+                candidate
+                for candidate, options in candidate_options
+                if all(options.get(key) == value for key, value in device_overrides.items())
+            ]
+            if len(matches) != 1:
+                return None, provider_device
+            device = matches[0]
+        elif has_provider_selector and device not in candidates:
+            if len(candidates) != 1:
+                return None, provider_device
+            device = candidates[0]
+
+    luid = get_ep_device_luid(device.ort_handle)
+    device_kind = device.device_type.lower()
+    if device_kind not in ACCELERATOR_DEVICE_TYPES:
+        return (None, device_kind) if has_provider_selector else (None, None)
+    return luid, device_kind
+
+
+def _get_provider_selected_device(
+    ep_device: WinMLEPDevice | None,
+    provider_options: dict[str, str] | None,
+) -> tuple[bool, str | None]:
+    """Return whether provider options select a device and the resolved kind."""
+    if ep_device is None or not provider_options:
+        return False, None
+
+    from ..session import device_from_provider_option_hints
+
+    return device_from_provider_option_hints(
+        ep_device.device.ep_name,
+        provider_options,
+    )
+
+
+def _get_monitor_binding(
+    ep_device: WinMLEPDevice | None,
+    requested_device: str,
+    provider_options: dict[str, str] | None,
+) -> tuple[str, str | None, str | None]:
+    """Return the safe monitor device, LUID, and bound adapter device."""
+    adapter_luid, adapter_device = _get_ep_device_binding(
+        ep_device,
+        provider_options,
+    )
+    has_provider_selector, _ = _get_provider_selected_device(
+        ep_device,
+        provider_options,
+    )
+    if has_provider_selector and adapter_luid is None:
+        return "cpu", None, None
+
+    monitor_device = adapter_device or requested_device
+    return (
+        monitor_device,
+        adapter_luid,
+        adapter_device if adapter_luid is not None else None,
+    )
 
 
 def _open_ep_monitor_or_exit(
@@ -320,7 +467,7 @@ class BenchmarkConfig:
     max_optim_iterations: int | None = None
     no_compile: bool = True
     rebuild: bool = False
-    ignore_cache: bool = False
+    use_cache: bool = True
     skip_build: bool = True
     allow_unsupported_nodes: bool = False
     monitor: bool = False
@@ -400,7 +547,9 @@ class BenchmarkResult:
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result: dict[str, Any] = {
+            "schema_version": 2,
             "benchmark_info": {
+                "runtime": _RUNTIME_TYPE,
                 "model_id": self.config.model_id,
                 "running_model_path": self.running_model_path,
                 "task": self.actual_task,
@@ -935,11 +1084,24 @@ class PerfBenchmark:
                 "rss_baseline_mb": round(rss_baseline, 2),
                 "rss_after_compile_mb": round(rss_after_compile, 2),
                 "rss_after_inference_mb": round(rss_after_inference, 2),
+                "rss_checkpoint_peak_mb": round(
+                    max(rss_baseline, rss_after_compile, rss_after_inference), 2
+                ),
                 "rss_model_load_delta_mb": round(rss_after_compile - rss_baseline, 2),
                 "rss_inference_delta_mb": round(rss_after_inference - rss_after_compile, 2),
                 "rss_total_delta_mb": round(rss_after_inference - rss_baseline, 2),
+                "vram_local_baseline_mb": round(vram_local_baseline, 2),
+                "vram_shared_baseline_mb": round(vram_shared_baseline, 2),
+                "vram_local_after_compile_mb": round(vram_local_compile, 2),
+                "vram_shared_after_compile_mb": round(vram_shared_compile, 2),
                 "vram_local_after_inference_mb": round(vram_local_infer, 2),
                 "vram_shared_after_inference_mb": round(vram_shared_infer, 2),
+                "vram_local_checkpoint_peak_mb": round(
+                    max(vram_local_baseline, vram_local_compile, vram_local_infer), 2
+                ),
+                "vram_shared_checkpoint_peak_mb": round(
+                    max(vram_shared_baseline, vram_shared_compile, vram_shared_infer), 2
+                ),
                 "vram_local_model_load_delta_mb": round(
                     vram_local_compile - vram_local_baseline, 2
                 ),
@@ -1025,10 +1187,6 @@ class PerfBenchmark:
         elif self.config.no_quantize:
             override = WinMLBuildConfig(quant=None)
 
-        # Cache control: --ignore-cache -> temp dir, --rebuild -> overwrite cache
-        use_cache = not self.config.ignore_cache
-        force_rebuild = self.config.rebuild or self.config.ignore_cache
-
         common_kwargs: dict[str, Any] = {
             "task": resolved_task,
             "config": override,
@@ -1037,8 +1195,10 @@ class PerfBenchmark:
             "ep": self.config.ep,
             "precision": self.config.precision,
             "provider_options": self.config.ep_options,
-            "use_cache": use_cache,
-            "force_rebuild": force_rebuild,
+            **cli_utils.cache_extra_kwargs(
+                use_cache=self.config.use_cache,
+                rebuild=self.config.rebuild,
+            ),
             "shape_config": self.config.shape_config,
             "allow_unsupported_nodes": self.config.allow_unsupported_nodes,
             "no_compile": self.config.no_compile,
@@ -1113,13 +1273,31 @@ class PerfBenchmark:
         if device == "cpu":
             return None
 
+        bound_luid, bound_device = _get_ep_device_binding(
+            self._ep_device,
+            self.config.ep_options,
+        )
+        if bound_luid is not None:
+            return bound_luid
+        has_provider_selector, _ = _get_provider_selected_device(
+            self._ep_device,
+            self.config.ep_options,
+        )
+        if has_provider_selector:
+            return None
+
         try:
             from ..sysinfo.pdh_adapters import resolve_adapter_luid
 
             # ep_name is the full ORT EP name (a member of EPName at runtime);
             # WinMLPreTrainedModel types it loosely as ``str | None``.
             ep_name = cast("EPName | None", self._single.ep_name)
-            kinds = (device,) if device in ACCELERATOR_DEVICE_TYPES else ACCELERATOR_DEVICE_TYPES
+            effective_device = bound_device or device
+            kinds = (
+                (effective_device,)
+                if effective_device in ACCELERATOR_DEVICE_TYPES
+                else ACCELERATOR_DEVICE_TYPES
+            )
             for kind in kinds:
                 luid = resolve_adapter_luid(kind, ep_name=ep_name)
                 if luid:
@@ -1207,13 +1385,20 @@ class PerfBenchmark:
         # Full ORT EP name; HWMonitor resolves the adapter LUID from it.
         ep_name = cast("EPName | None", self._single.ep_name)
         monitor_device = self._single.device or self.config.device or "auto"
+        effective_monitor_device, adapter_luid, adapter_device = _get_monitor_binding(
+            self._ep_device,
+            monitor_device,
+            self.config.ep_options,
+        )
 
         session = self._single._session
         if hw_available:
             hw_monitor = HWMonitor(
                 poll_interval_ms=_HW_POLL_INTERVAL_MS,
-                device=monitor_device,
+                device=effective_monitor_device,
                 ep_name=ep_name,
+                adapter_luid=adapter_luid,
+                adapter_device=adapter_device if adapter_luid is not None else None,
             )
             with (
                 _native_warning_filtered_perf(
@@ -1346,7 +1531,7 @@ def _perf_modules(
     precision: str = "auto",
     allow_unsupported_nodes: bool = False,
     rebuild: bool = False,
-    ignore_cache: bool = False,
+    use_cache: bool = True,
 ) -> None:
     """Run per-module build and benchmark for matching submodules.
 
@@ -1385,9 +1570,8 @@ def _perf_modules(
             the analyzer reports unsupported nodes that persist.
         rebuild: If True, overwrite cached per-module artifacts and re-run the
             build (mirrors the single-model ``--rebuild``).
-        ignore_cache: If True, build each module in a throwaway temp dir and
-            always rebuild, discarding artifacts afterward (mirrors the
-            single-model ``--ignore-cache``).
+        use_cache: If False, build each module in a throwaway temp dir and
+            always rebuild, discarding artifacts afterward.
     """
     import contextlib
     import difflib
@@ -1462,14 +1646,16 @@ def _perf_modules(
     parent_model = _instantiate_parent_model(model_type, task=parent_loader_cfg.task)
 
     # Cache control mirrors auto.py / the single-model path:
-    #   --ignore-cache -> build each module in a throwaway temp dir, always
+    #   --no-use-cache -> build each module in a throwaway temp dir, always
     #                     rebuild, discard afterward
     #   --rebuild      -> reuse the persistent model dir but overwrite artifacts
     # Each module's cache_key folds in loader.module_path (and its I/O shapes),
     # so sibling instances of the same class get distinct keys and coexist in
     # the shared model dir without colliding.
-    use_cache = not ignore_cache
-    force_rebuild = rebuild or ignore_cache
+    force_rebuild = cli_utils.cache_extra_kwargs(
+        use_cache=use_cache,
+        rebuild=rebuild,
+    )["force_rebuild"]
     task_abbrev = get_task_abbrev(parent_loader_cfg.task) if parent_loader_cfg.task else "module"
     cache_model_dir = get_model_dir(hf_model, cache_dir=get_cache_dir()) if use_cache else None
 
@@ -1563,10 +1749,23 @@ def _perf_modules(
                     from ..session.monitor.hw_monitor import HWMonitor
 
                     if HWMonitor.is_available():
+                        (
+                            effective_monitor_device,
+                            adapter_luid,
+                            adapter_device,
+                        ) = _get_monitor_binding(
+                            resolved_ep_device,
+                            resolved_device,
+                            ep_options,
+                        )
                         hw_ctx = HWMonitor(
                             poll_interval_ms=_HW_POLL_INTERVAL_MS,
-                            device=resolved_device,
+                            device=effective_monitor_device,
                             ep_name=cast("EPName | None", session.ep_name),
+                            adapter_luid=adapter_luid,
+                            adapter_device=(
+                                adapter_device if adapter_luid is not None else None
+                            ),
                         )
 
                 if hw_ctx:
@@ -2118,12 +2317,11 @@ _GENAI_IGNORED_FLAGS: dict[str, str] = {
     "analyze": "--analyze/--no-analyze",
     "max_optim_iterations": "--max-optim-iterations",
     "rebuild": "--rebuild",
-    "ignore_cache": "--ignore-cache",
+    "use_cache": "--use-cache/--no-use-cache",
     "skip_build": "--skip-build",
     "allow_unsupported_nodes": "--allow-unsupported-nodes",
     "batch_size": "--batch-size",
     "duration": "--duration",
-    "memory": "--memory",
     "op_tracing": "--op-tracing",
 }
 
@@ -2131,12 +2329,12 @@ _GENAI_IGNORED_FLAGS: dict[str, str] = {
 # excluded from the ignored-flags warning when a bundle is auto-built. A prebuilt
 # bundle still ignores them all.
 #
-# * Cache-behavior flags force the build path (the reuse fast-path is never taken
-#   when they are set), so they are honored whenever an auto-build runs.
+# * ``--rebuild`` forces the auto-build path and is honored whenever it runs.
+#   Model build cache controls are deferred for GenAI (issue #1275).
 # * Artifact-shaping flags only take effect when a build actually runs; a cache
 #   hit reuses a bundle keyed by the model id alone and silently drops them, so
 #   they are still reported as ignored in that case.
-_GENAI_BUILD_CONTROL_FLAGS: frozenset[str] = frozenset({"rebuild", "ignore_cache"})
+_GENAI_BUILD_CONTROL_FLAGS: frozenset[str] = frozenset({"rebuild"})
 _GENAI_BUILD_INPUT_FLAGS: frozenset[str] = frozenset({"task", "precision"})
 
 
@@ -2146,7 +2344,8 @@ def _warn_ignored_genai_flags(
     """Warn about WinML-only flags the user passed that genai ignores.
 
     When the bundle was auto-built from a model id (``autobuilt``), the
-    cache-behavior flags (rebuild/ignore-cache) are always honored by the build.
+    ``--rebuild`` is honored by the build. Model build cache controls are
+    deferred for GenAI (issue #1275).
     The artifact-shaping flags (task/precision) are honored only when a fresh
     build actually ran (``built_fresh``); on a cache hit the model-id-keyed bundle
     is reused as-is, so those flags are reported as ignored. A prebuilt bundle
@@ -2180,10 +2379,6 @@ def _autobuild_genai_bundle(
 
     * a plain run reuses a previously built bundle keyed by the model id;
     * ``--rebuild`` overwrites that cached bundle in place;
-    * ``--ignore-cache`` builds fresh in a throwaway temp dir -- both the
-      assembled bundle and its component build cache -- and leaves the managed
-      cache untouched. The temp dir is entered on *stack* so it outlives the
-      benchmark and is removed afterwards.
 
     genai bundles target the NPU HTP via QNN, so the build pins ``ep=qnn`` /
     ``device=npu`` regardless of the benchmark's ``--device`` (which still
@@ -2196,37 +2391,21 @@ def _autobuild_genai_bundle(
     a build actually ran and ``False`` when the managed-cache fast-path reused an
     existing bundle (in which case task/precision were not applied to it).
     """
-    import tempfile
-
     from ..cache import get_cache_dir, get_model_dir
     from ..loader import resolve_loader_config
     from ..models.winml import build_genai_bundle, resolve_genai_bundle
 
     p = ctx.params
 
-    if p.get("ignore_cache"):
-        # Mirror the winml runtime's use_cache=False path: build everything
-        # fresh in a throwaway temp dir and neither read from nor write to the
-        # managed cache. The assembled bundle and the component build cache both
-        # live under the temp root; the ExitStack removes it after benchmarking.
-        tmp_root = Path(
-            stack.enter_context(
-                tempfile.TemporaryDirectory(prefix="winml-genai-perf-", ignore_cleanup_errors=True)
-            )
-        )
-        bundle_dir = tmp_root / "genai-bundle"
-        build_cache_dir: Path = tmp_root / "cache"
-        force_rebuild = True
-    else:
-        cache_dir = get_cache_dir()
-        bundle_dir = get_model_dir(model, cache_dir=cache_dir) / "genai-bundle"
-        build_cache_dir = cache_dir
-        # --rebuild overwrites the cached bundle; a plain run reuses it. Checked
-        # before any model resolution so a cache hit never touches the network.
-        force_rebuild = bool(p.get("rebuild"))
-        if (bundle_dir / "genai_config.json").exists() and not force_rebuild:
-            console.print(f"[dim]Reusing cached genai bundle:[/dim] {bundle_dir}")
-            return bundle_dir, False
+    cache_dir = get_cache_dir()
+    bundle_dir = get_model_dir(model, cache_dir=cache_dir) / "genai-bundle"
+    build_cache_dir = cache_dir
+    # --rebuild overwrites the cached bundle; a plain run reuses it. Checked
+    # before any model resolution so a cache hit never touches the network.
+    force_rebuild = bool(p.get("rebuild"))
+    if (bundle_dir / "genai_config.json").exists() and not force_rebuild:
+        console.print(f"[dim]Reusing cached genai bundle:[/dim] {bundle_dir}")
+        return bundle_dir, False
 
     # Cache miss (or forced rebuild): resolve the model family so its
     # genai-bundle recipe can drive the build.
@@ -2270,7 +2449,9 @@ def _autobuild_genai_bundle(
     return bundle_dir, True
 
 
-def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool) -> None:
+def _run_genai_runtime(
+    ctx: click.Context, *, model: str, console: Console, json_mode: bool
+) -> None:
     """Validate folder input and dispatch to the winml-genai benchmark path.
 
     The genai imports are function-local so ``winml perf --help`` does not pay
@@ -2286,8 +2467,6 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     )
 
     p = ctx.params
-    model: str = p["model"]
-
     # --module walks a live nn.Module graph; meaningless for a prebuilt bundle.
     if p.get("module_class"):
         raise click.UsageError("--module is not supported with --runtime winml-genai.")
@@ -2299,9 +2478,7 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     if p.get("submodel"):
         raise click.UsageError("--submodel is not supported with --runtime winml-genai.")
 
-    # The ExitStack keeps an --ignore-cache auto-build's throwaway temp dir alive
-    # across the benchmark below, then removes it on exit. A bundle dir or a
-    # cached auto-build registers nothing, so it is a no-op.
+    # Keep any bundle-lifetime resources alive across the benchmark.
     with contextlib.ExitStack() as stack:
         # Resolve the bundle. A local directory is used as-is (it must be a real
         # genai bundle); an ``.onnx`` file is rejected; anything else is treated
@@ -2375,6 +2552,7 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
 
         config = GenaiPerfConfig(
             bundle_dir=bundle_dir,
+            model_id=model,
             ep=ep,
             device=device,
             prompt=prompt,
@@ -2385,6 +2563,7 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
             compile=not p["no_compile"],
             compile_timeout=p["compile_timeout"],
             monitor=bool(p.get("monitor")),
+            memory=bool(p.get("memory")),
             output_path=output,
         )
         run_genai_perf(config, console=console, json_mode=json_mode)
@@ -2438,9 +2617,10 @@ def _validate_duration(
 @click.option(
     "--runtime",
     type=click.Choice(list(RUNTIME_NAMES)),
-    default="winml",
+    default="auto",
     show_default=True,
-    help="Inference runtime. 'winml' benchmarks single-shot ONNX inference; "
+    help="'auto' selects winml-genai for folders containing genai_config.json, "
+    "otherwise winml. 'winml' benchmarks single-shot ONNX inference; "
     "'winml-genai' benchmarks an onnxruntime-genai bundle folder "
     "(LLM generation: TTFT + decode tokens/sec).",
 )
@@ -2583,18 +2763,7 @@ def _validate_duration(
 @cli_utils.optimize_option(optional_message="Applied during model build.")
 @cli_utils.analyze_option(optional_message="Applied during model build.")
 @cli_utils.max_optim_iterations_option()
-@click.option(
-    "--rebuild/--no-rebuild",
-    default=False,
-    show_default=True,
-    help="Force rebuild even if cached artifacts exist",
-)
-@click.option(
-    "--ignore-cache/--no-ignore-cache",
-    default=False,
-    show_default=True,
-    help="Build from scratch in a temp folder (discard after benchmarking)",
-)
+@cli_utils.cache_options()
 @cli_utils.skip_build_option()
 @cli_utils.compile_option(
     default=True,
@@ -2684,8 +2853,8 @@ def perf(
     optimize: bool,
     analyze: bool,
     max_optim_iterations: int | None,
+    use_cache: bool,
     rebuild: bool,
-    ignore_cache: bool,
     skip_build: bool,
     no_compile: bool,
     allow_unsupported_nodes: bool,
@@ -2759,6 +2928,7 @@ def perf(
     except Exception as e:
         raise click.ClickException(f"Failed to resolve Hub-hosted ONNX path {model!r}: {e}") from e
     model = hf_model
+    runtime = _resolve_runtime(runtime, model)
     # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
     # op-tracing section the flag is meaningless, so reject it explicitly
     # rather than silently ignoring a user's intent.
@@ -2818,7 +2988,7 @@ def perf(
                 "--input-data is not supported with --runtime winml-genai; "
                 "genai benchmarking is driven by --prompt."
             )
-        _run_genai_runtime(ctx, console=console, json_mode=json_mode)
+        _run_genai_runtime(ctx, model=model, console=console, json_mode=json_mode)
         return
 
     # --duration replaces the fixed iteration count with a wall-clock budget.
@@ -2969,7 +3139,7 @@ def perf(
             precision=precision.lower(),
             allow_unsupported_nodes=allow_unsupported_nodes,
             rebuild=rebuild,
-            ignore_cache=ignore_cache,
+            use_cache=use_cache,
         )
         return
 
@@ -3109,7 +3279,7 @@ def perf(
         no_analyze=not analyze,
         max_optim_iterations=max_optim_iterations,
         rebuild=rebuild,
-        ignore_cache=ignore_cache,
+        use_cache=use_cache,
         skip_build=skip_build,
         no_compile=no_compile,
         allow_unsupported_nodes=allow_unsupported_nodes,
@@ -3145,17 +3315,36 @@ def perf(
             # Build-pipeline flags are forwarded to from_onnx but no-op when the
             # build is skipped (the default). Warn so the silent no-op is visible
             # — shared detection with eval via utils/cli.py.
+            from ..onnx import is_compiled_onnx
+
+            build_control_was_set = (
+                not quant or not optimize or not analyze or max_optim_iterations is not None
+            )
+            compiled_onnx = (not skip_build or build_control_was_set) and is_compiled_onnx(
+                model_path
+            )
+            build_runs = not skip_build and not compiled_onnx
             build_flags_warning = cli_utils.ignored_build_flags_warning(
-                build_runs=not skip_build,
+                build_runs=build_runs,
                 quant=quant,
                 optimize=optimize,
                 analyze=analyze,
                 max_optim_iterations=max_optim_iterations,
                 reason="pre-built ONNX inputs",
-                rebuild_hint="--no-skip-build",
+                rebuild_hint=None if compiled_onnx else "--no-skip-build",
             )
             if build_flags_warning:
                 console.print(f"[yellow]Warning:[/yellow] {build_flags_warning}")
+            cache_flags_warning = cli_utils.ignored_cache_flags_warning(
+                build_runs=build_runs,
+                use_cache=use_cache,
+                rebuild=rebuild,
+                use_cache_was_set=cli_utils.is_cli_provided(ctx, "use_cache"),
+                rebuild_was_set=cli_utils.is_cli_provided(ctx, "rebuild"),
+                reason="pre-built ONNX inputs",
+            )
+            if cache_flags_warning:
+                console.print(f"[yellow]Warning:[/yellow] {cache_flags_warning}")
             console.print(f"[dim]Benchmarking ONNX:[/dim] {model_path}")
         else:
             if precision != "auto":
@@ -3255,9 +3444,9 @@ def perf(
                         "EPContext model, but the benchmark ran the original ONNX model."
                     )
                     sys.exit(4)
+                detail = _detail_fallback_guidance(trace_result.fallback_reason)
                 console.print(
-                    "[yellow]Notice:[/yellow] Detail mode degraded to basic CSV "
-                    "(QHAS unavailable; set QNN_SDK_ROOT to enable)."
+                    f"[yellow]Notice:[/yellow] Detail mode degraded to basic CSV ({detail})."
                 )
 
             if json_mode:

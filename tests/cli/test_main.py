@@ -231,6 +231,31 @@ class TestSysCommand:
         assert "python" in data
         assert "libraries" in data
 
+    def test_sys_json_suppresses_ep_install_status(self, runner: CliRunner) -> None:
+        """JSON gathering runs with EP installation status disabled."""
+        from winml.modelkit import ep_path
+
+        mock_eps = {
+            "CPUExecutionProvider": {
+                "entries": [
+                    {"status": "primary", "source_kind": "BuiltinSource", "dll_path": None}
+                ],
+            }
+        }
+
+        def gather_ep_info():
+            assert ep_path._EP_INSTALL_STATUS_ENABLED.get() is False
+            return mock_eps
+
+        with patch(
+            "winml.modelkit.commands.sys._gather_ep_info",
+            side_effect=gather_ep_info,
+        ):
+            result = runner.invoke(main, ["sys", "--format", "json"])
+
+        assert result.exit_code == 0
+        assert "[WinML] Installing Execution Provider" not in result.output
+
     def test_sys_compact_format(self, runner: CliRunner) -> None:
         """Test sys with compact format."""
         result = runner.invoke(main, ["sys", "--format", "compact"])
@@ -299,7 +324,7 @@ class TestSysListEpEndToEnd:
         monkeypatch.setattr(
             _ep,
             "_get_detected_vendors",
-            lambda: frozenset({"Qualcomm Inc"}),
+            lambda *_device_types: frozenset({"Qualcomm Inc"}),
         )
 
     def test_json_shape_has_all_required_fields(self, runner: CliRunner) -> None:

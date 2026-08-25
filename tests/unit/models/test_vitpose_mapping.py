@@ -15,9 +15,13 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from transformers import VitPoseConfig
+
+from winml.modelkit.export import resolve_io_specs
 from winml.modelkit.loader import resolve_task
 from winml.modelkit.models.hf import MODEL_CLASS_MAPPING
 from winml.modelkit.models.hf.vitpose import MODEL_CLASS_MAPPING as VITPOSE_MAPPING
+from winml.modelkit.models.hf.vitpose import VitPoseIOConfig
 
 
 class TestVitPoseMapping:
@@ -67,3 +71,30 @@ class TestVitPoseMapping:
             is MODEL_CLASS_MAPPING[("vitpose", "keypoint-detection")]
         )
 
+
+class TestVitPoseIOConfig:
+    def test_resolves_dummy_input_without_loading_processor(self):
+        config = VitPoseConfig(
+            backbone_config={
+                "model_type": "vitpose_backbone",
+                "image_size": [256, 192],
+                "num_channels": 3,
+            },
+            num_labels=17,
+            scale_factor=4,
+            use_simple_decoder=True,
+        )
+
+        specs = resolve_io_specs(
+            "vitpose",
+            "keypoint-detection",
+            config,
+            height=256,
+            width=192,
+        )
+
+        assert specs["input_names"] == ["pixel_values"]
+        assert specs["output_names"] == ["heatmaps"]
+        assert specs["input_shapes"] == [(1, 3, 256, 192)]
+        assert specs["input_dtypes"] == ["float32"]
+        assert VitPoseIOConfig.__name__ == "VitPoseIOConfig"

@@ -12,10 +12,12 @@ loop wiring with a mocked image processor and model.
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 import torch
 
-from winml.modelkit.eval import WinMLKeypointDetectionEvaluator
+from winml.modelkit.eval import WinMLEvaluationConfig, WinMLKeypointDetectionEvaluator
 
 
 def _make_evaluator(box_format: str = "xywh") -> WinMLKeypointDetectionEvaluator:
@@ -30,6 +32,7 @@ def _make_evaluator(box_format: str = "xywh") -> WinMLKeypointDetectionEvaluator
     ev._sigmas = None
     ev._keypoint_names = None
     ev._dataset_index = 0
+    ev.config = WinMLEvaluationConfig(task="keypoint-detection")
     return ev
 
 
@@ -41,6 +44,27 @@ class TestBoxFormat:
     def test_xyxy_converted_to_xywh(self):
         ev = _make_evaluator("xyxy")
         assert ev._to_xywh([10.0, 20.0, 40.0, 60.0]) == [10.0, 20.0, 30.0, 40.0]
+
+    def test_processor_forwards_trust_remote_code(self):
+        ev = _make_evaluator()
+        ev.config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="keypoint-detection",
+            trust_remote_code=True,
+        )
+        ev.model = MagicMock(io_config={})
+        processor = MagicMock()
+
+        with patch(
+            "transformers.AutoImageProcessor.from_pretrained",
+            return_value=processor,
+        ) as load_processor:
+            assert ev.prepare_pipeline() is processor
+
+        load_processor.assert_called_once_with(
+            "test/model",
+            trust_remote_code=True,
+        )
 
 
 class TestPredictionFlattening:
@@ -189,4 +213,3 @@ class TestModelInputContract:
         ev.model = model
         ev._predict_poses(_MockProcessor(), object(), [[0.0, 0.0, 10.0, 10.0]])
         assert model.calls[0]["dataset_index"].tolist() == [2]
-

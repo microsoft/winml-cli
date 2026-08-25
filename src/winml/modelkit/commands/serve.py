@@ -134,7 +134,14 @@ def serve(
         except ImportError as e:
             raise click.ClickException(f"Failed to load serving module: {e}") from e
         _banner0(host=host, port=port)
-        uvicorn.run(app, host=host, port=port, reload=auto_reload, log_level="warning")
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            reload=auto_reload,
+            log_level="warning",
+            proxy_headers=False,
+        )
         return
 
     # ------------------------------------------------------------------
@@ -172,4 +179,5 @@ def serve(
         port=port,
         reload=auto_reload,
         log_level="warning",
+        proxy_headers=False,
     )

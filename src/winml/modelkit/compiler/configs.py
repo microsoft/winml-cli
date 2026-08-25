@@ -36,6 +36,7 @@ class EPConfig:
     Attributes:
         provider: Target execution provider (qnn, cpu, cuda, dml)
         provider_options: EP-specific options as key=value dict
+        provider_option_file_keys: Provider option keys whose values are file paths
         enable_ep_context: Generate EPContext model with pre-compiled graph
         embed_context: Embed context in ONNX (True) or external .bin file (False)
         compiler: Compiler backend ("ort", "ort_session", or "qairt").
@@ -51,6 +52,7 @@ class EPConfig:
     compiler: CompilerName = "ort"
     qnn_sdk_root: Path | None = None
     device: str = "auto"
+    provider_option_file_keys: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -274,18 +276,21 @@ class WinMLCompileConfig:
         from pathlib import Path as _Path
 
         provider_options: dict[str, str] = {}
+        provider_option_file_keys: set[str] = set()
         ryzen_ai = os.environ.get("RYZEN_AI_INSTALLATION_PATH")
         if ryzen_ai:
             xclbin = _Path(ryzen_ai) / "voe-4.0-win_amd64" / "xclbins" / "phoenix" / "4x4.xclbin"
             if xclbin.exists():
                 provider_options["target"] = "X1"
                 provider_options["xclbin"] = str(xclbin)
+                provider_option_file_keys.add("xclbin")
                 provider_options["xlnx_enable_py3_round"] = "0"
         ep_cfg = EPConfig(
             provider="vitisai",
             enable_ep_context=True,
             provider_options=provider_options,
             device=device or "auto",
+            provider_option_file_keys=provider_option_file_keys,
         )
         return cls(ep_config=ep_cfg)
 
@@ -305,6 +310,7 @@ class WinMLCompileConfig:
         return {
             "execution_provider": self.ep_config.provider,
             "provider_options": self.ep_config.provider_options,
+            "provider_option_file_keys": sorted(self.ep_config.provider_option_file_keys),
             "enable_ep_context": self.ep_config.enable_ep_context,
             "embed_context": self.ep_config.embed_context,
             "compiler": self.ep_config.compiler,
@@ -324,6 +330,7 @@ class WinMLCompileConfig:
         ep_config = EPConfig(
             provider=data.get("execution_provider"),
             provider_options=data.get("provider_options", {}),
+            provider_option_file_keys=set(data.get("provider_option_file_keys", [])),
             enable_ep_context=data.get("enable_ep_context", True),
             embed_context=data.get("embed_context", False),
             compiler=data.get("compiler", "ort"),

@@ -61,7 +61,11 @@ from ..utils.constants import (
     EP_SUPPORTED_DEVICES,
     normalize_ep_name,
 )
-from .ep_device import EP_DEVICE_SPECS, VALID_EPS, short_ep_name
+from .ep_device import (
+    VALID_EPS,
+    device_from_provider_option_hints,
+    short_ep_name,
+)
 from .ep_registry import WinMLEPRegistry
 
 
@@ -136,6 +140,47 @@ def _compile_stage_worker(src: str, dst: str, ep_alias: str, provider_options: d
         raise RuntimeError(f"Compilation failed: {result.errors}")
 
 
+def _compile_shared_stages_worker(
+    srcs: list[str], dsts: list[str], ep_alias: str, provider_options: dict
+) -> None:
+    """Compile several stage ONNX graphs into weight-sharing EPContexts.
+
+    Executed in a subprocess by :meth:`GenaiSession._compile_stages_shared`.  A
+    single :class:`~winml.modelkit.compiler.Compiler` with
+    ``n_total_models=len(srcs)`` compiles every source in order through one
+    shared ``SessionOptions``, so ORT sets ``ep.share_ep_contexts`` on all but
+    the last graph and ``ep.stop_share_ep_contexts`` on the last — the compiled
+    graphs then reference a single shared weights ``.bin`` instead of embedding
+    a private copy each.  The EP is resolved generically from *ep_alias* and the
+    provider options (identical across the group) are forwarded unchanged.
+
+    Args:
+        srcs: Absolute paths to the source ONNX files, in compile order.
+        dsts: Absolute EPContext output paths, aligned with *srcs*.
+        ep_alias: EP short name shared by every stage (e.g. ``"qnn"``).
+        provider_options: EP provider options from ``genai_config.json`` (shared
+            by the whole group).
+
+    Raises:
+        RuntimeError: If *ep_alias* is not EPContext-capable, or any stage
+            compilation reports failure.
+    """
+    from ..compiler import Compiler, WinMLCompileConfig
+
+    config = WinMLCompileConfig.for_provider(ep_alias)  # type: ignore[arg-type]
+    if config is None:
+        raise RuntimeError(f"EP {ep_alias!r} does not support EPContext pre-compilation")
+    config.ep_config.provider_options.update(provider_options)
+
+    # One Compiler instance threads a shared SessionOptions across all models so
+    # the EP context (and its weights) is shared; the last model flushes it.
+    compiler = Compiler(n_total_models=len(srcs))
+    for src, dst in zip(srcs, dsts, strict=True):
+        result = compiler.compile(model_path=src, output_path=dst, config=config)
+        if not result.success:
+            raise RuntimeError(f"Compilation failed for {src}: {result.errors}")
+
+
 def _prepare_derived_bundle_worker(
     result_queue: Any,
     bundle_dir: str,
@@ -190,8 +235,10 @@ class GenerationConfig:
     """Search / sampling parameters for a single generation call.
 
     All parameters are forwarded to ``og.GeneratorParams.set_search_options``.
-    ``max_length`` is computed as ``len(prompt) + max_new_tokens``, capped at
-    the bundle's ``context_length``, so only the needed KV cache is allocated.
+    Static decoder pipelines use the bundle's full ``context_length`` because
+    their KV-cache stages have fixed shapes. Other model types compute
+    ``max_length`` as ``len(prompt) + max_new_tokens``, capped at
+    ``context_length``, so only the needed dynamic KV cache is allocated.
 
     Attributes:
         max_new_tokens: Soft cap on the number of new tokens to generate.
@@ -225,32 +272,42 @@ class GenerationTiming:
     measurements taken immediately around the library calls.  The segmentation
     mirrors onnxruntime-genai's official ``benchmark_e2e.py``:
 
+    * ``generator_create_s`` — cost of constructing ``og.Generator`` and search
+      parameters for one request.
     * ``prefill_s`` — cost of ``Generator.append_tokens`` (the prompt forward
       pass, a.k.a. prompt processing).
     * ``first_token_s`` — cost of the first ``Generator.generate_next_token``.
     * ``decode_s`` — cost of each subsequent ``generate_next_token`` (one entry
       per generated token after the first).
 
-    Detokenization is intentionally excluded — only model-compute boundaries
-    are timed, so the numbers reflect the pipeline rather than tokenizer/string
-    overhead.
+    Host sequence fetch and detokenization are measured separately from
+    model-compute boundaries, so callers can report either request-level or
+    pure model-compute latency.
 
     Attributes:
         input_tokens: Number of prompt tokens fed to ``append_tokens``.
         generated_tokens: Number of tokens produced (including the first).
+        generator_create_s: Generator construction time, in seconds.
         prefill_s: Prompt-processing time in seconds.
         first_token_s: Time to produce the first token, in seconds.
         decode_s: Per-token times for the steady-state decode phase (tokens
             after the first), in seconds.
+        sequence_fetch_s: Time spent fetching the generated token sequence from
+            the native generator after model compute, in seconds.
+        detokenization_s: Time spent decoding output token IDs to text, in
+            seconds.
         response_text: Decoded model output text (empty string when not
             captured).
     """
 
     input_tokens: int = 0
     generated_tokens: int = 0
+    generator_create_s: float = 0.0
     prefill_s: float = 0.0
     first_token_s: float = 0.0
     decode_s: list[float] = field(default_factory=list)
+    sequence_fetch_s: float = 0.0
+    detokenization_s: float = 0.0
     response_text: str = ""
 
     @property
@@ -419,12 +476,14 @@ class GenaiSession:
         self._compile_timeout = compile_timeout
         # Resolved at load() time.
         self._context_length: int | None = None
+        self._is_decoder_pipeline = False
         self._effective_device: str | None = None
         self._effective_hardware_ep: EPName | None = None
 
         # og.* handles — None until load() is called.
         self._model: Any = None
         self._tokenizer: Any = None
+        self._load_timings_ms: dict[str, float] = {}
 
         if not self._bundle_dir.exists():
             raise FileNotFoundError(f"Bundle directory not found: {self._bundle_dir}")
@@ -482,22 +541,13 @@ class GenaiSession:
         if self._model is not None:
             return
 
+        session_load_start = time.perf_counter()
         og = self._import_og()
 
-        cfg = self._read_genai_config()
-
-        # Apply the ``ep`` override (if any) to obtain the *effective* config that
-        # actually drives routing.  Precedence is explicit arg > bundle config:
-        # when no override is set this is the bundle config verbatim.
-        effective_cfg, overridden = self._apply_ep_override(cfg)
-
-        # Record whether the override actually applied so :attr:`effective_ep`
-        # (and the perf report) never claim an EP that matched no stage.  Warn
-        # when a requested override is a no-op so ``--ep qnn`` on a flat/all-CPU
-        # bundle is visibly reported as "config" rather than silently ignored.
-        self._override_effective = self._override_took_effect(effective_cfg)
-        self._effective_device = self._resolve_effective_device(effective_cfg)
-        self._effective_hardware_ep = self._hardware_ep_from_config(effective_cfg)
+        # Resolve effective routing before any native load work.  Perf uses the
+        # same helper ahead of load() so monitor and memory adapter selection do
+        # not guess from requested CLI values.
+        effective_cfg, overridden = self._resolve_effective_config()
         if self._ep_override is not None and not self._override_effective:
             logger.warning(
                 "EP override %r was requested but did not take effect (flat/empty "
@@ -512,8 +562,11 @@ class GenaiSession:
         # triggers it — all without a hardcoded EP short-name → behavior map.
         plugin_eps = self._bundle_plugin_eps(effective_cfg)
         logger.info("Plugin EPs detected in effective genai_config: %s", plugin_eps)
+        ep_registration_ms = 0.0
         if plugin_eps:
+            ep_registration_start = time.perf_counter()
             self._register_eps(og, plugin_eps)
+            ep_registration_ms = (time.perf_counter() - ep_registration_start) * 1000.0
 
         if self._verbose:
             og.set_log_options(enabled=True, model_input_values=True, model_output_shapes=True)
@@ -528,25 +581,46 @@ class GenaiSession:
         # override-only pass (no compilation) merely rewrites JSON + mirrors
         # files, touches no native accelerator state, and stays in-process.
         load_dir = self._bundle_dir
+        bundle_prepare_ms = 0.0
         if self._compile:
+            bundle_prepare_start = time.perf_counter()
             load_dir = self._prepare_derived_bundle_isolated(effective_cfg, overridden=overridden)
+            bundle_prepare_ms = (time.perf_counter() - bundle_prepare_start) * 1000.0
         elif overridden:
+            bundle_prepare_start = time.perf_counter()
             load_dir = self._prepare_derived_bundle(effective_cfg, overridden=overridden)
+            bundle_prepare_ms = (time.perf_counter() - bundle_prepare_start) * 1000.0
 
+        native_load_start = time.perf_counter()
         try:
             config = og.Config(str(load_dir))
+            after_config = time.perf_counter()
             # Per-stage EP routing lives in the (possibly overridden) genai_config
             # that og.Config loads from ``load_dir``.  Do NOT call
             # clear_providers/append_provider — those only touch the top-level
             # provider and cannot override per-stage session_options.
             self._model = og.Model(config)
+            after_model = time.perf_counter()
             self._tokenizer = og.Tokenizer(self._model)
+            after_tokenizer = time.perf_counter()
         except Exception as exc:
             self._model = None
             self._tokenizer = None
+            self._load_timings_ms = {}
             raise GenaiLoadError(f"Failed to load genai bundle from {load_dir}: {exc}") from exc
 
         self._context_length = self._context_length_override or self._read_context_length()
+        load_end = time.perf_counter()
+        native_load_ms = (after_tokenizer - native_load_start) * 1000.0
+        self._load_timings_ms = {
+            "session_load_duration_ms": (load_end - session_load_start) * 1000.0,
+            "ep_registration_duration_ms": ep_registration_ms,
+            "bundle_prepare_duration_ms": bundle_prepare_ms,
+            "native_load_duration_ms": native_load_ms,
+            "config_create_duration_ms": (after_config - native_load_start) * 1000.0,
+            "model_create_duration_ms": (after_model - after_config) * 1000.0,
+            "tokenizer_create_duration_ms": (after_tokenizer - after_model) * 1000.0,
+        }
         logger.info(
             "GenaiSession loaded: ep=%s context_length=%d",
             self._ep_override or "config",
@@ -561,9 +635,16 @@ class GenaiSession:
         self._model = None
         self._tokenizer = None
         self._context_length = None
+        self._load_timings_ms = {}
         self._effective_device = None
         self._effective_hardware_ep = None
         logger.info("GenaiSession unloaded: bundle=%s", self._bundle_dir)
+
+    def resolve_effective_route(self) -> None:
+        """Populate effective routing metadata without loading native GenAI handles."""
+        if self._model is not None:
+            return
+        self._resolve_effective_config()
 
     def __enter__(self) -> GenaiSession:
         self.load()
@@ -646,9 +727,10 @@ class GenaiSession:
 
         Unlike :meth:`generate_streaming` (which yields decoded text), this
         drives the same ``og.Generator`` loop but records wall-clock spans
-        around the library calls and returns a :class:`GenerationTiming`.  It
-        does **not** decode tokens — only model-compute boundaries are timed,
-        so tokenizer / string overhead is excluded.
+        around the library calls and returns a :class:`GenerationTiming`.
+        Generator construction, host sequence fetch, and detokenization are
+        timed separately from model-compute spans so callers can report either
+        request-level or pure model-compute latency.
 
         The segmentation matches onnxruntime-genai's official
         ``benchmark_e2e.py``: ``append_tokens`` is the prefill (prompt
@@ -673,14 +755,16 @@ class GenaiSession:
         self._ensure_loaded()
         cfg = config or GenerationConfig()
         tokens = self._encode_prompt(prompt)
+        generator_create_start = clock()
         generator = self._new_generator(cfg, len(tokens))
+        generator_create_end = clock()
 
-        # marks[0]  = before prefill
+        # marks[0]  = before prefill (after generator creation)
         # marks[1]  = after prefill (append_tokens)
         # marks[2+k]= after the (k+1)-th generated token
         marks: list[float] = []
         generated = 0
-        marks.append(clock())
+        marks.append(generator_create_end)
         generator.append_tokens(tokens)
         marks.append(clock())
         while not generator.is_done():
@@ -693,19 +777,26 @@ class GenaiSession:
         if generated == 0:
             raise GenaiSessionError("genai: generation produced no tokens (empty bundle output?)")
 
-        # Fetch all output tokens *after* the timing loop so that
-        # get_sequence() (which may trigger host/device copies on hardware EPs)
-        # does not pollute per-token decode measurements.
+        # Fetch and decode *after* the timing loop, as separate spans, so host
+        # copies/string work do not pollute per-token model-compute measurements.
+        sequence_fetch_start = marks[-1]
         full_sequence = generator.get_sequence(0)
+        sequence_fetch_end = clock()
         output_token_ids = list(full_sequence[len(tokens) :])
+        detokenization_start = sequence_fetch_end
+        response_text = str(self._tokenizer.decode(output_token_ids))
+        detokenization_end = clock()
 
         timing = GenerationTiming(
             input_tokens=len(tokens),
             generated_tokens=generated,
+            generator_create_s=generator_create_end - generator_create_start,
             prefill_s=marks[1] - marks[0],
             first_token_s=marks[2] - marks[1],
             decode_s=[marks[i + 1] - marks[i] for i in range(2, 1 + generated)],
-            response_text=str(self._tokenizer.decode(output_token_ids)),
+            sequence_fetch_s=sequence_fetch_end - sequence_fetch_start,
+            detokenization_s=detokenization_end - detokenization_start,
+            response_text=response_text,
         )
         logger.info(
             "generate_timed: input_tokens=%d generated_tokens=%d "
@@ -848,6 +939,11 @@ class GenaiSession:
         return self._context_length
 
     @property
+    def load_timings_ms(self) -> dict[str, float]:
+        """Best-effort wall-clock breakdown for the most recent native load."""
+        return dict(self._load_timings_ms)
+
+    @property
     def effective_device(self) -> str | None:
         """Uniquely resolved hardware device, or ``None`` when routing is ambiguous.
 
@@ -871,6 +967,16 @@ class GenaiSession:
         if self._model is None:
             self.load()
 
+    def _resolve_effective_config(self) -> tuple[dict[str, Any], bool]:
+        """Apply overrides and cache the route that will drive native loading."""
+        cfg = self._read_genai_config()
+        self._is_decoder_pipeline = cfg.get("model", {}).get("type") == "decoder-pipeline"
+        effective_cfg, overridden = self._apply_ep_override(cfg)
+        self._override_effective = self._override_took_effect(effective_cfg)
+        self._effective_device = self._resolve_effective_device(effective_cfg)
+        self._effective_hardware_ep = self._hardware_ep_from_config(effective_cfg)
+        return effective_cfg, overridden
+
     def _encode_prompt(self, prompt: str | list[int]) -> list[int]:
         """Return prompt token IDs, encoding via the bundle tokenizer if needed."""
         if isinstance(prompt, str):
@@ -880,17 +986,23 @@ class GenaiSession:
     def _new_generator(self, cfg: GenerationConfig, prompt_len: int) -> Any:
         """Build an ``og.Generator`` with search options from *cfg*.
 
-        ``max_length`` is set to ``prompt_len + cfg.max_new_tokens``, capped at
-        the bundle's ``context_length``.  This avoids pre-allocating KV cache
-        for the full context window (which can be 128K+ for DML bundles) when
-        only a small generation is requested.
+        Static decoder pipelines use the bundle's full ``context_length``;
+        their fixed-size KV-cache stages may expand the internal sequence to
+        the configured search limit during prompt processing.  Other model
+        types use ``prompt_len + cfg.max_new_tokens``, capped at the context
+        length, to avoid unnecessarily large dynamic allocations.  The
+        generation loops enforce ``max_new_tokens`` as the output-token limit.
 
         The prompt is **not** appended — callers decide whether to time
         ``append_tokens`` separately (see :meth:`generate_timed`).
         """
         og = self._import_og()
         assert self._context_length is not None, "_new_generator called before load()"
-        max_length = min(prompt_len + cfg.max_new_tokens, self._context_length)
+        max_length = (
+            self._context_length
+            if self._is_decoder_pipeline
+            else min(prompt_len + cfg.max_new_tokens, self._context_length)
+        )
         params = og.GeneratorParams(self._model)
         params.set_search_options(
             max_length=max_length,
@@ -1236,8 +1348,6 @@ class GenaiSession:
             Path to the derived bundle directory (equals ``bundle_dir`` when the
             config was not overridden and no stage needed compiling).
         """
-        from ..onnx import is_compiled_onnx
-
         compiled_dir = self._bundle_dir / self._COMPILED_SUBDIR
         cfg = effective_cfg if effective_cfg is not None else self._read_genai_config()
 
@@ -1285,61 +1395,23 @@ class GenaiSession:
         # the file must physically live there.
         compiled_stage_filenames: set[str] = set()
 
-        for stage_key, onnx_filename, ep_alias, ep_opts in compilable_stages:
-            src_onnx = self._bundle_dir / onnx_filename
-            # The EP is part of the cache key: an ``ep`` override can route the
-            # same stage onto different EPContext providers across runs, so each
-            # EP gets its own artifact and EP-A's binary is never reused for EP-B.
-            ctx_onnx = compiled_dir / f"{stage_key}_{ep_alias}_ctx.onnx"
-
-            # Skip recompilation only when the cache is genuinely up-to-date.
-            if self._epcontext_is_fresh(src_onnx, ctx_onnx, ep_alias, ep_opts):
-                logger.info("Stage %r: reusing cached EPContext %s", stage_key, ctx_onnx.name)
-                # Use just the filename — genai_config.json lives in compiled_dir,
-                # so ort-genai resolves filenames relative to compiled_dir.
-                self._patch_stage_filename(modified_cfg, stage_key, ctx_onnx.name)
-                compiled_stage_filenames.add(onnx_filename)
-                any_compiled = True
-                continue
-
-            # A stage whose source ONNX is already an EPContext (pre-compiled)
-            # model needs no recompilation; reference the original file by its
-            # bundle-relative filename and let :meth:`_mirror_non_onnx_files`
-            # link it (plus any weights sidecar) into compiled_dir.  A parse
-            # failure is treated as "not compiled" so a malformed source falls
-            # through to the normal compile path, which has its own error
-            # handling.
-            already_compiled = False
-            if src_onnx.exists():
-                try:
-                    already_compiled = is_compiled_onnx(src_onnx)
-                except (ValueError, OSError):
-                    already_compiled = False
-            if already_compiled:
-                logger.info(
-                    "Stage %r: source is already an EPContext model; using as-is",
-                    stage_key,
+        # Group stages so that multiple stages on the same EPContext EP that
+        # share weights (e.g. the Qwen decoder's ``context`` prefill and
+        # ``iterator`` decode graphs, both on QNN) are compiled together through
+        # one shared EP context — the compiled artifacts then reference a single
+        # shared weights ``.bin`` instead of duplicating the weights per stage.
+        # Stages that cannot share (single-stage EP groups) keep the original
+        # per-stage compile path unchanged.
+        for group in self._group_compilable_stages(compilable_stages):
+            if len(group) > 1:
+                compiled = self._process_shared_group(
+                    group, compiled_dir, modified_cfg, compiled_stage_filenames
                 )
-                self._patch_stage_filename(modified_cfg, stage_key, onnx_filename)
-                continue
-
-            # Attempt compilation.
-            success = self._compile_stage(src_onnx, ctx_onnx, stage_key, ep_alias, ep_opts)
-            if success:
-                self._write_compile_marker(ctx_onnx, ep_alias, ep_opts)
-                self._patch_stage_filename(modified_cfg, stage_key, ctx_onnx.name)
-                compiled_stage_filenames.add(onnx_filename)
-                any_compiled = True
             else:
-                logger.warning(
-                    "Stage %r: compilation failed; using original ONNX (JIT fallback)", stage_key
+                compiled = self._process_single_stage(
+                    group[0], compiled_dir, modified_cfg, compiled_stage_filenames
                 )
-                # Fall back to the original ONNX by its bundle-relative filename.
-                # ort-genai resolves stage filenames relative to compiled_dir, so
-                # the source ONNX (+ its weights sidecar) is mirrored in by
-                # :meth:`_mirror_non_onnx_files` below; patching an absolute path
-                # would be wrongly joined onto compiled_dir into a broken path.
-                self._patch_stage_filename(modified_cfg, stage_key, onnx_filename)
+            any_compiled = any_compiled or compiled
 
         # A derived bundle is only needed when routing changed: either a stage
         # was (re)compiled or the ``ep`` override rewrote the config.
@@ -1370,6 +1442,287 @@ class GenaiSession:
             "winml genai derived bundle completed\n", encoding="utf-8"
         )
         return compiled_dir
+
+    def _group_compilable_stages(
+        self, compilable_stages: list[tuple[str, str, str, dict]]
+    ) -> list[list[tuple[str, str, str, dict]]]:
+        """Partition compilable stages into weight-sharing groups.
+
+        Stages targeting the *same* EPContext-capable EP are candidates for
+        weight sharing: when more than one such stage exists and they are
+        :meth:`_stages_shareable` (identical provider options, existing and
+        not-yet-compiled sources), they are compiled together through one shared
+        EP context so their weights live in a single shared ``.bin`` (the Qwen
+        decoder's ``context`` + ``iterator`` graphs are the canonical case).
+        Every other stage stays in its own single-element group and keeps the
+        original per-stage compile path.
+
+        Order is preserved: the first-seen EP's group comes first, and stages
+        within a shared group keep their pipeline order (so the last stage flushes
+        the shared context via ``ep.stop_share_ep_contexts``).
+        """
+        by_ep: dict[str, list[tuple[str, str, str, dict]]] = {}
+        ep_order: list[str] = []
+        for stage in compilable_stages:
+            ep_alias = stage[2]
+            if ep_alias not in by_ep:
+                by_ep[ep_alias] = []
+                ep_order.append(ep_alias)
+            by_ep[ep_alias].append(stage)
+
+        groups: list[list[tuple[str, str, str, dict]]] = []
+        for ep_alias in ep_order:
+            stages = by_ep[ep_alias]
+            if len(stages) > 1 and self._stages_shareable(stages):
+                groups.append(stages)
+            else:
+                groups.extend([stage] for stage in stages)
+        return groups
+
+    def _stages_shareable(self, stages: list[tuple[str, str, str, dict]]) -> bool:
+        """Return ``True`` when *stages* may be compiled into one shared context.
+
+        Weight sharing requires a single shared ``SessionOptions``, so every
+        stage must use identical provider options.  Each source graph must also
+        exist and still be an uncompiled ONNX — a source that is already an
+        EPContext model (or missing) cannot participate in a fresh shared
+        compile and forces the group back onto the per-stage path.
+        """
+        from ..onnx import is_compiled_onnx
+
+        first_opts = stages[0][3]
+        for _stage_key, onnx_filename, _ep_alias, ep_opts in stages:
+            if ep_opts != first_opts:
+                return False
+            src = self._bundle_dir / onnx_filename
+            if not src.exists():
+                return False
+            try:
+                if is_compiled_onnx(src):
+                    return False
+            except (ValueError, OSError):
+                return False
+        return True
+
+    def _process_single_stage(
+        self,
+        stage: tuple[str, str, str, dict],
+        compiled_dir: Path,
+        modified_cfg: dict,
+        compiled_stage_filenames: set[str],
+    ) -> bool:
+        """Compile (or reuse) one pipeline stage; returns whether routing changed.
+
+        Encapsulates the single-stage cache-freshness / already-compiled /
+        compile / JIT-fallback logic and patches *modified_cfg* to the resolved
+        stage filename.  Returns ``True`` when a compiled EPContext is now in use
+        (fresh cache reuse or a successful compile), matching the ``any_compiled``
+        contribution of the original inline loop.
+        """
+        from ..onnx import is_compiled_onnx
+
+        stage_key, onnx_filename, ep_alias, ep_opts = stage
+        src_onnx = self._bundle_dir / onnx_filename
+        # The EP is part of the cache key: an ``ep`` override can route the
+        # same stage onto different EPContext providers across runs, so each
+        # EP gets its own artifact and EP-A's binary is never reused for EP-B.
+        ctx_onnx = compiled_dir / f"{stage_key}_{ep_alias}_ctx.onnx"
+
+        # Skip recompilation only when the cache is genuinely up-to-date.
+        if self._epcontext_is_fresh(src_onnx, ctx_onnx, ep_alias, ep_opts):
+            logger.info("Stage %r: reusing cached EPContext %s", stage_key, ctx_onnx.name)
+            # Use just the filename — genai_config.json lives in compiled_dir,
+            # so ort-genai resolves filenames relative to compiled_dir.
+            self._patch_stage_filename(modified_cfg, stage_key, ctx_onnx.name)
+            compiled_stage_filenames.add(onnx_filename)
+            return True
+
+        # A stage whose source ONNX is already an EPContext (pre-compiled)
+        # model needs no recompilation; reference the original file by its
+        # bundle-relative filename and let :meth:`_mirror_non_onnx_files`
+        # link it (plus any weights sidecar) into compiled_dir.  A parse
+        # failure is treated as "not compiled" so a malformed source falls
+        # through to the normal compile path, which has its own error
+        # handling.
+        already_compiled = False
+        if src_onnx.exists():
+            try:
+                already_compiled = is_compiled_onnx(src_onnx)
+            except (ValueError, OSError):
+                already_compiled = False
+        if already_compiled:
+            logger.info(
+                "Stage %r: source is already an EPContext model; using as-is",
+                stage_key,
+            )
+            self._patch_stage_filename(modified_cfg, stage_key, onnx_filename)
+            return False
+
+        # Attempt compilation.
+        success = self._compile_stage(src_onnx, ctx_onnx, stage_key, ep_alias, ep_opts)
+        if success:
+            self._write_compile_marker(ctx_onnx, ep_alias, ep_opts)
+            self._patch_stage_filename(modified_cfg, stage_key, ctx_onnx.name)
+            compiled_stage_filenames.add(onnx_filename)
+            return True
+
+        logger.warning(
+            "Stage %r: compilation failed; using original ONNX (JIT fallback)", stage_key
+        )
+        # Fall back to the original ONNX by its bundle-relative filename.
+        # ort-genai resolves stage filenames relative to compiled_dir, so
+        # the source ONNX (+ its weights sidecar) is mirrored in by
+        # :meth:`_mirror_non_onnx_files` below; patching an absolute path
+        # would be wrongly joined onto compiled_dir into a broken path.
+        self._patch_stage_filename(modified_cfg, stage_key, onnx_filename)
+        return False
+
+    def _process_shared_group(
+        self,
+        group: list[tuple[str, str, str, dict]],
+        compiled_dir: Path,
+        modified_cfg: dict,
+        compiled_stage_filenames: set[str],
+    ) -> bool:
+        """Compile a group of stages together with weight sharing.
+
+        The stages are compiled through a single shared EP context so their
+        weights are stored once in a shared ``.bin`` that every compiled stage
+        graph references.  Cache reuse is all-or-nothing: the group is only
+        reused when *every* member's EPContext is fresh, otherwise the whole
+        group is recompiled together (a partial recompile cannot re-establish
+        the shared context).  On failure every stage falls back to its original
+        ONNX (JIT).  Returns ``True`` when the shared EPContext is now in use.
+        """
+        ep_alias = group[0][2]
+        ep_opts = group[0][3]
+        stage_keys = [stage[0] for stage in group]
+        srcs = [self._bundle_dir / onnx_filename for _sk, onnx_filename, _ea, _eo in group]
+        ctx_outs = [
+            compiled_dir / f"{stage_key}_{ep_alias}_ctx.onnx"
+            for stage_key, _fn, _ea, _eo in group
+        ]
+
+        # Reuse only when every stage's cached EPContext is fresh; weight sharing
+        # is all-or-nothing, so a single stale member recompiles the whole group.
+        if all(
+            self._epcontext_is_fresh(src, ctx, ep_alias, ep_opts)
+            for src, ctx in zip(srcs, ctx_outs, strict=True)
+        ):
+            logger.info("Stages %s: reusing cached shared EPContext", stage_keys)
+            for (stage_key, onnx_filename, _ea, _eo), ctx in zip(
+                group, ctx_outs, strict=True
+            ):
+                self._patch_stage_filename(modified_cfg, stage_key, ctx.name)
+                compiled_stage_filenames.add(onnx_filename)
+            return True
+
+        logger.info(
+            "Stages %s: compiling together with weight sharing on EP %r", stage_keys, ep_alias
+        )
+        success = self._compile_stages_shared(srcs, ctx_outs, group)
+        if success:
+            for (stage_key, onnx_filename, ea, eo), ctx in zip(group, ctx_outs, strict=True):
+                self._write_compile_marker(ctx, ea, eo)
+                self._patch_stage_filename(modified_cfg, stage_key, ctx.name)
+                compiled_stage_filenames.add(onnx_filename)
+            return True
+
+        logger.warning(
+            "Stages %s: shared compilation failed; using original ONNX (JIT fallback)",
+            stage_keys,
+        )
+        for stage_key, onnx_filename, _ea, _eo in group:
+            self._patch_stage_filename(modified_cfg, stage_key, onnx_filename)
+        return False
+
+    def _compile_stages_shared(
+        self,
+        srcs: list[Path],
+        ctx_outs: list[Path],
+        group: list[tuple[str, str, str, dict]],
+    ) -> bool:
+        """Compile *srcs* together into weight-sharing EPContexts at *ctx_outs*.
+
+        Mirrors :meth:`_compile_stage` but drives the multi-model shared-context
+        compiler (``Compiler(n_total_models=len(srcs))``) in one spawned
+        subprocess, so a hang or native teardown fault (issue #1087) is bounded
+        by a timeout and the same crash-during-teardown salvage applies.  The
+        timeout is scaled by the number of stages since they compile
+        sequentially in the one worker.  Returns ``True`` on success (or a
+        successful post-crash salvage of every stage).
+        """
+        import multiprocessing
+
+        ep_alias = group[0][2]
+        ep_opts = dict(group[0][3])
+        stage_keys = [stage[0] for stage in group]
+
+        logger.info(
+            "Compiling stages %s for EP %r with weight sharing (options=%s)",
+            stage_keys,
+            ep_alias,
+            ep_opts,
+        )
+
+        # Snapshot mtimes of any pre-existing EPContext artifacts before spawning
+        # the compiler so a teardown-crash salvage accepts only files this run
+        # actually produced (see :meth:`_compile_stage`).
+        pre_compile_mtimes: dict[str, int] = {}
+        for src, ctx_out in zip(srcs, ctx_outs, strict=True):
+            for p in self._epcontext_candidate_paths(src, ctx_out):
+                if p.exists():
+                    pre_compile_mtimes[str(p)] = p.stat().st_mtime_ns
+
+        ctx = multiprocessing.get_context("spawn")
+        proc = ctx.Process(
+            target=_compile_shared_stages_worker,
+            args=(
+                [str(s) for s in srcs],
+                [str(c) for c in ctx_outs],
+                ep_alias,
+                ep_opts,
+            ),
+        )
+        proc.start()
+        proc.join(timeout=self._compile_timeout * len(srcs))
+
+        if proc.is_alive():
+            logger.error(
+                "Shared compilation of stages %s timed out after %ds — killing subprocess.",
+                stage_keys,
+                self._compile_timeout * len(srcs),
+            )
+            proc.kill()
+            proc.join()
+            for ctx_out in ctx_outs:
+                self._discard_compiled_stage(ctx_out)
+            return False
+
+        if proc.exitcode != 0:
+            # QNN can fault during teardown after every artifact (the shared
+            # ``.bin`` and each ``_ctx.onnx``) has already flushed to disk;
+            # salvage each stage before treating the group as failed.
+            if all(
+                self._salvage_epcontext(src, ctx_out, pre_compile_mtimes)
+                for src, ctx_out in zip(srcs, ctx_outs, strict=True)
+            ):
+                logger.warning(
+                    "Shared compile subprocess exited %d, but valid EPContexts were "
+                    "already written (crash during teardown); salvaging stages %s",
+                    proc.exitcode,
+                    stage_keys,
+                )
+                return True
+            logger.warning(
+                "Shared compilation of stages %s failed (exit %d)", stage_keys, proc.exitcode
+            )
+            for ctx_out in ctx_outs:
+                self._discard_compiled_stage(ctx_out)
+            return False
+
+        logger.info("Stages %s compiled successfully with weight sharing", stage_keys)
+        return True
 
     @staticmethod
     def _resolve_stage_ep(provider_options: list) -> tuple[str | None, dict]:
@@ -1977,16 +2330,8 @@ class GenaiSession:
     @staticmethod
     def _device_from_provider_hints(ep: EPName, options: dict[str, Any]) -> str | None:
         """Match provider options against EP/device routing hints in the catalog."""
-        matches: set[str] = set()
-        for spec in EP_DEVICE_SPECS:
-            if spec.ep != ep or not spec.provider_option_hints:
-                continue
-            if all(
-                Path(str(options.get(key, ""))).name.casefold() == expected.casefold()
-                for key, expected in spec.provider_option_hints.items()
-            ):
-                matches.add(spec.device)
-        return next(iter(matches)) if len(matches) == 1 else None
+        _, device = device_from_provider_option_hints(ep, options)
+        return device
 
     @staticmethod
     def _bundle_uses_hardware_ep(cfg: dict[str, Any]) -> str | None:

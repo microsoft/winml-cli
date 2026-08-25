@@ -10,10 +10,15 @@ The generic, execution-provider-agnostic machinery (``PipelineStage``,
 reused by other model families.
 
 This module adds the **Qwen3-specific** layer on top: the Qwen3 transformer
-stages target the QNN HTP (NPU) backend, so this is where the QNN
-``session_options`` are constructed.  Keeping the EP-specific logic here lets the
-generic utilities stay universal while the Qwen3 bundle keeps emitting the exact
-same ``genai_config.json`` as before.
+stages run on an NPU backend, so this is where the per-EP ``session_options``
+are constructed.  Two NPU execution providers are supported for the
+transformer (context/iterator) stages:
+
+* **QNN HTP** — Qualcomm Snapdragon NPU (``ep="qnn"``).
+* **VitisAI** — AMD Ryzen AI NPU (``ep="vitisai"``).
+
+Keeping the EP-specific logic here lets the generic utilities stay universal
+while the Qwen3 bundle emits the correct per-EP ``genai_config.json``.
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ....onnx import strip_node_attrs
+from ....utils.constants import normalize_ep_name
 from ....utils.genai import (
     DEFAULT_CONTEXT_FILENAME,
     DEFAULT_EMBEDDINGS_FILENAME,
@@ -51,7 +57,7 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
-# Qwen3-specific QNN execution-provider routing
+# Qwen3-specific NPU execution-provider routing (QNN / VitisAI)
 # ---------------------------------------------------------------------------
 
 
@@ -86,16 +92,60 @@ def qnn_stage_session_options(log_id: str, soc_model: str = "60") -> dict:
     }
 
 
+def vitisai_stage_session_options(log_id: str) -> dict:
+    """Return the ``session_options`` block that routes a stage to the AMD NPU.
+
+    Routes a Qwen3 transformer stage to the AMD Ryzen AI NPU via the VitisAI
+    execution provider.  The provider options match the AMD reference inference
+    configuration (``waic_target_vaiml_cpp_me`` VAIML C++ backend with the
+    XMC runner and linear-slice disabled).
+
+    Args:
+        log_id: ORT log identifier (shown in ORT logs), e.g.
+            ``"onnxruntime-genai.context"``.
+
+    Returns:
+        Dict suitable for the ``session_options`` key of a pipeline stage in
+        ``genai_config.json``.
+    """
+    return {
+        "log_id": log_id,
+        "provider_options": [
+            {
+                "vitisai": {
+                    "target": "waic_target_vaiml_cpp_me",
+                    "xmc_runner_config": "1",
+                    "no_linear_slice": "1",
+                }
+            }
+        ],
+        "intra_op_num_threads": 8,
+        "inter_op_num_threads": 1,
+    }
+
+
 def _stage_session_options(ep: str, soc_model: str) -> tuple[dict | None, dict | None]:
     """Return ``(context, iterator)`` session_options for the given EP.
 
-    ``ep="qnn"`` routes the transformer stages to the QNN HTP (NPU) backend; any
-    other value (e.g. ``"cpu"``) leaves them on the default CPU provider.
+    Routes the Qwen3 transformer (context/iterator) stages to an NPU backend:
+
+    * ``ep="qnn"`` -> Qualcomm QNN HTP (``soc_model`` selects the Snapdragon SoC).
+    * ``ep="vitisai"`` -> AMD Ryzen AI NPU.
+
+    Any other value (e.g. ``"cpu"``) leaves the stages on the default CPU
+    provider.  Short aliases and full ``*ExecutionProvider`` names are both
+    accepted (normalized via :func:`normalize_ep_name`).
     """
-    if ep == "qnn":
+    canonical = normalize_ep_name(ep)
+    if canonical == "QNNExecutionProvider":
         return (
             qnn_stage_session_options("onnxruntime-genai.context", soc_model=soc_model),
             qnn_stage_session_options("onnxruntime-genai.iterator", soc_model=soc_model),
+        )
+    if canonical == "VitisAIExecutionProvider":
+        return (
+            vitisai_stage_session_options("onnxruntime-genai.context"),
+            vitisai_stage_session_options("onnxruntime-genai.iterator"),
         )
     return None, None
 
@@ -141,11 +191,11 @@ def build_qwen3_transformer_only_stages(
     ep: str = "cpu",
     soc_model: str = "60",
 ) -> tuple[list[PipelineStage], DecoderIOMapping]:
-    """Build the Qwen3 4-stage pipeline, routing ctx/iter to QNN when ``ep="qnn"``.
+    """Build the Qwen3 4-stage pipeline, routing ctx/iter to the NPU per ``ep``.
 
     Qwen3-specific wrapper over
     :func:`winml.modelkit.utils.genai.build_decoder_pipeline_stages` that injects
-    the QNN ``session_options`` for the transformer stages.  Tensor names are
+    the NPU ``session_options`` for the transformer stages.  Tensor names are
     still discovered by introspecting the ONNX graphs, so nothing is hardcoded.
 
     Args:
@@ -156,11 +206,14 @@ def build_qwen3_transformer_only_stages(
         iterator_filename: Bundle filename for the iterator model.
         embeddings_filename: Bundle filename for the embeddings model.
         lm_head_filename: Bundle filename for the lm_head model.
-        ep: ``"qnn"`` injects QNN HTP ``session_options`` into the ``context``
-            and ``iterator`` stages so they run on the NPU while ``embeddings``
-            and ``lm_head`` stay on CPU.  ``"cpu"`` (default) omits them.
+        ep: NPU execution provider for the ``context``/``iterator`` stages —
+            ``"qnn"`` (Qualcomm) or ``"vitisai"`` (AMD) injects that EP's
+            ``session_options`` so those stages run on the NPU while
+            ``embeddings`` and ``lm_head`` stay on CPU.  ``"cpu"`` (default)
+            omits them.
         soc_model: Snapdragon SoC model number forwarded to the QNN backend when
-            ``ep="qnn"``.  Default ``"60"`` targets Snapdragon 8 Gen 3.
+            ``ep="qnn"``.  Default ``"60"`` targets Snapdragon 8 Gen 3.  Ignored
+            for non-QNN EPs.
 
     Returns:
         ``(stages, decoder_io)`` — see
@@ -198,18 +251,20 @@ def write_genai_bundle(
     soc_model: str = "60",
     transformer_onnx_passes: Sequence[Callable[[onnx.ModelProto], onnx.ModelProto]] | None = None,
 ) -> Path:
-    """Assemble a Qwen3 genai bundle, routing ctx/iter to QNN when ``ep="qnn"``.
+    """Assemble a Qwen3 genai bundle, routing ctx/iter to the NPU per ``ep``.
 
     Qwen3-specific wrapper over
-    :func:`winml.modelkit.utils.genai.write_genai_bundle` that supplies the QNN
+    :func:`winml.modelkit.utils.genai.write_genai_bundle` that supplies the NPU
     ``session_options`` for the transformer stages.  See the generic function for
     the description of every other argument.
 
     Args:
-        ep: ``"qnn"`` routes the transformer (context/iterator) stages to the QNN
-            HTP (NPU) backend; ``"cpu"`` (default) keeps every stage on CPU.
+        ep: NPU execution provider routing the transformer (context/iterator)
+            stages — ``"qnn"`` (Qualcomm HTP) or ``"vitisai"`` (AMD Ryzen AI);
+            ``"cpu"`` (default) keeps every stage on CPU.
         soc_model: Snapdragon SoC model passed to the QNN backend when
             ``ep="qnn"``.  Default ``"60"`` = Snapdragon 8 Gen 3 / X Elite.
+            Ignored for non-QNN EPs.
         transformer_onnx_passes: Optional ONNX graph transforms applied to the
             copied context/iterator models before ``genai_config.json`` is
             written.  Forwarded verbatim to the generic assembler.
@@ -250,6 +305,7 @@ __all__ = [
     "build_qwen3_transformer_only_stages",
     "qnn_stage_session_options",
     "strip_gqa_default_attrs",
+    "vitisai_stage_session_options",
     "write_genai_bundle",
 ]
 
@@ -288,7 +344,10 @@ QWEN3_GENAI_BUNDLE_RECIPE = register_genai_bundle(
             ),
         ),
         assemble=write_genai_bundle,
-        supported_targets=(GenaiTarget(ep="qnn", device="npu"),),
+        supported_targets=(
+            GenaiTarget(ep="qnn", device="npu"),  # Qualcomm Snapdragon NPU
+            GenaiTarget(ep="vitisai", device="npu"),  # AMD Ryzen AI NPU
+        ),
         transformer_onnx_passes=(strip_gqa_default_attrs,),
         max_cache_len=2048,
         prefill_seq_len=64,

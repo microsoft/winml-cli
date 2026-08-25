@@ -22,7 +22,7 @@ from ..registry import BoolCapability, CapabilityCategory
 GATHER_SLICE_TO_SPLIT_FUSION = BoolCapability(
     name="gather-slice-to-split-fusion",
     ort_name="GatherSliceToSplitFusion",
-    description="Fuse Gather+Slice patterns to Split operation",
+    description="Fuse eligible Gather/Slice routes to Split operations",
     category=CapabilityCategory.MISC,
     default=False,
 )

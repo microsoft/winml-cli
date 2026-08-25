@@ -71,11 +71,17 @@ class TestSplitConfigStem:
         assert stem == "zero-shot-image-classification_w8a16"
         assert role == "image-encoder"
 
+    def test_role_before_config(self, recipes):
+        stem, role = recipes.split_config_stem(Path("translation_fp16_decoder_config.json"))
+        assert stem == "translation_fp16"
+        assert role == "decoder"
+
 
 class TestSplitTaskPrecision:
     @pytest.mark.parametrize(
         ("group_stem", "task", "precision"),
         [
+            ("image-classification_fp32", "image-classification", "fp32"),
             ("image-classification_fp16", "image-classification", "fp16"),
             ("image-classification_w8a16", "image-classification", "w8a16"),
             ("question-answering_w8a8", "question-answering", "w8a8"),
@@ -151,6 +157,83 @@ class TestDiscoverRecipeVariants:
         variants = recipes.discover_recipe_variants(tmp_path, "m", "t")
         assert [v.precision for v in variants] == ["fp16", "w8a16"]
 
+    def test_target_directory_takes_precedence(self, recipes, tmp_path):
+        model_dir = tmp_path / "org_model"
+        target_dir = model_dir / "qnn" / "npu"
+        target_dir.mkdir(parents=True)
+        (model_dir / "task_fp16_config.json").write_text("legacy")
+        (target_dir / "task_fp32_config.json").write_text("target")
+
+        variants = recipes.discover_recipe_variants(
+            tmp_path, "org/model", "task", ep="QNNExecutionProvider", device="NPU"
+        )
+
+        assert [variant.precision for variant in variants] == ["fp32"]
+        assert variants[0].components[0].path.parent == target_dir
+
+    def test_missing_target_falls_back_to_legacy_directory(self, recipes, tmp_path):
+        model_dir = tmp_path / "org_model"
+        model_dir.mkdir()
+        (model_dir / "task_fp16_config.json").write_text("legacy")
+
+        variants = recipes.discover_recipe_variants(
+            tmp_path, "org/model", "task", ep="qnn", device="gpu"
+        )
+
+        assert [variant.precision for variant in variants] == ["fp16"]
+
+    def test_composite_role_before_config_is_grouped(self, recipes, tmp_path):
+        target_dir = tmp_path / "org_model" / "qnn" / "npu"
+        target_dir.mkdir(parents=True)
+        (target_dir / "translation_fp16_encoder_config.json").write_text("{}")
+        (target_dir / "translation_fp16_decoder_config.json").write_text("{}")
+
+        variants = recipes.discover_recipe_variants(
+            tmp_path, "org/model", "translation", ep="qnn", device="npu"
+        )
+
+        assert len(variants) == 1
+        assert variants[0].precision == "fp16"
+        assert variants[0].roles == ["decoder", "encoder"]
+
+
+class TestCopyRecipeTarget:
+    def test_copies_missing_configs_without_overwriting(self, recipes, tmp_path):
+        source_dir = tmp_path / "org_model" / "cpu" / "cpu"
+        target_dir = tmp_path / "org_model" / "qnn" / "npu"
+        source_dir.mkdir(parents=True)
+        target_dir.mkdir(parents=True)
+        (source_dir / "task_fp16_config.json").write_text("source-fp16")
+        (source_dir / "task_fp32_config.json").write_text("source-fp32")
+        (target_dir / "task_fp16_config.json").write_text("target-fp16")
+
+        copied = recipes.copy_recipe_target(
+            tmp_path, "org/model", "cpu", "cpu", "qnn", "npu"
+        )
+
+        assert copied == [target_dir / "task_fp32_config.json"]
+        assert (target_dir / "task_fp16_config.json").read_text() == "target-fp16"
+        assert (target_dir / "task_fp32_config.json").read_text() == "source-fp32"
+
+    def test_copied_alias_target_is_discoverable_by_resolved_ep(self, recipes, tmp_path):
+        source_dir = tmp_path / "org_model" / "dml" / "gpu"
+        source_dir.mkdir(parents=True)
+        (source_dir / "task_fp16_config.json").write_text("{}")
+        (source_dir / "task_fp32_config.json").write_text("{}")
+
+        recipes.copy_recipe_target(
+            tmp_path, "org/model", "dml", "gpu", "nv_tensorrt_rtx", "gpu"
+        )
+        variants = recipes.discover_recipe_variants(
+            tmp_path,
+            "org/model",
+            "task",
+            ep="NvTensorRTRTXExecutionProvider",
+            device="gpu",
+        )
+
+        assert [variant.precision for variant in variants] == ["fp16", "fp32"]
+
 
 class TestDiscoverAgainstRealRecipes:
     """Smoke-test against the checked-in examples/recipes tree."""
@@ -176,3 +259,37 @@ class TestDiscoverAgainstRealRecipes:
         for v in variants:
             assert v.is_composite is True
             assert v.roles == ["encoder", "decoder"]
+
+    def test_unlimited_ocr_feature_extraction_has_six_precision_tuples(
+        self, recipes, recipes_dir
+    ):
+        if not recipes_dir.is_dir():
+            pytest.skip("examples/recipes not present")
+
+        expected = {
+            ("cpu", "cpu"): {
+                "feature-extraction_fp16_config.json",
+                "feature-extraction_fp32_config.json",
+            },
+            ("dml", "gpu"): {
+                "feature-extraction_fp16_config.json",
+                "feature-extraction_fp32_config.json",
+            },
+            ("openvino", "cpu"): {
+                "feature-extraction_fp16_config.json",
+                "feature-extraction_fp32_config.json",
+            },
+        }
+
+        for (ep, device), expected_names in expected.items():
+            variants = recipes.discover_recipe_variants(
+                recipes_dir,
+                "baidu/Unlimited-OCR",
+                "feature-extraction",
+                ep=ep,
+                device=device,
+            )
+
+            assert [variant.precision for variant in variants] == ["fp16", "fp32"]
+            found_names = {variant.components[0].path.name for variant in variants}
+            assert found_names == expected_names

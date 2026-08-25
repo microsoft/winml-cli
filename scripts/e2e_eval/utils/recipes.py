@@ -7,7 +7,8 @@
 
 A *recipe* is an authored ``winml build`` config (``export``/``optim``/
 ``quant``/``compile``/``loader``/``eval`` sections) checked into
-``examples/recipes/<slug>/``.  Files are named::
+``examples/recipes/<slug>/<ep>/<device>/`` (or the legacy
+``examples/recipes/<slug>/`` location).  Files are named::
 
     <task>_<precision>_config.json            # single model
     <task>_<precision>_config_<role>.json     # composite component
@@ -25,15 +26,18 @@ precision (e.g. ``w8a8``) recipe is automatically picked up with no code change.
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from winml.modelkit.utils.constants import normalize_ep_name
 
 
 # Precisions recognised in recipe filenames.  Order is the canonical display
 # order (fp16 first).  Discovery is data-driven: any precision listed here that
 # has files on disk is run, so dropping a new ``*_w8a8_config.json`` into a
 # recipe dir is picked up automatically.
-KNOWN_PRECISIONS: tuple[str, ...] = ("fp16", "w8a16", "w8a8")
+KNOWN_PRECISIONS: tuple[str, ...] = ("fp16", "fp32", "w8a16", "w8a8")
 
 
 # Composite component roles per task.  The recipe filename's ``_config_<role>``
@@ -65,8 +69,50 @@ def split_config_stem(path: Path) -> tuple[str, str | None]:
         group_stem, role = stem.split("_config_", 1)
         return group_stem, role or None
     if stem.endswith("_config"):
-        return stem[: -len("_config")], None
+        group_stem = stem[: -len("_config")]
+        for precision in KNOWN_PRECISIONS:
+            marker = f"_{precision}_"
+            if marker in group_stem:
+                task, role = group_stem.rsplit(marker, 1)
+                return f"{task}_{precision}", role or None
+        return group_stem, None
     return stem, None
+
+
+def recipe_target_dir(model_dir: Path, ep: str, device: str) -> Path:
+    """Return the canonical ``<model>/<ep>/<device>`` recipe directory."""
+    ep_name = (normalize_ep_name(ep) or ep).strip().lower()
+    suffix = "executionprovider"
+    if ep_name.endswith(suffix):
+        ep_name = ep_name[: -len(suffix)]
+    aliases = {"ov": "openvino", "mlas": "cpu"}
+    return model_dir / aliases.get(ep_name, ep_name) / device.strip().lower()
+
+
+def copy_recipe_target(
+    recipes_dir: Path,
+    hf_id: str,
+    source_ep: str,
+    source_device: str,
+    target_ep: str,
+    target_device: str,
+) -> list[Path]:
+    """Copy missing recipe configs from one target to another without overwriting."""
+    model_dir = recipes_dir / model_slug(hf_id)
+    source_dir = recipe_target_dir(model_dir, source_ep, source_device)
+    target_dir = recipe_target_dir(model_dir, target_ep, target_device)
+    if not source_dir.is_dir() or source_dir == target_dir:
+        return []
+
+    copied: list[Path] = []
+    for source in sorted(source_dir.glob("*_config*.json")):
+        target = target_dir / source.name
+        if target.exists():
+            continue
+        target_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        copied.append(target)
+    return copied
 
 
 def split_task_precision(group_stem: str) -> tuple[str, str | None]:
@@ -112,23 +158,33 @@ def discover_recipe_variants(
     recipes_dir: Path,
     hf_id: str,
     task: str,
+    ep: str | None = None,
+    device: str | None = None,
 ) -> list[RecipeVariant]:
     """Find recipe variants for ``(hf_id, task)`` under ``recipes_dir``.
 
-    Returns one :class:`RecipeVariant` per precision that has config files on
-    disk, ordered by :data:`KNOWN_PRECISIONS` (fp16 first).  Returns an empty
-    list when the model has no recipe directory or no configs for ``task`` —
-    the caller then falls back to ``winml config`` generation.
+    When ``ep`` and ``device`` are set, their target directory takes precedence
+    and the legacy model directory is used only when that target directory does
+    not exist. Returns one :class:`RecipeVariant` per precision that has config
+    files on disk, ordered by :data:`KNOWN_PRECISIONS` (fp16 first).
     """
     model_dir = recipes_dir / model_slug(hf_id)
     if not model_dir.is_dir():
         return []
 
+    search_dir = (
+        recipe_target_dir(model_dir, ep, device)
+        if ep is not None and device is not None
+        else model_dir
+    )
+    if not search_dir.is_dir() and search_dir != model_dir:
+        search_dir = model_dir
+
     # Group component configs by precision.  Only files whose task prefix
     # matches the requested task are considered, so a model dir that hosts
     # several tasks contributes only the relevant ones.
     by_precision: dict[str, list[RecipeComponent]] = {}
-    for cfg in sorted(model_dir.glob(f"{task}_*_config*.json")):
+    for cfg in sorted(search_dir.glob(f"{task}_*_config*.json")):
         group_stem, role = split_config_stem(cfg)
         cfg_task, precision = split_task_precision(group_stem)
         if cfg_task != task or precision is None:

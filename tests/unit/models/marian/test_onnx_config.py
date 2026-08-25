@@ -13,14 +13,20 @@ Tests for Marian IOConfig classes and the WinML composite model:
 
 from __future__ import annotations
 
+import inspect
+from typing import TYPE_CHECKING
+
+import onnx
 import pytest
+import torch
 from optimum.exporters.tasks import TasksManager
 from optimum.utils.input_generators import DummyTextInputGenerator
-from transformers import MarianConfig
+from transformers import MarianConfig, MarianMTModel
 
 # Import triggers registration
 from winml.modelkit.models.hf.marian import (
     MarianDecoderIOConfig,
+    MarianDecoderWrapper,
     MarianEncoderIOConfig,
     WinMLMarianModel,
     _MarianDecoderNormalizedConfig,
@@ -31,6 +37,10 @@ from winml.modelkit.models.winml.kv_cache import (
     PastKeyValueInputGenerator,
     WinMLStaticCache,
 )
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 # =============================================================================
@@ -63,7 +73,30 @@ def marian_config() -> MarianConfig:
         encoder_attention_heads=ENCODER_ATTENTION_HEADS,
         vocab_size=VOCAB_SIZE,
         max_position_embeddings=MAX_POSITION_EMBEDDINGS,
+        pad_token_id=0,
+        eos_token_id=1,
+        decoder_start_token_id=0,
     )
+
+
+@pytest.fixture()
+def marian_decoder_args() -> list[torch.Tensor]:
+    cache_shape = (1, DECODER_ATTENTION_HEADS, MAX_POSITION_EMBEDDINGS, HEAD_DIM)
+    args = [
+        torch.ones((1, 1), dtype=torch.int64),
+        torch.zeros((1, 4, D_MODEL), dtype=torch.float32),
+        torch.ones((1, 4), dtype=torch.int64),
+        torch.ones((1, MAX_POSITION_EMBEDDINGS), dtype=torch.int64),
+        torch.tensor([3], dtype=torch.int64),
+    ]
+    for _ in range(DECODER_LAYERS):
+        args.extend(
+            [
+                torch.zeros(cache_shape, dtype=torch.float32),
+                torch.zeros(cache_shape, dtype=torch.float32),
+            ]
+        )
+    return args
 
 
 # =============================================================================
@@ -149,6 +182,52 @@ class TestMarianEncoderIOConfig:
 class TestMarianDecoderIOConfig:
     """Tests for MarianDecoderIOConfig (decoder with KV cache, text2text-generation)."""
 
+    def test_wrapper_forward_captures_kv_with_transformers_cache_api(
+        self, marian_config, marian_decoder_args
+    ) -> None:
+        wrapper = MarianDecoderWrapper(MarianMTModel(marian_config), DECODER_LAYERS)
+
+        outputs = wrapper(*marian_decoder_args)
+
+        assert len(outputs) == 1 + DECODER_LAYERS * 2
+        assert outputs[0].shape == (1, 1, VOCAB_SIZE)
+        for present in outputs[1:]:
+            assert present.shape == (1, DECODER_ATTENTION_HEADS, 1, HEAD_DIM)
+
+    def test_transformers_5_export_uses_explicit_position_and_mask(
+        self,
+        marian_config,
+        marian_decoder_args,
+        tmp_path: Path,
+    ) -> None:
+        wrapper = MarianDecoderWrapper(MarianMTModel(marian_config), DECODER_LAYERS)
+        decoder = wrapper.model.get_decoder()
+        if "cache_position" in inspect.signature(decoder.forward).parameters:
+            pytest.skip("Transformers 4.x passes cache_position through MarianDecoder")
+
+        onnx_config = MarianDecoderIOConfig(marian_config, task="text2text-generation")
+        output_path = tmp_path / "marian_decoder.onnx"
+        with onnx_config.patch_model_for_export(wrapper):
+            torch.onnx.export(
+                wrapper,
+                tuple(marian_decoder_args),
+                output_path,
+                input_names=list(onnx_config.inputs),
+                output_names=list(onnx_config.outputs),
+                opset_version=17,
+                dynamo=False,
+            )
+
+        model = onnx.load(output_path, load_external_data=False)
+        position_gathers = [
+            node
+            for node in model.graph.node
+            if node.op_type == "Gather" and "embed_positions" in node.name
+        ]
+        assert len(position_gathers) == 1
+        assert position_gathers[0].input[1] == "cache_position"
+        assert all(node.op_type != "LessOrEqual" for node in model.graph.node)
+
     def test_registration(self):
         config_cls = TasksManager.get_exporter_config_constructor(
             model_type="marian",
@@ -166,6 +245,14 @@ class TestMarianDecoderIOConfig:
             EncoderDecoderInputGenerator,
             PastKeyValueInputGenerator,
         ) == MarianDecoderIOConfig.DUMMY_INPUT_GENERATOR_CLASSES
+
+    def test_patches_positional_embedding_for_transformers_5(self) -> None:
+        specs = MarianDecoderIOConfig.PATCHING_SPECS
+
+        assert any(
+            spec.name == "forward" and spec.o.__name__ == "MarianSinusoidalPositionalEmbedding"
+            for spec in specs
+        )
 
     def test_non_kv_inputs(self, marian_config) -> None:
         onnx_config = MarianDecoderIOConfig(marian_config, task="text2text-generation")

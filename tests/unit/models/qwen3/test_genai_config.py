@@ -542,6 +542,25 @@ class TestBuildQwen3TransformerOnlyStages:
         ctx = next(s for s in stages if s.name == "context")
         assert ctx.session_options["provider_options"][0]["qnn"]["soc_model"] == "73"
 
+    def test_vitisai_ep_injects_session_options(self) -> None:
+        """ep='vitisai': context/iterator get AMD NPU session_options; emb/lm_head do not."""
+        with self._patch_onnx():
+            stages, _ = build_qwen3_transformer_only_stages(
+                "ctx.onnx", "iter.onnx", num_layers=4, ep="vitisai"
+            )
+        stage_map = {s.name: s for s in stages}
+        assert stage_map["embeddings"].session_options is None
+        assert stage_map["lm_head"].session_options is None
+        ctx_opts = stage_map["context"].session_options
+        itr_opts = stage_map["iterator"].session_options
+        assert ctx_opts is not None
+        assert itr_opts is not None
+        vitisai_opts = ctx_opts["provider_options"][0]["vitisai"]
+        assert vitisai_opts["target"] == "waic_target_vaiml_cpp_me"
+        assert vitisai_opts["xmc_runner_config"] == "1"
+        assert vitisai_opts["no_linear_slice"] == "1"
+        assert itr_opts["log_id"] == "onnxruntime-genai.iterator"
+
 
 # ---------------------------------------------------------------------------
 # Tests: write_genai_bundle wrapper (ep routing + transformer_onnx_passes)

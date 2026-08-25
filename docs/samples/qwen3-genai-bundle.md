@@ -7,8 +7,8 @@ runtime metadata and tokenizer that onnxruntime-genai loads together:
 
 | File | Role | Device | Precision |
 |------|------|--------|-----------|
-| `ctx.onnx` | Transformer **prefill** graph (processes the prompt) | NPU (QNN) | `w8a16` |
-| `iter.onnx` | Transformer **decode** graph (one token per step) | NPU (QNN) | `w8a16` |
+| `ctx.onnx` | Transformer **prefill** graph (processes the prompt) | NPU (QNN or VitisAI) | `w8a16` |
+| `iter.onnx` | Transformer **decode** graph (one token per step) | NPU (QNN or VitisAI) | `w8a16` |
 | `embeddings.onnx` | Token embedding lookup | CPU | `fp32` |
 | `lm_head.onnx` | Final vocab projection | CPU | `w4a32` |
 | `genai_config.json` + tokenizer | onnxruntime-genai runtime metadata | — | — |
@@ -16,14 +16,15 @@ runtime metadata and tokenizer that onnxruntime-genai loads together:
 `ctx.onnx` and `iter.onnx` are the two sub-models of Qwen3's transformer-only
 composite: prefill bakes in a context sequence length, decode is fixed to a
 single token. The embedding table and vocab projection stay on CPU. Splitting the
-model this way lets the compute-heavy transformer run on the NPU HTP while the
-memory-bound companions stay on CPU.
+model this way lets the compute-heavy transformer run on the selected NPU while
+the memory-bound companions stay on CPU.
 
 ## Prerequisites
 
 - winml-cli installed and `winml` on your PATH.
 - A network connection to download Qwen3 weights from HuggingFace on first run.
-- An NPU target with the QNN execution provider available.
+- An NPU target with either the QNN (Qualcomm) or VitisAI (AMD) execution
+  provider available.
 
 ## Overall workflow
 
@@ -54,11 +55,20 @@ This builds (or reuses from cache) all four components and assembles them, writi
 `out/qwen3-bundle/genai_config.json` alongside the ONNX graphs and tokenizer.
 `--output-dir` is required — the bundle is a directory — and `--use-cache` is not
 supported for bundles. On a host without the NPU the resolved target has no recipe
-and the build fails fast; pin `--ep qnn --device npu` to build the bundle anywhere
-(e.g. CI), since an explicit target skips host detection.
+and the build fails fast. Pin the provider to select a target explicitly:
+
+```bash
+# Qualcomm Snapdragon NPU
+winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle \
+  --export-type optimized --ep qnn --device npu
+
+# AMD Ryzen AI NPU
+winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle \
+  --export-type optimized --ep vitisai --device npu
+```
 
 The Qwen3 transformer's quantization scheme is fixed by its recipe (`w8a16`, the
-scheme its QNN HTP export is tuned for), so it is not overridable — passing a
+scheme its NPU export is tuned for), so it is not overridable — passing a
 `--precision` that differs from `w8a16` is rejected rather than silently reverted.
 The CPU companions likewise keep their bundle-standard precisions.
 
@@ -98,7 +108,8 @@ uv run python scripts/qwen3.py export \
 
 The script also accepts `--embeddings <onnx>` and `--lm-head <onnx>` to reuse
 pre-built companions (skipping their builds), and `--force-rebuild` to rebuild
-everything from scratch.
+everything from scratch. The developer script's `--device npu` shortcut targets
+QNN; use `winml build --ep vitisai --device npu` for an AMD bundle.
 
 ## Step 3: Run the bundle (generate text)
 
@@ -106,15 +117,23 @@ The assembled bundle runs through onnxruntime-genai. Benchmark prompt processing
 and token generation on the NPU with `winml perf`:
 
 ```bash
+# Qualcomm Snapdragon NPU
 winml perf -m out/qwen3-bundle --runtime winml-genai --device npu --compile \
+  --compile-timeout 600 --max-new-tokens 20 --prompt "What is the capital of France?"
+
+# AMD Ryzen AI NPU
+winml perf -m out/qwen3-bundle --runtime winml-genai --device npu --ep vitisai --compile \
   --compile-timeout 600 --max-new-tokens 20 --prompt "What is the capital of France?"
 ```
 
-`--device npu` selects the QNN execution provider: `winml perf` registers the WinML
-QNN EP and the bundle's `context` and `iterator` stages run on the NPU HTP, while the
-CPU companions handle the embedding lookup and vocab projection. The command reports
-time-to-first-token (prefill) and decode throughput, and writes a results JSON under
-`~/.cache/winml/perf/`.
+`winml perf` registers the selected WinML EP and runs the bundle's `context` and
+`iterator` stages on that NPU, while the CPU companions handle the embedding
+lookup and vocab projection. The command reports canonical GenAI phases:
+session/native load, best-effort weight-upload estimate, cold-start TTFT/total,
+request/model TTFT, prefill throughput, steady-state decode throughput, full
+request latency, optional RAM/VRAM deltas, and a results JSON under
+`~/.cache/winml/perf/`. Exact weight-upload telemetry is currently `null` because
+onnxruntime-genai does not expose it; the estimate is labeled in JSON.
 
 !!! tip "One command from a model id (auto-build)"
     `winml perf --runtime winml-genai` also accepts a HuggingFace **model id** directly.
@@ -127,17 +146,19 @@ time-to-first-token (prefill) and decode throughput, and writes a results JSON u
       --compile-timeout 600 --max-new-tokens 20 --prompt "What is the capital of France?"
     ```
 
-    The auto-build always targets the NPU HTP via QNN (the only supported genai bundle
-    target today). `-o/--output` stays the results-JSON path, and `--rebuild` forces a
-    fresh bundle. To persist the bundle at a specific directory instead, run `winml build`
-    (Step 1) and point `perf -m` at that folder.
+    The model-ID auto-build shortcut targets the NPU HTP via QNN. To use VitisAI,
+    first build the bundle explicitly in Step 1 and then point `perf -m` at that
+    directory. `-o/--output` stays the results-JSON path, and `--rebuild` forces
+    a fresh bundle.
 
 !!! warning "`--compile` is required on the NPU"
-    The genai NPU path needs `--compile` (EPContext pre-compilation): each QNN stage is
-    compiled once to a context binary before generation. Without `--compile`,
-    onnxruntime-genai compiles the QNN context in-memory at model-creation time, which
-    can fault before the first token. Use `--compile-timeout <seconds>` to bound how long
-    each stage may take before falling back to the original ONNX.
+    The genai NPU path needs `--compile` (EPContext pre-compilation). The context
+    and iterator stages are compiled together when they use the same provider
+    options, allowing both EPContext graphs to reference one shared weight
+    `.bin`. Without `--compile`, onnxruntime-genai compiles the NPU context
+    in-memory at model-creation time, which can fault before the first token.
+    Use `--compile-timeout <seconds>` to bound compilation before falling back
+    to the original ONNX.
 
 !!! note "Known caveat: non-zero exit on teardown"
     On Windows ARM64, after generation completes and the results JSON is saved, the
@@ -154,7 +175,7 @@ a parallel export path:
 - The transformer (`ctx` + `iter`) is the registered `qwen3_transformer_only`
   composite, built for the NPU with `w8a16` precision.
 - `embeddings` and `lm_head` are built as ordinary single models on CPU.
-- A final assembly step applies the Qwen3 ONNX passes, writes the QNN stage
+- A final assembly step applies the Qwen3 ONNX passes, writes the selected NPU stage
   session options, and emits `genai_config.json`.
 
 Every model-specific value lives in a data-only **genai-bundle recipe** registered

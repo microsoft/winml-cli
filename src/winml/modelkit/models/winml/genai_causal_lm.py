@@ -190,12 +190,44 @@ class HFCausalLM:
         device: A ``torch.device`` (or device string) to place the model on.
     """
 
-    def __init__(self, model_id: str, device: Any) -> None:
+    def __init__(
+        self,
+        model_id: str,
+        device: Any,
+        *,
+        trust_remote_code: bool = False,
+        torch_dtype: Any = None,
+    ) -> None:
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
-        self._tokenizer = AutoTokenizer.from_pretrained(model_id)
-        self._model = AutoModelForCausalLM.from_pretrained(model_id).to(device).eval()
+        load_kwargs: dict[str, Any] = {}
+        if trust_remote_code:
+            load_kwargs["trust_remote_code"] = True
+        self._tokenizer = AutoTokenizer.from_pretrained(model_id, **load_kwargs)
+        if torch_dtype is not None:
+            load_kwargs["torch_dtype"] = torch_dtype
+        model = AutoModelForCausalLM.from_pretrained(model_id, **load_kwargs)
+        self._model = model.to(device).eval()
         self._device = device
+
+    @classmethod
+    def from_model(
+        cls,
+        model_id: str,
+        model: Any,
+        device: Any,
+        *,
+        trust_remote_code: bool = False,
+    ) -> HFCausalLM:
+        """Adapt an existing caller-owned causal LM without moving or reloading it."""
+        from transformers import AutoTokenizer
+
+        load_kwargs = {"trust_remote_code": True} if trust_remote_code else {}
+        adapter = cls.__new__(cls)
+        adapter._tokenizer = AutoTokenizer.from_pretrained(model_id, **load_kwargs)
+        adapter._model = model.eval()
+        adapter._device = device
+        return adapter
 
     def encode(self, text: str) -> list[int]:
         """Encode *text* to token IDs.

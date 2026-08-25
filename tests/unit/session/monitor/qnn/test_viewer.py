@@ -10,6 +10,7 @@ import subprocess
 
 import pytest
 
+from winml.modelkit.session.monitor.op_metrics import TraceFallbackReason
 from winml.modelkit.session.monitor.qnn import viewer
 from winml.modelkit.session.monitor.qnn.viewer import find_qnn_sdk
 
@@ -186,3 +187,99 @@ def test_run_qhas_viewer_rejects_direct_output_without_analysis_summary(
 
     assert run_qhas_viewer(qnn_log, schematic, output, sdk_root=sdk_root) is None
     assert "did not produce analysis summary" in caplog.text
+
+
+def test_run_qhas_viewer_result_reports_config_write_failure(monkeypatch, tmp_path):
+    """Viewer preparation failures remain detail fallbacks, not parse failures."""
+    from pathlib import Path
+
+    from winml.modelkit.session.monitor.qnn.viewer import run_qhas_viewer_result
+
+    sdk_root = tmp_path / "sdk"
+    viewer_path = sdk_root / "bin" / "x64" / "qnn-profile-viewer.exe"
+    viewer_path.parent.mkdir(parents=True)
+    viewer_path.write_bytes(b"")
+    reader = sdk_root / "lib" / viewer_path.parent.name / "QnnHtpOptraceProfilingReader.dll"
+    reader.parent.mkdir(parents=True)
+    reader.write_bytes(b"")
+    qnn_log = tmp_path / "profile.log"
+    schematic = tmp_path / "schematic.bin"
+    qnn_log.write_bytes(b"")
+    schematic.write_bytes(b"")
+
+    def _fail_write_text(self: Path, *_args, **_kwargs):
+        raise PermissionError(f"read-only output: {self}")
+
+    monkeypatch.setattr(Path, "write_text", _fail_write_text)
+    monkeypatch.setattr(subprocess, "run", pytest.fail)
+
+    result = run_qhas_viewer_result(
+        qnn_log,
+        schematic,
+        tmp_path / "qhas_output.json",
+        sdk_root=sdk_root,
+    )
+
+    assert result.path is None
+    assert result.failure_reason == TraceFallbackReason.VIEWER_FAILED
+
+
+def test_run_qhas_viewer_result_reports_config_serialization_failure(monkeypatch, tmp_path):
+    """Invalid custom viewer config remains a structured detail fallback."""
+    from winml.modelkit.session.monitor.qnn.viewer import run_qhas_viewer_result
+
+    sdk_root = tmp_path / "sdk"
+    viewer_path = sdk_root / "bin" / "x64" / "qnn-profile-viewer.exe"
+    viewer_path.parent.mkdir(parents=True)
+    viewer_path.write_bytes(b"")
+    reader = sdk_root / "lib" / viewer_path.parent.name / "QnnHtpOptraceProfilingReader.dll"
+    reader.parent.mkdir(parents=True)
+    reader.write_bytes(b"")
+    qnn_log = tmp_path / "profile.log"
+    schematic = tmp_path / "schematic.bin"
+    qnn_log.write_bytes(b"")
+    schematic.write_bytes(b"")
+    monkeypatch.setattr(subprocess, "run", pytest.fail)
+
+    result = run_qhas_viewer_result(
+        qnn_log,
+        schematic,
+        tmp_path / "qhas_output.json",
+        config={"not_json": object()},
+        sdk_root=sdk_root,
+    )
+
+    assert result.path is None
+    assert result.failure_reason == TraceFallbackReason.VIEWER_FAILED
+
+
+def test_run_qhas_viewer_result_distinguishes_missing_summary(monkeypatch, tmp_path):
+    """A successful viewer process without its summary is output_missing."""
+    from winml.modelkit.session.monitor.qnn.viewer import run_qhas_viewer_result
+
+    sdk_root = tmp_path / "sdk"
+    viewer_path = sdk_root / "bin" / "x64" / "qnn-profile-viewer.exe"
+    viewer_path.parent.mkdir(parents=True)
+    viewer_path.write_bytes(b"")
+    reader = sdk_root / "lib" / viewer_path.parent.name / "QnnHtpOptraceProfilingReader.dll"
+    reader.parent.mkdir(parents=True)
+    reader.write_bytes(b"")
+    qnn_log = tmp_path / "profile.log"
+    schematic = tmp_path / "schematic.bin"
+    qnn_log.write_bytes(b"")
+    schematic.write_bytes(b"")
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda cmd, **_kwargs: subprocess.CompletedProcess(cmd, 0, "", ""),
+    )
+
+    result = run_qhas_viewer_result(
+        qnn_log,
+        schematic,
+        tmp_path / "qhas_output.json",
+        sdk_root=sdk_root,
+    )
+
+    assert result.path is None
+    assert result.failure_reason == TraceFallbackReason.QHAS_OUTPUT_MISSING

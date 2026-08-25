@@ -166,15 +166,37 @@ def _update_hash_from_path_metadata(hash_obj: Any, path: Path) -> None:
     hash_obj.update(str(stat.st_mtime_ns).encode("ascii"))
 
 
-def get_onnx_model_hash(model_path: str | Path) -> str:
-    """Compute a lightweight metadata hash for an ONNX model and external data."""
+def _update_hash_from_path_content(hash_obj: Any, path: Path) -> None:
+    """Update *hash_obj* with a resolved path and the file's complete bytes."""
+    resolved = path.resolve(strict=True)
+    hash_obj.update(str(resolved).encode("utf-8", "surrogatepass"))
+    hash_obj.update(b"\0")
+    with resolved.open("rb") as source_file:
+        for chunk in iter(lambda: source_file.read(1024 * 1024), b""):
+            hash_obj.update(chunk)
+
+
+def get_onnx_model_hash(model_path: str | Path, *, strict: bool = False) -> str:
+    """Compute a lightweight metadata hash for an ONNX model and external data.
+
+    Args:
+        model_path: ONNX graph whose source metadata participates in the hash.
+        strict: Raise when external-data references cannot be inspected or a
+            referenced sidecar is unavailable. Cache identities should use
+            strict mode so uncertainty forces a rebuild instead of a false hit.
+    """
     model_path = Path(model_path).resolve()
     hash_obj = hashlib.sha256()
-    _update_hash_from_path_metadata(hash_obj, model_path)
+    if strict:
+        _update_hash_from_path_content(hash_obj, model_path)
+    else:
+        _update_hash_from_path_metadata(hash_obj, model_path)
 
     try:
         external_files = get_external_data_files(model_path)
     except Exception:
+        if strict:
+            raise
         logger.debug("Could not inspect ONNX external data for hashing: %s", model_path)
         external_files = []
 
@@ -186,8 +208,13 @@ def get_onnx_model_hash(model_path: str | Path) -> str:
         hash_obj.update(location.replace("\\", "/").encode("utf-8"))
         hash_obj.update(b"\0")
         try:
-            _update_hash_from_path_metadata(hash_obj, data_path)
+            if strict:
+                _update_hash_from_path_content(hash_obj, data_path)
+            else:
+                _update_hash_from_path_metadata(hash_obj, data_path)
         except FileNotFoundError:
+            if strict:
+                raise
             logger.debug(
                 "ONNX external data file referenced by %s is missing: %s",
                 model_path,
