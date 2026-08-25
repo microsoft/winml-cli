@@ -196,8 +196,14 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
 
         mapping = config.dataset.columns_mapping
         task = "audio-classification"
-        self._audio_col = mapping.get("input_column", get_default(task, "input_column"))
-        self._label_col = mapping.get("label_column", get_default(task, "label_column"))
+        audio_col = mapping.get("input_column", get_default(task, "input_column"))
+        label_col = mapping.get("label_column", get_default(task, "label_column"))
+        if audio_col is None or label_col is None:
+            raise DatasetValidationError(
+                "audio-classification requires input_column and label_column defaults",
+            )
+        self._audio_col = audio_col
+        self._label_col = label_col
         self._eligible_count = 0
         self._selected_count = 0
         self._dataset_id_to_model_id: dict[int, int] = {}
@@ -213,7 +219,7 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
         """Create the shared native-HF/WinML callable audio adapter."""
         return _AudioModelAdapter(self.config, self.model)
 
-    def prepare_data(self) -> list[_SelectedAudioSample | dict[str, Any]]:
+    def prepare_data(self) -> list[_SelectedAudioSample] | list[dict[str, Any]]:
         """Load, label-filter, then select a seeded stratified sample.
 
         Filtering happens before sampling so unsupported classes cannot consume
