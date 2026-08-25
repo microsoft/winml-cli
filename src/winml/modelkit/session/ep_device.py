@@ -381,7 +381,10 @@ EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
             "htp_performance_mode": "burst",
             "htp_graph_finalization_optimization_mode": "3",
         },
-        provider_option_hints={"backend_path": "QnnHtp.dll"},
+        provider_option_hints={
+            "backend_path": "QnnHtp.dll",
+            "backend_type": "htp",
+        },
     ),
     EPDeviceSpec(ep="OpenVINOExecutionProvider", device="npu"),
     EPDeviceSpec(ep="VitisAIExecutionProvider", device="npu"),
@@ -394,12 +397,18 @@ EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
     EPDeviceSpec(
         ep="QNNExecutionProvider",
         device="gpu",
-        provider_option_hints={"backend_path": "QnnGpu.dll"},
+        provider_option_hints={
+            "backend_path": "QnnGpu.dll",
+            "backend_type": "gpu",
+        },
     ),  # TODO: measure
     EPDeviceSpec(
         ep="QNNExecutionProvider",
         device="cpu",
-        provider_option_hints={"backend_path": "QnnCpu.dll"},
+        provider_option_hints={
+            "backend_path": "QnnCpu.dll",
+            "backend_type": "cpu",
+        },
     ),
     # ---- Built-in fallbacks (last per registry design intent) ----
     EPDeviceSpec(ep="DmlExecutionProvider", device="gpu"),  # cross-vendor GPU fallback
@@ -429,6 +438,39 @@ def lookup_device_spec(ep: str, device: str) -> EPDeviceSpec | None:
         The matching :class:`EPDeviceSpec`, or ``None`` if not found.
     """
     return _BY_KEY.get((ep, device))
+
+
+def device_from_provider_option_hints(
+    ep: str,
+    options: Mapping[str, object],
+) -> tuple[bool, str | None]:
+    """Resolve provider-level device selectors from the EP/device catalog.
+
+    Returns ``(False, None)`` when no catalog selector is present. When at
+    least one selector is present, the second element is the unique matching
+    device or ``None`` if the supplied selectors are unknown or conflicting.
+    """
+    specs = [spec for spec in EP_DEVICE_SPECS if spec.ep == ep and spec.provider_option_hints]
+    selector_keys = {
+        key for spec in specs for key in spec.provider_option_hints
+    }
+    if not any(key in options for key in selector_keys):
+        return False, None
+
+    matches: set[str] | None = None
+    for key in selector_keys.intersection(options):
+        actual = str(options[key]).replace("\\", "/").rsplit("/", 1)[-1]
+        key_matches: set[str] = {
+            spec.device
+            for spec in specs
+            if key in spec.provider_option_hints
+            and actual.casefold() == spec.provider_option_hints[key].casefold()
+        }
+        if not key_matches:
+            return True, None
+        matches = key_matches if matches is None else matches.intersection(key_matches)
+
+    return True, (next(iter(matches)) if matches is not None and len(matches) == 1 else None)
 
 
 def default_device_for_ep(ep: str) -> str | None:

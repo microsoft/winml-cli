@@ -601,6 +601,14 @@ class TestOpTracingHardwareMonitor:
             ep_name="QNNExecutionProvider",
             device="npu",
         )
+        benchmark._ep_device = SimpleNamespace(
+            device=SimpleNamespace(
+                device_type="NPU",
+                ort_handle=SimpleNamespace(
+                    device=SimpleNamespace(metadata={"LUID": "99219"})
+                )
+            )
+        )
 
         hw = MagicMock()
         hw.__enter__.return_value = hw
@@ -623,9 +631,203 @@ class TestOpTracingHardwareMonitor:
 
         assert result is ctx.stats
         hw_monitor.is_available.assert_called_once_with()
-        hw_monitor.assert_called_once()
+        hw_monitor.assert_called_once_with(
+            poll_interval_ms=200,
+            device="npu",
+            ep_name="QNNExecutionProvider",
+            adapter_luid="0x00000000_0x00018393",
+            adapter_device="npu",
+        )
         simple_loop.assert_not_called()
         monitored_loop.assert_called_once()
+
+
+class TestEPDeviceMonitorBinding:
+    def test_provider_options_select_matching_ep_device(self) -> None:
+        from winml.modelkit.commands.perf import _get_ep_device_binding
+
+        def make_device(device_id: str, luid: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                device_type="GPU",
+                ep_name="DmlExecutionProvider",
+                ort_handle=SimpleNamespace(
+                    ep_options={"device_id": device_id},
+                    device=SimpleNamespace(metadata={"LUID": luid}),
+                ),
+            )
+
+        gpu0 = make_device("0", "99219")
+        gpu1 = make_device("1", "99220")
+        ep_device = SimpleNamespace(
+            device=gpu0,
+            ep=SimpleNamespace(devices=(gpu0, gpu1)),
+        )
+
+        assert _get_ep_device_binding(ep_device, {"device_id": "1"}) == (
+            "0x00000000_0x00018394",
+            "gpu",
+        )
+
+    def test_unmatched_device_override_disables_bound_luid(self) -> None:
+        from winml.modelkit.commands.perf import _get_ep_device_binding
+
+        gpu = SimpleNamespace(
+            device_type="GPU",
+            ep_name="DmlExecutionProvider",
+            ort_handle=SimpleNamespace(
+                ep_options={"device_id": "0"},
+                device=SimpleNamespace(metadata={"LUID": "99219"}),
+            ),
+        )
+        ep_device = SimpleNamespace(
+            device=gpu,
+            ep=SimpleNamespace(devices=(gpu,)),
+        )
+
+        assert _get_ep_device_binding(ep_device, {"device_id": "1"}) == (
+            None,
+            None,
+        )
+
+    def test_unadvertised_qnn_backend_override_selects_matching_device(self) -> None:
+        from winml.modelkit.commands.perf import _get_ep_device_binding
+
+        def make_device(device_type: str, luid: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                device_type=device_type,
+                ep_name="QNNExecutionProvider",
+                ort_handle=SimpleNamespace(
+                    ep_options={},
+                    device=SimpleNamespace(metadata={"LUID": luid}),
+                ),
+            )
+
+        npu = make_device("NPU", "99219")
+        gpu = make_device("GPU", "99220")
+        ep_device = SimpleNamespace(
+            device=npu,
+            ep=SimpleNamespace(devices=(npu, gpu)),
+        )
+
+        assert _get_ep_device_binding(ep_device, {"backend_type": "gpu"}) == (
+            "0x00000000_0x00018394",
+            "gpu",
+        )
+
+    def test_qnn_backend_without_candidate_disables_adapter_monitoring(self) -> None:
+        from winml.modelkit.commands.perf import (
+            _get_ep_device_binding,
+            _get_monitor_binding,
+        )
+
+        npu = SimpleNamespace(
+            device_type="NPU",
+            ep_name="QNNExecutionProvider",
+            ort_handle=SimpleNamespace(
+                ep_options={},
+                device=SimpleNamespace(metadata={"LUID": "99219"}),
+            ),
+        )
+        ep_device = SimpleNamespace(
+            device=npu,
+            ep=SimpleNamespace(devices=(npu,)),
+        )
+
+        assert _get_ep_device_binding(ep_device, {"backend_type": "gpu"}) == (
+            None,
+            "gpu",
+        )
+        assert _get_monitor_binding(
+            ep_device,
+            "npu",
+            {"backend_type": "gpu"},
+        ) == ("cpu", None, None)
+
+    def test_qnn_backend_without_candidate_disables_vram_discovery(self) -> None:
+        from winml.modelkit.commands.perf import BenchmarkConfig, PerfBenchmark
+
+        npu = SimpleNamespace(
+            device_type="NPU",
+            ep_name="QNNExecutionProvider",
+            ort_handle=SimpleNamespace(
+                ep_options={},
+                device=SimpleNamespace(metadata={"LUID": "99219"}),
+            ),
+        )
+        ep_device = SimpleNamespace(
+            device=npu,
+            ep=SimpleNamespace(devices=(npu,)),
+        )
+        benchmark = PerfBenchmark(
+            BenchmarkConfig(
+                model_id="fake/model",
+                device="npu",
+                ep_options={"backend_type": "gpu"},
+            )
+        )
+        benchmark._model = SimpleNamespace(
+            device="npu",
+            ep_name="QNNExecutionProvider",
+        )
+        benchmark._ep_device = ep_device
+
+        with patch(
+            "winml.modelkit.sysinfo.pdh_adapters.resolve_adapter_luid"
+        ) as resolve_adapter_luid:
+            assert benchmark._resolve_adapter_luid() is None
+
+        resolve_adapter_luid.assert_not_called()
+
+    def test_unknown_qnn_backend_disables_bound_adapter(self) -> None:
+        from winml.modelkit.commands.perf import (
+            _get_ep_device_binding,
+            _get_monitor_binding,
+        )
+
+        npu = SimpleNamespace(
+            device_type="NPU",
+            ep_name="QNNExecutionProvider",
+            ort_handle=SimpleNamespace(
+                ep_options={},
+                device=SimpleNamespace(metadata={"LUID": "99219"}),
+            ),
+        )
+        ep_device = SimpleNamespace(
+            device=npu,
+            ep=SimpleNamespace(devices=(npu,)),
+        )
+
+        assert _get_ep_device_binding(ep_device, {"backend_type": "unknown"}) == (
+            None,
+            None,
+        )
+        assert _get_monitor_binding(
+            ep_device,
+            "npu",
+            {"backend_type": "unknown"},
+        ) == ("cpu", None, None)
+
+    def test_qnn_cpu_backend_disables_accelerator_monitoring(self) -> None:
+        from winml.modelkit.commands.perf import _get_monitor_binding
+
+        npu = SimpleNamespace(
+            device_type="NPU",
+            ep_name="QNNExecutionProvider",
+            ort_handle=SimpleNamespace(
+                ep_options={},
+                device=SimpleNamespace(metadata={"LUID": "99219"}),
+            ),
+        )
+        ep_device = SimpleNamespace(
+            device=npu,
+            ep=SimpleNamespace(devices=(npu,)),
+        )
+
+        assert _get_monitor_binding(
+            ep_device,
+            "npu",
+            {"backend_type": "cpu"},
+        ) == ("cpu", None, None)
 
 
 class _ConfigStub:

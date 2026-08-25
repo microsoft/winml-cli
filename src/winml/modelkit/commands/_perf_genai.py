@@ -57,7 +57,7 @@ if TYPE_CHECKING:
 
     from rich.console import Console
 
-    from ..utils.constants import EPName
+    from ..utils.constants import EPName, RuntimeName
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # =============================================================================
 
-RUNTIME_TYPE = "winml-genai"
+RUNTIME_TYPE: RuntimeName = "winml-genai"
 _HW_POLL_INTERVAL_MS = 200
 
 # Built-in benchmark prompt.  Mirrored by the ``--prompt`` CLI default and the
