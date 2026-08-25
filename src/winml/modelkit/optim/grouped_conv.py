@@ -355,12 +355,22 @@ def _set_region_hints(
     entry.value = serialize_quantization_region_hints(regions)
 
 
+def _standard_opset_version(model: ModelProto) -> int | None:
+    versions = [
+        int(opset.version) for opset in model.opset_import if opset.domain in STANDARD_ONNX_DOMAINS
+    ]
+    return versions[0] if len(versions) == 1 else None
+
+
 def trim_split_grouped_convs(
     model: ModelProto,
     *,
     verbose: bool = False,
 ) -> ModelProto:
     """Trim unreachable 1D kernels and split even grouped Conv regions."""
+    opset_version = _standard_opset_version(model)
+    if opset_version is None:
+        return model
     existing_regions = _validated_existing_regions(model)
     graph = model.graph
     initializers = {initializer.name: initializer for initializer in graph.initializer}
@@ -427,6 +437,8 @@ def trim_split_grouped_convs(
             name=plan.split_name,
             axis=1,
         )
+        if opset_version >= 18:
+            _replace_attribute(split, "num_outputs", len(plan.split_outputs))
         branches: list[NodeProto] = []
         for index in range(2):
             branch = copy.deepcopy(plan.conv)

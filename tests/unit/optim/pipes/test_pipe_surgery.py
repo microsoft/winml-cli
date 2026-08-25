@@ -512,6 +512,7 @@ def _make_grouped_conv_tail_slice_model(
     input_length: int = 3,
     pads: tuple[int, int] = (4, 4),
     slice_end: int = -1,
+    opset_version: int = 17,
 ) -> onnx.ModelProto:
     """Build a grouped 1D Conv whose final output is removed by Slice."""
     from onnx import TensorProto, helper
@@ -547,7 +548,7 @@ def _make_grouped_conv_tail_slice_model(
         [helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 32, 3])],
         initializer=[weights, bias, starts, ends, axes, steps],
     )
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", opset_version)])
 
 
 class TestTrimSplitGroupedConvCapability:
@@ -627,16 +628,26 @@ class TestTrimSplitGroupedConvProcess:
             ],
         }
 
-    def test_preserves_cpu_outputs_and_is_idempotent(self) -> None:
+    @pytest.mark.parametrize("opset_version", [17, 18])
+    def test_preserves_cpu_outputs_and_is_idempotent(self, opset_version: int) -> None:
         import onnxruntime as ort
 
-        model = _make_grouped_conv_tail_slice_model()
+        model = _make_grouped_conv_tail_slice_model(opset_version=opset_version)
         pipe = SurgeryPipe()
         config = SurgeryPipeConfig(trim_split_grouped_conv=True)
         transformed = pipe.process(model, config)
         second_pass = pipe.process(transformed, config)
         feed = {"input": np.random.RandomState(7).randn(1, 32, 3).astype(np.float32)}
+        split = next(node for node in transformed.graph.node if node.op_type == "Split")
+        split_attributes = {
+            attribute.name: onnx.helper.get_attribute_value(attribute)
+            for attribute in split.attribute
+        }
 
+        onnx.checker.check_model(transformed, full_check=True)
+        assert split_attributes == (
+            {"axis": 1} if opset_version < 18 else {"axis": 1, "num_outputs": 2}
+        )
         expected = ort.InferenceSession(
             model.SerializeToString(), providers=["CPUExecutionProvider"]
         ).run(None, feed)[0]

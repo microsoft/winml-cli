@@ -29,30 +29,35 @@ def _publish_staged_model(staged_path: Path, output_path: Path) -> None:
     """Publish a validated staged ONNX model while preserving prior output on failure."""
     staged_sidecar = staged_path.parent / f"{staged_path.name}.data"
     output_sidecar = output_path.parent / f"{output_path.name}.data"
-    backup_model = staged_path.parent / "previous-output.onnx"
-    backup_sidecar = staged_path.parent / "previous-output.onnx.data"
-    backed_up_model = False
-    backed_up_sidecar = False
-    published_sidecar = False
-    try:
-        if output_path.exists():
-            output_path.replace(backup_model)
-            backed_up_model = True
-        if output_sidecar.exists():
-            output_sidecar.replace(backup_sidecar)
-            backed_up_sidecar = True
-        if staged_sidecar.exists():
-            staged_sidecar.replace(output_sidecar)
-            published_sidecar = True
-        staged_path.replace(output_path)
-    except BaseException:
-        if published_sidecar:
-            output_sidecar.unlink(missing_ok=True)
-        if backed_up_sidecar:
-            backup_sidecar.replace(output_sidecar)
-        if backed_up_model:
-            backup_model.replace(output_path)
-        raise
+    for label, path in (("Output path", output_path), ("Output sidecar path", output_sidecar)):
+        if os.path.lexists(path) and not path.is_file():
+            raise ValueError(f"{label} exists but is not a file: {path}")
+
+    with TemporaryDirectory(prefix=".publish-backup-", dir=staged_path.parent) as backup_directory:
+        backup_model = Path(backup_directory) / "model"
+        backup_sidecar = Path(backup_directory) / "sidecar"
+        backed_up_model = False
+        backed_up_sidecar = False
+        published_sidecar = False
+        try:
+            if output_path.exists():
+                output_path.replace(backup_model)
+                backed_up_model = True
+            if output_sidecar.exists():
+                output_sidecar.replace(backup_sidecar)
+                backed_up_sidecar = True
+            if staged_sidecar.exists():
+                staged_sidecar.replace(output_sidecar)
+                published_sidecar = True
+            staged_path.replace(output_path)
+        except BaseException:
+            if published_sidecar:
+                output_sidecar.unlink(missing_ok=True)
+            if backed_up_sidecar:
+                backup_sidecar.replace(output_sidecar)
+            if backed_up_model:
+                backup_model.replace(output_path)
+            raise
 
 
 class StaticPass(BaseQuantPass):
