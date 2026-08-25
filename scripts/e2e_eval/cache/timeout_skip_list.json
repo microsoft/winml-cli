@@ -58,5 +58,24 @@
     "hf_id": "Qwen/Qwen3-8B",
     "task": "text-generation",
     "reason": "OOM in quantization (model too large for in-process quantize)"
+  },
+  {
+    "hf_id": "FacebookAI/xlm-roberta-large",
+    "task": "fill-mask",
+    "ep": "qnn",
+    "precision": "w8a16",
+    "reason": "Repeatedly hangs the evaluation host"
+  },
+  {
+    "hf_id": "naver-clova-ix/donut-base",
+    "task": "image-to-text",
+    "ep": "qnn",
+    "reason": "Encoder static quantization hangs the evaluation host"
+  },
+  {
+    "hf_id": "naver-clova-ix/donut-base-finetuned-cord-v2",
+    "task": "image-to-text",
+    "ep": "qnn",
+    "reason": "Related Donut encoder quantization can hang the evaluation host"
   }
 ]
