@@ -60,8 +60,6 @@ def _select_model_loader(config: WinMLEvaluationConfig) -> _ModelLoaderKind:
 # default formatter layout) yields >100-char lines that trip E501.
 # fmt: off
 _EVALUATOR_REGISTRY: dict[str, str] = {
-    "audio-classification":
-        "winml.modelkit.eval.audio_classification_evaluator:WinMLAudioClassificationEvaluator",
     "image-classification":
         "winml.modelkit.eval.base_evaluator:WinMLEvaluator",
     "text-classification":
