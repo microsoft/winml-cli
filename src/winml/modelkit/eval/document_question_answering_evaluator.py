@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Sequence
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
@@ -164,13 +165,34 @@ class WinMLDocumentQuestionAnsweringEvaluator(WinMLEvaluator):
     def _tokenizer(self) -> PreTrainedTokenizerBase:
         return cast("PreTrainedTokenizerBase", self.pipe.tokenizer)
 
+    def _model_input_names(self) -> set[str]:
+        """Return inputs declared by ONNX metadata or a native model signature."""
+        io_config = getattr(self.model, "io_config", None) or {}
+        input_names = set(io_config.get("input_names") or [])
+        if input_names:
+            return input_names
+        forward = getattr(self.model, "forward", None)
+        try:
+            parameters = inspect.signature(forward).parameters if forward is not None else {}
+        except (TypeError, ValueError):
+            return set()
+        return {
+            name
+            for name, parameter in parameters.items()
+            if parameter.kind
+            in {
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+            }
+        }
+
     def compute(self) -> dict[str, Any]:
         """Run bounded document preprocessing, inference, decoding, and ANLS."""
         import torch
 
         from .metrics import ANLSMetric
 
-        input_names = set((getattr(self.model, "io_config", None) or {}).get("input_names", []))
+        input_names = self._model_input_names()
         if "bbox" not in input_names:
             raise ValueError("Document question answering requires a declared bbox model input.")
         mapping = self.config.dataset.columns_mapping
@@ -226,6 +248,10 @@ class WinMLDocumentQuestionAnsweringEvaluator(WinMLEvaluator):
                         raise ValueError(
                             f"Tokenizer did not produce declared model input '{input_name}'."
                         )
+                model_inputs = {
+                    name: tensor.to(self.config.pipeline_device)
+                    for name, tensor in model_inputs.items()
+                }
                 with torch.no_grad():
                     outputs = self.model(**model_inputs)
                 score, answer = _decode_document_span(

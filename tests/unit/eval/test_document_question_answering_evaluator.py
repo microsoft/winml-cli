@@ -42,6 +42,19 @@ class _Encoding(dict):
         assert feature_index == 0
         return self._word_ids
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, _Encoding):
+            return False
+        return (
+            self.keys() == other.keys()
+            and all(torch.equal(value, other[key]) for key, value in self.items())
+            and self._sequence_ids == other._sequence_ids
+            and self._word_ids == other._word_ids
+        )
+
+    def __ne__(self, other: object) -> bool:
+        return not self == other
+
 
 class _Tokenizer:
     model_max_length = 512
@@ -53,6 +66,26 @@ class _Tokenizer:
     def __call__(self, *args, **kwargs):
         self.calls.append((args, kwargs))
         return _Encoding()
+
+
+class _NativeDocumentQAModel:
+    def __init__(self):
+        self.inputs = None
+
+    def forward(self, input_ids, bbox, attention_mask, token_type_ids):
+        self.inputs = {
+            "input_ids": input_ids,
+            "bbox": bbox,
+            "attention_mask": attention_mask,
+            "token_type_ids": token_type_ids,
+        }
+        starts = torch.zeros((1, 9))
+        ends = torch.zeros((1, 9))
+        starts[0, 4] = 8
+        ends[0, 6] = 9
+        return QuestionAnsweringModelOutput(start_logits=starts, end_logits=ends)
+
+    __call__ = forward
 
 
 def _ocr():
@@ -192,6 +225,65 @@ def test_compute_uses_declared_inputs_and_bounded_single_window():
     assert torch.count_nonzero(model.call_args.kwargs["token_type_ids"]) == 0
     assert tokenizer.calls[0][1]["max_length"] == 512
     assert tokenizer.calls[0][1]["return_overflowing_tokens"] is True
+
+
+def test_compute_discovers_native_model_inputs_from_forward_signature():
+    from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
+
+    model = _NativeDocumentQAModel()
+    evaluator = object.__new__(WinMLDocumentQuestionAnsweringEvaluator)
+    evaluator.model = model
+    evaluator.pipe = SimpleNamespace(tokenizer=_Tokenizer(), device="cpu")
+    evaluator.data = [
+        {
+            "question": "What company?",
+            "answers": ["ITC Limited"],
+            "ocr_results": _ocr(),
+        }
+    ]
+    evaluator.config = WinMLEvaluationConfig(
+        model_id="test/model",
+        task="document-question-answering",
+        runtime="pytorch",
+        dataset=DatasetConfig(path="test/data", samples=1, shuffle=False),
+    )
+
+    result = evaluator.compute()
+
+    assert result["anls"] == 1.0
+    assert set(model.inputs) == {
+        "input_ids",
+        "bbox",
+        "attention_mask",
+        "token_type_ids",
+    }
+
+
+def test_compute_moves_all_inputs_to_pipeline_device():
+    from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
+
+    model = _NativeDocumentQAModel()
+    evaluator = object.__new__(WinMLDocumentQuestionAnsweringEvaluator)
+    evaluator.model = model
+    evaluator.pipe = SimpleNamespace(tokenizer=_Tokenizer(), device="meta")
+    evaluator.data = [
+        {
+            "question": "What company?",
+            "answers": ["ITC Limited"],
+            "ocr_results": _ocr(),
+        }
+    ]
+    evaluator.config = WinMLEvaluationConfig(
+        model_id="test/model",
+        task="document-question-answering",
+        runtime="pytorch",
+        dataset=DatasetConfig(path="test/data", samples=1, shuffle=False),
+        _pipeline_device_override="meta",
+    )
+
+    evaluator.compute()
+
+    assert {tensor.device.type for tensor in model.inputs.values()} == {"meta"}
 
 
 def test_compute_rejects_unbounded_top_k():
