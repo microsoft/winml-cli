@@ -363,7 +363,7 @@ class TestEvaluate:
                 "_infer_task",
                 return_value="document-question-answering",
             ),
-            patch.object(eval_mod, "_load_model", return_value=MagicMock()),
+            patch.object(eval_mod, "load_model", return_value=MagicMock()),
             patch.object(WinMLQuestionAnsweringEvaluator, "__init__", return_value=None),
             patch.object(
                 WinMLQuestionAnsweringEvaluator,
