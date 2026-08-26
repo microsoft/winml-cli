@@ -10,6 +10,7 @@ import ctypes
 import sys
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -77,9 +78,9 @@ _HARDWARE_TYPE_NPU = 0x4
 def _method(
     instance: ctypes.c_void_p,
     index: int,
-    restype: type[ctypes._SimpleCData],  # type: ignore[name-defined]
-    *argtypes: type[ctypes._CData],  # type: ignore[name-defined]
-) -> ctypes._CFuncPtr:  # type: ignore[name-defined]
+    restype: Any,
+    *argtypes: Any,
+) -> Any:
     vtable = ctypes.cast(instance, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
     return ctypes.WINFUNCTYPE(restype, ctypes.c_void_p, *argtypes)(vtable[index])
 
@@ -97,7 +98,7 @@ def _check_hresult(result: int, operation: str) -> None:
 def _get_property(
     adapter: ctypes.c_void_p,
     property_id: int,
-    value: object,
+    value: ctypes.Structure | ctypes._SimpleCData[Any],
 ) -> None:
     get_property = _method(
         adapter,
