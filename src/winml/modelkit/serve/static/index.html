@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="connect-src 'self'">
 <title>WinML CLI Inference Demo</title>
 <style>
 :root {
@@ -297,7 +298,7 @@ canvas.spark{width:100%;height:60px;display:block}
   </div>
   <div class="server-row">
     <span class="status-dot" id="statusDot"></span>
-    <input type="text" id="serverUrl">
+    <input type="text" id="serverUrl" readonly aria-label="Server URL">
     <button class="btn btn-outline" onclick="connectServer()">Connect</button>
   </div>
   <span class="status-label" id="statusLabel">Not connected</span>
@@ -917,7 +918,7 @@ canvas.spark{width:100%;height:60px;display:block}
 // ══════════════════════════════════════════════════
 // State
 // ══════════════════════════════════════════════════
-let serverUrl = window.location.origin;
+const serverUrl = new URL('.', window.location.href).href.replace(/\/$/, '');
 let selectedFile = null;
 let pollTimer = null;
 let _log_handler_seq = 0;  // tracks last seen log seq for /v1/logs polling
@@ -942,7 +943,6 @@ function showPage(name, el) {
 // Server
 // ══════════════════════════════════════════════════
 async function connectServer() {
-  serverUrl = document.getElementById('serverUrl').value.replace(/\/$/, '');
   try {
     const r = await fetch(`${serverUrl}/v1/health`, { signal: AbortSignal.timeout(3000) });
     const d = await r.json();

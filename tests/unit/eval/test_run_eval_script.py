@@ -1197,10 +1197,248 @@ def _entry(hf_id="microsoft/resnet-50", task="image-classification"):
     entry = MagicMock()
     entry.hf_id = hf_id
     entry.task = task
+    entry.model_type = "vision"
+    entry.group = "core"
+    entry.priority = "P0"
     entry.precision = None
     entry.perf_args = []
     entry.eval_args = []
     return entry
+
+
+def _perf_result(mean=1.25):
+    return {
+        "schema_version": 2,
+        "benchmark_info": {"runtime": "winml", "model_id": "model.onnx"},
+        "model_info": {"input_names": ["input"], "output_names": ["output"]},
+        "latency_ms": {
+            "mean": mean,
+            "min": 1.0,
+            "max": 1.5,
+            "p50": 1.2,
+            "p90": 1.4,
+            "p95": 1.5,
+            "p99": 1.5,
+            "std": 0.1,
+            "warmup_mean": 1.3,
+        },
+        "throughput": {"samples_per_sec": 800.0, "batches_per_sec": 800.0},
+        "raw_samples_ms": [1.0, 1.5],
+    }
+
+
+def _composite_perf_result():
+    return {
+        "model_id": "composite",
+        "task": "zero-shot-image-classification",
+        "component_count": 2,
+        "components": {
+            "text_model": _perf_result(1.0),
+            "vision_model": _perf_result(2.0),
+        },
+    }
+
+
+class TestRunModelStructuredPerfResult:
+    def test_single_model_uses_and_loads_json_output(self, run_eval, tmp_path):
+        perf_result = _perf_result()
+
+        def fake_run(args, timeout):
+            output_path = Path(args[args.index("--output") + 1])
+            output_path.write_text(json.dumps(perf_result), encoding="utf-8")
+            assert args[-1] == "--overwrite"
+            assert timeout == 300
+            return {
+                "stdout": "Performance Benchmark Results",
+                "stderr": "",
+                "exit_code": 0,
+                "elapsed": 1.0,
+                "timeout": False,
+                "command": "winml perf",
+            }
+
+        with patch.object(run_eval, "_run_subprocess", side_effect=fake_run):
+            proc = run_eval.run_model(
+                _entry(),
+                "cpu",
+                300,
+                {"": "model.onnx"},
+                model_dir=tmp_path,
+            )
+
+        assert proc["result"] == perf_result
+
+    def test_composite_model_preserves_results_by_label(self, run_eval, tmp_path):
+        perf_results = iter(
+            [
+                _perf_result(1.0),
+                _perf_result(2.0),
+            ]
+        )
+
+        def fake_run(args, timeout):
+            output_path = Path(args[args.index("--output") + 1])
+            output_path.write_text(json.dumps(next(perf_results)), encoding="utf-8")
+            return {
+                "stdout": "Performance Benchmark Results",
+                "stderr": "",
+                "exit_code": 0,
+                "elapsed": 1.0,
+                "timeout": False,
+                "command": "winml perf",
+            }
+
+        with patch.object(run_eval, "_run_subprocess", side_effect=fake_run):
+            proc = run_eval.run_model(
+                _entry(),
+                "cpu",
+                300,
+                {"encoder": "encoder.onnx", "decoder": "decoder.onnx"},
+                model_dir=tmp_path,
+            )
+
+        assert proc["result"] == {"encoder": _perf_result(1.0), "decoder": _perf_result(2.0)}
+
+    def test_native_composite_result_is_accepted(self, run_eval, tmp_path):
+        perf_result = _composite_perf_result()
+
+        def fake_run(args, timeout):
+            output_path = Path(args[args.index("--output") + 1])
+            output_path.write_text(json.dumps(perf_result), encoding="utf-8")
+            return {
+                "stdout": "Performance Benchmark Results",
+                "stderr": "",
+                "exit_code": 0,
+                "elapsed": 1.0,
+                "timeout": False,
+                "command": "winml perf",
+            }
+
+        with patch.object(run_eval, "_run_subprocess", side_effect=fake_run):
+            proc = run_eval.run_model(_entry(), "cpu", 300, model_dir=tmp_path)
+
+        assert proc["exit_code"] == 0
+        assert proc["result"] == perf_result
+
+    @pytest.mark.parametrize(
+        "perf_result",
+        [
+            {},
+            {"latency_ms": []},
+            {**_perf_result(), "latency_ms": {**_perf_result()["latency_ms"], "mean": "1.25"}},
+            {**_composite_perf_result(), "component_count": 3},
+            {
+                **_composite_perf_result(),
+                "components": {
+                    **_composite_perf_result()["components"],
+                    "text_model": {
+                        **_perf_result(),
+                        "throughput": {
+                            "samples_per_sec": "800",
+                            "batches_per_sec": 800.0,
+                        },
+                    },
+                },
+            },
+        ],
+    )
+    def test_malformed_structured_output_fails_perf(self, run_eval, tmp_path, perf_result):
+        def fake_run(args, timeout):
+            output_path = Path(args[args.index("--output") + 1])
+            output_path.write_text(json.dumps(perf_result), encoding="utf-8")
+            return {
+                "stdout": "Performance Benchmark Results",
+                "stderr": "",
+                "exit_code": 0,
+                "elapsed": 1.0,
+                "timeout": False,
+                "command": "winml perf",
+            }
+
+        with patch.object(run_eval, "_run_subprocess", side_effect=fake_run):
+            proc = run_eval.run_model(
+                _entry(),
+                "cpu",
+                300,
+                {"": "model.onnx"},
+                model_dir=tmp_path,
+            )
+
+        assert proc["exit_code"] == 1
+        assert proc["result"] is None
+        assert "Invalid structured winml perf output" in proc["stderr"]
+
+    def test_op_trace_sibling_is_copied_before_cleanup(self, run_eval, tmp_path):
+        trace_result = {"status": "ok", "operators": []}
+
+        def fake_run(args, timeout):
+            output_path = Path(args[args.index("--output") + 1])
+            output_path.write_text(json.dumps(_perf_result()), encoding="utf-8")
+            trace_path = output_path.with_name(f"{output_path.stem}_op_trace{output_path.suffix}")
+            trace_path.write_text(json.dumps(trace_result), encoding="utf-8")
+            return {
+                "stdout": f"Op-trace JSON: {trace_path}",
+                "stderr": "",
+                "exit_code": 0,
+                "elapsed": 1.0,
+                "timeout": False,
+                "command": "winml perf",
+            }
+
+        with patch.object(run_eval, "_run_subprocess", side_effect=fake_run):
+            run_eval.run_model(
+                _entry(),
+                "cpu",
+                300,
+                {"": "model.onnx"},
+                op_tracing="basic",
+                model_dir=tmp_path,
+            )
+
+        assert json.loads((tmp_path / "op_trace.json").read_text(encoding="utf-8")) == trace_result
+
+    def test_missing_structured_output_fails_perf(self, run_eval, tmp_path):
+        proc_result = {
+            "stdout": "Performance Benchmark Results",
+            "stderr": "",
+            "exit_code": 0,
+            "elapsed": 1.0,
+            "timeout": False,
+            "command": "winml perf",
+        }
+
+        with patch.object(run_eval, "_run_subprocess", return_value=proc_result):
+            proc = run_eval.run_model(
+                _entry(),
+                "cpu",
+                300,
+                {"": "model.onnx"},
+                model_dir=tmp_path,
+            )
+
+        assert proc["exit_code"] == 1
+        assert proc["result"] is None
+        assert proc["error_summary"] == "exit code 1"
+        assert "Failed to load structured winml perf output" in proc["stderr"]
+
+    def test_eval_result_contains_structured_perf_result(self, run_eval):
+        perf_result = _perf_result()
+        result = run_eval.build_eval_result(
+            _entry(),
+            {
+                "stdout": json.dumps(perf_result),
+                "stderr": "",
+                "exit_code": 0,
+                "elapsed": 1.0,
+                "timeout": False,
+                "command": "winml perf --output result.json",
+                "result": perf_result,
+            },
+            "cpu",
+            ["perf"],
+        )
+
+        assert result["perf"]["result"] == perf_result
 
 
 class TestModelResultDirPrecision:

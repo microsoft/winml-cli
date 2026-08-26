@@ -20,6 +20,7 @@ __all__ = [
     "EP_NAMES",
     "EP_SUPPORTED_DEVICES",
     "ORT_SESSION_COMPILER",
+    "RUNTIME_NAMES",
     "SUPPORTED_DEVICES",
     "SUPPORTED_EPS",
     "CompilerName",
@@ -27,6 +28,7 @@ __all__ = [
     "EPAlias",
     "EPName",
     "EPNameOrAlias",
+    "RuntimeName",
     "extract_ep_options",
     "normalize_ep_name",
 ]
@@ -77,6 +79,11 @@ ORT_SESSION_COMPILER: CompilerName = "ort_session"
 
 # Runtime-iterable form of ``CompilerName`` (e.g. for the CLI choice list).
 COMPILER_NAMES: tuple[CompilerName, ...] = get_args(CompilerName)
+
+
+# Inference runtimes selectable via ``winml perf --runtime``.
+RuntimeName = Literal["auto", "winml", "winml-genai"]
+RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
 
 
 # Supported execution providers — derived from the ``EPName`` Literal above so

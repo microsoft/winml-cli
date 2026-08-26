@@ -66,7 +66,7 @@ dropping quantized ones, and a model with no applicable recipe variant builds a
 single `winml config` fallback. EPs evaluated on the unquantized model (VitisAI)
 follow the same non-quantized-only rule on NPU. The runner writes one
 `eval_result.json` per `(model, task, precision)` containing facts only (perf
-output + the winml-eval `metrics`/`dataset`).
+JSON result + the winml-eval `metrics`/`dataset`).
 Delta/verdict grading against the PyTorch baseline is done by the report site.
 
 ```bash
@@ -363,10 +363,12 @@ eval_results/2026-02-25/
     └── ...                     # one dir per (model, task, precision)
 ```
 
-Each `eval_result.json` carries `perf` (latency stdout, pass/fail) and, when
-accuracy ran, `accuracy` (the winml-eval `metrics` + `dataset`). The site reads
-these to render the perf and accuracy reports. Recipe runs produce one directory
-per precision variant; fallback (no recipe) runs omit the `__<precision>` suffix.
+Each `eval_result.json` carries `perf.result` (the structured JSON object written
+by `winml perf --output`) together with pass/fail metadata. Captured stdout and
+stderr are retained only for failure diagnosis. When accuracy ran, `accuracy`
+contains the winml-eval `metrics` + `dataset`. The site reads these to render the
+perf and accuracy reports. Recipe runs produce one directory per precision
+variant; fallback (no recipe) runs omit the `__<precision>` suffix.
 
 ## File Layout
 

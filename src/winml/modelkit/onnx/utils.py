@@ -13,6 +13,23 @@ from onnx.external_data_helper import _get_all_tensors
 EXTERNAL_DATA_THRESHOLD = 100 * 1024 * 1024  # 100 MiB
 
 
+def get_captured_tensor_names(graph: onnx.GraphProto) -> set[str]:
+    """Return tensor names that *graph* resolves from an enclosing scope."""
+    locally_defined = {value.name for value in graph.input if value.name}
+    locally_defined.update(initializer.name for initializer in graph.initializer)
+    locally_defined.update(output for node in graph.node for output in node.output if output)
+    referenced = {input_name for node in graph.node for input_name in node.input if input_name}
+    referenced.update(output.name for output in graph.output if output.name)
+    for node in graph.node:
+        for attribute in node.attribute:
+            if attribute.type == onnx.AttributeProto.GRAPH:
+                referenced.update(get_captured_tensor_names(attribute.g))
+            elif attribute.type == onnx.AttributeProto.GRAPHS:
+                for nested_graph in attribute.graphs:
+                    referenced.update(get_captured_tensor_names(nested_graph))
+    return referenced - locally_defined
+
+
 def strip_node_attrs(
     model: onnx.ModelProto,
     op_type: str,
