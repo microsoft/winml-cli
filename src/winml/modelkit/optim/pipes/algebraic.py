@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 import numpy as np
 import onnx
 
+from ...onnx import get_captured_tensor_names
 from ..capabilities import algebraic, misc
 from .base import BasePipe, PipeConfig, caps_dict
 
@@ -82,10 +83,10 @@ class _GraphIndex:
             consumed_names = {input_name for input_name in node.input if input_name}
             for attribute in node.attribute:
                 if attribute.type == onnx.AttributeProto.GRAPH:
-                    consumed_names.update(_captured_tensor_names(attribute.g))
+                    consumed_names.update(get_captured_tensor_names(attribute.g))
                 elif attribute.type == onnx.AttributeProto.GRAPHS:
                     for nested_graph in attribute.graphs:
-                        consumed_names.update(_captured_tensor_names(nested_graph))
+                        consumed_names.update(get_captured_tensor_names(nested_graph))
             for input_name in consumed_names:
                 consumers.setdefault(input_name, []).append(node)
 
@@ -369,23 +370,6 @@ def _remove_nodes(model: onnx.ModelProto, nodes: set[int]) -> None:
     remaining = [node for node in model.graph.node if id(node) not in nodes]
     del model.graph.node[:]
     model.graph.node.extend(remaining)
-
-
-def _captured_tensor_names(graph: onnx.GraphProto) -> set[str]:
-    """Return names a nested graph resolves from an enclosing scope."""
-    locally_defined = {value.name for value in graph.input if value.name}
-    locally_defined.update(initializer.name for initializer in graph.initializer)
-    locally_defined.update(output for node in graph.node for output in node.output if output)
-    referenced = {input_name for node in graph.node for input_name in node.input if input_name}
-    referenced.update(output.name for output in graph.output if output.name)
-    for node in graph.node:
-        for attribute in node.attribute:
-            if attribute.type == onnx.AttributeProto.GRAPH:
-                referenced.update(_captured_tensor_names(attribute.g))
-            elif attribute.type == onnx.AttributeProto.GRAPHS:
-                for nested_graph in attribute.graphs:
-                    referenced.update(_captured_tensor_names(nested_graph))
-    return referenced - locally_defined
 
 
 def _referenced_tensor_names(graph: onnx.GraphProto) -> set[str]:

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
@@ -14,8 +15,6 @@ from winml.modelkit.quant import WinMLQuantizationConfig, quantize_onnx
 
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     import numpy as np
     import pytest
 
@@ -74,6 +73,10 @@ class _FakeQdqFixModule(ModuleType):
     fix_qdq_dtype_info: Any
 
 
+class _FakeHintsModule(ModuleType):
+    canonicalize_quantization_region_hints: Any
+
+
 class _FakeCompilerModule(ModuleType):
     QDQ_OP_TYPES: set[str]
 
@@ -104,14 +107,15 @@ def _install_fake_ort_quantization(monkeypatch: pytest.MonkeyPatch, *, quantize_
     monkeypatch.setitem(sys.modules, "onnxruntime.quantization.quant_utils", quant_utils_module)
 
 
-def test_quantize_onnx_removes_only_exact_external_data_sidecar(
+def test_quantize_onnx_publishes_relative_output_and_replaces_only_exact_sidecar(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Cleanup should remove only the exact .data sidecar for the output model."""
+    """Publishing should replace only the exact output model and sidecar."""
+    monkeypatch.chdir(tmp_path)
     model_path = tmp_path / "model.onnx"
     _write_minimal_onnx_model(model_path)
-    output_path = tmp_path / "quantized.onnx"
+    output_path = Path("quantized.onnx")
     exact_sidecar = tmp_path / f"{output_path.name}.data"
     extra_suffix_sidecar = tmp_path / f"{output_path.name}.data.bak"
     exact_sidecar.write_text("stale")
@@ -123,11 +127,15 @@ def test_quantize_onnx_removes_only_exact_external_data_sidecar(
 
     def fake_quantize(*, model_input, model_output: str, quant_config) -> None:
         assert model_input is input_model
-        assert model_output == str(output_path.resolve())
+        staged_output = Path(model_output)
+        assert staged_output.is_absolute()
+        assert staged_output.name == output_path.name
+        assert staged_output.parent.parent == tmp_path
+        assert staged_output != output_path
         assert quant_config.use_external_data_format is True
-        assert not exact_sidecar.exists()
+        assert exact_sidecar.exists()
         assert extra_suffix_sidecar.exists()
-        output_path.write_text("quantized")
+        _write_minimal_onnx_model(staged_output)
 
     _install_fake_ort_quantization(monkeypatch, quantize_impl=fake_quantize)
 
@@ -136,7 +144,10 @@ def test_quantize_onnx_removes_only_exact_external_data_sidecar(
         graph=SimpleNamespace(node=[SimpleNamespace(op_type="QuantizeLinear")])
     )
     load_results = [input_model, quantized_model]
-    fake_onnx_module.capture_metadata = lambda _model: SimpleNamespace(node_count=0)
+    fake_onnx_module.capture_metadata = lambda _model: SimpleNamespace(
+        model_prop_count=0,
+        node_count=0,
+    )
     fake_onnx_module.load_onnx = lambda *_args, **_kwargs: load_results.pop(0)
     fake_onnx_module.restore_metadata = lambda *_args, **_kwargs: None
     fake_onnx_module.save_onnx = lambda *_args, **_kwargs: None
@@ -146,6 +157,10 @@ def test_quantize_onnx_removes_only_exact_external_data_sidecar(
     fake_qdq_fix_module = _FakeQdqFixModule("winml.modelkit.quant.qdq_fix")
     fake_qdq_fix_module.fix_qdq_dtype_info = lambda _model: SimpleNamespace(warnings=[])
     monkeypatch.setitem(sys.modules, "winml.modelkit.quant.qdq_fix", fake_qdq_fix_module)
+
+    fake_hints_module = _FakeHintsModule("winml.modelkit.quant.hints")
+    fake_hints_module.canonicalize_quantization_region_hints = lambda model: model
+    monkeypatch.setitem(sys.modules, "winml.modelkit.quant.hints", fake_hints_module)
 
     fake_compiler_module = _FakeCompilerModule("winml.modelkit.compiler")
     fake_compiler_module.QDQ_OP_TYPES = {"QuantizeLinear", "DequantizeLinear"}
@@ -158,6 +173,8 @@ def test_quantize_onnx_removes_only_exact_external_data_sidecar(
     )
 
     assert result.success is True
+    assert output_path.exists()
+    assert not exact_sidecar.exists()
     assert extra_suffix_sidecar.exists()
 
 

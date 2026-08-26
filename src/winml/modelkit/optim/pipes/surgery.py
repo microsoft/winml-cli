@@ -39,6 +39,7 @@ SURGERY_CAPABILITIES: dict[str, Any] = caps_dict(
     surgery.CLAMP_CONSTANT_VALUES,
     surgery.REMOVE_ISNAN_IN_ATTENTION_MASK,
     surgery.UNTIE_CONSTANT_BATCHED_MATMUL,
+    surgery.TRIM_SPLIT_GROUPED_CONV,
 )
 
 
@@ -68,6 +69,7 @@ class SurgeryPipeConfig(PipeConfig):
     clamp_max: float = 1e3
     remove_isnan_in_attention_mask: bool = False
     untie_constant_batched_matmul: bool = False
+    trim_split_grouped_conv: bool = False
     verbose: bool = False
 
 
@@ -111,6 +113,7 @@ class SurgeryPipe(BasePipe[SurgeryPipeConfig]):
             clamp_max=kwargs.get("clamp_max", 1e3),
             remove_isnan_in_attention_mask=kwargs.get("remove_isnan_in_attention_mask", False),
             untie_constant_batched_matmul=kwargs.get("untie_constant_batched_matmul", False),
+            trim_split_grouped_conv=kwargs.get("trim_split_grouped_conv", False),
             verbose=kwargs.get("verbose", False),
         )
 
@@ -128,6 +131,7 @@ class SurgeryPipe(BasePipe[SurgeryPipeConfig]):
             config.clamp_constant_values
             or config.remove_isnan_in_attention_mask
             or config.untie_constant_batched_matmul
+            or config.trim_split_grouped_conv
         )
 
     def process(self, model: onnx.ModelProto, config: SurgeryPipeConfig) -> onnx.ModelProto:
@@ -160,6 +164,11 @@ class SurgeryPipe(BasePipe[SurgeryPipeConfig]):
 
         if config.untie_constant_batched_matmul:
             model_copy = self._untie_constant_batched_matmul(model_copy, config.verbose)
+
+        if config.trim_split_grouped_conv:
+            from ..grouped_conv import trim_split_grouped_convs
+
+            model_copy = trim_split_grouped_convs(model_copy, verbose=config.verbose)
 
         return model_copy
 
