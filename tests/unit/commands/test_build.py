@@ -2021,6 +2021,185 @@ class TestBuildHfPipelineModelType:
         mock_quantize.assert_called_once()
 
 
+class TestBuildPipelineSkipOptimize:
+    """Concrete CLI pipelines must consume the no-optimize build control."""
+
+    @pytest.mark.parametrize("quant_mode", [None, "fp16"])
+    @patch("winml.modelkit.onnx.copy_onnx_model")
+    @patch("winml.modelkit.commands.build._run_compile_stage")
+    @patch("winml.modelkit.commands.build._run_quantize_stage")
+    @patch("winml.modelkit.commands.build._run_optimize_stage")
+    @patch("winml.modelkit.utils.console.StageLive")
+    @patch("winml.modelkit.export.export_onnx")
+    @patch("winml.modelkit.build.hf._load_model")
+    def test_hf_skip_optimize_preserves_quantize(
+        self,
+        mock_load_model: MagicMock,
+        mock_export_onnx: MagicMock,
+        mock_stage_live: MagicMock,
+        mock_optimize: MagicMock,
+        mock_quantize: MagicMock,
+        mock_compile: MagicMock,
+        mock_copy: MagicMock,
+        quant_mode: str | None,
+        tmp_path: Path,
+    ) -> None:
+        from winml.modelkit.commands.build import _build_hf_pipeline
+
+        mock_stage_live.return_value.__enter__ = MagicMock(return_value=MagicMock())
+        mock_stage_live.return_value.__exit__ = MagicMock(return_value=False)
+        output_dir = tmp_path / "out"
+        export_path = output_dir / "export.onnx"
+        quantized_path = output_dir / "quantized.onnx"
+        mock_quantize.return_value = quantized_path if quant_mode else export_path
+        mock_compile.side_effect = lambda **kwargs: kwargs["current_path"]
+
+        config = MagicMock()
+        config.skip_optimize = False
+        config.loader.model_type = "xlm-roberta"
+        config.loader.task = "sentence-similarity"
+        config.loader.model_class = "AutoModel"
+        config.export = MagicMock()
+        config.quant = None if quant_mode is None else MagicMock(mode=quant_mode)
+        if config.quant is not None:
+            config.quant.model_type = None
+        config.to_dict.return_value = {}
+
+        result = _build_hf_pipeline(
+            config=config,
+            model_id="example/model",
+            output_dir=output_dir,
+            rebuild=True,
+            cache_key=None,
+            ep="cpu",
+            device="cpu",
+            extra_kwargs={"skip_optimize": True},
+        )
+
+        assert result is not None
+        assert [name for name, _ in result] == ["Export"]
+        mock_optimize.assert_not_called()
+        assert mock_quantize.call_args.kwargs["current_path"] == export_path
+        expected_final_source = quantized_path if quant_mode else export_path
+        mock_copy.assert_called_once_with(expected_final_source, output_dir / "model.onnx")
+
+    @pytest.mark.parametrize("quant_mode", [None, "fp16"])
+    @patch("winml.modelkit.onnx.copy_onnx_model")
+    @patch("winml.modelkit.commands.build._run_compile_stage")
+    @patch("winml.modelkit.commands.build._run_quantize_stage")
+    @patch("winml.modelkit.commands.build._run_optimize_stage")
+    def test_onnx_skip_optimize_preserves_quantize(
+        self,
+        mock_optimize: MagicMock,
+        mock_quantize: MagicMock,
+        mock_compile: MagicMock,
+        mock_copy: MagicMock,
+        quant_mode: str | None,
+        tmp_path: Path,
+    ) -> None:
+        from winml.modelkit.commands.build import _build_onnx_pipeline
+
+        onnx_path = tmp_path / "input.onnx"
+        onnx_path.write_bytes(b"fake-onnx-data")
+        output_dir = tmp_path / "out"
+        copied_input = output_dir / onnx_path.name
+        quantized_path = output_dir / "input_quantized.onnx"
+        mock_quantize.return_value = quantized_path if quant_mode else copied_input
+        mock_compile.side_effect = lambda **kwargs: kwargs["current_path"]
+
+        config = MagicMock()
+        config.skip_optimize = False
+        config.quant = None if quant_mode is None else MagicMock(mode=quant_mode)
+        config.to_dict.return_value = {}
+
+        with patch("winml.modelkit.build.common.ensure_pre_quantized_stamped"):
+            result = _build_onnx_pipeline(
+                config=config,
+                onnx_path=onnx_path,
+                output_dir=output_dir,
+                rebuild=True,
+                ep="cpu",
+                device="cpu",
+                extra_kwargs={"skip_optimize": True},
+            )
+
+        assert result == []
+        mock_optimize.assert_not_called()
+        assert mock_quantize.call_args.kwargs["current_path"] == copied_input
+        expected_final_source = quantized_path if quant_mode else copied_input
+        assert mock_copy.call_args_list[-1].args == (
+            expected_final_source,
+            output_dir / "model.onnx",
+        )
+
+    @pytest.mark.parametrize("pipeline", ["hf", "onnx"])
+    @patch("winml.modelkit.commands.build._run_compile_stage")
+    @patch("winml.modelkit.commands.build._run_quantize_stage")
+    @patch("winml.modelkit.commands.build._run_optimize_stage")
+    def test_default_pipeline_still_optimizes(
+        self,
+        mock_optimize: MagicMock,
+        mock_quantize: MagicMock,
+        mock_compile: MagicMock,
+        pipeline: str,
+        tmp_path: Path,
+    ) -> None:
+        from winml.modelkit.commands.build import _build_hf_pipeline, _build_onnx_pipeline
+
+        output_dir = tmp_path / "out"
+        optimized_name = "optimized.onnx" if pipeline == "hf" else "input_optimized.onnx"
+        optimized_path = output_dir / optimized_name
+        mock_optimize.return_value = (optimized_path, 0.1)
+        mock_quantize.side_effect = lambda **kwargs: kwargs["current_path"]
+        mock_compile.side_effect = lambda **kwargs: kwargs["current_path"]
+        config = MagicMock()
+        config.skip_optimize = False
+        config.quant = None
+        config.to_dict.return_value = {}
+
+        if pipeline == "hf":
+            config.loader.model_type = "xlm-roberta"
+            config.loader.task = "sentence-similarity"
+            config.loader.model_class = "AutoModel"
+            config.export = MagicMock()
+            with (
+                patch("winml.modelkit.build.hf._load_model"),
+                patch("winml.modelkit.export.export_onnx"),
+                patch("winml.modelkit.utils.console.StageLive") as mock_stage_live,
+                patch("winml.modelkit.onnx.copy_onnx_model"),
+            ):
+                mock_stage_live.return_value.__enter__ = MagicMock(return_value=MagicMock())
+                mock_stage_live.return_value.__exit__ = MagicMock(return_value=False)
+                _build_hf_pipeline(
+                    config=config,
+                    model_id="example/model",
+                    output_dir=output_dir,
+                    rebuild=True,
+                    cache_key=None,
+                    ep="cpu",
+                    device="cpu",
+                    extra_kwargs={},
+                )
+        else:
+            onnx_path = tmp_path / "input.onnx"
+            onnx_path.write_bytes(b"fake-onnx-data")
+            with (
+                patch("winml.modelkit.build.common.ensure_pre_quantized_stamped"),
+                patch("winml.modelkit.onnx.copy_onnx_model"),
+            ):
+                _build_onnx_pipeline(
+                    config=config,
+                    onnx_path=onnx_path,
+                    output_dir=output_dir,
+                    rebuild=True,
+                    ep="cpu",
+                    device="cpu",
+                    extra_kwargs={},
+                )
+
+        mock_optimize.assert_called_once()
+
+
 class TestBuildEpResolution:
     """--ep forwarding into config generation + the compile EP-availability gate."""
 
@@ -2330,11 +2509,11 @@ class TestBuildOnnxPipelineRegressions:
         assert timings and timings[0][0] == "Quantize"
         mock_quantize.assert_called_once()
 
-    def test_pre_quantized_stamp_runs_before_optimize(self, tmp_path: Path) -> None:
-        """_build_onnx_pipeline must stamp config before optimize/quantize stages.
+    def test_pre_quantized_stamp_runs_before_stage_dispatch(self, tmp_path: Path) -> None:
+        """_build_onnx_pipeline must stamp config before optimize/quantize dispatch.
 
         This ensures pre-quantized ONNX inputs can set skip_optimize and clear
-        quant before stage dispatch, preventing optimize/quantize double-work.
+        quant before stage dispatch, bypassing optimize/quantize double-work.
         """
         from winml.modelkit.commands.build import _build_onnx_pipeline
 
@@ -2382,7 +2561,7 @@ class TestBuildOnnxPipelineRegressions:
 
         assert result is not None
         mock_stamp.assert_called_once()
-        assert mock_opt.call_args.kwargs["skip_optimize"] is True
+        mock_opt.assert_not_called()
         assert mock_quant.call_args.kwargs["config"].quant is None
 
 
