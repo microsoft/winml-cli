@@ -18,10 +18,10 @@ from .sysinfo import SysInfo
 
 __all__ = [
     "CPU",
-    "DXCoreAdapterInfo",
     "GPU",
     "NPU",
     "OS",
+    "DXCoreAdapterInfo",
     "SysInfo",
     "enumerate_compute_adapters",
     "format_pdh_luid",

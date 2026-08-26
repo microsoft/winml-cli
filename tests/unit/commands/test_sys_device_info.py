@@ -41,7 +41,7 @@ from winml.modelkit.sysinfo import DXCoreAdapterInfo
 def no_native_adapters(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep device unit tests independent of the host's DXCore inventory."""
     monkeypatch.setattr(
-        "winml.modelkit.sysinfo.dxcore_adapters.enumerate_compute_adapters",
+        "winml.modelkit.sysinfo.enumerate_compute_adapters",
         list,
     )
 
@@ -171,7 +171,7 @@ class TestDeviceInfoEnrichment:
             device_id=0x5678,
         )
         monkeypatch.setattr(
-            "winml.modelkit.sysinfo.dxcore_adapters.enumerate_compute_adapters",
+            "winml.modelkit.sysinfo.enumerate_compute_adapters",
             lambda: native_adapters,
         )
 
