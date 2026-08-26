@@ -553,6 +553,7 @@ def _gather_device_info(
         List of device dicts with type, priority, and details.
     """
     from ..sysinfo import CPU, GPU, NPU
+    from ..sysinfo.dxcore_adapters import enumerate_compute_adapters
 
     # NPU > GPU > CPU priority order.
     hw_queries: list[tuple[str, type[NPU] | type[GPU] | type[CPU]]] = [
@@ -561,8 +562,9 @@ def _gather_device_info(
         ("CPU", CPU),
     ]
 
-    with ThreadPoolExecutor(max_workers=len(hw_queries)) as pool:
+    with ThreadPoolExecutor(max_workers=len(hw_queries) + 1) as pool:
         futures = [(label, pool.submit(cls.get_all)) for label, cls in hw_queries]
+        native_adapters_future = pool.submit(enumerate_compute_adapters)
         # Sequence (not list) because list is invariant in its element type:
         # fut.result() at runtime is list[CPU] | list[GPU] | list[NPU], none
         # of which are list[Any]. Sequence is covariant, so this accepts
@@ -574,6 +576,11 @@ def _gather_device_info(
                 ordered_results.append((label, cast("Sequence[Any]", fut.result())))
             except Exception as e:  # noqa: PERF203 - per-future error capture
                 ordered_results.append((label, e))
+        try:
+            native_adapters = native_adapters_future.result()
+        except Exception as e:
+            logger.warning("DXCore adapter discovery failed: %s", e)
+            native_adapters = []
 
     result: list[dict[str, Any]] = []
     priority = 1
@@ -593,7 +600,11 @@ def _gather_device_info(
                 priority += 1
             continue
 
-        for item in items:
+        system_adapters = [
+            adapter for adapter in native_adapters if adapter.device_type == device_label
+        ]
+        device_items: Sequence[Any] = system_adapters or items
+        for item in device_items:
             entry: dict[str, Any] = {
                 "priority": priority,
                 "type": device_label,
@@ -601,10 +612,14 @@ def _gather_device_info(
                 "details": {},
             }
             if device_label in ("NPU", "GPU"):
+                metadata_item = (
+                    _find_hardware_metadata_item(items, item) if system_adapters else item
+                )
+                entry["name"] = getattr(metadata_item, "name", None) or item.name
                 entry["details"] = {
-                    "driver": item.driver_version,
-                    "manufacturer": item.manufacturer,
-                    "luid": None,
+                    "driver": getattr(metadata_item, "driver_version", None),
+                    "manufacturer": getattr(metadata_item, "manufacturer", None),
+                    "luid": item.luid if system_adapters else None,
                 }
             elif device_label == "CPU":
                 entry["details"] = {
@@ -632,11 +647,8 @@ def _gather_device_info(
     # subprocess boundary.
     if ep_info:
         try:
-            device_identity_counts: dict[tuple[str, str], int] = {}
             device_type_counts: dict[str, int] = {}
             for entry in result:
-                identity = (entry["type"], entry["name"])
-                device_identity_counts[identity] = device_identity_counts.get(identity, 0) + 1
                 device_type_counts[entry["type"]] = device_type_counts.get(entry["type"], 0) + 1
 
             for entry in result:
@@ -646,12 +658,10 @@ def _gather_device_info(
                     ep_info,
                     match_type,
                     sysinfo_name,
-                    allow_named_luid=device_identity_counts[(match_type, sysinfo_name)] == 1,
                     allow_unnamed=device_type_counts[match_type] == 1,
                 )
                 if matched_dev is None:
                     continue
-                entry["details"]["luid"] = matched_dev.get("luid")
                 # ``device_facts`` values are ``"Label: Value"`` strings;
                 # split on the first colon so we can merge by lowercased
                 # key alongside sysinfo's details.
@@ -665,12 +675,36 @@ def _gather_device_info(
     return result
 
 
+def _find_hardware_metadata_item(
+    items: Sequence[Any],
+    system_adapter: Any,
+) -> Any | None:
+    """Find WMI/PnP metadata for a DXCore adapter without assigning identity."""
+    id_matches = [
+        item
+        for item in items
+        if getattr(item, "vendor_id", None) == system_adapter.vendor_id
+        and getattr(item, "device_id", None) == system_adapter.device_id
+    ]
+    if id_matches:
+        return id_matches[0]
+
+    for item in items:
+        name = getattr(item, "name", "") or ""
+        if (
+            name == system_adapter.name
+            or name in system_adapter.name
+            or system_adapter.name in name
+        ):
+            return item
+    return None
+
+
 def _find_matching_device(
     ep_info: dict[str, dict[str, Any]],
     match_type: str,
     sysinfo_name: str,
     *,
-    allow_named_luid: bool,
     allow_unnamed: bool,
 ) -> dict[str, Any] | None:
     """Return the first device dict in ``ep_info`` matching type + fuzzy name.
@@ -679,17 +713,10 @@ def _find_matching_device(
     (OpenVINO appends "(iGPU)" to FULL_DEVICE_NAME that sysinfo's WMI
     query doesn't include; sysinfo may report a wordier form ORT trims).
 
-    Duplicate EP-source rows are collapsed by LUID. A sole non-null LUID is
-    selected for a unique sysinfo name even if an earlier matching source
-    omitted it. If multiple sysinfo devices share that name, no LUID is
-    attached because sysinfo has no identity that can map those rows to the
-    individual ORT adapters.
-
     Some providers expose a LUID but no hardware name. If sysinfo found only
     one device of this type and every unnamed provider candidate identifies
     the same adapter, that adapter is unambiguous and can still enrich it.
     """
-    named_candidates: list[dict[str, Any]] = []
     unnamed_candidates: list[dict[str, Any]] = []
     for record in ep_info.values():
         for source_desc in record.get("entries", ()):
@@ -698,23 +725,12 @@ def _find_matching_device(
                     continue
                 hw = dev.get("hardware_name", "") or ""
                 if hw == sysinfo_name or sysinfo_name in hw or hw in sysinfo_name:
-                    named_candidates.append(cast("dict[str, Any]", dev))
-                elif not hw or hw == "<unknown>":
+                    return cast("dict[str, Any]", dev)
+                if not hw or hw == "<unknown>":
                     unnamed_candidates.append(cast("dict[str, Any]", dev))
 
-    if named_candidates:
-        candidates_by_luid = {
-            dev["luid"]: dev for dev in named_candidates if dev.get("luid")
-        }
-        if allow_named_luid and len(candidates_by_luid) == 1:
-            return next(iter(candidates_by_luid.values()))
-        return {**named_candidates[0], "luid": None}
-
-    candidates_by_luid = {
-        dev["luid"]: dev for dev in unnamed_candidates if dev.get("luid")
-    }
-    if allow_unnamed and len(candidates_by_luid) == 1:
-        return next(iter(candidates_by_luid.values()))
+    if allow_unnamed and unnamed_candidates:
+        return unnamed_candidates[0]
     return None
 
 

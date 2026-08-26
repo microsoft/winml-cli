@@ -31,9 +31,11 @@ $ winml sys [options]
 
 `winml sys` queries Python's `platform` and `importlib.metadata` modules to report
 library versions, then probes PyTorch for CUDA availability and GPU device names.
-Backend availability checks use the installed runtime environment, while device
-enumeration queries hardware directly in NPU > GPU > CPU priority order, and EP
-enumeration merges the WinML EP registry with ONNX Runtime's
+Backend availability checks use the installed runtime environment. On Windows,
+GPU and NPU enumeration uses DXCore as the source of adapter identity and LUID,
+then enriches those native rows with WMI/PnP driver and manufacturer details.
+CPU enumeration uses WMI. Devices remain in NPU > GPU > CPU priority order, and
+EP enumeration merges the WinML EP registry with ONNX Runtime's
 `get_available_providers()`. When
 `--format json` is used the full report — including devices and EPs — is emitted as
 a single JSON object, making it easy to capture in CI pipelines.

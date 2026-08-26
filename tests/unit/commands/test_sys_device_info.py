@@ -21,6 +21,7 @@ the parent's registry.
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -33,6 +34,16 @@ from winml.modelkit.commands.sys import (
     _get_memory_info,
     _render_compact,
 )
+from winml.modelkit.sysinfo.dxcore_adapters import DXCoreAdapterInfo
+
+
+@pytest.fixture(autouse=True)
+def no_native_adapters(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep device unit tests independent of the host's DXCore inventory."""
+    monkeypatch.setattr(
+        "winml.modelkit.sysinfo.dxcore_adapters.enumerate_compute_adapters",
+        list,
+    )
 
 
 def _fake_ep_info(
@@ -105,7 +116,8 @@ class TestDeviceInfoEnrichment:
         assert npu_entry["name"] == "Intel(R) AI Boost"
         # The architecture came from the ep_info device row's device_facts.
         assert npu_entry["details"]["architecture"] == "4000"
-        assert npu_entry["details"]["luid"] == "0x00000000_0x00018393"
+        # EP metadata no longer owns the top-level system LUID.
+        assert npu_entry["details"]["luid"] is None
         # sysinfo-provided driver is preserved (setdefault doesn't clobber).
         assert npu_entry["details"]["driver"] == "32.0.100.4023"
 
@@ -137,200 +149,44 @@ class TestDeviceInfoEnrichment:
         assert npu_entry["details"]["luid"] is None
         assert npu_entry["details"]["driver"] == "32.0.100.4023"
 
-    def test_device_info_uses_luid_from_unnamed_unique_ep_device(self) -> None:
-        """An unnamed provider device can match by unique type and LUID."""
-        npu_item = MagicMock(
-            name="Qualcomm NPU",
-            driver_version="1.0",
-            manufacturer="Qualcomm",
-        )
-        npu_item.name = "Qualcomm NPU"
-        ep_info = _fake_ep_info(
-            device_type="NPU",
-            hardware_name="<unknown>",
-            luid="0x00000000_0x000135AA",
-            ep_name="QNNExecutionProvider",
-        )
-
-        with (
-            patch("winml.modelkit.sysinfo.NPU.get_all", return_value=[npu_item]),
-            patch("winml.modelkit.sysinfo.GPU.get_all", return_value=[]),
-            patch("winml.modelkit.sysinfo.CPU.get_all", return_value=[]),
-        ):
-            result = _gather_device_info(ep_info)
-
-        assert result[0]["details"]["luid"] == "0x00000000_0x000135AA"
-
-    def test_device_info_does_not_guess_between_unnamed_ep_devices(self) -> None:
-        """Distinct unnamed adapters of one type remain ambiguous."""
-        npu_item = MagicMock(
-            name="Qualcomm NPU",
-            driver_version="1.0",
-            manufacturer="Qualcomm",
-        )
-        npu_item.name = "Qualcomm NPU"
-        ep_info = {
-            "QNNExecutionProvider": {
-                "entries": [
-                    {
-                        "devices": [
-                            {
-                                "device_type": "NPU",
-                                "hardware_name": "<unknown>",
-                                "luid": "0x00000000_0x000135AA",
-                                "device_facts": [],
-                            },
-                            {
-                                "device_type": "NPU",
-                                "hardware_name": "<unknown>",
-                                "luid": "0x00000000_0x000135AB",
-                                "device_facts": [],
-                            },
-                        ]
-                    }
-                ]
-            }
-        }
-
-        with (
-            patch("winml.modelkit.sysinfo.NPU.get_all", return_value=[npu_item]),
-            patch("winml.modelkit.sysinfo.GPU.get_all", return_value=[]),
-            patch("winml.modelkit.sysinfo.CPU.get_all", return_value=[]),
-        ):
-            result = _gather_device_info(ep_info)
-
-        assert result[0]["details"]["luid"] is None
-
-    def test_device_info_uses_luid_when_an_earlier_source_omits_it(self) -> None:
-        """A metadata-free duplicate does not hide a later unique LUID."""
-        npu_item = MagicMock(
-            name="Qualcomm NPU",
-            driver_version="1.0",
-            manufacturer="Qualcomm",
-        )
-        npu_item.name = "Qualcomm NPU"
-        ep_info = {
-            "QNNExecutionProvider": {
-                "entries": [
-                    {
-                        "devices": [
-                            {
-                                "device_type": "NPU",
-                                "hardware_name": "<unknown>",
-                                "luid": None,
-                                "device_facts": [],
-                            }
-                        ]
-                    },
-                    {
-                        "devices": [
-                            {
-                                "device_type": "NPU",
-                                "hardware_name": "<unknown>",
-                                "luid": "0x00000000_0x000135AA",
-                                "device_facts": [],
-                            }
-                        ]
-                    },
-                ]
-            }
-        }
-
-        with (
-            patch("winml.modelkit.sysinfo.NPU.get_all", return_value=[npu_item]),
-            patch("winml.modelkit.sysinfo.GPU.get_all", return_value=[]),
-            patch("winml.modelkit.sysinfo.CPU.get_all", return_value=[]),
-        ):
-            result = _gather_device_info(ep_info)
-
-        assert result[0]["details"]["luid"] == "0x00000000_0x000135AA"
-
-    def test_named_device_uses_luid_when_an_earlier_source_omits_it(self) -> None:
-        """Name narrows candidates and their sole LUID identifies the adapter."""
-        gpu_item = MagicMock(
+    def test_dxcore_is_primary_for_accelerator_identity(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Each native adapter keeps its own LUID even when names are identical."""
+        native_adapters = [
+            DXCoreAdapterInfo(
+                device_type="GPU",
+                name="Example GPU",
+                luid=f"0x00000000_0x0000000{index}",
+                vendor_id=0x1234,
+                device_id=0x5678,
+            )
+            for index in (1, 2)
+        ]
+        wmi_gpu = SimpleNamespace(
             name="Example GPU",
             driver_version="1.0",
             manufacturer="Example",
+            vendor_id=0x1234,
+            device_id=0x5678,
         )
-        gpu_item.name = "Example GPU"
-        ep_info = {
-            "ExampleExecutionProvider": {
-                "entries": [
-                    {
-                        "devices": [
-                            {
-                                "device_type": "GPU",
-                                "hardware_name": "Example GPU",
-                                "luid": None,
-                                "device_facts": [],
-                            }
-                        ]
-                    },
-                    {
-                        "devices": [
-                            {
-                                "device_type": "GPU",
-                                "hardware_name": "Example GPU",
-                                "luid": "0x00000000_0x000175F5",
-                                "device_facts": [],
-                            }
-                        ]
-                    },
-                ]
-            }
-        }
+        monkeypatch.setattr(
+            "winml.modelkit.sysinfo.dxcore_adapters.enumerate_compute_adapters",
+            lambda: native_adapters,
+        )
 
         with (
             patch("winml.modelkit.sysinfo.NPU.get_all", return_value=[]),
-            patch("winml.modelkit.sysinfo.GPU.get_all", return_value=[gpu_item]),
+            patch("winml.modelkit.sysinfo.GPU.get_all", return_value=[wmi_gpu]),
             patch("winml.modelkit.sysinfo.CPU.get_all", return_value=[]),
         ):
-            result = _gather_device_info(ep_info)
+            result = _gather_device_info()
 
-        assert result[0]["details"]["luid"] == "0x00000000_0x000175F5"
-
-    def test_same_name_devices_do_not_reuse_first_matching_luid(self) -> None:
-        """Without a WMI identity bridge, same-name adapters stay unassigned."""
-        gpu_items = []
-        for _ in range(2):
-            item = MagicMock(
-                name="Example GPU",
-                driver_version="1.0",
-                manufacturer="Example",
-            )
-            item.name = "Example GPU"
-            gpu_items.append(item)
-        ep_info = {
-            "ExampleExecutionProvider": {
-                "entries": [
-                    {
-                        "devices": [
-                            {
-                                "device_type": "GPU",
-                                "hardware_name": "Example GPU",
-                                "luid": "0x00000000_0x000175F5",
-                                "device_facts": [],
-                            },
-                            {
-                                "device_type": "GPU",
-                                "hardware_name": "Example GPU",
-                                "luid": "0x00000000_0x000226E3",
-                                "device_facts": [],
-                            },
-                        ]
-                    }
-                ]
-            }
-        }
-
-        with (
-            patch("winml.modelkit.sysinfo.NPU.get_all", return_value=[]),
-            patch("winml.modelkit.sysinfo.GPU.get_all", return_value=gpu_items),
-            patch("winml.modelkit.sysinfo.CPU.get_all", return_value=[]),
-        ):
-            result = _gather_device_info(ep_info)
-
-        assert [entry["details"]["luid"] for entry in result] == [None, None]
+        assert [entry["details"]["luid"] for entry in result] == [
+            "0x00000000_0x00000001",
+            "0x00000000_0x00000002",
+        ]
+        assert all(entry["details"]["driver"] == "1.0" for entry in result)
 
     def test_device_info_first_match_wins(self) -> None:
         """When multiple sources see the same device, first one in ep_info wins."""
