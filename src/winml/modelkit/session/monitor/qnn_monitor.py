@@ -69,7 +69,7 @@ def _coalesce_partition_samples(
     combined_samples: list[dict[str, Any]] = []
     for offset in range(0, len(samples), partition_count):
         partition_samples = samples[offset : offset + partition_count]
-        combined = {
+        combined: dict[str, Any] = {
             "metadata": {
                 "hvx_threads": max(
                     sample["metadata"]["hvx_threads"] for sample in partition_samples
