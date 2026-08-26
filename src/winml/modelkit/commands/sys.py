@@ -632,6 +632,13 @@ def _gather_device_info(
     # subprocess boundary.
     if ep_info:
         try:
+            device_identity_counts: dict[tuple[str, str], int] = {}
+            device_type_counts: dict[str, int] = {}
+            for entry in result:
+                identity = (entry["type"], entry["name"])
+                device_identity_counts[identity] = device_identity_counts.get(identity, 0) + 1
+                device_type_counts[entry["type"]] = device_type_counts.get(entry["type"], 0) + 1
+
             for entry in result:
                 match_type = entry["type"]
                 sysinfo_name = entry["name"]
@@ -639,10 +646,8 @@ def _gather_device_info(
                     ep_info,
                     match_type,
                     sysinfo_name,
-                    allow_unnamed=sum(
-                        candidate["type"] == match_type for candidate in result
-                    )
-                    == 1,
+                    allow_named_luid=device_identity_counts[(match_type, sysinfo_name)] == 1,
+                    allow_unnamed=device_type_counts[match_type] == 1,
                 )
                 if matched_dev is None:
                     continue
@@ -665,6 +670,7 @@ def _find_matching_device(
     match_type: str,
     sysinfo_name: str,
     *,
+    allow_named_luid: bool,
     allow_unnamed: bool,
 ) -> dict[str, Any] | None:
     """Return the first device dict in ``ep_info`` matching type + fuzzy name.
@@ -673,10 +679,17 @@ def _find_matching_device(
     (OpenVINO appends "(iGPU)" to FULL_DEVICE_NAME that sysinfo's WMI
     query doesn't include; sysinfo may report a wordier form ORT trims).
 
+    Duplicate EP-source rows are collapsed by LUID. A sole non-null LUID is
+    selected for a unique sysinfo name even if an earlier matching source
+    omitted it. If multiple sysinfo devices share that name, no LUID is
+    attached because sysinfo has no identity that can map those rows to the
+    individual ORT adapters.
+
     Some providers expose a LUID but no hardware name. If sysinfo found only
     one device of this type and every unnamed provider candidate identifies
     the same adapter, that adapter is unambiguous and can still enrich it.
     """
+    named_candidates: list[dict[str, Any]] = []
     unnamed_candidates: list[dict[str, Any]] = []
     for record in ep_info.values():
         for source_desc in record.get("entries", ()):
@@ -685,9 +698,17 @@ def _find_matching_device(
                     continue
                 hw = dev.get("hardware_name", "") or ""
                 if hw == sysinfo_name or sysinfo_name in hw or hw in sysinfo_name:
-                    return cast("dict[str, Any]", dev)
-                if not hw or hw == "<unknown>":
+                    named_candidates.append(cast("dict[str, Any]", dev))
+                elif not hw or hw == "<unknown>":
                     unnamed_candidates.append(cast("dict[str, Any]", dev))
+
+    if named_candidates:
+        candidates_by_luid = {
+            dev["luid"]: dev for dev in named_candidates if dev.get("luid")
+        }
+        if allow_named_luid and len(candidates_by_luid) == 1:
+            return next(iter(candidates_by_luid.values()))
+        return {**named_candidates[0], "luid": None}
 
     candidates_by_luid = {
         dev["luid"]: dev for dev in unnamed_candidates if dev.get("luid")
