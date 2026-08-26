@@ -2144,17 +2144,9 @@ def _io_specs_from_config(
 def _print_save_to_footer(
     console: Console,
     *,
-    trace_json: str | None,
     profiling_csv: str | None,
 ) -> None:
-    """Print save-to footer lines after the op-trace report.
-
-    Each line is rendered only when its path is supplied; if both are
-    ``None`` the helper emits nothing. The ``[dim]...[/dim]`` markup
-    softens the label so the path itself is the visual anchor.
-    """
-    if trace_json:
-        console.print(f"[dim]Op-trace JSON:[/dim] {trace_json}")
+    """Print the raw profiling artifact path after the op-trace report."""
     if profiling_csv:
         console.print(f"[dim]Profiling CSV:[/dim] {profiling_csv}")
 
@@ -3467,7 +3459,6 @@ def perf(
             profiling_csv = trace_result.artifacts.get("csv")
             _print_save_to_footer(
                 console,
-                trace_json=None,
                 profiling_csv=profiling_csv,
             )
         else:
