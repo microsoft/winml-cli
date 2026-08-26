@@ -191,7 +191,8 @@ class WinMLDocumentQuestionAnsweringEvaluator(WinMLEvaluator):
             if name in declared_inputs and parameter.default is inspect.Parameter.empty
         }
         tokenizer_inputs = set(getattr(self._tokenizer(), "model_input_names", []))
-        return required_inputs | (declared_inputs & tokenizer_inputs) | ({"bbox"} & declared_inputs)
+        evaluator_inputs = {"bbox", "token_type_ids"}
+        return required_inputs | (declared_inputs & (tokenizer_inputs | evaluator_inputs))
 
     def compute(self) -> dict[str, Any]:
         """Run bounded document preprocessing, inference, decoding, and ANLS."""

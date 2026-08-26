@@ -58,7 +58,7 @@ class _Encoding(dict):
 
 class _Tokenizer:
     model_max_length = 512
-    model_input_names = ("input_ids", "attention_mask", "token_type_ids")
+    model_input_names = ("input_ids", "attention_mask")
     sep_token_id = 2
 
     def __init__(self):
