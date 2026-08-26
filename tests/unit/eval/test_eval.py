@@ -341,6 +341,42 @@ class TestGetEvaluatorClass:
 class TestEvaluate:
     """Tests for evaluate() entry point."""
 
+    def test_inferred_document_qa_reaches_evaluator_without_explicit_task(self):
+        import importlib
+        import sys
+
+        from winml.modelkit.eval.question_answering_evaluator import (
+            WinMLQuestionAnsweringEvaluator,
+        )
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+        config = WinMLEvaluationConfig(
+            model_id="test/layoutlm",
+            dataset=DatasetConfig(path="test/documents"),
+        )
+
+        with (
+            patch.object(
+                eval_mod,
+                "_infer_task",
+                return_value="document-question-answering",
+            ),
+            patch.object(eval_mod, "_load_model", return_value=MagicMock()),
+            patch.object(WinMLQuestionAnsweringEvaluator, "__init__", return_value=None),
+            patch.object(
+                WinMLQuestionAnsweringEvaluator,
+                "compute",
+                return_value={"anls": 1.0},
+            ),
+        ):
+            result = eval_mod.evaluate(config)
+
+        assert config.task is None
+        assert result.config.task == "document-question-answering"
+        assert result.metrics == {"anls": 1.0}
+
     def test_invalid_mode_raises(self):
         """evaluate() rejects unknown mode values with a clear error."""
         import importlib

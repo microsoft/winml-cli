@@ -59,9 +59,7 @@ def _normalize_boxes(
         parsed.append((min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)))
 
     use_absolute = coordinate_system == "absolute" or (
-        coordinate_system == "auto"
-        and image_size is not None
-        and any(value > 1000 for box in parsed for value in box)
+        coordinate_system == "auto" and image_size is not None
     )
     if use_absolute and image_size is None:
         raise ValueError("Absolute document boxes require an image with width and height.")
@@ -248,7 +246,7 @@ class WinMLQuestionAnsweringEvaluator(WinMLEvaluator):
         if runtime is not None:
             return cast("tuple[Any, str]", runtime)
         try:
-            import pytesseract  # type: ignore[import-untyped]
+            import pytesseract  # type: ignore[import-not-found]
         except ImportError as error:
             raise RuntimeError(
                 "Image-only document QA requires the optional OCR dependency. "

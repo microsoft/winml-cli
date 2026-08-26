@@ -232,6 +232,13 @@ class TestDocumentHelpers:
             coordinate_system="normalized",
         ) == [[10, 20, 30, 40]]
 
+    def test_auto_scales_sub_1000_pixel_boxes_when_image_size_is_available(self):
+        assert _normalize_boxes(
+            [[80, 60, 160, 120]],
+            image_size=(800, 600),
+            coordinate_system="auto",
+        ) == [[100, 100, 200, 200]]
+
     def test_aligns_document_subwords_and_special_tokens(self):
         aligned = _align_token_boxes(
             _DocumentEncoding(),

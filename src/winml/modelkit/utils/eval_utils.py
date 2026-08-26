@@ -216,7 +216,7 @@ _QUESTION_ANSWERING_SCHEMA = TaskSchema(
         ),
         SchemaItem(
             "box_coords",
-            "precomputed box coordinate system",
+            "precomputed box coordinates; auto means absolute with an image, normalized without",
             default="auto",
             remap_hint="<auto|absolute|normalized>",
         ),
@@ -525,6 +525,7 @@ TASK_SCHEMAS: dict[str, TaskSchema] = {
     "object-detection": _OBJECT_DETECTION_SCHEMA,
     "image-segmentation": _IMAGE_SEGMENTATION_SCHEMA,
     "question-answering": _QUESTION_ANSWERING_SCHEMA,
+    "document-question-answering": _QUESTION_ANSWERING_SCHEMA,
     "feature-extraction": _FEATURE_EXTRACTION_SCHEMA,
     "sentence-similarity": _FEATURE_EXTRACTION_SCHEMA,
     "image-feature-extraction": _IMAGE_FEATURE_EXTRACTION_SCHEMA,
