@@ -68,7 +68,7 @@ def _write_basic_profile(
                 "CYCLES",
                 "BACKEND",
                 "SUB-EVENT",
-                f"{operator_name}:OpId_1 (cycles)",
+                f"{sample.get('operator_name', operator_name)}:OpId_1 (cycles)",
             ]
         )
         writer.writerow(
@@ -483,6 +483,96 @@ def test_basic_metrics_exclude_warmup_samples(tmp_path):
         monitor.result.summary["accel_execute_us"]
         == sum(sample["accel_execute_us"] for sample in samples[1:]) / 2
     )
+
+
+def test_basic_metrics_coalesce_multiple_epcontext_partitions(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    context_model = tmp_path / "model_ctx.onnx"
+    _write_epcontext_model(
+        context_model,
+        [("first_partition", 1), ("second_partition", 0)],
+    )
+    profile_blocks = [
+        {
+            "hvx_threads": 4,
+            "accel_execute_cycles": 100,
+            "accel_execute_us": 10,
+            "operator_cycles": 50,
+            "operator_name": "FirstOp",
+        },
+        {
+            "hvx_threads": 4,
+            "accel_execute_cycles": 200,
+            "accel_execute_us": 40,
+            "operator_cycles": 100,
+            "operator_name": "SecondOp",
+        },
+        {
+            "hvx_threads": 4,
+            "accel_execute_cycles": 200,
+            "accel_execute_us": 40,
+            "operator_cycles": 100,
+            "operator_name": "FirstOp",
+        },
+        {
+            "hvx_threads": 4,
+            "accel_execute_cycles": 400,
+            "accel_execute_us": 120,
+            "operator_cycles": 200,
+            "operator_name": "SecondOp",
+        },
+    ]
+    monitor = QNNMonitor(output_dir=tmp_path)
+    monitor.set_running_model_path(context_model)
+    monitor.set_perf_window(warmup=0, measured_iterations=2)
+    monitor.__enter__()
+    _write_basic_profile(monitor._csv_path, profile_blocks)
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    assert monitor.result.status == "ok"
+    assert monitor.result.num_samples == 2
+    operators = {operator.op_path: operator for operator in monitor.result.operators}
+    assert operators["FirstOp"].samples_us == [5.0, 20.0]
+    assert operators["SecondOp"].samples_us == [20.0, 60.0]
+    assert monitor.result.summary["accel_execute_cycles"] == 450
+    assert monitor.result.summary["accel_execute_us"] == 105
+
+
+def test_basic_metrics_infer_runtime_partitions_for_raw_model(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    raw_model = tmp_path / "model.onnx"
+    _write_transpose_model(raw_model)
+    profile_blocks = [
+        {
+            "hvx_threads": 4,
+            "accel_execute_cycles": cycles,
+            "accel_execute_us": duration,
+            "operator_cycles": cycles // 2,
+            "operator_name": operator_name,
+        }
+        for cycles, duration, operator_name in [
+            (100, 10, "FirstOp"),
+            (200, 40, "SecondOp"),
+            (200, 40, "FirstOp"),
+            (400, 120, "SecondOp"),
+        ]
+    ]
+    monitor = QNNMonitor(output_dir=tmp_path)
+    monitor.set_running_model_path(raw_model)
+    monitor.set_perf_window(warmup=0, measured_iterations=2)
+    monitor.__enter__()
+    _write_basic_profile(monitor._csv_path, profile_blocks)
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    assert monitor.result.status == "ok"
+    assert monitor.result.num_samples == 2
+    operators = {operator.op_path: operator for operator in monitor.result.operators}
+    assert operators["FirstOp"].samples_us == [5.0, 20.0]
+    assert operators["SecondOp"].samples_us == [20.0, 60.0]
 
 
 def test_basic_metrics_omit_onnx_metadata_when_env_disabled(tmp_path, monkeypatch):

@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from ..._env import env_flag_enabled
-from ...onnx.epcontext import select_main_epcontext_partition_name
+from ...onnx.epcontext import epcontext_partitions, select_main_epcontext_partition_name
 from ._onnx_metadata import _load_onnx_operator_data
 from .ep_monitor import WinMLEPMonitor
 from .op_metrics import (
@@ -56,6 +56,47 @@ _LEVEL_TO_PROFILING: dict[str, str] = {
     "basic": "detailed",
     "detail": "optrace",
 }
+
+
+def _coalesce_partition_samples(
+    samples: list[dict[str, Any]],
+    partition_count: int,
+) -> list[dict[str, Any]]:
+    """Combine the per-partition profiling blocks emitted for each inference."""
+    if partition_count == 1:
+        return samples
+
+    combined_samples: list[dict[str, Any]] = []
+    for offset in range(0, len(samples), partition_count):
+        partition_samples = samples[offset : offset + partition_count]
+        combined = {
+            "metadata": {
+                "hvx_threads": max(
+                    sample["metadata"]["hvx_threads"] for sample in partition_samples
+                ),
+                "accel_execute_cycles": sum(
+                    sample["metadata"]["accel_execute_cycles"]
+                    for sample in partition_samples
+                ),
+                "accel_execute_us": sum(
+                    sample["metadata"]["accel_execute_us"] for sample in partition_samples
+                ),
+            },
+            "samples": [],
+        }
+        for partition_index, sample in enumerate(partition_samples):
+            metadata = sample["metadata"]
+            for op in sample["samples"]:
+                combined["samples"].append(
+                    {
+                        **op,
+                        "_partition_index": partition_index,
+                        "_accel_execute_cycles": metadata["accel_execute_cycles"],
+                        "_accel_execute_us": metadata["accel_execute_us"],
+                    }
+                )
+        combined_samples.append(combined)
+    return combined_samples
 
 
 class QNNMonitor(WinMLEPMonitor):
@@ -523,13 +564,25 @@ class QNNMonitor(WinMLEPMonitor):
         samples = parsed.get("samples", [])
         if self._expected_measured_samples is not None:
             expected_total = self._warmup_samples + self._expected_measured_samples
-            if len(samples) != expected_total:
+            partition_count = self._epcontext_partition_count()
+            expected_profile_blocks = expected_total * partition_count
+            if (
+                len(samples) != expected_profile_blocks
+                and partition_count == 1
+                and expected_total > 0
+                and len(samples) % expected_total == 0
+            ):
+                partition_count = len(samples) // expected_total
+                expected_profile_blocks = len(samples)
+            if len(samples) != expected_profile_blocks:
                 raise ValueError(
                     "profiling CSV sample count mismatch: "
-                    f"expected {expected_total} total samples "
+                    f"expected {expected_profile_blocks} profiling blocks "
                     f"({self._warmup_samples} warmup + "
-                    f"{self._expected_measured_samples} measured), got {len(samples)}"
+                    f"{self._expected_measured_samples} measured) across "
+                    f"{partition_count} EPContext partition(s), got {len(samples)}"
                 )
+            samples = _coalesce_partition_samples(samples, partition_count)
             samples = samples[self._warmup_samples :]
 
         artifacts: dict[str, str] = {"csv": str(csv_path)}
@@ -551,7 +604,7 @@ class QNNMonitor(WinMLEPMonitor):
                 return 0
 
         sample_metadata: list[dict[str, int]] = []
-        operator_samples: dict[int, dict[str, Any]] = {}
+        operator_samples: dict[tuple[int, int], dict[str, Any]] = {}
         for sample in samples:
             sample_meta = sample.get("metadata", {})
             total_cycles = _to_int(
@@ -570,17 +623,29 @@ class QNNMonitor(WinMLEPMonitor):
                     "accel_execute_us": accel_us,
                 }
             )
-            cycle_to_us = accel_us / total_cycles if total_cycles > 0 else 0.0
             for op in sample.get("samples", []):
                 op_id = op["op_id"]
+                partition_index = op.get("_partition_index", 0)
+                key = (partition_index, op_id)
                 entry = operator_samples.setdefault(
-                    op_id,
+                    key,
                     {
                         "op_path": op["op_path"],
                         "op_id": op_id,
                         "durations_us": [],
                         "percentages": [],
                     },
+                )
+                op_total_cycles = _to_int(
+                    op.get("_accel_execute_cycles", total_cycles),
+                    "accel_execute_cycles",
+                )
+                op_accel_us = _to_int(
+                    op.get("_accel_execute_us", accel_us),
+                    "accel_execute_us",
+                )
+                cycle_to_us = (
+                    op_accel_us / op_total_cycles if op_total_cycles > 0 else 0.0
                 )
                 entry["durations_us"].append(op["cycles"] * cycle_to_us)
                 entry["percentages"].append(
@@ -663,6 +728,20 @@ class QNNMonitor(WinMLEPMonitor):
             status=status,
             fallback_reason=fallback_reason,
         )
+
+    def _epcontext_partition_count(self) -> int:
+        """Return the number of EPContext partitions represented in each inference."""
+        if self._running_model_path is None:
+            return 1
+        try:
+            return max(1, len(epcontext_partitions(self._running_model_path)))
+        except Exception as exc:
+            logger.info(
+                "QNNMonitor: unable to inspect EPContext partitions from %s: %s",
+                self._running_model_path,
+                exc,
+            )
+            return 1
 
     def _try_qhas(
         self,
