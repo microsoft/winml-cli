@@ -146,7 +146,7 @@ def _make_qa_model(tokenizer, *, batch_size: int = 1) -> tuple[MagicMock, str]:
     return model, input_name
 
 
-def _create_qa_compat_pipe(tokenizer, model):
+def _create_qa_compat_pipe(tokenizer, model, task="question-answering"):
     with (
         patch("transformers.__version__", "5.0.0"),
         patch(
@@ -154,7 +154,16 @@ def _create_qa_compat_pipe(tokenizer, model):
             return_value=tokenizer,
         ),
     ):
-        return create_pipeline("question-answering", model, "test-model")
+        return create_pipeline(task, model, "test-model")
+
+
+def test_document_question_answering_uses_extractive_compat_pipeline() -> None:
+    tokenizer = _make_fast_qa_tokenizer()
+    model, _ = _make_qa_model(tokenizer)
+
+    pipe = _create_qa_compat_pipe(tokenizer, model, "document-question-answering")
+
+    assert isinstance(pipe, _ExtractiveQuestionAnsweringPipeline)
 
 
 class TestHFPipelineTaskMap:
