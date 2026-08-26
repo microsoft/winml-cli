@@ -540,6 +540,54 @@ def test_basic_metrics_coalesce_multiple_epcontext_partitions(tmp_path):
     assert monitor.result.summary["accel_execute_us"] == 105
 
 
+def test_basic_metrics_coalesce_float_string_partition_metadata(tmp_path, monkeypatch):
+    from winml.modelkit.session.monitor import qnn_monitor as qnn_mod
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    context_model = tmp_path / "model_ctx.onnx"
+    _write_epcontext_model(
+        context_model,
+        [("first_partition", 1), ("second_partition", 0)],
+    )
+    parsed = {
+        "samples": [
+            {
+                "metadata": {
+                    "hvx_threads": "4.0",
+                    "accel_execute_cycles": "100.4",
+                    "accel_execute_us": "10.4",
+                },
+                "samples": [{"op_path": "FirstOp", "op_id": 1, "cycles": 50}],
+            },
+            {
+                "metadata": {
+                    "hvx_threads": "4.0",
+                    "accel_execute_cycles": "200.6",
+                    "accel_execute_us": "40.6",
+                },
+                "samples": [{"op_path": "SecondOp", "op_id": 1, "cycles": 100}],
+            },
+        ]
+    }
+    monitor = QNNMonitor(output_dir=tmp_path)
+    monitor.set_running_model_path(context_model)
+    monitor.set_perf_window(warmup=0, measured_iterations=1)
+    monitor.__enter__()
+    monitor._csv_path.write_text("profile", encoding="utf-8")
+    monkeypatch.setattr(qnn_mod, "parse_qnn_profiling_csv", lambda _path: parsed)
+
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    assert monitor.result.status == "ok"
+    assert monitor.result.num_samples == 1
+    assert monitor.result.summary["accel_execute_cycles"] == 301
+    assert monitor.result.summary["accel_execute_us"] == 51
+    operators = {operator.op_path: operator for operator in monitor.result.operators}
+    assert operators["FirstOp"].samples_us == [5.0]
+    assert operators["SecondOp"].samples_us == pytest.approx([100 * 41 / 201])
+
+
 def test_basic_metrics_infer_runtime_partitions_for_raw_model(tmp_path):
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 

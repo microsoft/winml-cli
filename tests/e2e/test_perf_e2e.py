@@ -820,8 +820,9 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
 
         assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
         assert output_file.exists()
-        assert trace_output.exists()
-        trace = json.loads(trace_output.read_text())
+        assert not trace_output.exists()
+        output = json.loads(output_file.read_text())
+        trace = output["hw_monitor"]["ep_proof"]
         assert trace["metadata"]["device"] == "npu"
         assert trace["metadata"]["ep"] == EP_ALIASES["qnn"]
         assert trace["metadata"]["tracing_level"] == "basic"

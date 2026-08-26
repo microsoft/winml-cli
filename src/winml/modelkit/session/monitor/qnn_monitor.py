@@ -58,6 +58,20 @@ _LEVEL_TO_PROFILING: dict[str, str] = {
 }
 
 
+def _metadata_int(value: object, field: str) -> int:
+    """Normalize a QNN numeric metadata value, including float strings."""
+    try:
+        return round(float(value))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        logger.warning(
+            "QNNMonitor: could not parse %r as a number for metadata field %r; "
+            "defaulting to 0. This may corrupt cycle_to_us and duration_us values.",
+            value,
+            field,
+        )
+        return 0
+
+
 def _coalesce_partition_samples(
     samples: list[dict[str, Any]],
     partition_count: int,
@@ -72,14 +86,22 @@ def _coalesce_partition_samples(
         combined: dict[str, Any] = {
             "metadata": {
                 "hvx_threads": max(
-                    sample["metadata"]["hvx_threads"] for sample in partition_samples
+                    _metadata_int(sample["metadata"]["hvx_threads"], "hvx_threads")
+                    for sample in partition_samples
                 ),
                 "accel_execute_cycles": sum(
-                    sample["metadata"]["accel_execute_cycles"]
+                    _metadata_int(
+                        sample["metadata"]["accel_execute_cycles"],
+                        "accel_execute_cycles",
+                    )
                     for sample in partition_samples
                 ),
                 "accel_execute_us": sum(
-                    sample["metadata"]["accel_execute_us"] for sample in partition_samples
+                    _metadata_int(
+                        sample["metadata"]["accel_execute_us"],
+                        "accel_execute_us",
+                    )
+                    for sample in partition_samples
                 ),
             },
             "samples": [],
@@ -587,35 +609,22 @@ class QNNMonitor(WinMLEPMonitor):
 
         artifacts: dict[str, str] = {"csv": str(csv_path)}
 
-        # Convert cycles to microseconds via the CSV-reported ratio.
-        # Use round(float(...)) rather than int() so that a float-string
-        # value like "12345.6" (legal QNN SDK output) parses correctly
-        # instead of raising ValueError → silent op-record drop.
-        def _to_int(val: object, field: str) -> int:
-            try:
-                return round(float(val))  # type: ignore[arg-type]
-            except (TypeError, ValueError):
-                logger.warning(
-                    "QNNMonitor: could not parse %r as a number for metadata field %r; "
-                    "defaulting to 0.  This may corrupt cycle_to_us and duration_us values.",
-                    val,
-                    field,
-                )
-                return 0
-
         sample_metadata: list[dict[str, int]] = []
         operator_samples: dict[tuple[int, int], dict[str, Any]] = {}
         for sample in samples:
             sample_meta = sample.get("metadata", {})
-            total_cycles = _to_int(
+            total_cycles = _metadata_int(
                 sample_meta.get("accel_execute_cycles", 0) or 0,
                 "accel_execute_cycles",
             )
-            accel_us = _to_int(
+            accel_us = _metadata_int(
                 sample_meta.get("accel_execute_us", 0) or 0,
                 "accel_execute_us",
             )
-            hvx_threads = _to_int(sample_meta.get("hvx_threads", 0) or 0, "hvx_threads")
+            hvx_threads = _metadata_int(
+                sample_meta.get("hvx_threads", 0) or 0,
+                "hvx_threads",
+            )
             sample_metadata.append(
                 {
                     "hvx_threads": hvx_threads,
@@ -636,11 +645,11 @@ class QNNMonitor(WinMLEPMonitor):
                         "percentages": [],
                     },
                 )
-                op_total_cycles = _to_int(
+                op_total_cycles = _metadata_int(
                     op.get("_accel_execute_cycles", total_cycles),
                     "accel_execute_cycles",
                 )
-                op_accel_us = _to_int(
+                op_accel_us = _metadata_int(
                     op.get("_accel_execute_us", accel_us),
                     "accel_execute_us",
                 )
