@@ -153,6 +153,10 @@ traced graph's inputs don't match the provided data — for example a compiled
 context model with different input names — the trace falls back to random inputs
 and logs a warning.
 
+Op-tracing results are included in the main benchmark JSON under
+`hw_monitor.ep_proof`. The profiling CSV remains available as the raw trace
+artifact; no separate `_op_trace.json` file is written.
+
 ## Common pitfalls
 
 - **Warm-up too low on NPU.** The first several inferences on an NPU EP can be significantly slower due to kernel compilation and caching. The default of 10 warm-up iterations is usually enough for vision models, but transformer models with many operators may need `--warmup 30` or higher to reach steady-state latency.

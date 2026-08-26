@@ -3399,7 +3399,7 @@ def perf(
         # misleading JSON artifact on disk for CI consumers.
         # =================================================================
         if op_tracing:
-            from ..session.monitor.report import display_op_trace_report, write_op_trace_json
+            from ..session.monitor.report import display_op_trace_report
 
             # Both ONNX and HF inputs run through the same PerfBenchmark
             # instance, which exposes its perf context as ``_perf_ctx``.
@@ -3464,16 +3464,10 @@ def perf(
                 display_op_trace_report(trace_result, console, top_n=top_k)
             else:
                 display_op_trace_report(trace_result, console)
-            # Write the op-trace report next to the requested benchmark output
-            # file (same directory + stem, with an ``_op_trace`` suffix) so the
-            # two artifacts stay paired instead of landing under an unrelated
-            # fixed name.
-            trace_output = output.with_name(f"{output.stem}_op_trace{output.suffix}")
-            write_op_trace_json(trace_result, trace_output)
             profiling_csv = trace_result.artifacts.get("csv")
             _print_save_to_footer(
                 console,
-                trace_json=str(trace_output),
+                trace_json=None,
                 profiling_csv=profiling_csv,
             )
         else:
