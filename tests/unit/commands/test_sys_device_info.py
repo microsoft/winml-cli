@@ -34,7 +34,7 @@ from winml.modelkit.commands.sys import (
     _get_memory_info,
     _render_compact,
 )
-from winml.modelkit.sysinfo.dxcore_adapters import DXCoreAdapterInfo
+from winml.modelkit.sysinfo import DXCoreAdapterInfo
 
 
 @pytest.fixture(autouse=True)

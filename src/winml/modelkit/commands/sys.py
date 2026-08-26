@@ -552,8 +552,7 @@ def _gather_device_info(
     Returns:
         List of device dicts with type, priority, and details.
     """
-    from ..sysinfo import CPU, GPU, NPU
-    from ..sysinfo.dxcore_adapters import enumerate_compute_adapters
+    from ..sysinfo import CPU, GPU, NPU, enumerate_compute_adapters
 
     # NPU > GPU > CPU priority order.
     hw_queries: list[tuple[str, type[NPU] | type[GPU] | type[CPU]]] = [
