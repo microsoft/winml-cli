@@ -58,6 +58,7 @@ class _Encoding(dict):
 
 class _Tokenizer:
     model_max_length = 512
+    model_input_names = ("input_ids", "attention_mask", "token_type_ids")
     sep_token_id = 2
 
     def __init__(self):
@@ -84,6 +85,23 @@ class _NativeDocumentQAModel:
         starts[0, 4] = 8
         ends[0, 6] = 9
         return QuestionAnsweringModelOutput(start_logits=starts, end_logits=ends)
+
+    __call__ = forward
+
+
+class _NativeDocumentQAModelWithOptionalTrainingInputs(_NativeDocumentQAModel):
+    def forward(
+        self,
+        input_ids=None,
+        bbox=None,
+        attention_mask=None,
+        token_type_ids=None,
+        position_ids=None,
+        inputs_embeds=None,
+        start_positions=None,
+        end_positions=None,
+    ):
+        return super().forward(input_ids, bbox, attention_mask, token_type_ids)
 
     __call__ = forward
 
@@ -231,6 +249,38 @@ def test_compute_discovers_native_model_inputs_from_forward_signature():
     from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
     model = _NativeDocumentQAModel()
+    evaluator = object.__new__(WinMLDocumentQuestionAnsweringEvaluator)
+    evaluator.model = model
+    evaluator.pipe = SimpleNamespace(tokenizer=_Tokenizer(), device="cpu")
+    evaluator.data = [
+        {
+            "question": "What company?",
+            "answers": ["ITC Limited"],
+            "ocr_results": _ocr(),
+        }
+    ]
+    evaluator.config = WinMLEvaluationConfig(
+        model_id="test/model",
+        task="document-question-answering",
+        runtime="pytorch",
+        dataset=DatasetConfig(path="test/data", samples=1, shuffle=False),
+    )
+
+    result = evaluator.compute()
+
+    assert result["anls"] == 1.0
+    assert set(model.inputs) == {
+        "input_ids",
+        "bbox",
+        "attention_mask",
+        "token_type_ids",
+    }
+
+
+def test_compute_excludes_optional_native_training_inputs():
+    from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
+
+    model = _NativeDocumentQAModelWithOptionalTrainingInputs()
     evaluator = object.__new__(WinMLDocumentQuestionAnsweringEvaluator)
     evaluator.model = model
     evaluator.pipe = SimpleNamespace(tokenizer=_Tokenizer(), device="cpu")

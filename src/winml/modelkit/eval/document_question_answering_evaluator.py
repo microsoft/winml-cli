@@ -176,7 +176,7 @@ class WinMLDocumentQuestionAnsweringEvaluator(WinMLEvaluator):
             parameters = inspect.signature(forward).parameters if forward is not None else {}
         except (TypeError, ValueError):
             return set()
-        return {
+        declared_inputs = {
             name
             for name, parameter in parameters.items()
             if parameter.kind
@@ -185,6 +185,13 @@ class WinMLDocumentQuestionAnsweringEvaluator(WinMLEvaluator):
                 inspect.Parameter.KEYWORD_ONLY,
             }
         }
+        required_inputs = {
+            name
+            for name, parameter in parameters.items()
+            if name in declared_inputs and parameter.default is inspect.Parameter.empty
+        }
+        tokenizer_inputs = set(getattr(self._tokenizer(), "model_input_names", []))
+        return required_inputs | (declared_inputs & tokenizer_inputs) | ({"bbox"} & declared_inputs)
 
     def compute(self) -> dict[str, Any]:
         """Run bounded document preprocessing, inference, decoding, and ANLS."""
