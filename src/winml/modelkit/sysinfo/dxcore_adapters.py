@@ -64,16 +64,14 @@ _IID_FACTORY1 = _GUID.from_string("d5682e19-6d21-401c-827a-9a51a4ea35d7")
 _IID_ADAPTER_LIST = _GUID.from_string("526c7776-40e9-459b-b711-f32ad76dfc28")
 _IID_ADAPTER = _GUID.from_string("f0db4c7f-fe5a-42a2-bd62-f2a6cf6fc83e")
 
+_ATTRIBUTE_GPU = _GUID.from_string("b69eb219-3ded-4464-979f-a00bd4687006")
+_ATTRIBUTE_NPU = _GUID.from_string("d46140c4-add7-451b-9e56-06fe8c3b58ed")
+
 _PROPERTY_INSTANCE_LUID = 0
 _PROPERTY_DRIVER_DESCRIPTION = 2
 _PROPERTY_HARDWARE_ID = 3
 _PROPERTY_HARDWARE_ID_PARTS = 14
 _PROPERTY_IS_HARDWARE = 11
-
-_WORKLOAD_MACHINE_LEARNING = 3
-_HARDWARE_TYPE_GPU = 0x1
-_HARDWARE_TYPE_NPU = 0x4
-
 
 def _method(
     instance: ctypes.c_void_p,
@@ -165,28 +163,26 @@ def _format_luid(luid: _LUID) -> str:
 def _enumerate_for_type(
     factory: ctypes.c_void_p,
     device_type: str,
-    hardware_filter: int,
+    attribute: _GUID,
 ) -> list[DXCoreAdapterInfo]:
     adapter_list = ctypes.c_void_p()
     create_list = _method(
         factory,
-        8,
+        3,
         ctypes.c_long,
         ctypes.c_uint32,
-        ctypes.c_uint32,
-        ctypes.c_uint32,
+        ctypes.POINTER(_GUID),
         ctypes.POINTER(_GUID),
         ctypes.POINTER(ctypes.c_void_p),
     )
     result = create_list(
         factory,
-        _WORKLOAD_MACHINE_LEARNING,
-        0,
-        hardware_filter,
+        1,
+        ctypes.byref(attribute),
         ctypes.byref(_IID_ADAPTER_LIST),
         ctypes.byref(adapter_list),
     )
-    _check_hresult(result, "IDXCoreAdapterFactory1.CreateAdapterListByWorkload")
+    _check_hresult(result, "IDXCoreAdapterFactory.CreateAdapterList")
 
     adapters: list[DXCoreAdapterInfo] = []
     try:
@@ -256,8 +252,8 @@ def enumerate_compute_adapters() -> list[DXCoreAdapterInfo]:
     )
     try:
         return [
-            *_enumerate_for_type(factory, "NPU", _HARDWARE_TYPE_NPU),
-            *_enumerate_for_type(factory, "GPU", _HARDWARE_TYPE_GPU),
+            *_enumerate_for_type(factory, "NPU", _ATTRIBUTE_NPU),
+            *_enumerate_for_type(factory, "GPU", _ATTRIBUTE_GPU),
         ]
     finally:
         _release(factory)
