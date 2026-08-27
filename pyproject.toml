@@ -82,7 +82,7 @@ dependencies = [
   "torchmetrics[detection]>=1.0",
   "torchvision>=0.24",
   "tqdm>=4.67",
-  "transformers>=5,<6",
+  "transformers>=4.57,<4.58",
   "uvicorn[standard]>=0.42.0",
   "windowsml==2.0.300 ; sys_platform == 'win32'",
 ]
@@ -121,17 +121,12 @@ environments = [
   "sys_platform == 'linux' and platform_machine == 'x86_64'",
   "sys_platform == 'win32' and platform_machine == 'AMD64'",
 ]
-# Overrides:
-# 1. Keep transformers on the supported 5.x line and override stale transitive
-#    pins from older packages (for example optimum-onnx releases that still
-#    declare `transformers<4.58`).
-# 2. Neutralize onnxruntime-qnn's transitive standard `onnxruntime` requirement.
-#    onnxruntime-windowsml ships the same `onnxruntime/` module; installing plain
-#    onnxruntime alongside it overwrites windowsml's files on disk and kills the
-#    DirectML EP. The `sys_platform == 'unobtainium'` marker is never true, so uv
-#    never installs plain onnxruntime while still keeping onnxruntime-qnn.
+# Neutralize onnxruntime-qnn's transitive standard `onnxruntime` requirement.
+# onnxruntime-windowsml ships the same `onnxruntime/` module; installing plain
+# onnxruntime alongside it overwrites windowsml's files on disk and kills the
+# DirectML EP. The `sys_platform == 'unobtainium'` marker is never true, so uv
+# never installs plain onnxruntime while still keeping onnxruntime-qnn.
 override-dependencies = [
-  "transformers>=5,<6",
   "onnxruntime ; sys_platform == 'unobtainium'",
 ]
 

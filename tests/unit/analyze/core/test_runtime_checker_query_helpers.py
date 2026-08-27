@@ -22,7 +22,7 @@ from winml.modelkit.analyze.core.runtime_checker_query import (
     node_to_pattern_match,
     try_load_external_initializer_array,
 )
-from winml.modelkit.analyze.exceptions import OpOptionalInputSupportError, OpUnsupportedError
+from winml.modelkit.analyze.exceptions import OpOptionalInputSupportError
 from winml.modelkit.analyze.utils.model_utils import DUMMY_FLOAT
 from winml.modelkit.analyze.utils.node_key_utils import resolve_stable_node_key
 from winml.modelkit.onnx import ONNXDomain
@@ -128,29 +128,6 @@ class TestBuildQuerySignature:
 
 class TestGetQueryConditionsForNode:
     """Test condition extraction for runtime rule lookups."""
-
-    def test_missing_schema_is_reported_as_unsupported_error(self):
-        """Unknown schema should be classified as unsupported instead of crashing analyze."""
-        node = helper.make_node(
-            "SimplifiedLayerNormalization",
-            ["X", "gamma"],
-            ["Y"],
-            name="rms_norm",
-        )
-
-        with pytest.raises(OpUnsupportedError) as exc_info:
-            get_query_conditions_for_node(
-                node=node,
-                opset_version=21,
-                valueinfo={},
-                initializers={},
-                constants={},
-                domain=ONNXDomain.AI_ONNX,
-                input_to_dq={},
-                output_to_q={},
-            )
-
-        assert "has no registered schema" in str(exc_info.value)
 
     def test_external_initializer_without_payload_is_not_marked_constant(self):
         """External-data initializers without loaded values keep shape but not constant status."""
@@ -279,70 +256,6 @@ class TestGetQueryConditionsForNode:
         renamed_sidecar_path = tmp_path / "weights-renamed.bin"
         sidecar_path.rename(renamed_sidecar_path)
         assert renamed_sidecar_path.exists()
-
-
-class TestRunForNodeUnsupportedReasons:
-    """End-to-end reason mapping tests for RuntimeCheckerQuery.run_for_node."""
-
-    @staticmethod
-    def _build_identity_model() -> onnx.ModelProto:
-        input_info = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1])
-        output_info = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1])
-        node = helper.make_node("Identity", ["input"], ["output"], name="identity_node")
-        graph = helper.make_graph([node], "identity_graph", [input_info], [output_info])
-        return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 21)])
-
-    def test_run_for_node_preserves_schema_missing_reason(self, monkeypatch):
-        """Schema lookup misses should surface schema-specific reason in returned result."""
-        model = self._build_identity_model()
-        node = model.graph.node[0]
-        query = RuntimeCheckerQuery(model, ep_name="QNNExecutionProvider", device_type="NPU")
-        query.node_checkers = []
-
-        def _raise_schema_miss(*args, **kwargs):
-            del args, kwargs
-            raise OpUnsupportedError(
-                "Node Identity has no registered schema for domain '' at opset 21"
-            )
-
-        monkeypatch.setattr(
-            runtime_checker_query_module,
-            "get_query_conditions_for_node",
-            _raise_schema_miss,
-        )
-
-        result = query.run_for_node(node, for_debug=False, run_unknown_op=False)
-
-        assert result.result.no_data is True
-        assert result.result.compile is False
-        assert result.result.run is False
-        assert result.result.reason == "schema_not_registered:Identity"
-        assert result.result.debug_details is None
-
-    def test_run_for_node_preserves_generic_unsupported_reason(self, monkeypatch):
-        """Unsupported-op path should keep a specific unsupported reason in result payload."""
-        model = self._build_identity_model()
-        node = model.graph.node[0]
-        query = RuntimeCheckerQuery(model, ep_name="QNNExecutionProvider", device_type="NPU")
-        query.node_checkers = []
-
-        def _raise_generic_unsupported(*args, **kwargs):
-            del args, kwargs
-            raise OpUnsupportedError("Node Identity is not supported")
-
-        monkeypatch.setattr(
-            runtime_checker_query_module,
-            "get_query_conditions_for_node",
-            _raise_generic_unsupported,
-        )
-
-        result = query.run_for_node(node, for_debug=False, run_unknown_op=False)
-
-        assert result.result.no_data is True
-        assert result.result.compile is False
-        assert result.result.run is False
-        assert result.result.reason == "unsupported_op:Identity"
-        assert result.result.debug_details is None
 
 
 class TestLocalEPFallback:

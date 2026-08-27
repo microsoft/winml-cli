@@ -190,46 +190,20 @@ def _patched_trocr_sinusoidal_positional_embedding_forward(
     """
     # TrOCR sinusoidal embeddings always set a padding_idx; nn.Embedding types it int | None.
     padding_idx = cast("int", self.padding_idx)
-
-    def _runtime_weights() -> torch.Tensor:
-        # Keep compatibility across Transformers versions:
-        # - older TrOCR modules carry ``_float_tensor`` and expect ``weights``
-        #   cast through it;
-        # - newer versions removed ``_float_tensor`` entirely.
-        weights = self.weights
-        if weights is None:
-            max_pos = padding_idx + 1 + input_ids.size(1)
-            weights = self.get_embedding(max_pos, self.embedding_dim, padding_idx)
-            self.weights = weights
-        elif weights.is_meta:
-            # Some low-mem load paths leave this table on the meta device.
-            # Re-materialize from shape metadata before tensor indexing.
-            max_pos = max(int(weights.size(0)), padding_idx + 1 + input_ids.size(1))
-            weights = self.get_embedding(max_pos, self.embedding_dim, padding_idx)
-            self.weights = weights
-        ref_tensor = getattr(self, "_float_tensor", None)
-        if ref_tensor is not None and not ref_tensor.is_meta:
-            return cast("torch.Tensor", weights.to(ref_tensor))
-        return cast("torch.Tensor", weights.to(input_ids.device))
-
     abs_pos = getattr(self, "position_id", None)
     if abs_pos is not None:
         # Patched path: lookup with the side-channel index, shifted by
         # ``padding_idx + 1`` to match HF's offset for non-padded sequences.
         if abs_pos.dim() == 1:
             abs_pos = abs_pos.unsqueeze(0)
-        offset = padding_idx + 1
-        position_ids = abs_pos.long()
-        weights = _runtime_weights()
-        if offset > 0 and weights.size(0) > offset:
-            # Avoid tracing a dynamic tensor Add (cache_position + offset).
-            # Shifting the lookup table is equivalent for index-based lookup.
-            weights = weights[offset:]
-        else:
-            position_ids = (abs_pos + offset).long()
-        return weights.index_select(0, position_ids.view(-1)).view(
-            position_ids.size(0), position_ids.size(1), -1
-        ).detach()
+        position_ids = (abs_pos + padding_idx + 1).long()
+        weights = self.weights.to(self._float_tensor)
+        return cast(
+            "torch.Tensor",
+            weights.index_select(0, position_ids.view(-1))
+            .view(position_ids.size(0), position_ids.size(1), -1)
+            .detach(),
+        )
     # Below: identical to HF's original ``TrOCRSinusoidalPositionalEmbedding.forward``.
     bsz, seq_len = input_ids.size()
     position_ids = self.create_position_ids_from_input_ids(
@@ -238,8 +212,11 @@ def _patched_trocr_sinusoidal_positional_embedding_forward(
     max_pos = padding_idx + 1 + seq_len
     if self.weights is None or max_pos > self.weights.size(0):
         self.weights = self.get_embedding(max_pos, self.embedding_dim, padding_idx)
-    weights = _runtime_weights()
-    return weights.index_select(0, position_ids.view(-1)).view(bsz, seq_len, -1).detach()
+    self.weights = self.weights.to(self._float_tensor)
+    return cast(
+        "torch.Tensor",
+        self.weights.index_select(0, position_ids.view(-1)).view(bsz, seq_len, -1).detach(),
+    )
 
 
 def _build_ved_patching_specs() -> list[PatchingSpec]:
@@ -493,28 +470,11 @@ class VisionDecoderWrapper(WinMLDecoderWrapper):
         forward_params = inspect.signature(self.model.forward).parameters
         extra: dict[str, Any] = {}
         if "position_ids" in forward_params:
-            # BERT-like decoders expect position_ids in [batch, seq] form.
-            # cache_position comes from ONNX input as [seq] for single-token
-            # decode, so normalize it before forwarding.
-            position_ids = inputs["cache_position"]
-            if position_ids.dim() == 1:
-                position_ids = position_ids.unsqueeze(0)
-            extra["position_ids"] = position_ids
-
-        # Pass a precomputed 4D additive mask so decoder internals do not
-        # rebuild a dynamic causal mask from cache_position.
-        decoder_attention_mask = inputs["decoder_attention_mask"]
-        if decoder_attention_mask.dim() == 2:
-            expanded_mask = decoder_attention_mask[:, None, None, :].to(
-                dtype=inputs["encoder_hidden_states"].dtype
-            )
-            decoder_attention_mask = (1.0 - expanded_mask) * torch.finfo(
-                inputs["encoder_hidden_states"].dtype
-            ).min
+            extra["position_ids"] = inputs["cache_position"]
 
         outputs = self.model(
             input_ids=inputs["decoder_input_ids"],
-            attention_mask=decoder_attention_mask,
+            attention_mask=inputs["decoder_attention_mask"],
             encoder_hidden_states=inputs["encoder_hidden_states"],
             encoder_attention_mask=None,  # vision encoders have no padding
             past_key_values=EncoderDecoderCache(cache, DynamicCache()),
