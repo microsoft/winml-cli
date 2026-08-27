@@ -2723,14 +2723,14 @@
 <td><code>-m</code></td>
 <td><code>TEXT</code></td>
 <td>—</td>
-<td>HuggingFace model ID or path to a local <code>.onnx</code> file. Required. With <code>--runtime winml-genai</code>, also accepts a prebuilt genai <strong>bundle directory</strong>, or a HuggingFace model ID that is auto-built into a bundle on demand.</td>
+<td>HuggingFace model ID or path to a local <code>.onnx</code> file. Required. With <code>--runtime ort-genai</code>, also accepts a prebuilt genai <strong>bundle directory</strong>, or a HuggingFace model ID that is auto-built into a bundle on demand.</td>
 </tr>
 <tr>
 <td><code>--runtime</code></td>
 <td></td>
-<td><code>winml\|winml-genai</code></td>
-<td><code>winml</code></td>
-<td>Inference runtime. <code>winml</code> benchmarks single-shot ONNX inference; <code>winml-genai</code> benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec). With <code>winml-genai</code>, a model ID that is not a bundle directory is auto-built into one (cached under <code>~/.cache/winml/</code>, targeting the NPU HTP via QNN) before benchmarking. GenAI cache controls are tracked in issue #1275.</td>
+<td><code>winml-ort\|ort-genai</code></td>
+<td><code>winml-ort</code></td>
+<td>Inference runtime. <code>winml-ort</code> benchmarks single-shot ONNX inference; <code>ort-genai</code> benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec). With <code>ort-genai</code>, a model ID that is not a bundle directory is auto-built into one (cached under <code>~/.cache/winml/</code>, targeting the NPU HTP via QNN) before benchmarking. GenAI cache controls are tracked in issue #1275.</td>
 </tr>
 <tr>
 <td><code>--task</code></td>
@@ -2800,7 +2800,7 @@
 <td></td>
 <td><code>PATH</code></td>
 <td>—</td>
-<td>Path to a <code>.npz</code> file of real input tensors to benchmark with instead of randomly generated inputs. The archive's keys must match the model's inputs exactly; dtypes are cast to the model's expected dtype (with a warning) to mirror normal inference. Not supported with <code>--module</code>, <code>--runtime winml-genai</code>, or composite (dual-encoder) models.</td>
+<td>Path to a <code>.npz</code> file of real input tensors to benchmark with instead of randomly generated inputs. The archive's keys must match the model's inputs exactly; dtypes are cast to the model's expected dtype (with a warning) to mirror normal inference. Not supported with <code>--module</code>, <code>--runtime ort-genai</code>, or composite (dual-encoder) models.</td>
 </tr>
 <tr>
 <td><code>--shape-config</code></td>
@@ -2863,7 +2863,7 @@
 <td></td>
 <td>flag</td>
 <td><code>false</code></td>
-<td>Show a live NPU/CPU utilization chart while the benchmark runs and include hardware metrics in the JSON report. With <code>--runtime winml-genai</code>, the monitor wraps the genai load + generation benchmark.</td>
+<td>Show a live NPU/CPU utilization chart while the benchmark runs and include hardware metrics in the JSON report. With <code>--runtime ort-genai</code>, the monitor wraps the genai load + generation benchmark.</td>
 </tr>
 <tr>
 <td><code>--op-tracing</code></td>
@@ -2877,43 +2877,43 @@
 <td></td>
 <td>flag</td>
 <td><code>false</code></td>
-<td>Compile the model to EPContext binaries during build. QNN detail op-tracing enables this automatically for a raw ONNX input unless <code>--no-compile</code> or <code>--skip-build</code> was explicitly specified. For <code>--runtime winml-genai</code> on the NPU, <code>--compile</code> pre-compiles each QNN stage (in an isolated subprocess) before generation.</td>
+<td>Compile the model to EPContext binaries during build. QNN detail op-tracing enables this automatically for a raw ONNX input unless <code>--no-compile</code> or <code>--skip-build</code> was explicitly specified. For <code>--runtime ort-genai</code> on the NPU, <code>--compile</code> pre-compiles each QNN stage (in an isolated subprocess) before generation.</td>
 </tr>
 <tr>
 <td><code>--compile-timeout</code></td>
 <td></td>
 <td><code>INTEGER</code></td>
 <td><code>300</code></td>
-<td><em>(winml-genai)</em> Max seconds to compile each EPContext stage before falling back to the original ONNX. Requires <code>--compile</code>.</td>
+<td><em>(ort-genai)</em> Max seconds to compile each EPContext stage before falling back to the original ONNX. Requires <code>--compile</code>.</td>
 </tr>
 <tr>
 <td><code>--prompt</code></td>
 <td></td>
 <td><code>TEXT</code></td>
 <td><code>Explain the theory of relativity in simple terms.</code></td>
-<td><em>(winml-genai)</em> Prompt text to generate from. Wrapped in the bundle's chat template unless <code>--no-apply-template</code>.</td>
+<td><em>(ort-genai)</em> Prompt text to generate from. Wrapped in the bundle's chat template unless <code>--no-apply-template</code>.</td>
 </tr>
 <tr>
 <td><code>--apply-template/--no-apply-template</code></td>
 <td></td>
 <td>flag</td>
 <td><code>true</code></td>
-<td><em>(winml-genai)</em> Wrap <code>--prompt</code> in the bundle's chat template before timing.</td>
+<td><em>(ort-genai)</em> Wrap <code>--prompt</code> in the bundle's chat template before timing.</td>
 </tr>
 <tr>
 <td><code>--max-new-tokens</code></td>
 <td></td>
 <td><code>INTEGER</code></td>
 <td><code>128</code></td>
-<td><em>(winml-genai)</em> Number of new tokens to generate per iteration.</td>
+<td><em>(ort-genai)</em> Number of new tokens to generate per iteration.</td>
 </tr>
 </tbody>
 </table>
 <h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
 <p><code>winml perf</code> loads the model through <code>WinMLAutoModel</code> — accepting both HuggingFace IDs and local ONNX files — then generates random input tensors from the model's I/O configuration. It runs the specified number of warm-up iterations (excluded from statistics) followed by the timed iterations, collecting per-sample latency. The final report includes mean, min, max, P50, P90, P95, P99, standard deviation, and throughput in samples per second. When <code>--monitor</code> is active, a hardware polling loop runs in parallel and records NPU / GPU utilization, CPU usage, and device memory alongside the timing data.</p>
-<p>Both runtime reports include <code>schema_version: 2</code> and a <code>benchmark_info.runtime</code> discriminator (<code>winml</code> or <code>winml-genai</code>). Shared metadata such as <code>model_id</code>, <code>running_model_path</code>, <code>device</code>, <code>ep</code>, <code>iterations</code>, <code>warmup</code>, and <code>timestamp</code> uses the same field names where the concepts overlap; GenAI also keeps <code>bundle_dir</code> because the runnable artifact is a bundle directory.</p>
-<p>When <code>--memory</code> is enabled, both <code>winml</code> and <code>winml-genai</code> reports use the same <code>memory</code> field names for shared concepts: RSS baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta; VRAM local/shared baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta.</p>
-<p>With <code>--runtime winml-genai</code>, <code>winml perf</code> benchmarks the onnxruntime-genai decoder pipeline rather than a single <code>session.run()</code>. The JSON report uses a phase-based schema: <code>load</code> contains startup spans, <code>requests</code> contains one warmup or timed generation sample per request, <code>aggregate</code> summarizes timed requests only, <code>memory</code> contains optional RAM/VRAM deltas, and <code>hw_monitor</code> contains optional monitor output. The optional <code>memory</code> and <code>hw_monitor</code> top-level names match the classic <code>winml</code> perf report; GenAI keeps <code>load</code>/<code>requests</code>/<code>aggregate</code> instead of classic <code>latency_ms</code>/<code>throughput</code> because generation has distinct prompt, first-token, and decode phases.</p>
+<p>Both runtime reports include <code>schema_version: 2</code> and a <code>benchmark_info.runtime</code> discriminator (<code>winml-ort</code> or <code>ort-genai</code>). Shared metadata such as <code>model_id</code>, <code>running_model_path</code>, <code>device</code>, <code>ep</code>, <code>iterations</code>, <code>warmup</code>, and <code>timestamp</code> uses the same field names where the concepts overlap; GenAI also keeps <code>bundle_dir</code> because the runnable artifact is a bundle directory.</p>
+<p>When <code>--memory</code> is enabled, both <code>winml-ort</code> and <code>ort-genai</code> reports use the same <code>memory</code> field names for shared concepts: RSS baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta; VRAM local/shared baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta.</p>
+<p>With <code>--runtime ort-genai</code>, <code>winml perf</code> benchmarks the onnxruntime-genai decoder pipeline rather than a single <code>session.run()</code>. The JSON report uses a phase-based schema: <code>load</code> contains startup spans, <code>requests</code> contains one warmup or timed generation sample per request, <code>aggregate</code> summarizes timed requests only, <code>memory</code> contains optional RAM/VRAM deltas, and <code>hw_monitor</code> contains optional monitor output. The optional <code>memory</code> and <code>hw_monitor</code> top-level names match the classic <code>winml-ort</code> perf report; GenAI keeps <code>load</code>/<code>requests</code>/<code>aggregate</code> instead of classic <code>latency_ms</code>/<code>throughput</code> because generation has distinct prompt, first-token, and decode phases.</p>
 <h3 id="genai-metric-definitions">GenAI metric definitions<a class="headerlink" href="#genai-metric-definitions" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -3028,7 +3028,7 @@ and logs a warning.</p>
 <ul>
 <li><strong>Warm-up too low on NPU.</strong> The first several inferences on an NPU EP can be significantly slower due to kernel compilation and caching. The default of 10 warm-up iterations is usually enough for vision models, but transformer models with many operators may need <code>--warmup 30</code> or higher to reach steady-state latency.</li>
 <li><strong>Hidden third-party diagnostics.</strong> Normal <code>winml perf</code> output suppresses noisy native warning-level diagnostics and Hugging Face download/progress chatter so benchmark results stay readable. Use <code>-v</code>/<code>-vv</code> or set <code>WINMLCLI_SHOW_ALL_WARNINGS=1</code> to show those warnings when debugging provider or Hub issues.</li>
-<li><strong><code>--input-data</code> keys must match; dtypes are cast.</strong> The <code>.npz</code> keys must equal the model's input names — a missing or unexpected key is a hard error (typo protection). Array dtypes are cast to the model's expected dtype with a warning (matching normal inference), so you don't have to hand-match widths. <code>.npy</code> files are not supported — save named arrays as <code>.npz</code>. When <code>--input-data</code> is set, <code>--batch-size</code> and <code>--shape-config</code> are ignored (the tensors define their own shapes). It is also rejected for <code>--module</code> mode, <code>--runtime winml-genai</code>, and composite (dual-encoder) models such as CLIP/SigLIP, where each sub-model has its own inputs that a single <code>.npz</code> cannot address.</li>
+<li><strong><code>--input-data</code> keys must match; dtypes are cast.</strong> The <code>.npz</code> keys must equal the model's input names — a missing or unexpected key is a hard error (typo protection). Array dtypes are cast to the model's expected dtype with a warning (matching normal inference), so you don't have to hand-match widths. <code>.npy</code> files are not supported — save named arrays as <code>.npz</code>. When <code>--input-data</code> is set, <code>--batch-size</code> and <code>--shape-config</code> are ignored (the tensors define their own shapes). It is also rejected for <code>--module</code> mode, <code>--runtime ort-genai</code>, and composite (dual-encoder) models such as CLIP/SigLIP, where each sub-model has its own inputs that a single <code>.npz</code> cannot address.</li>
 <li><strong>Real data only binds if the export kept axes dynamic.</strong> When <code>-m</code> is a HuggingFace model ID, <code>perf</code> exports it with default shapes (because <code>--shape-config</code>/<code>--batch-size</code> are ignored under <code>--input-data</code>). If that export baked in static shapes, ORT will reject differently-shaped <code>--input-data</code>. Use <code>--dynamic-axes</code>/symbolic <code>--input-specs</code> for the Hugging Face build, or point <code>-m</code> at an ONNX file that already has dynamic axes.</li>
 <li><strong><code>--shape-config</code> is ignored when real or module inputs own the shape.</strong> It is ignored in <code>--module</code> mode and when <code>--input-data</code> is set. The command prints a warning in both situations.</li>
 <li><strong>Random inputs do not represent real data distributions.</strong> Latency numbers are accurate, but memory access patterns may differ from production because the generated tensors are uniform random values. For memory-bandwidth-sensitive models this can understate real-world latency.</li>

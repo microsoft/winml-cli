@@ -2779,9 +2779,9 @@
 <tr>
 <td><code>--runtime</code></td>
 <td></td>
-<td><code>winml\|pytorch</code></td>
-<td><code>winml</code></td>
-<td>Evaluation runtime. <code>winml</code> exports Hugging Face checkpoints to ONNX; <code>pytorch</code> evaluates the original checkpoint and supports <code>auto</code>, <code>cpu</code>, or CUDA-backed <code>gpu</code> devices.</td>
+<td><code>winml-ort\|pytorch</code></td>
+<td><code>winml-ort</code></td>
+<td>Evaluation runtime. <code>winml-ort</code> exports Hugging Face checkpoints to ONNX; <code>pytorch</code> evaluates the original checkpoint and supports <code>auto</code>, <code>cpu</code>, or CUDA-backed <code>gpu</code> devices.</td>
 </tr>
 <tr>
 <td><code>--dataset</code></td>
@@ -2912,7 +2912,7 @@
 </tbody>
 </table>
 <h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
-<p><code>winml eval</code> loads the model and runs the evaluation pipeline via the internal <code>evaluate</code> function, then pulls the requested number of samples from a HuggingFace dataset. By default, Hugging Face model IDs and local checkpoints use the <code>winml</code> runtime: they are exported to ONNX and evaluated through WinML. With <code>--runtime pytorch</code>, the task-resolved PyTorch model and stored dtype are preserved and the same dataset preprocessing, evaluator, and metrics run directly against that model. PyTorch <code>auto</code> selects CUDA when available and otherwise CPU; <code>gpu</code> requires CUDA. The JSON report identifies the effective runtime as <code>winml</code> or <code>pytorch</code>.</p>
+<p><code>winml eval</code> loads the model and runs the evaluation pipeline via the internal <code>evaluate</code> function, then pulls the requested number of samples from a HuggingFace dataset. By default, Hugging Face model IDs and local checkpoints use the <code>winml-ort</code> runtime: they are exported to ONNX and evaluated through WinML. With <code>--runtime pytorch</code>, the task-resolved PyTorch model and stored dtype are preserved and the same dataset preprocessing, evaluator, and metrics run directly against that model. PyTorch <code>auto</code> selects CUDA when available and otherwise CPU; <code>gpu</code> requires CUDA. The JSON report identifies the effective runtime as <code>winml-ort</code> or <code>pytorch</code>.</p>
 <p>Python callers can pass an existing model directly with <code>evaluate(config, pytorch_model=model)</code>. An explicit <code>config.model_id</code> selects the tokenizer or processor; otherwise evaluation infers it from <code>model.config._name_or_path</code> and reports an error if neither source is available.</p>
 <p>PyTorch text-generation evaluation adapts the checkpoint to the existing causal-LM evaluator contract and reports perplexity without ONNX export. Pre-built ONNX files, composite <code>role=path</code> models, GenAI bundles, compare mode, references, and tensor input archives remain on their existing WinML paths. <code>--runtime pytorch</code> rejects those forms, along with ONNX build, export, EP, precision, quantization, optimization, analysis, and cache-related options.</p>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
