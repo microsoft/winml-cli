@@ -95,8 +95,8 @@ uv run python scripts/e2e_eval/run_eval.py --continue
 # Backfill accuracy onto an existing perf-only batch (reuses cached perf)
 uv run python scripts/e2e_eval/run_eval.py --eval-type both --continue
 
-# Retry only ENVIRONMENT failures (disk/network issues)
-uv run python scripts/e2e_eval/run_eval.py --retry-failed ENVIRONMENT UNKNOWN
+# Retry only retryable infra/download failures
+uv run python scripts/e2e_eval/run_eval.py --retry-failed HF_FETCH_FAIL ENVIRONMENT UNKNOWN
 
 # Retry ALL failed jobs
 uv run python scripts/e2e_eval/run_eval.py --retry-failed
@@ -121,11 +121,12 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 | `--device` | `auto` | Target device |
 | `--ep` | — | Execution provider (e.g. `qnn`, `dml`, `openvino`); applied at perf/eval time |
 | `--timeout` | 600 | Per-subprocess timeout (seconds) |
+| `--clean-cache [TARGET ...]` | off | Clean caches after each job. `TARGET`: `winml`, `huggingface`, `others` (others = VitisAI cache + temp/cwd leaked scratch files). Use `--clean-cache` without TARGET to clear all (legacy behavior). |
 | `--update-baseline` | off | Offline mode: refresh `cache/baseline_cache.json` via the PyTorch baseline, then exit (no build/perf/eval) |
 | `--list` | off | List models and exit |
 | `--verbose` | off | Print stderr for failed models |
 | `--continue` | off | Skip jobs with existing results (but backfill accuracy onto perf-only results when `--eval-type` wants it) |
-| `--retry-failed [TYPE ...]` | — | Re-run failed jobs (implies `--continue`) |
+| `--retry-failed [TYPE ...]` | — | Re-run failed jobs (implies `--continue`); unknown types are rejected as argument errors. `HF_FETCH_FAIL` checks failed perf and accuracy logs for `WinError 10060`, `we couldn't connect to 'https://huggingface.co'`, or `thrown while requesting HEAD https://huggingface.co`. |
 | `--build-only` | off | Build with `--no-compile`, writing each stage's ONNX (no EP needed). Loops the EP matrix when `--ep`/`--device` omitted |
 
 ### `run_llm_eval.py` — Run GenAI Context Sweep

@@ -13,19 +13,18 @@ Export Strategy (split by task):
 - MarianDecoderWrapper + MarianDecoderIOConfig: ``text2text-generation`` task
   → decoder ONNX with a static cache buffer input + single-token KV output.
 
-Transformers cache compatibility:
+Transformers cache compatibility (5.x):
 
-Transformers 4.57 passes ``cache_position`` through Marian's decoder and
-attention layers. Transformers 5 removes that explicit parameter and calls
-``Cache.update`` without cache kwargs; it also derives position IDs and the
-causal mask from ``Cache.get_seq_length``. The wrapper handles both APIs:
+Transformers 5 removes explicit ``cache_position`` plumbing from Marian's
+decoder and calls ``Cache.update`` without cache kwargs; it also derives
+position IDs and the causal mask from ``Cache.get_seq_length``. The wrapper
+keeps ONNX export deterministic by:
 
-1. ``WinMLStaticCache.set_trace_position`` supplies the explicit ONNX input
-    when Transformers omits ``cache_kwargs`` from ``Cache.update``.
-2. On the Transformers 5 path, the positional-embedding patch reads that same
-    input directly, avoiding the unsupported integer ``arange + length`` graph.
-3. A precomputed 4D additive mask bypasses Transformers 5's internal dynamic
-    causal-mask offsets. Transformers 4 keeps its native mask path.
+1. ``WinMLStaticCache.set_trace_position`` supplying the explicit ONNX input.
+2. A positional-embedding patch reading that same input directly, avoiding the
+   unsupported integer ``arange + length`` graph.
+3. A precomputed 4D additive mask bypassing internal dynamic causal-mask
+   offsets.
 
 The static cache writes new KV at ``cache_position`` through ScatterND and
 preserves ``buffer_position == sequence_position``.
@@ -39,7 +38,6 @@ Usage:
 
 from __future__ import annotations
 
-import inspect
 import logging
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
@@ -73,8 +71,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # Transformers 5 no longer forwards ``cache_position`` through MarianDecoder.
 # The export wrapper stores the tensor on the embedding module, and this patch
-# reads it directly. Without the attribute, it preserves stock behavior for
-# Transformers 4 and other Marian export paths.
+# reads it directly.
 
 
 def _patched_marian_sinusoidal_forward(
@@ -86,8 +83,7 @@ def _patched_marian_sinusoidal_forward(
     """Patched ``MarianSinusoidalPositionalEmbedding.forward``.
 
     When the export wrapper stores ``cache_position`` on ``position_id``, use
-    it directly as the sin/cos lookup index. Without that attribute, preserve
-    the stock implementation for Transformers 4 and other export paths.
+    it directly as the sin/cos lookup index.
     """
     abs_pos = getattr(self, "position_id", None)
     if abs_pos is not None:
@@ -229,14 +225,13 @@ class MarianDecoderWrapper(nn.Module):
         self_attn_cache.set_trace_position(cache_position)
         model = cast("MarianMTModel", self.model)
         decoder = model.get_decoder()
-        if "cache_position" not in inspect.signature(decoder.forward).parameters:
-            decoder.embed_positions.position_id = cache_position
-            expanded_mask = decoder_attention_mask[:, None, None, :].to(
-                dtype=encoder_hidden_states.dtype
-            )
-            decoder_attention_mask = (1.0 - expanded_mask) * torch.finfo(
-                encoder_hidden_states.dtype
-            ).min
+        decoder.embed_positions.position_id = cache_position
+        expanded_mask = decoder_attention_mask[:, None, None, :].to(
+            dtype=encoder_hidden_states.dtype
+        )
+        decoder_attention_mask = (1.0 - expanded_mask) * torch.finfo(
+            encoder_hidden_states.dtype
+        ).min
 
         # EncoderDecoderCache routes self-attention vs cross-attention to
         # separate caches.  DynamicCache for cross-attn is a no-op during

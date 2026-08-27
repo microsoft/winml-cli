@@ -58,7 +58,7 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        run: uv sync --locked --all-extras
+        run: uv sync --all-extras
 
       - name: Run tests (${{ matrix.group }})
         shell: pwsh

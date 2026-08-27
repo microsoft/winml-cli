@@ -56,7 +56,9 @@ dependencies = [
   "opentelemetry-sdk>=1.39.1",
   "optimum>=2",
   "optimum-onnx>=0.1",
-  "plotext>=5.3.2",
+  # plotext 6.0 was recently released with breaking API changes that conflict
+  # with the current live chart code. Upgrade the code and dependency to >=6 together.
+  "plotext>=5.3.2,<6",
   # PINNED EXACTLY ON PURPOSE — do NOT relax to a range.
   # pandas version drift changes parquet string typing/metadata, producing
   # non-functional but huge diffs across every generated rule artifact. If you
@@ -80,7 +82,7 @@ dependencies = [
   "torchmetrics[detection]>=1.0",
   "torchvision>=0.24",
   "tqdm>=4.67",
-  "transformers>=4.57",
+  "transformers>=5,<6",
   "uvicorn[standard]>=0.42.0",
   "windowsml==2.0.300 ; sys_platform == 'win32'",
 ]
@@ -120,10 +122,9 @@ environments = [
   "sys_platform == 'win32' and platform_machine == 'AMD64'",
 ]
 # Overrides:
-# 1. Exercise transformers 5.x in development while keeping the published
-#    `transformers>=4.57` metadata compatible with optimum-onnx 0.1.0's
-#    `transformers<4.58.0` ceiling. The transformers_compat shim bridges the
-#    few 4.x internals optimum-onnx reaches for under transformers 5.
+# 1. Keep transformers on the supported 5.x line and override stale transitive
+#    pins from older packages (for example optimum-onnx releases that still
+#    declare `transformers<4.58`).
 # 2. Neutralize onnxruntime-qnn's transitive standard `onnxruntime` requirement.
 #    onnxruntime-windowsml ships the same `onnxruntime/` module; installing plain
 #    onnxruntime alongside it overwrites windowsml's files on disk and kills the
