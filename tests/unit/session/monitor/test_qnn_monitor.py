@@ -291,6 +291,34 @@ def test_get_provider_options_detail():
     assert QNNMonitor(level="detail").get_provider_options()["profiling_level"] == "optrace"
 
 
+def test_configure_session_options_enables_ort_profiling(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(output_dir=tmp_path)
+    session_options = MagicMock()
+
+    monitor.configure_session_options(session_options)
+
+    assert session_options.enable_profiling is True
+    assert session_options.profile_file_prefix == str(monitor._ort_profile_prefix)
+
+
+def test_configured_monitor_reports_missing_ort_profile(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(output_dir=tmp_path)
+    monitor.configure_session_options(MagicMock())
+    monitor.__enter__()
+    _write_named_profile(monitor._csv_path, "qnn_node")
+
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    assert monitor.result.status == "parse_failed"
+    assert monitor.result.error is not None
+    assert "ORT profile was not produced" in monitor.result.error
+
+
 def test_extra_provider_options_pass_through():
     """User-supplied extras are honored (e.g. backend_path for bundled ORT QNN)."""
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
@@ -483,6 +511,122 @@ def test_basic_metrics_exclude_warmup_samples(tmp_path):
         monitor.result.summary["accel_execute_us"]
         == sum(sample["accel_execute_us"] for sample in samples[1:]) / 2
     )
+
+
+def test_basic_metrics_include_cpu_fallback_ops(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    samples = [
+        {
+            "hvx_threads": 4,
+            "accel_execute_cycles": 100,
+            "accel_execute_us": 10,
+            "operator_cycles": 50,
+        }
+        for _ in range(3)
+    ]
+    monitor = QNNMonitor(output_dir=tmp_path)
+    monitor.set_onnx_op_types({"fallback_node": "QLinearConv"})
+    monitor.set_perf_window(warmup=1, measured_iterations=2)
+    monitor.__enter__()
+    _write_basic_profile(monitor._csv_path, samples)
+    ort_profile = monitor._ort_profile_prefix.with_name(
+        f"{monitor._ort_profile_prefix.name}_generated.json"
+    )
+    ort_profile.write_text(
+        json.dumps(
+            [
+                {
+                    "name": "fallback_node_token_7_kernel_time",
+                    "dur": duration,
+                    "args": {
+                        "op_name": "QLinearConv",
+                        "provider": "CPUExecutionProvider",
+                    },
+                }
+                for duration in (10, 20, 30)
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    assert monitor.result.status == "ok"
+    operators = {operator.op_path: operator for operator in monitor.result.operators}
+    cpu_operator = operators["fallback_node"]
+    assert cpu_operator.name == "QLinearConv"
+    assert cpu_operator.ep == "CPUExecutionProvider"
+    assert cpu_operator.samples_us == [20.0, 30.0]
+    assert cpu_operator.duration_us == 25.0
+    assert monitor.result.artifacts["ort_profile"] == str(ort_profile)
+    assert sum(operator.percent_of_total for operator in operators.values()) == pytest.approx(
+        100.0
+    )
+
+
+def test_cpu_fallback_preserves_unmapped_optimizer_token_names(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(output_dir=tmp_path)
+    ort_profile = monitor._ort_profile_prefix.with_suffix(".json")
+    ort_profile.write_text(
+        json.dumps(
+            [
+                {
+                    "name": f"Transpose_token_{token}_kernel_time",
+                    "dur": 10,
+                    "args": {
+                        "op_name": "Transpose",
+                        "provider": "CPUExecutionProvider",
+                    },
+                }
+                for token in (21, 24)
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    operators, _ = monitor._parse_cpu_operators()
+
+    assert {operator.op_path for operator in operators} == {
+        "Transpose_token_21",
+        "Transpose_token_24",
+    }
+
+
+def test_parse_existing_artifacts_includes_ort_cpu_profile(tmp_path):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    csv_path = tmp_path / "profile.csv"
+    _write_named_profile(csv_path, "qnn_node")
+    ort_profile = tmp_path / "ort_profile.json"
+    ort_profile.write_text(
+        json.dumps(
+            [
+                {
+                    "name": "cpu_node_kernel_time",
+                    "dur": 12,
+                    "args": {
+                        "op_name": "Add",
+                        "provider": "CPUExecutionProvider",
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = QNNMonitor.parse_existing_artifacts(
+        level="basic",
+        artifacts={"csv": csv_path, "ort_profile": ort_profile},
+    )
+
+    cpu_operator = next(operator for operator in result.operators if operator.ep)
+    assert cpu_operator.op_path == "cpu_node"
+    assert cpu_operator.ep == "CPUExecutionProvider"
+    assert result.artifacts["ort_profile"] == str(ort_profile.resolve())
 
 
 def test_basic_metrics_coalesce_multiple_epcontext_partitions(tmp_path):

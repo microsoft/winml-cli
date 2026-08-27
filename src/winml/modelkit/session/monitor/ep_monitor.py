@@ -110,6 +110,13 @@ class WinMLEPMonitor(ABC):
         """
         return {}
 
+    def configure_session_options(self, session_options: Any) -> None:  # noqa: B027 - intentional no-op default; profiling monitors override
+        """Apply monitor settings that are not session config entries.
+
+        Default: no-op. Profiling monitors override this for native
+        ``SessionOptions`` properties such as ``enable_profiling``.
+        """
+
     def set_onnx_op_types(self, onnx_op_types: dict[str, str]) -> None:  # noqa: B027 - intentional no-op default; op-tracing monitors override
         """Inject the ONNX ``node.name -> node.op_type`` map.
 

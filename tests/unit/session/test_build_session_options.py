@@ -130,6 +130,18 @@ def test_build_session_options_monitor_plumbs_session_options(qnn_npu: WinMLEPDe
     assert args[1]["profiling_level"] == "detailed"
 
 
+def test_build_session_options_allows_monitor_native_configuration(
+    qnn_npu: WinMLEPDevice,
+) -> None:
+    monitor = _stub_monitor(prov={})
+    fake_so = MagicMock()
+
+    with patch("winml.modelkit.session.session.ort.SessionOptions", return_value=fake_so):
+        _build_session_options(qnn_npu, ep_monitor=monitor)
+
+    monitor.configure_session_options.assert_called_once_with(fake_so)
+
+
 def test_build_session_options_info_log_omits_provider_option_values(
     qnn_npu: WinMLEPDevice, caplog: pytest.LogCaptureFixture
 ) -> None:

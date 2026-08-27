@@ -582,6 +582,48 @@ def test_constructor_monitor_baseline_is_reused_for_perf_without_monitor():
     assert session._active_session_option_entries == baseline_session_entries
 
 
+def test_constructor_monitor_native_configuration_is_reused_by_perf():
+    from unittest.mock import MagicMock, patch
+
+    from winml.modelkit.session.monitor.ep_monitor import NullEPMonitor
+    from winml.modelkit.session.session import WinMLSession
+
+    from .conftest import make_stub_winml_ep_device
+
+    class _NativeMonitor(NullEPMonitor):
+        def __init__(self):
+            self.configured: list[object] = []
+
+        def configure_session_options(self, session_options):
+            self.configured.append(session_options)
+            session_options.enable_profiling = True
+
+    monitor = _NativeMonitor()
+    session_options = MagicMock()
+    runtime_session = MagicMock()
+    cpu_ep_device = make_stub_winml_ep_device(
+        _get_real_cpu_ort_device(),
+        "CPUExecutionProvider",
+    )
+
+    with patch(
+        "winml.modelkit.session.session.ort.InferenceSession",
+        return_value=runtime_session,
+    ) as inference_session:
+        session = WinMLSession(
+            get_minimal_onnx_model_path(),
+            ep_device=cpu_ep_device,
+            ep_monitor=monitor,
+            session_options=lambda: session_options,
+        )
+        with session.perf(monitor=monitor):
+            pass
+
+    assert monitor.configured == [session_options]
+    assert session_options.enable_profiling is True
+    inference_session.assert_called_once()
+
+
 def test_constructor_monitor_snapshots_restore_after_perf_rebuild():
     """Constructor-applied monitor options are tracked and restored after perf rebuilds."""
     from unittest.mock import MagicMock, patch

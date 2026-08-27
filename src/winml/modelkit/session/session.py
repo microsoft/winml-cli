@@ -341,6 +341,9 @@ def _build_session_options(
         for key, value in session_option_entries.items():
             so.add_session_config_entry(key, value)
 
+    if ep_monitor is not None:
+        ep_monitor.configure_session_options(so)
+
     handle = ep_device.device._ort
     options = (
         dict(provider_options)
@@ -502,7 +505,7 @@ class WinMLSession:
             so = _build_session_options(
                 self._ep_device,
                 self._ep_config,
-                None,
+                self._ep_monitor,
                 self._session_options_factory,
                 session_option_entries=self._active_session_option_entries,
                 provider_options=self._provider_options,
@@ -548,7 +551,7 @@ class WinMLSession:
                         sess_options=_build_session_options(
                             self._ep_device,
                             self._ep_config,
-                            None,
+                            self._ep_monitor,
                             self._session_options_factory,
                             session_option_entries=self._active_session_option_entries,
                             provider_options=self._provider_options,
@@ -591,7 +594,7 @@ class WinMLSession:
             runtime_so = _build_session_options(
                 self._ep_device,
                 self._ep_config,
-                None,
+                self._ep_monitor,
                 self._session_options_factory,
                 session_option_entries=self._active_session_option_entries,
                 provider_options=self._provider_options,
@@ -714,7 +717,7 @@ class WinMLSession:
             so = _build_session_options(
                 self._ep_device,
                 self._ep_config,
-                None,
+                self._ep_monitor,
                 self._session_options_factory,
                 session_option_entries=self._active_session_option_entries,
                 provider_options=self._provider_options,
@@ -1539,7 +1542,7 @@ class WinMLSession:
                         sess_options=_build_session_options(
                             self._ep_device,
                             self._ep_config,
-                            None,
+                            self._ep_monitor,
                             self._session_options_factory,
                             session_option_entries=saved_sess_entries,
                             provider_options=saved_prov,
@@ -1563,7 +1566,7 @@ class WinMLSession:
                 so = _build_session_options(
                     self._ep_device,
                     self._ep_config,
-                    None,
+                    effective_monitor,
                     self._session_options_factory,
                     session_option_entries=desired_sess_entries,
                     provider_options=new_prov,

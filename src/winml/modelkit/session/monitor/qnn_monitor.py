@@ -214,6 +214,11 @@ class QNNMonitor(WinMLEPMonitor):
         self._csv_path: Path = (
             self._output_dir / f"profiling_output_{uuid.uuid4().hex}.csv"
         ).resolve()
+        self._ort_profile_prefix: Path = (
+            self._output_dir / f"onnxruntime_profile_{uuid.uuid4().hex}"
+        ).resolve()
+        self._ort_profile_path: Path | None = None
+        self._require_ort_profile: bool = False
         self._extra: dict[str, str] = dict(extra_provider_options or {})
         self._entered: bool = False
         self._result: OpTraceResult | None = None
@@ -338,6 +343,12 @@ class QNNMonitor(WinMLEPMonitor):
         opts["profiling_level"] = _LEVEL_TO_PROFILING[self._level]
         opts["profiling_file_path"] = str(self._csv_path)
         return opts
+
+    def configure_session_options(self, session_options: Any) -> None:
+        """Enable ORT profiling so CPU fallback nodes can be merged."""
+        session_options.enable_profiling = True
+        session_options.profile_file_prefix = str(self._ort_profile_prefix)
+        self._require_ort_profile = True
 
     # ------------------------------------------------------------------
     # Context manager
@@ -522,10 +533,10 @@ class QNNMonitor(WinMLEPMonitor):
 
         Args:
             level: ``"basic"`` (CSV only) or ``"detail"`` (CSV + QHAS JSON).
-            artifacts: Mapping of artifact kind to absolute path.  Must
-                contain ``"csv"``; may contain ``"qhas"`` for the detail
-                path.  When ``"qhas"`` is provided, the QHAS viewer
-                shell-out is skipped and the JSON is parsed directly.
+            artifacts: Mapping of artifact kind to absolute path. Must contain
+                ``"csv"``; may contain ``"qhas"`` and ``"ort_profile"``.
+                When ``"qhas"`` is provided, the QHAS viewer shell-out is
+                skipped and the JSON is parsed directly.
             onnx_op_types: Optional ONNX node.name -> op_type map for
                 L1 resolution.  Defaults to empty (L2/L3/L4 only).
 
@@ -545,6 +556,10 @@ class QNNMonitor(WinMLEPMonitor):
         # with arbitrary names.
         instance._csv_path = csv_path.resolve()
         instance.set_onnx_op_types(onnx_op_types or {})
+        ort_profile_path = artifacts.get("ort_profile")
+        if ort_profile_path is not None:
+            instance._ort_profile_path = Path(ort_profile_path).resolve()
+            instance._require_ort_profile = True
 
         qhas_path = artifacts.get("qhas")
         # Route through _parse_artifacts_safe so the offline path honours the
@@ -732,6 +747,20 @@ class QNNMonitor(WinMLEPMonitor):
                     status = "basic_fallback"
                     logger.warning("QNNMonitor: QHAS unavailable; detail mode degraded to basic")
 
+        cpu_operators, ort_profile_path = self._parse_cpu_operators()
+        if ort_profile_path is not None:
+            artifacts["ort_profile"] = str(ort_profile_path)
+        operators.extend(cpu_operators)
+        if cpu_operators:
+            total_duration_us = sum(operator.duration_us for operator in operators)
+            for operator in operators:
+                operator.percent_of_total = (
+                    operator.duration_us / total_duration_us * 100
+                    if total_duration_us > 0
+                    else 0.0
+                )
+            operators.sort(key=lambda op: op.duration_us, reverse=True)
+
         return OpTraceResult(
             model=None,
             device="npu",
@@ -745,6 +774,92 @@ class QNNMonitor(WinMLEPMonitor):
             status=status,
             fallback_reason=fallback_reason,
         )
+
+    def _parse_cpu_operators(self) -> tuple[list[OperatorMetrics], Path | None]:
+        """Parse CPU fallback node timings from this run's ORT profile."""
+        if self._ort_profile_path is not None:
+            candidates = [self._ort_profile_path] if self._ort_profile_path.is_file() else []
+        else:
+            candidates = sorted(
+                self._ort_profile_prefix.parent.glob(
+                    f"{self._ort_profile_prefix.name}*.json"
+                )
+            )
+        if not candidates:
+            if self._require_ort_profile:
+                expected = self._ort_profile_path or self._ort_profile_prefix
+                raise ValueError(f"ORT profile was not produced at {expected}")
+            return [], None
+        if len(candidates) > 1:
+            raise ValueError(
+                f"multiple ORT profiles matched {self._ort_profile_prefix}: {candidates}"
+            )
+
+        profile_path = candidates[0]
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        if not isinstance(profile, list):
+            raise TypeError(f"ORT profile must contain a list of events: {profile_path}")
+
+        samples_by_node: dict[str, dict[str, Any]] = {}
+        suffix = "_kernel_time"
+        for event in profile:
+            if not isinstance(event, dict):
+                continue
+            name = event.get("name")
+            args = event.get("args")
+            if (
+                not isinstance(name, str)
+                or not name.endswith(suffix)
+                or not isinstance(args, dict)
+                or args.get("provider") != "CPUExecutionProvider"
+            ):
+                continue
+
+            raw_op_path = name[: -len(suffix)]
+            normalized_op_path = _TOKEN_SUFFIX.sub("", raw_op_path)
+            op_path = (
+                normalized_op_path
+                if normalized_op_path in self._onnx_op_types
+                else raw_op_path
+            )
+            duration = event.get("dur")
+            if not isinstance(duration, int | float):
+                raise TypeError(f"CPU operator {name!r} has invalid duration {duration!r}")
+            entry = samples_by_node.setdefault(
+                op_path,
+                {
+                    "op_type": args.get("op_name"),
+                    "samples_us": [],
+                },
+            )
+            entry["samples_us"].append(float(duration))
+
+        operators: list[OperatorMetrics] = []
+        for op_path, entry in samples_by_node.items():
+            samples_us = entry["samples_us"]
+            if self._expected_measured_samples is not None:
+                expected_total = self._warmup_samples + self._expected_measured_samples
+                if len(samples_us) != expected_total:
+                    raise ValueError(
+                        f"ORT profile sample count mismatch for CPU operator {op_path!r}: "
+                        f"expected {expected_total}, got {len(samples_us)}"
+                    )
+                samples_us = samples_us[self._warmup_samples :]
+            op_type = entry["op_type"]
+            operators.append(
+                OperatorMetrics(
+                    name=(
+                        op_type
+                        if isinstance(op_type, str) and op_type
+                        else self._resolve_op_type(op_path)
+                    ),
+                    op_path=op_path,
+                    ep="CPUExecutionProvider",
+                    duration_us=sum(samples_us) / len(samples_us),
+                    samples_us=samples_us,
+                )
+            )
+        return operators, profile_path
 
     def _epcontext_partition_count(self) -> int:
         """Return the number of EPContext partitions represented in each inference."""
