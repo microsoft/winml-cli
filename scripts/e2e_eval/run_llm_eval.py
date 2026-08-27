@@ -6,7 +6,7 @@
 """Run a schema-normalized ONNX Runtime GenAI context sweep.
 
 The runner consumes an existing GenAI bundle and invokes ``winml perf
---runtime winml-genai`` for each requested prompt length. Generation timing
+--runtime ort-genai`` for each requested prompt length. Generation timing
 and generation-window resource metrics are normalized into one
 ``llm_eval_result.json`` document.
 """
@@ -361,7 +361,7 @@ def _perf_args(
         "-m",
         str(bundle_dir),
         "--runtime",
-        "winml-genai",
+        "ort-genai",
         "--device",
         device,
         "--prompt-file",
@@ -436,7 +436,7 @@ def _context_point(
             f"got {reported_bundle_dir!r}"
         )
     expected_info = {
-        "runtime": "winml-genai",
+        "runtime": "ort-genai",
         "device": expected_device,
         "effective_device": expected_device,
         "compile": True,

@@ -1209,7 +1209,7 @@ def _entry(hf_id="microsoft/resnet-50", task="image-classification"):
 def _perf_result(mean=1.25):
     return {
         "schema_version": 2,
-        "benchmark_info": {"runtime": "winml", "model_id": "model.onnx"},
+        "benchmark_info": {"runtime": "winml-ort", "model_id": "model.onnx"},
         "model_info": {"input_names": ["input"], "output_names": ["output"]},
         "latency_ms": {
             "mean": mean,

@@ -72,7 +72,7 @@ logger = logging.getLogger(__name__)
 
 # Hardware monitor polling interval (milliseconds)
 _HW_POLL_INTERVAL_MS = 200
-_RUNTIME_TYPE: RuntimeName = "winml"
+_RUNTIME_TYPE: RuntimeName = "winml-ort"
 
 
 def _resolve_runtime(runtime: RuntimeName, model: str) -> RuntimeName:
@@ -82,8 +82,8 @@ def _resolve_runtime(runtime: RuntimeName, model: str) -> RuntimeName:
 
     model_path = Path(model)
     if model_path.is_dir() and (model_path / "genai_config.json").is_file():
-        return "winml-genai"
-    return "winml"
+        return "ort-genai"
+    return "winml-ort"
 
 
 def _detail_fallback_guidance(reason: TraceFallbackReason | None) -> str:
@@ -2302,7 +2302,7 @@ def _run_simple_loop(
 
 # perf() param names for WinML-only options that a prebuilt genai bundle
 # ignores. Mapped to the user-facing flag for the warning message.
-# NB: ``--ep`` is intentionally absent — it is honored for winml-genai as an EP
+# NB: ``--ep`` is intentionally absent — it is honored for ort-genai as an EP
 # override (explicit --ep > concrete --device > respect config).
 _GENAI_IGNORED_FLAGS: dict[str, str] = {
     "task": "--task",
@@ -2364,7 +2364,7 @@ def _warn_ignored_genai_flags(
     if ignored:
         console.print(
             "[yellow]Warning:[/yellow] the following options are ignored with "
-            f"--runtime winml-genai: {', '.join(sorted(ignored))}"
+            f"--runtime ort-genai: {', '.join(sorted(ignored))}"
         )
 
 
@@ -2423,7 +2423,7 @@ def _autobuild_genai_bundle(
     recipe = resolve_genai_bundle(model_type)
     if recipe is None:
         raise click.UsageError(
-            f"--runtime winml-genai cannot auto-build '{model}': no genai bundle recipe "
+            f"--runtime ort-genai cannot auto-build '{model}': no genai bundle recipe "
             f"is registered for model type '{model_type or 'unknown'}'. Pass a prebuilt "
             "genai bundle *directory* (e.g. from "
             f"'winml build -m {model} -o <dir> --device npu --ep qnn')."
@@ -2452,7 +2452,7 @@ def _autobuild_genai_bundle(
 def _run_genai_runtime(
     ctx: click.Context, *, model: str, console: Console, json_mode: bool
 ) -> None:
-    """Validate folder input and dispatch to the winml-genai benchmark path.
+    """Validate folder input and dispatch to the ort-genai benchmark path.
 
     The genai imports are function-local so ``winml perf --help`` does not pay
     their import cost (see tests/cli/test_import_time.py).
@@ -2469,14 +2469,14 @@ def _run_genai_runtime(
     p = ctx.params
     # --module walks a live nn.Module graph; meaningless for a prebuilt bundle.
     if p.get("module_class"):
-        raise click.UsageError("--module is not supported with --runtime winml-genai.")
+        raise click.UsageError("--module is not supported with --runtime ort-genai.")
 
     # --submodel narrows a composite into a single sub-component benchmarked as a
     # standalone session; a genai bundle is already the full composite generation
     # pipeline, so selecting one sub-component is meaningless. Reject rather than
     # silently ignore (this return runs before the winml-path --submodel handling).
     if p.get("submodel"):
-        raise click.UsageError("--submodel is not supported with --runtime winml-genai.")
+        raise click.UsageError("--submodel is not supported with --runtime ort-genai.")
 
     # Keep any bundle-lifetime resources alive across the benchmark.
     with contextlib.ExitStack() as stack:
@@ -2495,7 +2495,7 @@ def _run_genai_runtime(
                 )
         elif bundle_dir.suffix.lower() == ".onnx":
             raise click.UsageError(
-                f"--runtime winml-genai requires a genai bundle *directory*, got '{model}'."
+                f"--runtime ort-genai requires a genai bundle *directory*, got '{model}'."
             )
         else:
             bundle_dir, built_fresh = _autobuild_genai_bundle(
@@ -2619,9 +2619,9 @@ def _validate_duration(
     type=click.Choice(list(RUNTIME_NAMES)),
     default="auto",
     show_default=True,
-    help="'auto' selects winml-genai for folders containing genai_config.json, "
-    "otherwise winml. 'winml' benchmarks single-shot ONNX inference; "
-    "'winml-genai' benchmarks an onnxruntime-genai bundle folder "
+    help="'auto' selects ort-genai for folders containing genai_config.json, "
+    "otherwise winml-ort. 'winml-ort' benchmarks single-shot ONNX inference; "
+    "'ort-genai' benchmarks an onnxruntime-genai bundle folder "
     "(LLM generation: TTFT + decode tokens/sec).",
 )
 @click.option(
@@ -2629,21 +2629,21 @@ def _validate_duration(
     type=str,
     default="Explain the theory of relativity in simple terms.",
     show_default=True,
-    help="[winml-genai] Prompt text to generate from. By default it is wrapped in "
+    help="[ort-genai] Prompt text to generate from. By default it is wrapped in "
     "the bundle's chat template; pass --no-apply-template to benchmark it verbatim.",
 )
 @click.option(
     "--prompt-file",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     default=None,
-    help="[winml-genai] Read the prompt from a UTF-8 text file. Mutually exclusive "
+    help="[ort-genai] Read the prompt from a UTF-8 text file. Mutually exclusive "
     "with an explicit --prompt; avoids command-line length limits for long contexts.",
 )
 @click.option(
     "--apply-template/--no-apply-template",
     default=True,
     show_default=True,
-    help="[winml-genai] Wrap --prompt in the bundle's chat template before timing. "
+    help="[ort-genai] Wrap --prompt in the bundle's chat template before timing. "
     "Use --no-apply-template to benchmark a prompt that is already formatted.",
 )
 @click.option(
@@ -2651,14 +2651,14 @@ def _validate_duration(
     type=click.IntRange(min=1),
     default=128,
     show_default=True,
-    help="[winml-genai] Number of new tokens to generate per iteration.",
+    help="[ort-genai] Number of new tokens to generate per iteration.",
 )
 @click.option(
     "--compile-timeout",
     type=int,
     default=300,
     show_default=True,
-    help="[winml-genai] Max seconds to compile each EPContext stage before falling back "
+    help="[ort-genai] Max seconds to compile each EPContext stage before falling back "
     "to the original ONNX (requires --compile).",
 )
 @click.option(
@@ -2711,7 +2711,7 @@ def _validate_duration(
     default="auto",
     include_auto=True,
     include_config=True,
-    optional_message="'config' (winml-genai only) respects the bundle's genai_config.json routing.",
+    optional_message="'config' (ort-genai only) respects the bundle's genai_config.json routing.",
 )
 @cli_utils.precision_option()
 @click.option(
@@ -2746,7 +2746,7 @@ def _validate_duration(
     default=None,
     help="Path to a .npz file of real input tensors to benchmark with instead "
     "of randomly generated inputs. Keys must match the model's input names and "
-    "dtypes exactly. Not supported with --module or --runtime winml-genai.",
+    "dtypes exactly. Not supported with --module or --runtime ort-genai.",
 )
 @cli_utils.shape_config_option(param_name="shape_config_path")
 @cli_utils.input_specs_option()
@@ -2982,10 +2982,10 @@ def perf(
     # =========================================================================
     # GENAI RUNTIME: benchmark an onnxruntime-genai bundle folder
     # =========================================================================
-    if runtime == "winml-genai":
+    if runtime == "ort-genai":
         if input_data is not None:
             raise click.UsageError(
-                "--input-data is not supported with --runtime winml-genai; "
+                "--input-data is not supported with --runtime ort-genai; "
                 "genai benchmarking is driven by --prompt."
             )
         _run_genai_runtime(ctx, model=model, console=console, json_mode=json_mode)
@@ -2993,7 +2993,7 @@ def perf(
 
     # --duration replaces the fixed iteration count with a wall-clock budget.
     # Op-tracing runs its own fixed, small iteration count, so the two are
-    # mutually exclusive. This is a WinML-path constraint only: for winml-genai
+    # mutually exclusive. This is a WinML-path constraint only: for ort-genai
     # both flags are ignored (see _GENAI_IGNORED_FLAGS), so the check lives
     # after the genai early return to keep those options consistently non-fatal.
     if duration is not None and op_tracing:
@@ -3002,13 +3002,13 @@ def perf(
             "(op-tracing runs a fixed, small iteration count)."
         )
 
-    # ``--device config`` is a winml-genai-only sentinel (respect the bundle's
+    # ``--device config`` is a ort-genai-only sentinel (respect the bundle's
     # genai_config.json routing).  It is meaningless for the single-shot WinML
     # path, so reject it explicitly rather than letting resolve_device raise a
     # generic "unknown device" error.
     if device.lower() == "config":
         raise click.UsageError(
-            "--device config is only valid with --runtime winml-genai "
+            "--device config is only valid with --runtime ort-genai "
             "(it means 'respect the bundle's genai_config.json routing')."
         )
 

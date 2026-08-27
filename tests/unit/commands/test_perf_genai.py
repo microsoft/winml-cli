@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for the winml-genai perf runtime -- mock-based, no model, no genai.
+"""Tests for the ort-genai perf runtime -- mock-based, no model, no genai.
 
 A fake GenaiSession whose ``generate_timed`` returns canned
 :class:`GenerationTiming` objects makes the aggregation deterministic, so these
@@ -581,7 +581,7 @@ class TestResultToDict:
         }
         assert d["schema_version"] == 2
         info = d["benchmark_info"]
-        assert info["runtime"] == "winml-genai"
+        assert info["runtime"] == "ort-genai"
         assert info["model_id"] == "Qwen/Qwen3-0.6B"
         assert info["running_model_path"] == "bundle"
         assert info["bundle_dir"] == "bundle"
@@ -860,7 +860,7 @@ class TestReporting:
 
         assert out.exists()
         data = json.loads(out.read_text(encoding="utf-8"))
-        assert data["benchmark_info"]["runtime"] == "winml-genai"
+        assert data["benchmark_info"]["runtime"] == "ort-genai"
 
     def test_display_genai_report_does_not_crash(self) -> None:
         display_genai_report(self._result(), Console())
@@ -934,7 +934,7 @@ class TestRunGenaiPerf:
         run_genai_perf(cfg, console=Console(stderr=True), json_mode=True)
 
         out = capsys.readouterr().out
-        assert json.loads(out)["benchmark_info"]["runtime"] == "winml-genai"
+        assert json.loads(out)["benchmark_info"]["runtime"] == "ort-genai"
 
     def test_not_installed_becomes_click_error(self, monkeypatch) -> None:
         import click
@@ -956,7 +956,7 @@ class TestRunGenaiPerf:
 
 
 # ---------------------------------------------------------------------------
-# CLI dispatch (winml perf --runtime winml-genai)
+# CLI dispatch (winml perf --runtime ort-genai)
 # ---------------------------------------------------------------------------
 
 
@@ -994,7 +994,7 @@ class TestCliDispatch:
         )
         bundle = _make_bundle(tmp_path)
         result = runner.invoke(
-            perf, ["-m", str(bundle), "--runtime", "winml-genai", "--device", "npu"]
+            perf, ["-m", str(bundle), "--runtime", "ort-genai", "--device", "npu"]
         )
         assert result.exit_code == 0, result.output
         cfg = capture_run["config"]
@@ -1019,7 +1019,7 @@ class TestCliDispatch:
         )
         bundle = _make_bundle(tmp_path)
         result = runner.invoke(
-            perf, ["-m", str(bundle), "--runtime", "winml-genai", "--device", "auto"]
+            perf, ["-m", str(bundle), "--runtime", "ort-genai", "--device", "auto"]
         )
         assert result.exit_code == 0, result.output
         cfg = capture_run["config"]
@@ -1034,7 +1034,7 @@ class TestCliDispatch:
         bundle = _make_bundle(tmp_path)
         result = runner.invoke(
             perf,
-            ["-m", str(bundle), "--runtime", "winml-genai", "--device", "npu", "--ep", "cpu"],
+            ["-m", str(bundle), "--runtime", "ort-genai", "--device", "npu", "--ep", "cpu"],
         )
         assert result.exit_code == 0, result.output
         cfg = capture_run["config"]
@@ -1047,7 +1047,7 @@ class TestCliDispatch:
         # --ep alone forces that EP even though --device is omitted (its
         # effective default for genai is "config" = respect the bundle).
         bundle = _make_bundle(tmp_path)
-        result = runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai", "--ep", "dml"])
+        result = runner.invoke(perf, ["-m", str(bundle), "--runtime", "ort-genai", "--ep", "dml"])
         assert result.exit_code == 0, result.output
         cfg = capture_run["config"]
         assert cfg.ep == "dml"
@@ -1087,7 +1087,7 @@ class TestCliDispatch:
         # override (and it must not trigger device resolution).
         bundle = _make_bundle(tmp_path)
         result = runner.invoke(
-            perf, ["-m", str(bundle), "--runtime", "winml-genai", "--device", "config"]
+            perf, ["-m", str(bundle), "--runtime", "ort-genai", "--device", "config"]
         )
         assert result.exit_code == 0, result.output
         cfg = capture_run["config"]
@@ -1095,19 +1095,19 @@ class TestCliDispatch:
         assert cfg.ep is None
 
     def test_onnx_runtime_rejects_device_config(self, runner: CliRunner, tmp_path: Path) -> None:
-        # "config" is a winml-genai-only sentinel; auto resolves an ONNX path to
+        # "config" is a ort-genai-only sentinel; auto resolves an ONNX path to
         # winml and rejects it with a clear message rather than a generic error.
         result = runner.invoke(perf, ["-m", str(tmp_path / "model.onnx"), "--device", "config"])
         assert result.exit_code != 0
-        assert "winml-genai" in result.output
+        assert "ort-genai" in result.output
 
     def test_ep_flag_not_warned_as_ignored(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
     ) -> None:
-        # --ep is honored for winml-genai, so it must not appear in the
+        # --ep is honored for ort-genai, so it must not appear in the
         # "options are ignored" warning.
         bundle = _make_bundle(tmp_path)
-        result = runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai", "--ep", "qnn"])
+        result = runner.invoke(perf, ["-m", str(bundle), "--runtime", "ort-genai", "--ep", "qnn"])
         assert result.exit_code == 0, result.output
         assert "--ep" not in result.output
 
@@ -1115,7 +1115,7 @@ class TestCliDispatch:
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
     ) -> None:
         # The --duration + --op-tracing conflict is a WinML-path constraint. For
-        # winml-genai both flags are ignored (non-fatal), so passing both must
+        # ort-genai both flags are ignored (non-fatal), so passing both must
         # warn and continue rather than aborting with the conflict UsageError.
         bundle = _make_bundle(tmp_path)
         result = runner.invoke(
@@ -1124,7 +1124,7 @@ class TestCliDispatch:
                 "-m",
                 str(bundle),
                 "--runtime",
-                "winml-genai",
+                "ort-genai",
                 "--duration",
                 "5",
                 "--op-tracing",
@@ -1141,7 +1141,7 @@ class TestCliDispatch:
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
     ) -> None:
         bundle = _make_bundle(tmp_path)
-        runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai"])
+        runner.invoke(perf, ["-m", str(bundle), "--runtime", "ort-genai"])
         cfg = capture_run["config"]
         assert cfg.iterations == 10
         assert cfg.warmup == 2
@@ -1161,7 +1161,7 @@ class TestCliDispatch:
                 "-m",
                 str(bundle),
                 "--runtime",
-                "winml-genai",
+                "ort-genai",
                 "--iterations",
                 "50",
                 "--warmup",
@@ -1182,7 +1182,7 @@ class TestCliDispatch:
                 "-m",
                 str(bundle),
                 "--runtime",
-                "winml-genai",
+                "ort-genai",
                 "--prompt",
                 "hello there",
                 "--max-new-tokens",
@@ -1206,7 +1206,7 @@ class TestCliDispatch:
                 "-m",
                 str(bundle),
                 "--runtime",
-                "winml-genai",
+                "ort-genai",
                 "--prompt-file",
                 str(prompt_file),
             ],
@@ -1228,7 +1228,7 @@ class TestCliDispatch:
                 "-m",
                 str(bundle),
                 "--runtime",
-                "winml-genai",
+                "ort-genai",
                 "--prompt",
                 "argv prompt",
                 "--prompt-file",
@@ -1253,7 +1253,7 @@ class TestCliDispatch:
                 "-m",
                 str(bundle),
                 "--runtime",
-                "winml-genai",
+                "ort-genai",
                 "--prompt-file",
                 str(prompt_file),
             ],
@@ -1268,7 +1268,7 @@ class TestCliDispatch:
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
     ) -> None:
         bundle = _make_bundle(tmp_path)
-        runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai"])
+        runner.invoke(perf, ["-m", str(bundle), "--runtime", "ort-genai"])
         # The CLI --prompt default must match the GenaiPerfConfig field default.
         assert capture_run["config"].prompt == perf_genai._DEFAULT_PROMPT
         assert capture_run["config"].prompt == GenaiPerfConfig(bundle_dir=Path("x")).prompt
@@ -1277,7 +1277,7 @@ class TestCliDispatch:
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
     ) -> None:
         bundle = _make_bundle(tmp_path)
-        runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai"])
+        runner.invoke(perf, ["-m", str(bundle), "--runtime", "ort-genai"])
         assert capture_run["config"].apply_template is True
 
     def test_no_apply_template_forwarded(
@@ -1286,7 +1286,7 @@ class TestCliDispatch:
         bundle = _make_bundle(tmp_path)
         runner.invoke(
             perf,
-            ["-m", str(bundle), "--runtime", "winml-genai", "--no-apply-template"],
+            ["-m", str(bundle), "--runtime", "ort-genai", "--no-apply-template"],
         )
         assert capture_run["config"].apply_template is False
 
@@ -1300,7 +1300,7 @@ class TestCliDispatch:
                 "-m",
                 str(bundle),
                 "--runtime",
-                "winml-genai",
+                "ort-genai",
                 "--compile",
                 "--compile-timeout",
                 "120",
@@ -1316,7 +1316,7 @@ class TestCliDispatch:
         bundle = _make_bundle(tmp_path)
         result = runner.invoke(
             perf,
-            ["-m", str(bundle), "--runtime", "winml-genai", "--memory", "--monitor"],
+            ["-m", str(bundle), "--runtime", "ort-genai", "--memory", "--monitor"],
         )
         assert result.exit_code == 0, result.output
         assert "--memory" not in result.output
@@ -1331,7 +1331,7 @@ class TestCliDispatch:
         bundle = _make_bundle(tmp_path)
         result = runner.invoke(
             perf,
-            ["-m", str(bundle), "--runtime", "winml-genai", "--batch-size", "4"],
+            ["-m", str(bundle), "--runtime", "ort-genai", "--batch-size", "4"],
         )
         assert result.exit_code == 0, result.output
         assert "ignored" in result.output.lower()
@@ -1343,7 +1343,7 @@ class TestCliDispatch:
         bundle = _make_bundle(tmp_path)
         result = runner.invoke(
             perf,
-            ["-m", str(bundle), "--runtime", "winml-genai", "--module", "Foo"],
+            ["-m", str(bundle), "--runtime", "ort-genai", "--module", "Foo"],
         )
         assert result.exit_code != 0
         assert "--module" in result.output
@@ -1352,12 +1352,12 @@ class TestCliDispatch:
     def test_submodel_rejected(self, runner: CliRunner, tmp_path: Path, capture_run: dict) -> None:
         # --submodel narrows a composite to one standalone sub-session; a genai
         # bundle is already the full composite generation pipeline, so it must be
-        # rejected rather than silently ignored (the winml-genai return runs before
+        # rejected rather than silently ignored (the ort-genai return runs before
         # the winml-path --submodel handling).
         bundle = _make_bundle(tmp_path)
         result = runner.invoke(
             perf,
-            ["-m", str(bundle), "--runtime", "winml-genai", "--submodel", "decoder"],
+            ["-m", str(bundle), "--runtime", "ort-genai", "--submodel", "decoder"],
         )
         assert result.exit_code != 0
         assert "--submodel" in result.output
@@ -1366,7 +1366,7 @@ class TestCliDispatch:
     def test_onnx_file_rejected(self, runner: CliRunner, tmp_path: Path, capture_run: dict) -> None:
         onnx = tmp_path / "model.onnx"
         onnx.write_bytes(b"fake")
-        result = runner.invoke(perf, ["-m", str(onnx), "--runtime", "winml-genai"])
+        result = runner.invoke(perf, ["-m", str(onnx), "--runtime", "ort-genai"])
         assert result.exit_code != 0
         assert "directory" in result.output.lower()
         assert "config" not in capture_run
@@ -1384,7 +1384,7 @@ class TestCliDispatch:
             raise ValueError("nope")
 
         monkeypatch.setattr(loader_mod, "resolve_loader_config", _boom)
-        result = runner.invoke(perf, ["-m", str(tmp_path / "nope"), "--runtime", "winml-genai"])
+        result = runner.invoke(perf, ["-m", str(tmp_path / "nope"), "--runtime", "ort-genai"])
         assert result.exit_code != 0
         assert "config" not in capture_run
 
@@ -1393,7 +1393,7 @@ class TestCliDispatch:
     ) -> None:
         empty = tmp_path / "empty"
         empty.mkdir()
-        result = runner.invoke(perf, ["-m", str(empty), "--runtime", "winml-genai"])
+        result = runner.invoke(perf, ["-m", str(empty), "--runtime", "ort-genai"])
         assert result.exit_code != 0
         assert "genai_config.json" in result.output
         assert "config" not in capture_run
@@ -1416,7 +1416,7 @@ class TestCliDispatch:
             winml_models, "build_genai_bundle", _fake_build_genai_bundle(build_calls)
         )
 
-        result = runner.invoke(perf, ["-m", "Qwen/Qwen3-0.6B", "--runtime", "winml-genai"])
+        result = runner.invoke(perf, ["-m", "Qwen/Qwen3-0.6B", "--runtime", "ort-genai"])
 
         assert result.exit_code == 0, result.output
         # Built once, pinned to the NPU HTP via QNN regardless of --device.
@@ -1448,7 +1448,7 @@ class TestCliDispatch:
             winml_models, "build_genai_bundle", _fake_build_genai_bundle(build_calls)
         )
 
-        result = runner.invoke(perf, ["-m", "Qwen/Qwen3-0.6B", "--runtime", "winml-genai"])
+        result = runner.invoke(perf, ["-m", "Qwen/Qwen3-0.6B", "--runtime", "ort-genai"])
 
         assert result.exit_code == 0, result.output
         assert "build" not in build_calls  # cache hit: never rebuilt
@@ -1476,7 +1476,7 @@ class TestCliDispatch:
         )
 
         result = runner.invoke(
-            perf, ["-m", "Qwen/Qwen3-0.6B", "--runtime", "winml-genai", "--rebuild"]
+            perf, ["-m", "Qwen/Qwen3-0.6B", "--runtime", "ort-genai", "--rebuild"]
         )
 
         assert result.exit_code == 0, result.output
@@ -1505,7 +1505,7 @@ class TestCliDispatch:
                 "-m",
                 "Qwen/Qwen3-0.6B",
                 "--runtime",
-                "winml-genai",
+                "ort-genai",
                 "--rebuild",
                 "--task",
                 "text-generation",
@@ -1524,7 +1524,7 @@ class TestCliDispatch:
         # A prebuilt bundle dir ignores the build-driving flags, so --rebuild is
         # reported as ignored (no auto-build happened).
         bundle = _make_bundle(tmp_path)
-        result = runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai", "--rebuild"])
+        result = runner.invoke(perf, ["-m", str(bundle), "--runtime", "ort-genai", "--rebuild"])
         assert result.exit_code == 0, result.output
         assert "--rebuild" in result.output
 
@@ -1554,7 +1554,7 @@ class TestCliDispatch:
                 "-m",
                 "Qwen/Qwen3-0.6B",
                 "--runtime",
-                "winml-genai",
+                "ort-genai",
                 "--precision",
                 "w8a16",
                 "--task",
@@ -1584,7 +1584,7 @@ class TestCliDispatch:
         monkeypatch.setattr(winml_models, "resolve_genai_bundle", lambda _mt: None)
 
         result = runner.invoke(
-            perf, ["-m", "google-bert/bert-base-uncased", "--runtime", "winml-genai"]
+            perf, ["-m", "google-bert/bert-base-uncased", "--runtime", "ort-genai"]
         )
 
         assert result.exit_code != 0
@@ -1594,7 +1594,7 @@ class TestCliDispatch:
     def test_runtime_help_shows_auto_default(self, runner: CliRunner, capture_run: dict) -> None:
         result = runner.invoke(perf, ["--help"])
         assert result.exit_code == 0
-        assert "[auto|winml|winml-genai]" in result.output
+        assert "[auto|winml-ort|ort-genai]" in result.output
         assert "default: auto" in result.output
         assert "config" not in capture_run
 
@@ -1602,7 +1602,7 @@ class TestCliDispatch:
 class TestAutoRuntime:
     def test_selects_genai_for_bundle_folder(self, tmp_path: Path) -> None:
         bundle = _make_bundle(tmp_path)
-        assert _resolve_runtime("auto", str(bundle)) == "winml-genai"
+        assert _resolve_runtime("auto", str(bundle)) == "ort-genai"
 
     @pytest.mark.parametrize("model_kind", ["plain-folder", "onnx-file", "model-id"])
     def test_selects_winml_without_bundle_marker(self, tmp_path: Path, model_kind: str) -> None:
@@ -1617,8 +1617,8 @@ class TestAutoRuntime:
         else:
             value = "organization/model"
 
-        assert _resolve_runtime("auto", value) == "winml"
+        assert _resolve_runtime("auto", value) == "winml-ort"
 
-    @pytest.mark.parametrize("runtime", ["winml", "winml-genai"])
+    @pytest.mark.parametrize("runtime", ["winml-ort", "ort-genai"])
     def test_preserves_explicit_runtime(self, runtime: str) -> None:
         assert _resolve_runtime(runtime, "organization/model") == runtime

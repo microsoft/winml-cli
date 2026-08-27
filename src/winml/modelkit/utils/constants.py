@@ -82,7 +82,7 @@ COMPILER_NAMES: tuple[CompilerName, ...] = get_args(CompilerName)
 
 
 # Inference runtimes selectable via ``winml perf --runtime``.
-RuntimeName = Literal["auto", "winml", "winml-genai"]
+RuntimeName = Literal["auto", "winml-ort", "ort-genai"]
 RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
 
 
