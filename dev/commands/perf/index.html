@@ -3024,6 +3024,9 @@ same real tensors as the latency benchmark (not on fresh random inputs). If the
 traced graph's inputs don't match the provided data — for example a compiled
 context model with different input names — the trace falls back to random inputs
 and logs a warning.</p>
+<p>Op-tracing results are included in the main benchmark JSON under
+<code>hw_monitor.ep_proof</code>. The profiling CSV remains available as the raw trace
+artifact; no separate <code>_op_trace.json</code> file is written.</p>
 <h2 id="common-pitfalls">Common pitfalls<a class="headerlink" href="#common-pitfalls" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Warm-up too low on NPU.</strong> The first several inferences on an NPU EP can be significantly slower due to kernel compilation and caching. The default of 10 warm-up iterations is usually enough for vision models, but transformer models with many operators may need <code>--warmup 30</code> or higher to reach steady-state latency.</li>
