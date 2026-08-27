@@ -44,7 +44,6 @@ from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLSlidingWindowCache
 
 if TYPE_CHECKING:
     from transformers import GenerationConfig, PretrainedConfig
-    from transformers.cache_utils import CacheLayerMixin
 
 
 # =============================================================================
@@ -169,9 +168,7 @@ class T5DecoderWrapper(nn.Module):
             device=decoder_input_ids.device,
         )
         for i in range(self.num_layers):
-            # WinML caches use standard (non-linear) attention layers, which
-            # carry keys/values; narrow away LinearAttentionCacheLayerMixin.
-            layer = cast("CacheLayerMixin", self_attn_cache.layers[i])
+            layer = self_attn_cache.layers[i]
             layer.keys = args[kv_start + i * 2]
             layer.values = args[kv_start + i * 2 + 1]
 

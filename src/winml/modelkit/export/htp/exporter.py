@@ -38,7 +38,7 @@ from ...core.onnx_node_tagger import (
     create_node_tagger_from_hierarchy,
 )
 from ...core.onnx_utils import infer_output_names
-from ...transformers_compat import use_eager_attention_for_export
+from .._attention import use_eager_attention_for_export
 from .base_writer import ExportStep
 from .hierarchy import TracingHierarchyBuilder
 from .monitor import HTPExportMonitor
