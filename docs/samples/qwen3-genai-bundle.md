@@ -118,11 +118,11 @@ and token generation on the NPU with `winml perf`:
 
 ```bash
 # Qualcomm Snapdragon NPU
-winml perf -m out/qwen3-bundle --runtime winml-genai --device npu --compile \
+winml perf -m out/qwen3-bundle --runtime ort-genai --device npu --compile \
   --compile-timeout 600 --max-new-tokens 20 --prompt "What is the capital of France?"
 
 # AMD Ryzen AI NPU
-winml perf -m out/qwen3-bundle --runtime winml-genai --device npu --ep vitisai --compile \
+winml perf -m out/qwen3-bundle --runtime ort-genai --device npu --ep vitisai --compile \
   --compile-timeout 600 --max-new-tokens 20 --prompt "What is the capital of France?"
 ```
 
@@ -136,13 +136,13 @@ request latency, optional RAM/VRAM deltas, and a results JSON under
 onnxruntime-genai does not expose it; the estimate is labeled in JSON.
 
 !!! tip "One command from a model id (auto-build)"
-    `winml perf --runtime winml-genai` also accepts a HuggingFace **model id** directly.
+    `winml perf --runtime ort-genai` also accepts a HuggingFace **model id** directly.
     When `-m` is not a prebuilt bundle directory, it builds the genai bundle on demand
     (into `~/.cache/winml/`, reused on later runs) and then benchmarks it — no separate
     `winml build` step:
 
     ```bash
-    winml perf -m Qwen/Qwen3-0.6B --runtime winml-genai --compile \
+    winml perf -m Qwen/Qwen3-0.6B --runtime ort-genai --compile \
       --compile-timeout 600 --max-new-tokens 20 --prompt "What is the capital of France?"
     ```
 

@@ -31,7 +31,7 @@ class WinMLGenaiCausalLM:
 
     Constructed with an already-resolved ``ep`` / ``device`` that pass straight
     to the session, so inference runs on the same runtime and EP as
-    ``winml perf --runtime winml-genai``.
+    ``winml perf --runtime ort-genai``.
 
     Args:
         bundle_dir: Path to the genai bundle directory.

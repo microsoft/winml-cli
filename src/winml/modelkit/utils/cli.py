@@ -556,7 +556,7 @@ def device_option(
         include_all: Whether to include "all" as a valid choice
             (default: False).
         include_config: Whether to include "config" as a valid choice
-            (default: False). Used by ``perf`` for the winml-genai sentinel
+            (default: False). Used by ``perf`` for the ort-genai sentinel
             meaning "respect the bundle's genai_config.json routing".
 
     Returns:

@@ -118,10 +118,10 @@ logger = logging.getLogger(__name__)
 )
 @click.option(
     "--runtime",
-    type=click.Choice(["winml", "pytorch"]),
-    default="winml",
+    type=click.Choice(["winml-ort", "pytorch"]),
+    default="winml-ort",
     show_default=True,
-    help="Evaluation runtime. 'winml' exports Hugging Face checkpoints to ONNX; "
+    help="Evaluation runtime. 'winml-ort' exports Hugging Face checkpoints to ONNX; "
     "'pytorch' evaluates the original checkpoint.",
 )
 @click.option(
@@ -332,9 +332,9 @@ def eval(
     # ── 1. Build config: defaults ← config file ← CLI ──
     cfg, config_fields = _build_eval_config(ctx, config_file, column, label_mapping_path)
 
-    if cfg.runtime not in ("winml", "pytorch"):
+    if cfg.runtime not in ("winml-ort", "pytorch"):
         raise click.UsageError(
-            f"Invalid eval runtime {cfg.runtime!r}; expected 'winml' or 'pytorch'."
+            f"Invalid eval runtime {cfg.runtime!r}; expected 'winml-ort' or 'pytorch'."
         )
     if cfg.runtime == "pytorch":
         _validate_pytorch_runtime_options(ctx, cfg, config_fields)
@@ -782,7 +782,7 @@ def _resolve_genai_ep(ctx: click.Context, cfg: WinMLEvaluationConfig) -> None:
     an EP override is present and otherwise leaves the bundle untouched. Passing
     the device straight through would make ``--device`` a no-op: the whole point
     of an explicit device is to force the pipeline onto it. Mirroring the
-    ``winml-genai`` perf precedence, an explicitly supplied ``--device`` is
+    ``ort-genai`` perf precedence, an explicitly supplied ``--device`` is
     resolved to a concrete EP (via the same device→EP path the ONNX runtime
     uses), while the default (``auto``) respects the bundle's own routing.
 

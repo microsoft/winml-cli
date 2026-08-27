@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""GenAI generation benchmarking for ``winml perf --runtime winml-genai``.
+"""GenAI generation benchmarking for ``winml perf --runtime ort-genai``.
 
 Benchmarks a prebuilt ``onnxruntime-genai`` bundle folder through
 :class:`GenaiSession`.  Unlike the single-shot WinML path (which times each
@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # =============================================================================
 
-RUNTIME_TYPE: RuntimeName = "winml-genai"
+RUNTIME_TYPE: RuntimeName = "ort-genai"
 _HW_POLL_INTERVAL_MS = 200
 
 # Built-in benchmark prompt.  Mirrored by the ``--prompt`` CLI default and the
@@ -74,7 +74,7 @@ _HW_POLL_INTERVAL_MS = 200
 _DEFAULT_PROMPT = "Explain the theory of relativity in simple terms."
 
 # Sentinel ``--device`` value meaning "respect the bundle's genai_config.json
-# routing" (no EP override).  It is the winml-genai default: a genai bundle is
+# routing" (no EP override).  It is the ort-genai default: a genai bundle is
 # mixed by design (e.g. ctx/iter on the NPU, embeddings/lm_head on CPU) and its
 # config already encodes that per-stage routing, so the common case leaves it
 # untouched.  A concrete ``--device`` (or ``--ep``) is an explicit override that

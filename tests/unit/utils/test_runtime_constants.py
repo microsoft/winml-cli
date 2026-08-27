@@ -13,4 +13,4 @@ from winml.modelkit.utils.constants import RUNTIME_NAMES, RuntimeName
 
 def test_runtime_names_match_runtime_name_literal() -> None:
     assert get_args(RuntimeName) == RUNTIME_NAMES
-    assert RUNTIME_NAMES == ("auto", "winml", "winml-genai")
+    assert RUNTIME_NAMES == ("auto", "winml-ort", "ort-genai")

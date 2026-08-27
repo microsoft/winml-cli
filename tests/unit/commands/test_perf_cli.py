@@ -1749,7 +1749,7 @@ class TestPerfUnifiedPipeline:
         d = result.to_dict()
 
         assert d["schema_version"] == 2
-        assert d["benchmark_info"]["runtime"] == "winml"
+        assert d["benchmark_info"]["runtime"] == "winml-ort"
 
     def test_iterations_reports_configured_count_without_duration(self) -> None:
         """Without --duration, benchmark_info.iterations is the configured value."""
