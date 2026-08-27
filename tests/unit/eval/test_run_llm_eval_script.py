@@ -47,7 +47,7 @@ def _perf_report(
 ) -> dict:
     return {
         "benchmark_info": {
-            "runtime": "winml-genai",
+            "runtime": "ort-genai",
             "bundle_dir": str(bundle_dir),
             "ep": ep,
             "device": device,
@@ -96,7 +96,7 @@ class TestPerfResultMapping:
             ep="qnn",
         )
 
-        assert args[args.index("--runtime") + 1] == "winml-genai"
+        assert args[args.index("--runtime") + 1] == "ort-genai"
         assert args[args.index("--device") + 1] == "npu"
         assert args[args.index("--ep") + 1] == "qnn"
         assert args[args.index("--compile-timeout") + 1] == "1800"
@@ -275,7 +275,7 @@ class TestResultContract:
                 "total_vram_mb": 4000.0,
                 "gpu_memory_gb": 4.0,
             },
-            command="winml perf -m bundle --runtime winml-genai --device npu",
+            command="winml perf -m bundle --runtime ort-genai --device npu",
             timed_out=False,
         )
         schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))

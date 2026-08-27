@@ -19,7 +19,7 @@ This cycle expands **model preparation and evaluation** across the CLI: precisio
 
 - **Quantization** — `--precision` selects FP16 conversion, RTN INT4, static QDQ, or calibration-free dynamic INT8; `winml quantize` can compose multiple precision passes such as INT4 followed by FP16 (#872, #985, #1047).
 - `winml build` — `--export-type optimized` produces a complete Qwen3 onnxruntime-genai NPU/QNN bundle, including prefill/decode, embeddings, LM head, tokenizer, and manifest files (#836, #996, #1008, #1081, #1104).
-- `winml perf --runtime winml-genai` — benchmarks prebuilt or automatically cached GenAI bundles with TTFT, token throughput, prompt-template controls, EP overrides, and isolated pre-compilation (#1015, #1042, #1046, #1054, #1109).
+- `winml perf --runtime ort-genai` — benchmarks prebuilt or automatically cached GenAI bundles with TTFT, token throughput, prompt-template controls, EP overrides, and isolated pre-compilation (#1015, #1042, #1046, #1054, #1109).
 - **Composite models** — `export` and `build` automatically fan out pipeline components; `export` / `build` / `perf` support `--submodel`, and explicit composite tasks such as summarization and translation are accepted (#1031, #1037, #1058, #1071, #1089).
 - **Export controls** — dynamic axes and symbolic input dimensions are supported while static TorchScript export remains the default; `build`, `config`, `perf`, and `eval` expose matching shape/input/export overrides (#1074, #1083, #1106, #1141, #1156, #1188).
 - `winml perf` — real `.npz` inputs, time-budgeted `--duration` runs, cached per-module builds, actual dynamic dimensions, and QNN profiler ONNX metrics (#1004, #1055, #1066, #1102, #1168).

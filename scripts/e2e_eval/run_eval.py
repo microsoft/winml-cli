@@ -1891,46 +1891,17 @@ def _resolve_op_tracing(
     return None
 
 
-def _extract_op_trace_path(text: str) -> Path | None:
-    """Parse the ``Op-trace saved to: <path>`` line from winml perf output.
-
-    winml perf prints this via a Rich console, which hard-wraps the long path
-    across lines (inserting line breaks but no extra spaces) when stdout isn't a
-    TTY. Rejoin the wrapped fragments by dropping line breaks, then cut at the
-    ``.json`` terminator. Returns None when the line is absent.
-    """
-    marker = "Op-trace saved to:"
-    idx = text.find(marker)
-    if idx == -1:
-        return None
-    tail = text[idx + len(marker) :].lstrip()
-    joined = tail.replace("\r", "").replace("\n", "")
-    end = joined.find(".json")
-    if end == -1:
-        return None
-    return Path(joined[: end + len(".json")])
-
-
 def _copy_op_trace(proc: dict, output_path: Path, model_dir: Path, label: str = "") -> None:
-    """Copy the op-trace JSON produced by winml perf into ``model_dir``.
-
-    The current perf contract writes the trace beside ``--output`` with an
-    ``_op_trace`` suffix. Console parsing remains as a fallback for older perf
-    versions. The destination is ``op_trace.json`` (suffixed with the sub-model
-    label for composite models).
-    """
-    src = output_path.with_name(f"{output_path.stem}_op_trace{output_path.suffix}")
-    if not src.exists():
-        src = _extract_op_trace_path(proc.get("stdout", "") + "\n" + proc.get("stderr", ""))
-    if src is None or not src.is_file():
+    """Copy the perf JSON containing ``hw_monitor.ep_proof`` into ``model_dir``."""
+    if proc.get("result") is None or not output_path.is_file():
         return
     dest_name = f"op_trace_{label}.json" if label else "op_trace.json"
     dest = model_dir / dest_name
     try:
-        shutil.copyfile(src, dest)
+        shutil.copyfile(output_path, dest)
         safe_print(f"    op-tracing: {dest}")
     except OSError as e:
-        safe_print(f"    op-tracing: failed to copy {src} -> {dest}: {e}")
+        safe_print(f"    op-tracing: failed to copy {output_path} -> {dest}: {e}")
 
 
 def _run_structured_perf(
@@ -1972,8 +1943,9 @@ def run_model(
     summed elapsed). Multi-model structured results are keyed by sub-model label.
 
     When op_tracing is set, ``--op-tracing <level>`` is passed to winml perf. The
-    op-trace JSON beside the structured perf output is copied into ``model_dir``
-    as ``op_trace.json`` (suffixed with the sub-model label for composite models).
+    structured perf output containing ``hw_monitor.ep_proof`` is copied into
+    ``model_dir`` as ``op_trace.json`` (suffixed with the sub-model label for
+    composite models).
     """
     trace = bool(op_tracing) and model_dir is not None
 
@@ -2909,8 +2881,9 @@ def parse_args() -> argparse.Namespace:
             "defaults to 'basic' for a model whose 'op_tracing_targets' includes the "
             "current <EP>_<device> target (e.g. QNNExecutionProvider_npu) — this "
             "auto-enable requires both --ep and --device to be set explicitly "
-            "(the default --device auto does not match). The "
-            "resulting op_trace.json is copied into each model's output folder."
+            "(the default --device auto does not match). The resulting perf JSON, "
+            "including its embedded op trace, is copied into each model's output "
+            "folder as op_trace.json."
         ),
     )
     parser.add_argument(

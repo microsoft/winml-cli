@@ -44,6 +44,7 @@ class TraceFallbackReason(StrEnum):
     SCHEMATIC_PUBLISH_FAILED = "schematic_publish_failed"
     QHAS_OUTPUT_MISSING = "qhas_output_missing"
     QHAS_PARSE_FAILED = "qhas_parse_failed"
+    MULTIPLE_PARTITIONS = "multiple_partitions"
 
 
 @dataclass

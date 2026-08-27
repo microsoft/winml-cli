@@ -44,7 +44,7 @@ def _make_reference_config(config: WinMLEvaluationConfig) -> WinMLEvaluationConf
             model_id=None,
             model_path=config.reference_path,
             reference_path=None,
-            runtime="winml",
+            runtime="winml-ort",
             device=config.reference_device,
             ep=config.reference_ep,
             precision="auto",

@@ -132,7 +132,7 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 ### `run_llm_eval.py` — Run GenAI Context Sweep
 
 Runs an existing ONNX Runtime GenAI bundle through `winml perf --runtime
-winml-genai` at one or more prompt lengths. The runner enables the EPContext
+ort-genai` at one or more prompt lengths. The runner enables the EPContext
 pre-compilation required by accelerator-backed GenAI stages and generation-window
 hardware monitoring, preserves each raw perf report as `perf_ctx<tokens>.json`, and
 writes a schema-validated `llm_eval_result.json` containing TTFT, decode and prefill
