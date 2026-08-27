@@ -82,7 +82,7 @@ dependencies = [
   "torchmetrics[detection]>=1.0",
   "torchvision>=0.24",
   "tqdm>=4.67",
-  "transformers>=4.57,<4.58",
+  "transformers>=4.57",
   "uvicorn[standard]>=0.42.0",
   "windowsml==2.0.300 ; sys_platform == 'win32'",
 ]
