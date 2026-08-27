@@ -105,6 +105,10 @@ def _detail_fallback_guidance(reason: TraceFallbackReason | None) -> str:
         ),
         TraceFallbackReason.QHAS_OUTPUT_MISSING: "the requested QHAS output was not found",
         TraceFallbackReason.QHAS_PARSE_FAILED: "the QHAS output could not be parsed",
+        TraceFallbackReason.MULTIPLE_PARTITIONS: (
+            "the model contains multiple EPContext partitions; QHAS currently "
+            "reports only one partition"
+        ),
     }
     if reason is None:
         return "QHAS post-processing was unavailable"

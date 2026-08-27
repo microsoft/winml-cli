@@ -623,6 +623,53 @@ def test_basic_metrics_infer_runtime_partitions_for_raw_model(tmp_path):
     assert operators["SecondOp"].samples_us == [20.0, 60.0]
 
 
+def test_detail_metrics_fall_back_to_complete_csv_for_multiple_partitions(
+    tmp_path, monkeypatch
+):
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    context_model = tmp_path / "model_ctx.onnx"
+    _write_epcontext_model(
+        context_model,
+        [("first_partition", 1), ("second_partition", 0)],
+    )
+    profile_blocks = [
+        {
+            "hvx_threads": 4,
+            "accel_execute_cycles": 100,
+            "accel_execute_us": 10,
+            "operator_cycles": 50,
+            "operator_name": "FirstOp",
+        },
+        {
+            "hvx_threads": 4,
+            "accel_execute_cycles": 200,
+            "accel_execute_us": 40,
+            "operator_cycles": 100,
+            "operator_name": "SecondOp",
+        },
+    ]
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    monitor.set_running_model_path(context_model)
+    monitor.set_perf_window(warmup=0, measured_iterations=1)
+    monitor.__enter__()
+    _write_basic_profile(monitor._csv_path, profile_blocks)
+    try_qhas = MagicMock()
+    monkeypatch.setattr(monitor, "_try_qhas", try_qhas)
+
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    assert monitor.result.status == "basic_fallback"
+    assert monitor.result.fallback_reason == TraceFallbackReason.MULTIPLE_PARTITIONS
+    assert {operator.op_path for operator in monitor.result.operators} == {
+        "FirstOp",
+        "SecondOp",
+    }
+    assert "qhas" not in monitor.result.artifacts
+    try_qhas.assert_not_called()
+
+
 def test_basic_metrics_omit_onnx_metadata_when_env_disabled(tmp_path, monkeypatch):
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 

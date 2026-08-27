@@ -1368,16 +1368,20 @@ class TestRunModelStructuredPerfResult:
         assert proc["result"] is None
         assert "Invalid structured winml perf output" in proc["stderr"]
 
-    def test_op_trace_sibling_is_copied_before_cleanup(self, run_eval, tmp_path):
+    def test_perf_result_with_embedded_op_trace_is_copied_before_cleanup(
+        self, run_eval, tmp_path
+    ):
         trace_result = {"status": "ok", "operators": []}
+        perf_result = {
+            **_perf_result(),
+            "hw_monitor": {"ep_proof": trace_result},
+        }
 
         def fake_run(args, timeout):
             output_path = Path(args[args.index("--output") + 1])
-            output_path.write_text(json.dumps(_perf_result()), encoding="utf-8")
-            trace_path = output_path.with_name(f"{output_path.stem}_op_trace{output_path.suffix}")
-            trace_path.write_text(json.dumps(trace_result), encoding="utf-8")
+            output_path.write_text(json.dumps(perf_result), encoding="utf-8")
             return {
-                "stdout": f"Op-trace JSON: {trace_path}",
+                "stdout": "",
                 "stderr": "",
                 "exit_code": 0,
                 "elapsed": 1.0,
@@ -1395,7 +1399,7 @@ class TestRunModelStructuredPerfResult:
                 model_dir=tmp_path,
             )
 
-        assert json.loads((tmp_path / "op_trace.json").read_text(encoding="utf-8")) == trace_result
+        assert json.loads((tmp_path / "op_trace.json").read_text(encoding="utf-8")) == perf_result
 
     def test_missing_structured_output_fails_perf(self, run_eval, tmp_path):
         proc_result = {

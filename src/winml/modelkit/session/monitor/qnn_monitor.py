@@ -584,9 +584,9 @@ class QNNMonitor(WinMLEPMonitor):
 
         parsed = parse_qnn_profiling_csv(csv_path)
         samples = parsed.get("samples", [])
+        partition_count = self._epcontext_partition_count()
         if self._expected_measured_samples is not None:
             expected_total = self._warmup_samples + self._expected_measured_samples
-            partition_count = self._epcontext_partition_count()
             expected_profile_blocks = expected_total * partition_count
             if (
                 len(samples) != expected_profile_blocks
@@ -712,17 +712,25 @@ class QNNMonitor(WinMLEPMonitor):
         fallback_reason: TraceFallbackReason | None = None
         # Detail mode: attempt QHAS post-processing.
         if self._level == "detail":
-            qhas_summary, qhas_operators, qhas_path, fallback_reason = self._try_qhas(
-                artifacts, qhas_override=qhas_override
-            )
-            if qhas_path is not None and qhas_operators is not None:
-                operators = qhas_operators
-                summary = qhas_summary or summary
-                artifacts["qhas"] = str(qhas_path)
-            else:
-                # Fell back to CSV-only data in detail mode.
+            if partition_count > 1:
                 status = "basic_fallback"
-                logger.warning("QNNMonitor: QHAS unavailable; detail mode degraded to basic")
+                fallback_reason = TraceFallbackReason.MULTIPLE_PARTITIONS
+                logger.warning(
+                    "QNNMonitor: detail tracing has multiple EPContext partitions; "
+                    "using the complete basic CSV trace"
+                )
+            else:
+                qhas_summary, qhas_operators, qhas_path, fallback_reason = self._try_qhas(
+                    artifacts, qhas_override=qhas_override
+                )
+                if qhas_path is not None and qhas_operators is not None:
+                    operators = qhas_operators
+                    summary = qhas_summary or summary
+                    artifacts["qhas"] = str(qhas_path)
+                else:
+                    # Fell back to CSV-only data in detail mode.
+                    status = "basic_fallback"
+                    logger.warning("QNNMonitor: QHAS unavailable; detail mode degraded to basic")
 
         return OpTraceResult(
             model=None,
