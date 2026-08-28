@@ -879,19 +879,17 @@ def resolve_processor(
     # their processor classes (e.g., resnet → ConvNextImageProcessor).
     if model_type is not None:
         try:
-            from transformers.models.auto.image_processing_auto import (  # type: ignore[attr-defined]  # exists at runtime; not re-exported in transformers 5's __all__
+            from transformers.models.auto.image_processing_auto import (
                 IMAGE_PROCESSOR_MAPPING_NAMES,
             )
 
-            mapping = IMAGE_PROCESSOR_MAPPING_NAMES.get(model_type)
-            if mapping:
-                # transformers 5: mapping is a dict keyed by backend, e.g.
-                # {"pil": "XxxImageProcessorPil", "torchvision": "XxxImageProcessor"}.
-                # Prefer the unsuffixed "torchvision" class (the canonical name that
-                # matched transformers 4's slow-processor entry), fall back to "pil".
+            mapping: Any = IMAGE_PROCESSOR_MAPPING_NAMES.get(model_type)
+            if isinstance(mapping, dict):
                 image_processor_class = mapping.get("torchvision") or mapping.get("pil")
-                if image_processor_class:
-                    image_processor_source = "hf_registry"
+            elif isinstance(mapping, tuple):
+                image_processor_class = mapping[0] or mapping[1]
+            if image_processor_class:
+                image_processor_source = "hf_registry"
         except Exception as e:
             logger.debug("Registry lookup failed for %s: %s", model_type, e)
 

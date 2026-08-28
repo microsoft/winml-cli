@@ -458,6 +458,24 @@ def test_transformers4_fallback_converts_legacy_auth_token() -> None:
     assert "use_auth_token" not in seen_kwargs
 
 
+def test_transformers4_fallback_ignores_none_legacy_auth_token() -> None:
+    raw_config_loader = MagicMock(return_value=({"hidden_size": 128}, {}))
+
+    with (
+        patch("transformers.__version__", "4.57.1"),
+        patch("transformers.models.auto.configuration_auto.CONFIG_MAPPING", {}),
+    ):
+        load_hf_config(
+            _FailingAutoConfig,
+            "owner/neutral-model",
+            raw_config_loader=raw_config_loader,
+            use_auth_token=None,
+        )
+
+    assert "use_auth_token" not in raw_config_loader.call_args.kwargs
+    assert "token" not in raw_config_loader.call_args.kwargs
+
+
 def test_transformers4_fallback_rejects_conflicting_auth_tokens() -> None:
     token = object()
     legacy_token = object()

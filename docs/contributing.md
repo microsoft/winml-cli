@@ -8,7 +8,7 @@ For the full contributing guide — development setup, coding conventions, testi
 # Clone and set up
 git clone https://github.com/microsoft/winml-cli.git
 cd winml-cli
-uv sync --locked
+uv sync
 uv run pre-commit install
 
 # Download runtime check rules (required for `winml analyze`)

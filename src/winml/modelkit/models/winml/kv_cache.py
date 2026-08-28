@@ -102,13 +102,8 @@ class WinMLCache(StaticCache, ABC):
         self._trace_position: torch.Tensor | None = None
 
     def _layer(self, idx: int) -> CacheLayerMixin:
-        """Narrow ``self.layers[idx]`` to ``CacheLayerMixin`` for type checkers.
-
-        ``Cache.layers`` is typed as a union with ``LinearAttentionCacheLayerMixin``
-        (which lacks ``keys``/``values``), but ``StaticCache`` always builds
-        ``CacheLayerMixin`` (``StaticLayer``) layers, so this cast is sound.
-        """
-        return cast("CacheLayerMixin", self.layers[idx])
+        """Return a standard attention cache layer."""
+        return self.layers[idx]
 
     def set_trace_position(self, position: torch.Tensor) -> None:
         """Provide the position tensor when a model omits cache update kwargs."""

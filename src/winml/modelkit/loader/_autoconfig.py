@@ -319,8 +319,9 @@ def load_hf_config(
         generic_config_dict.pop("architectures")
 
     generic_result = PretrainedConfig.from_dict(generic_config_dict, **unused_kwargs)
-    if return_unused_kwargs:
-        generic_config, returned_unused_kwargs = generic_result
+    if isinstance(generic_result, tuple):
+        generic_config = cast("PretrainedConfig", generic_result[0])
+        returned_unused_kwargs = cast("dict[str, Any]", generic_result[1])
         generic_config._winml_generic_fallback = True
         return generic_config, returned_unused_kwargs
     generic_result._winml_generic_fallback = True

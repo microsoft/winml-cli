@@ -51,12 +51,14 @@ dependencies = [
   # form of what WinML's wasdk metadata pins as `1.24.5.post202604171637` (PEP 440
   # normalized) — an exact `==` can't reconcile the two. A bounded range keeps the
   # 1.24.x series while resolving to the published wheel.
-  "onnxruntime-windowsml>=1.24.5,<1.25 ; sys_platform == 'win32'",
+  "onnxruntime-windowsml==1.24.5.202604171637 ; sys_platform == 'win32'",
   "onnxscript>=0.2",
   "opentelemetry-sdk>=1.39.1",
   "optimum>=2",
   "optimum-onnx>=0.1",
-  "plotext>=5.3.2",
+  # plotext 6.0 was recently released with breaking API changes that conflict
+  # with the current live chart code. Upgrade the code and dependency to >=6 together.
+  "plotext>=5.3.2,<6",
   # PINNED EXACTLY ON PURPOSE — do NOT relax to a range.
   # pandas version drift changes parquet string typing/metadata, producing
   # non-functional but huge diffs across every generated rule artifact. If you
@@ -88,7 +90,9 @@ dependencies = [
 optional-dependencies.audio = [ "soundfile>=0.13" ]
 optional-dependencies.openvino = [ "openvino>=2023" ]
 optional-dependencies.qnn = [
-  "onnxruntime-qnn>=1.24.1; python_version>='3.11'",
+  # 2.1+ is a plugin-only wheel under ``onnxruntime_qnn``. Older releases
+  # also install the ``onnxruntime`` package and overwrite Windows ML files.
+  "onnxruntime-qnn>=2.1; python_version>='3.11'",
 ]
 urls."Bug Tracker" = "https://github.com/microsoft/winml-cli/issues"
 urls.Documentation = "https://github.com/microsoft/winml-cli/blob/main/README.md"
@@ -119,19 +123,12 @@ environments = [
   "sys_platform == 'linux' and platform_machine == 'x86_64'",
   "sys_platform == 'win32' and platform_machine == 'AMD64'",
 ]
-# Overrides:
-# 1. Exercise transformers 5.x in development while keeping the published
-#    `transformers>=4.57` metadata compatible with optimum-onnx 0.1.0's
-#    `transformers<4.58.0` ceiling. The transformers_compat shim bridges the
-#    few 4.x internals optimum-onnx reaches for under transformers 5.
-# 2. Neutralize onnxruntime-qnn's transitive standard `onnxruntime` requirement.
-#    onnxruntime-windowsml ships the same `onnxruntime/` module; installing plain
-#    onnxruntime alongside it overwrites windowsml's files on disk and kills the
-#    DirectML EP. The `sys_platform == 'unobtainium'` marker is never true, so uv
-#    never installs plain onnxruntime while still keeping onnxruntime-qnn.
-override-dependencies = [
-  "transformers>=5,<6",
-  "onnxruntime ; sys_platform == 'unobtainium'",
+# The QNN plugin declares standard ``onnxruntime`` as a runtime dependency,
+# but WinML CLI uses the API-compatible ``onnxruntime-windowsml`` build.
+# Installing both distributions corrupts their shared ``onnxruntime`` package
+# tree and makes the active CPU/DML runtime depend on installation order.
+exclude-dependencies = [
+  { package = { name = "onnxruntime-qnn" }, dependencies = [ "onnxruntime" ] },
 ]
 
 [[tool.uv.index]]

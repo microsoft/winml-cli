@@ -64,12 +64,20 @@ def emotion_config():
 class TestWav2Vec2EmotionModelClassMapping:
     """The emotion-regression variant routes to EmotionModel."""
 
-    def test_model_initialization_sets_transformers_bookkeeping(self, emotion_config):
+    def test_model_initialization_runs_transformers_post_init(self, emotion_config, monkeypatch):
         """Initialization preserves the variant and runs Transformers final processing."""
+        original_post_init = EmotionModel.post_init
+        initialized_models = []
+
+        def tracked_post_init(model):
+            original_post_init(model)
+            initialized_models.append(model)
+
+        monkeypatch.setattr(EmotionModel, "post_init", tracked_post_init)
         model = EmotionModel(emotion_config)
 
         assert model.config.model_type == EMOTION_REGRESSION_MODEL_TYPE
-        assert hasattr(model, "all_tied_weights_keys")
+        assert initialized_models == [model]
 
     def test_mapping_entry_registered(self):
         """The aggregated mapping exposes the emotion-regression entry."""

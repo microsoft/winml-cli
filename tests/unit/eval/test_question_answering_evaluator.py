@@ -39,6 +39,9 @@ def make_evaluator(
 ):
     """Create evaluator without triggering __init__ data loading."""
     from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
+    from winml.modelkit.models.winml.question_answering import (
+        WinMLModelForQuestionAnswering,
+    )
 
     mapping = columns_mapping or {
         "question_column": "question",
@@ -52,9 +55,12 @@ def make_evaluator(
     mock_ds.shuffle.return_value = mock_ds
     mock_ds.select.return_value = mock_ds
 
-    model = MagicMock()
+    model = object.__new__(WinMLModelForQuestionAnswering)
+    model._session = MagicMock()
+    model._session.io_config = io_config or {}
+    model._session.device = "cpu"
+    model.config = MagicMock()
     model.config.label2id = None
-    model.io_config = io_config or {}
     resolved_tokenizer = _TokenizerStub() if tokenizer is _DEFAULT_TOKENIZER else tokenizer
 
     config = WinMLEvaluationConfig(
@@ -81,11 +87,13 @@ class TestPreparePipeline:
 
         assert ev.pipe.tokenizer.model_max_length == 384
         assert ev.pipe._preprocess_params["padding"] == "max_length"
-        assert ev.pipe._preprocess_params["max_length"] == 384
         assert ev.pipe._preprocess_params["max_seq_len"] == 384
 
     def test_raises_when_tokenizer_is_not_fast(self):
-        with pytest.raises(ValueError, match="fast tokenizer with offset mappings"):
+        with (
+            patch("transformers.__version__", "5.0.0"),
+            pytest.raises(ValueError, match="fast tokenizer with offset mappings"),
+        ):
             make_evaluator(io_config={"input_shapes": [[1, 384]]}, tokenizer=None)
 
     def test_no_padding_without_shapes(self):
