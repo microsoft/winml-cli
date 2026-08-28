@@ -246,7 +246,7 @@ class WinMLQuestionAnsweringEvaluator(WinMLEvaluator):
         if runtime is not None:
             return cast("tuple[Any, str]", runtime)
         try:
-            import pytesseract  # type: ignore[import-not-found]
+            import pytesseract  # type: ignore[import-untyped]
         except ImportError as error:
             raise RuntimeError(
                 "Image-only document QA requires the optional OCR dependency. "
