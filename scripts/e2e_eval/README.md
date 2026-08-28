@@ -126,7 +126,7 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 | `--list` | off | List models and exit |
 | `--verbose` | off | Print stderr for failed models |
 | `--continue` | off | Skip jobs with existing results (but backfill accuracy onto perf-only results when `--eval-type` wants it) |
-| `--retry-failed [TYPE ...]` | — | Re-run failed jobs (implies `--continue`); unknown types are rejected as argument errors. `HF_FETCH_FAIL` checks failed perf and accuracy logs for `WinError 10060`, `we couldn't connect to 'https://huggingface.co'`, or `thrown while requesting HEAD https://huggingface.co`. |
+| `--retry-failed [TYPE ...]` | — | Re-run failed jobs (implies `--continue`); unknown types are rejected as argument errors. Retry criteria are not mutually exclusive: `HF_FETCH_FAIL` also checks failed perf and accuracy logs for `WinError 10060`, `we couldn't connect to 'https://huggingface.co'`, or `thrown while requesting HEAD https://huggingface.co`, even when the primary perf classification is another type or accuracy is `FAIL`. |
 | `--build-only` | off | Build with `--no-compile`, writing each stage's ONNX (no EP needed). Loops the EP matrix when `--ep`/`--device` omitted |
 
 ### `run_llm_eval.py` — Run GenAI Context Sweep
@@ -335,7 +335,8 @@ Groups (`Foundry Toolkit`, `Benchmark`, `ISV`, `microsoft`, `Top200`, …) categ
 
 ### Failure Classification
 
-Failures are classified from `stdout + stderr` pattern matching (ordered by pipeline stage):
+Perf failures receive one primary classification from `stdout + stderr` pattern
+matching (ordered by pipeline stage; first match wins):
 
 | Type | Stage |
 |---|---|
@@ -344,12 +345,19 @@ Failures are classified from `stdout + stderr` pattern matching (ordered by pipe
 | `OPT_FAIL` | Graph optimization |
 | `COMPILE_FAIL` | Compilation / quantization |
 | `RUNTIME_FAIL` | Inference |
+| `HF_FETCH_FAIL` | Hugging Face model/config fetch or cache miss |
 | `ENVIRONMENT` | Disk / network (retryable) |
 | `TIMEOUT` | Exceeded time limit |
 | `UNKNOWN` | No pattern matched |
 
 Classification is **derived on-the-fly** from stored facts — updating classifier
 rules automatically reclassifies all historical results.
+
+`--retry-failed` criteria are not mutually exclusive. In addition to matching
+`HF_FETCH_FAIL` when it is the primary perf classification, the runner scans failed
+perf and accuracy logs for supplemental Hugging Face fetch markers. A job can
+therefore match both `EXPORT_FAIL` and `HF_FETCH_FAIL`, or both accuracy `FAIL` and
+`HF_FETCH_FAIL`; requesting either applicable retry type re-runs it.
 
 ### Output Structure
 

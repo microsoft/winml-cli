@@ -2536,7 +2536,12 @@ def _needs_accuracy_backfill(existing: dict, eval_type: str) -> bool:
 
 
 def _matches_hf_fetch_retry(existing: dict) -> bool:
-    """Match explicit HF fetch markers in a failed perf or accuracy phase."""
+    """Match supplemental HF fetch markers in a failed perf or accuracy phase.
+
+    This signal is independent of the primary perf classification and coarse
+    accuracy status, so the same result can match EXPORT_FAIL or FAIL as well
+    as HF_FETCH_FAIL.
+    """
     perf = existing.get("perf") or {}
     accuracy = existing.get("accuracy") or {}
     perf_failed = bool(perf) and not perf.get("passed")
@@ -2579,16 +2584,15 @@ def _should_skip_existing(existing: dict, retry_types: set[str] | None, eval_typ
     perf = existing.get("perf") or {}
     acc = existing.get("accuracy")
 
-    # HF fetch retry matching is deliberately independent of the exclusive
-    # pipeline-stage classification and also covers accuracy-phase fetches.
+    # Supplemental HF evidence can coexist with any primary perf classification
+    # or accuracy status, and it also covers accuracy-phase fetches.
     if "HF_FETCH_FAIL" in retry_types and _matches_hf_fetch_retry(existing):
         return False
 
     # Check perf failure (only when perf ran)
     if eval_type != "accuracy" and not perf.get("passed"):
         cls = classify_result(existing) or "UNKNOWN"
-        perf_retry_types = retry_types - {"HF_FETCH_FAIL"}
-        if not retry_types or cls in perf_retry_types:
+        if not retry_types or cls in retry_types:
             return False  # Should retry
 
     # Check accuracy status (coarse, baseline-free)
@@ -3020,13 +3024,14 @@ def parse_args() -> argparse.Namespace:
         metavar="TYPE",
         help=(
             "Re-run jobs whose recorded status matches one of the given types. "
-            "Valid values are the perf failure classifications "
+            "Valid values are the primary perf failure classifications "
             "(EXPORT_FAIL, ANALYZER_BLOCK, OPT_FAIL, COMPILE_FAIL, RUNTIME_FAIL, "
             "HF_FETCH_FAIL, ENVIRONMENT, TIMEOUT, UNKNOWN) and the accuracy status "
             "FAIL (e.g. --retry-failed HF_FETCH_FAIL ENVIRONMENT). "
-            "HF_FETCH_FAIL specially matches failed perf or accuracy logs containing "
-            "WinError 10060, a Hugging Face connection failure, or a failed Hugging "
-            "Face HEAD request. "
+            "Retry criteria can overlap: HF_FETCH_FAIL also independently matches "
+            "failed perf or accuracy logs containing WinError 10060, a Hugging Face "
+            "connection failure, or a failed Hugging Face HEAD request, even when "
+            "the primary perf classification is another type or accuracy is FAIL. "
             "Use without args to retry ALL non-PASS jobs. "
             "Implies --continue for passing jobs."
         ),

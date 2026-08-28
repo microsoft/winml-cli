@@ -2144,7 +2144,7 @@ class TestShouldSkipExistingRetry:
         env_match = run_eval._should_skip_existing(res, {"ENVIRONMENT"}, "both")
         assert env_match is (cls != "ENVIRONMENT")
 
-    def test_hf_fetch_retry_marker_overrides_primary_perf_classification(self, run_eval):
+    def test_hf_fetch_retry_signal_coexists_with_primary_perf_classification(self, run_eval):
         res = self._result(
             perf_passed=False,
             perf_stdout="Exporting to ONNX... [WinError 10060] connection attempt failed",
@@ -2152,22 +2152,24 @@ class TestShouldSkipExistingRetry:
         )
         assert run_eval.classify_result(res) == "EXPORT_FAIL"
         assert run_eval._should_skip_existing(res, {"HF_FETCH_FAIL"}, "both") is False
+        assert run_eval._should_skip_existing(res, {"EXPORT_FAIL"}, "both") is False
 
-    def test_hf_fetch_retry_marker_matches_accuracy_failure(self, run_eval):
+    def test_hf_fetch_retry_signal_coexists_with_accuracy_failure(self, run_eval):
         res = self._result(perf_passed=True, acc_status="FAIL")
         res["accuracy"]["winml_eval_stderr"] = (
             "Thrown while requesting HEAD https://huggingface.co/datasets/org/data/file"
         )
         assert run_eval._should_skip_existing(res, {"HF_FETCH_FAIL"}, "both") is False
+        assert run_eval._should_skip_existing(res, {"FAIL"}, "both") is False
 
-    def test_hf_fetch_retry_does_not_use_other_classifier_patterns(self, run_eval):
+    def test_hf_fetch_retry_matches_primary_hf_classification(self, run_eval):
         res = self._result(
             perf_passed=False,
             perf_stdout="huggingface_hub.utils._http",
             acc_status="SKIPPED",
         )
         assert run_eval.classify_result(res) == "HF_FETCH_FAIL"
-        assert run_eval._should_skip_existing(res, {"HF_FETCH_FAIL"}, "both") is True
+        assert run_eval._should_skip_existing(res, {"HF_FETCH_FAIL"}, "both") is False
 
     def test_hf_fetch_retry_does_not_rerun_success_with_warning(self, run_eval):
         res = self._result(

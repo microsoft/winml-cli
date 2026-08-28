@@ -12,7 +12,12 @@ from enum import Enum
 
 
 class FailureType(str, Enum):
-    """Failure taxonomy — ordered by pipeline stage."""
+    """Primary perf failure taxonomy — ordered by pipeline stage.
+
+    The reported classification uses the first matching type. Retry criteria
+    may overlap: HF fetch evidence can coexist with an earlier pipeline-stage
+    failure and is checked independently by the evaluation runner.
+    """
 
     EXPORT_FAIL = "EXPORT_FAIL"
     ANALYZER_BLOCK = "ANALYZER_BLOCK"
@@ -51,7 +56,7 @@ def _is_hf_stream_failure(output: str) -> bool:
 
 
 def matches_hf_fetch_retry(output: str) -> bool:
-    """Return whether output contains an explicit HF fetch retry marker."""
+    """Return whether output contains a supplemental HF fetch retry marker."""
     lower = output.lower()
     return any(pattern in lower for pattern in _HF_FETCH_RETRY_PATTERNS)
 
