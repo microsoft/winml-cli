@@ -55,7 +55,9 @@ dependencies = [
   "opentelemetry-sdk>=1.39.1",
   "optimum>=2",
   "optimum-onnx>=0.1",
-  "plotext>=5.3.2",
+  # plotext 6.0 was recently released with breaking API changes that conflict
+  # with the current live chart code. Upgrade the code and dependency to >=6 together.
+  "plotext>=5.3.2,<6",
   # PINNED EXACTLY ON PURPOSE — do NOT relax to a range.
   # pandas version drift changes parquet string typing/metadata, producing
   # non-functional but huge diffs across every generated rule artifact. If you
