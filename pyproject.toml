@@ -118,6 +118,13 @@ environments = [
   "sys_platform == 'linux' and platform_machine == 'x86_64'",
   "sys_platform == 'win32' and platform_machine == 'AMD64'",
 ]
+# The QNN plugin declares standard ``onnxruntime`` as a runtime dependency,
+# but WinML CLI uses the API-compatible ``onnxruntime-windowsml`` build.
+# Installing both distributions corrupts their shared ``onnxruntime`` package
+# tree and makes the active CPU/DML runtime depend on installation order.
+exclude-dependencies = [
+  { package = { name = "onnxruntime-qnn" }, dependencies = [ "onnxruntime" ] },
+]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
