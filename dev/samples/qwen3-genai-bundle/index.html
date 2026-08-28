@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -2778,11 +2778,11 @@ QNN; use <code>winml build --ep vitisai --device npu</code> for an AMD bundle.</
 and token generation on the NPU with <code>winml perf</code>:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Qualcomm Snapdragon NPU</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--runtime<span class="w"> </span>ort-genai<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--compile<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">&quot;What is the capital of France?&quot;</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">"What is the capital of France?"</span>
 </span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
 </span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="c1"># AMD Ryzen AI NPU</span>
 </span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--runtime<span class="w"> </span>ort-genai<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--ep<span class="w"> </span>vitisai<span class="w"> </span>--compile<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">&quot;What is the capital of France?&quot;</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">"What is the capital of France?"</span>
 </span></code></pre></div>
 <p><code>winml perf</code> registers the selected WinML EP and runs the bundle's <code>context</code> and
 <code>iterator</code> stages on that NPU, while the CPU companions handle the embedding
@@ -2799,7 +2799,7 @@ When <code>-m</code> is not a prebuilt bundle directory, it builds the genai bun
 (into <code>~/.cache/winml/</code>, reused on later runs) and then benchmarks it — no separate
 <code>winml build</code> step:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>--runtime<span class="w"> </span>ort-genai<span class="w"> </span>--compile<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">&quot;What is the capital of France?&quot;</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">"What is the capital of France?"</span>
 </span></code></pre></div>
 <p>The model-ID auto-build shortcut targets the NPU HTP via QNN. To use VitisAI,
 first build the bundle explicitly in Step 1 and then point <code>perf -m</code> at that
@@ -2903,7 +2903,7 @@ is needed to give it the same one-command bundle build.</p>
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>
