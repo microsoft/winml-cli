@@ -27,7 +27,7 @@ uv pip install winml-cli
 
     ```powershell
     uv python install cpython-3.11-windows-x86_64-none
-    uv sync --locked --python cpython-3.11-windows-x86_64-none
+    uv sync --python cpython-3.11-windows-x86_64-none
     ```
 
     The x64 interpreter runs under Windows emulation on Arm64 hardware; `winml sys` still reports the Arm64 machine, and the NPU/GPU/CPU providers work normally.
