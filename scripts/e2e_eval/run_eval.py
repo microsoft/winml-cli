@@ -248,25 +248,76 @@ def _precision_from_build_config(config_path: Path) -> str | None:
     return None
 
 
-def _load_timeout_skip_set() -> set[tuple[str, str]]:
-    """Load the timeout skip list as a set of (hf_id, task) tuples."""
-    if not TIMEOUT_SKIP_LIST_PATH.exists():
-        return set()
-    with TIMEOUT_SKIP_LIST_PATH.open(encoding="utf-8") as f:
-        entries = json.load(f)
-    return {(e["hf_id"], e.get("task", "")) for e in entries}
+def _normalize_skip_attr(value: str | None) -> str | None:
+    """Normalize optional skip-list attributes (ep/precision) for matching."""
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    return normalized or None
 
 
-def _get_timeout_skip_reason(hf_id: str, task: str) -> str:
-    """Get the skip reason for a timeout-skipped model."""
+def _normalize_skip_ep(value: str | None) -> str | None:
+    """Normalize EP names/aliases (e.g. ``qnn`` vs ``QNNExecutionProvider``)."""
+    normalized = _normalize_skip_attr(value)
+    if not normalized:
+        return None
+    try:
+        # Lazy import keeps this script fast to import for non-run paths.
+        from winml.modelkit.utils.constants import normalize_ep_name
+
+        return normalize_ep_name(normalized).lower()
+    except Exception:
+        # Best-effort fallback when constants import is unavailable.
+        return normalized
+
+
+def _load_timeout_skip_rules() -> list[dict[str, str | None]]:
+    """Load timeout skip rules; supports optional ``ep``/``precision`` filters."""
     if not TIMEOUT_SKIP_LIST_PATH.exists():
-        return "timeout"
+        return []
     with TIMEOUT_SKIP_LIST_PATH.open(encoding="utf-8") as f:
         entries = json.load(f)
-    for e in entries:
-        if e["hf_id"] == hf_id and e.get("task", "") == task:
-            return e.get("reason", "timeout")
-    return "timeout"
+
+    rules: list[dict[str, str | None]] = []
+    for entry in entries:
+        hf_id = entry.get("hf_id")
+        if not hf_id:
+            continue
+        rules.append(
+            {
+                "hf_id": hf_id,
+                "task": entry.get("task", "") or "",
+                "reason": entry.get("reason", "timeout"),
+                "ep": _normalize_skip_ep(entry.get("ep")),
+                "precision": _normalize_skip_attr(entry.get("precision")),
+            }
+        )
+    return rules
+
+
+def _find_timeout_skip_rule(
+    rules: list[dict[str, str | None]],
+    hf_id: str,
+    task: str,
+    ep: str | None,
+    precision: str | None,
+) -> dict[str, str | None] | None:
+    """Return the first matching timeout skip rule for a model/task run."""
+    normalized_ep = _normalize_skip_ep(ep)
+    normalized_precision = _normalize_skip_attr(precision)
+    for rule in rules:
+        if rule.get("hf_id") != hf_id:
+            continue
+        if (rule.get("task") or "") != task:
+            continue
+        expected_ep = rule.get("ep")
+        if expected_ep and expected_ep != normalized_ep:
+            continue
+        expected_precision = rule.get("precision")
+        if expected_precision and expected_precision != normalized_precision:
+            continue
+        return rule
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -3169,9 +3220,22 @@ def main() -> None:
     skipped = 0
     run_start = time.perf_counter()
     interrupted = False
-    timeout_skip_set = _load_timeout_skip_set()
-    if timeout_skip_set:
-        safe_print(f"Timeout skip list: {len(timeout_skip_set)} models will be auto-skipped")
+    resolved_ep = _effective_ep(args.ep, args.device)
+    timeout_skip_rules = _load_timeout_skip_rules()
+    if timeout_skip_rules:
+        normalized_resolved_ep = _normalize_skip_ep(resolved_ep)
+        if normalized_resolved_ep:
+            applicable_rules = sum(
+                1
+                for rule in timeout_skip_rules
+                if not rule.get("ep") or rule.get("ep") == normalized_resolved_ep
+            )
+            safe_print(
+                f"Timeout skip list: {len(timeout_skip_rules)} rules loaded "
+                f"({applicable_rules} applicable for EP={resolved_ep})"
+            )
+        else:
+            safe_print(f"Timeout skip list: {len(timeout_skip_rules)} rules loaded")
 
     for i, job in enumerate(jobs, 1):
         entry = job.entry
@@ -3186,8 +3250,15 @@ def main() -> None:
         result_path = model_dir / "eval_result.json"
 
         # Timeout skip list: skip known-timeout models and write a TIMEOUT result
-        if (entry.hf_id, entry.task or "") in timeout_skip_set:
-            reason = _get_timeout_skip_reason(entry.hf_id, entry.task or "")
+        timeout_rule = _find_timeout_skip_rule(
+            timeout_skip_rules,
+            entry.hf_id,
+            entry.task or "",
+            resolved_ep,
+            precision,
+        )
+        if timeout_rule is not None:
+            reason = timeout_rule.get("reason") or "timeout"
             safe_print(f"\n[{i}/{total_jobs}] {label}  (SKIP - TIMEOUT: {reason})")
             model_dir.mkdir(parents=True, exist_ok=True)
             timeout_result = build_eval_result(
