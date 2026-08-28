@@ -51,7 +51,7 @@ dependencies = [
   # form of what WinML's wasdk metadata pins as `1.24.5.post202604171637` (PEP 440
   # normalized) — an exact `==` can't reconcile the two. A bounded range keeps the
   # 1.24.x series while resolving to the published wheel.
-  "onnxruntime-windowsml>=1.24.5,<1.25 ; sys_platform == 'win32'",
+  "onnxruntime-windowsml==1.24.5.202604171637 ; sys_platform == 'win32'",
   "onnxscript>=0.2",
   "opentelemetry-sdk>=1.39.1",
   "optimum>=2",
@@ -90,7 +90,9 @@ dependencies = [
 optional-dependencies.audio = [ "soundfile>=0.13" ]
 optional-dependencies.openvino = [ "openvino>=2023" ]
 optional-dependencies.qnn = [
-  "onnxruntime-qnn>=1.24.1; python_version>='3.11'",
+  # 2.1+ is a plugin-only wheel under ``onnxruntime_qnn``. Older releases
+  # also install the ``onnxruntime`` package and overwrite Windows ML files.
+  "onnxruntime-qnn>=2.1; python_version>='3.11'",
 ]
 urls."Bug Tracker" = "https://github.com/microsoft/winml-cli/issues"
 urls.Documentation = "https://github.com/microsoft/winml-cli/blob/main/README.md"
@@ -120,6 +122,13 @@ scripts.winml = "winml.modelkit.cli:main"
 environments = [
   "sys_platform == 'linux' and platform_machine == 'x86_64'",
   "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+# The QNN plugin declares standard ``onnxruntime`` as a runtime dependency,
+# but WinML CLI uses the API-compatible ``onnxruntime-windowsml`` build.
+# Installing both distributions corrupts their shared ``onnxruntime`` package
+# tree and makes the active CPU/DML runtime depend on installation order.
+exclude-dependencies = [
+  { package = { name = "onnxruntime-qnn" }, dependencies = [ "onnxruntime" ] },
 ]
 
 [[tool.uv.index]]
