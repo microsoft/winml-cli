@@ -121,6 +121,14 @@ environments = [
   "sys_platform == 'linux' and platform_machine == 'x86_64'",
   "sys_platform == 'win32' and platform_machine == 'AMD64'",
 ]
+# Neutralize onnxruntime-qnn's transitive standard `onnxruntime` requirement.
+# onnxruntime-windowsml ships the same `onnxruntime/` module; installing plain
+# onnxruntime alongside it overwrites windowsml's files on disk and kills the
+# DirectML EP. The `sys_platform == 'unobtainium'` marker is never true, so uv
+# never installs plain onnxruntime while still keeping onnxruntime-qnn.
+override-dependencies = [
+  "onnxruntime ; sys_platform == 'unobtainium'",
+]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
