@@ -741,7 +741,7 @@ class InferenceEngine:
         self,
         inputs: dict[str, Any],
         *,
-        schema: list[InputField] | None | Any = _UNSET,
+        schema: list[InputField] | Any | None = _UNSET,
     ) -> dict[str, Any]:
         """Validate inputs against schema and inject defaults.
 
@@ -818,8 +818,8 @@ class InferenceEngine:
         pipeline_kwargs: dict[str, Any],
         temp_paths: list[str] | None = None,
         *,
-        schema: list[InputField] | None | Any = _UNSET,
-        mapping: PipelineMapping | None | Any = _UNSET,
+        schema: list[InputField] | Any | None = _UNSET,
+        mapping: PipelineMapping | Any | None = _UNSET,
     ) -> Any:
         """Convert validated inputs → pipeline positional argument.
 
@@ -915,7 +915,7 @@ class InferenceEngine:
         raw: Any,
         inputs: dict[str, Any] | None = None,
         *,
-        task: str | None | Any = _UNSET,
+        task: str | Any | None = _UNSET,
     ) -> list[Prediction] | dict[str, Any]:
         """Convert HF pipeline output to our standard format.
 
