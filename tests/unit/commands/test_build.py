@@ -2051,8 +2051,9 @@ class TestBuildPipelineSkipOptimize:
         output_dir = tmp_path / "out"
         export_path = output_dir / "export.onnx"
         quantized_path = output_dir / "quantized.onnx"
+        compiled_path = output_dir / "compiled.onnx"
         mock_quantize.return_value = quantized_path if quant_mode else export_path
-        mock_compile.side_effect = lambda **kwargs: kwargs["current_path"]
+        mock_compile.return_value = compiled_path
 
         config = MagicMock()
         config.skip_optimize = False
@@ -2061,6 +2062,7 @@ class TestBuildPipelineSkipOptimize:
         config.loader.model_class = "AutoModel"
         config.export = MagicMock()
         config.quant = None if quant_mode is None else MagicMock(mode=quant_mode)
+        config.compile = MagicMock()
         if config.quant is not None:
             config.quant.model_type = None
         config.to_dict.return_value = {}
@@ -2080,8 +2082,10 @@ class TestBuildPipelineSkipOptimize:
         assert [name for name, _ in result] == ["Export"]
         mock_optimize.assert_not_called()
         assert mock_quantize.call_args.kwargs["current_path"] == export_path
-        expected_final_source = quantized_path if quant_mode else export_path
-        mock_copy.assert_called_once_with(expected_final_source, output_dir / "model.onnx")
+        expected_compile_source = quantized_path if quant_mode else export_path
+        mock_compile.assert_called_once()
+        assert mock_compile.call_args.kwargs["current_path"] == expected_compile_source
+        mock_copy.assert_called_once_with(compiled_path, output_dir / "model.onnx")
 
     @pytest.mark.parametrize("quant_mode", [None, "fp16"])
     @patch("winml.modelkit.onnx.copy_onnx_model")
@@ -2104,12 +2108,14 @@ class TestBuildPipelineSkipOptimize:
         output_dir = tmp_path / "out"
         copied_input = output_dir / onnx_path.name
         quantized_path = output_dir / "input_quantized.onnx"
+        compiled_path = output_dir / "input_compiled.onnx"
         mock_quantize.return_value = quantized_path if quant_mode else copied_input
-        mock_compile.side_effect = lambda **kwargs: kwargs["current_path"]
+        mock_compile.return_value = compiled_path
 
         config = MagicMock()
         config.skip_optimize = False
         config.quant = None if quant_mode is None else MagicMock(mode=quant_mode)
+        config.compile = MagicMock()
         config.to_dict.return_value = {}
 
         with patch("winml.modelkit.build.common.ensure_pre_quantized_stamped"):
@@ -2126,9 +2132,11 @@ class TestBuildPipelineSkipOptimize:
         assert result == []
         mock_optimize.assert_not_called()
         assert mock_quantize.call_args.kwargs["current_path"] == copied_input
-        expected_final_source = quantized_path if quant_mode else copied_input
+        expected_compile_source = quantized_path if quant_mode else copied_input
+        mock_compile.assert_called_once()
+        assert mock_compile.call_args.kwargs["current_path"] == expected_compile_source
         assert mock_copy.call_args_list[-1].args == (
-            expected_final_source,
+            compiled_path,
             output_dir / "model.onnx",
         )
 
