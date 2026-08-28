@@ -883,10 +883,8 @@ def resolve_processor(
                 IMAGE_PROCESSOR_MAPPING_NAMES,
             )
 
-            mapping: Any = IMAGE_PROCESSOR_MAPPING_NAMES.get(model_type)
-            if isinstance(mapping, dict):
-                image_processor_class = mapping.get("torchvision") or mapping.get("pil")
-            elif isinstance(mapping, tuple):
+            mapping = IMAGE_PROCESSOR_MAPPING_NAMES.get(model_type)
+            if mapping:
                 image_processor_class = mapping[0] or mapping[1]
             if image_processor_class:
                 image_processor_source = "hf_registry"

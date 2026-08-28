@@ -128,10 +128,7 @@ def test_hub_model_id_wins_over_stale_saved_identifier() -> None:
     assert config[0] == "specific"
 
 
-@pytest.mark.parametrize("transformers_version", ["5.0.0", "5.14.1"])
-def test_model_type_less_config_bypasses_transformers_path_fallback(
-    transformers_version: str,
-) -> None:
+def test_model_type_less_config_bypasses_transformers_path_fallback() -> None:
     config_dict = {"hidden_size": 128}
     generic_config = type("GenericConfig", (), {})()
     auto_config = MagicMock()
@@ -150,7 +147,6 @@ def test_model_type_less_config_bypasses_transformers_path_fallback(
             "transformers.PretrainedConfig.from_dict",
             return_value=generic_config,
         ),
-        patch("transformers.__version__", transformers_version),
     ):
         config = load_hf_config(auto_config, r"C:\specific-parent\neutral-model")
 
@@ -425,15 +421,61 @@ def test_fallback_preserves_caller_identity_and_consumes_code_revision(tmp_path:
     assert unused_kwargs == {"sentinel": "unused"}
 
 
-def test_transformers5_rejects_legacy_auth_token_keyword() -> None:
+def test_transformers4_converts_legacy_auth_token() -> None:
+    seen_kwargs: dict[str, object] = {}
+    legacy_token = object()
+
+    def _get_config_dict(*_args, **kwargs):
+        seen_kwargs.update(kwargs)
+        return {"hidden_size": 128}, {}
+
     with (
-        patch("transformers.PretrainedConfig.get_config_dict") as get_config_dict,
-        pytest.raises(ValueError, match=r"use_auth_token.*not supported"),
+        patch(
+            "transformers.PretrainedConfig.get_config_dict",
+            side_effect=_get_config_dict,
+        ),
+        patch("transformers.models.auto.configuration_auto.CONFIG_MAPPING", {}),
+        pytest.warns(FutureWarning, match="use_auth_token.*deprecated"),
     ):
         load_hf_config(
             _FailingAutoConfig,
             "owner/neutral-model",
-            use_auth_token=object(),
+            use_auth_token=legacy_token,
+        )
+
+    assert seen_kwargs["token"] is legacy_token
+    assert "use_auth_token" not in seen_kwargs
+
+
+def test_transformers4_ignores_none_legacy_auth_token() -> None:
+    raw_config_loader = MagicMock(return_value=({"hidden_size": 128}, {}))
+
+    with patch("transformers.models.auto.configuration_auto.CONFIG_MAPPING", {}):
+        load_hf_config(
+            _FailingAutoConfig,
+            "owner/neutral-model",
+            raw_config_loader=raw_config_loader,
+            use_auth_token=None,
+        )
+
+    assert "use_auth_token" not in raw_config_loader.call_args.kwargs
+    assert "token" not in raw_config_loader.call_args.kwargs
+
+
+def test_transformers4_rejects_conflicting_auth_tokens() -> None:
+    token = object()
+    legacy_token = object()
+
+    with (
+        patch("transformers.PretrainedConfig.get_config_dict") as get_config_dict,
+        pytest.warns(FutureWarning, match="use_auth_token.*deprecated"),
+        pytest.raises(ValueError, match="both specified"),
+    ):
+        load_hf_config(
+            _FailingAutoConfig,
+            "owner/neutral-model",
+            token=token,
+            use_auth_token=legacy_token,
         )
 
     get_config_dict.assert_not_called()
