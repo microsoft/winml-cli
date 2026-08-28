@@ -13,9 +13,19 @@ Export Strategy (split by task):
 - MarianDecoderWrapper + MarianDecoderIOConfig: ``text2text-generation`` task
   → decoder ONNX with a static cache buffer input + single-token KV output.
 
-Transformers 4.57 passes the explicit ``cache_position`` through Marian's
-decoder and attention layers. The wrapper uses that native path to update the
-static cache and derive position IDs and the causal mask.
+Transformers cache compatibility:
+
+Transformers 4.57 passes ``cache_position`` through Marian's decoder and
+attention layers. Transformers 5 removes that explicit parameter and calls
+``Cache.update`` without cache kwargs; it also derives position IDs and the
+causal mask from ``Cache.get_seq_length``. The wrapper handles both APIs:
+
+1. ``WinMLStaticCache.set_trace_position`` supplies the explicit ONNX input
+    when Transformers omits ``cache_kwargs`` from ``Cache.update``.
+2. On the Transformers 5 path, the positional-embedding patch reads that same
+    input directly, avoiding the unsupported integer ``arange + length`` graph.
+3. A precomputed 4D additive mask bypasses Transformers 5's internal dynamic
+    causal-mask offsets. Transformers 4 keeps its native mask path.
 
 The static cache writes new KV at ``cache_position`` through ScatterND and
 preserves ``buffer_position == sequence_position``.
@@ -29,12 +39,15 @@ Usage:
 
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from optimum.exporters.onnx import OnnxConfig
+from optimum.exporters.onnx.model_patcher import PatchingSpec
 from optimum.utils import NormalizedConfig
 from optimum.utils.input_generators import DummyTextInputGenerator
 from transformers import MarianMTModel
@@ -50,8 +63,64 @@ from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLStaticCache
 
 if TYPE_CHECKING:
     from transformers import GenerationConfig, PretrainedConfig
+    from transformers.models.marian.modeling_marian import MarianSinusoidalPositionalEmbedding
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Patch for Transformers 5 positional lookup
+# =============================================================================
+# Transformers 5 no longer forwards ``cache_position`` through MarianDecoder.
+# The export wrapper stores the tensor on the embedding module, and this patch
+# reads it directly. Without the attribute, it preserves stock behavior for
+# Transformers 4 and other Marian export paths.
+
+
+def _patched_marian_sinusoidal_forward(
+    self: MarianSinusoidalPositionalEmbedding,  # monkey-patched onto this HF module
+    input_ids_shape: torch.Size,
+    past_key_values_length: int = 0,
+    position_ids: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Patched ``MarianSinusoidalPositionalEmbedding.forward``.
+
+    When the export wrapper stores ``cache_position`` on ``position_id``, use
+    it directly as the sin/cos lookup index. Without that attribute, preserve
+    the stock implementation for Transformers 4 and other export paths.
+    """
+    abs_pos = getattr(self, "position_id", None)
+    if abs_pos is not None:
+        return F.embedding(abs_pos, self.weight)
+    # Fallback: unchanged HF behavior
+    if position_ids is None:
+        _, seq_len = input_ids_shape[:2]
+        position_ids = torch.arange(
+            past_key_values_length,
+            past_key_values_length + seq_len,
+            dtype=torch.long,
+            device=self.weight.device,
+        )
+    return F.embedding(position_ids, self.weight)
+
+
+def _build_marian_patching_specs() -> list[PatchingSpec]:
+    """Return PatchingSpec list for Marian.
+
+    Returns [] if MarianSinusoidalPositionalEmbedding is unavailable.
+    """
+    try:
+        from transformers.models.marian.modeling_marian import MarianSinusoidalPositionalEmbedding
+    except ImportError:
+        logger.debug("MarianSinusoidalPositionalEmbedding not found; sin/cos patch skipped.")
+        return []
+    return [
+        PatchingSpec(
+            o=MarianSinusoidalPositionalEmbedding,
+            name="forward",
+            custom_op=_patched_marian_sinusoidal_forward,
+        ),
+    ]
 
 
 # =============================================================================
@@ -157,7 +226,17 @@ class MarianDecoderWrapper(nn.Module):
             self_attn_cache._layer(i).keys = args[kv_start + i * 2]
             self_attn_cache._layer(i).values = args[kv_start + i * 2 + 1]
 
+        self_attn_cache.set_trace_position(cache_position)
         model = cast("MarianMTModel", self.model)
+        decoder = model.get_decoder()
+        if "cache_position" not in inspect.signature(decoder.forward).parameters:
+            decoder.embed_positions.position_id = cache_position
+            expanded_mask = decoder_attention_mask[:, None, None, :].to(
+                dtype=encoder_hidden_states.dtype
+            )
+            decoder_attention_mask = (1.0 - expanded_mask) * torch.finfo(
+                encoder_hidden_states.dtype
+            ).min
 
         # EncoderDecoderCache routes self-attention vs cross-attention to
         # separate caches.  DynamicCache for cross-attn is a no-op during
@@ -244,7 +323,8 @@ class MarianDecoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base i
     Outputs: logits, present_{i}_key/value
 
     ``cache_position`` is both the static buffer index and absolute sequence
-    position and is passed through the native Transformers 4.57 decoder path.
+    position. Transformers 5 receives it through the export compatibility
+    path described by ``MarianDecoderWrapper``.
 
     Input past KV: full buffer ``[batch, heads, max_decode, d_kv]``.
     Output present KV: new token only ``[batch, heads, 1, d_kv]``.
@@ -255,6 +335,7 @@ class MarianDecoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base i
         EncoderDecoderInputGenerator,
         PastKeyValueInputGenerator,
     )
+    PATCHING_SPECS = _build_marian_patching_specs()
 
     @property
     def inputs(self) -> dict[str, dict[int, str]]:  # noqa: D102

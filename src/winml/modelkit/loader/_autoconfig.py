@@ -4,9 +4,12 @@
 # --------------------------------------------------------------------------
 """HF config loading with tolerance for model_type-less configs.
 
-:func:`load_hf_config` applies identifier-based inference to a trusted
-model-name segment, then returns a tagged generic config when no concrete
-architecture can be inferred safely.
+transformers>=5 dropped the lenient fallback that let ``AutoConfig.from_pretrained``
+load a config lacking a ``model_type`` key (older Hub models such as
+``prajjwal1/bert-tiny``); it now raises ``ValueError: Unrecognized model ...``.
+:func:`load_hf_config` first applies the former identifier-based inference to a
+trusted model-name segment, then returns a tagged generic config when no
+concrete architecture can be inferred safely.
 """
 
 from __future__ import annotations
@@ -238,27 +241,29 @@ def load_hf_config(
 
         _require_remote_code_execution_allowed()
 
-    from transformers import PretrainedConfig
+    from transformers import PretrainedConfig, __version__
 
     load_kwargs = kwargs.copy()
     if return_unused_kwargs:
         load_kwargs["return_unused_kwargs"] = True
-    use_auth_token = load_kwargs.pop("use_auth_token", None)
-    if use_auth_token is not None:
-        import warnings
+    is_transformers4 = __version__.startswith("4.")
+    if is_transformers4:
+        use_auth_token = load_kwargs.pop("use_auth_token", None)
+        if use_auth_token is not None:
+            import warnings
 
-        warnings.warn(
-            "The `use_auth_token` argument is deprecated and will be removed in v5 of "
-            "Transformers. Please use `token` instead.",
-            FutureWarning,
-            stacklevel=2,
-        )
-        if load_kwargs.get("token") is not None:
-            raise ValueError(
-                "`token` and `use_auth_token` are both specified. Please set only the "
-                "argument `token`."
+            warnings.warn(
+                "The `use_auth_token` argument is deprecated and will be removed in v5 of "
+                "Transformers. Please use `token` instead.",
+                FutureWarning,
+                stacklevel=2,
             )
-        load_kwargs["token"] = use_auth_token
+            if load_kwargs.get("token") is not None:
+                raise ValueError(
+                    "`token` and `use_auth_token` are both specified. Please set only the "
+                    "argument `token`."
+                )
+            load_kwargs["token"] = use_auth_token
 
     fallback_kwargs = load_kwargs.copy()
     fallback_kwargs["_from_auto"] = True

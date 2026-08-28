@@ -271,7 +271,7 @@ class TestModelArchitectureOverrideFast:
         assert call["model_class"] is None
 
     def test_model_type_less_config_uses_identifier_inference_and_reuses_config(self, monkeypatch):
-        """The config fallback supplies the recovered config to model loading."""
+        """Transformers 5 fallback supplies the recovered config to model loading."""
         from types import SimpleNamespace
 
         from transformers import AutoConfig, PretrainedConfig
