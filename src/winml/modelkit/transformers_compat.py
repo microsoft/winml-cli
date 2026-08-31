@@ -168,6 +168,10 @@ def _install_impl() -> None:
     import transformers.utils
     import transformers.utils.generic
 
+    utils_mod = cast("Any", transformers.utils)
+    modeling_utils_mod = cast("Any", transformers.modeling_utils)
+    generic_utils_mod = cast("Any", transformers.utils.generic)
+
     # transformers 5.x's top-level package is a ``_LazyModule``; each
     # ``from transformers import X`` may swap ``sys.modules["transformers"]``
     # with a fresh instance. Force replacements to settle before capturing
@@ -225,7 +229,7 @@ def _install_impl() -> None:
 
     # Submodules of transformers are regular ModuleType (not _LazyModule),
     # so plain setattr lands in __dict__ and persists.
-    if not hasattr(transformers.utils, "is_offline_mode"):
+    if not hasattr(utils_mod, "is_offline_mode"):
 
         def is_offline_mode() -> bool:
             return os.environ.get("TRANSFORMERS_OFFLINE", "0").lower() in (
@@ -236,9 +240,9 @@ def _install_impl() -> None:
             )
 
         # Monkey-patch an attribute the transformers.utils stubs don't export.
-        transformers.utils.is_offline_mode = is_offline_mode  # type: ignore[attr-defined]  # untyped lib monkey-patch
+        utils_mod.is_offline_mode = is_offline_mode
 
-    if not hasattr(transformers.modeling_utils, "get_parameter_dtype"):
+    if not hasattr(modeling_utils_mod, "get_parameter_dtype"):
 
         def get_parameter_dtype(parameter: Any) -> Any:
             try:
@@ -252,14 +256,14 @@ def _install_impl() -> None:
 
                 return torch.float32
 
-        transformers.modeling_utils.get_parameter_dtype = get_parameter_dtype  # type: ignore[attr-defined]  # untyped lib monkey-patch
+        modeling_utils_mod.get_parameter_dtype = get_parameter_dtype
 
     # Empty dict means the recorder branch never fires; output_attentions /
     # output_hidden_states capture during export is silently skipped.
-    if not hasattr(transformers.utils.generic, "_CAN_RECORD_REGISTRY"):
-        transformers.utils.generic._CAN_RECORD_REGISTRY = {}  # type: ignore[attr-defined]  # untyped lib monkey-patch
+    if not hasattr(generic_utils_mod, "_CAN_RECORD_REGISTRY"):
+        generic_utils_mod._CAN_RECORD_REGISTRY = {}
 
-    if not hasattr(transformers.utils.generic, "OutputRecorder"):
+    if not hasattr(generic_utils_mod, "OutputRecorder"):
 
         class OutputRecorder:
             """Never instantiated with _CAN_RECORD_REGISTRY={}; satisfies the import."""
@@ -278,7 +282,7 @@ def _install_impl() -> None:
 
         # Monkey-patch the untyped transformers module: it declares
         # OutputRecorder as a type, so mypy rejects rebinding it.
-        transformers.utils.generic.OutputRecorder = OutputRecorder  # type: ignore[attr-defined]  # untyped lib monkey-patch
+        generic_utils_mod.OutputRecorder = OutputRecorder
 
     # optimum-onnx 0.1.0's sdpa_mask_without_vmap was written against
     # transformers 4.x's mask_interface (cache_position tensor); tf 5.x
@@ -336,7 +340,8 @@ def _patch_model_patcher(module: Any) -> None:
         if mask_function is None:
             mask_function = causal_mask_function
         padding_mask = prepare_padding_mask(attention_mask, kv_length, kv_offset)
-        if allow_is_causal_skip and _ignore_causal_mask_sdpa(
+        ignore_causal_mask_sdpa = cast("Any", _ignore_causal_mask_sdpa)
+        if allow_is_causal_skip and ignore_causal_mask_sdpa(
             padding_mask, q_length, kv_length, q_offset, kv_offset, local_size
         ):
             return None
