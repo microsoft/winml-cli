@@ -92,9 +92,9 @@ def test_parse_detailed_profile_excludes_warmup_and_removes_prefix(tmp_path) -> 
     assert monitor.result.artifacts["profile"] == str(profile_path)
     assert len(monitor.result.operators) == 1
     operator = monitor.result.operators[0]
-    assert operator.name == "/resnet/encoder/Conv"
+    assert operator.name == "Convolution"
     assert operator.op_path == "/resnet/encoder/Conv"
-    assert operator.onnx_op_type == "Convolution"
+    assert operator.onnx_op_type is None
     assert operator.samples_us == [4.0, 6.0]
     assert operator.avg_us == 5.0
 

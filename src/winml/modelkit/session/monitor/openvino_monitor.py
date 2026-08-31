@@ -243,11 +243,10 @@ class OpenVinoMonitor(EPMonitor):
 
         return [
             OperatorMetrics(
-                name=op_path,
+                name=op_type_by_path[op_path],
                 op_path=op_path,
                 start_time_us=start_by_path.get(op_path),
                 samples_us=list(samples.values()),
-                onnx_op_type=op_type_by_path[op_path],
             )
             for op_path, samples in samples_by_path.items()
         ]
