@@ -10,7 +10,7 @@ Leverages existing loader, export, and models modules - NO NEW CONFIG LOGIC.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from ..loader.resolution import _get_custom_model_class
 from ..loader.task import (
@@ -879,19 +879,27 @@ def resolve_processor(
     # their processor classes (e.g., resnet → ConvNextImageProcessor).
     if model_type is not None:
         try:
-            from transformers.models.auto.image_processing_auto import (  # type: ignore[attr-defined]  # exists at runtime; not re-exported in transformers 5's __all__
+            from transformers.models.auto.image_processing_auto import (
                 IMAGE_PROCESSOR_MAPPING_NAMES,
             )
 
             mapping = IMAGE_PROCESSOR_MAPPING_NAMES.get(model_type)
             if mapping:
-                # transformers 5: mapping is a dict keyed by backend, e.g.
-                # {"pil": "XxxImageProcessorPil", "torchvision": "XxxImageProcessor"}.
-                # Prefer the unsuffixed "torchvision" class (the canonical name that
-                # matched transformers 4's slow-processor entry), fall back to "pil".
-                image_processor_class = mapping.get("torchvision") or mapping.get("pil")
-                if image_processor_class:
-                    image_processor_source = "hf_registry"
+                mapping_value = cast("Any", mapping)
+                if isinstance(mapping_value, dict):
+                    # transformers 5: mapping is a dict keyed by backend, e.g.
+                    # {"pil": "XxxImageProcessorPil", "torchvision": "XxxImageProcessor"}.
+                    # Prefer the unsuffixed "torchvision" class (the canonical name that
+                    # matched transformers 4's slow-processor entry), fall back to "pil".
+                    image_processor_class = mapping_value.get("torchvision") or mapping_value.get(
+                        "pil"
+                    )
+                else:
+                    # transformers 4-style stubs expose a (slow, fast) tuple.
+                    image_processor_class = mapping_value[0] or mapping_value[1]
+
+            if image_processor_class:
+                image_processor_source = "hf_registry"
         except Exception as e:
             logger.debug("Registry lookup failed for %s: %s", model_type, e)
 

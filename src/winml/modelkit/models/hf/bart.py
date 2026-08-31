@@ -96,7 +96,6 @@ from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLStaticCache
 
 if TYPE_CHECKING:
     from transformers import GenerationConfig, PretrainedConfig
-    from transformers.cache_utils import CacheLayerMixin
     from transformers.models.bart.modeling_bart import BartLearnedPositionalEmbedding
 
 logger = logging.getLogger(__name__)
@@ -324,7 +323,7 @@ class BartDecoderWrapper(nn.Module):
         for i in range(self.num_layers):
             # WinML caches use standard (non-linear) attention layers, which
             # carry keys/values; narrow away LinearAttentionCacheLayerMixin.
-            layer = cast("CacheLayerMixin", self_attn_cache.layers[i])
+            layer = self_attn_cache.layers[i]
             layer.keys = args[kv_start + i * 2]
             layer.values = args[kv_start + i * 2 + 1]
 

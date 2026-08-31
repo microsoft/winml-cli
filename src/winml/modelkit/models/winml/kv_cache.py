@@ -108,7 +108,7 @@ class WinMLCache(StaticCache, ABC):
         (which lacks ``keys``/``values``), but ``StaticCache`` always builds
         ``CacheLayerMixin`` (``StaticLayer``) layers, so this cast is sound.
         """
-        return cast("CacheLayerMixin", self.layers[idx])
+        return self.layers[idx]
 
     def set_trace_position(self, position: torch.Tensor) -> None:
         """Provide the position tensor when a model omits cache update kwargs."""
