@@ -35,6 +35,8 @@ import winml.modelkit.models  # noqa: F401
 from winml.modelkit.export import generate_dummy_inputs, resolve_io_specs
 from winml.modelkit.export.io import (  # Testing internal implementation
     _get_onnx_config,
+    _is_image_float_input,
+    _normalized_image_value_range,
     _populate_image_size_from_preprocessor,
 )
 from winml.modelkit.models.winml.kv_cache import PastKeyValueInputGenerator
@@ -790,6 +792,83 @@ class TestPopulateImageSize:
             )
 
         assert shape_kwargs == {"height": 128}
+
+
+class TestNormalizedImageValueRange:
+    """Tests processor-derived float image input ranges."""
+
+    def test_channel_extrema_and_float32_high_exclusive_bound(self) -> None:
+        config = {
+            "do_rescale": True,
+            "do_normalize": True,
+            "rescale_factor": 1 / 255,
+            "image_mean": [0.485, 0.456, 0.406],
+            "image_std": [0.229, 0.224, 0.225],
+        }
+
+        assert _normalized_image_value_range(config) == (
+            -2.1179039478302,
+            2.640000343322754,
+        )
+
+    def test_scalar_metadata(self) -> None:
+        config = {
+            "do_rescale": True,
+            "do_normalize": True,
+            "rescale_factor": 1 / 255,
+            "image_mean": 0.5,
+            "image_std": 0.5,
+        }
+
+        assert _normalized_image_value_range(config) == (-1.0, 1.0000001192092896)
+
+    def test_scalar_std_broadcasts_across_channel_means(self) -> None:
+        config = {
+            "do_rescale": True,
+            "do_normalize": True,
+            "rescale_factor": 1 / 255,
+            "image_mean": [0.25, 0.5, 0.75],
+            "image_std": 0.5,
+        }
+
+        assert _normalized_image_value_range(config) == (-1.5, 1.5000001192092896)
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {},
+            {"do_rescale": False, "do_normalize": True},
+            {"do_rescale": True, "do_normalize": False},
+            {
+                "do_rescale": True,
+                "do_normalize": True,
+                "rescale_factor": 1 / 255,
+                "image_mean": [0.5, 0.5, 0.5],
+                "image_std": [0.5, 0.5],
+            },
+        ],
+    )
+    def test_missing_disabled_or_incompatible_metadata_falls_back(self, config: dict) -> None:
+        assert _normalized_image_value_range(config) is None
+
+    @pytest.mark.parametrize(
+        "shape,dtype,channels,expected",
+        [
+            ((1, 3, 256, 192), "float32", 3, True),
+            ((1, 3, 256, 192), "float32", None, True),
+            ((1, 256, 192, 3), "float16", 3, True),
+            ((1, 80, 3000), "float32", 3, False),
+            ((1, 3, 256, 192), "int64", 3, False),
+        ],
+    )
+    def test_only_image_shaped_float_inputs_are_selected(
+        self,
+        shape: tuple[int, ...],
+        dtype: str,
+        channels: int | None,
+        expected: bool,
+    ) -> None:
+        assert _is_image_float_input(shape, dtype, channels) is expected
 
 
 # =============================================================================

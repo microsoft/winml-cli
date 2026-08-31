@@ -34,6 +34,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
+import numpy as np
 from optimum.exporters.tasks import TasksManager
 from optimum.utils.input_generators import (
     DEFAULT_DUMMY_SHAPES,
@@ -211,6 +212,8 @@ def _populate_image_size_from_preprocessor(
     model_id: str | None,
     shape_kwargs: dict,
     hf_config: PretrainedConfig | None = None,
+    *,
+    preprocessor_config: dict | None = None,
 ) -> None:
     """Populate height/width in shape_kwargs from preprocessor metadata.
 
@@ -233,7 +236,11 @@ def _populate_image_size_from_preprocessor(
     if "height" in shape_kwargs or "width" in shape_kwargs:
         return
 
-    config = _get_preprocessor_dict(model_id, hf_config)
+    config = (
+        preprocessor_config
+        if preprocessor_config is not None
+        else _get_preprocessor_dict(model_id, hf_config)
+    )
     size = config.get("size")
 
     if isinstance(size, int):
@@ -263,17 +270,16 @@ def _get_preprocessor_dict(
 
     Resolution order:
 
-    1. ``preprocessor_config.json`` fetched from the hub (standard HF vision),
-       used only when it carries a ``size`` key.
-    2. Synthesized from a nested plain-dict attribute on ``hf_config``
-       carrying ``input_size`` or ``image_size`` (e.g.
-       ``TimmWrapperConfig.pretrained_cfg``). Reached when the hub file is
-       unavailable *or* present but missing ``size`` (a partial config).
+    1. ``preprocessor_config.json`` fetched from the hub (standard HF vision).
+    2. Synthesized from a nested plain-dict attribute on ``hf_config`` carrying
+       ``input_size`` or ``image_size``. Its size is used when the hub file is
+       unavailable or present but missing ``size``.
 
-    Returns the dict in the standard preprocessor schema (``{"size": ...}``)
-    so downstream parsing logic does not need to know which source it came
-    from. Returns an empty dict when neither source yields a usable size.
+    Returns the full standard preprocessor schema so downstream logic can use
+    both shape and normalization metadata. Returns an empty dict when neither
+    source yields usable metadata.
     """
+    config: dict = {}
     try:
         if model_id is None:
             raise OSError("No model_id provided")
@@ -284,14 +290,58 @@ def _get_preprocessor_dict(
         config, _ = ImageProcessingMixin.get_image_processor_dict(model_id)
         if "size" in config:
             return config
-        # Partial preprocessor_config.json without a "size" key: fall through
-        # to synthesis so we don't silently use Optimum's 64x64 default.
     except (OSError, ValueError, KeyError) as e:
         logger.debug("Could not load preprocessor_config.json for %s: %s", model_id, e)
 
     if hf_config is not None:
-        return _synthesize_preprocessor_dict(hf_config)
-    return {}
+        synthesized = _synthesize_preprocessor_dict(hf_config)
+        if synthesized:
+            return {**config, **synthesized}
+    return config
+
+
+def _normalized_image_value_range(config: dict) -> tuple[float, float] | None:
+    """Derive the normalized float32 image domain from processor metadata."""
+    if config.get("do_rescale") is not True or config.get("do_normalize") is not True:
+        return None
+
+    try:
+        rescale_factor = np.float32(config["rescale_factor"])
+        image_mean, image_std = np.broadcast_arrays(
+            np.atleast_1d(np.asarray(config["image_mean"], dtype=np.float32)),
+            np.atleast_1d(np.asarray(config["image_std"], dtype=np.float32)),
+        )
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+
+    if (
+        image_mean.ndim != 1
+        or image_std.ndim != 1
+        or image_mean.size == 0
+        or not np.isfinite(rescale_factor)
+        or not np.all(np.isfinite(image_mean))
+        or not np.all(np.isfinite(image_std))
+        or np.any(image_std <= 0)
+    ):
+        return None
+
+    raw_endpoints = np.asarray([0, 255], dtype=np.float32)
+    normalized_endpoints = (
+        raw_endpoints[:, np.newaxis] * rescale_factor - image_mean
+    ) / image_std
+    low = np.min(normalized_endpoints)
+    high = np.nextafter(np.max(normalized_endpoints), np.float32(np.inf))
+    return float(low), float(high)
+
+
+def _is_image_float_input(
+    shape: tuple[int, ...], dtype: str, channels: int | None
+) -> bool:
+    """Return whether a generated tensor is a floating image-shaped input."""
+    if not dtype.startswith("float") or len(shape) < 4:
+        return False
+    expected_channels = {channels} if channels is not None else {1, 3, 4}
+    return bool(expected_channels.intersection((shape[1], shape[-1])))
 
 
 def _synthesize_preprocessor_dict(hf_config: PretrainedConfig) -> dict:
@@ -409,7 +459,13 @@ def generate_dummy_inputs(
     onnx_config.float_dtype = float_dtype
 
     shape_kwargs["batch_size"] = batch_size
-    _populate_image_size_from_preprocessor(model_id, shape_kwargs, hf_config)
+    preprocessor_config = _get_preprocessor_dict(model_id, hf_config)
+    _populate_image_size_from_preprocessor(
+        model_id,
+        shape_kwargs,
+        hf_config,
+        preprocessor_config=preprocessor_config,
+    )
     _populate_sequence_length_from_config(hf_config, shape_kwargs)
 
     logger.debug(
@@ -476,7 +532,13 @@ def resolve_io_specs(
 
     # Populate shapes from model config / preprocessor
     shape_kwargs["batch_size"] = batch_size
-    _populate_image_size_from_preprocessor(model_id, shape_kwargs, hf_config)
+    preprocessor_config = _get_preprocessor_dict(model_id, hf_config)
+    _populate_image_size_from_preprocessor(
+        model_id,
+        shape_kwargs,
+        hf_config,
+        preprocessor_config=preprocessor_config,
+    )
     _populate_sequence_length_from_config(hf_config, shape_kwargs)
 
     # Generate dummy inputs for concrete shapes and dtypes,
@@ -491,6 +553,15 @@ def resolve_io_specs(
     value_range_tuples = {
         name: (info["min"], info["max"]) for name, info in value_ranges.items()
     }
+    normalized_range = _normalized_image_value_range(preprocessor_config)
+    image_mean = preprocessor_config.get("image_mean")
+    channels = len(image_mean) if isinstance(image_mean, (list, tuple)) else None
+    if normalized_range is not None:
+        for name, shape, dtype in zip(
+            onnx_config.inputs, input_shapes, input_dtypes, strict=False
+        ):
+            if _is_image_float_input(shape, dtype, channels):
+                value_range_tuples[name] = normalized_range
 
     return {
         "inputs": onnx_config.inputs,
