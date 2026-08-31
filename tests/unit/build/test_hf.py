@@ -379,6 +379,21 @@ class TestBuildHfModel:
         m_load.assert_called_once()
         assert m_load.call_args.kwargs["model_class"] == "AutoModelForImageClassification"
 
+    def test_pretrained_load_threads_attention_compatibility(self, sample_config) -> None:
+        """Attention compatibility is selected before model construction."""
+        from winml.modelkit.build.hf import _load_model
+        from winml.modelkit.export.policy import ExportCompatibilityConfig
+
+        sample_config.export.compatibility = ExportCompatibilityConfig(
+            transformers_attention="eager"
+        )
+        with patch("winml.modelkit.loader.load_hf_model") as m_load:
+            m_load.return_value = (MagicMock(), MagicMock(), "image-classification")
+            _load_model(sample_config, "test-model", trust_remote_code=False)
+
+        m_load.assert_called_once()
+        assert m_load.call_args.kwargs["attn_implementation"] == "eager"
+
     def test_pre_loaded_model_skips_load(
         self, tmp_path: Path, sample_config, mock_pipeline
     ) -> None:

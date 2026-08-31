@@ -408,6 +408,9 @@ def _load_model(
         from ..loader import load_hf_model
 
         effective_trust = trust_remote_code or config.loader.trust_remote_code
+        attn_implementation = (
+            config.export.compatibility.transformers_attention if config.export else None
+        )
         pytorch_model, _, _ = load_hf_model(
             model_name_or_path=model_id,
             task=task,
@@ -415,6 +418,7 @@ def _load_model(
             trust_remote_code=effective_trust,
             hf_config=hf_config,
             model_type=model_type,
+            attn_implementation=attn_implementation,
         )
         return pytorch_model
 

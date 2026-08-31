@@ -233,6 +233,44 @@ class TestModelArchitectureOverrideFast:
             torch_dtype="auto",
         )
 
+    def test_attention_implementation_is_forwarded_before_model_construction(self, monkeypatch):
+        """Export compatibility selects attention while constructing the model."""
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        import winml.modelkit.loader.resolution as resolution_module
+
+        task_class = MagicMock()
+        task_class.__name__ = "TaskModel"
+        task_class.config_class = None
+        task_model = MagicMock()
+        task_class.from_pretrained.return_value = task_model
+        config = SimpleNamespace(model_type="unit", architectures=["CheckpointModel"])
+
+        monkeypatch.setattr(
+            resolution_module,
+            "resolve_task",
+            lambda *_a, **_kw: SimpleNamespace(
+                task="fill-mask",
+                model_class=task_class,
+            ),
+        )
+
+        model, _, task = load_hf_model(
+            "fake/model",
+            hf_config=config,
+            attn_implementation="eager",
+        )
+
+        assert model is task_model
+        assert task == "fill-mask"
+        task_class.from_pretrained.assert_called_once_with(
+            "fake/model",
+            trust_remote_code=False,
+            config=config,
+            attn_implementation="eager",
+        )
+
     def test_bert_tiny_uses_model_specific_default_task(self, monkeypatch):
         """bert-tiny should use model-specific default task when task is omitted."""
         from unittest.mock import MagicMock
