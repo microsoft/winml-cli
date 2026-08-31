@@ -243,6 +243,7 @@ def _resolve_ep_monitor(
                 raise RuntimeError(
                     "OpenVINO op-tracing currently supports only --device cpu or --device npu."
                 )
+            OpenVinoMonitor.validate_runtime_version()
             if not OpenVinoMonitor.is_available():
                 raise RuntimeError(
                     "Op-tracing --ep openvino requested but OpenVINO is not available "
@@ -2160,10 +2161,13 @@ def _print_save_to_footer(
     console: Console,
     *,
     profiling_csv: str | None,
+    profiling_json: str | None = None,
 ) -> None:
     """Print the raw profiling artifact path after the op-trace report."""
     if profiling_csv:
         console.print(f"[dim]Profiling CSV:[/dim] {profiling_csv}")
+    if profiling_json:
+        console.print(f"[dim]Profiling JSON:[/dim] {profiling_json}")
 
 
 @dataclass
@@ -3475,6 +3479,7 @@ def perf(
             _print_save_to_footer(
                 console,
                 profiling_csv=profiling_csv,
+                profiling_json=trace_result.artifacts.get("profile"),
             )
         else:
             if json_mode:

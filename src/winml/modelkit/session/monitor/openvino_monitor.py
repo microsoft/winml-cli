@@ -12,6 +12,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
+from packaging.version import InvalidVersion, Version
+
 from .ep_monitor import EPMonitor
 from .op_metrics import OperatorMetrics, OpTraceResult
 
@@ -23,6 +25,10 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+_MINIMUM_ORT_VERSION = Version("1.26")
+_MINIMUM_OPENVINO_EP_VERSION = "1.8.95.0"
+_OPENVINO_EVENT_PREFIX = "OV::"
 
 
 class OpenVinoMonitor(EPMonitor):
@@ -57,6 +63,7 @@ class OpenVinoMonitor(EPMonitor):
         self._entered = False
         self._onnx_model_path: Path | None = None
         self._onnx_op_types: dict[str, str] = {}
+        self._warmup_iterations = 0
         self._measured_iterations: int | None = None
         self._result: OpTraceResult | None = None
 
@@ -89,6 +96,21 @@ class OpenVinoMonitor(EPMonitor):
             )
             return False
 
+    @classmethod
+    def validate_runtime_version(cls) -> None:
+        """Require the ORT profiling support used by OpenVINO op-tracing."""
+        import onnxruntime as ort
+
+        try:
+            installed_version = Version(ort.__version__)
+        except InvalidVersion:
+            installed_version = Version("0")
+        if installed_version < _MINIMUM_ORT_VERSION:
+            raise RuntimeError(
+                "OpenVINO op-tracing requires ONNX Runtime 1.26 or newer. "
+                'Install it with: uv pip install "onnxruntime-windowsml>=1.26"'
+            )
+
     def configure_session_options(self, session_options: ort.SessionOptions) -> None:
         """Enable ORT profiling on the monitored inference session."""
         session_options.enable_profiling = True
@@ -104,7 +126,7 @@ class OpenVinoMonitor(EPMonitor):
 
     def set_perf_window(self, warmup: int, measured_iterations: int) -> None:
         """Store the measured iteration count for result metadata."""
-        del warmup
+        self._warmup_iterations = warmup
         self._measured_iterations = measured_iterations
 
     def __enter__(self) -> Self:
@@ -144,8 +166,10 @@ class OpenVinoMonitor(EPMonitor):
 
         if not operators:
             result = self._failure_result(
-                "no_data",
-                "The ORT profile did not contain operator timing events.",
+                "parse_failed",
+                "The ORT profile contains only the fused OpenVINO EP node. "
+                f"Detailed operator profiling requires OpenVINO EP "
+                f"{_MINIMUM_OPENVINO_EP_VERSION} or newer.",
             )
             result.artifacts["profile"] = str(profile_path)
             return result
@@ -179,46 +203,106 @@ class OpenVinoMonitor(EPMonitor):
         )
 
     def _parse_operator_events(self, events: list[Any]) -> list[OperatorMetrics]:
-        samples_by_path: dict[str, list[float]] = defaultdict(list)
+        detailed_events = [event for event in events if self._is_detailed_openvino_event(event)]
+        if not detailed_events:
+            return []
+
+        parent_names = {event["args"]["parent_ort_event_name"] for event in detailed_events}
+        parent_spans = self._retained_parent_spans(events, parent_names)
+        samples_by_path: dict[str, dict[tuple[str, int], float]] = defaultdict(
+            lambda: defaultdict(float)
+        )
         op_type_by_path: dict[str, str] = {}
         start_by_path: dict[str, float] = {}
 
-        for event in events:
-            if not isinstance(event, dict):
-                continue
+        for event in detailed_events:
             args = event.get("args")
             duration = event.get("dur")
-            if not isinstance(args, dict) or not isinstance(duration, (int, float)):
+            timestamp = event.get("ts")
+            if (
+                not isinstance(args, dict)
+                or not isinstance(duration, (int, float))
+                or not isinstance(timestamp, (int, float))
+            ):
                 continue
 
-            op_type = args.get("op_name")
-            if not isinstance(op_type, str) or not op_type:
-                continue
-            node_name = args.get("node_name")
-            event_name = event.get("name")
-            op_path = (
-                node_name
-                if isinstance(node_name, str) and node_name
-                else event_name
-                if isinstance(event_name, str) and event_name
-                else op_type
+            parent_name = args["parent_ort_event_name"]
+            parent_index = self._find_parent_index(
+                float(timestamp),
+                parent_spans.get(parent_name, []),
             )
-            resolved_type = self._onnx_op_types.get(op_path, op_type)
-            samples_by_path[op_path].append(float(duration))
-            op_type_by_path[op_path] = resolved_type
-            timestamp = event.get("ts")
-            if isinstance(timestamp, (int, float)):
-                start_by_path.setdefault(op_path, float(timestamp))
+            if parent_index is None:
+                continue
+
+            event_name = event["name"]
+            op_path = event_name.removeprefix(_OPENVINO_EVENT_PREFIX)
+            op_type = args["ov_node_type"]
+            samples_by_path[op_path][(parent_name, parent_index)] += float(duration)
+            op_type_by_path[op_path] = op_type
+            start_by_path.setdefault(op_path, float(timestamp))
 
         return [
             OperatorMetrics(
-                name=op_type_by_path[op_path],
+                name=op_path,
                 op_path=op_path,
                 start_time_us=start_by_path.get(op_path),
-                samples_us=samples,
+                samples_us=list(samples.values()),
+                onnx_op_type=op_type_by_path[op_path],
             )
             for op_path, samples in samples_by_path.items()
         ]
+
+    @staticmethod
+    def _is_detailed_openvino_event(event: Any) -> bool:
+        if not isinstance(event, dict):
+            return False
+        args = event.get("args")
+        name = event.get("name")
+        return (
+            isinstance(args, dict)
+            and isinstance(name, str)
+            and name.startswith(_OPENVINO_EVENT_PREFIX)
+            and isinstance(args.get("parent_ort_event_name"), str)
+            and isinstance(args.get("ov_node_type"), str)
+            and args.get("ov_status") == "EXECUTED"
+            and args.get("ep") == "OpenVINOExecutionProvider"
+        )
+
+    def _retained_parent_spans(
+        self,
+        events: list[Any],
+        parent_names: set[str],
+    ) -> dict[str, list[tuple[float, float]]]:
+        spans: dict[str, list[tuple[float, float]]] = defaultdict(list)
+        for event in events:
+            if not isinstance(event, dict) or event.get("name") not in parent_names:
+                continue
+            timestamp = event.get("ts")
+            duration = event.get("dur")
+            if isinstance(timestamp, (int, float)) and isinstance(duration, (int, float)):
+                start = float(timestamp)
+                spans[event["name"]].append((start, start + float(duration)))
+
+        retained: dict[str, list[tuple[float, float]]] = {}
+        for parent_name, occurrences in spans.items():
+            occurrences.sort()
+            stop = (
+                self._warmup_iterations + self._measured_iterations
+                if self._measured_iterations is not None
+                else None
+            )
+            retained[parent_name] = occurrences[self._warmup_iterations : stop]
+        return retained
+
+    @staticmethod
+    def _find_parent_index(
+        timestamp: float,
+        spans: list[tuple[float, float]],
+    ) -> int | None:
+        return next(
+            (index for index, (start, end) in enumerate(spans) if start <= timestamp <= end),
+            None,
+        )
 
     def _find_fresh_profile(self) -> Path | None:
         fresh_profiles = [

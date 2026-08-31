@@ -134,7 +134,10 @@ class TestResolveEpMonitor:
         """OpenVINO basic tracing supports CPU and NPU devices."""
         from winml.modelkit.session.monitor.openvino_monitor import OpenVinoMonitor
 
-        with patch.object(OpenVinoMonitor, "is_available", return_value=True):
+        with (
+            patch.object(OpenVinoMonitor, "validate_runtime_version"),
+            patch.object(OpenVinoMonitor, "is_available", return_value=True),
+        ):
             monitor = _resolve_ep_monitor(
                 ep="openvino",
                 op_tracing="basic",
@@ -163,6 +166,20 @@ class TestResolveEpMonitor:
                 op_tracing="basic",
                 output_dir=tmp_path,
                 device="gpu",
+            )
+
+    def test_op_tracing_openvino_rejects_old_ort(self, tmp_path: Path):
+        """OpenVINO tracing requires the ORT detailed profiling integration."""
+
+        with (
+            patch("onnxruntime.__version__", "1.25.1"),
+            pytest.raises(RuntimeError, match=r"onnxruntime-windowsml>=1\.26"),
+        ):
+            _resolve_ep_monitor(
+                ep="openvino",
+                op_tracing="basic",
+                output_dir=tmp_path,
+                device="cpu",
             )
 
     def test_op_tracing_unsupported_ep_raises(self, tmp_path: Path):
@@ -299,6 +316,7 @@ class TestResolveEpMonitor:
         from winml.modelkit.session.monitor.openvino_monitor import OpenVinoMonitor
 
         with (
+            patch.object(OpenVinoMonitor, "validate_runtime_version"),
             patch.object(OpenVinoMonitor, "is_available", return_value=False),
             pytest.raises(RuntimeError, match="OpenVINO is not available"),
         ):
