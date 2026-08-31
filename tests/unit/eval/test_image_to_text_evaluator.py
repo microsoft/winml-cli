@@ -15,8 +15,6 @@ from winml.modelkit.inference.pipeline import _HF_PIPELINE_TASK_MAP
 
 def make_evaluator(columns_mapping=None):
     """Instantiate evaluator with mocked dataset + pipeline."""
-    import transformers
-
     from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
     mapping = columns_mapping or {}
@@ -40,12 +38,12 @@ def make_evaluator(columns_mapping=None):
         dataset=DatasetConfig(path="Teklia/IAM-line", columns_mapping=mapping),
     )
 
-    # Resolve the lazy Transformers export before patching it.
-    assert hasattr(transformers, "pipeline")
     with (
         patch("datasets.load_dataset", return_value=mock_ds),
-        patch("transformers.pipelines.pipeline", return_value=mock_pipe),
-        patch.object(transformers, "pipeline", return_value=mock_pipe),
+        patch(
+            "winml.modelkit.inference.pipeline.create_pipeline",
+            return_value=mock_pipe,
+        ),
     ):
         return WinMLImageToTextEvaluator(config, model)
 
@@ -124,6 +122,28 @@ class TestCompute:
         result = ev.compute()
         assert result["cer"] == 0.0
         assert result["n_samples"] == 1
+
+    def test_caps_caption_generation_without_changing_ocr_calls(self):
+        ev = make_evaluator()
+        ev.data = [
+            {"image": "caption-image", "text": ["caption one", "caption two"]},
+            {"image": "ocr-image", "text": "OCR TEXT"},
+        ]
+        ev.pipe = MagicMock(
+            side_effect=[
+                [{"generated_text": "caption one"}],
+                [{"generated_text": "OCR TEXT"}],
+            ]
+        )
+
+        ev.compute()
+
+        assert ev.pipe.call_args_list[0].kwargs == {
+            "text": "",
+            "max_new_tokens": 32,
+            "generate_kwargs": {"num_beams": 1},
+        }
+        assert ev.pipe.call_args_list[1].kwargs == {"text": ""}
 
     def test_skips_samples_with_missing_data(self):
         """None image or None text → skipped, n_samples reflects actual count."""

@@ -668,6 +668,11 @@ def resolve_task(
 
     # --- Stage 4: composite tag (detection path) --------------------------
     composite = _composite_components_for_task(model_type, opt_task) if model_type else None
+    if surfaced == "image-text-to-text" and model_type:
+        image_to_text_composite = _composite_components_for_task(model_type, "image-to-text")
+        if image_to_text_composite is not None:
+            surfaced = "image-to-text"
+            composite = image_to_text_composite
 
     if source is None:  # structural invariant: Stage 1d always sets a source
         raise RuntimeError("resolve_task: internal invariant violated — source was not set")

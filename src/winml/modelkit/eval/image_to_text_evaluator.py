@@ -73,7 +73,12 @@ class WinMLImageToTextEvaluator(WinMLEvaluator):
                 continue
 
             try:
-                out = self.pipe(image, text="")
+                pipeline_kwargs = (
+                    {"max_new_tokens": 32, "generate_kwargs": {"num_beams": 1}}
+                    if isinstance(references, (list, tuple))
+                    else {}
+                )
+                out = self.pipe(image, text="", **pipeline_kwargs)
             except Exception as e:
                 logger.warning("Pipeline call failed (skipping): %s", e)
                 skipped += 1
