@@ -40,6 +40,9 @@ class DatasetConfig:
             ``--output <path>`` before the dataset is loaded.
         label_mapping_file: Path to a JSON file with label mapping.
             Resolved into ``label_mapping`` at eval time.
+        max_queries: Maximum number of category queries used by
+            zero-shot-object-detection evaluation. ``None`` uses the full
+            authoritative vocabulary.
     """
 
     path: str | None = field(default=None, metadata={"cli_name": "dataset_path"})
@@ -50,6 +53,7 @@ class DatasetConfig:
     seed: int = 42
     columns_mapping: dict[str, str] = field(default_factory=dict)
     label_mapping: dict[str, int] | None = None
+    max_queries: int | None = 16
     streaming: bool = False
     revision: str | None = field(default=None, metadata={"cli_name": "dataset_revision"})
     build_script: str | None = field(default=None, metadata={"cli_name": "dataset_script"})
@@ -71,6 +75,8 @@ class DatasetConfig:
             result["columns_mapping"] = self.columns_mapping
         if self.label_mapping:
             result["label_mapping"] = self.label_mapping
+        if self.max_queries is not None:
+            result["max_queries"] = self.max_queries
         if self.streaming:
             result["streaming"] = self.streaming
         if self.revision is not None:
@@ -267,6 +273,8 @@ class WinMLEvaluationConfig:
             shuffle=ds_data.get("shuffle", True),
             seed=ds_data.get("seed", 42),
             columns_mapping=ds_data.get("columns_mapping", {}),
+            label_mapping=ds_data.get("label_mapping"),
+            max_queries=ds_data.get("max_queries", 16),
             streaming=ds_data.get("streaming", False),
             revision=ds_data.get("revision"),
             build_script=ds_data.get("build_script"),

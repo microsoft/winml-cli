@@ -151,6 +151,16 @@ logger = logging.getLogger(__name__)
     help="Stream dataset instead of downloading fully.",
 )
 @click.option(
+    "--max-queries",
+    "max_queries",
+    type=click.IntRange(min=1),
+    default=None,
+    help=(
+        "Maximum category queries for zero-shot-object-detection evaluation. "
+        "Overrides dataset.max_queries."
+    ),
+)
+@click.option(
     "--column",
     multiple=True,
     help="Column mapping as key=value (e.g. --column input_column=image).",
@@ -268,6 +278,7 @@ def eval(
     split: str,
     shuffle: bool,
     streaming: bool,
+    max_queries: int | None,
     column: tuple[str, ...],
     label_mapping_path: Path | None,
     output: Path | None,

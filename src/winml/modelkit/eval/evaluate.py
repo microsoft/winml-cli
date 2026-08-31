@@ -72,6 +72,8 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
         "winml.modelkit.eval.token_classification_evaluator:WinMLTokenClassificationEvaluator",
     "object-detection":
         "winml.modelkit.eval.object_detection_evaluator:WinMLObjectDetectionEvaluator",
+    "zero-shot-object-detection":
+        "winml.modelkit.eval.zero_shot_object_detection_evaluator:WinMLZeroShotObjectDetectionEvaluator",
     "image-segmentation":
         "winml.modelkit.eval.image_segmentation_evaluator:WinMLImageSegmentationEvaluator",
     "question-answering":
@@ -203,6 +205,23 @@ _DEFAULT_DATASETS: dict[str, dict] = {
             "bbox_key": "bbox",
             "category_key": "category",
             "box_format": "xyxy",
+        },
+    },
+    "zero-shot-object-detection": {
+        "path": "detection-datasets/coco",
+        "split": "val",
+        "revision": "cf0b22332314a937e9dc8a1957b21725430bb41d",
+        "streaming": True,
+        "max_queries": 16,
+        "columns_mapping": {
+            "input_column": "image",
+            "annotation_column": "objects",
+            "bbox_key": "bbox",
+            "category_key": "category",
+            "image_id_column": "image_id",
+            "box_format": "xywh",
+            "box_coords": "absolute",
+            "prompt_template": "a photo of a {}",
         },
     },
     "question-answering": {

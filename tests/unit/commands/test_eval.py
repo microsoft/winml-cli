@@ -457,6 +457,28 @@ class TestEvalHelp:
         assert "--use-cache / --no-use-cache" in result.output
         assert "--rebuild / --no-rebuild" in result.output
 
+    def test_help_mentions_max_queries(self, runner: CliRunner):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(eval_cmd, ["--help"])
+
+        assert result.exit_code == 0, result.output
+        assert "--max-queries" in result.output
+        assert "dataset.max_queries" in result.output
+
+    def test_schema_shows_max_queries_without_column_override(self, runner: CliRunner):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(
+            eval_cmd,
+            ["--schema", "--task", "zero-shot-object-detection"],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "max_queries" in result.output
+        assert "--max-queries" in result.output
+        assert "--column max_queries=" not in result.output
+
 
 class TestResolveReference:
     def test_none_is_noop(self):
@@ -1222,6 +1244,23 @@ class TestPerTaskDefaultDataset:
             and "timm/mini-imagenet" in m
             for m in msgs
         ), f"expected warning not found in {msgs!r}"
+
+    def test_max_queries_reaches_evaluator(self, runner: CliRunner):
+        """``--max-queries`` survives CLI/config processing and reaches evaluator config."""
+        cfg = self._run_and_capture(
+            runner,
+            [
+                "-m",
+                "some/model",
+                "--task",
+                "zero-shot-object-detection",
+                "--dataset",
+                "detection-datasets/coco",
+                "--max-queries",
+                "3",
+            ],
+        )
+        assert cfg.dataset.max_queries == 3
 
 
 # ---------------------------------------------------------------------------
