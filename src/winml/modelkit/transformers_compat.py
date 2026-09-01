@@ -48,11 +48,45 @@ _MODEL_PATCHER_MODULE = "optimum.exporters.onnx.model_patcher"
 
 @contextlib.contextmanager
 def use_eager_attention_for_export(model: nn.Module) -> Iterator[None]:
-    """Temporarily prefer eager attention on HF-style module configs."""
+    """Temporarily prefer eager attention and normalize SDPA mask dtypes.
+
+    Some exporter paths feed integer attention masks into SDPA, which newer
+    torch versions reject. During export-only tracing, coerce integral masks
+    to bool before dispatching to the currently-installed SDPA implementation.
+    """
+    import torch
+
     restored: list[tuple[int, Any, Any]] = []
     configs: dict[int, Any] = {}
     children: dict[int, set[int]] = {}
     seen_configs: set[int] = set()
+    original_sdpa = torch.nn.functional.scaled_dot_product_attention
+
+    def _coerce_integer_mask_sdpa(*args: Any, **kwargs: Any) -> Any:
+        attn_mask: Any | None = None
+        use_positional = len(args) >= 4
+
+        if use_positional:
+            attn_mask = args[3]
+        elif "attn_mask" in kwargs:
+            attn_mask = kwargs["attn_mask"]
+
+        if isinstance(attn_mask, torch.Tensor) and attn_mask.dtype in {
+            torch.int8,
+            torch.int16,
+            torch.int32,
+            torch.int64,
+            torch.uint8,
+        }:
+            cast_mask = attn_mask.to(dtype=torch.bool)
+            if use_positional:
+                args_list = list(args)
+                args_list[3] = cast_mask
+                args = tuple(args_list)
+            else:
+                kwargs["attn_mask"] = cast_mask
+
+        return original_sdpa(*args, **kwargs)
 
     for module in model.modules():
         _collect_attention_configs(getattr(module, "config", None), configs, children, seen_configs)
@@ -64,10 +98,12 @@ def use_eager_attention_for_export(model: nn.Module) -> Iterator[None]:
     for config in configs.values():
         if config._attn_implementation != "eager":
             config._attn_implementation = "eager"
+    torch.nn.functional.scaled_dot_product_attention = _coerce_integer_mask_sdpa
 
     try:
         yield
     finally:
+        torch.nn.functional.scaled_dot_product_attention = original_sdpa
         for _config_id, config, previous in _parent_before_child(restored, children):
             config._attn_implementation = previous
 
@@ -339,11 +375,39 @@ def _patch_model_patcher(module: Any) -> None:
     ) -> Any:
         if mask_function is None:
             mask_function = causal_mask_function
-        padding_mask = prepare_padding_mask(attention_mask, kv_length, kv_offset)
+        try:
+            # transformers >=5 uses _slice to preserve compile-friendly indexing.
+            padding_mask = prepare_padding_mask(attention_mask, kv_length, kv_offset, _slice=False)
+        except TypeError:
+            # Older helper signatures do not expose _slice.
+            padding_mask = prepare_padding_mask(attention_mask, kv_length, kv_offset)
         ignore_causal_mask_sdpa = cast("Any", _ignore_causal_mask_sdpa)
-        if allow_is_causal_skip and ignore_causal_mask_sdpa(
-            padding_mask, q_length, kv_length, q_offset, kv_offset, local_size
-        ):
+        should_skip = False
+        if allow_is_causal_skip:
+            try:
+                # transformers >=5.1 signature
+                should_skip = bool(
+                    ignore_causal_mask_sdpa(
+                        padding_mask,
+                        q_length,
+                        kv_length,
+                        kv_offset,
+                        local_size,
+                    )
+                )
+            except TypeError:
+                # transformers 5.0 / late 4.x signature
+                should_skip = bool(
+                    ignore_causal_mask_sdpa(
+                        padding_mask,
+                        q_length,
+                        kv_length,
+                        q_offset,
+                        kv_offset,
+                        local_size,
+                    )
+                )
+        if should_skip:
             return None
         if padding_mask is not None:
             mask_function = and_masks(mask_function, padding_mask_function(padding_mask))

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import inspect
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -115,3 +116,50 @@ def test_install_is_idempotent_and_reentrant_safe():
     transformers_compat.install()
 
     assert _is_transformers5_patched(model_patcher)
+
+
+def test_patched_sdpa_mask_without_vmap_accepts_current_signature():
+    import optimum.exporters.onnx.model_patcher as model_patcher
+    import torch
+
+    mask = torch.tensor([[1, 1, 1, 0]], dtype=torch.int32)
+    result = model_patcher.sdpa_mask_without_vmap(
+        batch_size=1,
+        q_length=4,
+        kv_length=4,
+        attention_mask=mask,
+        device="cpu",
+    )
+
+    assert result is None or isinstance(result, torch.Tensor)
+
+
+def test_use_eager_attention_for_export_coerces_integral_sdpa_mask(monkeypatch):
+    import torch
+    import torch.nn as nn
+
+    captured: dict[str, torch.dtype] = {}
+
+    def fake_sdpa(*args, **kwargs):
+        attn_mask = kwargs.get("attn_mask", args[3] if len(args) >= 4 else None)
+        if isinstance(attn_mask, torch.Tensor):
+            captured["dtype"] = attn_mask.dtype
+        return kwargs.get("query", args[0])
+
+    monkeypatch.setattr(torch.nn.functional, "scaled_dot_product_attention", fake_sdpa)
+
+    class DummyModel(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.config = SimpleNamespace(_attn_implementation="sdpa")
+
+    model = DummyModel()
+    q = torch.zeros((1, 1, 1, 1), dtype=torch.float32)
+    mask = torch.ones((1, 1, 1, 1), dtype=torch.int32)
+
+    with transformers_compat.use_eager_attention_for_export(model):
+        assert model.config._attn_implementation == "eager"
+        torch.nn.functional.scaled_dot_product_attention(q, q, q, attn_mask=mask)
+
+    assert captured["dtype"] == torch.bool
+    assert model.config._attn_implementation == "sdpa"
