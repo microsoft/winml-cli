@@ -394,6 +394,44 @@ class TestBuildHfModel:
         m_load.assert_called_once()
         assert m_load.call_args.kwargs["attn_implementation"] == "eager"
 
+    def test_random_init_selects_eager_attention_before_construction(self) -> None:
+        """Random-init builds construct the requested attention implementation."""
+        from transformers import DistilBertConfig
+
+        from winml.modelkit.build.hf import _load_model
+        from winml.modelkit.config import WinMLBuildConfig
+
+        config = WinMLBuildConfig.from_dict(
+            {
+                "loader": {
+                    "task": "text-classification",
+                    "model_class": "AutoModelForSequenceClassification",
+                },
+                "export": {
+                    "compatibility": {"transformers_attention": "eager"},
+                },
+                "optim": {},
+                "quant": None,
+                "compile": None,
+            }
+        )
+        hf_config = DistilBertConfig(n_layers=1, dim=32, hidden_dim=64, n_heads=4)
+
+        model = _load_model(
+            config,
+            model_id=None,
+            trust_remote_code=False,
+            random_init=True,
+            hf_config=hf_config,
+        )
+
+        attention_classes = {
+            type(module).__name__
+            for module in model.modules()
+            if "Attention" in type(module).__name__
+        }
+        assert attention_classes == {"MultiHeadSelfAttention"}
+
     def test_pre_loaded_model_skips_load(
         self, tmp_path: Path, sample_config, mock_pipeline
     ) -> None:
