@@ -19,6 +19,7 @@ import inspect
 import sys
 
 import pytest
+import torch
 
 from winml.modelkit import transformers_compat
 
@@ -115,3 +116,41 @@ def test_install_is_idempotent_and_reentrant_safe():
     transformers_compat.install()
 
     assert _is_transformers5_patched(model_patcher)
+
+
+def test_traceable_sdpa_accepts_integral_visibility_mask() -> None:
+    """Optimum must normalize the integral masks emitted by Transformers 4.57."""
+    import optimum.exporters.onnx.model_patcher as model_patcher
+
+    query = torch.randn(1, 2, 3, 4)
+    key = torch.randn(1, 2, 3, 4)
+    value = torch.randn(1, 2, 3, 4)
+    integral_mask = torch.tensor(
+        [[[[1, 1, 0], [1, 1, 0], [1, 1, 1]]]],
+        dtype=torch.int64,
+    )
+
+    expected = torch.nn.functional.scaled_dot_product_attention(
+        query,
+        key,
+        value,
+        attn_mask=integral_mask.to(torch.bool),
+    )
+    actual = model_patcher.traceable_scaled_dot_product_attention(
+        query,
+        key,
+        value,
+        attn_mask=integral_mask,
+    )
+
+    torch.testing.assert_close(actual, expected)
+
+
+def test_integral_sdpa_mask_patch_is_idempotent() -> None:
+    """Repeated compatibility setup must not stack SDPA wrappers."""
+    import optimum.exporters.onnx.model_patcher as model_patcher
+
+    first = model_patcher.original_scaled_dot_product_attention
+    transformers_compat._patch_model_patcher(model_patcher)
+
+    assert model_patcher.original_scaled_dot_product_attention is first

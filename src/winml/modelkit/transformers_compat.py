@@ -309,7 +309,7 @@ def _install_impl() -> None:
 
 
 def _patch_model_patcher(module: Any) -> None:
-    """Replace ``sdpa_mask_without_vmap`` on an already-loaded model_patcher module.
+    """Apply attention compatibility patches to an already-loaded model patcher.
 
     Must only be called after ``module`` has finished executing its own
     top-level code (its own definition is assigned near the end of the
@@ -367,6 +367,43 @@ def _patch_model_patcher(module: Any) -> None:
         return causal_mask.expand(batch_size, -1, q_length, kv_length)
 
     module.sdpa_mask_without_vmap = _sdpa_mask_without_vmap_tf5
+
+    original_sdpa = module.original_scaled_dot_product_attention
+    if not getattr(original_sdpa, "_winml_integral_mask_compat", False):
+
+        def _scaled_dot_product_attention_with_compatible_mask(
+            query: Any,
+            key: Any,
+            value: Any,
+            attn_mask: Any | None = None,
+            dropout_p: float = 0.0,
+            is_causal: bool = False,
+            **kwargs: Any,
+        ) -> Any:
+            """Convert integral visibility masks to the boolean SDPA contract."""
+            if (
+                attn_mask is not None
+                and attn_mask.dtype != torch.bool
+                and not torch.is_floating_point(attn_mask)
+                and not torch.is_complex(attn_mask)
+            ):
+                attn_mask = attn_mask.to(torch.bool)
+            return original_sdpa(
+                query=query,
+                key=key,
+                value=value,
+                attn_mask=attn_mask,
+                dropout_p=dropout_p,
+                is_causal=is_causal,
+                **kwargs,
+            )
+
+        _scaled_dot_product_attention_with_compatible_mask._winml_integral_mask_compat = (  # type: ignore[attr-defined]
+            True
+        )
+        module.original_scaled_dot_product_attention = (
+            _scaled_dot_product_attention_with_compatible_mask
+        )
 
 
 class _PatchModelPatcherLoader(Loader):
