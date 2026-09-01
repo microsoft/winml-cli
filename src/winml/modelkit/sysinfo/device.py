@@ -9,7 +9,7 @@ from __future__ import annotations
 import functools
 import logging
 import warnings
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from ..session import DEVICE_TYPE_TO_DEVICE
 from ..utils.constants import (
@@ -209,10 +209,11 @@ def _resolve_device_compat(
     if ep is not None:
         if ep_full not in EP_SUPPORTED_DEVICES:
             raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SUPPORTED_DEVICES)}")
-        if device != "auto" and device not in EP_SUPPORTED_DEVICES[ep_full]:
+        known_ep = cast("EPName", ep_full)
+        if device != "auto" and device not in EP_SUPPORTED_DEVICES[known_ep]:
             raise ValueError(
                 f"EP '{ep}' does not support device '{device}'. "
-                f"Supported devices: {', '.join(EP_SUPPORTED_DEVICES[ep_full])}."
+                f"Supported devices: {', '.join(EP_SUPPORTED_DEVICES[known_ep])}."
             )
         device_ep_map = {dev: (ep_full,) for dev, eps in device_ep_map.items() if ep_full in eps}
         if not device_ep_map:

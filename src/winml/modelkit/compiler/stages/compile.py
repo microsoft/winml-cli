@@ -24,7 +24,6 @@ from ...onnx.epcontext import select_main_epcontext_partition_name
 from ...session import (
     EPDeviceTarget,
     WinMLEPRegistry,
-    WinMLQairtSession,
     WinMLSession,
     resolve_device,
 )
@@ -41,11 +40,24 @@ if TYPE_CHECKING:
     from ..context import CompileContext
 
 
-# Maps compiler name to session class
-COMPILER_SESSION_MAPPING: dict[str, type[WinMLSession]] = {
+COMPILER_SESSION_MAPPING: dict[str, type[WinMLSession] | tuple[str, str]] = {
     "ort": WinMLSession,
-    "qairt": WinMLQairtSession,
+    "qairt": ("...session.qairt.qairt_session", "WinMLQairtSession"),
 }
+
+
+def _session_class_for_compiler(compiler: str) -> type[WinMLSession]:
+    """Return the selected session backend without importing alternatives."""
+    target = COMPILER_SESSION_MAPPING[compiler]
+    if not isinstance(target, tuple):
+        return target
+
+    import importlib
+
+    module_path, attr_name = target
+    module = importlib.import_module(module_path, __package__)
+    return cast("type[WinMLSession]", getattr(module, attr_name))
+
 
 _FINALIZE_THREAD_LOCKS_GUARD = threading.Lock()
 _FINALIZE_THREAD_LOCKS: dict[Path, threading.Lock] = {}
@@ -97,7 +109,7 @@ class CompileStage(BaseStage):
         compiler = context.config.get("compiler", "ort")
         if compiler == ORT_SESSION_COMPILER:
             raise ValueError(f"{ORT_SESSION_COMPILER!r} requires the inference-session path")
-        session_cls = COMPILER_SESSION_MAPPING[compiler]
+        session_cls = _session_class_for_compiler(compiler)
 
         output_dir = self._get_output_dir(context)
         context.log(f"Output directory: {output_dir}")
