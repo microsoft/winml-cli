@@ -136,7 +136,7 @@ class TestBlipDecoderIO:
         assert tuple(inputs["past_0_key"].shape) == expected
         assert tuple(inputs["past_0_value"].shape) == expected
 
-    def test_decoder_passes_two_dimensional_attention_mask(self, monkeypatch) -> None:
+    def test_decoder_preserves_two_dimensional_attention_mask(self, monkeypatch) -> None:
         from types import SimpleNamespace
         from unittest.mock import MagicMock
 
@@ -168,6 +168,39 @@ class TestBlipDecoderIO:
         assert mask.shape == (1, 2)
         assert mask.dtype == torch.int64
         assert torch.equal(mask, inputs["decoder_attention_mask"])
+
+    def test_decoder_preserves_three_dimensional_attention_mask(self, monkeypatch) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        import torch
+
+        from winml.modelkit.models.hf import blip as blip_module
+
+        wrapper = blip_module.BlipDecoderWrapper()
+        wrapper.model = MagicMock()
+        captured: dict[str, torch.Tensor] = {}
+
+        def decode(**kwargs):
+            captured["attention_mask"] = kwargs["attention_mask"]
+            return SimpleNamespace(logits=torch.zeros((1, 1, 4)))
+
+        wrapper.model.text_decoder.side_effect = decode
+        monkeypatch.setattr(blip_module, "EncoderDecoderCache", lambda *_args: object())
+        monkeypatch.setattr(blip_module, "DynamicCache", lambda: object())
+        inputs = {
+            "decoder_input_ids": torch.zeros((1, 1), dtype=torch.int32),
+            "decoder_attention_mask": torch.tensor([[[1, 0]]], dtype=torch.int64),
+            "encoder_hidden_states": torch.zeros((1, 3, 4)),
+            "cache_position": torch.zeros((1,), dtype=torch.int64),
+        }
+
+        wrapper._invoke_hf(object(), inputs)
+
+        mask = captured["attention_mask"]
+        assert mask.shape == (1, 1, 2)
+        assert mask.dtype == torch.int64
+        torch.testing.assert_close(mask, inputs["decoder_attention_mask"])
 
     def test_decoder_cache_uses_position_input_when_model_omits_cache_kwargs(
         self, blip_config

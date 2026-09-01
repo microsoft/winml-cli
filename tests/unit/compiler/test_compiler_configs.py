@@ -99,11 +99,14 @@ class TestCompileConfig:
         assert config.ep_config.provider == "openvino"
         assert config.ep_config.enable_ep_context is True
 
-    def test_for_vitisai(self):
+    def test_for_vitisai(self, tmp_path, monkeypatch):
         """Test Vitis AI factory method."""
+        monkeypatch.setenv("WINML_CACHE_DIR", str(tmp_path))
         config = WinMLCompileConfig.for_vitisai()
         assert config.ep_config.provider == "vitisai"
         assert config.ep_config.enable_ep_context is True
+        assert config.ep_config.provider_options["cache_dir"] == str(tmp_path / "vitisai")
+        assert (tmp_path / "vitisai").is_dir()
 
     def test_for_migraphx(self):
         """Test MIGraphX factory method."""
