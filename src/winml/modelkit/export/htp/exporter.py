@@ -256,7 +256,10 @@ class HTPExporter:
                 # are traced with the same inputs they are exported with. The export
                 # in Step 4 re-enters the patcher; the contexts are sequential, not
                 # nested.
-                with self._get_optimum_patcher(model, task):
+                with (
+                    self._get_optimum_patcher(model, task),
+                    self._export_compatibility_context(model, export_config),
+                ):
                     self._trace_model_hierarchy(model, inputs)
 
                 execution_steps = (
@@ -416,8 +419,14 @@ class HTPExporter:
 
         self._hierarchy_builder = TracingHierarchyBuilder(exceptions=exceptions)
 
-        # Pass inputs to tracer
-        input_args = inputs
+        # Models with an explicit positional export protocol must use the same
+        # binding for hierarchy tracing and ONNX export. This is particularly
+        # important for wrappers whose ``forward`` accepts only ``*args``.
+        input_args = (
+            model.get_export_args(inputs)  # type: ignore[operator]
+            if hasattr(model, "get_export_args")
+            else inputs
+        )
 
         self._hierarchy_builder.trace_model_execution(model, input_args)
 
