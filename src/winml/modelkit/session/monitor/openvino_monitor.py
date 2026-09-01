@@ -197,7 +197,7 @@ class OpenVinoMonitor(EPMonitor):
             tracing_backend="onnxruntime",
             num_samples=self._measured_iterations
             or max(operator.sample_count for operator in operators),
-            summary={"execute_us": total_us},
+            summary={"accel_execute_us": total_us},
             statistics=statistics_by_op,
             artifacts={"profile": str(profile_path)},
         )

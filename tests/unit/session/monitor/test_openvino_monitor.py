@@ -97,6 +97,7 @@ def test_parse_detailed_profile_excludes_warmup_and_removes_prefix(tmp_path) -> 
     assert operator.onnx_op_type is None
     assert operator.samples_us == [4.0, 6.0]
     assert operator.avg_us == 5.0
+    assert monitor.result.summary["accel_execute_us"] == 10.0
 
 
 def test_multiple_events_for_same_op_in_one_inference_are_one_sample(tmp_path) -> None:
