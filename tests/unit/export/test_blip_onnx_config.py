@@ -187,7 +187,7 @@ class TestBlipDecoderIO:
 
         wrapper.model.text_decoder.side_effect = decode
         monkeypatch.setattr(blip_module, "EncoderDecoderCache", lambda *_args: object())
-        monkeypatch.setattr(blip_module, "DynamicCache", lambda: object())
+        monkeypatch.setattr(blip_module, "DynamicCache", object)
         inputs = {
             "decoder_input_ids": torch.zeros((1, 1), dtype=torch.int32),
             "decoder_attention_mask": torch.tensor([[[1, 0]]], dtype=torch.int64),
