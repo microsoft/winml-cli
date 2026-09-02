@@ -236,7 +236,7 @@ def _get_platform_info() -> dict[str, Any]:
             machine = native_machine
         windows_version = _get_windows_version_info()
 
-    result = {
+    result: dict[str, Any] = {
         "system": system,
         "release": release,
         "machine": machine,
