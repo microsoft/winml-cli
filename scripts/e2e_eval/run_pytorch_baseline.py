@@ -183,7 +183,12 @@ def _load_pytorch_model(model_id: str, task: str, device_str: str):
     return cls.from_pretrained(model_id).to(device).eval()
 
 
-def _build_dataset_config(ds_dict: dict, num_samples: int):
+def _build_dataset_config(
+    ds_dict: dict,
+    num_samples: int,
+    *,
+    audio_input_length: int | None = None,
+):
     """Convert registry config dict to DatasetConfig.
 
     The registry uses a "dataset" key (normalised from "path" by
@@ -197,7 +202,8 @@ def _build_dataset_config(ds_dict: dict, num_samples: int):
             columns_mapping = json.loads(columns_mapping)
         except json.JSONDecodeError:
             columns_mapping = {}
-
+    else:
+        columns_mapping = dict(columns_mapping)
     # Load label mapping from file if specified
     label_mapping = None
     mapping_file = ds_dict.get("label_mapping_file")
@@ -209,6 +215,7 @@ def _build_dataset_config(ds_dict: dict, num_samples: int):
         name=ds_dict.get("dataset_config"),
         split=ds_dict.get("split", "validation"),
         samples=num_samples,
+        audio_input_length=audio_input_length,
         columns_mapping=columns_mapping,
         label_mapping=label_mapping,
         revision=ds_dict.get("revision"),
@@ -284,6 +291,12 @@ def parse_args() -> argparse.Namespace:
         help="Number of warmup iterations excluded from latency statistics "
         "(only used when --perf-iterations > 0). Default: 10.",
     )
+    parser.add_argument(
+        "--audio-input-length",
+        type=int,
+        default=None,
+        help="Static waveform length shared with the ONNX model under comparison.",
+    )
     return parser.parse_args()
 
 
@@ -305,6 +318,14 @@ def main() -> None:
 
     if not task:
         _out(f"ERROR: --task not provided and could not be auto-detected for {model_id}")
+        sys.exit(1)
+    if task == "audio-classification" and (
+        args.audio_input_length is None or args.audio_input_length <= 0
+    ):
+        _out(
+            "ERROR: audio-classification baselines require a positive "
+            "--audio-input-length matching the evaluated ONNX input contract"
+        )
         sys.exit(1)
 
     # Build dataset config dict from CLI args or registry
@@ -354,21 +375,30 @@ def main() -> None:
         from winml.modelkit.eval.config import WinMLEvaluationConfig
 
         pytorch_model = _load_pytorch_model(model_id, task, args.device)
-        dataset_config = _build_dataset_config(ds_config_dict, num_samples)
+        dataset_config = _build_dataset_config(
+            ds_config_dict,
+            num_samples,
+            audio_input_length=args.audio_input_length,
+        )
+
+        import torch
+
+        eval_device = (
+            "gpu" if args.device == "cuda" and torch.cuda.is_available() else "cpu"
+        )
 
         eval_config = WinMLEvaluationConfig(
             model_id=model_id,
             task=task,
-            device=args.device,
+            device=eval_device,
             dataset=dataset_config,
+            runtime="pytorch",
         )
 
-        from winml.modelkit.eval.evaluate import get_evaluator_class
+        from winml.modelkit.eval.evaluate import evaluate, get_evaluator_class
 
-        evaluator_cls = get_evaluator_class(eval_config)
-        task_evaluator = evaluator_cls(eval_config, pytorch_model)
-
-        metrics = task_evaluator.compute()
+        result = evaluate(eval_config, pytorch_model=pytorch_model)
+        metrics = result.metrics
 
         if args.perf_iterations > 0:
             if task == "text-generation":
@@ -380,6 +410,8 @@ def main() -> None:
                     "supported for text-generation baselines."
                 )
             else:
+                evaluator_cls = get_evaluator_class(result.config)
+                task_evaluator = evaluator_cls(result.config, pytorch_model)
                 latency = _measure_pytorch_latency(
                     task_evaluator,
                     warmup=args.perf_warmup,

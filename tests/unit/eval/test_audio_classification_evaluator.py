@@ -103,6 +103,7 @@ class _TwoInputClassifier:
 
     def __call__(self, **kwargs):
         self.calls.append(kwargs)
+        assert not torch.is_grad_enabled()
         return {"logits": torch.tensor([[5.0, 0.0, -5.0]])}
 
 
@@ -485,6 +486,20 @@ class TestAudioLabelAlignmentAndSampling:
 
 
 class TestAudioPredictionAndMetrics:
+    def test_baseline_builds_explicit_shared_audio_length_contract(self):
+        baseline = runpy.run_path(
+            str(Path(__file__).parents[3] / "scripts/e2e_eval/run_pytorch_baseline.py")
+        )
+
+        config = baseline["_build_dataset_config"](
+            {"dataset": "example/audio", "columns_mapping": {"input_column": "audio"}},
+            10,
+            audio_input_length=16_000,
+        )
+
+        assert config.audio_input_length == 16_000
+        assert config.columns_mapping == {"input_column": "audio"}
+
     def test_pytorch_baseline_latency_uses_selected_raw_audio_and_shared_pipe(self):
         baseline = runpy.run_path(
             str(Path(__file__).parents[3] / "scripts/e2e_eval/run_pytorch_baseline.py")
@@ -549,6 +564,61 @@ class TestAudioPredictionAndMetrics:
             "max_length": 8,
         }
         np.testing.assert_array_equal(logits, [5.0, 0.0, -5.0])
+
+    def test_explicit_input_length_applies_to_native_model(self):
+        model = _TwoInputClassifier()
+        model.io_config = {}
+        extractor = _TwoInputFeatureExtractor()
+        config = _config(samples=1)
+        config.runtime = "pytorch"
+        config.dataset.audio_input_length = 8
+        with patch(
+            "transformers.AutoFeatureExtractor.from_pretrained",
+            return_value=extractor,
+        ):
+            logits = _AudioModelAdapter(config, model)([1.0] * 24)
+
+        assert model.calls[0]["input_values"].shape == (1, 8)
+        assert extractor.kwargs["max_length"] == 8
+        np.testing.assert_array_equal(logits, [5.0, 0.0, -5.0])
+
+    def test_dynamic_waveform_dimension_preserves_full_input(self):
+        model = _TwoInputClassifier()
+        model.io_config = {
+            "input_names": ["input_values", "attention_mask"],
+            "input_shapes": [[1, "samples"], [1, "samples"]],
+        }
+        extractor = _TwoInputFeatureExtractor()
+        with patch(
+            "transformers.AutoFeatureExtractor.from_pretrained",
+            return_value=extractor,
+        ):
+            _AudioModelAdapter(_config(samples=1), model)([1.0] * 24)
+
+        assert model.calls[0]["input_values"].shape == (1, 24)
+        assert extractor.kwargs == {}
+
+    def test_single_custom_onnx_input_name_uses_semantic_waveform(self):
+        class CustomInputModel:
+            io_config: ClassVar = {"input_names": ["waveform"], "input_shapes": [[1, 8]]}
+            config = _SignClassifier.config
+
+            def __init__(self):
+                self.inputs = None
+
+            def __call__(self, **kwargs):
+                self.inputs = kwargs
+                return {"scores": torch.tensor([[1.0, 0.0, -1.0]])}
+
+        model = CustomInputModel()
+        with patch(
+            "transformers.AutoFeatureExtractor.from_pretrained",
+            return_value=_IdentityFeatureExtractor(),
+        ):
+            logits = _AudioModelAdapter(_config(samples=1), model)([1.0] * 8)
+
+        assert set(model.inputs) == {"waveform"}
+        np.testing.assert_array_equal(logits, [1.0, 0.0, -1.0])
 
     def test_native_model_without_io_config_receives_all_extractor_outputs(self):
         class _NativeModel:

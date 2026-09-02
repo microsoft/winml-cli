@@ -34,7 +34,6 @@ from .base_evaluator import WinMLEvaluator
 
 if TYPE_CHECKING:
     from datasets import Dataset
-    from numpy.typing import NDArray
 
     from ..models.winml.base import WinMLPreTrainedModel
     from .config import DatasetConfig, WinMLEvaluationConfig
@@ -72,6 +71,7 @@ class _AudioModelAdapter:
             trust_remote_code=getattr(config, "trust_remote_code", False),
         )
         self._input_contracts = self._resolve_input_contracts()
+        self._waveform_length = self._resolve_waveform_length()
 
     def __call__(self, raw_audio: Any) -> np.ndarray:
         """Return one row of logits after exactly one model forward."""
@@ -105,12 +105,11 @@ class _AudioModelAdapter:
             "sampling_rate": target_rate,
             "return_tensors": "pt",
         }
-        waveform_contract = self._input_contracts.get("input_values")
-        if waveform_contract is not None and len(waveform_contract) == 2:
+        if self._waveform_length is not None:
             extractor_kwargs.update(
                 padding="max_length",
                 truncation=True,
-                max_length=waveform_contract[1],
+                max_length=self._waveform_length,
             )
         encoded = self._feature_extractor(waveform, **extractor_kwargs)
         model_inputs = self._select_model_inputs(encoded)
@@ -125,12 +124,14 @@ class _AudioModelAdapter:
             else torch.as_tensor(value, device=device)
             for name, value in model_inputs.items()
         }
-        output = self.model(**model_inputs)
-        logits = (
-            output.get("logits")
-            if isinstance(output, dict)
-            else getattr(output, "logits", None)
-        )
+        with torch.inference_mode():
+            output = self.model(**model_inputs)
+        if isinstance(output, dict):
+            logits = output.get("logits")
+            if logits is None and len(output) == 1:
+                logits = next(iter(output.values()))
+        else:
+            logits = getattr(output, "logits", None)
         if logits is None:
             raise ValueError("audio-classification model output does not contain logits")
         if hasattr(logits, "detach"):
@@ -138,9 +139,9 @@ class _AudioModelAdapter:
         array = np.asarray(logits, dtype=np.float32)
         if array.ndim != 2 or array.shape[0] != 1:
             raise ValueError(f"expected logits shape [1, classes], got {array.shape}")
-        return cast("NDArray[np.float32]", np.asarray(array[0], dtype=np.float32))
+        return np.asarray(array[0], dtype=np.float32)
 
-    def _resolve_input_contracts(self) -> dict[str, list[int]]:
+    def _resolve_input_contracts(self) -> dict[str, list[Any]]:
         io_config = getattr(self.model, "io_config", None) or {}
         names = io_config.get("input_names") or []
         shapes = io_config.get("input_shapes") or []
@@ -150,17 +151,60 @@ class _AudioModelAdapter:
             raise ValueError(
                 "audio-classification input names and shapes must have equal non-zero lengths",
             )
-        contracts: dict[str, list[int]] = {}
+        contracts: dict[str, list[Any]] = {}
         for name, raw_shape in zip(names, shapes, strict=True):
             shape = list(raw_shape)
-            if len(shape) < 2 or any(not isinstance(value, int) for value in shape[1:]):
-                raise ValueError(
-                    "audio-classification evaluation requires static non-batch input shapes",
-                )
+            if len(shape) < 2:
+                raise ValueError("audio-classification model inputs must have rank at least 2")
             if isinstance(shape[0], int) and shape[0] != 1:
                 raise ValueError("audio-classification evaluation requires batch size 1")
-            contracts[str(name)] = [1, *(int(value) for value in shape[1:])]
+            contracts[str(name)] = shape
         return contracts
+
+    def _resolve_waveform_length(self) -> int | None:
+        explicit_length = self._config.dataset.audio_input_length
+        legacy_length: int | None = None
+        raw_legacy_length = self._config.dataset.columns_mapping.get("input_length")
+        if raw_legacy_length is not None:
+            try:
+                legacy_length = int(raw_legacy_length)
+            except (TypeError, ValueError) as error:
+                raise ValueError("audio input_length must be a positive integer") from error
+            if legacy_length <= 0:
+                raise ValueError("audio input_length must be a positive integer")
+        if explicit_length is not None and explicit_length <= 0:
+            raise ValueError("audio_input_length must be a positive integer")
+        if (
+            explicit_length is not None
+            and legacy_length is not None
+            and explicit_length != legacy_length
+        ):
+            raise ValueError(
+                "audio_input_length does not match legacy input_length column mapping"
+            )
+        if explicit_length is None:
+            explicit_length = legacy_length
+
+        waveform_contract = self._input_contracts.get("input_values")
+        if waveform_contract is None and len(self._input_contracts) == 1:
+            waveform_contract = next(iter(self._input_contracts.values()))
+        static_length = (
+            waveform_contract[1]
+            if waveform_contract is not None
+            and len(waveform_contract) == 2
+            and isinstance(waveform_contract[1], int)
+            else None
+        )
+        if (
+            explicit_length is not None
+            and static_length is not None
+            and explicit_length != static_length
+        ):
+            raise ValueError(
+                f"audio input_length {explicit_length} does not match model input length "
+                f"{static_length}"
+            )
+        return explicit_length if explicit_length is not None else static_length
 
     def _select_model_inputs(self, encoded: Any) -> dict[str, Any]:
         values = dict(encoded)
@@ -170,17 +214,25 @@ class _AudioModelAdapter:
             return values
         selected: dict[str, Any] = {}
         for name, expected_shape in self._input_contracts.items():
-            if name not in values:
+            source_name = name
+            if source_name not in values and len(self._input_contracts) == 1:
+                source_name = "input_values"
+            if source_name not in values:
                 raise ValueError(
                     f"audio feature extractor output must contain {name!r}; got {sorted(values)}",
                 )
-            actual_shape = list(getattr(values[name], "shape", ()))
-            if actual_shape != expected_shape:
+            value = values[source_name]
+            actual_shape = list(getattr(value, "shape", ()))
+            shape_matches = len(actual_shape) == len(expected_shape) and all(
+                not isinstance(expected, int) or actual == expected
+                for actual, expected in zip(actual_shape, expected_shape, strict=True)
+            )
+            if not shape_matches:
                 raise ValueError(
                     f"audio feature extractor produced {name} shape {actual_shape}; "
                     f"expected {expected_shape}",
                 )
-            selected[name] = values[name]
+            selected[name] = value
         return selected
 
 
