@@ -464,7 +464,11 @@ def export(
             raise click.ClickException(f"Configuration error: {e}") from e
 
         # Load model with task detection (CLI is the orchestration layer)
-        pytorch_model, _, detected_task = load_hf_model(model, task=component_task)
+        pytorch_model, _, detected_task = load_hf_model(
+            model,
+            task=component_task,
+            attn_implementation=cfg.compatibility.transformers_attention,
+        )
         if component_task:
             console.print(f"[dim]Task (override): {detected_task}[/dim]")
         else:

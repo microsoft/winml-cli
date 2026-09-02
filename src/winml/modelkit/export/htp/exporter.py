@@ -213,7 +213,10 @@ class HTPExporter:
                     raise ValueError("Either 'model' or 'model_name_or_path' must be provided.")
                 from ...loader import load_hf_model
 
-                model, _, _ = load_hf_model(model_name_or_path)
+                model, _, _ = load_hf_model(
+                    model_name_or_path,
+                    attn_implementation=export_config.compatibility.transformers_attention,
+                )
 
             # Step 1: Model Preparation
             model.eval()
