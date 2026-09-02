@@ -103,6 +103,17 @@ def _decode_audio(value: Any) -> tuple[np.ndarray, int]:
     return waveform, int(sampling_rate)
 
 
+def _require_soundfile() -> None:
+    """Fail before dataset work when the optional audio decoder is unavailable."""
+    try:
+        import soundfile  # noqa: F401
+    except ImportError as error:
+        raise ImportError(
+            "CTC ASR evaluation requires SoundFile; install the audio extra with "
+            "`pip install 'winml-cli[audio]'`."
+        ) from error
+
+
 def _resample_audio(
     waveform: np.ndarray,
     source_rate: int,
@@ -224,7 +235,12 @@ def _selected_row_provenance(row: dict[str, Any], audio_column: str) -> dict[str
         source_index = int(source_index)
     if not isinstance(source_index, int) or isinstance(source_index, bool) or source_index < 0:
         raise DatasetValidationError("Selected ASR row has no valid source index provenance.")
-    dataset_id = _normalize_identity_scalar(row.get("id"), "dataset ID")
+    raw_dataset_id = row.get("id")
+    dataset_id = (
+        _normalize_identity_scalar(raw_dataset_id, "dataset ID")
+        if raw_dataset_id is not None
+        else None
+    )
     audio = row.get(audio_column)
     audio_path: str | None = None
     audio_key: str | int | float | None = None
@@ -241,8 +257,6 @@ def _selected_row_provenance(row: dict[str, Any], audio_column: str) -> dict[str
         audio_path = unicodedata.normalize(
             "NFKC", audio.replace("\\", "/").rsplit("/", 1)[-1]
         ).strip()
-    if not audio_path and audio_key is None:
-        raise DatasetValidationError("Selected ASR row has no valid audio identity provenance.")
     return {
         "source_index": source_index,
         "dataset_id": dataset_id,
@@ -255,6 +269,7 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
     """Evaluate metadata-resolved CTC ASR models with bounded full utterances."""
 
     def __init__(self, config: WinMLEvaluationConfig, model: Any) -> None:
+        _require_soundfile()
         mapping = config.dataset.columns_mapping
         self._audio_column = mapping.get("input_column", "audio")
         self._transcription_column = mapping.get("label_column", "transcription")
@@ -336,10 +351,6 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
         source_indices = [row["source_index"] for row in selected_rows]
         if len(source_indices) != len(set(source_indices)):
             raise DatasetValidationError("Selected ASR rows contain duplicate source indices.")
-        audio_paths = [row["audio_path"] for row in selected_rows if row["audio_path"] is not None]
-        audio_keys = [row["audio_key"] for row in selected_rows if row["audio_key"] is not None]
-        if len(audio_paths) != len(set(audio_paths)) or len(audio_keys) != len(set(audio_keys)):
-            raise DatasetValidationError("Selected ASR rows contain duplicate audio identities.")
 
         for row in self.data:
             try:
@@ -384,17 +395,17 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
         encoded = self.processor(
             waveform,
             sampling_rate=self.sampling_rate,
-            return_tensors="np",
+            return_tensors=("pt" if self.config.runtime == "pytorch" else "np"),
         )
-        arrays = {name: np.asarray(value) for name, value in encoded.items()}
-        if "input_values" not in arrays or arrays["input_values"].ndim != 2:
+        model_values = dict(encoded)
+        if "input_values" not in model_values or model_values["input_values"].ndim != 2:
             raise _RejectedSampleError("processor did not produce rank-2 input_values")
 
         input_names = list((getattr(self.model, "io_config", None) or {}).get("input_names", []))
         if not input_names:
             input_names = ["input_values"]
         window_size = self._fixed_waveform_size(input_names)
-        sample_count = arrays["input_values"].shape[1]
+        sample_count = model_values["input_values"].shape[1]
         window_count = 1 if window_size is None else math.ceil(sample_count / window_size)
         if window_count > _MAX_WINDOWS_PER_UTTERANCE:
             raise _RejectedSampleError(
@@ -404,7 +415,7 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
         predicted_ids: list[int] = []
         for window_index in range(window_count):
             inputs = self._window_inputs(
-                arrays,
+                model_values,
                 input_names,
                 window_index=window_index,
                 window_size=window_size,
@@ -420,6 +431,14 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
                     f"CTC output vocabulary {logits.shape[-1]} does not match active tokenizer "
                     f"vocabulary {self.tokenizer_vocab_size}."
                 )
+            if window_size is not None:
+                valid_samples = min(window_size, sample_count - window_index * window_size)
+                valid_frames = self._valid_logit_frames(
+                    valid_samples,
+                    window_size,
+                    logits.shape[1],
+                )
+                logits = logits[:, :valid_frames]
             if predicted_ids:
                 predicted_ids.append(self.blank_token_id)
             predicted_ids.extend(np.argmax(logits, axis=-1)[0].astype(int).tolist())
@@ -441,13 +460,13 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
 
     @staticmethod
     def _window_inputs(
-        arrays: dict[str, np.ndarray],
+        arrays: dict[str, Any],
         input_names: list[str],
         *,
         window_index: int,
         window_size: int | None,
-    ) -> dict[str, np.ndarray]:
-        inputs: dict[str, np.ndarray] = {}
+    ) -> dict[str, Any]:
+        inputs: dict[str, Any] = {}
         for name in input_names:
             if name not in arrays:
                 raise ValueError(f"Processor did not produce required ONNX input {name!r}.")
@@ -458,9 +477,41 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
             start = window_index * window_size
             chunk = value[:, start : start + window_size]
             if chunk.shape[1] < window_size:
-                chunk = np.pad(chunk, ((0, 0), (0, window_size - chunk.shape[1])))
+                padding = window_size - chunk.shape[1]
+                if isinstance(chunk, np.ndarray):
+                    chunk = np.pad(chunk, ((0, 0), (0, padding)))
+                else:
+                    import torch.nn.functional as functional
+
+                    chunk = functional.pad(chunk, (0, padding))
             inputs[name] = chunk
         return inputs
+
+    def _valid_logit_frames(
+        self,
+        valid_samples: int,
+        padded_samples: int,
+        total_frames: int,
+    ) -> int:
+        """Map valid samples in a padded window to valid CTC output frames."""
+        if valid_samples >= padded_samples:
+            return total_frames
+        model_config = getattr(self.model, "config", None)
+        conv_kernels = getattr(model_config, "conv_kernel", None)
+        conv_strides = getattr(model_config, "conv_stride", None)
+        if (
+            isinstance(conv_kernels, list)
+            and isinstance(conv_strides, list)
+            and len(conv_kernels) == len(conv_strides)
+        ):
+            output_length = valid_samples
+            for kernel, stride in zip(conv_kernels, conv_strides, strict=True):
+                if not isinstance(kernel, int) or not isinstance(stride, int) or stride <= 0:
+                    break
+                output_length = max(0, (output_length - kernel) // stride + 1)
+            else:
+                return min(total_frames, output_length)
+        return min(total_frames, math.ceil(total_frames * valid_samples / padded_samples))
 
     @staticmethod
     def _extract_logits(outputs: Any) -> np.ndarray:

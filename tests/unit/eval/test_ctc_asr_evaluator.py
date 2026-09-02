@@ -7,11 +7,13 @@ from __future__ import annotations
 
 from io import BytesIO
 from types import SimpleNamespace
+from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 import soundfile as sf
+import torch
 
 from winml.modelkit.eval.ctc_asr_evaluator import (
     WinMLCTCASREvaluator,
@@ -22,6 +24,7 @@ from winml.modelkit.eval.ctc_asr_evaluator import (
     _load_ctc_processor,
     _normalize_transcript,
     _RejectedSampleError,
+    _require_soundfile,
     _resample_audio,
 )
 from winml.modelkit.utils.eval_utils import TASK_SCHEMAS, DatasetValidationError
@@ -47,8 +50,11 @@ class _Processor:
         self.feature_extractor = SimpleNamespace(sampling_rate=16_000)
         self.decoded_ids: list[int] = []
 
-    def __call__(self, waveform, **_kwargs):
-        return {"input_values": np.asarray(waveform, dtype=np.float32)[None, :]}
+    def __call__(self, waveform, **kwargs):
+        values = np.asarray(waveform, dtype=np.float32)[None, :]
+        if kwargs.get("return_tensors") == "pt":
+            return {"input_values": torch.from_numpy(values)}
+        return {"input_values": values}
 
     def batch_decode(self, sequences):
         self.decoded_ids = list(sequences[0])
@@ -158,6 +164,23 @@ def test_constructor_initializes_base_evaluator_state() -> None:
     assert evaluator.config is config
     assert evaluator.data is prepared_data
     assert evaluator.pipe is None
+
+
+def test_missing_soundfile_fails_before_base_initialization() -> None:
+    import builtins
+
+    real_import = builtins.__import__
+
+    def reject_soundfile(name, *args, **kwargs):
+        if name == "soundfile":
+            raise ImportError("missing soundfile")
+        return real_import(name, *args, **kwargs)
+
+    with (
+        patch("builtins.__import__", side_effect=reject_soundfile),
+        pytest.raises(ImportError, match=r"winml-cli\[audio\]"),
+    ):
+        _require_soundfile()
 
 
 @pytest.mark.parametrize("streaming", [False, True])
@@ -371,14 +394,14 @@ def test_prepare_data_streaming_shuffle_is_bounded() -> None:
     assert all(0 <= index < yielded for index in selected["_winml_source_index"])
 
 
-def test_compute_rejects_malformed_identity_selected_by_shuffle_before_inference() -> None:
+def test_compute_rejects_invalid_present_id_selected_by_shuffle_before_inference() -> None:
     from datasets import Dataset
 
     from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
     rows = [
         {
-            "id": None if index == 7 else index,
+            "id": "   " if index == 7 else str(index),
             "audio": f"{index}.wav",
             "transcription": str(index),
         }
@@ -515,10 +538,11 @@ def test_mms_adapter_metadata_requires_an_active_language() -> None:
 def test_static_audio_windows_pad_and_insert_blank_for_processor_ctc_decode() -> None:
     processor = _Processor()
     evaluator = _evaluator(input_shape=[1, 4], processor=processor)
-    logits = np.array([[[0, 5, 0], [0, 5, 0]]], dtype=np.float32)
+    first_logits = np.array([[[0, 5, 0], [0, 5, 0]]], dtype=np.float32)
+    final_logits = np.array([[[0, 5, 0], [0, 0, 5]]], dtype=np.float32)
     evaluator.model.side_effect = [
-        {"logits": logits},
-        {"logits": logits},
+        {"logits": first_logits},
+        {"logits": final_logits},
     ]
     audio = {"bytes": _wav_bytes(np.arange(6, dtype=np.float32)), "path": None}
 
@@ -527,7 +551,24 @@ def test_static_audio_windows_pad_and_insert_blank_for_processor_ctc_decode() ->
     final_input = evaluator.model.call_args_list[1].kwargs["input_values"]
     assert final_input.shape == (1, 4)
     np.testing.assert_array_equal(final_input[0, 2:], np.zeros(2))
-    assert processor.decoded_ids == [1, 1, 0, 1, 1]
+    assert processor.decoded_ids == [1, 1, 0, 1]
+
+
+def test_pytorch_runtime_preserves_processor_tensors_for_native_model() -> None:
+    evaluator = _evaluator(input_shape=[1, "samples"])
+    evaluator.config.runtime = "pytorch"
+
+    class NativeCTCModel:
+        io_config: ClassVar[dict[str, list[object]]] = {}
+
+        def __call__(self, *, input_values):
+            assert isinstance(input_values, torch.Tensor)
+            return SimpleNamespace(logits=torch.tensor([[[0.0, 5.0, 0.0]]]))
+
+    evaluator.model = NativeCTCModel()
+    audio = {"bytes": _wav_bytes(np.ones(4, dtype=np.float32)), "path": None}
+
+    assert evaluator._transcribe(audio) == "1"
 
 
 def test_dynamic_audio_runs_full_utterance_once() -> None:
@@ -654,14 +695,6 @@ def test_compute_rejects_missing_selected_source_index_before_inference() -> Non
         (
             {
                 "_winml_source_index": 0,
-                "audio": {"path": "sample.wav"},
-                "transcription": "reference",
-            },
-            "dataset ID",
-        ),
-        (
-            {
-                "_winml_source_index": 0,
                 "id": True,
                 "audio": {"path": "sample.wav"},
                 "transcription": "reference",
@@ -676,23 +709,6 @@ def test_compute_rejects_missing_selected_source_index_before_inference() -> Non
                 "transcription": "reference",
             },
             "dataset ID",
-        ),
-        (
-            {
-                "_winml_source_index": 0,
-                "id": 1525,
-                "transcription": "reference",
-            },
-            "audio identity",
-        ),
-        (
-            {
-                "_winml_source_index": 0,
-                "id": 1525,
-                "audio": {"path": "", "key": ""},
-                "transcription": "reference",
-            },
-            "audio identity",
         ),
     ],
 )
@@ -710,28 +726,27 @@ def test_compute_rejects_malformed_selected_identity_before_inference(
     evaluator._transcribe.assert_not_called()
 
 
-def test_compute_rejects_duplicate_audio_identity_before_inference() -> None:
+def test_compute_accepts_missing_dataset_id_and_duplicate_audio_basename() -> None:
     evaluator = _evaluator(input_shape=[1, "samples"])
     evaluator.data = [
         {
             "_winml_source_index": 0,
-            "id": 1525,
             "audio": {"path": r"C:\first\same.wav", "key": "first"},
             "transcription": "first",
         },
         {
             "_winml_source_index": 1,
-            "id": 1657,
             "audio": {"path": r"D:\second\same.wav", "key": "second"},
             "transcription": "second",
         },
     ]
-    evaluator._transcribe = MagicMock()
+    evaluator._transcribe = MagicMock(side_effect=["first", "second"])
 
-    with pytest.raises(DatasetValidationError, match="duplicate audio identities"):
-        evaluator.compute()
+    result = evaluator.compute()
 
-    evaluator._transcribe.assert_not_called()
+    assert result["selected_source_ids"] == [None, None]
+    assert result["selected_audio_paths"] == ["same.wav", "same.wav"]
+    assert evaluator._transcribe.call_count == 2
 
 
 def test_compute_accepts_duplicate_dataset_ids_with_distinct_row_and_audio_identity() -> None:
