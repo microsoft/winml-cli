@@ -91,3 +91,29 @@ def test_device_name_markup_rendered_literally(
     sysmod._output_device_text(devices)
     out = recording_console.export_text()
     assert "[bold]Weird[/bold]" in out
+
+
+@pytest.mark.parametrize("device_type", ["NPU", "GPU", "CPU"])
+def test_device_luid_rendered_for_each_device_type(
+    recording_console: Console,
+    device_type: str,
+) -> None:
+    devices: list[dict[str, Any]] = [
+        {
+            "priority": 1,
+            "type": device_type,
+            "name": f"Test {device_type}",
+            "details": {
+                "luid": "0x00000000_0x00018393",
+                "driver": "1.0",
+                "manufacturer": "Test",
+                "cores": 8,
+                "threads": 16,
+                "architecture": "x64",
+            },
+        }
+    ]
+
+    sysmod._output_device_text(devices)
+
+    assert "LUID: 0x00000000_0x00018393" in recording_console.export_text()

@@ -9,6 +9,7 @@ from .device import (
     resolve_device,
     resolve_eps,
 )
+from .dxcore_adapters import DXCoreAdapterInfo, enumerate_compute_adapters
 from .hardware import CPU, GPU, NPU, get_available_devices
 from .luid import format_pdh_luid, get_ep_device_luid
 from .software import OS
@@ -20,7 +21,9 @@ __all__ = [
     "GPU",
     "NPU",
     "OS",
+    "DXCoreAdapterInfo",
     "SysInfo",
+    "enumerate_compute_adapters",
     "format_pdh_luid",
     "get_available_devices",
     "get_device_ep_map",
