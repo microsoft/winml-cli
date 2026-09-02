@@ -32,8 +32,8 @@ $ winml sys [options]
 `winml sys` queries Python's `platform` and `importlib.metadata` modules to report
 library versions. On Windows, it also reads the native
 `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion` registry key to report the
-product name, display version, build, update build revision (UBR), build branch,
-and build lab. It then probes PyTorch for CUDA availability and GPU device names.
+display version, build, update build revision (UBR), build branch, and build lab.
+It then probes PyTorch for CUDA availability and GPU device names.
 Backend availability checks use the installed runtime environment, while device
 enumeration queries hardware directly in NPU > GPU > CPU priority order, and EP
 enumeration merges the WinML EP registry with ONNX Runtime's
@@ -58,7 +58,6 @@ Environment
   Python Executable C:\...\python.exe
   OS                Windows 11
   Machine           AMD64
-  Product Name      Windows 11 Pro
   Display Version   24H2
   Current Build     26100
   UBR               4946

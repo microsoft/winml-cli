@@ -116,7 +116,6 @@ _IMAGE_FILE_MACHINE_TO_NAME = {
 
 _WINDOWS_CURRENT_VERSION_KEY = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion"
 _WINDOWS_VERSION_VALUES = {
-    "ProductName": "product_name",
     "DisplayVersion": "display_version",
     "CurrentBuild": "current_build",
     "UBR": "ubr",
@@ -445,7 +444,6 @@ def _output_text(info: dict[str, Any], verbose: bool = False) -> None:
     table.add_row("OS", f"{info['platform']['system']} {info['platform']['release']}")
     table.add_row("Machine", info["platform"]["machine"])
     windows_rows = (
-        ("Product Name", "product_name"),
         ("Display Version", "display_version"),
         ("Current Build", "current_build"),
         ("UBR", "ubr"),

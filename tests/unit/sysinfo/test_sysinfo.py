@@ -75,7 +75,6 @@ class TestGetWindowsVersionInfo:
         from winml.modelkit.commands import sys as sys_mod
 
         values = {
-            "ProductName": ("Windows 11 Pro", 1),
             "DisplayVersion": ("24H2", 1),
             "CurrentBuild": ("26100", 1),
             "UBR": (4946, 4),
@@ -95,7 +94,6 @@ class TestGetWindowsVersionInfo:
             result = sys_mod._get_windows_version_info()
 
         assert result == {
-            "product_name": "Windows 11 Pro",
             "display_version": "24H2",
             "current_build": "26100",
             "ubr": 4946,
@@ -118,7 +116,6 @@ class TestGetWindowsVersionInfo:
         winreg.KEY_READ = 0x20019
         winreg.KEY_WOW64_64KEY = 0x100
         winreg.QueryValueEx.side_effect = [
-            ("Windows 11 Pro", 1),
             OSError("missing"),
             ("26100", 1),
             (4946, 4),
@@ -131,7 +128,6 @@ class TestGetWindowsVersionInfo:
             result = sys_mod._get_windows_version_info()
 
         assert "display_version" not in result
-        assert result["product_name"] == "Windows 11 Pro"
         assert result["current_build"] == "26100"
 
     def test_returns_empty_when_registry_key_is_unavailable(
@@ -164,7 +160,6 @@ class TestGetPlatformInfo:
     @patch(
         "winml.modelkit.commands.sys._get_windows_version_info",
         return_value={
-            "product_name": "Windows 11 Pro",
             "display_version": "24H2",
             "current_build": "26100",
             "ubr": 4946,
@@ -199,7 +194,6 @@ class TestGetPlatformInfo:
         assert result["system"] == "Windows"
         assert result["release"] == "11"  # Should be corrected to 11
         assert result["machine"] == "AMD64"
-        assert result["product_name"] == "Windows 11 Pro"
         assert result["display_version"] == "24H2"
         assert result["current_build"] == "26100"
         assert result["ubr"] == 4946
