@@ -28,7 +28,6 @@ from datasets import (
     Sequence,
     Value,
 )
-from onnx import TensorProto, helper
 from transformers import Wav2Vec2Config
 
 from winml.modelkit.commands.eval import eval as eval_command
@@ -202,21 +201,29 @@ def _config(
 
 
 def _save_sign_classifier(path):
-    input_info = helper.make_tensor_value_info("input_values", TensorProto.FLOAT, [1, 8])
-    output_info = helper.make_tensor_value_info("logits", TensorProto.FLOAT, [1, 2])
-    graph = helper.make_graph(
+    input_info = onnx.helper.make_tensor_value_info(
+        "input_values", onnx.TensorProto.FLOAT, [1, 8]
+    )
+    output_info = onnx.helper.make_tensor_value_info(
+        "logits", onnx.TensorProto.FLOAT, [1, 2]
+    )
+    graph = onnx.helper.make_graph(
         [
-            helper.make_node("ReduceMean", ["input_values"], ["score"], axes=[1], keepdims=1),
-            helper.make_node("Neg", ["score"], ["negative_score"]),
-            helper.make_node("Concat", ["score", "negative_score"], ["logits"], axis=1),
+            onnx.helper.make_node(
+                "ReduceMean", ["input_values"], ["score"], axes=[1], keepdims=1
+            ),
+            onnx.helper.make_node("Neg", ["score"], ["negative_score"]),
+            onnx.helper.make_node(
+                "Concat", ["score", "negative_score"], ["logits"], axis=1
+            ),
         ],
         "sign_classifier",
         [input_info],
         [output_info],
     )
-    model = helper.make_model(
+    model = onnx.helper.make_model(
         graph,
-        opset_imports=[helper.make_opsetid("", 17)],
+        opset_imports=[onnx.helper.make_opsetid("", 17)],
         ir_version=9,
     )
     onnx.save(model, path)
