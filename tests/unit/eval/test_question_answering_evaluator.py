@@ -385,6 +385,18 @@ class TestDocumentCompute:
             torch.zeros((1, 9), dtype=torch.long),
         )
 
+    def test_declared_image_input_is_rejected_before_document_inference(self):
+        evaluator, _, model = self._make_document_evaluator({})
+        model.io_config["input_names"].append("pixel_values")
+
+        with pytest.raises(
+            ValueError,
+            match=r"text-and-layout model inputs.*cannot produce.*pixel_values",
+        ):
+            evaluator.compute()
+
+        model.assert_not_called()
+
     def test_sample_index_selects_pinned_document_row(self):
         evaluator, _, _ = self._make_document_evaluator({})
         evaluator.config.dataset.columns_mapping["sample_index"] = "2"

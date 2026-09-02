@@ -366,6 +366,18 @@ class WinMLQuestionAnsweringEvaluator(WinMLEvaluator):
         tokenizer = self.pipe.tokenizer
         if tokenizer is None:
             raise ValueError("Document question answering requires a tokenizer.")
+        supported_input_names = set(getattr(tokenizer, "model_input_names", [])) | {
+            "input_ids",
+            "attention_mask",
+            "bbox",
+            "token_type_ids",
+        }
+        unsupported_input_names = sorted(input_names - supported_input_names)
+        if unsupported_input_names:
+            raise ValueError(
+                "Document question answering currently supports text-and-layout model inputs; "
+                f"it cannot produce declared input(s): {', '.join(unsupported_input_names)}."
+            )
         max_length = self._fixed_seq_length() or tokenizer.model_max_length
         if not isinstance(max_length, int) or max_length <= 0:
             raise ValueError("Document QA requires a finite tokenizer or model sequence length.")
