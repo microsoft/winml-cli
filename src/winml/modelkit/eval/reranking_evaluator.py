@@ -198,34 +198,38 @@ class WinMLRerankingEvaluator(WinMLEvaluator):
                 continue
             positives = self._parse_json_sequence(sample[self._positive_col])
             negatives = self._parse_json_sequence(sample[self._negative_col])
+            positives = [str(text) for text in positives if str(text).strip()]
+            negatives = [str(text) for text in negatives if str(text).strip()]
             if not positives:
-                raise DatasetValidationError(
-                    f"reranking group {row_index!r} has no positive passages"
-                )
-
-            candidates = [
-                _Candidate(
-                    candidate_id=f"{row_index}:positive:{candidate_index}",
-                    text=str(text),
-                    relevant=True,
-                )
-                for candidate_index, text in enumerate(positives[: self._max_candidates])
-                if str(text).strip()
-            ]
-            if not candidates:
                 raise DatasetValidationError(
                     f"reranking group {row_index!r} has no non-empty positive passages"
                 )
-            remaining = max(self._max_candidates - len(candidates), 0)
-            candidates.extend(
+
+            positive_candidates = [
+                _Candidate(
+                    candidate_id=f"{row_index}:positive:{candidate_index}",
+                    text=text,
+                    relevant=True,
+                )
+                for candidate_index, text in enumerate(positives[: self._max_candidates])
+            ]
+            remaining = max(self._max_candidates - len(positive_candidates), 0)
+            negative_candidates = [
                 _Candidate(
                     candidate_id=f"{row_index}:negative:{candidate_index}",
-                    text=str(text),
+                    text=text,
                     relevant=False,
                 )
                 for candidate_index, text in enumerate(negatives[:remaining])
-                if str(text).strip()
-            )
+            ]
+            candidates: list[_Candidate] = []
+            for candidate_index in range(
+                max(len(positive_candidates), len(negative_candidates))
+            ):
+                if candidate_index < len(negative_candidates):
+                    candidates.append(negative_candidates[candidate_index])
+                if candidate_index < len(positive_candidates):
+                    candidates.append(positive_candidates[candidate_index])
             groups.append(
                 _Group(group_id=str(row_index), query=query, candidates=tuple(candidates))
             )

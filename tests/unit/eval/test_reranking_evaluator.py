@@ -244,13 +244,58 @@ def test_reranking_evaluator_materializes_bounded_positive_and_negative_text() -
     result = evaluator.compute()
 
     assert [candidate.candidate_id for candidate in groups[0].candidates] == [
+        "0:negative:0",
         "0:positive:0",
         "0:positive:1",
-        "0:negative:0",
     ]
-    assert [candidate.relevant for candidate in groups[0].candidates] == [True, True, False]
+    assert [candidate.relevant for candidate in groups[0].candidates] == [False, True, True]
     assert result["processed_pairs"] == 3
-    assert result["recall@1"] == 1.0
+    assert result["recall@1"] == 0.0
+
+
+def test_reranking_evaluator_filters_empty_text_before_candidate_cap() -> None:
+    evaluator = _make_evaluator(
+        [
+            {
+                "query": "economic dispatch",
+                "positive": ["", "relevant"],
+                "negative": ["", "negative one", "negative two"],
+            }
+        ],
+        scores=[],
+    )
+    evaluator._positive_col = "positive"
+    evaluator._negative_col = "negative"
+    evaluator._document_col = None
+    evaluator._group_col = None
+    evaluator._label_col = None
+    evaluator._max_candidates = 3
+    evaluator.config.dataset.columns_mapping = {
+        "query_column": "query",
+        "positive_column": "positive",
+        "negative_column": "negative",
+    }
+
+    candidates = evaluator._materialize_groups()[0].candidates
+
+    assert [candidate.text for candidate in candidates] == [
+        "negative one",
+        "relevant",
+        "negative two",
+    ]
+
+
+def test_reranking_dataset_mode_accepts_positive_and_negative_text_lists() -> None:
+    mode = detect_reranking_dataset_mode(
+        ["query", "positive", "negative"],
+        {
+            "query_column": "query",
+            "positive_column": "positive",
+            "negative_column": "negative",
+        },
+    )
+
+    assert mode == "grouped-text"
 
 
 def test_reranking_evaluator_does_not_cap_materialized_candidate_column() -> None:
