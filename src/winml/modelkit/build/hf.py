@@ -350,6 +350,9 @@ def _load_model(
             path (PR #719 dedup pattern).
     """
     task = config.loader.task
+    attn_implementation = (
+        config.export.compatibility.transformers_attention if config.export else None
+    )
 
     if random_init:
         from transformers import AutoConfig
@@ -402,7 +405,10 @@ def _load_model(
 
         model_label = model_id or config.loader.model_type
         logger.info("Creating random-weight model: %s (from %s)", model_class.__name__, model_label)
-        return model_class.from_config(hf_config)
+        model_kwargs: dict[str, Any] = {}
+        if attn_implementation is not None:
+            model_kwargs["attn_implementation"] = attn_implementation
+        return model_class.from_config(hf_config, **model_kwargs)
 
     if model_id is not None:
         from ..loader import load_hf_model
@@ -415,6 +421,7 @@ def _load_model(
             trust_remote_code=effective_trust,
             hf_config=hf_config,
             model_type=model_type,
+            attn_implementation=attn_implementation,
         )
         return pytorch_model
 

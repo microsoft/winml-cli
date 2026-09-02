@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import torch
 import torch.nn as nn
@@ -140,6 +141,28 @@ def _export_config(*, eager_attention: bool) -> WinMLExportConfig:
         compatibility=ExportCompatibilityConfig(
             transformers_attention="eager" if eager_attention else None
         ),
+    )
+
+
+def test_htp_exporter_auto_load_threads_attention_compatibility(tmp_path: Path) -> None:
+    export_config = _export_config(eager_attention=True)
+
+    with patch("winml.modelkit.loader.load_hf_model") as mock_load:
+        mock_load.side_effect = RuntimeError("stop after model loading")
+        try:
+            HTPExporter().export(
+                output_path=str(tmp_path / "model.onnx"),
+                export_config=export_config,
+                model_name_or_path="fake/model",
+            )
+        except RuntimeError as exc:
+            assert str(exc) == "stop after model loading"
+        else:
+            raise AssertionError("Expected the loader sentinel to stop export")
+
+    mock_load.assert_called_once_with(
+        "fake/model",
+        attn_implementation="eager",
     )
 
 
