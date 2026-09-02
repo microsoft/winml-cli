@@ -94,6 +94,7 @@ class OperatorMetrics:
     onnx_attributes: dict[str, Any] | None = None
     onnx_inputs: dict[str, dict[str, Any]] | None = None
     onnx_outputs: dict[str, dict[str, Any]] | None = None
+    ep: str | None = None
 
     @property
     def sample_count(self) -> int:
@@ -125,7 +126,7 @@ class OperatorMetrics:
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dict, omitting only unset opt-in ONNX metadata."""
         result = asdict(self)
-        for key in ("onnx_op_type", "onnx_attributes", "onnx_inputs", "onnx_outputs"):
+        for key in ("ep", "onnx_op_type", "onnx_attributes", "onnx_inputs", "onnx_outputs"):
             if result[key] is None:
                 del result[key]
         return result
