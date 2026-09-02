@@ -233,11 +233,33 @@ def _resolve_ep_monitor(
     device_norm = (device or "").lower()
 
     if op_tracing:
+        if ep_norm == "openvino":
+            from ..session.monitor.openvino_monitor import OpenVinoMonitor
+
+            if op_tracing != "basic":
+                raise RuntimeError("OpenVINO op-tracing currently supports only level 'basic'.")
+            if device_norm not in ("cpu", "npu"):
+                raise RuntimeError(
+                    "OpenVINO op-tracing currently supports only --device cpu or --device npu."
+                )
+            OpenVinoMonitor.validate_runtime_version()
+            if not OpenVinoMonitor.is_available():
+                raise RuntimeError(
+                    "Op-tracing --ep openvino requested but OpenVINO is not available "
+                    "on this system."
+                )
+            return OpenVinoMonitor(
+                level="basic",
+                output_dir=output_dir,
+                device=cast("Literal['cpu', 'npu']", device_norm),
+            )
+
         if (ep_norm and ep_norm != "qnn") or (
             not ep_norm and device_norm not in ("npu", "auto", "")
         ):
             raise RuntimeError(
-                f"Op-tracing not available for EP {ep!r} on device {device!r}. Supported EPs: qnn."
+                f"Op-tracing not available for EP {ep!r} on device {device!r}. "
+                "Supported EPs: qnn, openvino (basic on cpu/npu)."
             )
 
         from ..session.monitor.qnn_monitor import QNNMonitor
@@ -267,7 +289,8 @@ def _resolve_ep_monitor(
             )
 
         raise RuntimeError(
-            f"Op-tracing not available for EP {ep!r} on device {device!r}. Supported EPs: qnn."
+            f"Op-tracing not available for EP {ep!r} on device {device!r}. "
+            "Supported EPs: qnn, openvino (basic on cpu/npu)."
         )
 
     # Proof-of-execution monitors (no op-tracing)
@@ -2148,10 +2171,13 @@ def _print_save_to_footer(
     console: Console,
     *,
     profiling_csv: str | None,
+    profiling_json: str | None = None,
 ) -> None:
     """Print the raw profiling artifact path after the op-trace report."""
     if profiling_csv:
         console.print(f"[dim]Profiling CSV:[/dim] {profiling_csv}")
+    if profiling_json:
+        console.print(f"[dim]Profiling JSON:[/dim] {profiling_json}")
 
 
 @dataclass
@@ -3463,6 +3489,7 @@ def perf(
             _print_save_to_footer(
                 console,
                 profiling_csv=profiling_csv,
+                profiling_json=trace_result.artifacts.get("profile"),
             )
         else:
             if json_mode:

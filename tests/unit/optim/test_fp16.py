@@ -5003,26 +5003,20 @@ class TestConvertToFP16:
             )
         assert model.SerializeToString() == original
 
-    def test_always_float_unused_attribute_capture_is_ignored(self) -> None:
-        """Only local-function attributes referenced by its body execute."""
+    def test_always_float_unused_attribute_capture_is_rejected(self) -> None:
+        """ORT validates captures in supplied attributes even when unused."""
         model = _build_always_float_unused_function_capture_model()
+        original = model.SerializeToString()
 
         checker.check_model(model)
         shape_inference.infer_shapes(model, strict_mode=True)
-        result = convert_to_fp16(
-            model,
-            keep_io_types=False,
-            op_block_list=[],
-        )
-
-        checker.check_model(result)
-        shape_inference.infer_shapes(result, strict_mode=True)
-        session = ort.InferenceSession(
-            result.SerializeToString(), providers=["CPUExecutionProvider"]
-        )
-        output, converted = session.run(None, {"x": np.array([2.0], dtype=np.float16)})
-        assert output.dtype == np.float16
-        assert converted.dtype == np.float16
+        with np.testing.assert_raises_regex(RuntimeError, "blocked subgraph"):
+            convert_to_fp16(
+                model,
+                keep_io_types=False,
+                op_block_list=[],
+            )
+        assert model.SerializeToString() == original
 
     def test_skipped_scope_duplicate_initializer_is_allowed(self) -> None:
         """Initializer name checks visit only scopes ORT traverses."""

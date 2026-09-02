@@ -37,10 +37,4 @@ def test_openvino_monitor_is_exported_from_session_public_apis() -> None:
     from winml.modelkit.session import OpenVinoMonitor as SessionOpenVinoMonitor
     from winml.modelkit.session.monitor import OpenVinoMonitor
 
-    monitor = OpenVinoMonitor()
-
     assert SessionOpenVinoMonitor is OpenVinoMonitor
-    assert monitor.__enter__() is monitor
-    assert monitor.__exit__(None, None, None) is None
-    assert OpenVinoMonitor.is_available() is False
-    assert monitor.to_dict() == {"ep": "OpenVINO", "device": "NPU", "status": "not_implemented"}

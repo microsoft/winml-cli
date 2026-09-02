@@ -2539,10 +2539,10 @@ def _binding_converts_to_fp16(
     )
 
 
-def _local_function_executed_attributes(
+def _local_function_validated_attributes(
     model: ModelProto, node: NodeProto
-) -> list[AttributeProto] | None:
-    """Resolve supplied or default attributes referenced by a local function."""
+) -> list[AttributeProto]:
+    """Resolve supplied and default attributes that ORT validates."""
     function = next(
         (
             candidate
@@ -2554,23 +2554,11 @@ def _local_function_executed_attributes(
         None,
     )
     if function is None:
-        return None
-    referenced_attributes: set[str] = set()
-    pending_nodes = list(function.node)
-    while pending_nodes:
-        function_node = pending_nodes.pop()
-        for attribute in function_node.attribute:
-            if attribute.ref_attr_name:
-                referenced_attributes.add(attribute.ref_attr_name)
-            for child in _iter_graphs_from_attribute(attribute):
-                pending_nodes.extend(child.node)
-    supplied = {attribute.name: attribute for attribute in node.attribute}
-    defaults = {attribute.name: attribute for attribute in function.attribute_proto}
-    return [
-        attribute
-        for name in referenced_attributes
-        if (attribute := supplied.get(name, defaults.get(name))) is not None
-    ]
+        return list(node.attribute)
+
+    attributes = {attribute.name: attribute for attribute in function.attribute_proto}
+    attributes.update({attribute.name: attribute for attribute in node.attribute})
+    return list(attributes.values())
 
 
 def _function_contains_concrete_float(function: FunctionProto) -> bool:
@@ -2767,12 +2755,9 @@ def _reject_blocked_subgraph_converted_captures(
         for node in getattr(graph, "node", []):
             if not _ort_skips_node_attributes(node, blocked_ops):
                 continue
-            executed_attributes = _local_function_executed_attributes(model, node)
             children = (
                 child
-                for attribute in (
-                    node.attribute if executed_attributes is None else executed_attributes
-                )
+                for attribute in _local_function_validated_attributes(model, node)
                 for child in _iter_graphs_from_attribute(attribute)
             )
             for child in children:
