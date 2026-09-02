@@ -455,13 +455,13 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
 
     def _disable_backend_audio_decoding(self, dataset: Any) -> Any:
         """Keep dataset audio as bytes/path so decoding does not require TorchCodec."""
-        from datasets import Audio
+        from datasets import Audio, Value
 
         audio_feature = dataset.features[self._audio_col]
-        if isinstance(audio_feature, Audio) and audio_feature.decode:
+        if isinstance(audio_feature, Audio):
             return dataset.cast_column(
                 self._audio_col,
-                Audio(sampling_rate=audio_feature.sampling_rate, decode=False),
+                {"bytes": Value("binary"), "path": Value("string")},
             )
         return dataset
 

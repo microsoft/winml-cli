@@ -163,28 +163,6 @@ class _CountingStreamingDataset:
             yield row
 
 
-class _EncodingMustNotRunAudio(Audio):
-    def encode_example(self, value):
-        raise AssertionError("bounded selection must not re-encode raw audio")
-
-
-class _RawAudioIterableDataset(IterableDataset):
-    def __init__(self, rows, features):
-        self._rows = rows
-        self._raw_features = features
-
-    @property
-    def features(self):
-        return self._raw_features
-
-    @property
-    def column_names(self):
-        return list(self._raw_features)
-
-    def __iter__(self):
-        return iter(self._rows)
-
-
 def _audio_dataset(rows):
     features = Features(
         {
@@ -736,13 +714,10 @@ class TestAudioPredictionAndMetrics:
         encoded = BytesIO()
         sf.write(encoded, np.ones(8, dtype=np.float32), 16_000, format="WAV")
         raw_audio = {"bytes": encoded.getvalue(), "path": None}
-        dataset = _RawAudioIterableDataset(
-            [{"audio": raw_audio, "labels": ["cat"]}],
-            Features(
-                {
-                    "audio": _EncodingMustNotRunAudio(decode=False),
-                    "labels": Sequence(Value("string")),
-                }
+        dataset = IterableDataset.from_generator(
+            lambda: iter([{"audio": raw_audio, "labels": ["cat"]}]),
+            features=Features(
+                {"audio": Audio(), "labels": Sequence(Value("string"))}
             ),
         )
         config = WinMLEvaluationConfig(
@@ -760,6 +735,11 @@ class TestAudioPredictionAndMetrics:
 
         with (
             patch("datasets.load_dataset", return_value=dataset),
+            patch.object(
+                Audio,
+                "encode_example",
+                side_effect=AssertionError("streaming audio must remain raw"),
+            ),
             patch(
                 "transformers.AutoFeatureExtractor.from_pretrained",
                 return_value=_TwoInputFeatureExtractor(),
