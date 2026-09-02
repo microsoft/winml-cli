@@ -167,7 +167,21 @@ class WinMLQuestionAnsweringEvaluator(WinMLEvaluator):
         If io_config is unavailable or the shape cannot be resolved, the
         tokenizer keeps its own default max length and a warning is logged.
         """
-        pipe = super().prepare_pipeline()
+        if self._is_document_mode():
+            from ..inference.pipeline import create_pipeline
+
+            pipe = cast(
+                "Pipeline",
+                create_pipeline(
+                    "question-answering",
+                    self.model,
+                    self.config.model_id,
+                    device=self.config.pipeline_device,
+                    trust_remote_code=self.config.trust_remote_code,
+                ),
+            )
+        else:
+            pipe = super().prepare_pipeline()
 
         if pipe.tokenizer is not None:
             io_config = getattr(self.model, "io_config", None) or {}
@@ -366,7 +380,7 @@ class WinMLQuestionAnsweringEvaluator(WinMLEvaluator):
         tokenizer = self.pipe.tokenizer
         if tokenizer is None:
             raise ValueError("Document question answering requires a tokenizer.")
-        supported_input_names = set(getattr(tokenizer, "model_input_names", [])) | {
+        supported_input_names = {
             "input_ids",
             "attention_mask",
             "bbox",

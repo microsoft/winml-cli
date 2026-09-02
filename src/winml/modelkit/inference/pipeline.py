@@ -521,7 +521,6 @@ def _create_extractive_question_answering_pipeline(
 
 _COMPAT_PIPELINE_FACTORIES = {
     "question-answering": _create_extractive_question_answering_pipeline,
-    "document-question-answering": _create_extractive_question_answering_pipeline,
 }
 
 

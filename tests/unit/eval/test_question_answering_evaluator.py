@@ -148,6 +148,40 @@ class TestPreparePipeline:
         ):
             make_evaluator(io_config={"input_shapes": [[1, 384]]}, tokenizer=None)
 
+    def test_document_mode_scopes_extractive_pipeline_to_evaluator(self):
+        from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
+
+        evaluator = object.__new__(WinMLQuestionAnsweringEvaluator)
+        evaluator.model = MagicMock()
+        evaluator.model.io_config = {
+            "input_names": ["input_ids", "bbox", "attention_mask"],
+            "input_shapes": [[1, 512], [1, 512, 4], [1, 512]],
+        }
+        evaluator.config = WinMLEvaluationConfig(
+            model_id="test/document-model",
+            task="document-question-answering",
+            dataset=DatasetConfig(
+                path="test/document-dataset",
+                columns_mapping={"document_mode": "true"},
+            ),
+        )
+        pipe = MagicMock()
+
+        with patch(
+            "winml.modelkit.inference.pipeline.create_pipeline",
+            return_value=pipe,
+        ) as create_pipeline:
+            result = evaluator.prepare_pipeline()
+
+        assert result is pipe
+        create_pipeline.assert_called_once_with(
+            "question-answering",
+            evaluator.model,
+            "test/document-model",
+            device="cpu",
+            trust_remote_code=False,
+        )
+
     def test_no_padding_without_shapes(self):
         ev = make_evaluator()
 
@@ -388,6 +422,11 @@ class TestDocumentCompute:
     def test_declared_image_input_is_rejected_before_document_inference(self):
         evaluator, _, model = self._make_document_evaluator({})
         model.io_config["input_names"].append("pixel_values")
+        evaluator.pipe.tokenizer.model_input_names = (
+            "input_ids",
+            "attention_mask",
+            "pixel_values",
+        )
 
         with pytest.raises(
             ValueError,

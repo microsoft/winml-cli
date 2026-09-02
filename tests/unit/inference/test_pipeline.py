@@ -157,13 +157,18 @@ def _create_qa_compat_pipe(tokenizer, model, task="question-answering"):
         return create_pipeline(task, model, "test-model")
 
 
-def test_document_question_answering_uses_extractive_compat_pipeline() -> None:
-    tokenizer = _make_fast_qa_tokenizer()
-    model, _ = _make_qa_model(tokenizer)
+def test_document_question_answering_uses_native_transformers_pipeline() -> None:
+    model = MagicMock()
+    pipe = MagicMock(tokenizer=None, image_processor=None)
 
-    pipe = _create_qa_compat_pipe(tokenizer, model, "document-question-answering")
+    with (
+        patch("winml.modelkit.inference.pipeline._pipeline_component_kwargs", return_value={}),
+        patch("transformers.pipeline", return_value=pipe) as pipeline,
+    ):
+        result = create_pipeline("document-question-answering", model, "test-model")
 
-    assert isinstance(pipe, _ExtractiveQuestionAnsweringPipeline)
+    assert result is pipe
+    pipeline.assert_called_once_with("document-question-answering", model=model, device="cpu")
 
 
 class TestHFPipelineTaskMap:
