@@ -259,10 +259,11 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
         self._label_col = label_col
         self._eligible_count = 0
         self._selected_count = 0
-        self._dataset_id_to_model_id: dict[int, int] = {}
+        self._dataset_label_to_model_id: dict[int | str, int] = {}
         self._eligible_model_labels: list[str] = []
         self._indexed_dataset: Any = None
         self._target_kind = ""
+        self._scalar_string_target = False
         self._label_feature: Any = None
         self._label_name_col = mapping.get("label_name_column", "human_labels")
         self._model_id2label, self._model_label2id = self._model_labels(model)
@@ -372,12 +373,16 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
         if isinstance(feature, ClassLabel):
             self._target_kind = "single-label"
             self._validate_and_resolve_labels(dataset, ds)
+        elif isinstance(feature, Value) and feature.dtype == "string":
+            self._target_kind = "single-label"
+            self._scalar_string_target = True
+            self._validate_and_resolve_labels(dataset, ds)
         elif isinstance(feature, Sequence) and isinstance(feature.feature, (ClassLabel, Value)):
             self._target_kind = "multi-label"
         else:
             raise DatasetValidationError(
-                f"Column '{self._label_col}' must be ClassLabel or a sequence of "
-                f"ClassLabel/string values; got {feature!r}.",
+                f"Column '{self._label_col}' must be ClassLabel, a string Value, or a "
+                f"sequence of ClassLabel/string values; got {feature!r}.",
             )
 
     @staticmethod
@@ -396,7 +401,7 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
 
     def _validate_and_resolve_labels(self, dataset: Any, ds: DatasetConfig) -> None:
         """Validate required columns and resolve exact dataset-name to model-ID mapping."""
-        from datasets import ClassLabel
+        from datasets import ClassLabel, Value
 
         columns = set(dataset.column_names)
         missing = [col for col in (self._audio_col, self._label_col) if col not in columns]
@@ -406,10 +411,12 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
             )
 
         label_feature = dataset.features[self._label_col]
-        if not isinstance(label_feature, ClassLabel):
+        if not isinstance(label_feature, ClassLabel) and not (
+            isinstance(label_feature, Value) and label_feature.dtype == "string"
+        ):
             raise DatasetValidationError(
-                f"Column '{self._label_col}' must be a ClassLabel so label semantics "
-                "can be aligned explicitly.",
+                f"Column '{self._label_col}' must be a ClassLabel or string Value so "
+                "label semantics can be aligned explicitly.",
             )
 
         model_label2id = getattr(self.model.config, "label2id", None) or {}
@@ -423,17 +430,26 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
         # identity is accepted; no locale, case, punctuation, or region inference.
         label_mapping = ds.label_mapping
         if label_mapping is None:
+            candidate_names = (
+                label_feature.names
+                if isinstance(label_feature, ClassLabel)
+                else model_label2id.keys()
+            )
             label_mapping = {
                 name: int(model_label2id[name])
-                for name in label_feature.names
+                for name in candidate_names
                 if name in model_label2id
             }
 
-        name_to_dataset_id = {name: index for index, name in enumerate(label_feature.names)}
+        name_to_dataset_label: dict[str, int | str] = (
+            {name: index for index, name in enumerate(label_feature.names)}
+            if isinstance(label_feature, ClassLabel)
+            else {str(name): str(name) for name in label_mapping}
+        )
         valid_model_ids = {int(key) for key in model_id2label}
-        resolved: dict[int, int] = {}
+        resolved: dict[int | str, int] = {}
         for dataset_name, model_id in label_mapping.items():
-            if dataset_name not in name_to_dataset_id:
+            if dataset_name not in name_to_dataset_label:
                 continue
             target_id = int(model_id)
             if target_id not in valid_model_ids:
@@ -441,7 +457,7 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
                     f"Label mapping target {target_id} for '{dataset_name}' is not present "
                     "in model.config.id2label.",
                 )
-            resolved[name_to_dataset_id[dataset_name]] = target_id
+            resolved[name_to_dataset_label[dataset_name]] = target_id
 
         if not resolved:
             raise DatasetValidationError(
@@ -449,10 +465,13 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
                 "no exact overlap; provide --label-mapping with authoritative semantics.",
             )
 
-        self._dataset_id_to_model_id = resolved
+        self._dataset_label_to_model_id = resolved
         self._eligible_model_labels = sorted(
             {self._decode_model_label(model_id) for model_id in resolved.values()},
         )
+
+    def _dataset_label_key(self, raw_label: Any) -> int | str:
+        return str(raw_label) if self._scalar_string_target else int(raw_label)
 
     def _disable_backend_audio_decoding(self, dataset: Any) -> Any:
         """Keep dataset audio as bytes/path so decoding does not require TorchCodec."""
@@ -480,9 +499,9 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
         """Collect shuffled eligible row indices without decoding the audio column."""
         indices: dict[int, list[int]] = defaultdict(list)
         for index, raw_label in enumerate(dataset[self._label_col]):
-            dataset_id = int(raw_label)
-            if dataset_id in self._dataset_id_to_model_id:
-                indices[self._dataset_id_to_model_id[dataset_id]].append(index)
+            dataset_label = self._dataset_label_key(raw_label)
+            if dataset_label in self._dataset_label_to_model_id:
+                indices[self._dataset_label_to_model_id[dataset_label]].append(index)
         self._eligible_count = sum(len(items) for items in indices.values())
 
         rows: dict[int, list[_SelectedAudioSample]] = {}
@@ -514,8 +533,8 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
         seen: dict[int, int] = defaultdict(int)
         rng = random.Random(seed)
         for row in dataset:
-            dataset_id = int(row[self._label_col])
-            model_id = self._dataset_id_to_model_id.get(dataset_id)
+            dataset_label = self._dataset_label_key(row[self._label_col])
+            model_id = self._dataset_label_to_model_id.get(dataset_label)
             if model_id is None:
                 continue
             self._eligible_count += 1
@@ -542,13 +561,13 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
         Consequently an absent or short class forces stream exhaustion and a
         short selection instead of silently redistributing its quota.
         """
-        quotas = self._balanced_quotas(self._dataset_id_to_model_id.values(), limit)
+        quotas = self._balanced_quotas(self._dataset_label_to_model_id.values(), limit)
         rows: dict[int, list[_SelectedAudioSample]] = defaultdict(list)
         pending = sum(quota > 0 for quota in quotas.values())
 
         for row in dataset:
-            dataset_id = int(row[self._label_col])
-            model_id = self._dataset_id_to_model_id.get(dataset_id)
+            dataset_label = self._dataset_label_key(row[self._label_col])
+            model_id = self._dataset_label_to_model_id.get(dataset_label)
             if model_id is None:
                 continue
             self._eligible_count += 1

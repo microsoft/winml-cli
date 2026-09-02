@@ -271,6 +271,45 @@ class TestAudioPreprocessing:
         )
 
 class TestAudioLabelAlignmentAndSampling:
+    def test_embedded_audio_with_scalar_string_label_mapping(self):
+        encoded = BytesIO()
+        sf.write(encoded, np.ones(8, dtype=np.float32), 16_000, format="WAV")
+        dataset = Dataset.from_list(
+            [{"audio": {"bytes": encoded.getvalue(), "path": "clip.wav"}, "genre": "feline"}],
+            features=Features(
+                {
+                    "audio": {"bytes": Value("binary"), "path": Value("string")},
+                    "genre": Value("string"),
+                }
+            ),
+        )
+        config = WinMLEvaluationConfig(
+            model_id="example/audio-classifier",
+            task="audio-classification",
+            dataset=DatasetConfig(
+                path="example/audio-dataset",
+                split="test",
+                samples=1,
+                shuffle=False,
+                columns_mapping={"label_column": "genre"},
+                label_mapping={"feline": 0},
+            ),
+        )
+
+        with (
+            patch("datasets.load_dataset", return_value=dataset),
+            patch(
+                "transformers.AutoFeatureExtractor.from_pretrained",
+                return_value=_IdentityFeatureExtractor(),
+            ),
+        ):
+            evaluator = WinMLAudioClassificationEvaluator(config, _SignClassifier())
+            metrics = evaluator.compute()
+
+        assert evaluator.data[0].model_id == 0
+        assert metrics["processed_samples"] == 1
+        assert metrics["per_label_processed"] == {"cat": 1}
+
     def test_saved_dataset_dict_selects_requested_split(self, tmp_path):
         train = _audio_dataset(
             [{"audio": {"array": [-1.0] * 8, "sampling_rate": 16_000}, "label": 1}]
