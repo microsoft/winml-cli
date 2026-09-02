@@ -10,6 +10,7 @@ from io import BytesIO
 from types import SimpleNamespace
 from typing import ClassVar
 from unittest.mock import patch
+from zipfile import ZipFile
 
 import numpy as np
 import onnx
@@ -747,6 +748,52 @@ class TestAudioPredictionAndMetrics:
         ):
             evaluator = WinMLAudioClassificationEvaluator(config, _SignClassifier())
             assert evaluator.data[0]["audio"]["bytes"] == raw_audio["bytes"]
+            metrics = evaluator.compute()
+
+        assert metrics["processed_samples"] == 1
+        assert np.isfinite(metrics["sample_average_precision"])
+
+    def test_streaming_selection_decodes_raw_virtual_archive_path(self, tmp_path):
+        encoded = BytesIO()
+        sf.write(encoded, np.ones(8, dtype=np.float32), 16_000, format="WAV")
+        archive_path = tmp_path / "audio.zip"
+        member_path = "genres/example.wav"
+        with ZipFile(archive_path, "w") as archive:
+            archive.writestr(member_path, encoded.getvalue())
+        raw_audio = f"zip://{member_path}::{archive_path.as_posix()}"
+        dataset = IterableDataset.from_generator(
+            lambda: iter([{"audio": raw_audio, "labels": ["cat"]}]),
+            features=Features(
+                {"audio": Audio(), "labels": Sequence(Value("string"))}
+            ),
+        )
+        config = WinMLEvaluationConfig(
+            model_id="example/audio-classifier",
+            task="audio-classification",
+            dataset=DatasetConfig(
+                path="example/audio-dataset",
+                split="test",
+                samples=1,
+                shuffle=False,
+                streaming=True,
+                columns_mapping={"label_column": "labels"},
+            ),
+        )
+
+        with (
+            patch("datasets.load_dataset", return_value=dataset),
+            patch.object(
+                Audio,
+                "encode_example",
+                side_effect=AssertionError("streaming audio must remain raw"),
+            ),
+            patch(
+                "transformers.AutoFeatureExtractor.from_pretrained",
+                return_value=_TwoInputFeatureExtractor(),
+            ),
+        ):
+            evaluator = WinMLAudioClassificationEvaluator(config, _SignClassifier())
+            assert evaluator.data[0]["audio"] == raw_audio
             metrics = evaluator.compute()
 
         assert metrics["processed_samples"] == 1

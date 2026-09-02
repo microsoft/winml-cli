@@ -18,6 +18,7 @@ import math
 import random
 from collections import defaultdict
 from collections.abc import Iterator, Mapping
+from copy import copy
 from dataclasses import dataclass
 from io import BytesIO
 from itertools import islice
@@ -455,10 +456,15 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
 
     def _disable_backend_audio_decoding(self, dataset: Any) -> Any:
         """Keep dataset audio as bytes/path so decoding does not require TorchCodec."""
-        from datasets import Audio, Value
+        from datasets import Audio, IterableDataset, Value
 
         audio_feature = dataset.features[self._audio_col]
         if isinstance(audio_feature, Audio):
+            if isinstance(dataset, IterableDataset):
+                dataset = copy(dataset)
+                dataset._info = dataset._info.copy()
+                dataset._info.features = None
+                return dataset
             return dataset.cast_column(
                 self._audio_col,
                 {"bytes": Value("binary"), "path": Value("string")},
@@ -774,6 +780,8 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
     @staticmethod
     def _decode_audio(audio: Any) -> tuple[np.ndarray, int]:
         """Decode common datasets Audio values without assuming one backend version."""
+        encoded_bytes = None
+        encoded_path = None
         if isinstance(audio, dict):
             if audio.get("array") is not None and audio.get("sampling_rate") is not None:
                 return np.asarray(audio["array"], dtype=np.float32), int(
@@ -782,41 +790,46 @@ class WinMLAudioClassificationEvaluator(WinMLEvaluator):
 
             encoded_bytes = audio.get("bytes")
             encoded_path = audio.get("path")
-            if encoded_bytes is not None or encoded_path:
-                try:
-                    import soundfile as sf
-                    from datasets.download.streaming_download_manager import xopen
-                except ImportError as error:
-                    raise RuntimeError(
-                        "Decoding encoded audio requires the 'audio' extra "
-                        "(install winml-cli[audio])."
-                    ) from error
-                try:
-                    if encoded_bytes is not None:
+            if encoded_bytes is None and not encoded_path:
+                raise ValueError(
+                    "audio dict requires array and sampling_rate, or encoded bytes/path"
+                )
+        elif isinstance(audio, (bytes, bytearray, memoryview)):
+            encoded_bytes = bytes(audio)
+        elif isinstance(audio, (str, Path)):
+            encoded_path = str(audio)
+
+        if encoded_bytes is not None or encoded_path:
+            try:
+                import soundfile as sf
+                from datasets.download.streaming_download_manager import xopen
+            except ImportError as error:
+                raise RuntimeError(
+                    "Decoding encoded audio requires the 'audio' extra "
+                    "(install winml-cli[audio])."
+                ) from error
+            try:
+                if encoded_bytes is not None:
+                    waveform, sampling_rate = sf.read(
+                        BytesIO(encoded_bytes),
+                        dtype="float32",
+                        always_2d=False,
+                    )
+                else:
+                    with xopen(str(encoded_path), "rb") as source:
                         waveform, sampling_rate = sf.read(
-                            BytesIO(encoded_bytes),
+                            source,
                             dtype="float32",
                             always_2d=False,
                         )
-                    else:
-                        with xopen(str(encoded_path), "rb") as source:
-                            waveform, sampling_rate = sf.read(
-                                source,
-                                dtype="float32",
-                                always_2d=False,
-                            )
-                except (OSError, RuntimeError) as error:
-                    raise ValueError(f"failed to decode audio: {error}") from error
-                # SoundFile returns [frames, channels]. Normalize its known
-                # layout explicitly instead of guessing the channel axis for
-                # very short clips later in preprocessing.
-                if waveform.ndim == 2:
-                    waveform = waveform.T
-                return np.asarray(waveform, dtype=np.float32), int(sampling_rate)
-
-            raise ValueError(
-                "audio dict requires array and sampling_rate, or encoded bytes/path"
-            )
+            except (OSError, RuntimeError) as error:
+                raise ValueError(f"failed to decode audio: {error}") from error
+            # SoundFile returns [frames, channels]. Normalize its known
+            # layout explicitly instead of guessing the channel axis for
+            # very short clips later in preprocessing.
+            if waveform.ndim == 2:
+                waveform = waveform.T
+            return np.asarray(waveform, dtype=np.float32), int(sampling_rate)
 
         get_all_samples = getattr(audio, "get_all_samples", None)
         if callable(get_all_samples):
