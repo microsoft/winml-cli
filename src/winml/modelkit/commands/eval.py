@@ -132,6 +132,12 @@ logger = logging.getLogger(__name__)
     help="Number of dataset samples.",
 )
 @click.option(
+    "--max-duration-seconds",
+    type=click.FloatRange(min=0, min_open=True),
+    default=None,
+    help="Maximum audio duration per sample. Omitted means unbounded.",
+)
+@click.option(
     "--split",
     type=str,
     default="validation",
@@ -265,6 +271,7 @@ def eval(
     runtime: EvalRuntime,
     ep: EPNameOrAlias | None,
     samples: int,
+    max_duration_seconds: float | None,
     split: str,
     shuffle: bool,
     streaming: bool,
