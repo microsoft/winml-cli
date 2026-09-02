@@ -114,6 +114,16 @@ _IMAGE_FILE_MACHINE_TO_NAME = {
     0x14C: "x86",
 }
 
+_WINDOWS_CURRENT_VERSION_KEY = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+_WINDOWS_VERSION_VALUES = {
+    "ProductName": "product_name",
+    "DisplayVersion": "display_version",
+    "CurrentBuild": "current_build",
+    "UBR": "ubr",
+    "BuildBranch": "build_branch",
+    "BuildLabEx": "build_lab_ex",
+}
+
 
 if sys.platform == "win32":
     try:
@@ -173,6 +183,34 @@ def _get_windows_native_machine() -> str | None:
     return name
 
 
+def _get_windows_version_info() -> dict[str, str | int]:
+    """Read detailed Windows version metadata from the native registry view."""
+    if sys.platform != "win32":
+        return {}
+
+    import winreg
+
+    result: dict[str, str | int] = {}
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            _WINDOWS_CURRENT_VERSION_KEY,
+            access=winreg.KEY_READ | winreg.KEY_WOW64_64KEY,
+        ) as key:
+            for registry_name, output_name in _WINDOWS_VERSION_VALUES.items():
+                try:
+                    value, _value_type = winreg.QueryValueEx(key, registry_name)
+                except OSError:
+                    logger.debug("Windows registry value is unavailable: %s", registry_name)
+                    continue
+                if isinstance(value, (str, int)):
+                    result[output_name] = value
+    except OSError as exc:
+        logger.debug("Failed to read detailed Windows version information: %s", exc)
+
+    return result
+
+
 def _get_platform_info() -> dict[str, Any]:
     """Gather OS and platform information."""
     system = platform.system()
@@ -181,6 +219,7 @@ def _get_platform_info() -> dict[str, Any]:
 
     # For Windows, use OS class for accurate Windows 11 detection
     # platform.release() may incorrectly report '10' on some Python versions
+    windows_version: dict[str, str | int] = {}
     if system == "Windows":
         try:
             os_info = OS.get()
@@ -195,13 +234,16 @@ def _get_platform_info() -> dict[str, Any]:
         native_machine = _get_windows_native_machine()
         if native_machine:
             machine = native_machine
+        windows_version = _get_windows_version_info()
 
-    return {
+    result = {
         "system": system,
         "release": release,
         "machine": machine,
         "processor": platform.processor() or "Unknown",
     }
+    result.update(windows_version)
+    return result
 
 
 def _get_memory_info() -> dict[str, int | None]:
@@ -402,6 +444,18 @@ def _output_text(info: dict[str, Any], verbose: bool = False) -> None:
     table.add_row("Python Executable", info["python"]["executable"])
     table.add_row("OS", f"{info['platform']['system']} {info['platform']['release']}")
     table.add_row("Machine", info["platform"]["machine"])
+    windows_rows = (
+        ("Product Name", "product_name"),
+        ("Display Version", "display_version"),
+        ("Current Build", "current_build"),
+        ("UBR", "ubr"),
+        ("Build Branch", "build_branch"),
+        ("BuildLabEx", "build_lab_ex"),
+    )
+    for label, key in windows_rows:
+        value = info["platform"].get(key)
+        if value is not None:
+            table.add_row(label, escape(str(value)))
 
     console.print("\n[bold blue]Environment[/bold blue]")
     console.print(table)
