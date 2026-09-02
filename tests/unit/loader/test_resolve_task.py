@@ -64,6 +64,16 @@ def test_architecture_suffix_fallback_resolves_layoutlm_document_question_answer
     assert r.source == TaskSource.ARCHITECTURE_SUFFIX
 
 
+def test_layoutlmv3_question_answering_keeps_tasks_manager_resolution():
+    config = _cfg("layoutlmv3", ["LayoutLMv3ForQuestionAnswering"])
+
+    r = resolve_task(config)
+
+    assert r.task == "question-answering"
+    assert r.optimum_task == "question-answering"
+    assert r.source == TaskSource.TASKS_MANAGER
+
+
 def test_architecture_suffix_fallback_keeps_ordinary_question_answering():
     config = _cfg("bert", ["BertForQuestionAnswering"])
 
