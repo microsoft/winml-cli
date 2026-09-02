@@ -360,6 +360,52 @@ def _populate_sequence_length_from_config(
         )
 
 
+def _coerce_binary_attention_masks_to_bool(
+    dummy_inputs: dict[str, torch.Tensor],
+) -> dict[str, torch.Tensor]:
+    """Normalize binary attention masks to bool for export tracing.
+
+    Some transformer attention paths reject integral masks under newer torch
+    SDPA checks, while accepting bool masks. To keep behavior architecture-
+    agnostic, coerce only tensors whose names indicate an attention mask and
+    whose runtime values are binary (0/1).
+    """
+    import torch
+
+    integer_dtypes = {
+        torch.int8,
+        torch.int16,
+        torch.int32,
+        torch.int64,
+        torch.uint8,
+    }
+    normalized = dict(dummy_inputs)
+
+    for name, tensor in dummy_inputs.items():
+        if "attention_mask" not in name:
+            continue
+        if tensor.dtype not in integer_dtypes:
+            continue
+        if tensor.numel() == 0:
+            continue
+
+        min_value = int(tensor.min().item())
+        max_value = int(tensor.max().item())
+        if min_value < 0 or max_value > 1:
+            logger.debug(
+                "Skipping bool coercion for %s: non-binary range=(%d, %d)",
+                name,
+                min_value,
+                max_value,
+            )
+            continue
+
+        normalized[name] = tensor.to(dtype=torch.bool)
+        logger.debug("Coerced %s from %s to bool for export tracing", name, tensor.dtype)
+
+    return normalized
+
+
 def generate_dummy_inputs(
     model_type: str,
     task: str,
@@ -419,10 +465,11 @@ def generate_dummy_inputs(
     )
 
     # Optimum's OnnxConfig is untyped; the dummy-inputs dict matches our return type.
-    return cast(
+    dummy_inputs = cast(
         "dict[str, torch.Tensor]",
         onnx_config.generate_dummy_inputs(framework="pt", **shape_kwargs),
     )
+    return _coerce_binary_attention_masks_to_bool(dummy_inputs)
 
 
 def resolve_io_specs(
@@ -482,7 +529,12 @@ def resolve_io_specs(
     # Generate dummy inputs for concrete shapes and dtypes,
     # intercepting value ranges from Optimum's tensor gen methods
     with intercept_value_ranges() as value_ranges:
-        dummy_inputs = onnx_config.generate_dummy_inputs(framework="pt", **shape_kwargs)
+        dummy_inputs = cast(
+            "dict[str, torch.Tensor]",
+            onnx_config.generate_dummy_inputs(framework="pt", **shape_kwargs),
+        )
+
+    dummy_inputs = _coerce_binary_attention_masks_to_bool(dummy_inputs)
 
     input_shapes = [tuple(t.shape) for t in dummy_inputs.values()]
     input_dtypes = [str(t.dtype).replace("torch.", "") for t in dummy_inputs.values()]
