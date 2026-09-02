@@ -52,6 +52,7 @@ EPName = Literal[
 EPAlias = Literal[
     "qnn",
     "openvino",
+    "ov",
     "vitisai",
     "cpu",
     "cuda",
@@ -96,6 +97,7 @@ SUPPORTED_EPS: list[EPName] = list(get_args(EPName))
 EP_ALIASES: dict[EPAlias, EPName] = {
     "qnn": "QNNExecutionProvider",
     "openvino": "OpenVINOExecutionProvider",
+    "ov": "OpenVINOExecutionProvider",
     "vitisai": "VitisAIExecutionProvider",
     "cpu": "CPUExecutionProvider",
     "cuda": "CUDAExecutionProvider",

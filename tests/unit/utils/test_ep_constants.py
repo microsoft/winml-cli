@@ -41,6 +41,7 @@ class TestNormalizeEPName:
         [
             ("qnn", "QNNExecutionProvider"),
             ("openvino", "OpenVINOExecutionProvider"),
+            ("ov", "OpenVINOExecutionProvider"),
             ("vitisai", "VitisAIExecutionProvider"),
             ("cpu", "CPUExecutionProvider"),
             ("dml", "DmlExecutionProvider"),
