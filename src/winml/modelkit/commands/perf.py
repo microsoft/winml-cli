@@ -233,10 +233,9 @@ def _resolve_ep_monitor(
     device_norm = (device or "").lower()
 
     if op_tracing:
-        from ..session.monitor.openvino_monitor import OpenVinoMonitor
-        from ..session.monitor.qnn_monitor import QNNMonitor
-
         if ep_norm == "openvino":
+            from ..session.monitor.openvino_monitor import OpenVinoMonitor
+
             if op_tracing != "basic":
                 raise RuntimeError("OpenVINO op-tracing currently supports only level 'basic'.")
             if device_norm not in ("cpu", "npu"):
@@ -254,6 +253,16 @@ def _resolve_ep_monitor(
                 output_dir=output_dir,
                 device=cast("Literal['cpu', 'npu']", device_norm),
             )
+
+        if (ep_norm and ep_norm != "qnn") or (
+            not ep_norm and device_norm not in ("npu", "auto", "")
+        ):
+            raise RuntimeError(
+                f"Op-tracing not available for EP {ep!r} on device {device!r}. "
+                "Supported EPs: qnn, openvino (basic on cpu/npu)."
+            )
+
+        from ..session.monitor.qnn_monitor import QNNMonitor
 
         qnn_available: bool | None = None
 
@@ -285,10 +294,11 @@ def _resolve_ep_monitor(
         )
 
     # Proof-of-execution monitors (no op-tracing)
-    from ..session.monitor.vitisai_monitor import VitisAIMonitor
+    if ep_norm == "vitisai":
+        from ..session.monitor.vitisai_monitor import VitisAIMonitor
 
-    if ep_norm == "vitisai" and VitisAIMonitor.is_available():
-        return VitisAIMonitor()
+        if VitisAIMonitor.is_available():
+            return VitisAIMonitor()
     return NullEPMonitor()
 
 
