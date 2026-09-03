@@ -47,6 +47,13 @@ class TestWinMLLoaderConfigSerialization:
         d = config.to_dict()
         assert d["model_type"] == "bert"
 
+    def test_target_lang_roundtrip(self):
+        config = WinMLLoaderConfig(target_lang="deu")
+
+        restored = WinMLLoaderConfig.from_dict(config.to_dict())
+
+        assert restored.target_lang == "deu"
+
     def test_to_dict_empty_when_defaults(self):
         """Test config serialization returns empty dict for defaults."""
         config = WinMLLoaderConfig()

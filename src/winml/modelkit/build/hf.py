@@ -415,6 +415,7 @@ def _load_model(
             trust_remote_code=effective_trust,
             hf_config=hf_config,
             model_type=model_type,
+            target_lang=config.loader.target_lang,
         )
         return pytorch_model
 

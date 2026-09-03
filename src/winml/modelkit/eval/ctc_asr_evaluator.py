@@ -142,6 +142,35 @@ def _is_ctc_config(config: Any) -> bool:
     )
 
 
+def _validate_ctc_model_inputs(model: Any) -> None:
+    """Reject exported CTC input contracts this evaluator cannot preprocess."""
+    io_config = getattr(model, "io_config", None)
+    if not isinstance(io_config, dict):
+        return
+    input_names = io_config.get("input_names")
+    if not isinstance(input_names, list) or not input_names:
+        return
+    supported_names = {"input_values", "attention_mask"}
+    if "input_values" not in input_names or not set(input_names).issubset(supported_names):
+        raise ValueError(
+            "CTC ASR evaluation supports only rank-2 input_values with an optional "
+            "attention_mask; exported input contract is "
+            f"{input_names!r}."
+        )
+    input_shapes = io_config.get("input_shapes")
+    if not isinstance(input_shapes, list):
+        return
+    for name in input_names:
+        index = input_names.index(name)
+        if index >= len(input_shapes) or not isinstance(input_shapes[index], list):
+            continue
+        if len(input_shapes[index]) != 2:
+            raise ValueError(
+                f"CTC ASR evaluation requires rank-2 {name}; exported shape is "
+                f"{input_shapes[index]!r}."
+            )
+
+
 def _load_ctc_processor(model_id: str, *, trust_remote_code: bool) -> Any:
     """Load the published processor, falling back only from an unavailable optional LM."""
     from transformers import AutoProcessor
@@ -279,6 +308,7 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
                 "automatic-speech-recognition evaluation currently supports only "
                 "metadata-resolved *ForCTC checkpoints."
             )
+        _validate_ctc_model_inputs(model)
         if not config.model_id:
             raise ValueError("CTC ASR evaluation requires model_id to load its processor.")
 
@@ -332,10 +362,11 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
             with_indices=True,
         )
         if ds.shuffle:
-            if not ds.streaming:
-                dataset = dataset.to_iterable_dataset()
             dataset = dataset.shuffle(seed=ds.seed)
-            rows = list(dataset.take(ds.samples))
+            if ds.streaming:
+                rows = list(dataset.take(ds.samples))
+            else:
+                rows = list(dataset.select(range(min(ds.samples, len(dataset)))))
         elif ds.streaming:
             rows = list(dataset.take(ds.samples))
         else:
@@ -392,21 +423,30 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
     def _transcribe(self, audio_value: Any) -> str:
         waveform, source_rate = _decode_audio(audio_value)
         waveform = _resample_audio(waveform, source_rate, self.sampling_rate)
+        input_names = list((getattr(self.model, "io_config", None) or {}).get("input_names", []))
+        if not input_names:
+            input_names = ["input_values"]
         encoded = self.processor(
             waveform,
             sampling_rate=self.sampling_rate,
             return_tensors=("pt" if self.config.runtime == "pytorch" else "np"),
+            return_attention_mask="attention_mask" in input_names,
         )
         model_values = dict(encoded)
         if "input_values" not in model_values or model_values["input_values"].ndim != 2:
             raise _RejectedSampleError("processor did not produce rank-2 input_values")
 
-        input_names = list((getattr(self.model, "io_config", None) or {}).get("input_names", []))
-        if not input_names:
-            input_names = ["input_values"]
         window_size = self._fixed_waveform_size(input_names)
         sample_count = model_values["input_values"].shape[1]
         window_count = 1 if window_size is None else math.ceil(sample_count / window_size)
+        if (
+            window_size is not None
+            and sample_count % window_size
+            and "attention_mask" not in input_names
+        ):
+            raise _RejectedSampleError(
+                "fixed-size input_values require attention_mask for a partial final window"
+            )
         if window_count > _MAX_WINDOWS_PER_UTTERANCE:
             raise _RejectedSampleError(
                 f"utterance requires {window_count} windows; cap is {_MAX_WINDOWS_PER_UTTERANCE}"
@@ -443,9 +483,10 @@ class WinMLCTCASREvaluator(WinMLEvaluator):
                 predicted_ids.append(self.blank_token_id)
             predicted_ids.extend(np.argmax(logits, axis=-1)[0].astype(int).tolist())
 
-        decoded = self.processor.batch_decode([predicted_ids])
+        tokenizer = getattr(self.processor, "tokenizer", self.processor)
+        decoded = tokenizer.batch_decode([predicted_ids])
         if not isinstance(decoded, list) or len(decoded) != 1:
-            raise ValueError("CTC processor.batch_decode must return one transcript per utterance.")
+            raise ValueError("CTC tokenizer.batch_decode must return one transcript per utterance.")
         return _normalize_transcript(decoded[0])
 
     def _fixed_waveform_size(self, input_names: list[str]) -> int | None:

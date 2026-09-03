@@ -26,6 +26,7 @@ from winml.modelkit.eval.ctc_asr_evaluator import (
     _RejectedSampleError,
     _require_soundfile,
     _resample_audio,
+    _validate_ctc_model_inputs,
 )
 from winml.modelkit.utils.eval_utils import TASK_SCHEMAS, DatasetValidationError
 
@@ -43,28 +44,45 @@ class _Tokenizer:
     def set_target_lang(self, target_lang: str) -> None:
         self.target_lang = target_lang
 
-
-class _Processor:
-    def __init__(self, *, target_lang: str | None = None, vocab_size: int = 3) -> None:
-        self.tokenizer = _Tokenizer(target_lang, vocab_size)
-        self.feature_extractor = SimpleNamespace(sampling_rate=16_000)
-        self.decoded_ids: list[int] = []
-
-    def __call__(self, waveform, **kwargs):
-        values = np.asarray(waveform, dtype=np.float32)[None, :]
-        if kwargs.get("return_tensors") == "pt":
-            return {"input_values": torch.from_numpy(values)}
-        return {"input_values": values}
-
     def batch_decode(self, sequences):
-        self.decoded_ids = list(sequences[0])
+        decoded_ids = list(sequences[0])
         collapsed: list[int] = []
         previous = None
-        for token_id in self.decoded_ids:
+        for token_id in decoded_ids:
             if token_id != 0 and token_id != previous:
                 collapsed.append(token_id)
             previous = token_id
         return [" ".join(str(token_id) for token_id in collapsed)]
+
+
+class _Processor:
+    def __init__(
+        self,
+        *,
+        target_lang: str | None = None,
+        vocab_size: int = 3,
+        return_attention_mask: bool = False,
+    ) -> None:
+        self.tokenizer = _Tokenizer(target_lang, vocab_size)
+        self.feature_extractor = SimpleNamespace(sampling_rate=16_000)
+        self.return_attention_mask = return_attention_mask
+
+    def __call__(self, waveform, **kwargs):
+        values = np.asarray(waveform, dtype=np.float32)[None, :]
+        if kwargs.get("return_tensors") == "pt":
+            encoded = {"input_values": torch.from_numpy(values)}
+            if self.return_attention_mask:
+                encoded["attention_mask"] = torch.ones_like(
+                    encoded["input_values"], dtype=torch.int64
+                )
+            return encoded
+        encoded = {"input_values": values}
+        if self.return_attention_mask:
+            encoded["attention_mask"] = np.ones_like(values, dtype=np.int64)
+        return encoded
+
+    def batch_decode(self, _sequences):
+        raise AssertionError("Greedy decoding must use the tokenizer, not the LM processor")
 
 
 def _wav_bytes(samples: np.ndarray, sampling_rate: int = 16_000) -> bytes:
@@ -73,7 +91,12 @@ def _wav_bytes(samples: np.ndarray, sampling_rate: int = 16_000) -> bytes:
     return buffer.getvalue()
 
 
-def _evaluator(*, input_shape: list[object], processor: _Processor | None = None):
+def _evaluator(
+    *,
+    input_shape: list[object],
+    processor: _Processor | None = None,
+    with_attention_mask: bool = False,
+):
     from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
     evaluator = WinMLCTCASREvaluator.__new__(WinMLCTCASREvaluator)
@@ -89,9 +112,10 @@ def _evaluator(*, input_shape: list[object], processor: _Processor | None = None
         dataset=DatasetConfig(path="dataset", samples=2, shuffle=False),
     )
     evaluator.model = MagicMock()
+    input_names = ["input_values", "attention_mask"] if with_attention_mask else ["input_values"]
     evaluator.model.io_config = {
-        "input_names": ["input_values"],
-        "input_shapes": [input_shape],
+        "input_names": input_names,
+        "input_shapes": [input_shape for _ in input_names],
     }
     return evaluator
 
@@ -139,6 +163,35 @@ def test_non_ctc_asr_fails_closed() -> None:
     )
     with pytest.raises(ValueError, match=r"only metadata-resolved \*ForCTC"):
         WinMLCTCASREvaluator(config, model)
+
+
+@pytest.mark.parametrize(
+    ("input_names", "input_shapes", "message"),
+    [
+        (["input_features"], [[1, 80, 3000]], "input contract"),
+        (["input_values"], [[1, 16000, 1]], "rank-2 input_values"),
+    ],
+)
+def test_ctc_model_input_contract_fails_closed(
+    input_names: list[str],
+    input_shapes: list[list[int]],
+    message: str,
+) -> None:
+    model = SimpleNamespace(io_config={"input_names": input_names, "input_shapes": input_shapes})
+
+    with pytest.raises(ValueError, match=message):
+        _validate_ctc_model_inputs(model)
+
+
+def test_ctc_model_input_contract_accepts_optional_attention_mask() -> None:
+    model = SimpleNamespace(
+        io_config={
+            "input_names": ["input_values", "attention_mask"],
+            "input_shapes": [[1, 16000], [1, 16000]],
+        }
+    )
+
+    _validate_ctc_model_inputs(model)
 
 
 def test_constructor_initializes_base_evaluator_state() -> None:
@@ -301,8 +354,8 @@ def test_prepare_data_shuffle_is_repeatable_and_seed_discriminating(streaming: b
     assert select(456) != select(123)
 
 
-def test_prepare_data_shuffle_modes_match_beyond_stream_buffer() -> None:
-    from datasets import Dataset, Features, IterableDataset, Value
+def test_prepare_data_map_shuffle_is_exact_beyond_stream_buffer() -> None:
+    from datasets import Dataset
 
     from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
@@ -310,20 +363,9 @@ def test_prepare_data_shuffle_modes_match_beyond_stream_buffer() -> None:
         {"id": index, "audio": f"{index}.wav", "transcription": str(index)}
         for index in range(1_200)
     ]
-    features = Features(
-        {
-            "id": Value("int64"),
-            "audio": Value("string"),
-            "transcription": Value("string"),
-        }
-    )
+    dataset = Dataset.from_list(rows)
 
-    def select(streaming: bool) -> list[int]:
-        dataset = (
-            IterableDataset.from_generator(lambda: iter(rows), features=features)
-            if streaming
-            else Dataset.from_list(rows)
-        )
+    def select() -> list[int]:
         evaluator = WinMLCTCASREvaluator.__new__(WinMLCTCASREvaluator)
         evaluator._audio_column = "audio"
         evaluator.config = WinMLEvaluationConfig(
@@ -333,7 +375,7 @@ def test_prepare_data_shuffle_modes_match_beyond_stream_buffer() -> None:
                 samples=4,
                 shuffle=True,
                 seed=123,
-                streaming=streaming,
+                streaming=False,
             ),
         )
         with (
@@ -342,7 +384,12 @@ def test_prepare_data_shuffle_modes_match_beyond_stream_buffer() -> None:
         ):
             return list(evaluator.prepare_data()["_winml_source_index"])
 
-    assert select(streaming=True) == select(streaming=False)
+    indexed = dataset.map(
+        lambda _row, index: {"_winml_source_index": index},
+        with_indices=True,
+    )
+    expected = list(indexed.shuffle(seed=123).select(range(4))["_winml_source_index"])
+    assert select() == expected
 
 
 def test_prepare_data_streaming_shuffle_is_bounded() -> None:
@@ -536,8 +583,12 @@ def test_mms_adapter_metadata_requires_an_active_language() -> None:
 
 
 def test_static_audio_windows_pad_and_insert_blank_for_processor_ctc_decode() -> None:
-    processor = _Processor()
-    evaluator = _evaluator(input_shape=[1, 4], processor=processor)
+    processor = _Processor(return_attention_mask=True)
+    evaluator = _evaluator(
+        input_shape=[1, 4],
+        processor=processor,
+        with_attention_mask=True,
+    )
     first_logits = np.array([[[0, 5, 0], [0, 5, 0]]], dtype=np.float32)
     final_logits = np.array([[[0, 5, 0], [0, 0, 5]]], dtype=np.float32)
     evaluator.model.side_effect = [
@@ -551,7 +602,18 @@ def test_static_audio_windows_pad_and_insert_blank_for_processor_ctc_decode() ->
     final_input = evaluator.model.call_args_list[1].kwargs["input_values"]
     assert final_input.shape == (1, 4)
     np.testing.assert_array_equal(final_input[0, 2:], np.zeros(2))
-    assert processor.decoded_ids == [1, 1, 0, 1]
+    final_mask = evaluator.model.call_args_list[1].kwargs["attention_mask"]
+    np.testing.assert_array_equal(final_mask, [[1, 1, 0, 0]])
+
+
+def test_static_audio_rejects_unmasked_partial_final_window() -> None:
+    evaluator = _evaluator(input_shape=[1, 4])
+    audio = {"bytes": _wav_bytes(np.arange(6, dtype=np.float32)), "path": None}
+
+    with pytest.raises(_RejectedSampleError, match="require attention_mask"):
+        evaluator._transcribe(audio)
+
+    evaluator.model.assert_not_called()
 
 
 def test_pytorch_runtime_preserves_processor_tensors_for_native_model() -> None:
