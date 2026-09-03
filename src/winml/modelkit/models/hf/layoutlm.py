@@ -46,7 +46,7 @@ class ZeroTokenTypeLayoutLMTextInputGenerator(MaxLengthTextInputGenerator):
                     dtype=int_dtype,
                 ),
             )
-        tensor = cast(
+        return cast(
             "torch.Tensor",
             super().generate(
                 input_name,
@@ -55,7 +55,6 @@ class ZeroTokenTypeLayoutLMTextInputGenerator(MaxLengthTextInputGenerator):
                 float_dtype=float_dtype,
             ),
         )
-        return tensor
 
 
 @register_onnx_overwrite("layoutlm", "question-answering", library_name="transformers")
