@@ -193,6 +193,12 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
         enc_expected = dict(
             zip(enc_io.get("input_names", []), enc_io.get("input_shapes", []), strict=False)
         )
+        input_ids_shape = enc_expected.get("input_ids", [])
+        self._max_enc = (
+            input_ids_shape[1]
+            if len(input_ids_shape) > 1 and isinstance(input_ids_shape[1], int)
+            else None
+        )
         self._encoder_input_names = frozenset(enc_expected)
         # Wrap encoder with auto-padding so all callsites just use self._encoder(...)
         self._encoder = self._EncoderWithInputPadding(raw_encoder, enc_expected)
@@ -203,7 +209,12 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
         )
 
         # Max decode length and KV dtype from decoder ONNX metadata
-        self._max_dec = self._dec_expected["past_0_key"][2]
+        max_decode_length = self._dec_expected["past_0_key"][2]
+        if not isinstance(max_decode_length, int) or max_decode_length <= 0:
+            raise ValueError(
+                "Decoder input 'past_0_key' must have a positive static cache length"
+            )
+        self._max_dec = max_decode_length
         self._num_kv_layers = sum(
             1 for n in self._dec_expected if n.startswith("past_") and n.endswith("_key")
         )
@@ -221,6 +232,16 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
             )
         _np_dtype = dec_type_map["past_0_key"]
         self._kv_dtype = torch.from_numpy(np.zeros(1, dtype=_np_dtype)).dtype
+
+    @property
+    def max_encoder_length(self) -> int | None:
+        """Return the encoder's static token capacity, or ``None`` when dynamic."""
+        return self._max_enc
+
+    @property
+    def max_decode_length(self) -> int:
+        """Return the decoder's static output/cache capacity."""
+        return self._max_dec
 
     # ----- Encoder -----
 
