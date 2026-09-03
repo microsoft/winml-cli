@@ -136,7 +136,7 @@ class TestBlipDecoderIO:
         assert tuple(inputs["past_0_key"].shape) == expected
         assert tuple(inputs["past_0_value"].shape) == expected
 
-    def test_decoder_passes_four_dimensional_additive_attention_mask(self, monkeypatch) -> None:
+    def test_decoder_passes_three_dimensional_attention_mask(self, monkeypatch) -> None:
         from types import SimpleNamespace
         from unittest.mock import MagicMock
 
@@ -165,10 +165,9 @@ class TestBlipDecoderIO:
         wrapper._invoke_hf(object(), inputs)
 
         mask = captured["attention_mask"]
-        assert mask.shape == (1, 1, 1, 2)
-        assert mask.is_floating_point()
-        assert mask[0, 0, 0, 0] == 0
-        assert mask[0, 0, 0, 1] == torch.finfo(mask.dtype).min
+        assert mask.shape == (1, 1, 2)
+        assert mask.dtype == torch.int64
+        assert torch.equal(mask, torch.tensor([[[1, 0]]], dtype=torch.int64))
 
     def test_decoder_cache_uses_position_input_when_model_omits_cache_kwargs(
         self, blip_config
