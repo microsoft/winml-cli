@@ -6,9 +6,12 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import sys
+import tarfile
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 import torch
@@ -40,6 +43,8 @@ sys.modules[_FIXTURE_BUILDER_SPEC.name] = _FIXTURE_BUILDER
 _FIXTURE_BUILDER_SPEC.loader.exec_module(_FIXTURE_BUILDER)
 
 CandidateRow = _FIXTURE_BUILDER.CandidateRow
+download = _FIXTURE_BUILDER._download
+load_top1000 = _FIXTURE_BUILDER._load_top1000
 select_rows = _FIXTURE_BUILDER._select_rows
 
 
@@ -131,6 +136,17 @@ def test_reranking_metric_ties_preserve_authoritative_candidate_order() -> None:
     assert result["recall@10"] == 1.0
 
 
+def test_reranking_metric_recall_counts_each_relevant_candidate() -> None:
+    metric = RerankingMetric(recall_ks=(1, 2, 3))
+
+    metric.update([0.9, 0.8, 0.1], [True, True, False])
+
+    result = metric.compute()
+    assert result["recall@1"] == 0.5
+    assert result["recall@2"] == 1.0
+    assert result["recall@3"] == 1.0
+
+
 def test_reranking_evaluator_scores_single_logits_and_accounts_for_groups() -> None:
     evaluator = _make_evaluator(
         [
@@ -215,6 +231,51 @@ def test_reranking_evaluator_scores_grouped_rows_with_inline_candidates() -> Non
     assert result["recall@1"] == 1.0
     assert result["processed_groups"] == 1
     assert result["processed_pairs"] == 2
+
+
+def test_reranking_evaluator_normalizes_numeric_relevant_ids() -> None:
+    evaluator = _make_evaluator(
+        [
+            {
+                "query": "what is pcnt",
+                "expected_output": [7187227],
+                "metadata": {"query_id": "1048579"},
+                "candidates": [{"id": "7187227", "text": "positive passage"}],
+            }
+        ],
+        scores=[0.9],
+    )
+    evaluator._document_col = None
+    evaluator._group_col = None
+    evaluator._label_col = None
+    evaluator._candidate_id_col = None
+    evaluator._candidates_col = "candidates"
+
+    result = evaluator.compute()
+
+    assert result["mrr@10"] == 1.0
+    assert result["recall@1"] == 1.0
+
+
+def test_reranking_evaluator_normalizes_whitespace_in_relevant_ids() -> None:
+    evaluator = _make_evaluator(
+        [
+            {
+                "query": "what is pcnt",
+                "expected_output": [" 7187227 "],
+                "metadata": {"query_id": "1048579"},
+                "candidates": [{"id": "7187227", "text": "positive passage"}],
+            }
+        ],
+        scores=[0.9],
+    )
+    evaluator._document_col = None
+    evaluator._group_col = None
+    evaluator._label_col = None
+    evaluator._candidate_id_col = None
+    evaluator._candidates_col = "candidates"
+
+    assert evaluator.compute()["recall@1"] == 1.0
 
 
 def test_reranking_evaluator_materializes_bounded_positive_and_negative_text() -> None:
@@ -397,6 +458,88 @@ def test_fixture_builder_preserves_authoritative_order_when_negative_precedes_po
     assert selected_rows[0]["metadata"]["negative_candidate_ids"] == ["n1", "n2"]
     assert provenance[0]["selected_candidate_ids"] == ["n1", "n2", "p1"]
     assert provenance[0]["candidate_ranks"] == {"n1": 1, "n2": 2, "p1": 3}
+
+
+def test_fixture_builder_filters_top1000_while_streaming(tmp_path: Path) -> None:
+    archive_path = tmp_path / "top1000.dev.tar.gz"
+    payload = (
+        b"q1\tp1\tquery one\tselected passage\n"
+        b"q2\tp2\tquery two\tunselected passage\n"
+        b"q1\tp3\tquery one\tsecond selected passage\n"
+    )
+    info = tarfile.TarInfo("top1000.dev")
+    info.size = len(payload)
+    with tarfile.open(archive_path, "w:gz") as archive:
+        archive.addfile(info, io.BytesIO(payload))
+
+    grouped = load_top1000(archive_path, {"q1"})
+
+    assert list(grouped) == ["q1"]
+    assert [candidate.pid for candidate in grouped["q1"]] == ["p1", "p3"]
+
+
+def test_fixture_download_replaces_invalid_cache_atomically(tmp_path: Path, monkeypatch) -> None:
+    destination = tmp_path / "source.bin"
+    destination.write_bytes(b"truncated")
+    response = io.BytesIO(b"complete")
+    monkeypatch.setattr(_FIXTURE_BUILDER.urllib.request, "urlopen", lambda _url: response)
+
+    def validate_complete(path: Path) -> None:
+        if path.read_bytes() != b"complete":
+            raise ValueError("incomplete source")
+
+    result = download(
+        "https://example.test/source.bin",
+        destination,
+        validator=validate_complete,
+    )
+
+    assert result.read_bytes() == b"complete"
+    assert not destination.with_name("source.bin.part").exists()
+
+
+def test_fixture_download_reuses_valid_cache_without_network(tmp_path: Path, monkeypatch) -> None:
+    destination = tmp_path / "source.bin"
+    destination.write_bytes(b"complete")
+    urlopen = MagicMock(side_effect=AssertionError("network should not be used"))
+    monkeypatch.setattr(_FIXTURE_BUILDER.urllib.request, "urlopen", urlopen)
+
+    result = download(
+        "https://example.test/source.bin",
+        destination,
+        validator=lambda _path: None,
+    )
+
+    assert result == destination
+    urlopen.assert_not_called()
+
+
+def test_fixture_download_failure_publishes_no_partial_file(tmp_path: Path, monkeypatch) -> None:
+    class FailingResponse(io.BytesIO):
+        def read(self, *_args, **_kwargs):
+            raise OSError("connection lost")
+
+    destination = tmp_path / "source.bin"
+    destination.write_bytes(b"truncated")
+    monkeypatch.setattr(
+        _FIXTURE_BUILDER.urllib.request,
+        "urlopen",
+        lambda _url: FailingResponse(b"partial"),
+    )
+
+    def reject_truncated(path: Path) -> None:
+        if path.read_bytes() == b"truncated":
+            raise ValueError("truncated source")
+
+    with pytest.raises(OSError, match="connection lost"):
+        download(
+            "https://example.test/source.bin",
+            destination,
+            validator=reject_truncated,
+        )
+
+    assert not destination.exists()
+    assert not destination.with_name("source.bin.part").exists()
 
 
 def test_reranking_dataset_mode_prefers_grouped_inline_candidates() -> None:

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
@@ -39,6 +40,10 @@ class _Group:
     group_id: str
     query: str
     candidates: tuple[_Candidate, ...]
+
+
+def _normalize_candidate_id(value: Any) -> str:
+    return unicodedata.normalize("NFKC", str(value)).strip()
 
 
 class _RawRerankingPipeline(TextClassificationPipeline):
@@ -305,7 +310,10 @@ class WinMLRerankingEvaluator(WinMLEvaluator):
             query = str(sample[self._query_col])
             if not query.strip():
                 continue
-            relevant_ids = set(self._parse_json_sequence(sample[self._expected_output_col]))
+            relevant_ids = {
+                _normalize_candidate_id(value)
+                for value in self._parse_json_sequence(sample[self._expected_output_col])
+            }
             metadata = self._parse_json_object(sample[self._metadata_col])
             group_id = str(metadata.get(self._metadata_group_key, row_index))
             raw_candidates = self._parse_json_sequence(sample[self._candidates_col])
@@ -322,7 +330,12 @@ class WinMLRerankingEvaluator(WinMLEvaluator):
                         f"group {group_id!r} candidates must expose non-empty "
                         f"{self._candidate_id_key!r} and {self._candidate_text_key!r} fields"
                     )
-                candidate_id_text = str(candidate_id)
+                candidate_id_text = _normalize_candidate_id(candidate_id)
+                if not candidate_id_text:
+                    raise DatasetValidationError(
+                        f"group {group_id!r} candidates must expose non-empty "
+                        f"{self._candidate_id_key!r} and {self._candidate_text_key!r} fields"
+                    )
                 candidates.append(
                     _Candidate(
                         candidate_id=candidate_id_text,

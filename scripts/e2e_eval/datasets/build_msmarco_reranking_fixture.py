@@ -40,7 +40,7 @@ from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
 
 HF_DATASET_ID = "orgrctera/msmarco_passage_ranking"
@@ -78,13 +78,76 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _download(url: str, dest: Path) -> Path:
-    if dest.exists():
+def _download(
+    url: str,
+    dest: Path,
+    *,
+    validator: Callable[[Path], None],
+    expected_sha256: str | None = None,
+) -> Path:
+    def is_valid(path: Path) -> bool:
+        if not path.is_file() or path.stat().st_size == 0:
+            return False
+        try:
+            validator(path)
+        except Exception:
+            return False
+        return expected_sha256 is None or _sha256(path) == expected_sha256
+
+    if is_valid(dest):
         return dest
+    dest.unlink(missing_ok=True)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with urllib.request.urlopen(url) as response, dest.open("wb") as handle:  # noqa: S310
-        shutil.copyfileobj(response, handle)
+    partial = dest.with_name(f"{dest.name}.part")
+    partial.unlink(missing_ok=True)
+    try:
+        with urllib.request.urlopen(url) as response, partial.open("wb") as handle:  # noqa: S310
+            shutil.copyfileobj(response, handle)
+        if not is_valid(partial):
+            raise ValueError(f"Downloaded source failed validation: {url}")
+        partial.replace(dest)
+    except Exception:
+        partial.unlink(missing_ok=True)
+        raise
     return dest
+
+
+def _validate_parquet(path: Path) -> None:
+    import pyarrow.parquet as parquet
+
+    parquet_file = parquet.ParquetFile(path)
+    if parquet_file.metadata.num_rows == 0:
+        raise ValueError("parquet file has no rows")
+    for row_group in range(parquet_file.num_row_groups):
+        parquet_file.read_row_group(row_group)
+
+
+def _validate_qrels(path: Path) -> None:
+    row_count = 0
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            qid, _unused, pid, relevance = line.split()
+            if not qid or not pid:
+                raise ValueError("qrels row has an empty identifier")
+            int(relevance)
+            row_count += 1
+    if row_count == 0:
+        raise ValueError("qrels file has no rows")
+
+
+def _validate_tar(path: Path) -> None:
+    with tarfile.open(path, "r:gz") as archive:
+        members = [member for member in archive.getmembers() if member.isfile()]
+        if not members:
+            raise ValueError("archive has no file members")
+        for member in members:
+            extracted = archive.extractfile(member)
+            if extracted is None:
+                raise ValueError(f"cannot read archive member {member.name}")
+            while extracted.read(1024 * 1024):
+                pass
 
 
 def _parse_json_list(value: Any) -> list[Any]:
@@ -156,15 +219,44 @@ def _load_qrels(qrels_path: Path) -> dict[str, set[str]]:
     return qrels
 
 
-def _load_top1000(archive_path: Path) -> dict[str, list[CandidateRow]]:
+def _load_top1000(
+    archive_path: Path,
+    selected_query_ids: set[str],
+) -> dict[str, list[CandidateRow]]:
     grouped: dict[str, list[CandidateRow]] = {}
     for line in _iter_tar_lines(archive_path, preferred_members=("top1000.dev", "top1000")):
         if not line.strip():
             continue
         qid, pid, query, passage = line.split("\t", 3)
+        if qid not in selected_query_ids:
+            continue
         rows = grouped.setdefault(qid, [])
         rows.append(CandidateRow(pid=pid, query=query, passage=passage, rank=len(rows) + 1))
     return grouped
+
+
+def _select_query_ids(
+    hf_rows: list[dict[str, Any]],
+    queries: dict[str, str],
+    qrels: dict[str, set[str]],
+    *,
+    max_queries: int,
+) -> set[str]:
+    selected: set[str] = set()
+    for row in hf_rows:
+        metadata = _parse_json_object(row["metadata"])
+        qid = str(metadata.get("query_id", "")).strip()
+        if (
+            qid
+            and qid in queries
+            and qid in qrels
+            and str(row["input"]) == queries[qid]
+            and {str(value) for value in _parse_json_list(row["expected_output"])} & qrels[qid]
+        ):
+            selected.add(qid)
+            if len(selected) >= max_queries:
+                break
+    return selected
 
 
 def _select_rows(
@@ -262,15 +354,37 @@ def _select_rows(
 def build_dataset(output_dir: Path, cache_dir: Path, max_queries: int, max_negatives: int) -> Path:
     from datasets import Dataset, DatasetDict
 
-    parquet_path = _download(HF_PARQUET_URL, cache_dir / "hf" / Path(HF_PARQUET_RELATIVE_PATH).name)
-    qrels_path = _download(OFFICIAL_QRELS_URL, cache_dir / "official" / "qrels.dev.tsv")
-    top1000_path = _download(OFFICIAL_TOP1000_URL, cache_dir / "official" / "top1000.dev.tar.gz")
-    queries_path = _download(OFFICIAL_QUERIES_URL, cache_dir / "official" / "queries.tar.gz")
+    parquet_path = _download(
+        HF_PARQUET_URL,
+        cache_dir / "hf" / Path(HF_PARQUET_RELATIVE_PATH).name,
+        validator=_validate_parquet,
+    )
+    qrels_path = _download(
+        OFFICIAL_QRELS_URL,
+        cache_dir / "official" / "qrels.dev.tsv",
+        validator=_validate_qrels,
+    )
+    top1000_path = _download(
+        OFFICIAL_TOP1000_URL,
+        cache_dir / "official" / "top1000.dev.tar.gz",
+        validator=_validate_tar,
+    )
+    queries_path = _download(
+        OFFICIAL_QUERIES_URL,
+        cache_dir / "official" / "queries.tar.gz",
+        validator=_validate_tar,
+    )
 
     hf_rows = _load_hf_rows(parquet_path)
     queries = _load_queries(queries_path)
     qrels = _load_qrels(qrels_path)
-    top1000 = _load_top1000(top1000_path)
+    selected_query_ids = _select_query_ids(
+        hf_rows,
+        queries,
+        qrels,
+        max_queries=max_queries,
+    )
+    top1000 = _load_top1000(top1000_path, selected_query_ids)
 
     selected_rows, selection_provenance = _select_rows(
         hf_rows,

@@ -32,7 +32,7 @@ class RerankingMetric:
         self._scored_groups = 0
         self._groups_without_positive = 0
         self._mrr_sum = 0.0
-        self._recall_hits = dict.fromkeys(self.recall_ks, 0)
+        self._recall_sums = dict.fromkeys(self.recall_ks, 0.0)
 
     def update(self, scores: list[float], labels: list[bool]) -> None:
         """Update the aggregate with one ranked group."""
@@ -50,8 +50,8 @@ class RerankingMetric:
             self._mrr_sum += 1.0 / best_rank
 
         for k in self.recall_ks:
-            if any(rank <= k for rank in positive_ranks):
-                self._recall_hits[k] += 1
+            recalled = sum(rank <= k for rank in positive_ranks)
+            self._recall_sums[k] += recalled / len(positive_ranks)
 
     def compute(self) -> dict[str, float | int]:
         """Return aggregated ranking metrics and accounting."""
@@ -62,5 +62,5 @@ class RerankingMetric:
             "groups_without_positive": self._groups_without_positive,
         }
         for k in self.recall_ks:
-            metrics[f"recall@{k}"] = round(self._recall_hits[k] / denom, 6) if denom else 0.0
+            metrics[f"recall@{k}"] = round(self._recall_sums[k] / denom, 6) if denom else 0.0
         return metrics
