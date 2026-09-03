@@ -372,7 +372,7 @@ TASK_REGISTRY: dict[str, TaskInputSpec] = {
                 description="Candidate document to score",
             ),
         ],
-        mapping=PipelineMapping(pipe_input=["query", "document"]),
+        mapping=PipelineMapping(pipe_input={"text": "query", "text_pair": "document"}),
     ),
     "question-answering": TaskInputSpec(
         user_inputs=[
