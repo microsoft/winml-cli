@@ -407,6 +407,14 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
                 dtype=torch.int64,
             ),
         )
+        attention_mask = runtime_feeds.get("attention_mask")
+        expected_attention_mask = self._dec_expected.get("attention_mask")
+        if isinstance(attention_mask, torch.Tensor) and expected_attention_mask is not None:
+            runtime_feeds["attention_mask"] = pad_inputs(
+                {"attention_mask": attention_mask},
+                {"attention_mask": expected_attention_mask},
+                mode="right",
+            )["attention_mask"]
         for i in range(self._num_kv_layers):
             layer = cache._layer(i)
             runtime_feeds[f"past_{i}_key"] = cast("torch.Tensor", layer.keys).detach()
