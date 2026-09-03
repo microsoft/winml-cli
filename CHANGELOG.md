@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## WinML CLI v0.3.1
+
+This hotfix restores compatibility with current Transformers and Windows runtime dependencies, fixes VitisAI cache permissions, and stabilizes Hugging Face model export and evaluation.
+
+### 🐛 Fixes
+
+- **Hugging Face export and evaluation** — stabilized SDPA and attention-mask handling, decoder wrappers, BLIP export, QNN/HTP tracing, and processor resolution for Transformers 4.57 (#1372, #1379, #1384).
+- **VitisAI compilation** — moved the compilation cache under the user-writable WinML cache root instead of installation-relative protected paths (#1378).
+- **Runtime dependencies** — constrained `plotext` to the compatible 5.x series, required the published Windows ML runtime build, and prevented QNN from installing a conflicting standard ONNX Runtime distribution (#1372).
+
+### 📦 Assets
+
+- `winml_cli-0.3.1-py3-none-any.whl`
+- `rules-v0.3.1.zip`
+
 ## WinML CLI v0.3.0
 
 This cycle expands **model preparation and evaluation** across the CLI: precision-driven quantization, composite-model and dynamic-axis workflows, real-input perf/eval, optimization previews, and opt-in Dynamo export. It also introduces one-command Qwen3 onnxruntime-genai bundles, GenAI benchmarking, broader model recipes, and more reliable EP discovery, compilation, and monitoring. See the behavior changes below.
