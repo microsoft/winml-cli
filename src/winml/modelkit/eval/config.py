@@ -29,7 +29,6 @@ class DatasetConfig:
         samples: Number of samples to evaluate.
         shuffle: Whether to shuffle before sampling for label coverage.
         seed: Random seed for reproducible shuffling.
-        audio_input_length: Fixed waveform length for audio preprocessing.
         columns_mapping: Column name overrides as key=value pairs.
             If empty, consumer uses its own defaults.
         streaming: Whether to stream dataset (avoids full download).
@@ -41,6 +40,7 @@ class DatasetConfig:
             ``--output <path>`` before the dataset is loaded.
         label_mapping_file: Path to a JSON file with label mapping.
             Resolved into ``label_mapping`` at eval time.
+        audio_input_length: Fixed waveform length for audio preprocessing.
     """
 
     path: str | None = field(default=None, metadata={"cli_name": "dataset_path"})
@@ -49,13 +49,13 @@ class DatasetConfig:
     samples: int = 100
     shuffle: bool = True
     seed: int = 42
-    audio_input_length: int | None = None
     columns_mapping: dict[str, str] = field(default_factory=dict)
     label_mapping: dict[str, int] | None = None
     streaming: bool = False
     revision: str | None = field(default=None, metadata={"cli_name": "dataset_revision"})
     build_script: str | None = field(default=None, metadata={"cli_name": "dataset_script"})
     label_mapping_file: str | None = None
+    audio_input_length: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
