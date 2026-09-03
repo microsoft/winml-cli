@@ -10,10 +10,11 @@
 # Fix:
 #   Register a SYSTEM, event-triggered scheduled task ("KeepSessionOnConsole")
 #   that fires on RDP disconnect (TerminalServices-LocalSessionManager Event ID
-#   24), redirects the still-disconnected session back to the physical console
-#   via `tscon`, and removes non-present Remote Display Adapter device nodes left
-#   behind by RDP. Those stale nodes can otherwise remain in DXGI/ORT as phantom
-#   copies of the physical GPU and crash DirectML even after `tscon` succeeds.
+#   24). Genuine network disconnects are identified by the event's Address field
+#   and redirected immediately via `tscon`, before Windows settles on a phantom
+#   Remote Display Adapter topology. LOCAL events emitted by `tscon`/reconnects
+#   are ignored so the worker cannot fight an in-progress reconnect. Stale PnP
+#   display nodes are still removed as best-effort hygiene after the redirect.
 #
 # Usage (run once, elevated):
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\agent_setup\setup_rdp_gpu_keepalive.ps1
@@ -43,10 +44,11 @@ try {
 
     # ---- keep_console.ps1 (the redirect worker) ----
     $worker = @'
-    param(
-      [string]$SessionId = '',
-      [switch]$CleanupOnly
-    )
+  param(
+    [string]$SessionId = '',
+    [string]$SourceNetworkAddress = '',
+    [switch]$CleanupOnly
+  )
 
 $ErrorActionPreference = 'Stop'
 $log = 'C:\agent\tools\keep_console.log'
@@ -61,17 +63,17 @@ function Get-Sessions {
         $t = ($r -split '\s+') | Where-Object { $_ -ne '' }
         for ($i = 0; $i -lt $t.Count; $i++) {
             if ($t[$i] -in @('Active','Disc','Conn','Listen','Down','Idle')) {
-        if ($i -ge 1 -and $t[$i-1] -match '^\d+$') {
-          $id = [int]$t[$i-1]
-          $name = if ($t.Count) { $t[0].TrimStart('>') } else { '' }
-          $username = if ($i -ge 3) { $t[$i-2] } else { '' }
-          $map[$id] = [pscustomobject]@{
-            Id = $id
-            Name = $name
-            Username = $username
-            State = $t[$i]
-          }
-        }
+                if ($i -ge 1 -and $t[$i-1] -match '^\d+$') {
+                    $id = [int]$t[$i-1]
+                    $name = if ($t.Count) { $t[0].TrimStart('>') } else { '' }
+                    $username = if ($i -ge 3) { $t[$i-2] } else { '' }
+                    $map[$id] = [pscustomobject]@{
+                        Id = $id
+                        Name = $name
+                        Username = $username
+                        State = $t[$i]
+                    }
+                }
                 break
             }
         }
@@ -85,50 +87,50 @@ function Get-Sessions {
 # that non-present node is safe for the physical GPU (which has a PCI instance ID)
 # and a future RDP connection recreates its own Remote Display Adapter as needed.
 function Remove-StaleRemoteDisplayAdapters {
-  try {
-    $stale = @(Get-PnpDevice -Class Display -ErrorAction Stop | Where-Object {
-      $_.InstanceId -like 'SWD\REMOTEDISPLAYENUM\*' -and
-      ($_.Problem -eq 'CM_PROB_PHANTOM' -or $_.ConfigManagerErrorCode -eq 45)
-    })
-  }
-  catch {
-    Write-Log "WARN: cannot enumerate display devices: $($_.Exception.Message)"
-    return $false
-  }
-
-  if (-not $stale) {
-    Write-Log "No stale Remote Display Adapter device nodes found."
-    return $true
-  }
-
-  $allRemoved = $true
-  $pnputil = Join-Path $env:SystemRoot 'System32\pnputil.exe'
-  foreach ($device in $stale) {
-    Write-Log "Removing stale Remote Display Adapter: $($device.InstanceId)"
-    $out = & $pnputil /remove-device $device.InstanceId 2>&1
-    $code = $LASTEXITCODE
-    if ($out) { $out | ForEach-Object { Write-Log "  pnputil: $_" } }
-    if ($code -ne 0) {
-      $allRemoved = $false
-      Write-Log "WARN: pnputil remove-device exited $code for $($device.InstanceId)."
+    try {
+        $stale = @(Get-PnpDevice -Class Display -ErrorAction Stop | Where-Object {
+            $_.InstanceId -like 'SWD\REMOTEDISPLAYENUM\*' -and
+            ($_.Problem -eq 'CM_PROB_PHANTOM' -or $_.ConfigManagerErrorCode -eq 45)
+        })
     }
-  }
-  return $allRemoved
+    catch {
+        Write-Log "WARN: cannot enumerate display devices: $($_.Exception.Message)"
+        return $false
+    }
+
+    if (-not $stale) {
+        Write-Log "No stale Remote Display Adapter device nodes found."
+        return $true
+    }
+
+    $allRemoved = $true
+    $pnputil = Join-Path $env:SystemRoot 'System32\pnputil.exe'
+    foreach ($device in $stale) {
+        Write-Log "Removing stale Remote Display Adapter: $($device.InstanceId)"
+        $out = & $pnputil /remove-device $device.InstanceId 2>&1
+        $code = $LASTEXITCODE
+        if ($out) { $out | ForEach-Object { Write-Log "  pnputil: $_" } }
+        if ($code -ne 0) {
+            $allRemoved = $false
+            Write-Log "WARN: pnputil remove-device exited $code for $($device.InstanceId)."
+        }
+    }
+    return $allRemoved
 }
 
 try {
-  if ($CleanupOnly) {
-    $sessions = Get-Sessions
-    $console = @($sessions.Values | Where-Object {
-      $_.Name -eq 'console' -and $_.State -in @('Active', 'Conn')
-    })
-    if (-not $console) {
-      Write-Log "WARN: cleanup requested without a console session; refusing."
-      exit 0
+    if ($CleanupOnly) {
+        $sessions = Get-Sessions
+        $console = @($sessions.Values | Where-Object {
+            $_.Name -eq 'console' -and $_.State -in @('Active', 'Conn')
+        })
+        if (-not $console) {
+            Write-Log "WARN: cleanup requested without a console session; refusing."
+            exit 0
+        }
+        [void](Remove-StaleRemoteDisplayAdapters)
+        exit 0
     }
-    [void](Remove-StaleRemoteDisplayAdapters)
-    exit 0
-  }
 
     # Act ONLY on the session reported by the disconnect event. The broad
     # "find any Disc session" scan is intentionally gone: during a reconnect the
@@ -144,55 +146,65 @@ try {
         exit 0
     }
 
-    # Settle delay: a plain reconnect produces a transient disconnect. Waiting a
-    # few seconds and re-checking lets a reconnecting session return to Active so
-    # we DON'T yank it back to console mid-reconnect (which caused the
-    # "connect twice" tug-of-war). Only a session that is STILL disconnected
-    # after the delay is treated as "user really left".
-    Start-Sleep -Seconds 10
+    # A network-backed Event 24 is the real RDP transport disconnect. LOCAL
+    # events are generated by tscon and reconnect transitions; ignoring them
+    # prevents the old "connect twice" tug-of-war without delaying the genuine
+    # redirect long enough for Windows to settle on the phantom adapter.
+    $sourceAddress = $SourceNetworkAddress.Trim()
+    $parsedAddress = $null
+    $isRemoteAddress = (
+      [System.Net.IPAddress]::TryParse($sourceAddress, [ref]$parsedAddress) -and
+      -not [System.Net.IPAddress]::IsLoopback($parsedAddress) -and
+      -not $parsedAddress.Equals([System.Net.IPAddress]::Any) -and
+      -not $parsedAddress.Equals([System.Net.IPAddress]::IPv6Any)
+    )
+    if (-not $isRemoteAddress) {
+      Write-Log "Ignoring Event 24 for session $target with source '$sourceAddress'."
+      exit 0
+    }
 
     $sessions = Get-Sessions
     $session = $sessions[$target]
     if ($null -eq $session -or $session.State -ne 'Disc') {
       $state = if ($null -eq $session) { '' } else { $session.State }
-      Write-Log "Session $target is '$state' after settle (reconnected or gone); no redirect needed."
+      Write-Log "Session $target is '$state' at dispatch (reconnected or gone); no redirect needed."
         exit 0
     }
 
     # Never displace another user's active console session. A connected but
     # unowned console placeholder is safe; tscon will attach the target to it.
     $occupiedConsole = @($sessions.Values | Where-Object {
-      $_.Id -ne $target -and $_.Name -eq 'console' -and
-      $_.State -eq 'Active' -and $_.Username
+        $_.Id -ne $target -and $_.Name -eq 'console' -and
+        $_.State -eq 'Active' -and $_.Username
     }) | Select-Object -First 1
     if ($occupiedConsole) {
-      Write-Log "WARN: console is occupied by '$($occupiedConsole.Username)' (session $($occupiedConsole.Id)); refusing to redirect session $target."
-      exit 0
+        Write-Log "WARN: console is occupied by '$($occupiedConsole.Username)' (session $($occupiedConsole.Id)); refusing to redirect session $target."
+        exit 0
     }
 
-    Write-Log "Session $target still Disc after settle; redirecting to console."
+    Write-Log "Remote disconnect from $sourceAddress left session $target Disc; redirecting immediately."
     $redirected = $false
     for ($attempt = 1; $attempt -le 3; $attempt++) {
-      $out = & tscon $target /dest:console 2>&1
-      $code = $LASTEXITCODE
-      if ($out) { $out | ForEach-Object { Write-Log "  tscon: $_" } }
+        $out = & tscon $target /dest:console 2>&1
+        $code = $LASTEXITCODE
+        if ($out) { $out | ForEach-Object { Write-Log "  tscon: $_" } }
 
-      Start-Sleep -Seconds 2
-      $current = (Get-Sessions)[$target]
-      if ($null -ne $current -and $current.Name -eq 'console' -and $current.State -in @('Active', 'Conn')) {
-        $redirected = $true
-        break
-      }
-      if ($null -eq $current -or $current.State -ne 'Disc') {
-        Write-Log "WARN: session $target changed state after tscon; not retrying."
-        break
-      }
-      Write-Log "WARN: tscon attempt ${attempt} exited $code without a verified console transition."
+        Start-Sleep -Seconds 2
+        $current = (Get-Sessions)[$target]
+        if ($null -ne $current -and $current.Name -eq 'console' -and $current.State -in @('Active', 'Conn')) {
+            $redirected = $true
+            break
+        }
+        if ($null -eq $current -or $current.State -ne 'Disc') {
+            Write-Log "WARN: session $target changed state after tscon; not retrying."
+            break
+        }
+        Write-Log "WARN: tscon attempt ${attempt} exited $code without a verified console transition."
     }
 
     if (-not $redirected) {
-      Write-Log "WARN: session $target was not verified on console; skipping display cleanup."
-      exit 0
+        Write-Log "WARN: session $target was not verified on console; skipping display cleanup."
+        exit 0
     }
 
     Write-Log "Session $target verified on console; cleaning stale RDP display nodes."
@@ -220,6 +232,7 @@ catch {
       <Subscription>&lt;QueryList&gt;&lt;Query Id="0" Path="Microsoft-Windows-TerminalServices-LocalSessionManager/Operational"&gt;&lt;Select Path="Microsoft-Windows-TerminalServices-LocalSessionManager/Operational"&gt;*[System[(EventID=24)]]&lt;/Select&gt;&lt;/Query&gt;&lt;/QueryList&gt;</Subscription>
       <ValueQueries>
         <Value name="SessionID">Event/UserData/EventXML/SessionID</Value>
+        <Value name="SourceNetworkAddress">Event/UserData/EventXML/Address</Value>
       </ValueQueries>
     </EventTrigger>
   </Triggers>
@@ -250,7 +263,7 @@ catch {
   <Actions Context="Author">
     <Exec>
       <Command>powershell.exe</Command>
-      <Arguments>-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "__WORKER__" -SessionId $(SessionID)</Arguments>
+      <Arguments>-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "__WORKER__" -SessionId "$(SessionID)" -SourceNetworkAddress "$(SourceNetworkAddress)"</Arguments>
     </Exec>
   </Actions>
 </Task>
