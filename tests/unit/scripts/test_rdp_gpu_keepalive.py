@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -29,7 +30,12 @@ def _worker_text() -> str:
     return text[start:end].lstrip("\r\n")
 
 
-def _run_worker(tmp_path: Path, source_address: str) -> tuple[str, bool]:
+def _run_worker(
+    tmp_path: Path,
+    source_address: str,
+    *,
+    event_address: str = "",
+) -> tuple[str, bool]:
     log = tmp_path / "keep_console.log"
     marker = tmp_path / "tscon-called"
     worker = tmp_path / "keep_console.ps1"
@@ -54,15 +60,27 @@ function global:tscon {{
     $env:KEEPALIVE_TEST_CONSOLE = '1'
 }}
 function global:Get-PnpDevice {{ return @() }}
+function global:Get-WinEvent {{
+    if (-not $env:KEEPALIVE_TEST_EVENT_ADDRESS) {{ return @() }}
+    $event = [pscustomobject]@{{}}
+    $event | Add-Member -MemberType ScriptMethod -Name ToXml -Value {{
+        $address = $env:KEEPALIVE_TEST_EVENT_ADDRESS
+        return "<Event><UserData><EventXML><SessionID>2</SessionID>" +
+            "<Address>$address</Address></EventXML></UserData></Event>"
+    }}
+    return $event
+}}
 & '{worker}' -SessionId 2 -SourceNetworkAddress '{source_address}'
 """,
         encoding="utf-8",
     )
     powershell = shutil.which("powershell.exe")
     assert powershell is not None
+    env = dict(os.environ, KEEPALIVE_TEST_EVENT_ADDRESS=event_address)
     proc = subprocess.run(  # noqa: S603 - generated harness and executable are controlled
         [powershell, "-NoProfile", "-NonInteractive", "-File", str(harness)],
         capture_output=True,
+        env=env,
         text=True,
         encoding="utf-8",
         errors="replace",
@@ -127,6 +145,14 @@ def test_worker_ignores_local_and_unparseable_disconnect_sources() -> None:
     assert validation < ignore < redirect
 
 
+def test_worker_can_resolve_address_for_existing_task_action() -> None:
+    worker = _worker_text()
+
+    assert "Resolve-SourceNetworkAddress $target $SourceNetworkAddress" in worker
+    assert "Get-WinEvent -FilterHashtable" in worker
+    assert "StartTime = (Get-Date).AddMinutes(-1)" in worker
+
+
 @pytest.mark.parametrize("source_address", ["LOCAL", "本地", "", "not-an-address", "127.0.0.1"])
 def test_worker_does_not_redirect_non_remote_events(
     tmp_path: Path,
@@ -144,6 +170,13 @@ def test_worker_immediately_redirects_remote_event(tmp_path: Path) -> None:
     assert redirected
     assert "Remote disconnect from 192.0.2.10" in log
     assert "Session 2 verified on console" in log
+
+
+def test_existing_task_action_uses_matching_event_address(tmp_path: Path) -> None:
+    log, redirected = _run_worker(tmp_path, "", event_address="192.0.2.20")
+
+    assert redirected
+    assert "Remote disconnect from 192.0.2.20" in log
 
 
 def test_worker_removes_only_non_present_remote_display_nodes() -> None:
