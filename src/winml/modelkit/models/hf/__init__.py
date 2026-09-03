@@ -99,6 +99,8 @@ from .unlimited_ocr import MODEL_CLASS_MAPPING as _UNLIMITED_OCR_CLASS_MAPPING
 from .unlimited_ocr import (
     UnlimitedOCRVisionIOConfig as _UnlimitedOCRVisionIOConfig,  # triggers registration
 )
+from .vilt import MODEL_CLASS_MAPPING as _VILT_CLASS_MAPPING
+from .vilt import ViltVqaOnnxConfig as _ViltVqaOnnxConfig  # triggers registration
 from .vision_encoder_decoder import MODEL_CLASS_MAPPING as _VED_CLASS_MAPPING
 from .vision_encoder_decoder import VISION_ENCODER_DECODER_CONFIG
 from .vision_encoder_decoder import (
@@ -144,6 +146,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
         _T5_CLASS_MAPPING,
         _UNLIMITED_OCR_CLASS_MAPPING,
         _VED_CLASS_MAPPING,
+        _VILT_CLASS_MAPPING,
         _VITPOSE_CLASS_MAPPING,
         _WAV2VEC2_CLASS_MAPPING,
     )
