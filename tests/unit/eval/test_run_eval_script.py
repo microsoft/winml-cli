@@ -1892,7 +1892,12 @@ class TestRunWinmlEvalRecipePath:
     def test_fallback_path_uses_dataset_flags(self, run_eval, tmp_path):
         captured: list[list[str]] = []
         fake = self._fake_subprocess_writing_output(captured, {"accuracy": 0.8}, {"samples": 50})
-        ds_config = {"dataset": "timm/mini-imagenet", "split": "test", "num_samples": 50}
+        ds_config = {
+            "dataset": "timm/mini-imagenet",
+            "split": "test",
+            "num_samples": 50,
+            "audio_input_length": 16_000,
+        }
         with patch.object(run_eval, "_run_subprocess", side_effect=fake):
             res = run_eval._run_winml_eval(
                 _entry(), "npu", 300, ds_config, tmp_path, {"": "model.onnx"}, ep="openvino"
@@ -1900,6 +1905,7 @@ class TestRunWinmlEvalRecipePath:
         call = captured[0]
         assert "-c" not in call
         assert "--dataset" in call and "timm/mini-imagenet" in call
+        assert call[call.index("--audio-input-length") + 1] == "16000"
         assert res["status"] == "PASS"
 
 

@@ -40,6 +40,7 @@ class DatasetConfig:
             ``--output <path>`` before the dataset is loaded.
         label_mapping_file: Path to a JSON file with label mapping.
             Resolved into ``label_mapping`` at eval time.
+        audio_input_length: Fixed waveform length for audio preprocessing.
     """
 
     path: str | None = field(default=None, metadata={"cli_name": "dataset_path"})
@@ -54,6 +55,7 @@ class DatasetConfig:
     revision: str | None = field(default=None, metadata={"cli_name": "dataset_revision"})
     build_script: str | None = field(default=None, metadata={"cli_name": "dataset_script"})
     label_mapping_file: str | None = None
+    audio_input_length: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -67,6 +69,8 @@ class DatasetConfig:
             result["path"] = self.path
         if self.name is not None:
             result["name"] = self.name
+        if self.audio_input_length is not None:
+            result["audio_input_length"] = self.audio_input_length
         if self.columns_mapping:
             result["columns_mapping"] = self.columns_mapping
         if self.label_mapping:
@@ -266,6 +270,7 @@ class WinMLEvaluationConfig:
             samples=ds_data.get("samples", 100),
             shuffle=ds_data.get("shuffle", True),
             seed=ds_data.get("seed", 42),
+            audio_input_length=ds_data.get("audio_input_length"),
             columns_mapping=ds_data.get("columns_mapping", {}),
             streaming=ds_data.get("streaming", False),
             revision=ds_data.get("revision"),
