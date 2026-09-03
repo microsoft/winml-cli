@@ -74,13 +74,7 @@ def _preload_bundled_onnxruntime_dll() -> None:
 _preload_bundled_onnxruntime_dll()
 
 # _warnings configures filters before any subpackage imports.
-# transformers_compat arms a sys.meta_path hook — the shim fires lazily
-# the first time anything imports optimum.*; lightweight commands
-# (``winml sys``, ``winml --help``) never pay the transformers cost.
-from . import _warnings  # noqa: I001
-from . import transformers_compat
-
-transformers_compat.arm()
+from . import _warnings
 
 
 try:

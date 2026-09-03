@@ -7,20 +7,58 @@
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 
 
 class FailureType(str, Enum):
-    """Failure taxonomy — ordered by pipeline stage."""
+    """Primary perf failure taxonomy — ordered by pipeline stage.
+
+    The reported classification uses the first matching type. Retry criteria
+    may overlap: HF fetch evidence can coexist with an earlier pipeline-stage
+    failure and is checked independently by the evaluation runner.
+    """
 
     EXPORT_FAIL = "EXPORT_FAIL"
     ANALYZER_BLOCK = "ANALYZER_BLOCK"
     OPT_FAIL = "OPT_FAIL"
     COMPILE_FAIL = "COMPILE_FAIL"
     RUNTIME_FAIL = "RUNTIME_FAIL"
+    HF_FETCH_FAIL = "HF_FETCH_FAIL"  # HuggingFace unreachable + cache miss
     ENVIRONMENT = "ENVIRONMENT"  # disk/network/resource — retryable
     TIMEOUT = "TIMEOUT"  # exceeded per-model time limit
     UNKNOWN = "UNKNOWN"
+
+
+_HF_URL_RE = re.compile(
+    r"https?://(?:[a-z0-9-]+\.)*(?:huggingface\.co|hf\.co)(?=[/:?\s'\"\\]|$)"
+)
+_HF_STREAM_FAILURE_PATTERNS = (
+    "error while downloading from ",
+    "httpx.readtimeout",
+    "httpx.connecttimeout",
+    "httpx.connecterror",
+    "httpx.remoteprotocolerror",
+)
+
+_HF_FETCH_RETRY_PATTERNS = (
+    "winerror 10060",
+    "we couldn't connect to 'https://huggingface.co'",
+    "thrown while requesting head https://huggingface.co",
+)
+
+
+def _is_hf_stream_failure(output: str) -> bool:
+    """Return whether output contains a transient HF weight-download failure."""
+    return _HF_URL_RE.search(output) is not None and any(
+        pattern in output for pattern in _HF_STREAM_FAILURE_PATTERNS
+    )
+
+
+def matches_hf_fetch_retry(output: str) -> bool:
+    """Return whether output contains a supplemental HF fetch retry marker."""
+    lower = output.lower()
+    return any(pattern in lower for pattern in _HF_FETCH_RETRY_PATTERNS)
 
 
 # Ordered by pipeline stage — first match wins.
@@ -80,6 +118,16 @@ CLASSIFICATION_RULES: list[tuple[FailureType, list[str]]] = [
         ],
     ),
     (
+        FailureType.HF_FETCH_FAIL,
+        [
+            "we couldn't connect to 'https://huggingface.co' to load the files",
+            "couldn't find them in the cached files",
+            "thrown while requesting head https://huggingface.co",
+            "huggingface_hub.utils._http",
+            "winerror 10060",
+        ],
+    ),
+    (
         FailureType.ENVIRONMENT,
         [
             "no space left on device",
@@ -103,6 +151,8 @@ def classify_failure(combined_output: str, exit_code: int) -> FailureType:
     """
     lower = combined_output.lower()
     for failure_type, patterns in CLASSIFICATION_RULES:
+        if failure_type is FailureType.HF_FETCH_FAIL and _is_hf_stream_failure(lower):
+            return failure_type
         for pattern in patterns:
             if pattern in lower:
                 return failure_type

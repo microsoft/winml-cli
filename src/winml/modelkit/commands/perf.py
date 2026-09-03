@@ -72,7 +72,7 @@ logger = logging.getLogger(__name__)
 
 # Hardware monitor polling interval (milliseconds)
 _HW_POLL_INTERVAL_MS = 200
-_RUNTIME_TYPE: RuntimeName = "winml"
+_RUNTIME_TYPE: RuntimeName = "winml-ort"
 
 
 def _resolve_runtime(runtime: RuntimeName, model: str) -> RuntimeName:
@@ -82,8 +82,8 @@ def _resolve_runtime(runtime: RuntimeName, model: str) -> RuntimeName:
 
     model_path = Path(model)
     if model_path.is_dir() and (model_path / "genai_config.json").is_file():
-        return "winml-genai"
-    return "winml"
+        return "ort-genai"
+    return "winml-ort"
 
 
 def _detail_fallback_guidance(reason: TraceFallbackReason | None) -> str:
@@ -105,6 +105,10 @@ def _detail_fallback_guidance(reason: TraceFallbackReason | None) -> str:
         ),
         TraceFallbackReason.QHAS_OUTPUT_MISSING: "the requested QHAS output was not found",
         TraceFallbackReason.QHAS_PARSE_FAILED: "the QHAS output could not be parsed",
+        TraceFallbackReason.MULTIPLE_PARTITIONS: (
+            "the model contains multiple EPContext partitions; QHAS currently "
+            "reports only one partition"
+        ),
     }
     if reason is None:
         return "QHAS post-processing was unavailable"
@@ -229,6 +233,35 @@ def _resolve_ep_monitor(
     device_norm = (device or "").lower()
 
     if op_tracing:
+        if ep_norm == "openvino":
+            from ..session.monitor.openvino_monitor import OpenVinoMonitor
+
+            if op_tracing != "basic":
+                raise RuntimeError("OpenVINO op-tracing currently supports only level 'basic'.")
+            if device_norm not in ("cpu", "npu"):
+                raise RuntimeError(
+                    "OpenVINO op-tracing currently supports only --device cpu or --device npu."
+                )
+            OpenVinoMonitor.validate_runtime_version()
+            if not OpenVinoMonitor.is_available():
+                raise RuntimeError(
+                    "Op-tracing --ep openvino requested but OpenVINO is not available "
+                    "on this system."
+                )
+            return OpenVinoMonitor(
+                level="basic",
+                output_dir=output_dir,
+                device=cast("Literal['cpu', 'npu']", device_norm),
+            )
+
+        if (ep_norm and ep_norm != "qnn") or (
+            not ep_norm and device_norm not in ("npu", "auto", "")
+        ):
+            raise RuntimeError(
+                f"Op-tracing not available for EP {ep!r} on device {device!r}. "
+                "Supported EPs: qnn, openvino (basic on cpu/npu)."
+            )
+
         from ..session.monitor.qnn_monitor import QNNMonitor
 
         qnn_available: bool | None = None
@@ -256,14 +289,16 @@ def _resolve_ep_monitor(
             )
 
         raise RuntimeError(
-            f"Op-tracing not available for EP {ep!r} on device {device!r}. Supported EPs: qnn."
+            f"Op-tracing not available for EP {ep!r} on device {device!r}. "
+            "Supported EPs: qnn, openvino (basic on cpu/npu)."
         )
 
     # Proof-of-execution monitors (no op-tracing)
-    from ..session.monitor.vitisai_monitor import VitisAIMonitor
+    if ep_norm == "vitisai":
+        from ..session.monitor.vitisai_monitor import VitisAIMonitor
 
-    if ep_norm == "vitisai" and VitisAIMonitor.is_available():
-        return VitisAIMonitor()
+        if VitisAIMonitor.is_available():
+            return VitisAIMonitor()
     return NullEPMonitor()
 
 
@@ -324,27 +359,20 @@ def _get_ep_device_binding(
         candidates = [
             candidate
             for candidate in ep_device.ep.devices
-            if provider_device is None
-            or candidate.device_type.lower() == provider_device
+            if provider_device is None or candidate.device_type.lower() == provider_device
         ]
         if not candidates:
             return None, provider_device
         candidate_options = [
             (
                 candidate,
-                {
-                    str(key): str(value)
-                    for key, value in candidate.ort_handle.ep_options.items()
-                },
+                {str(key): str(value) for key, value in candidate.ort_handle.ep_options.items()},
             )
             for candidate in candidates
         ]
-        advertised_keys = {
-            key for _, options in candidate_options for key in options
-        }
+        advertised_keys = {key for _, options in candidate_options for key in options}
         selected_options = {
-            str(key): str(value)
-            for key, value in device.ort_handle.ep_options.items()
+            str(key): str(value) for key, value in device.ort_handle.ep_options.items()
         }
         device_overrides = {
             key: str(value)
@@ -1763,9 +1791,7 @@ def _perf_modules(
                             device=effective_monitor_device,
                             ep_name=cast("EPName | None", session.ep_name),
                             adapter_luid=adapter_luid,
-                            adapter_device=(
-                                adapter_device if adapter_luid is not None else None
-                            ),
+                            adapter_device=(adapter_device if adapter_luid is not None else None),
                         )
 
                 if hw_ctx:
@@ -2144,19 +2170,14 @@ def _io_specs_from_config(
 def _print_save_to_footer(
     console: Console,
     *,
-    trace_json: str | None,
     profiling_csv: str | None,
+    profiling_json: str | None = None,
 ) -> None:
-    """Print save-to footer lines after the op-trace report.
-
-    Each line is rendered only when its path is supplied; if both are
-    ``None`` the helper emits nothing. The ``[dim]...[/dim]`` markup
-    softens the label so the path itself is the visual anchor.
-    """
-    if trace_json:
-        console.print(f"[dim]Op-trace JSON:[/dim] {trace_json}")
+    """Print the raw profiling artifact path after the op-trace report."""
     if profiling_csv:
         console.print(f"[dim]Profiling CSV:[/dim] {profiling_csv}")
+    if profiling_json:
+        console.print(f"[dim]Profiling JSON:[/dim] {profiling_json}")
 
 
 @dataclass
@@ -2302,7 +2323,7 @@ def _run_simple_loop(
 
 # perf() param names for WinML-only options that a prebuilt genai bundle
 # ignores. Mapped to the user-facing flag for the warning message.
-# NB: ``--ep`` is intentionally absent — it is honored for winml-genai as an EP
+# NB: ``--ep`` is intentionally absent — it is honored for ort-genai as an EP
 # override (explicit --ep > concrete --device > respect config).
 _GENAI_IGNORED_FLAGS: dict[str, str] = {
     "task": "--task",
@@ -2364,7 +2385,7 @@ def _warn_ignored_genai_flags(
     if ignored:
         console.print(
             "[yellow]Warning:[/yellow] the following options are ignored with "
-            f"--runtime winml-genai: {', '.join(sorted(ignored))}"
+            f"--runtime ort-genai: {', '.join(sorted(ignored))}"
         )
 
 
@@ -2423,7 +2444,7 @@ def _autobuild_genai_bundle(
     recipe = resolve_genai_bundle(model_type)
     if recipe is None:
         raise click.UsageError(
-            f"--runtime winml-genai cannot auto-build '{model}': no genai bundle recipe "
+            f"--runtime ort-genai cannot auto-build '{model}': no genai bundle recipe "
             f"is registered for model type '{model_type or 'unknown'}'. Pass a prebuilt "
             "genai bundle *directory* (e.g. from "
             f"'winml build -m {model} -o <dir> --device npu --ep qnn')."
@@ -2452,7 +2473,7 @@ def _autobuild_genai_bundle(
 def _run_genai_runtime(
     ctx: click.Context, *, model: str, console: Console, json_mode: bool
 ) -> None:
-    """Validate folder input and dispatch to the winml-genai benchmark path.
+    """Validate folder input and dispatch to the ort-genai benchmark path.
 
     The genai imports are function-local so ``winml perf --help`` does not pay
     their import cost (see tests/cli/test_import_time.py).
@@ -2469,14 +2490,14 @@ def _run_genai_runtime(
     p = ctx.params
     # --module walks a live nn.Module graph; meaningless for a prebuilt bundle.
     if p.get("module_class"):
-        raise click.UsageError("--module is not supported with --runtime winml-genai.")
+        raise click.UsageError("--module is not supported with --runtime ort-genai.")
 
     # --submodel narrows a composite into a single sub-component benchmarked as a
     # standalone session; a genai bundle is already the full composite generation
     # pipeline, so selecting one sub-component is meaningless. Reject rather than
     # silently ignore (this return runs before the winml-path --submodel handling).
     if p.get("submodel"):
-        raise click.UsageError("--submodel is not supported with --runtime winml-genai.")
+        raise click.UsageError("--submodel is not supported with --runtime ort-genai.")
 
     # Keep any bundle-lifetime resources alive across the benchmark.
     with contextlib.ExitStack() as stack:
@@ -2495,7 +2516,7 @@ def _run_genai_runtime(
                 )
         elif bundle_dir.suffix.lower() == ".onnx":
             raise click.UsageError(
-                f"--runtime winml-genai requires a genai bundle *directory*, got '{model}'."
+                f"--runtime ort-genai requires a genai bundle *directory*, got '{model}'."
             )
         else:
             bundle_dir, built_fresh = _autobuild_genai_bundle(
@@ -2619,9 +2640,9 @@ def _validate_duration(
     type=click.Choice(list(RUNTIME_NAMES)),
     default="auto",
     show_default=True,
-    help="'auto' selects winml-genai for folders containing genai_config.json, "
-    "otherwise winml. 'winml' benchmarks single-shot ONNX inference; "
-    "'winml-genai' benchmarks an onnxruntime-genai bundle folder "
+    help="'auto' selects ort-genai for folders containing genai_config.json, "
+    "otherwise winml-ort. 'winml-ort' benchmarks single-shot ONNX inference; "
+    "'ort-genai' benchmarks an onnxruntime-genai bundle folder "
     "(LLM generation: TTFT + decode tokens/sec).",
 )
 @click.option(
@@ -2629,21 +2650,21 @@ def _validate_duration(
     type=str,
     default="Explain the theory of relativity in simple terms.",
     show_default=True,
-    help="[winml-genai] Prompt text to generate from. By default it is wrapped in "
+    help="[ort-genai] Prompt text to generate from. By default it is wrapped in "
     "the bundle's chat template; pass --no-apply-template to benchmark it verbatim.",
 )
 @click.option(
     "--prompt-file",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     default=None,
-    help="[winml-genai] Read the prompt from a UTF-8 text file. Mutually exclusive "
+    help="[ort-genai] Read the prompt from a UTF-8 text file. Mutually exclusive "
     "with an explicit --prompt; avoids command-line length limits for long contexts.",
 )
 @click.option(
     "--apply-template/--no-apply-template",
     default=True,
     show_default=True,
-    help="[winml-genai] Wrap --prompt in the bundle's chat template before timing. "
+    help="[ort-genai] Wrap --prompt in the bundle's chat template before timing. "
     "Use --no-apply-template to benchmark a prompt that is already formatted.",
 )
 @click.option(
@@ -2651,14 +2672,14 @@ def _validate_duration(
     type=click.IntRange(min=1),
     default=128,
     show_default=True,
-    help="[winml-genai] Number of new tokens to generate per iteration.",
+    help="[ort-genai] Number of new tokens to generate per iteration.",
 )
 @click.option(
     "--compile-timeout",
     type=int,
     default=300,
     show_default=True,
-    help="[winml-genai] Max seconds to compile each EPContext stage before falling back "
+    help="[ort-genai] Max seconds to compile each EPContext stage before falling back "
     "to the original ONNX (requires --compile).",
 )
 @click.option(
@@ -2711,7 +2732,7 @@ def _validate_duration(
     default="auto",
     include_auto=True,
     include_config=True,
-    optional_message="'config' (winml-genai only) respects the bundle's genai_config.json routing.",
+    optional_message="'config' (ort-genai only) respects the bundle's genai_config.json routing.",
 )
 @cli_utils.precision_option()
 @click.option(
@@ -2746,7 +2767,7 @@ def _validate_duration(
     default=None,
     help="Path to a .npz file of real input tensors to benchmark with instead "
     "of randomly generated inputs. Keys must match the model's input names and "
-    "dtypes exactly. Not supported with --module or --runtime winml-genai.",
+    "dtypes exactly. Not supported with --module or --runtime ort-genai.",
 )
 @cli_utils.shape_config_option(param_name="shape_config_path")
 @cli_utils.input_specs_option()
@@ -2982,10 +3003,10 @@ def perf(
     # =========================================================================
     # GENAI RUNTIME: benchmark an onnxruntime-genai bundle folder
     # =========================================================================
-    if runtime == "winml-genai":
+    if runtime == "ort-genai":
         if input_data is not None:
             raise click.UsageError(
-                "--input-data is not supported with --runtime winml-genai; "
+                "--input-data is not supported with --runtime ort-genai; "
                 "genai benchmarking is driven by --prompt."
             )
         _run_genai_runtime(ctx, model=model, console=console, json_mode=json_mode)
@@ -2993,7 +3014,7 @@ def perf(
 
     # --duration replaces the fixed iteration count with a wall-clock budget.
     # Op-tracing runs its own fixed, small iteration count, so the two are
-    # mutually exclusive. This is a WinML-path constraint only: for winml-genai
+    # mutually exclusive. This is a WinML-path constraint only: for ort-genai
     # both flags are ignored (see _GENAI_IGNORED_FLAGS), so the check lives
     # after the genai early return to keep those options consistently non-fatal.
     if duration is not None and op_tracing:
@@ -3002,13 +3023,13 @@ def perf(
             "(op-tracing runs a fixed, small iteration count)."
         )
 
-    # ``--device config`` is a winml-genai-only sentinel (respect the bundle's
+    # ``--device config`` is a ort-genai-only sentinel (respect the bundle's
     # genai_config.json routing).  It is meaningless for the single-shot WinML
     # path, so reject it explicitly rather than letting resolve_device raise a
     # generic "unknown device" error.
     if device.lower() == "config":
         raise click.UsageError(
-            "--device config is only valid with --runtime winml-genai "
+            "--device config is only valid with --runtime ort-genai "
             "(it means 'respect the bundle's genai_config.json routing')."
         )
 
@@ -3399,7 +3420,7 @@ def perf(
         # misleading JSON artifact on disk for CI consumers.
         # =================================================================
         if op_tracing:
-            from ..session.monitor.report import display_op_trace_report, write_op_trace_json
+            from ..session.monitor.report import display_op_trace_report
 
             # Both ONNX and HF inputs run through the same PerfBenchmark
             # instance, which exposes its perf context as ``_perf_ctx``.
@@ -3464,17 +3485,11 @@ def perf(
                 display_op_trace_report(trace_result, console, top_n=top_k)
             else:
                 display_op_trace_report(trace_result, console)
-            # Write the op-trace report next to the requested benchmark output
-            # file (same directory + stem, with an ``_op_trace`` suffix) so the
-            # two artifacts stay paired instead of landing under an unrelated
-            # fixed name.
-            trace_output = output.with_name(f"{output.stem}_op_trace{output.suffix}")
-            write_op_trace_json(trace_result, trace_output)
             profiling_csv = trace_result.artifacts.get("csv")
             _print_save_to_footer(
                 console,
-                trace_json=str(trace_output),
                 profiling_csv=profiling_csv,
+                profiling_json=trace_result.artifacts.get("profile"),
             )
         else:
             if json_mode:

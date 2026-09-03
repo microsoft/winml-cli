@@ -129,6 +129,59 @@ class TestResolveEpMonitor:
         ):
             _resolve_ep_monitor(ep="qnn", op_tracing="basic", output_dir=tmp_path)
 
+    @pytest.mark.parametrize("device", ["cpu", "npu"])
+    def test_op_tracing_openvino_basic_returns_monitor(self, tmp_path: Path, device: str):
+        """OpenVINO basic tracing supports CPU and NPU devices."""
+        from winml.modelkit.session.monitor.openvino_monitor import OpenVinoMonitor
+
+        with (
+            patch.object(OpenVinoMonitor, "validate_runtime_version"),
+            patch.object(OpenVinoMonitor, "is_available", return_value=True),
+        ):
+            monitor = _resolve_ep_monitor(
+                ep="openvino",
+                op_tracing="basic",
+                output_dir=tmp_path,
+                device=device,
+            )
+
+        assert isinstance(monitor, OpenVinoMonitor)
+        assert monitor._device == device
+
+    def test_op_tracing_openvino_rejects_detail(self, tmp_path: Path):
+        """OpenVINO detail tracing is not exposed by the initial profiler."""
+        with pytest.raises(RuntimeError, match="only level 'basic'"):
+            _resolve_ep_monitor(
+                ep="openvino",
+                op_tracing="detail",
+                output_dir=tmp_path,
+                device="npu",
+            )
+
+    def test_op_tracing_openvino_rejects_gpu(self, tmp_path: Path):
+        """OpenVINO tracing is initially limited to CPU and NPU."""
+        with pytest.raises(RuntimeError, match="only --device cpu or --device npu"):
+            _resolve_ep_monitor(
+                ep="openvino",
+                op_tracing="basic",
+                output_dir=tmp_path,
+                device="gpu",
+            )
+
+    def test_op_tracing_openvino_rejects_old_ort(self, tmp_path: Path):
+        """OpenVINO tracing requires the ORT detailed profiling integration."""
+
+        with (
+            patch("onnxruntime.__version__", "1.25.1"),
+            pytest.raises(RuntimeError, match=r"onnxruntime-windowsml>=1\.26"),
+        ):
+            _resolve_ep_monitor(
+                ep="openvino",
+                op_tracing="basic",
+                output_dir=tmp_path,
+                device="cpu",
+            )
+
     def test_op_tracing_unsupported_ep_raises(self, tmp_path: Path):
         """Unsupported EP with op_tracing raises RuntimeError (NFR-2 hard-fail)."""
         with pytest.raises(RuntimeError, match="Op-tracing not available for EP 'dml'"):
@@ -258,14 +311,21 @@ class TestResolveEpMonitor:
         assert "QNN is not available" in msg
         assert "onnxruntime" in msg
 
-    def test_op_tracing_openvino_uses_generic_unsupported_error(self, tmp_path: Path):
-        """OpenVINO is not advertised as an op-tracing implementation."""
-        with pytest.raises(RuntimeError) as excinfo:
-            _resolve_ep_monitor(ep="openvino", op_tracing="basic", output_dir=tmp_path)
+    def test_op_tracing_openvino_unavailable_raises(self, tmp_path: Path):
+        """An explicit OpenVINO trace reports when the EP is unavailable."""
+        from winml.modelkit.session.monitor.openvino_monitor import OpenVinoMonitor
 
-        message = str(excinfo.value)
-        assert "not available for EP 'openvino'" in message
-        assert "Supported EPs: qnn." in message
+        with (
+            patch.object(OpenVinoMonitor, "validate_runtime_version"),
+            patch.object(OpenVinoMonitor, "is_available", return_value=False),
+            pytest.raises(RuntimeError, match="OpenVINO is not available"),
+        ):
+            _resolve_ep_monitor(
+                ep="openvino",
+                op_tracing="basic",
+                output_dir=tmp_path,
+                device="npu",
+            )
 
     def test_npu_op_tracing_without_qnn_raises_no_openvino_fallback(self, tmp_path: Path):
         """Unavailable QNN does not silently select another NPU monitor."""
@@ -282,8 +342,8 @@ class TestResolveEpMonitor:
         with pytest.raises(RuntimeError, match="Op-tracing not available for EP"):
             _resolve_ep_monitor(ep=None, op_tracing="basic", output_dir=tmp_path, device="gpu")
 
-    def test_unsupported_ep_error_mentions_only_supported_ep(self, tmp_path: Path):
-        """The diagnostic advertises only implemented tracing backends."""
+    def test_unsupported_ep_error_mentions_supported_eps(self, tmp_path: Path):
+        """The diagnostic advertises the implemented tracing backends."""
         with pytest.raises(RuntimeError) as excinfo:
             _resolve_ep_monitor(
                 ep="dml",
@@ -292,7 +352,7 @@ class TestResolveEpMonitor:
             )
         msg = str(excinfo.value)
         assert "qnn" in msg.lower()
-        assert "openvino" not in msg.lower()
+        assert "openvino" in msg.lower()
 
 
 class TestOpTracingIterationsSmartDefault:
@@ -604,9 +664,7 @@ class TestOpTracingHardwareMonitor:
         benchmark._ep_device = SimpleNamespace(
             device=SimpleNamespace(
                 device_type="NPU",
-                ort_handle=SimpleNamespace(
-                    device=SimpleNamespace(metadata={"LUID": "99219"})
-                )
+                ort_handle=SimpleNamespace(device=SimpleNamespace(metadata={"LUID": "99219"})),
             )
         )
 
@@ -921,7 +979,6 @@ def _invoke_text_op_trace_failure(tmp_path: Path, trace_result):
         patch("winml.modelkit.commands.perf.display_console_report") as display_report,
         patch("winml.modelkit.commands.perf.write_json_report") as write_json,
         patch("winml.modelkit.session.monitor.report.display_op_trace_report") as display_trace,
-        patch("winml.modelkit.session.monitor.report.write_op_trace_json") as write_trace,
     ):
         result = runner.invoke(
             perf,
@@ -938,7 +995,7 @@ def _invoke_text_op_trace_failure(tmp_path: Path, trace_result):
             obj={},
         )
 
-    return result, display_report, write_json, display_trace, write_trace
+    return result, display_report, write_json, display_trace
 
 
 class TestCliOpTracingDispatch:
@@ -982,8 +1039,8 @@ class TestCliOpTracingDispatch:
             status="not_run",
         )
 
-        result, display_report, write_json, display_trace, write_trace = (
-            _invoke_text_op_trace_failure(tmp_path, trace)
+        result, display_report, write_json, display_trace = _invoke_text_op_trace_failure(
+            tmp_path, trace
         )
 
         assert result.exit_code == 4
@@ -991,7 +1048,6 @@ class TestCliOpTracingDispatch:
         display_report.assert_not_called()
         write_json.assert_not_called()
         display_trace.assert_not_called()
-        write_trace.assert_not_called()
 
     def test_json_mode_missing_trace_result_does_not_emit_benchmark_json(
         self, tmp_path: Path
@@ -1143,7 +1199,6 @@ class TestCliOpTracingDispatch:
             patch("winml.modelkit.commands.perf.display_console_report"),
             patch("winml.modelkit.commands.perf.write_json_report"),
             patch("winml.modelkit.session.monitor.report.display_op_trace_report"),
-            patch("winml.modelkit.session.monitor.report.write_op_trace_json"),
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=True),
         ):
             result = runner.invoke(
@@ -1223,7 +1278,6 @@ class TestCliOpTracingDispatch:
             patch("winml.modelkit.commands.perf.display_console_report"),
             patch("winml.modelkit.commands.perf.write_json_report"),
             patch("winml.modelkit.session.monitor.report.display_op_trace_report"),
-            patch("winml.modelkit.session.monitor.report.write_op_trace_json"),
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
         ):
             result = runner.invoke(
@@ -1317,7 +1371,7 @@ class TestCliOpTracingDispatch:
 # PRD §10.5 / coreloop §8.4 mandate this test:
 #   "test_cli_op_tracing_basic_on_qnn (skip if no QNN NPU): runs
 #    wmk perf -m resnet50 --device npu --op-tracing basic, asserts CSV
-#    produced, *_op_trace.json written, at least one operator entry."
+#    produced, op trace embedded in the perf JSON, at least one operator entry."
 #
 # This is the only end-to-end proof that SC-1 holds: the headline
 # invocation produces real per-operator trace data on a QNN NPU.
@@ -1339,7 +1393,7 @@ def test_cli_op_tracing_basic_on_qnn(tmp_path):
 
     Hardware-gated. Must produce:
       * a profiling CSV under the monitor's output directory,
-      * a ``*_op_trace.json`` next to the perf JSON output,
+      * op-trace data embedded in the perf JSON output,
       * at least one operator entry, with ``status == "ok"``.
 
     A regression that silently falls back to CPU (the bug SC-1 explicitly
@@ -1378,15 +1432,11 @@ def test_cli_op_tracing_basic_on_qnn(tmp_path):
         f"perf --op-tracing basic failed (exit {result.exit_code}):\n{result.output}"
     )
 
-    # Per-op trace JSON written next to the perf output.
-    trace_files = list(tmp_path.glob("*_op_trace.json"))
-    assert trace_files, (
-        f"Expected *_op_trace.json next to {output_path}; got: {list(tmp_path.iterdir())}"
-    )
-
     import json
 
-    trace_data = json.loads(trace_files[0].read_text(encoding="utf-8"))
+    report_data = json.loads(output_path.read_text(encoding="utf-8"))
+    trace_data = report_data["hw_monitor"]["ep_proof"]
+    assert not list(tmp_path.glob("*_op_trace.json"))
     assert trace_data["status"] == "ok", (
         f"Expected status='ok' on real hardware, got {trace_data['status']!r} "
         f"with error={trace_data.get('error')!r}"

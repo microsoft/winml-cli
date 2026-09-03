@@ -66,6 +66,7 @@ from pathlib import Path
 # Ensure utils is importable when invoked directly
 sys.path.insert(0, str(Path(__file__).parent))
 
+from utils.classifier import FailureType, matches_hf_fetch_retry
 from utils.dataset_config import get_dataset_config, register_from_registry
 from utils.recipes import RecipeVariant, copy_recipe_target, discover_recipe_variants
 from utils.registry import (
@@ -98,6 +99,10 @@ EVAL_DATASETS_CACHE = Path.home() / ".cache" / "winml" / "eval_datasets"
 TIMEOUT_SKIP_LIST_PATH = Path(__file__).parent / "cache" / "timeout_skip_list.json"
 _DEFAULT_SAMPLES = 1000
 _DEFAULT_PRECISION_NPU = "w8a16"
+_RETRY_FAILED_TYPES = (
+    *(failure_type.value for failure_type in FailureType),
+    "FAIL",
+)
 
 # NPU fallback precisions used when a model has no authored recipe: the harness
 # expands into one winml-config job per NPU quantization scheme (w8a8 + w8a16).
@@ -248,25 +253,76 @@ def _precision_from_build_config(config_path: Path) -> str | None:
     return None
 
 
-def _load_timeout_skip_set() -> set[tuple[str, str]]:
-    """Load the timeout skip list as a set of (hf_id, task) tuples."""
-    if not TIMEOUT_SKIP_LIST_PATH.exists():
-        return set()
-    with TIMEOUT_SKIP_LIST_PATH.open(encoding="utf-8") as f:
-        entries = json.load(f)
-    return {(e["hf_id"], e.get("task", "")) for e in entries}
+def _normalize_skip_attr(value: str | None) -> str | None:
+    """Normalize optional skip-list attributes (ep/precision) for matching."""
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    return normalized or None
 
 
-def _get_timeout_skip_reason(hf_id: str, task: str) -> str:
-    """Get the skip reason for a timeout-skipped model."""
+def _normalize_skip_ep(value: str | None) -> str | None:
+    """Normalize EP names/aliases (e.g. ``qnn`` vs ``QNNExecutionProvider``)."""
+    normalized = _normalize_skip_attr(value)
+    if not normalized:
+        return None
+    try:
+        # Lazy import keeps this script fast to import for non-run paths.
+        from winml.modelkit.utils.constants import normalize_ep_name
+
+        return normalize_ep_name(normalized).lower()
+    except Exception:
+        # Best-effort fallback when constants import is unavailable.
+        return normalized
+
+
+def _load_timeout_skip_rules() -> list[dict[str, str | None]]:
+    """Load timeout skip rules; supports optional ``ep``/``precision`` filters."""
     if not TIMEOUT_SKIP_LIST_PATH.exists():
-        return "timeout"
+        return []
     with TIMEOUT_SKIP_LIST_PATH.open(encoding="utf-8") as f:
         entries = json.load(f)
-    for e in entries:
-        if e["hf_id"] == hf_id and e.get("task", "") == task:
-            return e.get("reason", "timeout")
-    return "timeout"
+
+    rules: list[dict[str, str | None]] = []
+    for entry in entries:
+        hf_id = entry.get("hf_id")
+        if not hf_id:
+            continue
+        rules.append(
+            {
+                "hf_id": hf_id,
+                "task": entry.get("task", "") or "",
+                "reason": entry.get("reason", "timeout"),
+                "ep": _normalize_skip_ep(entry.get("ep")),
+                "precision": _normalize_skip_attr(entry.get("precision")),
+            }
+        )
+    return rules
+
+
+def _find_timeout_skip_rule(
+    rules: list[dict[str, str | None]],
+    hf_id: str,
+    task: str,
+    ep: str | None,
+    precision: str | None,
+) -> dict[str, str | None] | None:
+    """Return the first matching timeout skip rule for a model/task run."""
+    normalized_ep = _normalize_skip_ep(ep)
+    normalized_precision = _normalize_skip_attr(precision)
+    for rule in rules:
+        if rule.get("hf_id") != hf_id:
+            continue
+        if (rule.get("task") or "") != task:
+            continue
+        expected_ep = rule.get("ep")
+        if expected_ep and expected_ep != normalized_ep:
+            continue
+        expected_precision = rule.get("precision")
+        if expected_precision and expected_precision != normalized_precision:
+            continue
+        return rule
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +353,21 @@ _VAIP_CACHE = (
 )
 _TEMP_DIR = Path(os.environ.get("TEMP", os.environ.get("TMP", tempfile.gettempdir())))
 _TEMP_PREFIXES = ("winmlcli_", "winmlcli_compat_")
+_CACHE_CLEAN_TARGETS: tuple[str, ...] = ("winml", "huggingface", "others")
+_CACHE_CLEAN_TARGET_SET = frozenset(_CACHE_CLEAN_TARGETS)
+
+
+def _resolve_clean_cache_targets(raw_targets: list[str] | bool | None) -> set[str]:
+    """Normalize ``--clean-cache`` values into target names.
+
+    ``None`` and legacy ``False`` disable cleanup. ``[]`` and legacy ``True``
+    preserve the original clean-all behavior.
+    """
+    if raw_targets is None or raw_targets is False:
+        return set()
+    if raw_targets is True or not raw_targets:
+        return set(_CACHE_CLEAN_TARGET_SET)
+    return {target.lower() for target in raw_targets}
 
 
 def _is_no_space_error(proc: dict) -> bool:
@@ -305,9 +376,23 @@ def _is_no_space_error(proc: dict) -> bool:
     return any(pat in combined for pat in _NO_SPACE_PATTERNS)
 
 
-def _clear_disk_caches() -> None:
-    """Delete HuggingFace, WinML, VitisAI EP caches and leaked temp files."""
-    for cache_dir in (_HF_CACHE, _WINML_CACHE, _VAIP_CACHE):
+def _clear_disk_caches(targets: set[str] | None = None) -> None:
+    """Delete selected caches and leaked temp files.
+
+    ``targets`` accepts: ``winml``, ``huggingface``, ``others``.
+    ``None`` (or an empty set) keeps legacy behavior and clears all targets.
+    """
+    selected = set(_CACHE_CLEAN_TARGET_SET) if not targets else set(targets)
+
+    cache_dirs: list[Path | None] = []
+    if "huggingface" in selected:
+        cache_dirs.append(_HF_CACHE)
+    if "winml" in selected:
+        cache_dirs.append(_WINML_CACHE)
+    if "others" in selected:
+        cache_dirs.append(_VAIP_CACHE)
+
+    for cache_dir in cache_dirs:
         if cache_dir is not None and cache_dir.exists():
             safe_print(f"  [cleanup] Removing cache: {cache_dir}")
             try:
@@ -315,6 +400,9 @@ def _clear_disk_caches() -> None:
                 safe_print(f"  [cleanup] Removed: {cache_dir}")
             except OSError as exc:
                 safe_print(f"  [cleanup] Warning: could not remove {cache_dir}: {exc}")
+
+    if "others" not in selected:
+        return
 
     # Clean leaked temp directories/files (winmlcli_*, winmlcli_compat_*, tmp*.onnx*)
     if _TEMP_DIR.is_dir():
@@ -1475,6 +1563,9 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
     results_path = output_dir / "build_only_results.json"
     results: dict = _load_results(results_path)
     run_stamp = _slugify_version(args.run_stamp or date.today().strftime("%Y%m%d"))
+    clean_cache_targets = getattr(args, "clean_cache_targets", None)
+    if clean_cache_targets is None:
+        clean_cache_targets = _resolve_clean_cache_targets(getattr(args, "clean_cache", None))
 
     # Verify feed prerequisites once, up front. --upload exists to keep disk
     # bounded, so a broken az setup must abort (not silently fall back to
@@ -1719,8 +1810,10 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
         # Clean caches once per model (after all EP combos finish), not per
         # combo: combos share the same HF download, so clearing between
         # combos forces redundant re-downloads of the same weights.
-        if args.clean_cache:
-            _clear_disk_caches()
+        if clean_cache_targets:
+            if "others" in clean_cache_targets:
+                _clean_stray_cwd_artifacts(Path.cwd())
+            _clear_disk_caches(clean_cache_targets)
 
     tail = (
         f" | uploaded {uploaded}, upload-failed {upload_fail}, upload-timeout {upload_timeout}"
@@ -1849,46 +1942,17 @@ def _resolve_op_tracing(
     return None
 
 
-def _extract_op_trace_path(text: str) -> Path | None:
-    """Parse the ``Op-trace saved to: <path>`` line from winml perf output.
-
-    winml perf prints this via a Rich console, which hard-wraps the long path
-    across lines (inserting line breaks but no extra spaces) when stdout isn't a
-    TTY. Rejoin the wrapped fragments by dropping line breaks, then cut at the
-    ``.json`` terminator. Returns None when the line is absent.
-    """
-    marker = "Op-trace saved to:"
-    idx = text.find(marker)
-    if idx == -1:
-        return None
-    tail = text[idx + len(marker) :].lstrip()
-    joined = tail.replace("\r", "").replace("\n", "")
-    end = joined.find(".json")
-    if end == -1:
-        return None
-    return Path(joined[: end + len(".json")])
-
-
 def _copy_op_trace(proc: dict, output_path: Path, model_dir: Path, label: str = "") -> None:
-    """Copy the op-trace JSON produced by winml perf into ``model_dir``.
-
-    The current perf contract writes the trace beside ``--output`` with an
-    ``_op_trace`` suffix. Console parsing remains as a fallback for older perf
-    versions. The destination is ``op_trace.json`` (suffixed with the sub-model
-    label for composite models).
-    """
-    src = output_path.with_name(f"{output_path.stem}_op_trace{output_path.suffix}")
-    if not src.exists():
-        src = _extract_op_trace_path(proc.get("stdout", "") + "\n" + proc.get("stderr", ""))
-    if src is None or not src.is_file():
+    """Copy the perf JSON containing ``hw_monitor.ep_proof`` into ``model_dir``."""
+    if proc.get("result") is None or not output_path.is_file():
         return
     dest_name = f"op_trace_{label}.json" if label else "op_trace.json"
     dest = model_dir / dest_name
     try:
-        shutil.copyfile(src, dest)
+        shutil.copyfile(output_path, dest)
         safe_print(f"    op-tracing: {dest}")
     except OSError as e:
-        safe_print(f"    op-tracing: failed to copy {src} -> {dest}: {e}")
+        safe_print(f"    op-tracing: failed to copy {output_path} -> {dest}: {e}")
 
 
 def _run_structured_perf(
@@ -1930,8 +1994,9 @@ def run_model(
     summed elapsed). Multi-model structured results are keyed by sub-model label.
 
     When op_tracing is set, ``--op-tracing <level>`` is passed to winml perf. The
-    op-trace JSON beside the structured perf output is copied into ``model_dir``
-    as ``op_trace.json`` (suffixed with the sub-model label for composite models).
+    structured perf output containing ``hw_monitor.ep_proof`` is copied into
+    ``model_dir`` as ``op_trace.json`` (suffixed with the sub-model label for
+    composite models).
     """
     trace = bool(op_tracing) and model_dir is not None
 
@@ -2521,6 +2586,39 @@ def _needs_accuracy_backfill(existing: dict, eval_type: str) -> bool:
     return bool((existing.get("perf") or {}).get("passed"))
 
 
+def _matches_hf_fetch_retry(existing: dict) -> bool:
+    """Match supplemental HF fetch markers in a failed perf or accuracy phase.
+
+    This signal is independent of the primary perf classification and coarse
+    accuracy status, so the same result can match EXPORT_FAIL or FAIL as well
+    as HF_FETCH_FAIL.
+    """
+    perf = existing.get("perf") or {}
+    accuracy = existing.get("accuracy") or {}
+    perf_failed = bool(perf) and not perf.get("passed")
+    accuracy_failed = (
+        bool(accuracy)
+        and not accuracy.get("skipped")
+        and accuracy_status(accuracy) != "PASS"
+    )
+    if not perf_failed and not accuracy_failed:
+        return False
+
+    output = "\n".join(
+        value
+        for value in (
+            perf.get("stdout_output"),
+            perf.get("stderr_output"),
+            perf.get("raw_stdout"),
+            perf.get("raw_stderr"),
+            accuracy.get("winml_eval_stdout"),
+            accuracy.get("winml_eval_stderr"),
+        )
+        if isinstance(value, str)
+    )
+    return matches_hf_fetch_retry(output)
+
+
 def _should_skip_existing(existing: dict, retry_types: set[str] | None, eval_type: str) -> bool:
     """Return True if an existing eval_result should be skipped (not re-run).
 
@@ -2536,6 +2634,11 @@ def _should_skip_existing(existing: dict, retry_types: set[str] | None, eval_typ
 
     perf = existing.get("perf") or {}
     acc = existing.get("accuracy")
+
+    # Supplemental HF evidence can coexist with any primary perf classification
+    # or accuracy status, and it also covers accuracy-phase fetches.
+    if "HF_FETCH_FAIL" in retry_types and _matches_hf_fetch_retry(existing):
+        return False
 
     # Check perf failure (only when perf ran)
     if eval_type != "accuracy" and not perf.get("passed"):
@@ -2799,11 +2902,11 @@ def parse_args() -> argparse.Namespace:
         "--priority",
         nargs="+",
         choices=["P0", "P1", "P2", "P3"],
-        default=["P0", "P1", "P2"],
+        default=["P0", "P1", "P2", "P3"],
         metavar="{P0,P1,P2,P3}",
         help=(
             "Filter by priority. Pass one or more, e.g. --priority P0 P1. "
-            "Default: P0 P1 P2 (P3 excluded from default runs)."
+            "Default: P0 P1 P2 P3."
         ),
     )
     parser.add_argument("--model-type", help="Filter by model_type")
@@ -2833,8 +2936,9 @@ def parse_args() -> argparse.Namespace:
             "defaults to 'basic' for a model whose 'op_tracing_targets' includes the "
             "current <EP>_<device> target (e.g. QNNExecutionProvider_npu) — this "
             "auto-enable requires both --ep and --device to be set explicitly "
-            "(the default --device auto does not match). The "
-            "resulting op_trace.json is copied into each model's output folder."
+            "(the default --device auto does not match). The resulting perf JSON, "
+            "including its embedded op trace, is copied into each model's output "
+            "folder as op_trace.json."
         ),
     )
     parser.add_argument(
@@ -2921,11 +3025,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--clean-cache",
         dest="clean_cache",
-        action="store_true",
+        nargs="*",
+        metavar="TARGET",
+        choices=list(_CACHE_CLEAN_TARGETS),
         help=(
-            "After each job, delete HF/winml caches and stray scratch models "
-            "libraries leak into the cwd (UUID-named *.onnx/*.data, QNN "
-            "EP-context dumps, sym_shape_infer_temp) to keep disk bounded."
+            "After each job, delete selected caches. TARGET can be one or more of "
+            "winml, huggingface, others (others = VitisAI cache + temp/cwd leaked "
+            "scratch files). Use --clean-cache with no TARGET to keep legacy behavior "
+            "and clear all."
         ),
     )
     parser.add_argument("--list", action="store_true", help="List filtered models and exit")
@@ -2963,13 +3070,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--retry-failed",
         nargs="*",
+        type=str.upper,
+        choices=_RETRY_FAILED_TYPES,
         metavar="TYPE",
         help=(
             "Re-run jobs whose recorded status matches one of the given types. "
-            "Valid values are the perf failure classifications "
+            "Valid values are the primary perf failure classifications "
             "(EXPORT_FAIL, ANALYZER_BLOCK, OPT_FAIL, COMPILE_FAIL, RUNTIME_FAIL, "
-            "ENVIRONMENT, TIMEOUT, UNKNOWN) and the accuracy status FAIL "
-            "(e.g. --retry-failed ENVIRONMENT FAIL). "
+            "HF_FETCH_FAIL, ENVIRONMENT, TIMEOUT, UNKNOWN) and the accuracy status "
+            "FAIL (e.g. --retry-failed HF_FETCH_FAIL ENVIRONMENT). "
+            "Retry criteria can overlap: HF_FETCH_FAIL also independently matches "
+            "failed perf or accuracy logs containing WinError 10060, a Hugging Face "
+            "connection failure, or a failed Hugging Face HEAD request, even when "
+            "the primary perf classification is another type or accuracy is FAIL. "
             "Use without args to retry ALL non-PASS jobs. "
             "Implies --continue for passing jobs."
         ),
@@ -2985,6 +3098,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     """Run E2E evaluation pipeline."""
     args = parse_args()
+    clean_cache_targets = _resolve_clean_cache_targets(args.clean_cache)
+    args.clean_cache_targets = clean_cache_targets
 
     # 1. Load registry
     if args.hf_model:
@@ -3178,11 +3293,12 @@ def main() -> None:
         )
     else:
         safe_print("Recipes: disabled (winml config for all builds)")
-    if args.clean_cache:
-        safe_print("Cache cleanup: ON (winml/HF caches + stray cwd models cleaned)")
+    if clean_cache_targets:
+        safe_print(f"Cache cleanup: ON ({', '.join(sorted(clean_cache_targets))})")
         # Sweep any stray scratch models left in the cwd by a prior interrupted
         # run so a resumed run does not start from an already-polluted root.
-        _clean_stray_cwd_artifacts(Path.cwd())
+        if "others" in clean_cache_targets:
+            _clean_stray_cwd_artifacts(Path.cwd())
     if retry_types is not None:
         if retry_types:
             safe_print(f"Retry mode: {', '.join(sorted(retry_types))}")
@@ -3196,9 +3312,22 @@ def main() -> None:
     skipped = 0
     run_start = time.perf_counter()
     interrupted = False
-    timeout_skip_set = _load_timeout_skip_set()
-    if timeout_skip_set:
-        safe_print(f"Timeout skip list: {len(timeout_skip_set)} models will be auto-skipped")
+    resolved_ep = _effective_ep(args.ep, args.device)
+    timeout_skip_rules = _load_timeout_skip_rules()
+    if timeout_skip_rules:
+        normalized_resolved_ep = _normalize_skip_ep(resolved_ep)
+        if normalized_resolved_ep:
+            applicable_rules = sum(
+                1
+                for rule in timeout_skip_rules
+                if not rule.get("ep") or rule.get("ep") == normalized_resolved_ep
+            )
+            safe_print(
+                f"Timeout skip list: {len(timeout_skip_rules)} rules loaded "
+                f"({applicable_rules} applicable for EP={resolved_ep})"
+            )
+        else:
+            safe_print(f"Timeout skip list: {len(timeout_skip_rules)} rules loaded")
 
     for i, job in enumerate(jobs, 1):
         entry = job.entry
@@ -3213,8 +3342,15 @@ def main() -> None:
         result_path = model_dir / "eval_result.json"
 
         # Timeout skip list: skip known-timeout models and write a TIMEOUT result
-        if (entry.hf_id, entry.task or "") in timeout_skip_set:
-            reason = _get_timeout_skip_reason(entry.hf_id, entry.task or "")
+        timeout_rule = _find_timeout_skip_rule(
+            timeout_skip_rules,
+            entry.hf_id,
+            entry.task or "",
+            resolved_ep,
+            precision,
+        )
+        if timeout_rule is not None:
+            reason = timeout_rule.get("reason") or "timeout"
             safe_print(f"\n[{i}/{total_jobs}] {label}  (SKIP - TIMEOUT: {reason})")
             model_dir.mkdir(parents=True, exist_ok=True)
             timeout_result = build_eval_result(
@@ -3415,9 +3551,10 @@ def main() -> None:
         else:
             safe_print(f"  [acc only]{acc_tag}")
 
-        if args.clean_cache:
-            _clean_stray_cwd_artifacts(Path.cwd())
-            _clear_disk_caches()
+        if clean_cache_targets:
+            if "others" in clean_cache_targets:
+                _clean_stray_cwd_artifacts(Path.cwd())
+            _clear_disk_caches(clean_cache_targets)
 
     run_duration = time.perf_counter() - run_start
 

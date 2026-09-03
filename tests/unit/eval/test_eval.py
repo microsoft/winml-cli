@@ -1618,7 +1618,7 @@ class TestLoadModel:
         assert reference.model_path == "reference.onnx"
         assert reference.model_id is None
         assert reference.reference_path is None
-        assert reference.runtime == "winml"
+        assert reference.runtime == "winml-ort"
         assert reference.device == "gpu"
         assert reference.ep == "dml"
         assert reference.mode == "onnx"

@@ -36,6 +36,20 @@ _HF_PIPELINE_TASK_MAP: dict[str, str] = {
     "sentence-similarity": "feature-extraction",
 }
 
+def _is_transformers4() -> bool:
+    """Return whether the active Transformers runtime is version 4.x."""
+    from transformers import __version__
+
+    return __version__.startswith("4.")
+
+
+def _resolve_hf_pipeline_task(task: str) -> str:
+    """Resolve task aliases while preserving Transformers 4 native pipelines."""
+    if task == "image-to-text" and _is_transformers4():
+        return task
+    return _HF_PIPELINE_TASK_MAP.get(task, task)
+
+
 _PIPELINE_COMPONENT_FLAGS = (
     ("tokenizer", "_load_tokenizer"),
     ("feature_extractor", "_load_feature_extractor"),
@@ -552,9 +566,9 @@ def create_pipeline(
     """
     from transformers import pipeline
 
-    hf_task = _HF_PIPELINE_TASK_MAP.get(task, task)
+    hf_task = _resolve_hf_pipeline_task(task)
     compatibility_factory = _COMPAT_PIPELINE_FACTORIES.get(hf_task)
-    if compatibility_factory is not None:
+    if compatibility_factory is not None and not _is_transformers4():
         pipe = compatibility_factory(
             model,
             model_id,

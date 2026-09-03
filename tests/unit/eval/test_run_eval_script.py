@@ -89,6 +89,83 @@ def _deterministic_ep_deduction(run_eval):
     run_eval._deduce_ep_for_device.cache_clear()
 
 
+class TestResolveCleanCacheTargets:
+    @pytest.mark.parametrize(
+        ("raw_targets", "expected"),
+        [
+            (None, set()),
+            (False, set()),
+            (True, {"winml", "huggingface", "others"}),
+            ([], {"winml", "huggingface", "others"}),
+            (["HuGgingFace"], {"huggingface"}),
+        ],
+    )
+    def test_preserves_cli_and_legacy_boolean_semantics(self, run_eval, raw_targets, expected):
+        assert run_eval._resolve_clean_cache_targets(raw_targets) == expected
+
+
+class TestFailureClassifier:
+    @pytest.fixture(scope="class")
+    def classifier(self, run_eval):
+        return sys.modules["utils.classifier"]
+
+    @pytest.mark.parametrize(
+        "output",
+        [
+            (
+                "Error while downloading from "
+                "https://huggingface.co/org/model/resolve/main/model.safetensors: timed out\n"
+                "httpx.ReadTimeout"
+            ),
+            (
+                "Error while downloading from "
+                "https://cdn-lfs.huggingface.co/file: connection failed\n"
+                "httpx.ConnectError"
+            ),
+            "httpx.RemoteProtocolError while downloading https://cas-bridge.xethub.hf.co/file",
+        ],
+    )
+    def test_hf_streaming_failures_are_retryable(self, classifier, output):
+        assert (
+            classifier.classify_failure(output, exit_code=1)
+            is classifier.FailureType.HF_FETCH_FAIL
+        )
+
+    @pytest.mark.parametrize(
+        "output",
+        [
+            "Error while downloading from https://example.com/file: timed out\nhttpx.ReadTimeout",
+            "httpx.ConnectError while requesting https://example.com/file",
+        ],
+    )
+    def test_unrelated_http_failures_are_not_hf_fetch_failures(self, classifier, output):
+        assert classifier.classify_failure(output, exit_code=1) is classifier.FailureType.UNKNOWN
+
+    @pytest.mark.parametrize(
+        "output",
+        [
+            "[WinError 10060] connection attempt failed",
+            "We couldn't connect to 'https://huggingface.co' for metadata",
+            "Thrown while requesting HEAD https://huggingface.co/org/model/file",
+        ],
+    )
+    def test_explicit_hf_fetch_retry_markers(self, classifier, output):
+        assert classifier.matches_hf_fetch_retry(output) is True
+
+    @pytest.mark.parametrize(
+        "output",
+        [
+            "huggingface_hub.utils._http",
+            "couldn't find them in the cached files",
+            "[WinError 10061] connection refused",
+        ],
+    )
+    def test_other_hf_failure_patterns_are_not_explicit_retry_markers(
+        self, classifier, output
+    ):
+        assert classifier.matches_hf_fetch_retry(output) is False
+
+
 class TestShouldSkipWinmlQuant:
     """Membership test for ``_should_skip_winml_quant``.
 
@@ -1209,7 +1286,7 @@ def _entry(hf_id="microsoft/resnet-50", task="image-classification"):
 def _perf_result(mean=1.25):
     return {
         "schema_version": 2,
-        "benchmark_info": {"runtime": "winml", "model_id": "model.onnx"},
+        "benchmark_info": {"runtime": "winml-ort", "model_id": "model.onnx"},
         "model_info": {"input_names": ["input"], "output_names": ["output"]},
         "latency_ms": {
             "mean": mean,
@@ -1368,16 +1445,20 @@ class TestRunModelStructuredPerfResult:
         assert proc["result"] is None
         assert "Invalid structured winml perf output" in proc["stderr"]
 
-    def test_op_trace_sibling_is_copied_before_cleanup(self, run_eval, tmp_path):
+    def test_perf_result_with_embedded_op_trace_is_copied_before_cleanup(
+        self, run_eval, tmp_path
+    ):
         trace_result = {"status": "ok", "operators": []}
+        perf_result = {
+            **_perf_result(),
+            "hw_monitor": {"ep_proof": trace_result},
+        }
 
         def fake_run(args, timeout):
             output_path = Path(args[args.index("--output") + 1])
-            output_path.write_text(json.dumps(_perf_result()), encoding="utf-8")
-            trace_path = output_path.with_name(f"{output_path.stem}_op_trace{output_path.suffix}")
-            trace_path.write_text(json.dumps(trace_result), encoding="utf-8")
+            output_path.write_text(json.dumps(perf_result), encoding="utf-8")
             return {
-                "stdout": f"Op-trace JSON: {trace_path}",
+                "stdout": "",
                 "stderr": "",
                 "exit_code": 0,
                 "elapsed": 1.0,
@@ -1395,7 +1476,7 @@ class TestRunModelStructuredPerfResult:
                 model_dir=tmp_path,
             )
 
-        assert json.loads((tmp_path / "op_trace.json").read_text(encoding="utf-8")) == trace_result
+        assert json.loads((tmp_path / "op_trace.json").read_text(encoding="utf-8")) == perf_result
 
     def test_missing_structured_output_fails_perf(self, run_eval, tmp_path):
         proc_result = {
@@ -1970,6 +2051,29 @@ class TestRunAccuracyPhaseSchema:
         assert kwargs["trust_remote_code"] is True
 
 
+class TestRetryFailedArgumentParsing:
+    def test_accepts_and_normalizes_known_types(self, run_eval):
+        argv = ["run_eval.py", "--retry-failed", "export_fail", "HF_FETCH_FAIL"]
+        with patch.object(sys, "argv", argv):
+            args = run_eval.parse_args()
+        assert args.retry_failed == ["EXPORT_FAIL", "HF_FETCH_FAIL"]
+
+    def test_accepts_empty_type_list_for_retry_all(self, run_eval):
+        with patch.object(sys, "argv", ["run_eval.py", "--retry-failed"]):
+            args = run_eval.parse_args()
+        assert args.retry_failed == []
+
+    def test_rejects_unknown_type(self, run_eval, capsys):
+        with (
+            patch.object(sys, "argv", ["run_eval.py", "--retry-failed", "EXPROT_FAIL"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_eval.parse_args()
+
+        assert exc_info.value.code == 2
+        assert "invalid choice: 'EXPROT_FAIL'" in capsys.readouterr().err
+
+
 class TestShouldSkipExistingRetry:
     """``_should_skip_existing`` retry-type matching.
 
@@ -2039,6 +2143,41 @@ class TestShouldSkipExistingRetry:
         assert run_eval._should_skip_existing(res, {cls}, "both") is False
         env_match = run_eval._should_skip_existing(res, {"ENVIRONMENT"}, "both")
         assert env_match is (cls != "ENVIRONMENT")
+
+    def test_hf_fetch_retry_signal_coexists_with_primary_perf_classification(self, run_eval):
+        res = self._result(
+            perf_passed=False,
+            perf_stdout="Exporting to ONNX... [WinError 10060] connection attempt failed",
+            acc_status="SKIPPED",
+        )
+        assert run_eval.classify_result(res) == "EXPORT_FAIL"
+        assert run_eval._should_skip_existing(res, {"HF_FETCH_FAIL"}, "both") is False
+        assert run_eval._should_skip_existing(res, {"EXPORT_FAIL"}, "both") is False
+
+    def test_hf_fetch_retry_signal_coexists_with_accuracy_failure(self, run_eval):
+        res = self._result(perf_passed=True, acc_status="FAIL")
+        res["accuracy"]["winml_eval_stderr"] = (
+            "Thrown while requesting HEAD https://huggingface.co/datasets/org/data/file"
+        )
+        assert run_eval._should_skip_existing(res, {"HF_FETCH_FAIL"}, "both") is False
+        assert run_eval._should_skip_existing(res, {"FAIL"}, "both") is False
+
+    def test_hf_fetch_retry_matches_primary_hf_classification(self, run_eval):
+        res = self._result(
+            perf_passed=False,
+            perf_stdout="huggingface_hub.utils._http",
+            acc_status="SKIPPED",
+        )
+        assert run_eval.classify_result(res) == "HF_FETCH_FAIL"
+        assert run_eval._should_skip_existing(res, {"HF_FETCH_FAIL"}, "both") is False
+
+    def test_hf_fetch_retry_does_not_rerun_success_with_warning(self, run_eval):
+        res = self._result(
+            perf_passed=True,
+            perf_stdout="[WinError 10060] recovered after retry",
+            acc_status="PASS",
+        )
+        assert run_eval._should_skip_existing(res, {"HF_FETCH_FAIL"}, "both") is True
 
 
 class TestAccuracyBackfill:

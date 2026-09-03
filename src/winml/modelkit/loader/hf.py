@@ -147,6 +147,7 @@ def load_hf_model(
     model_type: str | None = None,
     *,
     torch_dtype: Any | None = None,
+    attn_implementation: str | None = None,
     target_lang: str | None = None,
 ) -> tuple[nn.Module, PretrainedConfig, str]:
     """Load, detect task, and prepare HuggingFace model.
@@ -177,6 +178,8 @@ def load_hf_model(
             pattern as ``resolve_loader_config(hf_config=...)`` from PR #719.
         torch_dtype: Optional dtype policy forwarded to ``from_pretrained``.
             Pass ``"auto"`` to preserve the checkpoint's stored dtype.
+        attn_implementation: Optional Transformers attention implementation
+            forwarded to ``from_pretrained`` before attention modules are created.
         target_lang: Optional MMS language adapter to activate before export.
 
     Returns:
@@ -292,6 +295,8 @@ def load_hf_model(
     }
     if torch_dtype is not None:
         load_kwargs["torch_dtype"] = torch_dtype
+    if attn_implementation is not None:
+        load_kwargs["attn_implementation"] = attn_implementation
     model = loader_cls.from_pretrained(model_name_or_path, **load_kwargs)
     if target_lang is not None:
         load_adapter = getattr(model, "load_adapter", None)

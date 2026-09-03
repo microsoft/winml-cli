@@ -30,6 +30,7 @@ from winml.modelkit.inference.pipeline import (
     _detect_tokenizer_dict_param,
     _ExtractiveQuestionAnsweringPipeline,
     _pipeline_component_kwargs,
+    _resolve_hf_pipeline_task,
     create_pipeline,
 )
 
@@ -146,9 +147,12 @@ def _make_qa_model(tokenizer, *, batch_size: int = 1) -> tuple[MagicMock, str]:
 
 
 def _create_qa_compat_pipe(tokenizer, model):
-    with patch(
-        "transformers.AutoTokenizer.from_pretrained",
-        return_value=tokenizer,
+    with (
+        patch("transformers.__version__", "5.0.0"),
+        patch(
+            "transformers.AutoTokenizer.from_pretrained",
+            return_value=tokenizer,
+        ),
     ):
         return create_pipeline("question-answering", model, "test-model")
 
@@ -157,8 +161,13 @@ class TestHFPipelineTaskMap:
     def test_sentence_similarity_maps_to_feature_extraction(self) -> None:
         assert _HF_PIPELINE_TASK_MAP["sentence-similarity"] == "feature-extraction"
 
+    def test_image_to_text_uses_transformers_4_native_name(self) -> None:
+        with patch("transformers.__version__", "4.57.6"):
+            assert _resolve_hf_pipeline_task("image-to-text") == "image-to-text"
+
     def test_image_to_text_maps_to_transformers_5_name(self) -> None:
-        assert _HF_PIPELINE_TASK_MAP["image-to-text"] == "image-text-to-text"
+        with patch("transformers.__version__", "5.0.0"):
+            assert _resolve_hf_pipeline_task("image-to-text") == "image-text-to-text"
 
     @pytest.mark.parametrize(
         "task",
@@ -189,6 +198,25 @@ class TestPipelineComponentKwargs:
 
 
 class TestCreatePipeline:
+    def test_uses_native_question_answering_pipeline_with_transformers_4(self) -> None:
+        model = MagicMock()
+        pipe = MagicMock()
+        pipe.tokenizer = None
+        pipe.image_processor = None
+
+        with (
+            patch("transformers.__version__", "4.57.6"),
+            patch(
+                "winml.modelkit.inference.pipeline._pipeline_component_kwargs",
+                return_value={},
+            ),
+            patch("transformers.pipeline", return_value=pipe) as pipeline,
+        ):
+            result = create_pipeline("question-answering", model, "test-model")
+
+        assert result is pipe
+        pipeline.assert_called_once_with("question-answering", model=model, device="cpu")
+
     def test_threads_trust_remote_code_to_pipeline(self) -> None:
         model = MagicMock()
         pipe = MagicMock()
@@ -267,10 +295,13 @@ class TestCreatePipeline:
         tokenizer = MagicMock()
         tokenizer.is_fast = True
 
-        with patch(
-            "transformers.AutoTokenizer.from_pretrained",
-            return_value=tokenizer,
-        ) as from_pretrained:
+        with (
+            patch("transformers.__version__", "5.0.0"),
+            patch(
+                "transformers.AutoTokenizer.from_pretrained",
+                return_value=tokenizer,
+            ) as from_pretrained,
+        ):
             result = create_pipeline("question-answering", model, "test-model")
 
         from_pretrained.assert_called_once_with("test-model", use_fast=True)
@@ -296,6 +327,7 @@ class TestCreatePipeline:
         tokenizer.is_fast = False
 
         with (
+            patch("transformers.__version__", "5.0.0"),
             patch(
                 "transformers.AutoTokenizer.from_pretrained",
                 return_value=tokenizer,

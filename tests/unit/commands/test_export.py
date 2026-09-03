@@ -1090,7 +1090,7 @@ class TestExportComposite:
         ):
             # Echo the per-component task back as the detected task so it flows
             # through to export_onnx and can be verified per sub-model.
-            mock_load.side_effect = lambda _model, task=None: (MagicMock(), None, task)
+            mock_load.side_effect = lambda _model, task=None, **_kwargs: (MagicMock(), None, task)
             mock_resolve_cfg.return_value = (
                 WinMLExportConfig(),
                 WinMLLoaderConfig(task="text-generation"),
@@ -1247,7 +1247,7 @@ class TestExportComposite:
             patch("winml.modelkit.export.resolve_export_config") as mock_resolve_cfg,
             patch("winml.modelkit.export.export_pytorch", side_effect=fake_export_onnx),
         ):
-            mock_load.side_effect = lambda _model, task=None: (MagicMock(), None, task)
+            mock_load.side_effect = lambda _model, task=None, **_kwargs: (MagicMock(), None, task)
             mock_resolve_cfg.return_value = (
                 WinMLExportConfig(),
                 WinMLLoaderConfig(task="text-generation"),
@@ -1295,7 +1295,7 @@ class TestExportSubmodel:
             patch("winml.modelkit.loader.load_hf_model") as mock_load,
             patch("winml.modelkit.export.resolve_export_config") as mock_resolve_cfg,
         ):
-            mock_load.side_effect = lambda _model, task=None: (MagicMock(), None, task)
+            mock_load.side_effect = lambda _model, task=None, **_kwargs: (MagicMock(), None, task)
             mock_resolve_cfg.return_value = (
                 WinMLExportConfig(),
                 WinMLLoaderConfig(task="text-generation"),
@@ -1412,7 +1412,7 @@ class TestExportSubmodel:
             patch("winml.modelkit.loader.load_hf_model") as mock_load,
             patch("winml.modelkit.export.resolve_export_config") as mock_resolve_cfg,
         ):
-            mock_load.side_effect = lambda _model, task=None: (MagicMock(), None, task)
+            mock_load.side_effect = lambda _model, task=None, **_kwargs: (MagicMock(), None, task)
             mock_resolve_cfg.return_value = (
                 WinMLExportConfig(),
                 WinMLLoaderConfig(task="text-generation"),

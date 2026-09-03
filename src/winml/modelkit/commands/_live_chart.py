@@ -72,7 +72,7 @@ class LiveMonitorDisplay:
         chart_width: int = 120,
         chart_height: int = 15,
         poll_interval_ms: int = 100,
-        device_kind: str | None | _OmittedDeviceKind = _DEVICE_KIND_OMITTED,
+        device_kind: str | _OmittedDeviceKind | None = _DEVICE_KIND_OMITTED,
         duration_sec: float | None = None,
         clock: Any = None,
     ) -> None:
@@ -275,7 +275,14 @@ class LiveMonitorDisplay:
                 return Text(f"  {adapter}: [{bar}] {current:.1f}%")
             return Text(f"  {adapter}: [waiting for data...]")
 
-        plt.clf()
+        # plotext API differs across releases: prefer the newer clear_figure,
+        # then fall back to legacy aliases when present.
+        if hasattr(plt, "clear_figure"):
+            plt.clear_figure()
+        elif hasattr(plt, "clf"):
+            plt.clf()
+        elif hasattr(plt, "clear_data"):
+            plt.clear_data()
         plt.theme("clear")
 
         # Compute moving window: keep last N seconds of samples

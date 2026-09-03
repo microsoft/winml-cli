@@ -18,6 +18,8 @@ Fixtures used from conftest.py:
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import onnx
 import pytest
@@ -28,6 +30,7 @@ from winml.modelkit.optim.pipes import (
     SurgeryPipe,
     SurgeryPipeConfig,
 )
+from winml.modelkit.quant.hints import QuantizationHintError
 
 
 # =============================================================================
@@ -497,3 +500,609 @@ class TestUntieConstantBatchedMatmulProcess:
             result.SerializeToString(), providers=["CPUExecutionProvider"]
         ).run(None, feed)[0]
         np.testing.assert_array_equal(ref, got)
+
+
+# =============================================================================
+# TRIM-SPLIT-GROUPED-CONV TESTS
+# =============================================================================
+
+
+def _make_grouped_conv_tail_slice_model(
+    *,
+    input_length: int = 3,
+    pads: tuple[int, int] = (4, 4),
+    slice_end: int = -1,
+    opset_version: int = 17,
+) -> onnx.ModelProto:
+    """Build a grouped 1D Conv whose final output is removed by Slice."""
+    from onnx import TensorProto, helper
+
+    rng = np.random.RandomState(0)
+    weights = numpy_helper.from_array(rng.randn(32, 2, 8).astype(np.float32), "weights")
+    bias = numpy_helper.from_array(rng.randn(32).astype(np.float32), "bias")
+    starts = numpy_helper.from_array(np.array([0], dtype=np.int64), "starts")
+    ends = numpy_helper.from_array(np.array([slice_end], dtype=np.int64), "ends")
+    axes = numpy_helper.from_array(np.array([2], dtype=np.int64), "axes")
+    steps = numpy_helper.from_array(np.array([1], dtype=np.int64), "steps")
+    conv = helper.make_node(
+        "Conv",
+        ["input", "weights", "bias"],
+        ["conv_output"],
+        name="grouped_conv",
+        group=16,
+        kernel_shape=[8],
+        pads=list(pads),
+        strides=[1],
+        dilations=[1],
+    )
+    tail_slice = helper.make_node(
+        "Slice",
+        ["conv_output", "starts", "ends", "axes", "steps"],
+        ["output"],
+        name="tail_slice",
+    )
+    graph = helper.make_graph(
+        [conv, tail_slice],
+        "grouped_conv_tail_slice",
+        [helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 32, input_length])],
+        [helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 32, 3])],
+        initializer=[weights, bias, starts, ends, axes, steps],
+    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", opset_version)])
+
+
+class TestTrimSplitGroupedConvCapability:
+    """Capability/config plumbing for trim-split-grouped-conv."""
+
+    def test_capability_exists_and_defaults_false(self) -> None:
+        capability = SURGERY_CAPABILITIES["trim-split-grouped-conv"]
+        assert capability.ort_name is None
+        assert capability.default is False
+
+    def test_build_config_enable_via_kwarg(self) -> None:
+        config = SurgeryPipe.build_config(trim_split_grouped_conv=True)
+        assert config.trim_split_grouped_conv is True
+        assert SurgeryPipe.should_process(config) is True
+
+
+class TestTrimSplitGroupedConvProcess:
+    """Static reachability rewrite behavior."""
+
+    @staticmethod
+    def _assert_no_rewrite(model: onnx.ModelProto) -> None:
+        original = model.SerializeToString()
+        result = SurgeryPipe().process(
+            model,
+            SurgeryPipeConfig(trim_split_grouped_conv=True),
+        )
+        assert model.SerializeToString() == original
+        assert result.SerializeToString() == original
+
+    def test_rewrites_supported_graph_and_emits_region_hint(self) -> None:
+        model = _make_grouped_conv_tail_slice_model()
+        original = model.SerializeToString()
+
+        result = SurgeryPipe().process(model, SurgeryPipeConfig(trim_split_grouped_conv=True))
+
+        assert model.SerializeToString() == original
+        onnx.checker.check_model(result, full_check=True)
+        assert [node.op_type for node in result.graph.node] == [
+            "Split",
+            "Conv",
+            "Conv",
+            "Concat",
+        ]
+        convs = [node for node in result.graph.node if node.op_type == "Conv"]
+        assert len(convs) == 2
+        for conv in convs:
+            attributes = {
+                attribute.name: onnx.helper.get_attribute_value(attribute)
+                for attribute in conv.attribute
+            }
+            assert attributes["group"] == 8
+            assert attributes["kernel_shape"] == [5]
+            assert attributes["pads"] == [2, 2]
+        concat = next(node for node in result.graph.node if node.op_type == "Concat")
+        assert concat.output == ["output"]
+        initializer_names = {initializer.name for initializer in result.graph.initializer}
+        assert not {"weights", "bias", "starts", "ends", "axes", "steps"}.intersection(
+            initializer_names
+        )
+        assert {
+            "weights__winml_part0",
+            "weights__winml_part1",
+            "bias__winml_part0",
+            "bias__winml_part1",
+        }.issubset(initializer_names)
+
+        metadata = {item.key: item.value for item in result.metadata_props}
+        hint = json.loads(metadata["winml.quantization.region_hints"])
+        assert hint == {
+            "version": 1,
+            "regions": [
+                {
+                    "kind": "conv_concat",
+                    "branches": [convs[0].name, convs[1].name],
+                    "concat": concat.name,
+                }
+            ],
+        }
+
+    @pytest.mark.parametrize("opset_version", [17, 18])
+    def test_preserves_cpu_outputs_and_is_idempotent(self, opset_version: int) -> None:
+        import onnxruntime as ort
+
+        model = _make_grouped_conv_tail_slice_model(opset_version=opset_version)
+        pipe = SurgeryPipe()
+        config = SurgeryPipeConfig(trim_split_grouped_conv=True)
+        transformed = pipe.process(model, config)
+        second_pass = pipe.process(transformed, config)
+        feed = {"input": np.random.RandomState(7).randn(1, 32, 3).astype(np.float32)}
+        split = next(node for node in transformed.graph.node if node.op_type == "Split")
+        split_attributes = {
+            attribute.name: onnx.helper.get_attribute_value(attribute)
+            for attribute in split.attribute
+        }
+
+        onnx.checker.check_model(transformed, full_check=True)
+        assert split_attributes == (
+            {"axis": 1} if opset_version < 18 else {"axis": 1, "num_outputs": 2}
+        )
+        expected = ort.InferenceSession(
+            model.SerializeToString(), providers=["CPUExecutionProvider"]
+        ).run(None, feed)[0]
+        actual = ort.InferenceSession(
+            transformed.SerializeToString(), providers=["CPUExecutionProvider"]
+        ).run(None, feed)[0]
+
+        np.testing.assert_array_equal(actual, expected)
+        assert second_pass.SerializeToString() == transformed.SerializeToString()
+
+    @pytest.mark.parametrize(
+        ("model", "expected_kernel", "expected_pads"),
+        [
+            (
+                _make_grouped_conv_tail_slice_model(
+                    input_length=5,
+                    pads=(4, 2),
+                    slice_end=3,
+                ),
+                [6],
+                [2, 1],
+            ),
+            (
+                _make_grouped_conv_tail_slice_model(
+                    input_length=3,
+                    pads=(1, 7),
+                    slice_end=-1,
+                ),
+                [4],
+                [1, 2],
+            ),
+        ],
+    )
+    def test_trims_one_kernel_edge_with_exact_cpu_outputs(
+        self,
+        model: onnx.ModelProto,
+        expected_kernel: list[int],
+        expected_pads: list[int],
+    ) -> None:
+        import onnxruntime as ort
+
+        transformed = SurgeryPipe().process(
+            model,
+            SurgeryPipeConfig(trim_split_grouped_conv=True),
+        )
+        convs = [node for node in transformed.graph.node if node.op_type == "Conv"]
+        for conv in convs:
+            attributes = {
+                attribute.name: onnx.helper.get_attribute_value(attribute)
+                for attribute in conv.attribute
+            }
+            assert attributes["kernel_shape"] == expected_kernel
+            assert attributes["pads"] == expected_pads
+
+        input_length = model.graph.input[0].type.tensor_type.shape.dim[2].dim_value
+        feed = {"input": np.random.RandomState(7).randn(1, 32, input_length).astype(np.float32)}
+        expected = ort.InferenceSession(
+            model.SerializeToString(), providers=["CPUExecutionProvider"]
+        ).run(None, feed)[0]
+        actual = ort.InferenceSession(
+            transformed.SerializeToString(), providers=["CPUExecutionProvider"]
+        ).run(None, feed)[0]
+        np.testing.assert_array_equal(actual, expected)
+
+    def test_dynamic_spatial_length_is_unchanged(self) -> None:
+        model = _make_grouped_conv_tail_slice_model()
+        spatial_dimension = model.graph.input[0].type.tensor_type.shape.dim[2]
+        spatial_dimension.ClearField("dim_value")
+        spatial_dimension.dim_param = "sequence"
+
+        self._assert_no_rewrite(model)
+
+    def test_conv_fanout_is_unchanged(self) -> None:
+        model = _make_grouped_conv_tail_slice_model()
+        model.graph.node.append(
+            onnx.helper.make_node(
+                "Identity",
+                ["conv_output"],
+                ["other_output"],
+                name="other_consumer",
+            )
+        )
+
+        self._assert_no_rewrite(model)
+
+    def test_conv_output_captured_by_subgraph_is_unchanged(self) -> None:
+        from onnx import TensorProto
+
+        model = _make_grouped_conv_tail_slice_model()
+        model.graph.initializer.append(
+            numpy_helper.from_array(np.array(True, dtype=np.bool_), "condition")
+        )
+
+        def branch_graph(name: str) -> onnx.GraphProto:
+            output_name = f"{name}_output"
+            return onnx.helper.make_graph(
+                [
+                    onnx.helper.make_node(
+                        "Identity",
+                        ["conv_output"],
+                        [output_name],
+                        name=f"{name}_identity",
+                    )
+                ],
+                name,
+                [],
+                [
+                    onnx.helper.make_tensor_value_info(
+                        output_name,
+                        TensorProto.FLOAT,
+                        [1, 32, 4],
+                    )
+                ],
+            )
+
+        model.graph.node.append(
+            onnx.helper.make_node(
+                "If",
+                ["condition"],
+                ["captured_conv_output"],
+                name="capture_conv_output",
+                then_branch=branch_graph("then_branch"),
+                else_branch=branch_graph("else_branch"),
+            )
+        )
+        model.graph.output.append(
+            onnx.helper.make_tensor_value_info(
+                "captured_conv_output",
+                TensorProto.FLOAT,
+                [1, 32, 4],
+            )
+        )
+        onnx.checker.check_model(model, full_check=True)
+
+        self._assert_no_rewrite(model)
+
+    def test_nonunit_stride_is_unchanged(self) -> None:
+        model = _make_grouped_conv_tail_slice_model()
+        conv = next(node for node in model.graph.node if node.op_type == "Conv")
+        strides = next(attribute for attribute in conv.attribute if attribute.name == "strides")
+        strides.CopyFrom(onnx.helper.make_attribute("strides", [2]))
+
+        self._assert_no_rewrite(model)
+
+    def test_slice_that_keeps_full_output_is_unchanged(self) -> None:
+        model = _make_grouped_conv_tail_slice_model()
+        ends = next(
+            initializer for initializer in model.graph.initializer if initializer.name == "ends"
+        )
+        ends.CopyFrom(numpy_helper.from_array(np.array([4], dtype=np.int64), "ends"))
+
+        self._assert_no_rewrite(model)
+
+    def test_non_grouped_conv_is_unchanged(self) -> None:
+        model = _make_grouped_conv_tail_slice_model()
+        conv = next(node for node in model.graph.node if node.op_type == "Conv")
+        group = next(attribute for attribute in conv.attribute if attribute.name == "group")
+        group.CopyFrom(onnx.helper.make_attribute("group", 1))
+        weights = next(
+            initializer for initializer in model.graph.initializer if initializer.name == "weights"
+        )
+        weights.CopyFrom(
+            numpy_helper.from_array(
+                np.random.RandomState(1).randn(32, 32, 8).astype(np.float32),
+                "weights",
+            )
+        )
+
+        self._assert_no_rewrite(model)
+
+    @pytest.mark.parametrize(
+        "initializer_name",
+        ["weights", "bias", "starts", "ends", "axes", "steps"],
+    )
+    def test_overridable_initializer_is_unchanged(self, initializer_name: str) -> None:
+        model = _make_grouped_conv_tail_slice_model()
+        initializer = next(
+            value for value in model.graph.initializer if value.name == initializer_name
+        )
+        model.graph.input.append(
+            onnx.helper.make_tensor_value_info(
+                initializer.name,
+                initializer.data_type,
+                list(initializer.dims),
+            )
+        )
+
+        self._assert_no_rewrite(model)
+
+    def test_legacy_ir_initializer_inputs_are_unchanged(self) -> None:
+        model = _make_grouped_conv_tail_slice_model()
+        model.ir_version = 3
+        for initializer in model.graph.initializer:
+            model.graph.input.append(
+                onnx.helper.make_tensor_value_info(
+                    initializer.name,
+                    initializer.data_type,
+                    list(initializer.dims),
+                )
+            )
+
+        self._assert_no_rewrite(model)
+
+    def test_generated_names_do_not_collide(self) -> None:
+        model = _make_grouped_conv_tail_slice_model()
+        model.graph.node.append(
+            onnx.helper.make_node(
+                "Identity",
+                ["input"],
+                ["collision_output"],
+                name="grouped_conv__winml_part0",
+            )
+        )
+
+        result = SurgeryPipe().process(
+            model,
+            SurgeryPipeConfig(trim_split_grouped_conv=True),
+        )
+
+        onnx.checker.check_model(result, full_check=True)
+        node_names = [node.name for node in result.graph.node]
+        assert len(node_names) == len(set(node_names))
+        hint = json.loads(
+            next(
+                item.value
+                for item in result.metadata_props
+                if item.key == "winml.quantization.region_hints"
+            )
+        )
+        assert hint["regions"][0]["branches"][0] == "grouped_conv__winml_part0_1"
+
+    def test_shared_source_initializer_is_preserved(self) -> None:
+        from onnx import TensorProto
+
+        model = _make_grouped_conv_tail_slice_model()
+        model.graph.node.append(
+            onnx.helper.make_node(
+                "Identity",
+                ["weights"],
+                ["shared_weights_output"],
+                name="shared_weights",
+            )
+        )
+        model.graph.output.append(
+            onnx.helper.make_tensor_value_info(
+                "shared_weights_output",
+                TensorProto.FLOAT,
+                [32, 2, 8],
+            )
+        )
+
+        result = SurgeryPipe().process(
+            model,
+            SurgeryPipeConfig(trim_split_grouped_conv=True),
+        )
+
+        onnx.checker.check_model(result, full_check=True)
+        initializer_names = {initializer.name for initializer in result.graph.initializer}
+        assert "weights" in initializer_names
+        assert not {"bias", "starts", "ends", "axes", "steps"}.intersection(initializer_names)
+
+    def test_source_initializer_captured_by_subgraph_is_preserved(self) -> None:
+        from onnx import TensorProto
+
+        model = _make_grouped_conv_tail_slice_model()
+        model.graph.initializer.append(
+            numpy_helper.from_array(np.array(True, dtype=np.bool_), "condition")
+        )
+
+        def branch_graph(name: str) -> onnx.GraphProto:
+            identity = onnx.helper.make_node(
+                "Identity",
+                ["weights"],
+                [f"{name}_output"],
+                name=f"{name}_identity",
+            )
+            return onnx.helper.make_graph(
+                [identity],
+                name,
+                [],
+                [
+                    onnx.helper.make_tensor_value_info(
+                        f"{name}_output",
+                        TensorProto.FLOAT,
+                        [32, 2, 8],
+                    )
+                ],
+            )
+
+        model.graph.node.append(
+            onnx.helper.make_node(
+                "If",
+                ["condition"],
+                ["captured_weights_output"],
+                name="capture_weights",
+                then_branch=branch_graph("then_branch"),
+                else_branch=branch_graph("else_branch"),
+            )
+        )
+        model.graph.output.append(
+            onnx.helper.make_tensor_value_info(
+                "captured_weights_output",
+                TensorProto.FLOAT,
+                [32, 2, 8],
+            )
+        )
+
+        result = SurgeryPipe().process(
+            model,
+            SurgeryPipeConfig(trim_split_grouped_conv=True),
+        )
+
+        onnx.checker.check_model(result, full_check=True)
+        assert "weights" in {initializer.name for initializer in result.graph.initializer}
+
+    def test_existing_hint_with_nested_capture_fails_without_mutating_input(self) -> None:
+        from onnx import TensorProto
+
+        config = SurgeryPipeConfig(trim_split_grouped_conv=True)
+        model = SurgeryPipe().process(_make_grouped_conv_tail_slice_model(), config)
+        hint = json.loads(
+            next(
+                item.value
+                for item in model.metadata_props
+                if item.key == "winml.quantization.region_hints"
+            )
+        )
+        branch_name = hint["regions"][0]["branches"][0]
+        branch_output = next(
+            node.output[0] for node in model.graph.node if node.name == branch_name
+        )
+        model.graph.initializer.append(
+            numpy_helper.from_array(np.array(True, dtype=np.bool_), "condition")
+        )
+
+        def branch_graph(name: str) -> onnx.GraphProto:
+            output_name = f"{name}_output"
+            return onnx.helper.make_graph(
+                [
+                    onnx.helper.make_node(
+                        "Identity",
+                        [branch_output],
+                        [output_name],
+                        name=f"{name}_identity",
+                    )
+                ],
+                name,
+                [],
+                [
+                    onnx.helper.make_tensor_value_info(
+                        output_name,
+                        TensorProto.FLOAT,
+                        [1, 16, 3],
+                    )
+                ],
+            )
+
+        model.graph.node.append(
+            onnx.helper.make_node(
+                "If",
+                ["condition"],
+                ["captured_branch_output"],
+                name="capture_branch_output",
+                then_branch=branch_graph("then_branch"),
+                else_branch=branch_graph("else_branch"),
+            )
+        )
+        model.graph.output.append(
+            onnx.helper.make_tensor_value_info(
+                "captured_branch_output",
+                TensorProto.FLOAT,
+                [1, 16, 3],
+            )
+        )
+        onnx.checker.check_model(model, full_check=True)
+        original = model.SerializeToString()
+
+        with pytest.raises(QuantizationHintError, match="exclusively feed"):
+            SurgeryPipe().process(model, config)
+
+        assert model.SerializeToString() == original
+
+    @pytest.mark.parametrize(
+        "metadata_values",
+        [
+            ["not-json"],
+            [
+                json.dumps(
+                    {
+                        "version": 1,
+                        "regions": [
+                            {
+                                "kind": "unknown",
+                                "branches": ["old_branch0", "old_branch1"],
+                                "concat": "old_concat",
+                            }
+                        ],
+                    }
+                )
+            ],
+            [
+                json.dumps(
+                    {
+                        "version": 1,
+                        "regions": [
+                            {
+                                "kind": "conv_concat",
+                                "branches": ["missing_branch0", "missing_branch1"],
+                                "concat": "missing_concat",
+                            }
+                        ],
+                    }
+                )
+            ],
+            [
+                json.dumps(
+                    {
+                        "version": 1,
+                        "regions": [
+                            {
+                                "kind": "conv_concat",
+                                "branches": ["old_branch0", "old_branch1"],
+                                "concat": "old_concat",
+                            }
+                        ],
+                    }
+                ),
+                json.dumps(
+                    {
+                        "version": 1,
+                        "regions": [
+                            {
+                                "kind": "conv_concat",
+                                "branches": ["other_branch0", "other_branch1"],
+                                "concat": "other_concat",
+                            }
+                        ],
+                    }
+                ),
+            ],
+        ],
+    )
+    def test_invalid_existing_hint_fails_without_mutating_input(
+        self,
+        metadata_values: list[str],
+    ) -> None:
+        model = _make_grouped_conv_tail_slice_model()
+        for value in metadata_values:
+            model.metadata_props.add(key="winml.quantization.region_hints", value=value)
+        original = model.SerializeToString()
+
+        with pytest.raises(QuantizationHintError):
+            SurgeryPipe().process(
+                model,
+                SurgeryPipeConfig(trim_split_grouped_conv=True),
+            )
+
+        assert model.SerializeToString() == original

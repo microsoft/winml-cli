@@ -54,7 +54,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from optimum.utils import NormalizedConfig
-    from transformers.models.sam.configuration_sam import SamPromptEncoderConfig
     from transformers.models.sam2.modeling_sam2 import Sam2MultiScaleBlock, Sam2PromptEncoder
 
 
@@ -289,9 +288,7 @@ class SAMMaskGeneration(torch.nn.Module):
 
     def _get_image_positional_embeddings(self, batch_size: int = 1) -> torch.Tensor:
         """Replicates SamModel.get_image_wide_positional_embeddings()."""
-        # prompt_encoder_config is typed dict | PreTrainedConfig | None but is
-        # always a SamPromptEncoderConfig at runtime for SamModel.
-        prompt_encoder_config = cast("SamPromptEncoderConfig", self.config.prompt_encoder_config)
+        prompt_encoder_config = self.config.prompt_encoder_config
         size = prompt_encoder_config.image_embedding_size
         # positional_embedding is a registered Parameter reached via torch's
         # __getattr__ (typed Tensor | Module); narrow to Tensor for device/dtype.
@@ -496,9 +493,7 @@ def _patched_sam2_multiscale_block_forward(
             raise ImportError(
                 "do_pool not found; upgrade transformers to a version that includes SAM2 support"
             ) from e
-        # query_stride is int | list[int] | None; do_pool types it int | None,
-        # but forwards it to max_pool2d(kernel_size=...), which accepts a list.
-        residual = do_pool(self.proj(hidden_states), self.query_stride)  # type: ignore[arg-type]
+        residual = do_pool(self.proj(hidden_states), self.query_stride)
 
     window_size = self.window_size
     H, W = None, None  # noqa: N806 (standard tensor dimension naming)

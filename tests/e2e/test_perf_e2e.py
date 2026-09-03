@@ -820,8 +820,9 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
 
         assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
         assert output_file.exists()
-        assert trace_output.exists()
-        trace = json.loads(trace_output.read_text())
+        assert not trace_output.exists()
+        output = json.loads(output_file.read_text())
+        trace = output["hw_monitor"]["ep_proof"]
         assert trace["metadata"]["device"] == "npu"
         assert trace["metadata"]["ep"] == EP_ALIASES["qnn"]
         assert trace["metadata"]["tracing_level"] == "basic"
@@ -1173,7 +1174,7 @@ class TestPerfT5Composite:
 
 
 # ===========================================================================
-# GenAI runtime (winml-genai): --device / --ep override
+# GenAI runtime (ort-genai): --device / --ep override
 # ===========================================================================
 
 
@@ -1184,7 +1185,7 @@ def _genai_perf_args(
     device: str | None = None,
     ep: str | None = None,
 ) -> list[str]:
-    """Build argv for a fast winml-genai perf run against a tiny bundle.
+    """Build argv for a fast ort-genai perf run against a tiny bundle.
 
     Kept deliberately small (2 iterations, 1 warmup, 4 new tokens) so the
     generation loop stays quick while still producing real timing samples.
@@ -1193,7 +1194,7 @@ def _genai_perf_args(
         "-m",
         str(bundle_dir),
         "--runtime",
-        "winml-genai",
+        "ort-genai",
         "--iterations",
         "2",
         "--warmup",
@@ -1211,9 +1212,9 @@ def _genai_perf_args(
 
 
 class TestPerfGenaiContract:
-    """Contract for the winml-genai ``config`` sentinel — no bundle required.
+    """Contract for the ort-genai ``config`` sentinel — no bundle required.
 
-    These lock the CLI surface that ``config`` is a winml-genai-only
+    These lock the CLI surface that ``config`` is a ort-genai-only
     ``--device`` value: it is advertised in ``--help`` and rejected with a
     helpful message on the single-shot ONNX path. They run on any host under
     ``-m e2e`` (no genai stack, model download, or accelerator needed).
@@ -1224,7 +1225,7 @@ class TestPerfGenaiContract:
         result = CliRunner().invoke(perf, ["--help"], obj={}, catch_exceptions=False)
         assert result.exit_code == 0
         assert "[config|auto|cpu|gpu|npu]" in result.output
-        assert "winml-genai only" in result.output
+        assert "ort-genai only" in result.output
 
     def test_onnx_rejects_device_config(self, tmp_path: Path, onnx_model_path: Path):
         """``--device config`` is rejected on the ONNX runtime (genai-only sentinel)."""
@@ -1240,7 +1241,7 @@ class TestPerfGenaiContract:
         )
 
         assert result.exit_code == 2, f"expected UsageError exit 2, got {result.exit_code}"
-        assert "--device config is only valid with --runtime winml-genai" in result.output
+        assert "--device config is only valid with --runtime ort-genai" in result.output
         assert not output_file.exists(), "no report should be written on rejection"
 
 
@@ -1329,7 +1330,7 @@ class TestPerfGenai:
         )
         assert output_file.exists(), f"report not written: {output_file}"
         data = json.loads(output_file.read_text())
-        assert data["benchmark_info"]["runtime"] == "winml-genai"
+        assert data["benchmark_info"]["runtime"] == "ort-genai"
         assert data["benchmark_info"]["generated_tokens"] > 0
         return data
 

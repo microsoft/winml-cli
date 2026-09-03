@@ -122,7 +122,7 @@ def get_evaluator_class(config: WinMLEvaluationConfig) -> type[WinMLEvaluator]:
 
 def _validate_pytorch_runtime_config(config: WinMLEvaluationConfig) -> None:
     """Validate state that cannot apply to the PyTorch runtime."""
-    if config.runtime == "winml":
+    if config.runtime == "winml-ort":
         return
 
     incompatible: list[str] = []
@@ -663,8 +663,8 @@ def evaluate(
     """
     from ..utils.eval_utils import EVAL_MODES
 
-    if config.runtime not in ("winml", "pytorch"):
-        raise ValueError(f"Invalid runtime {config.runtime!r}; expected 'winml' or 'pytorch'.")
+    if config.runtime not in ("winml-ort", "pytorch"):
+        raise ValueError(f"Invalid runtime {config.runtime!r}; expected 'winml-ort' or 'pytorch'.")
     if pytorch_model is not None:
         config = _prepare_supplied_pytorch_model(config, pytorch_model)
     mode = config.mode if config.mode is not None else "onnx"
@@ -773,7 +773,7 @@ def print_config(config: WinMLEvaluationConfig) -> None:
     output_console.print(f"[bold blue]Device:[/bold blue] {config.device}")
     if config.ep is not None:
         output_console.print(f"[bold blue]EP:[/bold blue] {config.ep}")
-    if config.runtime == "winml":
+    if config.runtime == "winml-ort":
         output_console.print(f"[bold blue]Precision:[/bold blue] {config.precision}")
     if config.mode != "compare":
         output_console.print(f"[bold blue]Dataset:[/bold blue] {ds.path}")

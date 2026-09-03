@@ -15,7 +15,7 @@ from ..utils.constants import EPNameOrAlias
 from ..utils.eval_utils import EvalMode
 
 
-EvalRuntime = Literal["winml", "pytorch"]
+EvalRuntime = Literal["winml-ort", "pytorch"]
 
 
 @dataclass
@@ -137,7 +137,7 @@ class WinMLEvaluationConfig:
         output_path: Path to write JSON results.
         runtime: Evaluation runtime.
 
-            - ``"winml"`` (default): export Hugging Face checkpoints to ONNX
+            - ``"winml-ort"`` (default): export Hugging Face checkpoints to ONNX
               and evaluate with WinML.
             - ``"pytorch"``: evaluate the original Hugging Face checkpoint.
         mode: Evaluation mode (see :data:`EvalMode`).
@@ -186,7 +186,7 @@ class WinMLEvaluationConfig:
     skip_build: bool = True
     use_cache: bool = True
     rebuild: bool = False
-    runtime: EvalRuntime = "winml"
+    runtime: EvalRuntime = "winml-ort"
     trust_remote_code: bool = False
     _auto_device_selected: bool = field(default=False, repr=False, compare=False, kw_only=True)
     _pipeline_device_override: str | None = field(
@@ -247,7 +247,7 @@ class WinMLEvaluationConfig:
             result["output_path"] = str(self.output_path)
         if self.mode != "onnx":
             result["mode"] = self.mode
-        if self.runtime == "winml":
+        if self.runtime == "winml-ort":
             result["skip_build"] = self.skip_build
             result["use_cache"] = self.use_cache
             result["rebuild"] = self.rebuild
@@ -296,6 +296,6 @@ class WinMLEvaluationConfig:
             skip_build=data.get("skip_build", True),
             use_cache=data.get("use_cache", True),
             rebuild=data.get("rebuild", False),
-            runtime=data.get("runtime", "winml"),
+            runtime=data.get("runtime", "winml-ort"),
             trust_remote_code=data.get("trust_remote_code", False),
         )
