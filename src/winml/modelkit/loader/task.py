@@ -236,6 +236,9 @@ def normalize_task(task: str) -> str:
     Returns:
         Canonical task name
     """
+    if task in TASK_SYNONYM_EXTENSIONS:
+        return TASK_SYNONYM_EXTENSIONS[task]
+
     from optimum.exporters.tasks import TasksManager
 
     return cast("str", TasksManager.map_from_synonym(task))
@@ -253,6 +256,9 @@ TASK_SYNONYM_EXTENSIONS: dict[str, str] = {
     # mask-generation is registered via register_onnx_overwrite for SAM2.
     # Optimum incorrectly maps it to "feature-extraction"; preserve as-is.
     "mask-generation": "mask-generation",
+    # Document QA shares the extractive QA loader/exporter while retaining a
+    # distinct evaluator and dataset contract at the WinML boundary.
+    "document-question-answering": "question-answering",
 }
 
 

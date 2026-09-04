@@ -76,6 +76,8 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
         "winml.modelkit.eval.image_segmentation_evaluator:WinMLImageSegmentationEvaluator",
     "question-answering":
         "winml.modelkit.eval.question_answering_evaluator:WinMLQuestionAnsweringEvaluator",
+    "document-question-answering":
+        "winml.modelkit.eval.document_question_answering_evaluator:WinMLDocumentQuestionAnsweringEvaluator",
     "feature-extraction":
         "winml.modelkit.eval.feature_extraction_evaluator:WinMLFeatureExtractionEvaluator",
     "sentence-similarity":
@@ -214,6 +216,13 @@ _DEFAULT_DATASETS: dict[str, dict] = {
             "id_column": "id",
             "label_column": "answers",
         },
+    },
+    "document-question-answering": {
+        "path": "pixparse/docvqa-single-page-questions",
+        "split": "train",
+        "samples": 1,
+        "shuffle": False,
+        "revision": "33136ef456fa5a3fe68568d6e31dda4eeff95b9b",
     },
     "feature-extraction": dict(_FE_DEFAULT),
     "sentence-similarity": dict(_FE_DEFAULT),

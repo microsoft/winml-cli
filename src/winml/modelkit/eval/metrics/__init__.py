@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from .binary_segmentation import BinarySegmentationMetric
     from .classification import ClassificationMetric
     from .depth import DepthMetric
+    from .document_qa import ANLSMetric
     from .keypoint import KeypointAPMetric
     from .knn_accuracy import KNNAccuracyMetric
     from .mean_average_precision import MAPMetric
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
 # this package does not pull in numpy / scipy / torch / torchmetrics for callers
 # that do not actually use the metric in question.
 _LAZY_ATTRS: dict[str, str] = {
+    "ANLSMetric": ".document_qa:ANLSMetric",
     "BinarySegmentationMetric": ".binary_segmentation:BinarySegmentationMetric",
     "ClassificationMetric": ".classification:ClassificationMetric",
     "DepthMetric": ".depth:DepthMetric",
@@ -60,6 +62,7 @@ def __dir__() -> list[str]:
 
 __all__ = [
     "IGNORE_INDEX",
+    "ANLSMetric",
     "BinarySegmentationMetric",
     "ClassificationMetric",
     "DepthMetric",

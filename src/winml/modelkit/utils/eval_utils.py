@@ -185,6 +185,35 @@ _QUESTION_ANSWERING_SCHEMA = TaskSchema(
     ),
 )
 
+_DOCUMENT_QUESTION_ANSWERING_SCHEMA = TaskSchema(
+    columns=(
+        SchemaItem(
+            "question_column",
+            "document question text",
+            default="question",
+            remap_hint="<your_question_column>",
+        ),
+        SchemaItem(
+            "label_column",
+            "one or more accepted document answer strings",
+            default="answers",
+            remap_hint="<your_answers_column>",
+        ),
+        SchemaItem(
+            "ocr_column",
+            "nested OCR page metadata, lines, words, and polygons",
+            default="ocr_results",
+            remap_hint="<your_ocr_column>",
+        ),
+    ),
+    params=(
+        SchemaItem("max_windows", "maximum tokenizer overflow windows", "1", "<int>"),
+        SchemaItem("doc_stride", "document window overlap", "128", "<int>"),
+        SchemaItem("max_answer_words", "maximum contiguous answer words", "64", "<int>"),
+        SchemaItem("top_k", "number of retained answer spans", "1", "<1>"),
+    ),
+)
+
 _FEATURE_EXTRACTION_SCHEMA = TaskSchema(
     columns=(
         SchemaItem(
@@ -457,6 +486,7 @@ TASK_SCHEMAS: dict[str, TaskSchema] = {
     "object-detection": _OBJECT_DETECTION_SCHEMA,
     "image-segmentation": _IMAGE_SEGMENTATION_SCHEMA,
     "question-answering": _QUESTION_ANSWERING_SCHEMA,
+    "document-question-answering": _DOCUMENT_QUESTION_ANSWERING_SCHEMA,
     "feature-extraction": _FEATURE_EXTRACTION_SCHEMA,
     "sentence-similarity": _FEATURE_EXTRACTION_SCHEMA,
     "image-feature-extraction": _IMAGE_FEATURE_EXTRACTION_SCHEMA,

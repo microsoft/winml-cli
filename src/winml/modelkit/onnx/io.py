@@ -113,11 +113,22 @@ class InputTensorSpec:
             # randint path below. Reorder so x0<=x1 and y0<=y1 to keep each box
             # well-formed for layout models.
             if self.name == "bbox" and len(concrete_shape) >= 1 and concrete_shape[-1] == 4:
+                if int(hi) - int(lo) < 2:
+                    raise ValueError(
+                        "Bounding-box value_range must contain at least two coordinates"
+                    )
                 coords = torch.randint(int(lo), int(hi), concrete_shape, dtype=torch_dtype)
                 x0 = torch.minimum(coords[..., 0], coords[..., 2])
                 y0 = torch.minimum(coords[..., 1], coords[..., 3])
                 x1 = torch.maximum(coords[..., 0], coords[..., 2])
                 y1 = torch.maximum(coords[..., 1], coords[..., 3])
+                max_coordinate = int(hi) - 1
+                x_equal = x0 == x1
+                y_equal = y0 == y1
+                x0 = torch.where(x_equal & (x1 == max_coordinate), x0 - 1, x0)
+                y0 = torch.where(y_equal & (y1 == max_coordinate), y0 - 1, y0)
+                x1 = torch.where(x_equal & (x1 < max_coordinate), x1 + 1, x1)
+                y1 = torch.where(y_equal & (y1 < max_coordinate), y1 + 1, y1)
                 return torch.stack((x0, y0, x1, y1), dim=-1)
             return torch.randint(int(lo), int(hi), concrete_shape, dtype=torch_dtype)
 

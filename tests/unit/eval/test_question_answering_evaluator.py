@@ -321,6 +321,23 @@ class TestModelForward:
         call_kwargs = model._format_inputs.call_args[1]
         assert "token_type_ids" not in call_kwargs
 
+    def test_bbox_is_forwarded_only_when_declared(self):
+        model = self._make_model(input_names=["input_ids", "attention_mask", "bbox"])
+        ids = np.array([[1, 2, 3]])
+        boxes = np.zeros((1, 3, 4), dtype=np.int64)
+
+        model.forward(input_ids=ids, bbox=boxes)
+
+        np.testing.assert_array_equal(model._format_inputs.call_args.kwargs["bbox"], boxes)
+
+    def test_bbox_is_ignored_when_not_declared(self):
+        model = self._make_model(has_token_type_ids=False)
+        model.forward(
+            input_ids=np.array([[1, 2, 3]]),
+            bbox=np.zeros((1, 3, 4), dtype=np.int64),
+        )
+        assert "bbox" not in model._format_inputs.call_args.kwargs
+
     def test_raises_when_input_ids_is_none(self):
         model = self._make_model()
         with pytest.raises(ValueError, match="input_ids must be provided"):
