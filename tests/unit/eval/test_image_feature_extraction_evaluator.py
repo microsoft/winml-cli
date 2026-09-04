@@ -19,6 +19,7 @@ from winml.modelkit.eval import KNNAccuracyMetric, WinMLImageFeatureExtractionEv
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_evaluator(columns_mapping=None):
     """Instantiate evaluator by patching external dependencies."""
     from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
@@ -47,8 +48,10 @@ def make_evaluator(columns_mapping=None):
         dataset=DatasetConfig(path="timm/mini-imagenet", columns_mapping=mapping),
     )
 
-    with patch("datasets.load_dataset", return_value=mock_ds), \
-         patch("transformers.pipeline", return_value=mock_pipe):
+    with (
+        patch("datasets.load_dataset", return_value=mock_ds),
+        patch("transformers.pipeline", return_value=mock_pipe),
+    ):
         return WinMLImageFeatureExtractionEvaluator(config, model)
 
 
@@ -56,17 +59,20 @@ def make_evaluator(columns_mapping=None):
 # KNNAccuracyMetric
 # ---------------------------------------------------------------------------
 
+
 class TestKNNAccuracyMetric:
     def test_perfect_clusters(self):
         """Embeddings from the same class are identical -> 100% accuracy."""
         metric = KNNAccuracyMetric(k=3)
         # 4 samples, 2 classes. Class 0 at origin-ish, class 1 far away.
-        embeddings = np.array([
-            [1.0, 0.0, 0.0],
-            [0.99, 0.01, 0.0],
-            [0.0, 0.0, 1.0],
-            [0.01, 0.0, 0.99],
-        ])
+        embeddings = np.array(
+            [
+                [1.0, 0.0, 0.0],
+                [0.99, 0.01, 0.0],
+                [0.0, 0.0, 1.0],
+                [0.01, 0.0, 0.99],
+            ]
+        )
         labels = np.array([0, 0, 1, 1])
         result = metric.compute(embeddings, labels)
         assert result["knn_top1_accuracy"] == 100.0
@@ -85,11 +91,13 @@ class TestKNNAccuracyMetric:
     def test_k_capped_to_n_minus_1(self):
         """k should be capped when larger than N-1."""
         metric = KNNAccuracyMetric(k=100)
-        embeddings = np.array([
-            [1.0, 0.0],
-            [0.9, 0.1],
-            [0.0, 1.0],
-        ])
+        embeddings = np.array(
+            [
+                [1.0, 0.0],
+                [0.9, 0.1],
+                [0.0, 1.0],
+            ]
+        )
         labels = np.array([0, 0, 1])
         # Should not raise, k capped to 2
         result = metric.compute(embeddings, labels)
@@ -126,6 +134,7 @@ class TestKNNAccuracyMetric:
 # ---------------------------------------------------------------------------
 # WinMLImageFeatureExtractionEvaluator
 # ---------------------------------------------------------------------------
+
 
 class TestImageFeatureExtractionEvaluatorInit:
     def test_default_label_column(self):
@@ -205,6 +214,7 @@ class TestImageFeatureExtractionEvaluatorRegistry:
 # WinMLImageFeatureExtractionEvaluator.compute
 # ---------------------------------------------------------------------------
 
+
 class TestCompute:
     """End-to-end: pipeline output -> CLS extraction -> kNN metric."""
 
@@ -229,12 +239,14 @@ class TestCompute:
             {"image": "img3", "label": 1},
             {"image": "img4", "label": 1},
         ]
-        outputs = iter([
-            self._token_sequence(cluster_a),
-            self._token_sequence([0.99, 0.01, 0.0]),
-            self._token_sequence(cluster_b),
-            self._token_sequence([0.01, 0.99, 0.0]),
-        ])
+        outputs = iter(
+            [
+                self._token_sequence(cluster_a),
+                self._token_sequence([0.99, 0.01, 0.0]),
+                self._token_sequence(cluster_b),
+                self._token_sequence([0.01, 0.99, 0.0]),
+            ]
+        )
         ev.pipe = MagicMock(side_effect=lambda _img: next(outputs))
 
         result = ev.compute()
@@ -244,20 +256,112 @@ class TestCompute:
         # Perfectly separable clusters -> 100% top-1.
         assert result["knn_top1_accuracy"] == 100.0
 
+    def test_retrieval_metrics_reported_alongside_knn(self):
+        """compute() emits Recall@K and MRR keys next to KNN accuracies."""
+        ev = make_evaluator()
+
+        cluster_a = [1.0, 0.0, 0.0]
+        cluster_b = [0.0, 1.0, 0.0]
+        ev.data = [
+            {"image": "img1", "label": 0},
+            {"image": "img2", "label": 0},
+            {"image": "img3", "label": 1},
+            {"image": "img4", "label": 1},
+        ]
+        outputs = iter(
+            [
+                self._token_sequence(cluster_a),
+                self._token_sequence([0.99, 0.01, 0.0]),
+                self._token_sequence(cluster_b),
+                self._token_sequence([0.01, 0.99, 0.0]),
+            ]
+        )
+        ev.pipe = MagicMock(side_effect=lambda _img: next(outputs))
+
+        result = ev.compute()
+
+        # Backward-compat: existing keys unchanged.
+        assert "knn_top1_accuracy" in result
+        assert "knn_top5_accuracy" in result
+        # New retrieval metrics reported.
+        assert set(result) >= {
+            "knn_top1_accuracy",
+            "knn_top5_accuracy",
+            "recall_at_1",
+            "recall_at_5",
+            "recall_at_10",
+            "mrr",
+        }
+
+    def test_perfect_clusters_score_max_retrieval(self):
+        """Well-separated same-class pairs -> recall@1 = mrr = 1.0."""
+        ev = make_evaluator()
+
+        cluster_a = [1.0, 0.0, 0.0]
+        cluster_b = [0.0, 1.0, 0.0]
+        ev.data = [
+            {"image": "img1", "label": 0},
+            {"image": "img2", "label": 0},
+            {"image": "img3", "label": 1},
+            {"image": "img4", "label": 1},
+        ]
+        outputs = iter(
+            [
+                self._token_sequence(cluster_a),
+                self._token_sequence([0.99, 0.01, 0.0]),
+                self._token_sequence(cluster_b),
+                self._token_sequence([0.01, 0.99, 0.0]),
+            ]
+        )
+        ev.pipe = MagicMock(side_effect=lambda _img: next(outputs))
+
+        result = ev.compute()
+        assert result["recall_at_1"] == 1.0
+        assert result["mrr"] == 1.0
+
+    def test_compute_retrieval_metrics_static_helper(self):
+        """Static helper returns retrieval-only dict without n_samples noise."""
+        # Two two-sample clusters -> each query's nearest neighbour is same-class.
+        embeddings = np.array(
+            [
+                [1.0, 0.0, 0.0],
+                [0.9, 0.1, 0.0],
+                [0.0, 0.0, 1.0],
+                [0.0, 0.1, 0.9],
+            ]
+        )
+        labels = np.array([0, 0, 1, 1])
+        result = WinMLImageFeatureExtractionEvaluator._compute_retrieval_metrics(embeddings, labels)
+        assert set(result) == {"recall_at_1", "recall_at_5", "recall_at_10", "mrr"}
+        assert result["recall_at_1"] == 1.0
+        assert result["mrr"] == 1.0
+
+    def test_no_same_class_neighbours_scores_zero(self):
+        """When every sample is a singleton class, recall@1 and mrr are 0."""
+        # Each sample is its own class -> no same-class neighbour exists.
+        embeddings = np.eye(4, dtype=np.float64)
+        labels = np.array([0, 1, 2, 3])
+        result = WinMLImageFeatureExtractionEvaluator._compute_retrieval_metrics(embeddings, labels)
+        assert result["recall_at_1"] == 0.0
+        assert result["recall_at_5"] == 0.0
+        assert result["mrr"] == 0.0
+
     def test_skips_samples_with_none_image_or_label(self):
         """Samples missing image or label are dropped before embedding."""
         ev = make_evaluator()
 
         ev.data = [
             {"image": "img1", "label": 0},
-            {"image": None, "label": 0},          # skipped
-            {"image": "img2", "label": None},     # skipped
+            {"image": None, "label": 0},  # skipped
+            {"image": "img2", "label": None},  # skipped
             {"image": "img3", "label": 1},
         ]
-        outputs = iter([
-            self._token_sequence([1.0, 0.0]),
-            self._token_sequence([0.0, 1.0]),
-        ])
+        outputs = iter(
+            [
+                self._token_sequence([1.0, 0.0]),
+                self._token_sequence([0.0, 1.0]),
+            ]
+        )
         ev.pipe = MagicMock(side_effect=lambda _img: next(outputs))
 
         result = ev.compute()
@@ -274,10 +378,7 @@ class TestCompute:
             {"image": "img1", "label": 0},
             {"image": None, "label": 0},
         ]
-        ev.pipe = MagicMock(
-            return_value=self._token_sequence([1.0, 0.0])
-        )
+        ev.pipe = MagicMock(return_value=self._token_sequence([1.0, 0.0]))
 
         with pytest.raises(ValueError, match="at least 2 valid samples"):
             ev.compute()
-
