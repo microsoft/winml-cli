@@ -1,0 +1,31 @@
+{
+  "model_id": "BAAI/bge-small-en-v1.5",
+  "task": "sentence-similarity",
+  "hypotheses": {
+    "h0": {
+      "description": "opset17 no opts",
+      "model_file": "quantized.onnx",
+      "screen_p50_ms": 9.208,
+      "screen_cv": 0.3059,
+      "full_p50s_ms": [
+        10.516,
+        10.323,
+        11.01
+      ],
+      "avg_p50_ms": 10.616
+    },
+    "h3": {
+      "description": "opset21 no opts",
+      "model_file": "quantized.onnx",
+      "screen_p50_ms": 9.562,
+      "screen_cv": 0.2575,
+      "full_p50s_ms": [
+        10.253,
+        9.331,
+        9.937
+      ],
+      "avg_p50_ms": 9.84
+    }
+  },
+  "opset21_gain_pct": 7.31
+}

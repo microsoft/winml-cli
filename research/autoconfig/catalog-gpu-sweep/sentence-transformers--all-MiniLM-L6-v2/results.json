@@ -1,0 +1,168 @@
+{
+  "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+  "task": "sentence-similarity",
+  "model_type": "bert",
+  "timestamp": "2026-06-18T10:30:56",
+  "ep": "qnn",
+  "device": "gpu",
+  "baseline_opset": 17,
+  "hypotheses": {
+    "h0": {
+      "status": "OK",
+      "label": "baseline FP32 (no quant, no compile)",
+      "opset": 17,
+      "extra_optim": null,
+      "screen_p50_ms": 28.907,
+      "screen_cv": 0.3101670875566472,
+      "full_p50s_ms": [
+        27.929,
+        27.929,
+        28.942
+      ],
+      "median_p50_ms": 27.929,
+      "verdict": "BASELINE"
+    },
+    "h1": {
+      "status": "OK",
+      "label": "opset 17 explicit",
+      "opset": 17,
+      "extra_optim": null,
+      "screen_p50_ms": 33.164,
+      "screen_cv": 0.5540344952357978,
+      "full_p50s_ms": [
+        32.658,
+        44.515,
+        31.943
+      ],
+      "median_p50_ms": 32.658,
+      "gain_vs_baseline_pct": -16.93,
+      "verdict": "DISCARD"
+    },
+    "h2": {
+      "status": "BUILD_FAIL",
+      "label": "opset 19",
+      "opset": 19,
+      "build_error": "   Supported tasks are: feature-extraction,          \n                             fill-mask, multiple-choice, question-answering,   \n                             text-classification, token-classification.        \n⏳ Export  Exporting to ONNX...Error: Build failed: [Errno 28] No space left on device\n"
+    },
+    "h3": {
+      "status": "BUILD_FAIL",
+      "label": "opset 21 (tests gpu-006)",
+      "opset": 21,
+      "build_error": "   Supported tasks are: feature-extraction,          \n                             fill-mask, multiple-choice, question-answering,   \n                             text-classification, token-classification.        \n⏳ Export  Exporting to ONNX...Error: Build failed: [Errno 28] No space left on device\n"
+    },
+    "h4": {
+      "status": "BUILD_FAIL",
+      "label": "opset 17 + matmul_transpose_fusion",
+      "opset": 17,
+      "build_error": "   Supported tasks are: feature-extraction,          \n                             fill-mask, multiple-choice, question-answering,   \n                             text-classification, token-classification.        \n⏳ Export  Exporting to ONNX...Error: Build failed: [Errno 28] No space left on device\n"
+    },
+    "h5": {
+      "status": "BUILD_FAIL",
+      "label": "opset 17 + attention_fusion",
+      "opset": 17,
+      "build_error": "..Error: Build failed: ONNX Runtime optimization failed: [ONNXRuntimeError] : 7 : INVALID_PROTOBUF : Protobuf serialization failed. | Pipe: ort_graph | Model info: {'optimization_level': 2, 'disabled_count': 40} | Caused by: [ONNXRuntimeError] : 7 : INVALID_PROTOBUF : Protobuf serialization failed.\n"
+    },
+    "h6": {
+      "status": "BUILD_FAIL",
+      "label": "opset 17 + bias_softmax_fusion",
+      "opset": 17,
+      "build_error": "e}Error: Build failed: ONNX Runtime optimization failed: [ONNXRuntimeError] : 7 : INVALID_PROTOBUF : Protobuf serialization failed. | Pipe: ort_graph | Model info: {'optimization_level': 2, 'disabled_count': 37} | Caused by: [ONNXRuntimeError] : 7 : INVALID_PROTOBUF : Protobuf serialization failed.\n"
+    },
+    "h7": {
+      "status": "OK",
+      "label": "opset 17 + layer_norm_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "layer_norm_fusion": true
+      },
+      "screen_p50_ms": 27.998,
+      "screen_cv": 0.7119437102650189,
+      "full_p50s_ms": [
+        27.269,
+        28.545,
+        28.837
+      ],
+      "median_p50_ms": 28.545,
+      "gain_vs_baseline_pct": -2.21,
+      "verdict": "DISCARD"
+    },
+    "h8": {
+      "status": "BENCH_FAIL",
+      "label": "opset 17 + skip_layer_norm_fusion"
+    },
+    "h9": {
+      "status": "OK",
+      "label": "opset 21 + matmul_transpose + attention_fusion",
+      "opset": 21,
+      "extra_optim": {
+        "matmul_transpose_fusion": true,
+        "attention_fusion": true
+      },
+      "screen_p50_ms": 28.12,
+      "screen_cv": 0.3956258890469417,
+      "full_p50s_ms": [
+        29.983,
+        27.454,
+        29.083
+      ],
+      "median_p50_ms": 29.083,
+      "gain_vs_baseline_pct": -4.13,
+      "verdict": "DISCARD"
+    },
+    "h10": {
+      "status": "BENCH_FAIL",
+      "label": "opset 17 + ln + skip_ln + matmul_transpose"
+    },
+    "h11": {
+      "status": "OK",
+      "label": "opset 17 + gelu_fusion explicit",
+      "opset": 17,
+      "extra_optim": {
+        "gelu_fusion": true
+      },
+      "screen_p50_ms": 26.486,
+      "screen_cv": 0.2676508344030809,
+      "full_p50s_ms": [
+        27.382,
+        26.663,
+        27.486
+      ],
+      "median_p50_ms": 27.382,
+      "gain_vs_baseline_pct": 1.96,
+      "verdict": "MARGINAL"
+    },
+    "h12": {
+      "status": "OK",
+      "label": "opset 17 + transpose_optimizer",
+      "opset": 17,
+      "extra_optim": {
+        "transpose_optimizer": true
+      },
+      "screen_p50_ms": 31.432,
+      "screen_cv": 0.36580554848561975,
+      "full_p50s_ms": [
+        28.86,
+        29.805,
+        28.349
+      ],
+      "median_p50_ms": 28.86,
+      "gain_vs_baseline_pct": -3.33,
+      "verdict": "DISCARD"
+    }
+  },
+  "best_hypothesis": null,
+  "baseline_p50_ms": 27.929,
+  "best_p50_ms": null,
+  "best_gain_pct": null,
+  "opset21_gain_pct": null,
+  "feature_gaps": [],
+  "errors": [
+    "h2: BUILD_FAIL",
+    "h3: BUILD_FAIL",
+    "h4: BUILD_FAIL",
+    "h5: BUILD_FAIL",
+    "h6: BUILD_FAIL",
+    "h8: screen bench failed",
+    "h10: screen bench failed"
+  ]
+}

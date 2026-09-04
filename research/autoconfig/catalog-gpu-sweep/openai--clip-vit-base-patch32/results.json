@@ -1,0 +1,281 @@
+{
+  "model_id": "openai/clip-vit-base-patch32",
+  "task": "feature-extraction",
+  "model_type": "clip_text_model",
+  "timestamp": "2026-06-25T17:22:00",
+  "ep": "qnn",
+  "device": "gpu",
+  "hypotheses": {
+    "h0": {
+      "status": "OK_HIGH_CV",
+      "label": "baseline FP32 (no quant, no compile)",
+      "opset": 17,
+      "optim": {},
+      "op_signature": {
+        "total_operators": 412,
+        "operator_counts": {
+          "Gather": 2,
+          "Add": 38,
+          "LayerNormalization": 25,
+          "Reshape": 120,
+          "Gemm": 72,
+          "Transpose": 48,
+          "Mul": 48,
+          "MatMul": 25,
+          "Unsqueeze": 2,
+          "Expand": 1,
+          "Cast": 2,
+          "Sub": 1,
+          "Where": 1,
+          "Slice": 1,
+          "Softmax": 12,
+          "Sigmoid": 12,
+          "Flatten": 1,
+          "ArgMax": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": null,
+      "screen": {
+        "p50_ms": 15.803,
+        "cv": 0.1814,
+        "stable": false
+      },
+      "full": {
+        "p50s_ms": [
+          15.674,
+          15.739,
+          15.363
+        ],
+        "median_p50_ms": 15.674
+      },
+      "verdict": "BASELINE"
+    },
+    "h1": {
+      "status": "PREBUILD_NOOP_SKIP",
+      "verdict": "NO_OP",
+      "label": "opset 17 explicit",
+      "opset": 17,
+      "optim": {},
+      "build_flags": [],
+      "graph_changed": false,
+      "noop_note": "pre-build config-identity skip: explicit opset=17 == baseline opset with no optim or build flags — config is identical to baseline (harness-002)"
+    },
+    "h2": {
+      "status": "OK",
+      "label": "opset 19",
+      "opset": 19,
+      "optim": {},
+      "op_signature": {
+        "total_operators": 460,
+        "operator_counts": {
+          "Gather": 2,
+          "Add": 38,
+          "LayerNormalization": 25,
+          "Reshape": 168,
+          "Gemm": 72,
+          "Transpose": 48,
+          "Mul": 48,
+          "MatMul": 25,
+          "Unsqueeze": 2,
+          "Expand": 1,
+          "Cast": 2,
+          "Sub": 1,
+          "Where": 1,
+          "Slice": 1,
+          "Softmax": 12,
+          "Sigmoid": 12,
+          "Flatten": 1,
+          "ArgMax": 1
+        },
+        "opset": 19
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 15.71,
+        "cv": 0.1317,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          16.095,
+          15.312,
+          15.504
+        ],
+        "median_p50_ms": 15.504
+      },
+      "gain_vs_baseline_pct": 1.08,
+      "verdict": "MARGINAL"
+    },
+    "h3": {
+      "status": "OK_HIGH_CV",
+      "label": "opset 21 (tests gpu-006)",
+      "opset": 21,
+      "optim": {},
+      "op_signature": {
+        "total_operators": 460,
+        "operator_counts": {
+          "Gather": 2,
+          "Add": 38,
+          "LayerNormalization": 25,
+          "Reshape": 168,
+          "Gemm": 72,
+          "Transpose": 48,
+          "Mul": 48,
+          "MatMul": 25,
+          "Unsqueeze": 2,
+          "Expand": 1,
+          "Cast": 2,
+          "Sub": 1,
+          "Where": 1,
+          "Slice": 1,
+          "Softmax": 12,
+          "Sigmoid": 12,
+          "Flatten": 1,
+          "ArgMax": 1
+        },
+        "opset": 21
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 25.094,
+        "cv": 0.3233,
+        "stable": false
+      },
+      "full": {
+        "p50s_ms": [
+          25.361,
+          25.552,
+          26.366
+        ],
+        "median_p50_ms": 25.552
+      },
+      "gain_vs_baseline_pct": -63.02,
+      "verdict": "DISCARD"
+    },
+    "h4": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + matmul_transpose_fusion",
+      "opset": 17,
+      "optim": {
+        "matmul_transpose_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 412,
+        "operator_counts": {
+          "Gather": 2,
+          "Add": 38,
+          "LayerNormalization": 25,
+          "Reshape": 120,
+          "Gemm": 72,
+          "Transpose": 48,
+          "Mul": 48,
+          "MatMul": 25,
+          "Unsqueeze": 2,
+          "Expand": 1,
+          "Cast": 2,
+          "Sub": 1,
+          "Where": 1,
+          "Slice": 1,
+          "Softmax": 12,
+          "Sigmoid": 12,
+          "Flatten": 1,
+          "ArgMax": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 15.674
+    },
+    "h5": {
+      "status": "BUILD_TIMEOUT",
+      "label": "opset 17 + attention_fusion",
+      "opset": 17,
+      "build_error": "build timed out"
+    },
+    "h6": {
+      "status": "DISK_PRESSURE_SKIP",
+      "label": "opset 17 + bias_softmax_fusion",
+      "opset": 17,
+      "noop_note": "pre-build disk guard: free=2.8GB < threshold=4.0GB — build skipped (harness-001)"
+    },
+    "h7": {
+      "status": "DISK_PRESSURE_SKIP",
+      "label": "opset 17 + layer_norm_fusion",
+      "opset": 17,
+      "noop_note": "pre-build disk guard: free=2.8GB < threshold=4.0GB — build skipped (harness-001)"
+    },
+    "h8": {
+      "status": "DISK_PRESSURE_SKIP",
+      "label": "opset 17 + skip_layer_norm_fusion",
+      "opset": 17,
+      "noop_note": "pre-build disk guard: free=2.8GB < threshold=4.0GB — build skipped (harness-001)"
+    },
+    "h9": {
+      "status": "DISK_PRESSURE_SKIP",
+      "label": "opset 21 + matmul_transpose + attention_fusion",
+      "opset": 21,
+      "noop_note": "pre-build disk guard: free=2.8GB < threshold=4.0GB — build skipped (harness-001)"
+    },
+    "h10": {
+      "status": "DISK_PRESSURE_SKIP",
+      "label": "opset 17 + ln + skip_ln + matmul_transpose",
+      "opset": 17,
+      "noop_note": "pre-build disk guard: free=2.8GB < threshold=4.0GB — build skipped (harness-001)"
+    },
+    "h11": {
+      "status": "PREBUILD_NOOP_SKIP",
+      "verdict": "NO_OP",
+      "label": "opset 17 + gelu_fusion explicit",
+      "opset": 17,
+      "optim": {
+        "gelu_fusion": true
+      },
+      "build_flags": [],
+      "noop_note": "pre-build skip: baseline graph has none of the required op types ['Erf'] — fusion flag cannot fire (npu-021)"
+    },
+    "h12": {
+      "status": "DISK_PRESSURE_SKIP",
+      "label": "opset 17 + transpose_optimizer",
+      "opset": 17,
+      "noop_note": "pre-build disk guard: free=3.0GB < threshold=4.0GB — build skipped (harness-001)"
+    },
+    "h13": {
+      "status": "DISK_PRESSURE_SKIP",
+      "label": "no optimization (analyzer auto-optimization disabled, --no-analyze)",
+      "opset": 17,
+      "noop_note": "pre-build disk guard: free=3.0GB < threshold=4.0GB — build skipped (harness-001)"
+    }
+  },
+  "baseline_opset": 17,
+  "baseline_p50_ms": 15.674,
+  "best_hypothesis": "h2",
+  "best_p50_ms": 15.504,
+  "best_gain_pct": 1.08,
+  "conv_pct": null,
+  "best_gain_verdict": "BASELINE_IS_BEST",
+  "errors": [
+    "h5: build failed",
+    "h6: skipped (disk pressure, free=2.8GB)",
+    "h7: skipped (disk pressure, free=2.8GB)",
+    "h8: skipped (disk pressure, free=2.8GB)",
+    "h9: skipped (disk pressure, free=2.8GB)",
+    "h10: skipped (disk pressure, free=2.8GB)",
+    "h12: skipped (disk pressure, free=3.0GB)",
+    "h13: skipped (disk pressure, free=3.0GB)"
+  ],
+  "feature_gaps": [],
+  "noop_hypotheses": [
+    "h4"
+  ],
+  "prebuild_noop_hypotheses": [
+    "h1",
+    "h11"
+  ],
+  "gpu-006_generalized": "N/A (h1 not OK)",
+  "gpu-006_ranges_non_overlapping": null
+}
