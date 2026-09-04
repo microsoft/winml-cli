@@ -636,24 +636,26 @@ def _gather_device_info(
     result: list[dict[str, Any]] = []
     priority = 1
     for device_label, items in ordered_results:
-        if isinstance(items, Exception):
-            logger.warning("Failed to get %s details: %s", device_label, items)
-            # CPU always exists, NPU/GPU may not — only surface CPU errors.
-            if device_label == "CPU":
-                result.append(
-                    {
-                        "priority": priority,
-                        "type": device_label,
-                        "name": "(detection error)",
-                        "details": {"error": str(items)},
-                    }
-                )
-                priority += 1
-            continue
-
         system_adapters = [
             adapter for adapter in native_adapters if adapter.device_type == device_label
         ]
+        if isinstance(items, Exception):
+            logger.warning("Failed to get %s details: %s", device_label, items)
+            if system_adapters:
+                items = []
+            else:
+                # CPU always exists, NPU/GPU may not — only surface CPU errors.
+                if device_label == "CPU":
+                    result.append(
+                        {
+                            "priority": priority,
+                            "type": device_label,
+                            "name": "(detection error)",
+                            "details": {"error": str(items)},
+                        }
+                    )
+                    priority += 1
+                continue
         device_items: Sequence[Any] = system_adapters or items
         for item in device_items:
             entry: dict[str, Any] = {

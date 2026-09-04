@@ -188,6 +188,45 @@ class TestDeviceInfoEnrichment:
         ]
         assert all(entry["details"]["driver"] == "1.0" for entry in result)
 
+    def test_dxcore_accelerator_survives_wmi_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Native identity remains visible when descriptive enrichment fails."""
+        native_gpu = DXCoreAdapterInfo(
+            device_type="GPU",
+            name="Example GPU",
+            luid="0x00000000_0x00000001",
+            vendor_id=0x1234,
+            device_id=0x5678,
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.sysinfo.enumerate_compute_adapters",
+            lambda: [native_gpu],
+        )
+
+        with (
+            patch("winml.modelkit.sysinfo.NPU.get_all", return_value=[]),
+            patch(
+                "winml.modelkit.sysinfo.GPU.get_all",
+                side_effect=RuntimeError("WMI unavailable"),
+            ),
+            patch("winml.modelkit.sysinfo.CPU.get_all", return_value=[]),
+        ):
+            result = _gather_device_info()
+
+        assert result == [
+            {
+                "priority": 1,
+                "type": "GPU",
+                "name": "Example GPU",
+                "details": {
+                    "driver": None,
+                    "manufacturer": None,
+                    "luid": "0x00000000_0x00000001",
+                },
+            }
+        ]
+
     def test_device_info_first_match_wins(self) -> None:
         """When multiple sources see the same device, first one in ep_info wins."""
         npu_item = MagicMock(
