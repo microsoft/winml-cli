@@ -76,6 +76,8 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
         "winml.modelkit.eval.image_segmentation_evaluator:WinMLImageSegmentationEvaluator",
     "question-answering":
         "winml.modelkit.eval.question_answering_evaluator:WinMLQuestionAnsweringEvaluator",
+    "document-question-answering":
+        "winml.modelkit.eval.question_answering_evaluator:WinMLQuestionAnsweringEvaluator",
     "feature-extraction":
         "winml.modelkit.eval.feature_extraction_evaluator:WinMLFeatureExtractionEvaluator",
     "sentence-similarity":

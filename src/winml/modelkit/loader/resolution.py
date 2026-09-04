@@ -178,6 +178,35 @@ _FEATURE_MODALITY_BY_MAIN_INPUT: dict[str, str] = {
 }
 
 
+_ARCHITECTURE_SUFFIX_TASKS: dict[str, tuple[str, ...]] = {
+    "ForQuestionAnswering": ("document-question-answering", "question-answering"),
+}
+
+
+def _infer_task_from_architecture_suffix(config: PretrainedConfig) -> str | None:
+    """Infer task from the primary architecture suffix when Optimum has no mapping."""
+    architectures = getattr(config, "architectures", None)
+    if not architectures:
+        return None
+    arch_name = architectures[0]
+    for suffix, tasks in _ARCHITECTURE_SUFFIX_TASKS.items():
+        if arch_name.endswith(suffix):
+            from transformers.models.auto.modeling_auto import (
+                MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING_NAMES,
+                MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES,
+            )
+
+            model_type = getattr(config, "model_type", None)
+            if (
+                "document-question-answering" in tasks
+                and model_type in MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING_NAMES
+                and model_type not in MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES
+            ):
+                return "document-question-answering"
+            return tasks[-1]
+    return None
+
+
 def _resolve_task_modality(config: PretrainedConfig, task: str) -> str:
     """Upgrade a modality-blind ``feature-extraction`` to its modality-aware variant.
 
@@ -252,6 +281,7 @@ class TaskSource(str, Enum):
     MODEL_ID_DEFAULT = "model-id-default"  # MODEL_TASK_MAPPING model-id default
     SENTINEL_DEFAULT = "sentinel-default"  # (model_type, None) sentinel
     TASKS_MANAGER = "tasks-manager"  # Optimum inference (incl. fill-mask upgrade)
+    ARCHITECTURE_SUFFIX = "architecture-suffix"  # class-name suffix fallback
     WRAPPED_LIBRARY = "wrapped-library"  # no architectures -> first supported task
     PIPELINE_TAG = "pipeline-tag"  # Hub pipeline_tag fallback
     HF_TASK_DEFAULT = "hf-task-default"  # last-resort default
@@ -414,15 +444,22 @@ def resolve_composite_load_task(
 _SEQ2SEQ_GENERATION_TASK = "text2text-generation"
 
 
-def _infer_task_from_architecture(config: PretrainedConfig) -> str:
-    """Optimum task inferred from ``config.architectures[0]``.
+def _infer_task_from_architecture(config: PretrainedConfig) -> tuple[str, TaskSource]:
+    """Optimum task and provenance inferred from ``config.architectures[0]``.
 
     Includes the encoder-decoder fill-mask -> text2text-generation correction.
     """
-    return _upgrade_fill_mask_for_seq2seq(
-        _detect_task_from_model_class(_resolve_model_class_from_config(config)),
-        config,
-    )
+    model_class = _resolve_model_class_from_config(config)
+    try:
+        task = _detect_task_from_model_class(model_class)
+        source = TaskSource.TASKS_MANAGER
+    except ValueError:
+        suffix_task = _infer_task_from_architecture_suffix(config)
+        if suffix_task is None:
+            raise
+        task = suffix_task
+        source = TaskSource.ARCHITECTURE_SUFFIX
+    return _upgrade_fill_mask_for_seq2seq(task, config), source
 
 
 def _composite_components_for_task(model_type: str, task: str) -> CompositeComponents | None:
@@ -524,7 +561,7 @@ def resolve_task(
             # Task inferred from the architecture: surface it modality-aware, consistent
             # with the detection path (Stage 3), so e.g. a ViT backbone is
             # image-feature-extraction rather than the modality-blind feature-extraction.
-            opt_task = _infer_task_from_architecture(config)
+            opt_task, _ = _infer_task_from_architecture(config)
             surfaced = _resolve_task_modality(config, opt_task)
         # A WinML build variant (model_type_override) may name a custom wrapper
         # registered in MODEL_CLASS_MAPPING rather than a transformers class —
@@ -620,8 +657,7 @@ def resolve_task(
     # 1c. TasksManager (reads config.architectures)
     if opt_task is None:
         try:
-            opt_task = _infer_task_from_architecture(config)
-            source = TaskSource.TASKS_MANAGER
+            opt_task, source = _infer_task_from_architecture(config)
         except ValueError:
             opt_task = None
 

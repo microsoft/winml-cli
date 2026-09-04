@@ -146,7 +146,7 @@ def _make_qa_model(tokenizer, *, batch_size: int = 1) -> tuple[MagicMock, str]:
     return model, input_name
 
 
-def _create_qa_compat_pipe(tokenizer, model):
+def _create_qa_compat_pipe(tokenizer, model, task="question-answering"):
     with (
         patch("transformers.__version__", "5.0.0"),
         patch(
@@ -154,7 +154,21 @@ def _create_qa_compat_pipe(tokenizer, model):
             return_value=tokenizer,
         ),
     ):
-        return create_pipeline("question-answering", model, "test-model")
+        return create_pipeline(task, model, "test-model")
+
+
+def test_document_question_answering_uses_native_transformers_pipeline() -> None:
+    model = MagicMock()
+    pipe = MagicMock(tokenizer=None, image_processor=None)
+
+    with (
+        patch("winml.modelkit.inference.pipeline._pipeline_component_kwargs", return_value={}),
+        patch("transformers.pipeline", return_value=pipe) as pipeline,
+    ):
+        result = create_pipeline("document-question-answering", model, "test-model")
+
+    assert result is pipe
+    pipeline.assert_called_once_with("document-question-answering", model=model, device="cpu")
 
 
 class TestHFPipelineTaskMap:

@@ -250,6 +250,8 @@ TASK_SYNONYM_EXTENSIONS: dict[str, str] = {
     # collapse to feature-extraction is guarded by tests/unit/loader/test_task_boundary.py.
     # next-sentence-prediction has the same I/O as text-classification: input_ids -> logits
     "next-sentence-prediction": "text-classification",
+    # Layout-aware extractive QA uses the same Optimum ONNX contract as text QA.
+    "document-question-answering": "question-answering",
     # mask-generation is registered via register_onnx_overwrite for SAM2.
     # Optimum incorrectly maps it to "feature-extraction"; preserve as-is.
     "mask-generation": "mask-generation",

@@ -131,6 +131,15 @@ class TestTaskDetection:
         cls = get_winml_class("segformer", "image-segmentation")
         assert cls == WinMLModelForImageSegmentation
 
+    def test_get_winml_class_document_question_answering(self):
+        from winml.modelkit.models import get_winml_class
+        from winml.modelkit.models.winml.question_answering import (
+            WinMLModelForQuestionAnswering,
+        )
+
+        cls = get_winml_class("layoutlm", "document-question-answering")
+        assert cls == WinMLModelForQuestionAnswering
+
     def test_get_winml_class_unknown_task_fallback(self):
         """AC-4: Unknown task falls back to generic class."""
         from winml.modelkit.models import WinMLModelForGenericTask, get_winml_class

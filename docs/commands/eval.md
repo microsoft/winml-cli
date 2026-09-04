@@ -160,6 +160,22 @@ Evaluate a composite model from pre-exported ONNX files. Some tasks (e.g., `imag
 $ winml eval -m encoder=encoder.onnx -m decoder=decoder.onnx --model-id microsoft/trocr-base-printed
 ```
 
+### Document question answering OCR
+
+Document datasets can provide `words` and `boxes` columns directly. That precomputed
+path does not import pytesseract or require a native OCR program. If a dataset provides
+only an image, install the document extra and native Tesseract 5.x as described in
+[Optional document OCR](../getting-started/installation.md#optional-document-ocr), then
+verify the executable before running eval:
+
+```powershell
+tesseract --version
+```
+
+Image-only validation fails during dataset validation when the version command cannot
+run. OCR-backed result JSON includes `ocr_engine_version` without recording the
+executable's machine-specific path; precomputed results are unchanged.
+
 ## Model build cache
 
 Evaluation reuses persistent model build artifacts by default. Pass
@@ -184,6 +200,7 @@ model-build pipeline from the runtime compilation cache.
 - **Export overrides only apply when eval builds from a HuggingFace ID.** `--shape-config`, `--input-specs`, `--export-config`, and `--dynamic-axes` shape the ONNX export that `eval` generates when `-m` is a HuggingFace model ID. When `-m` is a pre-built `.onnx` file, there is no export step, so these flags are ignored and the command prints a warning.
 - **The PyTorch runtime accepts only Hugging Face checkpoints.** `--runtime pytorch` cannot be combined with ONNX files, composite models, GenAI bundles, compare/reference/input-data modes, EP selection, or ONNX build/export controls. Use `--device cpu`, `--device gpu` with CUDA, or `--device auto`.
 - **Column names vary across datasets.** If the evaluator raises a missing-column error, run `winml eval --schema --task <task>` to inspect the expected schema and use `--column` to remap dataset field names to the expected names.
+- **Image-only document QA needs native OCR.** Install `winml-cli[document]` and native Tesseract 5.x, then confirm `tesseract --version` succeeds. To avoid a native OCR dependency, provide precomputed `words` and `boxes` columns.
 
 ## See also
 

@@ -134,12 +134,17 @@ class WinMLEvaluator:
             dataset = dataset.select(range(actual_samples))
 
         assert self.config.task is not None, "config.task is required for evaluation"
+        self.validate_data(dataset)
+        return self.align_labels(dataset, ds)
+
+    def validate_data(self, dataset: Dataset) -> None:
+        """Validate dataset columns for the configured task."""
+        assert self.config.task is not None, "config.task is required for evaluation"
         validate_dataset_columns(
             dataset,
             self.config.task,
             self.config.dataset.columns_mapping,
         )
-        return self.align_labels(dataset, ds)
 
     def prepare_pipeline(self) -> Pipeline:
         """Create HF pipeline for inference. Subclasses override to configure."""

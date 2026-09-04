@@ -41,6 +41,24 @@ uv pip install winml-cli
     uv sync
     ```
 
+### Optional document OCR
+
+Image-only document question answering requires both the Python document extra and a
+separate native Tesseract 5.x executable. The native program is not bundled in the
+Python wheel and winml-cli does not download it at runtime.
+
+```powershell
+uv pip install "winml-cli[document]"
+winget install --id UB-Mannheim.TesseractOCR --version 5.4.0.20240606 --exact
+tesseract --version
+```
+
+The evaluator accepts Tesseract 5.x; real-media validation is tested with Tesseract
+5.5.3. The versioned Windows package above installs supported Tesseract 5.4.0. Restart
+the terminal after installation if `tesseract --version` is not found on `PATH`.
+Datasets that provide precomputed `words` and `boxes` do not require pytesseract or the
+native executable.
+
 ## Verify
 
 ```bash
