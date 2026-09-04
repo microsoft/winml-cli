@@ -397,8 +397,22 @@ class TestDetailOpTracingAutoCompile:
         )
         assert "Raw ONNX detected" in result.output
 
-    def test_npu_catalog_resolution_enables_compile_pipeline(self, tmp_path: Path) -> None:
-        """Device-only NPU tracing resolves QNN before deciding whether to compile."""
+    @pytest.mark.parametrize(
+        ("ep_args", "source"),
+        [
+            ([], None),
+            (["--ep", "auto"], None),
+            (["--ep", "auto@winml-catalog"], "winml-catalog"),
+        ],
+        ids=["device-only", "explicit-auto", "source-qualified-auto"],
+    )
+    def test_npu_catalog_resolution_enables_compile_pipeline(
+        self,
+        tmp_path: Path,
+        ep_args: list[str],
+        source: str | None,
+    ) -> None:
+        """Automatic NPU tracing resolves QNN before deciding whether to compile."""
         from winml.modelkit.session import EPDeviceTarget
 
         model_path = tmp_path / "model.onnx"
@@ -430,6 +444,7 @@ class TestDetailOpTracingAutoCompile:
                     str(model_path),
                     "--device",
                     "npu",
+                    *ep_args,
                     "--op-tracing",
                     "detail",
                     "-o",
@@ -442,7 +457,9 @@ class TestDetailOpTracingAutoCompile:
         assert captured["no_compile"] is False
         assert captured["skip_build"] is False
         assert captured["compile_ep_options"]["profiling_level"] == "optrace"
-        mock_resolve.assert_called_once_with(EPDeviceTarget(ep="auto", device="npu"))
+        mock_resolve.assert_called_once_with(
+            EPDeviceTarget(ep="auto", device="npu", source=source)
+        )
         mock_monitor_available.assert_not_called()
 
     @pytest.mark.parametrize(

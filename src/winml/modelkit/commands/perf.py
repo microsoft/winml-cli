@@ -3035,12 +3035,14 @@ def perf(
 
     qnn_tracing_target = False
     if op_tracing == "detail" and is_onnx:
-        if ep_name is not None:
+        if ep_name is not None and ep_name.lower() != "auto":
             qnn_tracing_target = short_ep_name(ep_name) == "qnn"
         elif device.lower() == "npu":
             from ..session import EPDeviceTarget, resolve_device
 
-            resolved_target = resolve_device(EPDeviceTarget(ep="auto", device="npu"))
+            resolved_target = resolve_device(
+                EPDeviceTarget(ep="auto", device="npu", source=ep_source_part)
+            )
             qnn_tracing_target = short_ep_name(resolved_target.ep) == "qnn"
         else:
             from ..session.monitor.qnn_monitor import QNNMonitor
